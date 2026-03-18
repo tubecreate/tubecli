@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tubecli"
+version = "0.1.0"
+description = "Open Source AI Agent CLI System — Install, manage, and orchestrate AI agents, skills, and workflows from the command line."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "TubeCreate Team"}
+]
+
+dependencies = [
+    "click>=8.0",
+    "fastapi>=0.100",
+    "uvicorn>=0.20",
+    "pydantic>=2.0",
+    "uuid7",
+    "aiohttp",
+    "requests",
+    "rich>=13.0",
+]
+
+[project.scripts]
+tubecli = "tubecli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
