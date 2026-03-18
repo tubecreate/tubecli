@@ -28,13 +28,37 @@ class Agent:
         id: Optional[str] = None,
         created_at: Optional[str] = None,
         model: str = None,
-        # Smart Agent fields
+        # Tab 1: Identity & Options
+        avatar_icon: str = "SMART_TOY", 
+        avatar_type: str = "bot",
+        avatar_color: str = "blue",
+        browser_ai_model: str = "qwen:latest",
+        # Tab 3: Telegram
+        telegram_token: str = "",
+        telegram_chat_id: str = "",
+        # Tab 4: Messenger
+        messenger_token: str = "",
+        messenger_page_id: str = "",
+        messenger_php_url: str = "",
+        direct_trigger_skill_id: str = "",
+        # Smart Agent fields (Tab 5: Behavior)
         persona: Dict = None,
         routine: Dict = None,
         thinking_map: Dict = None,
         history_log: List[Dict] = None,
+        # Browser & Network (Tab 6: Browser)
+        allowed_profiles: List[str] = None,
+        proxy_config: str = "", 
+        proxy_provider: Dict = None,
+        # Schedule (Tab 7: Schedule)
         timezone: str = None,
+        # Auth & Clouds (Misc)
+        auth: Dict = None, 
         cloud_api_keys: Dict = None,
+        # Scraper History (Tab 8: History)
+        enable_scraping: bool = False,
+        scraper_text_limit: int = 10000,
+        script_output_format: str = "json",
         **kwargs,
     ):
         self.id = id or str(_uuid7())
@@ -44,16 +68,42 @@ class Agent:
         self.allowed_skills = allowed_skills or []
         self.created_at = created_at or datetime.datetime.now().isoformat()
         self.model = model
+        
+        # New comprehensive fields
+        self.avatar_icon = avatar_icon
+        self.avatar_type = avatar_type
+        self.avatar_color = avatar_color
+        self.browser_ai_model = browser_ai_model
+        
+        self.telegram_token = telegram_token
+        self.telegram_chat_id = telegram_chat_id
+        
+        self.messenger_token = messenger_token
+        self.messenger_page_id = messenger_page_id
+        self.messenger_php_url = messenger_php_url
+        self.direct_trigger_skill_id = direct_trigger_skill_id
 
         # Smart Agent
         self.persona = persona or {}
         self.routine = routine or {}
         self.thinking_map = thinking_map or {"concepts": {}, "emotions": {"current": "neutral"}}
         self.history_log = history_log or []
+        
+        # Browser
+        self.allowed_profiles = allowed_profiles or []
+        self.proxy_config = proxy_config
+        self.proxy_provider = proxy_provider or {"mode": "static"}
+        
         self.timezone = timezone
+        self.auth = auth or {"google": [], "facebook": [], "tiktok": [], "x": [], "discord": [], "telegram": []}
         self.cloud_api_keys = cloud_api_keys or {
             "gemini": "", "claude": "", "openai": "", "deepseek": ""
         }
+        
+        # Scraper
+        self.enable_scraping = enable_scraping
+        self.scraper_text_limit = scraper_text_limit
+        self.script_output_format = script_output_format
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -64,12 +114,29 @@ class Agent:
             "allowed_skills": self.allowed_skills,
             "created_at": self.created_at,
             "model": self.model,
+            "avatar_icon": self.avatar_icon,
+            "avatar_type": self.avatar_type,
+            "avatar_color": self.avatar_color,
+            "browser_ai_model": getattr(self, "browser_ai_model", "qwen:latest"),
+            "telegram_token": self.telegram_token,
+            "telegram_chat_id": self.telegram_chat_id,
+            "messenger_token": self.messenger_token,
+            "messenger_page_id": self.messenger_page_id,
+            "messenger_php_url": self.messenger_php_url,
+            "direct_trigger_skill_id": self.direct_trigger_skill_id,
             "persona": self.persona,
             "routine": self.routine,
             "thinking_map": self.thinking_map,
             "history_log": self.history_log,
+            "allowed_profiles": getattr(self, "allowed_profiles", []),
+            "proxy_config": getattr(self, "proxy_config", ""),
+            "proxy_provider": getattr(self, "proxy_provider", {"mode": "static"}),
             "timezone": getattr(self, "timezone", None),
+            "auth": getattr(self, "auth", {}),
             "cloud_api_keys": getattr(self, "cloud_api_keys", {}),
+            "enable_scraping": getattr(self, "enable_scraping", False),
+            "scraper_text_limit": getattr(self, "scraper_text_limit", 10000),
+            "script_output_format": getattr(self, "script_output_format", "json"),
         }
 
     @classmethod

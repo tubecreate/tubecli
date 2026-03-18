@@ -6,6 +6,7 @@ Ported from python-video-studio browser-laucher/web_manager.
 import os
 import json
 import shutil
+import requests
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from tubecli.config import DATA_DIR
@@ -32,6 +33,7 @@ def list_profiles() -> List[Dict[str, Any]]:
                 "proxy": config.get("proxy", ""),
                 "notes": config.get("notes", ""),
                 "has_cookies": os.path.exists(os.path.join(profile_path, "cookies.json")),
+                "has_fingerprint": os.path.exists(os.path.join(profile_path, "fingerprint.json")),
             })
     # Sort newest first
     profiles.sort(key=lambda p: p.get("created_at", ""), reverse=True)
@@ -57,6 +59,9 @@ def create_profile(name: str, proxy: str = "", tags: List[str] = None) -> Dict[s
         "blacklist": [],
     }
     _save_config(safe_name, config)
+    
+    # Try fetching initial fingerprint
+    get_fingerprint(safe_name)
 
     return {"name": safe_name, **config}
 
@@ -101,6 +106,57 @@ def bulk_set_proxy(names: List[str], proxy: str) -> List[Dict]:
         else:
             results.append({"name": name, "status": "not_found"})
     return results
+
+
+def get_fingerprint(name: str) -> Optional[dict]:
+    """Get the fingerprint for a profile, fetching from API if missing/invalid."""
+    profile_path = os.path.join(PROFILES_DIR, name)
+    if not os.path.isdir(profile_path):
+        return None
+
+    fp_path = os.path.join(profile_path, "fingerprint.json")
+    
+    # Try reading existing
+    if os.path.exists(fp_path):
+        try:
+            with open(fp_path, "r", encoding="utf-8") as f:
+                fp = json.load(f)
+                if fp and isinstance(fp, dict) and len(fp) > 5:
+                    return fp
+        except Exception:
+            pass  # Fallback to fetch new
+            
+    # Fetch new from API
+    try:
+        resp = requests.get("https://api.tubecreate.com/api/fingerprints/getfinger.php", timeout=15.0)
+        resp.raise_for_status()
+        data = resp.json()
+        if data and data.get("status") == "success" and data.get("file_path"):
+            fp_url = f"https://api.tubecreate.com/{data['file_path']}"
+            fp_resp = requests.get(fp_url, timeout=15.0)
+            fp_resp.raise_for_status()
+            fp_data = fp_resp.json()
+            
+            with open(fp_path, "w", encoding="utf-8") as f:
+                json.dump(fp_data, f)
+            return fp_data
+    except Exception as e:
+        print(f"[Fingerprint API Error] {e}")
+        
+    return None
+
+
+def reset_fingerprint(name: str) -> bool:
+    """Delete the existing fingerprint so it gets re-fetched next time."""
+    profile_path = os.path.join(PROFILES_DIR, name)
+    fp_path = os.path.join(profile_path, "fingerprint.json")
+    if os.path.exists(fp_path):
+        try:
+            os.remove(fp_path)
+            return True
+        except OSError:
+            pass
+    return False
 
 
 def _load_config(name: str) -> dict:

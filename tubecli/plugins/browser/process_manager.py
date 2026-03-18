@@ -55,6 +55,12 @@ class BrowserProcessManager:
         cmd_str = " ".join(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
 
+        # Define launcher directory (hardcoded for now to local Dev path)
+        launcher_dir = os.environ.get(
+            "BROWSER_LAUNCHER_DIR", 
+            r"C:\tubecreate-vue\python-video-studio\browser-laucher"
+        )
+
         try:
             creation_flags = 0
             if os.name == "nt":
@@ -62,6 +68,7 @@ class BrowserProcessManager:
 
             process = subprocess.Popen(
                 args,
+                cwd=launcher_dir,
                 creationflags=creation_flags,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -100,7 +107,14 @@ class BrowserProcessManager:
 
     def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id):
         """Build command line arguments for browser launcher."""
-        args = ["node", "open.js", "--profile", profile, "--instance-id", instance_id]
+        from tubecli.plugins.browser.profile_manager import PROFILES_DIR
+        
+        args = [
+            "node", "open.js", 
+            "--profile", profile, 
+            "--instance-id", instance_id,
+            "--profiles-dir", PROFILES_DIR
+        ]
         if prompt:
             args.extend(["--prompt", prompt])
             args.extend(["--session", "--session-duration", "10"])

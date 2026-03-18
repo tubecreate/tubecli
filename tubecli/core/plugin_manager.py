@@ -17,14 +17,15 @@ PLUGINS_CONFIG_FILE = os.path.join(DATA_DIR, "plugins.json")
 
 class Plugin:
     """Base class for all TubeCLI plugins."""
-
     name: str = "base_plugin"
     version: str = "0.1.0"
     description: str = ""
     author: str = ""
+    default_port: Optional[int] = None
 
     def __init__(self):
         self.enabled = False
+        self.current_port: Optional[int] = self.default_port
         self._routes = []
         self._commands = []
 
@@ -55,6 +56,8 @@ class Plugin:
             "description": self.description,
             "author": self.author,
             "enabled": self.enabled,
+            "default_port": self.default_port,
+            "current_port": self.current_port,
         }
 
 
@@ -100,8 +103,14 @@ class PluginManager:
     def register(self, plugin: Plugin):
         """Register a plugin instance."""
         self._plugins[plugin.name] = plugin
+        
+        # Restore port from config if custom
+        cfg = self._config.get(plugin.name, {})
+        if "port" in cfg:
+            plugin.current_port = cfg["port"]
+            
         # Restore enabled state from config
-        if self._config.get(plugin.name, {}).get("enabled", False):
+        if cfg.get("enabled", False):
             plugin.enabled = True
             try:
                 plugin.on_enable()
@@ -136,6 +145,15 @@ class PluginManager:
 
     def get_enabled(self) -> List[Plugin]:
         return [p for p in self._plugins.values() if p.enabled]
+
+    def set_port(self, name: str, port: int) -> bool:
+        plugin = self._plugins.get(name)
+        if not plugin:
+            return False
+        plugin.current_port = port
+        self._config.setdefault(name, {})["port"] = port
+        self._save_config()
+        return True
 
     def register_cli_commands(self, cli_group):
         """Register all enabled plugin CLI commands to the main CLI group."""

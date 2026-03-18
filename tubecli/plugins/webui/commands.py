@@ -15,12 +15,18 @@ def webui_group():
 
 
 @webui_group.command("start")
-@click.option("--port", default=3000, help="Dashboard port")
+@click.option("--port", default=None, type=int, help="Dashboard port (overrides config)")
 def start_webui(port):
     """Start the web dashboard."""
     import http.server
     import os
     import functools
+    from tubecli.core.plugin_manager import plugin_manager
+    
+    # Identify port to use
+    if port is None:
+        webui_plugin = plugin_manager.get("webui")
+        port = webui_plugin.current_port if webui_plugin and webui_plugin.current_port else 3000
 
     static_dir = os.path.join(os.path.dirname(__file__), "static")
 

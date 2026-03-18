@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TubeCLI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div id="app">
@@ -18,6 +18,7 @@
             <button class="nav-item" data-tab="workflows">🔄 Workflows</button>
             <button class="nav-item" data-tab="skills">⚡ Skills</button>
             <button class="nav-item" data-tab="market">🛒 Market</button>
+            <button class="nav-item" data-tab="plugins">🧩 Plugins</button>
             <button class="nav-item" data-tab="settings">⚙️ Settings</button>
         </nav>
         <div class="sidebar-footer">
@@ -31,20 +32,242 @@
         <section class="tab-panel active" id="tab-agents">
             <div class="panel-header">
                 <h1>🤖 Agents</h1>
-                <button class="btn-primary" onclick="showCreateAgent()">+ Create Agent</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn-primary" style="background: linear-gradient(135deg, #a855f7, #ec4899);" onclick="showGenerateAgent()">⚡ Generate with AI</button>
+                    <button class="btn-primary" onclick="showCreateAgent()">+ Create Agent</button>
+                </div>
             </div>
             <div id="agents-list" class="cards-grid"></div>
 
-            <!-- Create Agent Modal -->
+            <!-- Comprehensive Create/Edit Agent Modal -->
             <div id="modal-agent" class="modal hidden">
-                <div class="modal-content">
-                    <h2>Create Agent</h2>
-                    <div class="form-group"><label>Name</label><input id="agent-name" placeholder="Agent name"></div>
-                    <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Description"></div>
-                    <div class="form-group"><label>Model</label><input id="agent-model" value="qwen:latest"></div>
+                <div class="modal-content modal-lg">
+                    <div class="modal-header">
+                        <h2 id="agent-modal-title">Create Agent</h2>
+                        <button class="btn-close" onclick="closeModal('modal-agent')">✕</button>
+                    </div>
+                    
+                    <div class="agent-tabs-container">
+                        <!-- Tab Navigation -->
+                        <div class="agent-tabs-nav">
+                            <button class="agent-tab-btn active" data-atab="identity">👤 Identity</button>
+                            <button class="agent-tab-btn" data-atab="behavior">🧠 Behavior</button>
+                            <button class="agent-tab-btn" data-atab="browser">🌐 Browser</button>
+                            <button class="agent-tab-btn" data-atab="schedule">⏰ Schedule</button>
+                            <button class="agent-tab-btn" data-atab="history">📜 History</button>
+                            <button class="agent-tab-btn" data-atab="skills">⚡ Skills</button>
+                            <button class="agent-tab-btn" data-atab="telegram">✈️ Telegram</button>
+                            <button class="agent-tab-btn" data-atab="messenger">💬 Messenger</button>
+                        </div>
+                        
+                        <!-- Tab Contents -->
+                        <div class="agent-tabs-content">
+                            <!-- TAB 1: IDENTITY -->
+                            <div class="agent-tab-pane active" id="atab-identity">
+                                <h3>Identity & Options</h3>
+                                <input type="hidden" id="agent-id">
+                                <div class="form-group"><label>Agent Name</label><input id="agent-name" placeholder="Agent Name"></div>
+                                <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Agent Description"></div>
+                                <div class="form-group"><label>System Prompt</label><textarea id="agent-prompt" rows="4" placeholder="You are a helpful AI assistant."></textarea></div>
+                                
+                                <div class="form-row">
+                                    <div class="form-group"><label>Chatbot Model</label><input id="agent-model" value="qwen:latest"></div>
+                                    <div class="form-group"><label>Browser Model</label><input id="agent-browser-model" value="qwen:latest"></div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group"><label>Avatar Type</label><select id="agent-avatar-type"><option value="bot">Bot</option><option value="human">Human</option></select></div>
+                                    <div class="form-group"><label>Avatar Color</label><select id="agent-avatar-color"><option value="blue">Blue</option><option value="red">Red</option><option value="green">Green</option></select></div>
+                                </div>
+                            </div>
+
+                            <!-- TAB 2: BEHAVIOR -->
+                            <div class="agent-tab-pane" id="atab-behavior">
+                                <h3>Behavior & Keywords</h3>
+                                <div class="form-group"><label>Keywords & Interests (comma-separated)</label><input id="agent-interests" placeholder="AI, Technology, Automation"></div>
+                                <div class="form-group"><label>Advanced Behavior / Routine (JSON)</label><textarea id="agent-behavior" rows="12" placeholder='{"dailyRoutine": [], "workHabits": {}}'></textarea></div>
+                            </div>
+                            
+                            <!-- TAB 3: BROWSER -->
+                            <div class="agent-tab-pane" id="atab-browser">
+                                <h3>Browser & Proxy Configuration</h3>
+                                <div class="form-group">
+                                    <label>Proxy Mode</label>
+                                    <select id="agent-proxy-mode" onchange="onProxyModeChange()">
+                                        <option value="none">🚫 None (No Proxy)</option>
+                                        <option value="static">📌 Static IP</option>
+                                        <option value="dynamic">🔄 Dynamic API</option>
+                                    </select>
+                                </div>
+                                
+                                <div id="proxy-static-group" style="display: none;">
+                                    <div class="form-group"><label>Static Proxy URL</label><input id="agent-proxy" placeholder="socks5://user:pass@host:port  hoặc  http://user:pass@host:port"></div>
+                                </div>
+                                
+                                <div id="proxy-dynamic-group" style="display: none;">
+                                    <div class="form-group"><label>Proxy Provider API URL</label><input id="agent-proxy-api" placeholder="https://tmproxy.com/api/proxy/get-new-proxy"></div>
+                                    <div class="form-row">
+                                        <div class="form-group"><label>API Key (if needed)</label><input id="agent-proxy-api-key" placeholder="Your API key"></div>
+                                        <div class="form-group"><label>Province/Location</label><input id="agent-proxy-location" placeholder="e.g. hanoi, random"></div>
+                                    </div>
+                                </div>
+                                
+                                <hr style="border: none; border-top: 1px solid var(--border); margin: 20px 0;">
+                                <h4>Allowed Browser Profiles</h4>
+                                <p class="text-muted" style="font-size:0.8rem; margin-bottom:8px;">Tick profiles this agent can use. If none are selected, agent can use any profile.</p>
+                                <div id="agent-profiles-list" class="checkbox-list" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; padding: 10px;">
+                                    <p class="text-muted">Loading profiles...</p>
+                                </div>
+                            </div>
+
+                            <!-- TAB 4: SCHEDULE -->
+                            <div class="agent-tab-pane" id="atab-schedule">
+                                <h3>Automated Schedule</h3>
+                                <div class="custom-control-flex" style="margin-bottom: 16px;">
+                                    <label style="font-weight:600;">Enable Scheduling</label>
+                                    <input type="checkbox" id="agent-schedule-enable">
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group"><label>Timezone</label><input id="agent-timezone" value="Asia/Ho_Chi_Minh"></div>
+                                    <div class="form-group"><label>Repeat Mode</label>
+                                        <select id="agent-schedule-repeat">
+                                            <option value="daily">Daily</option>
+                                            <option value="weekly">Weekly</option>
+                                            <option value="interval">Every X minutes</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group" id="schedule-interval-group" style="display: none;">
+                                    <label>Interval (minutes)</label>
+                                    <input type="number" id="agent-schedule-interval" value="60" min="1">
+                                </div>
+
+                                <div id="schedule-days-group">
+                                    <label style="font-weight:600; display:block; margin-bottom:8px;">Active Days</label>
+                                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                        <label class="day-check"><input type="checkbox" value="mon" class="agent-day-cb" checked> Mon</label>
+                                        <label class="day-check"><input type="checkbox" value="tue" class="agent-day-cb" checked> Tue</label>
+                                        <label class="day-check"><input type="checkbox" value="wed" class="agent-day-cb" checked> Wed</label>
+                                        <label class="day-check"><input type="checkbox" value="thu" class="agent-day-cb" checked> Thu</label>
+                                        <label class="day-check"><input type="checkbox" value="fri" class="agent-day-cb" checked> Fri</label>
+                                        <label class="day-check"><input type="checkbox" value="sat" class="agent-day-cb"> Sat</label>
+                                        <label class="day-check"><input type="checkbox" value="sun" class="agent-day-cb"> Sun</label>
+                                    </div>
+                                </div>
+
+                                <div class="form-row" style="margin-top: 16px;">
+                                    <div class="form-group"><label>Start Time</label><input type="time" id="agent-schedule-start" value="08:00"></div>
+                                    <div class="form-group"><label>End Time</label><input type="time" id="agent-schedule-end" value="22:00"></div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label>Max Runs Per Day</label>
+                                    <input type="number" id="agent-schedule-max-runs" value="10" min="1">
+                                </div>
+                            </div>
+
+                            <!-- TAB 5: HISTORY -->
+                            <div class="agent-tab-pane" id="atab-history">
+                                <h3>Web Scraper & History Options</h3>
+                                <div class="custom-control-flex">
+                                    <label>Enable Auto-Scraping</label>
+                                    <input type="checkbox" id="agent-scraping-enable">
+                                </div>
+                                <div class="form-row mt-3">
+                                    <div class="form-group"><label>Max Text Limit (chars)</label><input type="number" id="agent-scraper-limit" value="10000"></div>
+                                    <div class="form-group"><label>Script Output Format</label><select id="agent-scraper-format"><option value="json">JSON</option><option value="txt">TXT</option><option value="srt">SRT</option></select></div>
+                                </div>
+                            </div>
+
+                            <!-- TAB 6: SKILLS -->
+                            <div class="agent-tab-pane" id="atab-skills">
+                                <h3>Allowed Skills</h3>
+                                <p class="text-muted">Select plugins/skills this agent can invoke.</p>
+                                <div id="agent-skills-list" class="checkbox-list" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 10px;">
+                                    <!-- Populated by JS -->
+                                    <p class="text-muted">Loading skills...</p>
+                                </div>
+                            </div>
+
+                            <!-- TAB 7: TELEGRAM -->
+                            <div class="agent-tab-pane" id="atab-telegram">
+                                <h3>Telegram Bot Integration</h3>
+                                <div class="form-group"><label>Bot Token</label><input type="password" id="agent-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"></div>
+                                <div class="form-group"><label>Authorized Chat ID</label><input id="agent-tg-chat" placeholder="User or Group ID"></div>
+                            </div>
+
+                            <!-- TAB 8: MESSENGER -->
+                            <div class="agent-tab-pane" id="atab-messenger">
+                                <h3>Facebook Messenger Integration</h3>
+                                <div class="form-group"><label>Page Access Token</label><input type="password" id="agent-ms-token" placeholder="EAABw..."></div>
+                                <div class="form-group"><label>Messenger Page ID</label><input id="agent-ms-page" placeholder="100064829123456"></div>
+                                <div class="form-group"><label>PHP Webhook URL</label><input id="agent-ms-php" placeholder="https://yourdomain.com/webhook.php"></div>
+                                <div class="form-group"><label>Direct Trigger Skill ID (Bypass AI)</label><input id="agent-ms-skill" placeholder="Skill ID or blank for AI chat"></div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div class="modal-actions">
                         <button class="btn-secondary" onclick="closeModal('modal-agent')">Cancel</button>
-                        <button class="btn-primary" onclick="createAgent()">Create</button>
+                        <button class="btn-primary" onclick="saveAgent()">Save Agent</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Generate Agent with AI Modal -->
+            <div id="modal-generate-agent" class="modal hidden">
+                <div class="modal-content modal-lg" style="height: 90vh;">
+                    <div class="modal-header">
+                        <h2>⚡ Generate Agent with AI</h2>
+                        <button class="btn-close" onclick="closeModal('modal-generate-agent')">✕</button>
+                    </div>
+                    
+                    <div style="flex: 1; overflow-y: auto; padding-top: 16px;">
+                        <div class="form-row">
+                            <div class="form-group"><label>Agent Name</label><input id="agent-gen-name" placeholder="e.g. Electric Tech Support"></div>
+                            <div class="form-group"><label>Output Tag Prefix</label><input id="agent-gen-prefix" placeholder="ev_tech"></div>
+                        </div>
+                        <div class="form-group"><label>Description / Prompt</label><textarea id="agent-gen-desc" rows="3" placeholder="A passionate tech support agent who helps..."></textarea></div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>AI Provider</label>
+                                <select id="agent-gen-provider" onchange="onGenProviderChange()">
+                                    <option value="ollama">🖥️ Local AI (Ollama)</option>
+                                    <option value="gemini">✨ Gemini (Google)</option>
+                                    <option value="chatgpt">🤖 ChatGPT (OpenAI)</option>
+                                    <option value="claude">🧠 Claude (Anthropic)</option>
+                                    <option value="grok">⚡ Grok (xAI)</option>
+                                </select>
+                            </div>
+                            <div class="form-group"><label>Model</label><select id="agent-gen-model"></select></div>
+                        </div>
+                        <div class="form-group" id="agent-gen-apikey-group" style="display: none;">
+                            <label>API Key</label><input type="password" id="agent-gen-apikey" placeholder="Paste your API key here...">
+                        </div>
+                        
+                        <hr style="border: none; border-top: 1px solid var(--border); margin: 20px 0;">
+                        
+                        <div class="form-group">
+                            <label style="color: var(--purple);">🔑 Google Accounts (paste tab-separated list)</label>
+                            <textarea id="agent-gen-accounts" rows="4" placeholder="email \t password \t recoveryEmail \t 2FA codes" style="font-family: 'JetBrains Mono', Courier, monospace; font-size: 0.8rem; background: var(--bg2); color: #90ee90;"></textarea>
+                            <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.8rem; color: var(--text-muted);">
+                                <span id="agent-gen-acc-count">0 accounts detected</span>
+                                <span>1 account = 1 browser profile generated automatically.</span>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label style="color: var(--cyan);">📄 Generated Output Preview</label>
+                            <textarea id="agent-gen-preview" rows="12" placeholder="// JSON will appear here..." style="font-family: 'JetBrains Mono', Courier, monospace; font-size: 0.8rem;" readonly></textarea>
+                            <div id="agent-gen-status" style="margin-top: 8px; font-size: 0.85rem; font-weight: 600;"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="modal-actions" style="margin-top: 16px;">
+                        <button class="btn-secondary" onclick="closeModal('modal-generate-agent')">Close</button>
+                        <button class="btn-primary" id="btn-generate-ai" onclick="generateAgentJSON()">⚡ Generate</button>
+                        <button class="btn-primary" id="btn-apply-ai" style="background: linear-gradient(135deg, var(--green), #10b981); display: none;" onclick="applyGeneratedAgent()">🚀 Apply to Agent Form</button>
                     </div>
                 </div>
             </div>
@@ -66,18 +289,45 @@
                     <h2>Create Profile</h2>
                     <div class="form-group"><label>Name</label><input id="profile-name" placeholder="profile_name"></div>
                     <div class="form-group"><label>Proxy</label><input id="profile-proxy" placeholder="socks5://user:pass@host:port"></div>
-                    <div class="modal-actions">
-                        <button class="btn-secondary" onclick="closeModal('modal-profile')">Cancel</button>
-                        <button class="btn-primary" onclick="createProfile()">Create</button>
+                    
+                    <div class="form-row" style="margin-top: 14px;">
+                        <div class="form-group">
+                            <label>Fingerprint OS</label>
+                            <select id="profile-os">
+                                <option value="Windows">Windows</option>
+                                <option value="Mac OS X">macOS</option>
+                                <option value="Linux">Linux</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Fingerprint Browser</label>
+                            <select id="profile-browser">
+                                <option value="Chrome">Chrome</option>
+                                <option value="Firefox">Firefox</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="modal-actions" style="margin-top: 20px;">
+                        <button class="btn-secondary" onclick="closeModal('modal-profile')" id="btn-create-profile-cancel">Cancel</button>
+                        <button class="btn-primary" onclick="createProfile()" id="btn-create-profile-submit">Create & Fetch Fingerprint</button>
                     </div>
                 </div>
             </div>
         </section>
 
         <!-- Workflows Tab -->
-        <section class="tab-panel" id="tab-workflows">
-            <div class="panel-header"><h1>🔄 Workflows</h1></div>
-            <div id="workflows-list" class="cards-grid"></div>
+        <section class="tab-panel" id="tab-workflows" style="padding: 0;">
+            <div class="panel-header" style="border-bottom: 1px solid var(--border); padding: 12px 20px;">
+                <h1>🔄 Workflow Builder</h1>
+                <div class="toolbar-actions">
+                    <button class="btn-primary" onclick="openFullscreenWorkflow()">🔲 Fullscreen</button>
+                    <button class="btn-secondary" onclick="reloadWorkflowEditor()">🔄 Reload</button>
+                </div>
+            </div>
+            <div id="workflow-editor-container" style="flex: 1; position: relative; background: var(--bg-canvas);">
+                <iframe id="workflow-iframe" src="/workflow" style="width: 100%; height: 100%; border: none;"></iframe>
+            </div>
         </section>
 
         <!-- Skills Tab -->
@@ -120,6 +370,35 @@
             </div>
         </section>
 
+        <!-- Plugins Management Tab -->
+        <section class="tab-panel" id="tab-plugins">
+            <div class="panel-header">
+                <h1>🧩 Plugins Management</h1>
+            </div>
+            <div id="plugins-list" class="cards-grid">
+                <!-- Populated by JS -->
+            </div>
+            
+            <!-- Edit Port Modal -->
+            <div id="modal-plugin-port" class="modal hidden">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>⚙️ Configure Plugin</h2>
+                        <button class="btn-close" onclick="closeModal('modal-plugin-port')">✕</button>
+                    </div>
+                    <div class="form-group" style="margin-top: 15px;">
+                        <input type="hidden" id="edit-plugin-name">
+                        <label>Running Port</label>
+                        <input type="number" id="edit-plugin-port" placeholder="e.g. 3000">
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" onclick="closeModal('modal-plugin-port')">Cancel</button>
+                        <button class="btn-primary" onclick="savePluginPort()">Save Configuration</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Settings Tab -->
         <section class="tab-panel" id="tab-settings">
             <div class="panel-header"><h1>⚙️ Settings</h1></div>
@@ -132,6 +411,6 @@
         </section>
     </main>
 </div>
-<script src="app.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>

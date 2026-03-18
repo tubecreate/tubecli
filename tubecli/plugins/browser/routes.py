@@ -23,6 +23,7 @@ class LaunchRequest(BaseModel):
     prompt: str = ""
     url: str = ""
     headless: bool = False
+    manual: bool = True
 
 class StopRequest(BaseModel):
     profile: str
@@ -65,11 +66,27 @@ async def api_delete_profile(name: str):
         raise HTTPException(404, f"Profile '{name}' not found")
     return {"status": "deleted"}
 
+@router.get("/profiles/{name}/fingerprint")
+async def api_get_fingerprint(name: str):
+    from tubecli.plugins.browser.profile_manager import get_fingerprint
+    fp = get_fingerprint(name)
+    if not fp:
+        raise HTTPException(404, f"Fingerprint not found or failed to fetch for profile '{name}'")
+    return fp
+
+@router.post("/profiles/{name}/fingerprint/reset")
+async def api_reset_fingerprint(name: str):
+    from tubecli.plugins.browser.profile_manager import reset_fingerprint
+    if reset_fingerprint(name):
+        return {"status": "reset", "profile": name}
+    raise HTTPException(404, f"Fingerprint not found for profile '{name}'")
+
+
 @router.post("/launch")
 async def api_launch_browser(req: LaunchRequest):
     from tubecli.plugins.browser.process_manager import browser_process_manager
     result = browser_process_manager.spawn(
-        profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless
+        profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual
     )
     return result
 

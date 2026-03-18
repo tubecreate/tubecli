@@ -9,6 +9,7 @@ class WebUIPlugin(Plugin):
     version = "0.1.0"
     description = "Web dashboard for managing agents, browser, workflows, skills & market"
     author = "TubeCreate"
+    default_port = 3000
 
     def get_commands(self):
         from tubecli.plugins.webui.commands import webui_group
