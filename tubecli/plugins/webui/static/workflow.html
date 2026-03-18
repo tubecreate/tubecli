@@ -23,6 +23,10 @@
     <button class="btn btn-primary" onclick="WF.importN8n()" title="Import n8n JSON">📥 n8n Import</button>
     <button class="btn btn-default" onclick="WF.exportN8n()" title="Export n8n JSON">📤 n8n Export</button>
 
+    <div class="toolbar-sep"></div>
+
+    <button class="btn btn-success" onclick="WF.saveAsSkill()" title="Save workflow as a reusable Skill for Agents">💾 Save as Skill</button>
+
     <div class="toolbar-spacer"></div>
 
     <button class="btn btn-default" onclick="WF.undo()">↩️ Undo</button>
@@ -104,6 +108,35 @@
 <!-- Hidden file inputs -->
 <input type="file" id="file-load" accept=".json" style="display:none" onchange="WF.handleFileLoad(event)">
 <input type="file" id="file-n8n" accept=".json" style="display:none" onchange="WF.handleN8nImport(event)">
+
+<!-- Save As Skill Modal -->
+<div class="modal-overlay" id="save-skill-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span>💾 Save as Skill</span>
+      <button class="btn btn-icon" onclick="document.getElementById('save-skill-modal').classList.remove('visible')">✖</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Skill Name <span style="color:var(--red)">*</span></label>
+        <input type="text" id="skill-name-input" class="field-input" placeholder="e.g. Write to Google Sheets">
+      </div>
+      <div class="field-group">
+        <label class="field-label">Trigger Command (Optional)</label>
+        <input type="text" id="skill-trigger-input" class="field-input" placeholder="e.g. luu du lieu vao sheet">
+        <small style="color:var(--text-muted); font-size:11px; display:block; margin-top:4px;">Agents will run this skill when they detect this command.</small>
+      </div>
+      <div class="field-group">
+        <label class="field-label">Description (Optional)</label>
+        <textarea id="skill-desc-input" class="field-textarea" placeholder="Explain what this skill does..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="document.getElementById('save-skill-modal').classList.remove('visible')">Cancel</button>
+      <button class="btn btn-success" onclick="WF.submitSaveSkill()">Save Skill</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/workflow-n8n.js"></script>
 <script src="/static/workflow.js"></script>

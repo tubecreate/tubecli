@@ -271,6 +271,28 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Chat Modal -->
+            <div id="modal-chat" class="modal hidden">
+                <div class="modal-content modal-lg" style="height: 80vh; display: flex; flex-direction: column;">
+                    <div class="modal-header">
+                        <h2>💬 Chat with <span id="chat-agent-name">Agent</span></h2>
+                        <button class="btn-close" onclick="closeModal('modal-chat')">✕</button>
+                    </div>
+                    
+                    <!-- Chat History Area -->
+                    <div id="chat-history" style="flex: 1; overflow-y: auto; padding: 16px; background: var(--bg2); border-radius: 6px; display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+                        <p class="text-muted" style="text-align: center;">Loading history...</p>
+                    </div>
+
+                    <!-- Chat Input Area -->
+                    <div style="display: flex; gap: 10px;">
+                        <input type="text" id="chat-input" placeholder="Type a message or trigger command..." style="flex: 1; padding: 12px; border-radius: 6px; border: 1px solid var(--border);" onkeypress="if(event.key === 'Enter') sendChatMessage()">
+                        <button class="btn-primary" onclick="sendChatMessage()" style="padding: 0 24px;">Send</button>
+                    </div>
+                </div>
+            </div>
+            
         </section>
 
         <!-- Browser Tab -->

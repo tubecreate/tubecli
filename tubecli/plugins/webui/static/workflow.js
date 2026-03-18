@@ -79,11 +79,21 @@ const WF = (() => {
     return [
       { type: 'text_input', name: 'Text Input', icon: '📝', category: 'Input', description: 'Manual text input' },
       { type: 'loop', name: 'Loop', icon: '🔄', category: 'Processing', description: 'Loop through items' },
-      { type: 'api_request', name: 'API Request', icon: '🌐', category: 'Processing', description: 'HTTP request' },
-      { type: 'python_code', name: 'Python Code', icon: '🐍', category: 'Processing', description: 'Run Python' },
-      { type: 'run_command', name: 'Run Command', icon: '💻', category: 'Processing', description: 'Shell command' },
-      { type: 'ai_node', name: 'AI Node', icon: '🧠', category: 'AI', description: 'AI processing' },
+      { type: 'api_request', name: 'API Request', icon: '🌐', category: 'Network', description: 'HTTP request' },
+      { type: 'python_code', name: 'Python Code', icon: '🐍', category: 'Logic', description: 'Run Python' },
+      { type: 'run_command', name: 'Run Command', icon: '💻', category: 'Logic', description: 'Shell command' },
+      { type: 'ai_node', name: 'AI Inference', icon: '🧠', category: 'AI', description: 'AI processing (Ollama)' },
       { type: 'output', name: 'Output', icon: '📤', category: 'Output', description: 'Save output' },
+      // New nodes
+      { type: 'google_auth', name: 'Google Auth', icon: '🔐', category: 'Auth', description: 'Google API authentication' },
+      { type: 'google_sheets', name: 'Google Sheets', icon: '📊', category: 'Integration', description: 'Read/Write Google Sheets' },
+      { type: 'browser_action', name: 'Browser Action', icon: '🌐', category: 'Browser', description: 'Browser with profile system' },
+      { type: 'json_parser', name: 'JSON Parser', icon: '📋', category: 'Data', description: 'Parse/extract/merge JSON' },
+      { type: 'model_agent', name: 'Model Agent', icon: '🤖', category: 'AI', description: 'Multi-provider AI (Gemini, GPT, Claude, Grok)' },
+      { type: 'custom', name: 'Custom Node', icon: '⚙️', category: 'Custom', description: 'User-defined code + ports' },
+      { type: 'if_node', name: 'IF Condition', icon: '🔀', category: 'Logic', description: 'Conditional branching' },
+      { type: 'switch_node', name: 'Switch', icon: '🔃', category: 'Logic', description: 'Multi-way routing' },
+      { type: 'merge_node', name: 'Merge', icon: '🔗', category: 'Logic', description: 'Combine data streams' },
     ];
   }
 
@@ -265,10 +275,20 @@ const WF = (() => {
       'text_input':   { inputs: [], outputs: [{ name: 'content', type: 'text' }, { name: 'lines', type: 'json' }] },
       'loop':         { inputs: [{ name: 'items', type: 'json' }], outputs: [{ name: 'current_item', type: 'text' }, { name: 'index', type: 'text' }] },
       'api_request':  { inputs: [{ name: 'trigger', type: 'any' }, { name: 'url', type: 'text' }], outputs: [{ name: 'response', type: 'json' }, { name: 'status', type: 'text' }] },
-      'python_code':  { inputs: [{ name: 'input', type: 'any' }], outputs: [{ name: 'output', type: 'any' }] },
+      'python_code':  { inputs: [{ name: 'text_input', type: 'text' }, { name: 'json_input', type: 'json' }], outputs: [{ name: 'result', type: 'any' }] },
       'run_command':  { inputs: [{ name: 'trigger', type: 'any' }], outputs: [{ name: 'stdout', type: 'text' }, { name: 'stderr', type: 'text' }] },
       'ai_node':      { inputs: [{ name: 'prompt', type: 'text' }], outputs: [{ name: 'response', type: 'text' }] },
       'output':       { inputs: [{ name: 'data', type: 'any' }], outputs: [] },
+      // New nodes
+      'google_auth':     { inputs: [], outputs: [{ name: 'credentials', type: 'json' }, { name: 'status', type: 'text' }] },
+      'google_sheets':   { inputs: [{ name: 'credentials', type: 'json' }, { name: 'data', type: 'json' }, { name: 'range', type: 'text' }], outputs: [{ name: 'rows', type: 'json' }, { name: 'status', type: 'text' }] },
+      'browser_action':  { inputs: [{ name: 'url', type: 'text' }, { name: 'prompt', type: 'text' }, { name: 'data', type: 'any' }], outputs: [{ name: 'result', type: 'text' }, { name: 'screenshot_path', type: 'text' }, { name: 'status', type: 'text' }] },
+      'json_parser':     { inputs: [{ name: 'data', type: 'any' }, { name: 'expression', type: 'text' }], outputs: [{ name: 'result', type: 'any' }, { name: 'keys', type: 'json' }, { name: 'count', type: 'text' }] },
+      'model_agent':     { inputs: [{ name: 'prompt', type: 'text' }, { name: 'context', type: 'text' }, { name: 'history', type: 'json' }], outputs: [{ name: 'response', type: 'text' }, { name: 'usage', type: 'json' }] },
+      'custom':          { inputs: [{ name: 'input', type: 'any' }], outputs: [{ name: 'output', type: 'any' }] },
+      'if_node':         { inputs: [{ name: 'data', type: 'any' }], outputs: [{ name: 'true_output', type: 'any' }, { name: 'false_output', type: 'any' }] },
+      'switch_node':     { inputs: [{ name: 'data', type: 'any' }], outputs: [{ name: 'output_0', type: 'any' }, { name: 'output_1', type: 'any' }, { name: 'output_2', type: 'any' }, { name: 'output_3', type: 'any' }] },
+      'merge_node':      { inputs: [{ name: 'input_1', type: 'any' }, { name: 'input_2', type: 'any' }], outputs: [{ name: 'merged', type: 'any' }] },
     };
     return defs[type] || { inputs: [{ name: 'input', type: 'any' }], outputs: [{ name: 'output', type: 'any' }] };
   }
@@ -296,6 +316,58 @@ const WF = (() => {
       'output': [
         { name: 'filename', label: 'Filename', type: 'text', default: 'output.txt' },
       ],
+      // New nodes
+      'google_auth': [
+        { name: 'credentials_json', label: 'Service Account JSON', type: 'textarea', default: '' },
+        { name: 'scopes', label: 'Scopes (comma sep)', type: 'text', default: 'https://www.googleapis.com/auth/spreadsheets' },
+      ],
+      'google_sheets': [
+        { name: 'spreadsheet_id', label: 'Spreadsheet ID', type: 'text', default: '' },
+        { name: 'sheet_name', label: 'Sheet Name', type: 'text', default: 'Sheet1' },
+        { name: 'range', label: 'Range', type: 'text', default: 'A1:Z1000' },
+        { name: 'action', label: 'Action', type: 'select', default: 'read', options: ['read', 'write', 'append', 'update'] },
+      ],
+      'browser_action': [
+        { name: 'profile_name', label: 'Browser Profile', type: 'text', default: '' },
+        { name: 'action', label: 'Action', type: 'select', default: 'navigate', options: ['navigate', 'run_prompt', 'manual'] },
+        { name: 'url', label: 'URL', type: 'text', default: '' },
+        { name: 'prompt', label: 'AI Prompt', type: 'textarea', default: '' },
+        { name: 'headless', label: 'Headless', type: 'select', default: 'false', options: ['false', 'true'] },
+        { name: 'ai_model', label: 'AI Model', type: 'text', default: 'qwen:latest' },
+        { name: 'wait_seconds', label: 'Wait (seconds)', type: 'number', default: 10 },
+      ],
+      'json_parser': [
+        { name: 'action', label: 'Action', type: 'select', default: 'parse', options: ['parse', 'stringify', 'extract', 'filter', 'merge', 'transform'] },
+        { name: 'expression', label: 'Path Expression', type: 'text', default: '' },
+      ],
+      'model_agent': [
+        { name: 'provider', label: 'Provider', type: 'select', default: 'ollama', options: ['ollama', 'gemini', 'chatgpt', 'claude', 'grok'] },
+        { name: 'model', label: 'Model', type: 'text', default: 'qwen:latest' },
+        { name: 'api_key', label: 'API Key', type: 'text', default: '' },
+        { name: 'system_prompt', label: 'System Prompt', type: 'textarea', default: 'You are a helpful assistant.' },
+        { name: 'temperature', label: 'Temperature', type: 'number', default: 0.7 },
+        { name: 'max_tokens', label: 'Max Tokens', type: 'number', default: 2048 },
+        { name: 'agent_name', label: 'Use Agent Config (name)', type: 'text', default: '' },
+      ],
+      'custom': [
+        { name: 'code', label: 'Python Code', type: 'textarea', default: 'output = input' },
+        { name: 'input_ports', label: 'Input Ports (JSON array)', type: 'text', default: '["input"]' },
+        { name: 'output_ports', label: 'Output Ports (JSON array)', type: 'text', default: '["output"]' },
+      ],
+      'if_node': [
+        { name: 'value1', label: 'Value 1', type: 'text', default: '' },
+        { name: 'operator', label: 'Operator', type: 'select', default: 'equals', options: ['equals','not_equals','contains','not_contains','starts_with','ends_with','greater_than','less_than','is_empty','is_not_empty','regex'] },
+        { name: 'value2', label: 'Value 2', type: 'text', default: '' },
+        { name: 'condition', label: 'Python Expression (advanced)', type: 'text', default: '' },
+      ],
+      'switch_node': [
+        { name: 'field', label: 'Field to Match', type: 'text', default: '' },
+        { name: 'rules', label: 'Rules JSON', type: 'textarea', default: '[{"value": "a", "output": 0}, {"value": "b", "output": 1}]' },
+      ],
+      'merge_node': [
+        { name: 'mode', label: 'Mode', type: 'select', default: 'append', options: ['append', 'combine', 'join'] },
+        { name: 'join_key', label: 'Join Key (for join mode)', type: 'text', default: '' },
+      ],
     };
     return fields[type] || [];
   }
@@ -310,7 +382,12 @@ const WF = (() => {
   function catColor(type) {
     const nt = state.nodeTypes.find(n => n.type === type);
     const cat = nt ? nt.category : 'General';
-    const colors = { 'Input': '#3b82f6', 'Output': '#22c55e', 'Processing': '#f97316', 'Logic': '#eab308', 'AI': '#a855f7', 'Automation': '#06b6d4' };
+    const colors = {
+      'Input': '#3b82f6', 'Output': '#22c55e', 'Processing': '#f97316',
+      'Logic': '#eab308', 'AI': '#a855f7', 'Automation': '#06b6d4',
+      'Network': '#f97316', 'Auth': '#ef4444', 'Integration': '#10b981',
+      'Browser': '#06b6d4', 'Data': '#3b82f6', 'Custom': '#8b5cf6',
+    };
     return colors[cat] || '#6366f1';
   }
 
@@ -890,6 +967,47 @@ const WF = (() => {
     toast('📤 Exported n8n JSON', 'success');
   }
 
+  // ── Save as Skill ─────────────────────────────────────────────
+  function saveAsSkill() {
+    if (state.nodes.length === 0) { toast('No nodes to save', 'error'); return; }
+    
+    // Reset fields and show modal
+    document.getElementById('skill-name-input').value = 'My Workflow Skill';
+    document.getElementById('skill-trigger-input').value = '';
+    document.getElementById('skill-desc-input').value = '';
+    document.getElementById('save-skill-modal').classList.add('visible');
+    document.getElementById('skill-name-input').focus();
+  }
+
+  async function submitSaveSkill() {
+    const name = document.getElementById('skill-name-input').value.trim();
+    const trigger = document.getElementById('skill-trigger-input').value.trim();
+    const description = document.getElementById('skill-desc-input').value.trim();
+
+    if (!name) {
+      toast('Skill Name is required', 'error');
+      return;
+    }
+
+    const data = toJSON();
+    try {
+      const resp = await fetch('/api/v1/workflows/save-as-skill', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, trigger, workflow_data: data }),
+      });
+      const result = await resp.json();
+      if (result.status === 'created' || result.status === 'updated') {
+        toast(`✅ ${result.message}`, 'success');
+        document.getElementById('save-skill-modal').classList.remove('visible');
+      } else {
+        toast('❌ Failed: ' + (result.detail || 'Unknown error'), 'error');
+      }
+    } catch (e) {
+      toast('❌ Save failed: ' + e.message, 'error');
+    }
+  }
+
   // ── Run Workflow ───────────────────────────────────────────────
   async function runWorkflow() {
     if (state.isRunning) return;
@@ -956,6 +1074,7 @@ const WF = (() => {
     updateConfig, filterPalette,
     saveWorkflow, loadWorkflow, handleFileLoad, newWorkflow,
     importN8n, exportN8n, handleN8nImport,
+    saveAsSkill, submitSaveSkill,
     runWorkflow, stopWorkflow, clearLogs,
     zoomIn, zoomOut, zoomFit, undo,
     toJSON, fromJSON, toast,

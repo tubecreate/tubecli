@@ -36,7 +36,8 @@ document.querySelectorAll('.agent-tab-btn').forEach(btn => {
 // ═══ API Helpers ═══
 async function apiGet(path) {
     try {
-        const resp = await fetch(API + path);
+        const url = path.includes('?') ? `${path}&_t=${Date.now()}` : `${path}?_t=${Date.now()}`;
+        const resp = await fetch(API + url);
         return await resp.json();
     } catch (e) {
         console.error('API Error:', path, e);
@@ -103,12 +104,106 @@ async function loadAgents() {
             <div class="card-footer">
                 <span class="tag">${(a.allowed_skills || []).length} skills</span>
                 <div class="card-actions">
+                    <button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}', '${esc(a.name)}')">💬 Chat</button>
                     <button class="btn-sm" onclick="openEditAgent('${a.id}')">Edit</button>
                     <button class="btn-danger" onclick="deleteAgent('${a.id}')">Delete</button>
                 </div>
             </div>
         </div>
     `).join('');
+}
+
+// ═══ Agent Chat ═══
+let currentChatAgentId = null;
+
+async function openChatAgent(id, name) {
+    currentChatAgentId = id;
+    document.getElementById('chat-agent-name').textContent = name;
+    document.getElementById('chat-input').value = '';
+    document.getElementById('modal-chat').classList.remove('hidden');
+    
+    // Load history
+    const data = await apiGet('/api/v1/agents/' + id);
+    if (data && data.history_log) {
+        renderChatHistory(data.history_log);
+    } else {
+        renderChatHistory([]);
+    }
+}
+
+function renderChatHistory(history) {
+    const container = document.getElementById('chat-history');
+    if (!history || history.length === 0) {
+        container.innerHTML = '<p class="text-muted" style="text-align: center;">Say hello to start chatting!</p>';
+        return;
+    }
+    
+    container.innerHTML = history.map(msg => {
+        const isUser = msg.role === 'user';
+        const align = isUser ? 'flex-end' : 'flex-start';
+        const bg = isUser ? 'var(--blue)' : 'var(--bg3)';
+        const color = isUser ? '#fff' : 'var(--text)';
+        const skillHTML = msg.skill_used ? `<div style="font-size: 0.75rem; color: #10b981; margin-top: 4px;">⚡ Used skill: ${esc(msg.skill_used)}</div>` : '';
+        
+        return `
+            <div style="display: flex; justify-content: ${align}; width: 100%;">
+                <div style="background: ${bg}; color: ${color}; padding: 10px 14px; border-radius: 8px; max-width: 80%; white-space: pre-wrap; font-size: 0.9rem;">
+                    ${esc(msg.content)}
+                    ${skillHTML}
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    // Auto scroll to bottom
+    container.scrollTop = container.scrollHeight;
+}
+
+async function sendChatMessage() {
+    if (!currentChatAgentId) return;
+    const input = document.getElementById('chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+    
+    input.value = '';
+    
+    // Optimistically add user message
+    const container = document.getElementById('chat-history');
+    if (container.innerHTML.includes('Say hello')) container.innerHTML = '';
+    
+    container.innerHTML += `
+        <div style="display: flex; justify-content: flex-end; width: 100%; margin-top: 12px;">
+            <div style="background: var(--blue); color: #fff; padding: 10px 14px; border-radius: 8px; max-width: 80%; white-space: pre-wrap; font-size: 0.9rem;">
+                ${esc(message)}
+            </div>
+        </div>
+        <div id="chat-typing" style="display: flex; justify-content: flex-start; width: 100%; margin-top: 12px;">
+            <div style="background: var(--bg3); color: var(--text-muted); padding: 10px 14px; border-radius: 8px; font-size: 0.9rem;">
+                Agent is typing or running workflow...
+            </div>
+        </div>
+    `;
+    container.scrollTop = container.scrollHeight;
+    
+    // Send API
+    const response = await apiPost('/api/v1/agents/' + currentChatAgentId + '/chat', { message });
+    
+    // Remove typing indicator
+    const typing = document.getElementById('chat-typing');
+    if (typing) typing.remove();
+    
+    if (response) {
+        renderChatHistory(response.history);
+    } else {
+        container.innerHTML += `
+            <div style="display: flex; justify-content: flex-start; width: 100%; margin-top: 12px;">
+                <div style="background: #ef444433; color: #ef4444; padding: 10px 14px; border-radius: 8px; font-size: 0.9rem;">
+                    Error connecting to Agent Brain.
+                </div>
+            </div>
+        `;
+        container.scrollTop = container.scrollHeight;
+    }
 }
 
 function showCreateAgent() { 

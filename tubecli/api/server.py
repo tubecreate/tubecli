@@ -173,6 +173,132 @@ async def delete_agent(agent_id: str):
         raise HTTPException(404, f"Agent {agent_id} not found")
     return {"status": "deleted", "agent_id": agent_id}
 
+
+# ── Agent Chat ───────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@app.post("/api/v1/agents/{agent_id}/chat")
+async def agent_chat(agent_id: str, req: ChatRequest):
+    """Chat with an agent. The brain dispatches skills automatically."""
+    import datetime as _dt
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.skill import skill_manager
+    from tubecli.core.brain import AgentBrain
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    agent_dict = agent.to_dict()
+
+    # Get agent's allowed skills
+    all_skills = skill_manager.get_all()
+    if agent.allowed_skills:
+        skills = [s.to_dict() for s in all_skills if s.id in agent.allowed_skills]
+    else:
+        skills = [s.to_dict() for s in all_skills]  # allow all if not restricted
+
+    # Call brain
+    brain_result = AgentBrain.chat(
+        message=req.message,
+        agent=agent_dict,
+        skills=skills,
+        history=agent.history_log or [],
+    )
+
+    reply = brain_result["reply"]
+    skill_used = None
+
+    # ── Handle Brain Result ──
+    action = brain_result.get("action")
+    
+    if action == "run_skill" and brain_result.get("skill_id"):
+        skill_id = brain_result["skill_id"]
+        skill = skill_manager.get(skill_id)
+        if skill:
+            skill_used = skill.name
+            skill_input = brain_result.get("skill_input", req.message)
+            
+            # Feature: Random Browser Profile Selection
+            # If input mentions "random profile" or "ngẫu nhiên", and it's a browser skill
+            if any(x in skill_input.lower() for x in ["ngẫu nhiên", "random profile", "mở profile"]):
+                from tubecli.core.config import config_manager
+                profiles = config_manager.get_browser_profiles()
+                if profiles:
+                    import random
+                    chosen = random.choice(profiles)
+                    skill_input += f"\n(AI Note: Randomly selected browser profile: {chosen})"
+            
+            try:
+                # Call the Autonomous ReAct Loop
+                skill_dict = skill.to_dict()
+                final_answer = await AgentBrain.autonomous_run(
+                    message=skill_input,
+                    agent=agent_dict,
+                    skill=skill_dict,
+                    history=agent.history_log or []
+                )
+                reply = final_answer
+                skill_manager.update(skill_id, last_run=_dt.datetime.now().isoformat())
+            except Exception as e:
+                reply = f"⚠️ Lỗi khi chạy skill '{skill.name}': {str(e)}"
+        else:
+            reply = f"⚠️ Không tìm thấy skill với ID: {skill_id}"
+
+    elif action == "create_skill":
+        # Feature: AI Self-Creation of Skill
+        name = brain_result.get("skill_name", "New Skill")
+        desc = brain_result.get("skill_desc", "")
+        instructions = brain_result.get("skill_instructions", [])
+        
+        # Convert instructions into a text-based workflow SOP
+        sop_text = "\n".join([f"{i+1}. {instr}" for i, instr in enumerate(instructions)])
+        
+        try:
+            new_skill = skill_manager.create(
+                name=name,
+                description=desc or f"AI-generated skill: {name}",
+                skill_type="AI Self-Created",
+                workflow_data={"sop": sop_text, "nodes": [{"type": "text", "data": {"text": sop_text}}]},
+                commands=[name.lower()]
+            )
+            reply = f"✅ **Tôi đã tự thiết kế kỹ năng mới: {name}**\n\n**Mô tả:** {desc}\n\nKỹ năng này đã được lưu vào bộ nhớ. Bây giờ bạn có thể bảo tôi '{name}' bất cứ lúc nào!"
+            skill_used = f"Created Skill: {name}"
+        except Exception as e:
+            reply = f"⚠️ Lỗi khi tự tạo skill: {str(e)}"
+
+    # Save to history
+    history = agent.history_log or []
+    history.append({"role": "user", "content": req.message, "timestamp": _dt.datetime.now().isoformat()})
+    history.append({"role": "assistant", "content": reply, "timestamp": _dt.datetime.now().isoformat(),
+                     "skill_used": skill_used})
+
+    # Keep history manageable (last 50 messages)
+    if len(history) > 50:
+        history = history[-50:]
+
+    agent_manager.update(agent_id, history_log=history)
+
+    return {
+        "reply": reply,
+        "skill_used": skill_used,
+        "history": history[-20:],  # return last 20 for UI
+    }
+
+
+@app.delete("/api/v1/agents/{agent_id}/chat")
+async def clear_chat_history(agent_id: str):
+    """Clear an agent's chat history."""
+    from tubecli.core.agent import agent_manager
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    agent_manager.update(agent_id, history_log=[])
+    return {"status": "cleared", "agent_id": agent_id}
+
 # ── Skills ───────────────────────────────────────────────────────
 
 @app.get("/api/v1/skills")
@@ -201,6 +327,101 @@ async def delete_skill(skill_id: str):
     if not skill_manager.delete(skill_id):
         raise HTTPException(404, f"Skill {skill_id} not found")
     return {"status": "deleted", "skill_id": skill_id}
+
+
+class SaveAsSkillRequest(BaseModel):
+    name: str
+    description: str = ""
+    trigger: str = ""
+    workflow_data: Dict = {}
+    skill_type: str = "Workflow Skill"
+
+
+@app.post("/api/v1/workflows/save-as-skill")
+async def save_workflow_as_skill(req: SaveAsSkillRequest):
+    """Convert a workflow into a reusable Skill that Agents can execute."""
+    from tubecli.core.skill import skill_manager
+
+    if not req.name:
+        raise HTTPException(400, "Skill name is required")
+
+    commands = [req.trigger.strip()] if req.trigger and req.trigger.strip() else []
+
+    # Check if name already exists
+    existing = skill_manager.find_by_name(req.name)
+    if existing:
+        # Update existing skill with new workflow data
+        skill_manager.update(existing.id, workflow_data=req.workflow_data, description=req.description, commands=commands)
+        return {"status": "updated", "skill": existing.to_dict(), "message": f"Skill '{req.name}' updated"}
+
+    skill = skill_manager.create(
+        name=req.name,
+        description=req.description or f"Workflow skill: {req.name}",
+        skill_type=req.skill_type,
+        workflow_data=req.workflow_data,
+        commands=commands
+    )
+    return {"status": "created", "skill": skill.to_dict(), "message": f"Skill '{req.name}' created successfully"}
+
+
+@app.post("/api/v1/skills/{skill_id}/run")
+async def run_skill(skill_id: str, input_text: str = ""):
+    """Run a skill by executing its stored workflow. Returns error guidance for AI agents."""
+    from tubecli.core.skill import skill_manager
+    from tubecli.nodes.registry import create_node_from_dict
+    from tubecli.core.workflow_engine import WorkflowEngine
+
+    skill = skill_manager.get(skill_id)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+
+    wf = skill.workflow_data
+    nodes_data = wf.get("nodes", [])
+    connections = wf.get("connections", [])
+
+    if not nodes_data:
+        raise HTTPException(400, "Skill has no workflow nodes")
+
+    if input_text:
+        for nd in nodes_data:
+            if nd.get("type") in ("text_input", "manual_input"):
+                nd.setdefault("config", {})["text"] = input_text
+
+    try:
+        nodes = [create_node_from_dict(nd) for nd in nodes_data]
+    except Exception as e:
+        raise HTTPException(400, f"Node creation error: {e}")
+
+    engine = WorkflowEngine(nodes=nodes, connections=connections)
+    result = await engine.run()
+
+    # Update last_run
+    import datetime
+    skill_manager.update(skill_id, last_run=datetime.datetime.now().isoformat())
+
+    # Collect error guidance from node results for AI agents
+    errors = []
+    guidance = []
+    if result.get("logs"):
+        for log in result["logs"]:
+            if log.get("status") == "error" or "Error" in str(log.get("message", "")):
+                errors.append({"node": log.get("node_name", ""), "error": log.get("message", "")})
+    if result.get("node_results"):
+        for node_id, node_result in result["node_results"].items():
+            if isinstance(node_result, dict):
+                if node_result.get("_error_guidance"):
+                    guidance.append(node_result["_error_guidance"])
+                if "Error" in str(node_result.get("status", "")):
+                    errors.append({"node": node_id, "error": node_result.get("status", "")})
+
+    if errors or guidance:
+        result["_skill_errors"] = errors
+        result["_skill_guidance"] = guidance or [
+            "Workflow gặp lỗi. Kiểm tra: (1) credentials đã đúng chưa, "
+            "(2) spreadsheet_id có tồn tại không, (3) các API đã bật chưa."
+        ]
+
+    return result
 
 
 # ── Workflows ────────────────────────────────────────────────────

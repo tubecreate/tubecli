@@ -40,6 +40,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .tab-panel.active[style*="flex"] { display: flex; } /* Allow flex override */
 
 /* Specific for workflow or other full-content tabs */
+#tab-workflows:not(.active) { display: none !important; }
 #tab-workflows.active { height: 100%; display: flex; flex-direction: column; }
 .content:has(#tab-workflows.active) { padding: 0; overflow: hidden; }
 
