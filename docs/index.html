@@ -318,11 +318,13 @@
         <div class="nav-links">
             <a href="#architecture">Kiến Trúc</a>
             <a href="#install">Cài Đặt</a>
+            <a href="#plugins">Plugins</a>
+            <a href="#browser">Browser</a>
             <a href="#commands">CLI</a>
             <a href="#workflow">Workflow</a>
-            <a href="#nodes">Nodes</a>
             <a href="#api">API</a>
-            <a href="#skills">Skills</a>
+            <a href="#dashboard">Dashboard</a>
+            <a href="#market">Market</a>
         </div>
         <a href="https://github.com/tubecreate/tubecli" target="_blank" class="github-btn">
             ⭐ GitHub
@@ -335,7 +337,7 @@
     <div class="container">
         <div class="badge"><span class="dot"></span> Open Source • v0.1.0</div>
         <h1>AI Agent CLI System</h1>
-        <p>Quản lý AI agents, skills, và workflows từ command line. AI agents có thể tự đọc docs và vận hành toàn bộ hệ thống.</p>
+        <p>Quản lý AI agents, skills, workflows, browser profiles và plugins từ command line. Hệ thống plugin mở rộng với Web Dashboard, Marketplace và Browser Automation.</p>
         <div class="hero-actions">
             <a href="#install" class="btn-primary">🚀 Bắt đầu</a>
             <a href="#architecture" class="btn-secondary">📖 Kiến trúc</a>
@@ -348,8 +350,8 @@
     <div class="container">
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">KIẾN TRÚC</div>
-            <h2>5 Hệ Thống Con</h2>
-            <p>TubeCLI được xây dựng từ 5 subsystems hoạt động cùng nhau</p>
+            <h2>8 Hệ Thống Con</h2>
+            <p>TubeCLI được xây dựng từ 8 subsystems hoạt động cùng nhau</p>
         </div>
         <div class="arch-grid">
             <div class="arch-card fade-in">
@@ -376,11 +378,29 @@
                 <h3>API Server</h3>
                 <p>FastAPI REST server với Swagger docs. CRUD endpoints cho agents, skills, workflows. Auto-gen API documentation.</p>
             </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔌</div>
+                <h3>Plugin System</h3>
+                <p>Kiến trúc plugin mở rộng: Browser, Web Dashboard, Marketplace. Enable/disable qua CLI, auto-inject commands và API routes.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>Browser Engine</h3>
+                <p>Quản lý browser profiles, proxy, cookies. Spawn/terminate browser processes. AI automation qua prompts.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎨</div>
+                <h3>Web Dashboard</h3>
+                <p>Giao diện web SPA tại localhost:3000. Quản lý agents, browser, workflows, skills, marketplace và settings.</p>
+            </div>
             <div class="arch-card full fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">📖</div>
                 <h3>AI Documentation (.agents/skills/SKILL.md)</h3>
-                <p>Tài liệu viết dưới dạng SKILL.md để AI agents (Gemini, Claude, GPT) có thể đọc và tự vận hành toàn bộ hệ thống mà không cần hướng dẫn của người dùng. Bao gồm CLI reference, API endpoints, node types, workflow JSON schema, và common patterns.</p>
+                <p>Tài liệu viết dưới dạng SKILL.md để AI agents (Gemini, Claude, GPT) có thể đọc và tự vận hành toàn bộ hệ thống mà không cần hướng dẫn của người dùng.</p>
             </div>
         </div>
     </div>
@@ -675,6 +695,238 @@
                 <div class="skill-icon">🔄</div>
                 <h4>Batch Command Runner</h4>
                 <p>Loop → Execute shell commands → Log kết quả.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Plugin System ═══ -->
+<section id="plugins">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">PLUGIN SYSTEM</div>
+            <h2>Hệ Thống Plugin</h2>
+            <p>Mở rộng TubeCLI bằng plugins — enable/disable, auto-register CLI commands và API routes</p>
+        </div>
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>Browser Plugin</h3>
+                <p>Quản lý browser profiles, proxy, cookies. Launch/stop browser automation với AI prompts. Profile-based giống antidetect browsers.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎨</div>
+                <h3>Web UI Plugin</h3>
+                <p>Dashboard SPA tại localhost:3000 với 6 tabs: Agents, Browser, Workflows, Skills, Market, Settings.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🛒</div>
+                <h3>Market Plugin</h3>
+                <p>Browse và install community skills từ marketplace. Search, install, và list skills từ registry.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔌</div>
+                <h3>Plugin Manager</h3>
+                <p>Discover, enable/disable plugins. Auto-inject CLI commands và API routes. Config persist qua data/plugins.json.</p>
+            </div>
+        </div>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Plugin Management</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Xem danh sách plugins</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin list</span></div>
+                <div><span class="output">  browser   0.1.0  ○ Disabled  Browser profile management</span></div>
+                <div><span class="output">  webui     0.1.0  ○ Disabled  Web dashboard</span></div>
+                <div><span class="output">  market    0.1.0  ○ Disabled  Community marketplace</span></div>
+                <br>
+                <div><span class="comment"># Bật plugins</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">browser</span></div>
+                <div><span class="success">✅ Plugin 'browser' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">webui</span></div>
+                <div><span class="success">✅ Plugin 'webui' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">market</span></div>
+                <div><span class="success">✅ Plugin 'market' enabled.</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Browser Profiles ═══ -->
+<section id="browser">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">BROWSER</div>
+            <h2>Browser Automation</h2>
+            <p>Quản lý browser profiles, proxy, cookies — launch browser với AI prompts</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Browser Commands</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Tạo browser profile</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser create</span> <span class="arg">"my-profile"</span> <span class="cmd">--proxy</span> <span class="arg">"socks5://user:pass@host:port"</span></div>
+                <div><span class="success">✅ Profile created: my-profile</span></div>
+                <br>
+                <div><span class="comment"># Xem danh sách profiles</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser profiles</span></div>
+                <div><span class="output">  my-profile  socks5://...  Windows, Chrome  2026-03-18</span></div>
+                <br>
+                <div><span class="comment"># Launch browser với AI prompt</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser launch</span> <span class="arg">"my-profile"</span> <span class="cmd">--prompt</span> <span class="arg">"Go to youtube and subscribe"</span></div>
+                <div><span class="output">🚀 Browser launched</span></div>
+                <div><span class="output">   Instance: browser-a1b2c3d4</span></div>
+                <br>
+                <div><span class="comment"># Xem status &amp; dừng browser</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser status</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser stop</span> <span class="arg">"my-profile"</span></div>
+                <div><span class="output">⏹ Browser 'my-profile' stopped.</span></div>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🌐 Browser API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Mô tả</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Danh sách profiles</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Tạo profile mới</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Chi tiết profile</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Update profile</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Xóa profile</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/launch</td><td>Launch browser</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/stop</td><td>Stop browser</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/status</td><td>Running instances</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Web Dashboard ═══ -->
+<section id="dashboard">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">WEB UI</div>
+            <h2>Web Dashboard</h2>
+            <p>Giao diện web quản lý toàn bộ hệ thống TubeCLI tại localhost:3000</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Start Dashboard</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli webui start</span> <span class="cmd">--port</span> <span class="arg">3000</span></div>
+                <div><span class="output">🎨 TubeCLI Dashboard started</span></div>
+                <div><span class="output">   URL: http://localhost:3000</span></div>
+            </div>
+        </div>
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🤖</div>
+                <h4>Agents Tab</h4>
+                <p>CRUD agents, gán skills, xem model. Create/delete trực tiếp từ dashboard.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🌐</div>
+                <h4>Browser Tab</h4>
+                <p>Quản lý profiles, launch/stop browser, xem running instances realtime.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔄</div>
+                <h4>Workflows Tab</h4>
+                <p>Xem available node types, chạy workflows, theo dõi execution logs.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">⚡</div>
+                <h4>Skills Tab</h4>
+                <p>Danh sách installed skills, run skill trực tiếp từ dashboard.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🛒</div>
+                <h4>Market Tab</h4>
+                <p>Browse marketplace, search skills, install community skills.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">⚙️</div>
+                <h4>Settings Tab</h4>
+                <p>Cấu hình API port, AI model, API base URL. Persist settings.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Marketplace ═══ -->
+<section id="market">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">MARKETPLACE</div>
+            <h2>Community Skills</h2>
+            <p>Cài đặt skills từ community marketplace — Search, install, và sử dụng</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Marketplace</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Tìm kiếm skills</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market search</span> <span class="arg">"youtube"</span></div>
+                <div><span class="output">  🎬 YouTube Uploader   community   Auto upload videos with SEO</span></div>
+                <br>
+                <div><span class="comment"># Cài đặt skill</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market install</span> <span class="arg">youtube-uploader</span></div>
+                <div><span class="success">✅ Installed: 🎬 YouTube Uploader</span></div>
+                <br>
+                <div><span class="comment"># Xem tất cả marketplace skills</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market list</span></div>
+            </div>
+        </div>
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🎬</div>
+                <h4>YouTube Uploader</h4>
+                <p>Auto upload videos to YouTube with SEO optimization.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📱</div>
+                <h4>TikTok Poster</h4>
+                <p>Post content to TikTok automatically.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📧</div>
+                <h4>Email Sender</h4>
+                <p>Batch email sending with templates.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🕷️</div>
+                <h4>Web Scraper</h4>
+                <p>Extract data from websites via CSS selectors.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📤</div>
+                <h4>Social Poster</h4>
+                <p>Post to multiple social platforms at once.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔍</div>
+                <h4>SEO Analyzer</h4>
+                <p>Analyze website SEO metrics and rankings.</p>
             </div>
         </div>
     </div>
