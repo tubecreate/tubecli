@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeCLI Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-logo">⚡ TubeCLI</div>
+        <nav class="sidebar-nav">
+            <button class="nav-item active" data-tab="agents">🤖 Agents</button>
+            <button class="nav-item" data-tab="browser">🌐 Browser</button>
+            <button class="nav-item" data-tab="workflows">🔄 Workflows</button>
+            <button class="nav-item" data-tab="skills">⚡ Skills</button>
+            <button class="nav-item" data-tab="market">🛒 Market</button>
+            <button class="nav-item" data-tab="settings">⚙️ Settings</button>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot"></span> API Connected
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+        <!-- Agents Tab -->
+        <section class="tab-panel active" id="tab-agents">
+            <div class="panel-header">
+                <h1>🤖 Agents</h1>
+                <button class="btn-primary" onclick="showCreateAgent()">+ Create Agent</button>
+            </div>
+            <div id="agents-list" class="cards-grid"></div>
+
+            <!-- Create Agent Modal -->
+            <div id="modal-agent" class="modal hidden">
+                <div class="modal-content">
+                    <h2>Create Agent</h2>
+                    <div class="form-group"><label>Name</label><input id="agent-name" placeholder="Agent name"></div>
+                    <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Description"></div>
+                    <div class="form-group"><label>Model</label><input id="agent-model" value="qwen:latest"></div>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" onclick="closeModal('modal-agent')">Cancel</button>
+                        <button class="btn-primary" onclick="createAgent()">Create</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Browser Tab -->
+        <section class="tab-panel" id="tab-browser">
+            <div class="panel-header">
+                <h1>🌐 Browser Profiles</h1>
+                <button class="btn-primary" onclick="showCreateProfile()">+ New Profile</button>
+            </div>
+            <div id="running-browsers" class="status-bar hidden">
+                <span class="pulse-dot"></span> <span id="running-count">0</span> running
+            </div>
+            <div id="profiles-list" class="cards-grid"></div>
+
+            <div id="modal-profile" class="modal hidden">
+                <div class="modal-content">
+                    <h2>Create Profile</h2>
+                    <div class="form-group"><label>Name</label><input id="profile-name" placeholder="profile_name"></div>
+                    <div class="form-group"><label>Proxy</label><input id="profile-proxy" placeholder="socks5://user:pass@host:port"></div>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" onclick="closeModal('modal-profile')">Cancel</button>
+                        <button class="btn-primary" onclick="createProfile()">Create</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Workflows Tab -->
+        <section class="tab-panel" id="tab-workflows">
+            <div class="panel-header"><h1>🔄 Workflows</h1></div>
+            <div id="workflows-list" class="cards-grid"></div>
+        </section>
+
+        <!-- Skills Tab -->
+        <section class="tab-panel" id="tab-skills">
+            <div class="panel-header"><h1>⚡ Skills</h1></div>
+            <div id="skills-list" class="cards-grid"></div>
+        </section>
+
+        <!-- Market Tab -->
+        <section class="tab-panel" id="tab-market">
+            <div class="panel-header"><h1>🛒 Marketplace</h1></div>
+            <div class="market-search">
+                <input id="market-search" placeholder="Search skills..." oninput="searchMarket()">
+            </div>
+            <div id="market-list" class="cards-grid">
+                <div class="card">
+                    <div class="card-icon">🎬</div>
+                    <h3>YouTube Uploader</h3>
+                    <p class="card-desc">Auto upload videos to YouTube with SEO</p>
+                    <div class="card-footer"><span class="tag">community</span><button class="btn-sm">Install</button></div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📱</div>
+                    <h3>TikTok Poster</h3>
+                    <p class="card-desc">Post content to TikTok automatically</p>
+                    <div class="card-footer"><span class="tag">community</span><button class="btn-sm">Install</button></div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">📧</div>
+                    <h3>Email Sender</h3>
+                    <p class="card-desc">Batch email sending with templates</p>
+                    <div class="card-footer"><span class="tag">community</span><button class="btn-sm">Install</button></div>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🕷️</div>
+                    <h3>Web Scraper</h3>
+                    <p class="card-desc">Extract data from websites using CSS selectors</p>
+                    <div class="card-footer"><span class="tag">official</span><button class="btn-sm">Install</button></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Settings Tab -->
+        <section class="tab-panel" id="tab-settings">
+            <div class="panel-header"><h1>⚙️ Settings</h1></div>
+            <div class="settings-form">
+                <div class="form-group"><label>API Port</label><input id="set-port" value="5295"></div>
+                <div class="form-group"><label>AI Model</label><input id="set-model" value="qwen:latest"></div>
+                <div class="form-group"><label>API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
+                <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </section>
+    </main>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

@@ -42,13 +42,27 @@ def list_available_nodes() -> list:
     """Return list of available node types with descriptions."""
     seen = set()
     result = []
+    icons = {
+        "text_input": "📝", "loop": "🔄", "python_code": "🐍",
+        "api_request": "🌐", "run_command": "💻", "ai_node": "🧠", "output": "📤",
+    }
     for key, cls in NODE_REGISTRY.items():
         if cls not in seen:
             seen.add(cls)
+            try:
+                inst = cls.__new__(cls)
+                inst.__init__()
+                inputs = [p.id for p in inst.inputs]
+                outputs = [p.id for p in inst.outputs]
+            except Exception:
+                inputs, outputs = [], []
             result.append({
                 "type": key,
                 "name": cls.display_name,
+                "icon": icons.get(key, "📦"),
                 "description": cls.description,
                 "category": cls.category,
+                "inputs": inputs,
+                "outputs": outputs,
             })
     return result

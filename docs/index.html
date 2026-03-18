@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeCLI — Open Source AI Agent CLI System</title>
+    <meta name="description" content="Hệ thống CLI mã nguồn mở để quản lý AI agents, skills, và workflows. AI agents có thể tự đọc và vận hành.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a2e;
+            --bg-card-hover: #222240;
+            --border: #2a2a4a;
+            --text-primary: #e8e8f0;
+            --text-secondary: #9898b8;
+            --text-muted: #6868a0;
+            --accent-cyan: #00d4ff;
+            --accent-purple: #a855f7;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-pink: #ec4899;
+            --accent-blue: #3b82f6;
+            --gradient-main: linear-gradient(135deg, #00d4ff, #a855f7);
+            --gradient-warm: linear-gradient(135deg, #f59e0b, #ec4899);
+            --gradient-cool: linear-gradient(135deg, #22c55e, #3b82f6);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* ─── Animated Background ──────────────────────────── */
+        .bg-glow {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .bg-glow .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: float 20s ease-in-out infinite;
+        }
+        .bg-glow .orb:nth-child(1) { width: 600px; height: 600px; background: var(--accent-cyan); top: -200px; left: -100px; }
+        .bg-glow .orb:nth-child(2) { width: 500px; height: 500px; background: var(--accent-purple); top: 40%; right: -150px; animation-delay: -7s; }
+        .bg-glow .orb:nth-child(3) { width: 400px; height: 400px; background: var(--accent-pink); bottom: -100px; left: 30%; animation-delay: -14s; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-60px) scale(1.1); }
+        }
+
+        /* ─── Layout ───────────────────────────────────────── */
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+        section { padding: 80px 0; }
+
+        /* ─── Navigation ───────────────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+        nav .nav-inner {
+            max-width: 1100px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 64px;
+        }
+        nav .logo { font-weight: 800; font-size: 1.3rem; background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        nav .nav-links { display: flex; gap: 28px; }
+        nav .nav-links a {
+            color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;
+            transition: color 0.2s; position: relative;
+        }
+        nav .nav-links a:hover { color: var(--accent-cyan); }
+        nav .nav-links a::after {
+            content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
+            background: var(--gradient-main); transition: width 0.3s;
+        }
+        nav .nav-links a:hover::after { width: 100%; }
+        .github-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary);
+            text-decoration: none; transition: all 0.2s;
+        }
+        .github-btn:hover { border-color: var(--accent-cyan); background: var(--bg-card-hover); }
+
+        /* ─── Hero ─────────────────────────────────────────── */
+        .hero {
+            padding: 160px 0 100px; text-align: center;
+        }
+        .hero .badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+            background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3);
+            color: var(--accent-cyan); margin-bottom: 28px;
+        }
+        .hero .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; line-height: 1.1;
+            background: linear-gradient(135deg, #fff, #00d4ff, #a855f7);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+        .hero p { font-size: 1.15rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto 40px; }
+        .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 32px; border-radius: var(--radius-sm); font-size: 0.95rem; font-weight: 600;
+            background: var(--gradient-main); color: #000; text-decoration: none;
+            transition: all 0.3s; border: none; cursor: pointer;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 212, 255, 0.3); }
+        .btn-secondary {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 32px; border-radius: var(--radius-sm); font-size: 0.95rem; font-weight: 600;
+            background: var(--bg-card); color: var(--text-primary); text-decoration: none;
+            border: 1px solid var(--border); transition: all 0.3s; cursor: pointer;
+        }
+        .btn-secondary:hover { border-color: var(--accent-purple); transform: translateY(-2px); }
+
+        /* ─── Section Headers ──────────────────────────────── */
+        .section-header { text-align: center; margin-bottom: 56px; }
+        .section-header .label {
+            display: inline-block; padding: 4px 14px; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+        .section-header h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 12px; }
+        .section-header p { color: var(--text-secondary); font-size: 1.05rem; max-width: 550px; margin: 0 auto; }
+
+        /* ─── Architecture Diagram ─────────────────────────── */
+        .arch-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+            margin-bottom: 24px;
+        }
+        .arch-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px;
+            transition: all 0.3s; position: relative; overflow: hidden;
+        }
+        .arch-card:hover { border-color: var(--accent-cyan); transform: translateY(-4px); box-shadow: var(--shadow); }
+        .arch-card .icon { font-size: 2rem; margin-bottom: 12px; }
+        .arch-card h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; }
+        .arch-card p { color: var(--text-secondary); font-size: 0.9rem; }
+        .arch-card.full { grid-column: 1 / -1; }
+        .arch-card .glow-line {
+            position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: var(--gradient-main); opacity: 0; transition: opacity 0.3s;
+        }
+        .arch-card:hover .glow-line { opacity: 1; }
+
+        /* ─── Terminal / Code Block ────────────────────────── */
+        .terminal {
+            background: #0d1117; border: 1px solid #21262d;
+            border-radius: var(--radius); overflow: hidden;
+            margin: 24px 0; box-shadow: var(--shadow);
+        }
+        .terminal-header {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 16px; background: #161b22; border-bottom: 1px solid #21262d;
+        }
+        .terminal-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .terminal-dot.red { background: #ff5f57; }
+        .terminal-dot.yellow { background: #febc2e; }
+        .terminal-dot.green { background: #28c840; }
+        .terminal-title { color: var(--text-muted); font-size: 0.8rem; margin-left: 8px; font-family: 'JetBrains Mono', monospace; }
+        .terminal-body {
+            padding: 20px; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem; line-height: 1.8; overflow-x: auto;
+        }
+        .terminal-body .prompt { color: var(--accent-green); }
+        .terminal-body .cmd { color: var(--text-primary); }
+        .terminal-body .comment { color: var(--text-muted); }
+        .terminal-body .output { color: var(--accent-cyan); }
+        .terminal-body .success { color: var(--accent-green); }
+        .terminal-body .arg { color: var(--accent-orange); }
+
+        /* ─── Node Types Table ─────────────────────────────── */
+        .nodes-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .node-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 20px;
+            transition: all 0.3s;
+        }
+        .node-card:hover { border-color: var(--accent-purple); transform: translateY(-2px); }
+        .node-card .node-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .node-card .node-icon { font-size: 1.5rem; }
+        .node-card .node-name { font-weight: 700; font-size: 0.95rem; }
+        .node-card .node-type { 
+            font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+            padding: 2px 8px; border-radius: 4px; background: rgba(168, 85, 247, 0.15);
+            color: var(--accent-purple);
+        }
+        .node-card .node-desc { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 10px; }
+        .node-card .ports { font-size: 0.8rem; color: var(--text-muted); }
+        .node-card .ports span { color: var(--accent-cyan); }
+
+        /* ─── Workflow Diagram ─────────────────────────────── */
+        .workflow-visual {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 40px;
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; flex-wrap: wrap; margin: 24px 0;
+        }
+        .wf-node {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 16px 20px; border-radius: var(--radius-sm);
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            min-width: 120px; transition: all 0.3s;
+        }
+        .wf-node:hover { border-color: var(--accent-cyan); }
+        .wf-node .wf-icon { font-size: 1.8rem; margin-bottom: 6px; }
+        .wf-node .wf-label { font-size: 0.8rem; font-weight: 600; text-align: center; }
+        .wf-arrow { font-size: 1.5rem; color: var(--accent-cyan); animation: arrow-pulse 1.5s ease-in-out infinite; }
+        @keyframes arrow-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        /* ─── API Endpoints ────────────────────────────────── */
+        .api-table {
+            width: 100%; border-collapse: collapse;
+            background: var(--bg-card); border-radius: var(--radius);
+            overflow: hidden; border: 1px solid var(--border);
+        }
+        .api-table th {
+            text-align: left; padding: 14px 20px; font-weight: 700; font-size: 0.85rem;
+            background: var(--bg-secondary); color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .api-table td {
+            padding: 12px 20px; border-top: 1px solid var(--border); font-size: 0.9rem;
+        }
+        .api-table tr:hover td { background: var(--bg-card-hover); }
+        .method {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+            padding: 3px 8px; border-radius: 4px; font-weight: 700;
+        }
+        .method.get { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+        .method.post { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .method.put { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .method.delete { background: rgba(236, 72, 153, 0.15); color: var(--accent-pink); }
+        .endpoint { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--accent-cyan); }
+
+        /* ─── Skills Cards ─────────────────────────────────── */
+        .skills-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .skill-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+            transition: all 0.3s; cursor: default;
+        }
+        .skill-card:hover { border-color: var(--accent-green); transform: translateY(-4px); box-shadow: var(--shadow); }
+        .skill-card .skill-icon { font-size: 2rem; margin-bottom: 12px; }
+        .skill-card h4 { font-weight: 700; margin-bottom: 6px; }
+        .skill-card p { color: var(--text-secondary); font-size: 0.85rem; }
+
+        /* ─── Footer ───────────────────────────────────────── */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 40px 0; text-align: center;
+            color: var(--text-muted); font-size: 0.85rem;
+        }
+        footer a { color: var(--accent-cyan); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        /* ─── Responsive ───────────────────────────────────── */
+        @media (max-width: 768px) {
+            .arch-grid { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 2rem; }
+            nav .nav-links { display: none; }
+            .workflow-visual { gap: 8px; }
+            .wf-node { min-width: 90px; padding: 12px; }
+        }
+
+        /* ─── Animations ───────────────────────────────────── */
+        .fade-in {
+            opacity: 0; transform: translateY(30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
+    </style>
+</head>
+<body>
+
+<div class="bg-glow">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+</div>
+
+<!-- ═══ Navigation ═══ -->
+<nav>
+    <div class="nav-inner">
+        <div class="logo">⚡ TubeCLI</div>
+        <div class="nav-links">
+            <a href="#architecture">Kiến Trúc</a>
+            <a href="#install">Cài Đặt</a>
+            <a href="#commands">CLI</a>
+            <a href="#workflow">Workflow</a>
+            <a href="#nodes">Nodes</a>
+            <a href="#api">API</a>
+            <a href="#skills">Skills</a>
+        </div>
+        <a href="https://github.com/tubecreate/tubecli" target="_blank" class="github-btn">
+            ⭐ GitHub
+        </a>
+    </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section class="hero">
+    <div class="container">
+        <div class="badge"><span class="dot"></span> Open Source • v0.1.0</div>
+        <h1>AI Agent CLI System</h1>
+        <p>Quản lý AI agents, skills, và workflows từ command line. AI agents có thể tự đọc docs và vận hành toàn bộ hệ thống.</p>
+        <div class="hero-actions">
+            <a href="#install" class="btn-primary">🚀 Bắt đầu</a>
+            <a href="#architecture" class="btn-secondary">📖 Kiến trúc</a>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Architecture ═══ -->
+<section id="architecture">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">KIẾN TRÚC</div>
+            <h2>5 Hệ Thống Con</h2>
+            <p>TubeCLI được xây dựng từ 5 subsystems hoạt động cùng nhau</p>
+        </div>
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🤖</div>
+                <h3>Agent Manager</h3>
+                <p>Tạo và quản lý AI agents với persona, routine, skills, và cloud API keys. Lưu trữ JSON, CRUD qua CLI hoặc API.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">⚡</div>
+                <h3>Skill System</h3>
+                <p>Skills = workflow templates có sẵn. 4 skills mặc định. Agents được gán skills để thực hiện tác vụ.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔄</div>
+                <h3>Workflow Engine</h3>
+                <p>DAG executor sử dụng Kahn's algorithm (topological sort). Nodes kết nối qua ports, hỗ trợ loop iteration.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>API Server</h3>
+                <p>FastAPI REST server với Swagger docs. CRUD endpoints cho agents, skills, workflows. Auto-gen API documentation.</p>
+            </div>
+            <div class="arch-card full fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📖</div>
+                <h3>AI Documentation (.agents/skills/SKILL.md)</h3>
+                <p>Tài liệu viết dưới dạng SKILL.md để AI agents (Gemini, Claude, GPT) có thể đọc và tự vận hành toàn bộ hệ thống mà không cần hướng dẫn của người dùng. Bao gồm CLI reference, API endpoints, node types, workflow JSON schema, và common patterns.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Installation ═══ -->
+<section id="install">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">CÀI ĐẶT</div>
+            <h2>Bắt Đầu Trong 3 Bước</h2>
+            <p>Cài đặt nhanh và chạy ngay</p>
+        </div>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">PowerShell</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># 1. Clone & Install</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">git clone</span> <span class="arg">https://github.com/tubecreate/tubecli.git</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">cd</span> <span class="arg">tubecli</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">pip install -e .</span></div>
+                <br>
+                <div><span class="comment"># 2. Initialize workspace</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span></div>
+                <div><span class="output">🚀 Initializing TubeCLI workspace...</span></div>
+                <div><span class="output">  📁 Data directory: ./data</span></div>
+                <div><span class="output">  ✅ Added skill: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  ✅ Added skill: 📋 Data Collector</span></div>
+                <div><span class="output">  ✅ Added skill: 📊 Report Generator</span></div>
+                <div><span class="output">  ✅ Added skill: 🔄 Batch Command Runner</span></div>
+                <div><span class="success">✅ TubeCLI workspace ready!</span></div>
+                <br>
+                <div><span class="comment"># 3. Verify</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli --version</span></div>
+                <div><span class="output">tubecli, version 0.1.0</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ CLI Commands ═══ -->
+<section id="commands">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">SỬ DỤNG</div>
+            <h2>CLI Commands</h2>
+            <p>Quản lý toàn bộ hệ thống từ terminal</p>
+        </div>
+
+        <!-- Agent Commands -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🤖 Agent Commands</h3>
+        <div class="terminal fade-in" style="margin-bottom: 32px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">Agent Management</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Tạo agent mới</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent create</span> <span class="arg">"My Bot"</span> <span class="cmd">--description</span> <span class="arg">"Trading assistant"</span> <span class="cmd">--model</span> <span class="arg">"qwen:latest"</span></div>
+                <div><span class="success">✅ Agent created: My Bot</span></div>
+                <div><span class="output">   ID: 069ba003-eca4-7e92...</span></div>
+                <br>
+                <div><span class="comment"># Xem danh sách</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent list</span></div>
+                <br>
+                <div><span class="comment"># Xem chi tiết</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent show</span> <span class="arg">"My Bot"</span></div>
+                <br>
+                <div><span class="comment"># Xóa agent</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent delete</span> <span class="arg">&lt;agent_id&gt;</span></div>
+            </div>
+        </div>
+
+        <!-- Skill Commands -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">⚡ Skill Commands</h3>
+        <div class="terminal fade-in" style="margin-bottom: 32px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">Skill Execution</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Xem skills có sẵn</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli skill list</span></div>
+                <br>
+                <div><span class="comment"># Chạy skill với input</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli skill run</span> <span class="arg">"AI Summarizer"</span> <span class="cmd">--input</span> <span class="arg">"Your long text here..."</span></div>
+                <div><span class="output">⚡ Running skill: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  [1/3] Executing: 📝 Input</span></div>
+                <div><span class="output">  [2/3] Executing: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  [3/3] Executing: 📤 Output</span></div>
+                <div><span class="success">✅ Skill completed successfully</span></div>
+            </div>
+        </div>
+
+        <!-- API & Workflow -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🌐 API & Workflow</h3>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">API Server & Workflow</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Khởi động API server</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli api start</span> <span class="cmd">--port</span> <span class="arg">5295</span></div>
+                <div><span class="output">🌐 Starting TubeCLI API Server</span></div>
+                <div><span class="output">   URL: http://0.0.0.0:5295</span></div>
+                <div><span class="output">   Docs: http://localhost:5295/api/v1/docs</span></div>
+                <br>
+                <div><span class="comment"># Chạy workflow từ file</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli workflow run</span> <span class="arg">my_workflow.json</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Workflow How It Works ═══ -->
+<section id="workflow">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(59,130,246,0.1); color: var(--accent-blue);">CÁCH THỨC</div>
+            <h2>Workflow Engine</h2>
+            <p>Luồng xử lý DAG: nodes kết nối qua ports, thực thi theo thứ tự topological</p>
+        </div>
+
+        <div class="workflow-visual fade-in">
+            <div class="wf-node"><div class="wf-icon">📝</div><div class="wf-label">Text Input</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">🔄</div><div class="wf-label">Loop</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">🧠</div><div class="wf-label">AI Node</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">📤</div><div class="wf-label">Output</div></div>
+        </div>
+
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">workflow.json</span>
+            </div>
+            <div class="terminal-body">
+<pre style="color: var(--text-primary);">{
+  <span style="color: var(--accent-cyan);">"name"</span>: <span style="color: var(--accent-green);">"My Workflow"</span>,
+  <span style="color: var(--accent-cyan);">"nodes"</span>: [
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"in"</span>,  <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"text_input"</span>, <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"text"</span>: <span style="color: var(--accent-green);">"Hello world"</span> } },
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"ai_node"</span>,    <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"model"</span>: <span style="color: var(--accent-green);">"qwen:latest"</span> } },
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"out"</span>, <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"output"</span>,    <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"print"</span>: <span style="color: var(--accent-orange);">true</span> } }
+  ],
+  <span style="color: var(--accent-cyan);">"connections"</span>: [
+    { <span style="color: var(--accent-cyan);">"from_node_id"</span>: <span style="color: var(--accent-green);">"in"</span>,  <span style="color: var(--accent-cyan);">"from_port_id"</span>: <span style="color: var(--accent-green);">"content"</span>,  <span style="color: var(--accent-cyan);">"to_node_id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"to_port_id"</span>: <span style="color: var(--accent-green);">"prompt"</span> },
+    { <span style="color: var(--accent-cyan);">"from_node_id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"from_port_id"</span>: <span style="color: var(--accent-green);">"response"</span>, <span style="color: var(--accent-cyan);">"to_node_id"</span>: <span style="color: var(--accent-green);">"out"</span>, <span style="color: var(--accent-cyan);">"to_port_id"</span>: <span style="color: var(--accent-green);">"data"</span> }
+  ]
+}</pre>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Node Types ═══ -->
+<section id="nodes">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">NODE TYPES</div>
+            <h2>7 Loại Node</h2>
+            <p>Mỗi node có typed ports (inputs/outputs) kết nối thành workflow DAG</p>
+        </div>
+        <div class="nodes-grid">
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">📝</span>
+                    <span class="node-name">Text Input</span>
+                    <span class="node-type">text_input</span>
+                </div>
+                <div class="node-desc">Cung cấp text tĩnh làm đầu vào cho workflow.</div>
+                <div class="ports">Outputs: <span>content</span>, <span>lines</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🔄</span>
+                    <span class="node-name">Loop</span>
+                    <span class="node-type">loop</span>
+                </div>
+                <div class="node-desc">Lặp qua danh sách items, thực thi downstream mỗi iteration.</div>
+                <div class="ports">In: <span>items</span> → Out: <span>current_item</span>, <span>index</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🐍</span>
+                    <span class="node-name">Python Code</span>
+                    <span class="node-type">python_code</span>
+                </div>
+                <div class="node-desc">Chạy code Python tùy ý. Access inputs qua biến.</div>
+                <div class="ports">In: <span>text_input</span>, <span>json_input</span> → Out: <span>result</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🌐</span>
+                    <span class="node-name">API Request</span>
+                    <span class="node-type">api_request</span>
+                </div>
+                <div class="node-desc">HTTP requests (GET/POST/PUT/DELETE) tới APIs.</div>
+                <div class="ports">In: <span>url</span>, <span>body</span> → Out: <span>response</span>, <span>status_code</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">💻</span>
+                    <span class="node-name">Run Command</span>
+                    <span class="node-type">run_command</span>
+                </div>
+                <div class="node-desc">Chạy shell commands, capture stdout và exit code.</div>
+                <div class="ports">In: <span>command</span> → Out: <span>stdout</span>, <span>exit_code</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🧠</span>
+                    <span class="node-name">AI Inference</span>
+                    <span class="node-type">ai_node</span>
+                </div>
+                <div class="node-desc">Gọi AI model (Ollama local hoặc Cloud API).</div>
+                <div class="ports">In: <span>prompt</span>, <span>context</span> → Out: <span>response</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">📤</span>
+                    <span class="node-name">Output</span>
+                    <span class="node-type">output</span>
+                </div>
+                <div class="node-desc">Hiển thị hoặc lưu kết quả cuối cùng ra file.</div>
+                <div class="ports">In: <span>data</span> → Out: <span>file_path</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ API Reference ═══ -->
+<section id="api">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">REST API</div>
+            <h2>API Endpoints</h2>
+            <p>FastAPI server với auto-generated Swagger docs tại /api/v1/docs</p>
+        </div>
+        <table class="api-table fade-in">
+            <thead>
+                <tr><th>Method</th><th>Endpoint</th><th>Mô tả</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/health</td><td>Health check</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/agents</td><td>Danh sách agents</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/agents</td><td>Tạo agent mới</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Chi tiết agent</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Cập nhật agent</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Xóa agent</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/skills</td><td>Danh sách skills</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/skills</td><td>Tạo skill mới</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/skills/{id}</td><td>Xóa skill</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/workflows/run</td><td>Chạy workflow</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/nodes</td><td>Danh sách node types</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Default Skills ═══ -->
+<section id="skills">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">BUILT-IN</div>
+            <h2>4 Skills Mặc Định</h2>
+            <p>Cài sẵn khi chạy <code style="background: var(--bg-card); padding: 2px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">tubecli init</code></p>
+        </div>
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🧠</div>
+                <h4>AI Summarizer</h4>
+                <p>Input text → AI tóm tắt → Output. Sử dụng Ollama local model.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📋</div>
+                <h4>Data Collector</h4>
+                <p>API request → Parse JSON response → Save to file.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📊</div>
+                <h4>Report Generator</h4>
+                <p>Collect data → AI format → Save báo cáo.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔄</div>
+                <h4>Batch Command Runner</h4>
+                <p>Loop → Execute shell commands → Log kết quả.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+    <div class="container">
+        <p>⚡ <strong>TubeCLI</strong> v0.1.0 — Open Source AI Agent CLI System</p>
+        <p style="margin-top: 8px;">
+            <a href="https://github.com/tubecreate/tubecli">GitHub</a> &nbsp;·&nbsp;
+            MIT License &nbsp;·&nbsp;
+            Made with 🤖 by TubeCreate Team
+        </p>
+    </div>
+</footer>
+
+<!-- ═══ JavaScript ═══ -->
+<script>
+// ─── Scroll Animations ───────────────────────────────────
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+        }
+    });
+}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// ─── Smooth Nav Scroll ───────────────────────────────────
+document.querySelectorAll('nav a[href^="#"]').forEach(link => {
+    link.addEventListener('click', e => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+});
+
+// ─── Nav Background on Scroll ────────────────────────────
+const nav = document.querySelector('nav');
+window.addEventListener('scroll', () => {
+    if (window.scrollY > 80) {
+        nav.style.background = 'rgba(10, 10, 15, 0.95)';
+        nav.style.borderBottomColor = 'rgba(42, 42, 74, 0.8)';
+    } else {
+        nav.style.background = 'rgba(10, 10, 15, 0.8)';
+        nav.style.borderBottomColor = 'var(--border)';
+    }
+});
+
+// ─── Typing Effect on Hero ───────────────────────────────
+const badge = document.querySelector('.hero .badge');
+if (badge) {
+    badge.style.opacity = '0';
+    badge.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+        badge.style.transition = 'all 0.5s ease';
+        badge.style.opacity = '1';
+        badge.style.transform = 'translateY(0)';
+    }, 300);
+}
+
+// ─── Workflow Arrow Animation ────────────────────────────
+const arrows = document.querySelectorAll('.wf-arrow');
+arrows.forEach((arrow, i) => {
+    arrow.style.animationDelay = `${i * 0.3}s`;
+});
+
+// ─── Node Card Stagger ───────────────────────────────────
+document.querySelectorAll('.node-card.fade-in').forEach((card, i) => {
+    card.style.transitionDelay = `${i * 0.08}s`;
+});
+
+console.log('⚡ TubeCLI Documentation loaded');
+</script>
+
+</body>
+</html>
