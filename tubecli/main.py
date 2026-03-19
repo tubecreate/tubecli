@@ -36,7 +36,7 @@ cli.add_command(plugin_group)
 # ── Plugin Commands (auto-discover enabled plugins) ───────
 try:
     from tubecli.core.plugin_manager import plugin_manager
-    plugin_manager.discover_plugins()
+    plugin_manager.discover_plugins()   # system + external plugins
     plugin_manager.register_cli_commands(cli)
 except Exception:
     pass  # Graceful fallback if plugins fail

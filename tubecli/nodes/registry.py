@@ -154,3 +154,18 @@ def get_node_tool_schemas() -> list:
     })
     
     return tools
+
+
+def register_external_nodes(nodes_dict: dict):
+    """Register additional nodes from plugins into the global NODE_REGISTRY."""
+    for node_type, node_cls in nodes_dict.items():
+        if node_type not in NODE_REGISTRY:
+            NODE_REGISTRY[node_type] = node_cls
+
+
+# ── Auto-register plugin nodes at import time ────────────────────
+try:
+    from tubecli.core.plugin_manager import plugin_manager
+    plugin_manager.register_plugin_nodes(NODE_REGISTRY)
+except Exception:
+    pass  # Graceful fallback if plugins haven't been discovered yet

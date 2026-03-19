@@ -567,6 +567,52 @@ async def update_plugin(name: str, req: PluginUpdateRequest):
     return {"status": "updated", "plugin": plugin.to_dict()}
 
 
+@app.get("/api/v1/plugins/{name}/info")
+async def plugin_info(name: str):
+    """Get detailed info about a plugin including manifest and SKILL.md."""
+    from tubecli.core.plugin_manager import plugin_manager
+    plugin = plugin_manager.get(name)
+    if not plugin:
+        raise HTTPException(404, f"Plugin '{name}' not found")
+    info = plugin.to_dict()
+    info["manifest"] = plugin.get_manifest()
+    info["nodes"] = list(plugin.get_nodes().keys()) if plugin.get_nodes() else []
+    skill_md = plugin.get_skill_md()
+    info["skill_md_content"] = skill_md[:2000] if skill_md else None
+    return info
+
+
+class PluginInstallRequest(BaseModel):
+    git_url: str
+
+
+@app.post("/api/v1/plugins/install")
+async def install_plugin(req: PluginInstallRequest):
+    """Install a plugin from a git repository URL."""
+    from tubecli.core.plugin_manager import plugin_manager
+    result = plugin_manager.install_from_git(req.git_url)
+    if result["status"] == "error":
+        raise HTTPException(400, result["message"])
+    return result
+
+
+@app.delete("/api/v1/plugins/{name}/uninstall")
+async def uninstall_plugin(name: str):
+    """Uninstall an external plugin."""
+    from tubecli.core.plugin_manager import plugin_manager
+    result = plugin_manager.uninstall(name)
+    if result["status"] == "error":
+        raise HTTPException(400, result["message"])
+    return result
+
+
+@app.get("/api/v1/plugins/skill-mds")
+async def get_plugin_skill_mds():
+    """Return all SKILL.md contents from enabled plugins for AI agents."""
+    from tubecli.core.plugin_manager import plugin_manager
+    return {"skill_mds": plugin_manager.get_all_skill_mds()}
+
+
 # ── Register Plugin Routes ───────────────────────────────────────
 from tubecli.core.plugin_manager import plugin_manager
 plugin_manager.register_api_routes(app)
