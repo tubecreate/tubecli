@@ -514,7 +514,30 @@ class ExtensionManager:
                     capture_output=True, timeout=120,
                 )
             except Exception as e:
-                logger.warning(f"Failed to install extension dependencies: {e}")
+                logger.warning(f"Failed to install extension python dependencies: {e}")
+
+        # Install Node.js dependencies if package.json exists
+        pkg_file = os.path.join(target_dir, "package.json")
+        if os.path.exists(pkg_file):
+            try:
+                print(f"📦 Installing Node.js dependencies for {manifest['name']}...")
+                subprocess.run(
+                    ["npm", "install", "--no-audit", "--no-fund"],
+                    cwd=target_dir, capture_output=True, timeout=180, shell=True
+                )
+                
+                # Check if playwright is a dependency and install its browsers
+                with open(pkg_file, "r", encoding="utf-8") as f:
+                    pkg_data = json.load(f)
+                    deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+                    if "playwright" in deps or "playwright-with-fingerprints" in deps:
+                        print(f"🎭 Installing Playwright browsers for {manifest['name']}...")
+                        subprocess.run(
+                            ["npx", "playwright", "install", "chromium"],
+                            cwd=target_dir, capture_output=True, timeout=300, shell=True
+                        )
+            except Exception as e:
+                logger.warning(f"Failed to install extension node dependencies: {e}")
 
         # Load the extension
         extension = self._load_external_extension(target_dir, manifest)
