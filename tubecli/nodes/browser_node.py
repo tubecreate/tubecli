@@ -32,8 +32,9 @@ class BrowserNode(BaseNode):
             return {"result": "", "screenshot_path": "", "status": "Error: No profile_name configured"}
 
         try:
-            from tubecli.extensions.browser.process_manager import browser_process_manager
-            from tubecli.extensions.browser.profile_manager import get_profile
+            # Dynamically loaded by extension_manager so they are in sys.path
+            from process_manager import browser_process_manager
+            from profile_manager import get_profile
 
             # Verify profile exists
             profile = get_profile(profile_name)

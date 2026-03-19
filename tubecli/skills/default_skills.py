@@ -178,6 +178,88 @@ DEFAULT_SKILLS: List[Dict] = [
             ],
         },
     },
+    {
+        "name": "🌐 Google Search",
+        "description": "Tự động mở trình duyệt, tìm kiếm Google theo từ khóa và trích xuất kết quả bằng AI. Dùng: tubecli skill run 'Google Search' --input 'Tìm kiếm về AI'",
+        "skill_type": "Skill",
+        "workflow_data": {
+            "name": "Google Search",
+            "nodes": [
+                {
+                    "id": "search_query",
+                    "type": "text_input",
+                    "label": "🔍 Từ khóa",
+                    "config": {"text": "Tin tức AI mới nhất hôm nay"},
+                },
+                {
+                    "id": "browser_search",
+                    "type": "browser_action",
+                    "label": "🌐 Browser Agent",
+                    "config": {
+                        "action": "run_prompt",
+                        "profile_name": "default",
+                        "prompt": "Go to Google, search for: {{input}}, and then summarize the top results you see.",
+                        "headless": False
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Output",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "search_query",
+                    "from_port_id": "content",
+                    "to_node_id": "browser_search",
+                    "to_port_id": "prompt",
+                },
+                {
+                    "from_node_id": "browser_search",
+                    "from_port_id": "result",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    },
+    {
+        "name": "📧 Gmail Login",
+        "description": "Mở trình duyệt và yêu cầu AI tự động truy cập Gmail để đăng nhập hoặc kiểm tra hòm thư.",
+        "skill_type": "Skill",
+        "workflow_data": {
+            "name": "Gmail Login",
+            "nodes": [
+                {
+                    "id": "browser_login",
+                    "type": "browser_action",
+                    "label": "📧 Login Gmail",
+                    "config": {
+                        "action": "run_prompt",
+                        "profile_name": "default",
+                        "prompt": "Go to https://gmail.com and log in using saved credentials, or tell me there is no saved credential.",
+                        "headless": False
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Output",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "browser_login",
+                    "from_port_id": "result",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    }
 ]
 
 
