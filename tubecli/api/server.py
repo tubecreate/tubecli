@@ -238,8 +238,7 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                 final_answer = await AgentBrain.autonomous_run(
                     message=skill_input,
                     agent=agent_dict,
-                    skill=skill_dict,
-                    history=agent.history_log or []
+                    skill=skill_dict
                 )
                 reply = final_answer
                 skill_manager.update(skill_id, last_run=_dt.datetime.now().isoformat())
