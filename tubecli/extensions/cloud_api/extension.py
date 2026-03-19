@@ -19,7 +19,7 @@ PROVIDERS = {
     "gemini": {
         "name": "Google Gemini",
         "base_url": "https://generativelanguage.googleapis.com",
-        "models": ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"],
+        "models": ["gemini-2.5-flash", "gemini-2.5-pro"],
         "env_var": "GEMINI_API_KEY",
     },
     "openai": {
@@ -94,6 +94,7 @@ class KeyManager:
 
     def get_key(self, provider: str, label: str = "default") -> Optional[str]:
         """Get an API key. Falls back to env var if no stored key."""
+        self._load()
         entry = self._keys.get(provider, {}).get(label)
         if entry and entry.get("active"):
             return entry["key"]
@@ -105,6 +106,7 @@ class KeyManager:
 
     def get_active_key(self, provider: str) -> Optional[str]:
         """Get any active key for a provider (round-robin ready)."""
+        self._load()
         entries = self._keys.get(provider, {})
         for label, entry in entries.items():
             if entry.get("active"):
@@ -115,6 +117,7 @@ class KeyManager:
 
     def list_keys(self, provider: str = None) -> dict:
         """List all stored keys (masked)."""
+        self._load()
         result = {}
         sources = {provider: self._keys.get(provider, {})} if provider else self._keys
         for prov, keys in sources.items():
@@ -131,6 +134,7 @@ class KeyManager:
 
     def list_providers(self) -> List[dict]:
         """List all supported providers with their status."""
+        self._load()
         result = []
         for prov_id, prov_info in PROVIDERS.items():
             has_key = self.get_active_key(prov_id) is not None
