@@ -4,6 +4,8 @@ from tubecli.nodes.base_node import BaseNode, PortType
 import asyncio
 
 
+import os
+
 class BrowserNode(BaseNode):
     node_type = "browser_action"
     display_name = "🌐 Browser Action"
@@ -63,6 +65,8 @@ class BrowserNode(BaseNode):
             elif action == "run_prompt":
                 if not prompt:
                     return {"result": "", "screenshot_path": "", "status": "Error: No prompt for run_prompt action"}
+                
+                # Spawn browser
                 result = browser_process_manager.spawn(
                     profile=profile_name,
                     prompt=prompt,
@@ -71,12 +75,40 @@ class BrowserNode(BaseNode):
                     ai_model=ai_model,
                     url=url,
                 )
-                await asyncio.sleep(wait_seconds)
-                status_info = browser_process_manager.get_status(result.get("instance_id", ""))
+                
+                instance_id = result.get("instance_id", "")
+                log_file = result.get("log_file", "")
+                
+                # Poll for completion (up to 3 minutes)
+                max_wait = 180
+                waited = 0
+                status_info = result
+                
+                while waited < max_wait:
+                    await asyncio.sleep(2)
+                    waited += 2
+                    status_info = browser_process_manager.get_status(instance_id) or {}
+                    if status_info.get("status") in ["completed", "error", "terminated"]:
+                        break
+                
+                # Extract summary from logs
+                final_result = "Action completed, but no summary was found in browser logs."
+                if log_file and os.path.exists(log_file):
+                    try:
+                        with open(log_file, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                            # Search from bottom for RESULT_SUMMARY
+                            for line in reversed(lines):
+                                if "RESULT_SUMMARY:" in line:
+                                    final_result = line.split("RESULT_SUMMARY:")[1].strip()
+                                    break
+                    except Exception as e:
+                        final_result = f"Error reading logs: {e}"
+
                 return {
-                    "result": str(status_info),
+                    "result": final_result,
                     "screenshot_path": "",
-                    "status": f"✅ Prompt sent: {prompt[:80]}",
+                    "status": f"✅ AI Task: {status_info.get('status', 'unknown')}",
                 }
 
             elif action == "manual":
