@@ -66,7 +66,7 @@ class AgentGenerateRequest(BaseModel):
     api_key: Optional[str] = None
     output_target_prefix: str = "ai"
 
-class PluginUpdateRequest(BaseModel):
+class ExtensionUpdateRequest(BaseModel):
     port: Optional[int] = None
 
 class AgentUpdateRequest(BaseModel):
@@ -532,87 +532,87 @@ async def list_nodes():
     return {"nodes": list_available_nodes()}
 
 
-# ── Plugins Management ───────────────────────────────────────────
+# ── Extensions Management ───────────────────────────────────────────
 
-@app.get("/api/v1/plugins")
-async def list_plugins():
-    from tubecli.core.plugin_manager import plugin_manager
-    plugins = plugin_manager.get_all()
-    return {"plugins": [p.to_dict() for p in plugins], "count": len(plugins)}
+@app.get("/api/v1/extensions")
+async def list_extensions():
+    from tubecli.core.extension_manager import extension_manager
+    extensions = extension_manager.get_all()
+    return {"extensions": [p.to_dict() for p in extensions], "count": len(extensions)}
 
-@app.post("/api/v1/plugins/{name}/enable")
-async def enable_plugin(name: str):
-    from tubecli.core.plugin_manager import plugin_manager
-    if plugin_manager.enable(name):
-        return {"status": "enabled", "plugin": name}
-    raise HTTPException(404, f"Plugin '{name}' not found")
+@app.post("/api/v1/extensions/{name}/enable")
+async def enable_extension(name: str):
+    from tubecli.core.extension_manager import extension_manager
+    if extension_manager.enable(name):
+        return {"status": "enabled", "extension": name}
+    raise HTTPException(404, f"Extension '{name}' not found")
 
-@app.post("/api/v1/plugins/{name}/disable")
-async def disable_plugin(name: str):
-    from tubecli.core.plugin_manager import plugin_manager
-    if plugin_manager.disable(name):
-        return {"status": "disabled", "plugin": name}
-    raise HTTPException(404, f"Plugin '{name}' not found")
+@app.post("/api/v1/extensions/{name}/disable")
+async def disable_extension(name: str):
+    from tubecli.core.extension_manager import extension_manager
+    if extension_manager.disable(name):
+        return {"status": "disabled", "extension": name}
+    raise HTTPException(404, f"Extension '{name}' not found")
 
-@app.put("/api/v1/plugins/{name}")
-async def update_plugin(name: str, req: PluginUpdateRequest):
-    from tubecli.core.plugin_manager import plugin_manager
-    plugin = plugin_manager.get(name)
-    if not plugin:
-         raise HTTPException(404, f"Plugin '{name}' not found")
+@app.put("/api/v1/extensions/{name}")
+async def update_extension(name: str, req: ExtensionUpdateRequest):
+    from tubecli.core.extension_manager import extension_manager
+    extension = extension_manager.get(name)
+    if not extension:
+         raise HTTPException(404, f"Extension '{name}' not found")
     
     if req.port is not None:
-        plugin_manager.set_port(name, req.port)
+        extension_manager.set_port(name, req.port)
         
-    return {"status": "updated", "plugin": plugin.to_dict()}
+    return {"status": "updated", "extension": extension.to_dict()}
 
 
-@app.get("/api/v1/plugins/{name}/info")
-async def plugin_info(name: str):
-    """Get detailed info about a plugin including manifest and SKILL.md."""
-    from tubecli.core.plugin_manager import plugin_manager
-    plugin = plugin_manager.get(name)
-    if not plugin:
-        raise HTTPException(404, f"Plugin '{name}' not found")
-    info = plugin.to_dict()
-    info["manifest"] = plugin.get_manifest()
-    info["nodes"] = list(plugin.get_nodes().keys()) if plugin.get_nodes() else []
-    skill_md = plugin.get_skill_md()
+@app.get("/api/v1/extensions/{name}/info")
+async def extension_info(name: str):
+    """Get detailed info about a extension including manifest and SKILL.md."""
+    from tubecli.core.extension_manager import extension_manager
+    extension = extension_manager.get(name)
+    if not extension:
+        raise HTTPException(404, f"Extension '{name}' not found")
+    info = extension.to_dict()
+    info["manifest"] = extension.get_manifest()
+    info["nodes"] = list(extension.get_nodes().keys()) if extension.get_nodes() else []
+    skill_md = extension.get_skill_md()
     info["skill_md_content"] = skill_md[:2000] if skill_md else None
     return info
 
 
-class PluginInstallRequest(BaseModel):
+class ExtensionInstallRequest(BaseModel):
     git_url: str
 
 
-@app.post("/api/v1/plugins/install")
-async def install_plugin(req: PluginInstallRequest):
-    """Install a plugin from a git repository URL."""
-    from tubecli.core.plugin_manager import plugin_manager
-    result = plugin_manager.install_from_git(req.git_url)
+@app.post("/api/v1/extensions/install")
+async def install_extension(req: ExtensionInstallRequest):
+    """Install a extension from a git repository URL."""
+    from tubecli.core.extension_manager import extension_manager
+    result = extension_manager.install_from_git(req.git_url)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
     return result
 
 
-@app.delete("/api/v1/plugins/{name}/uninstall")
-async def uninstall_plugin(name: str):
-    """Uninstall an external plugin."""
-    from tubecli.core.plugin_manager import plugin_manager
-    result = plugin_manager.uninstall(name)
+@app.delete("/api/v1/extensions/{name}/uninstall")
+async def uninstall_extension(name: str):
+    """Uninstall an external extension."""
+    from tubecli.core.extension_manager import extension_manager
+    result = extension_manager.uninstall(name)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
     return result
 
 
-@app.get("/api/v1/plugins/skill-mds")
-async def get_plugin_skill_mds():
-    """Return all SKILL.md contents from enabled plugins for AI agents."""
-    from tubecli.core.plugin_manager import plugin_manager
-    return {"skill_mds": plugin_manager.get_all_skill_mds()}
+@app.get("/api/v1/extensions/skill-mds")
+async def get_extension_skill_mds():
+    """Return all SKILL.md contents from enabled extensions for AI agents."""
+    from tubecli.core.extension_manager import extension_manager
+    return {"skill_mds": extension_manager.get_all_skill_mds()}
 
 
-# ── Register Plugin Routes ───────────────────────────────────────
-from tubecli.core.plugin_manager import plugin_manager
-plugin_manager.register_api_routes(app)
+# ── Register Extension Routes ───────────────────────────────────────
+from tubecli.core.extension_manager import extension_manager
+extension_manager.register_api_routes(app)

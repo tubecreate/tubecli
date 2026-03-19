@@ -14,7 +14,7 @@ AGENTS_FILE = DATA_DIR / "agents.json"
 SKILLS_FILE = DATA_DIR / "skills.json"
 WORKFLOWS_DIR = DATA_DIR / "workflows"
 LOGS_DIR = DATA_DIR / "logs"
-PLUGINS_EXTERNAL_DIR = DATA_DIR / "plugins_external"
+EXTENSIONS_EXTERNAL_DIR = DATA_DIR / "extensions_external"
 
 # ── Defaults ─────────────────────────────────────────────────────────
 DEFAULT_API_PORT = 5295
@@ -50,5 +50,5 @@ def set_api_port(port: int) -> bool:
 
 def ensure_data_dirs():
     """Create all required data directories."""
-    for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, PLUGINS_EXTERNAL_DIR]:
+    for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, EXTENSIONS_EXTERNAL_DIR]:
         d.mkdir(parents=True, exist_ok=True)

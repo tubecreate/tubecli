@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeCLI Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=2">
+</head>
+<body>
+<div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 16px;">
+            <div class="sidebar-logo" style="padding:0">⚡ TubeCLI</div>
+            <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">☰</button>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">MAIN</div>
+            <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span> <span class="nav-text">Dashboard</span></button>
+            <button class="nav-item" data-tab="extensions"><span class="nav-icon">🧩</span> <span class="nav-text">Extensions</span></button>
+            <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text">API Manager</span></button>
+            <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text">Settings</span></button>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot"></span> API Connected
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content" style="position: relative;">
+
+        <!-- ═══ DASHBOARD TAB (Stats Only) ═══ -->
+        <section class="tab-panel active" id="tab-dashboard">
+            <div class="panel-header"><h1>📊 Dashboard</h1></div>
+
+            <!-- System Stats -->
+            <div class="stats-grid">
+                <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-info"><div id="stat-agents" class="stat-value">-</div><div class="stat-label">Agents</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-info"><div id="stat-profiles" class="stat-value">-</div><div class="stat-label">Browser Profiles</div></div></div>
+                <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-info"><div id="stat-skills" class="stat-value">-</div><div class="stat-label">Skills</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🔄</div><div class="stat-info"><div id="stat-workflows" class="stat-value">-</div><div class="stat-label">Workflows</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🧩</div><div class="stat-info"><div id="stat-extensions" class="stat-value">-</div><div class="stat-label">Extensions</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🔑</div><div class="stat-info"><div id="stat-api-keys" class="stat-value">-</div><div class="stat-label">API Keys</div></div></div>
+            </div>
+
+            <!-- Quick Overview cards -->
+            <h3 style="margin-bottom: 16px; color: var(--text2);">🟢 System Status</h3>
+            <div class="status-cards-grid">
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-api-dot">●</span><span>API Server</span><span class="tag green" id="status-api-label">Online</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-ollama-dot">●</span><span>Ollama</span><span class="tag" id="status-ollama-label">Checking...</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-browser-dot">●</span><span>Browser</span><span class="tag" id="status-browser-label">Checking...</span></div>
+            </div>
+
+            <h3 style="margin: 28px 0 16px; color: var(--text2);">📌 Quick Actions</h3>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button class="btn-primary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('agents'), 200)">🤖 Manage Agents</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('browser'), 200)">🌐 Browser Profiles</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('workflows'), 200)">🔄 Workflow Builder</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('cloud_api'), 200)">☁️ Cloud API Keys</button>
+            </div>
+        </section>
+
+        <!-- ═══ EXTENSIONS TAB ═══ -->
+        <section class="tab-panel" id="tab-extensions">
+            <div class="panel-header">
+                <h1>🧩 Extensions</h1>
+                <button class="btn-primary" onclick="showInstallExtension()">+ Install from Git</button>
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">Click on an extension to open its management interface.</p>
+            <div id="extensions-grid" class="cards-grid"></div>
+        </section>
+
+        <!-- ═══ Extension Detail Overlay ═══ -->
+        <div id="ext-detail-overlay" class="ext-detail-overlay hidden">
+            <div class="ext-detail-header">
+                <button class="btn-back" onclick="closeExtDetail()">← Back to Extensions</button>
+                <h2 id="ext-detail-title">Extension</h2>
+            </div>
+            <div id="ext-detail-body" class="ext-detail-body"></div>
+        </div>
+
+        <!-- ═══ API MANAGER TAB ═══ -->
+        <section class="tab-panel" id="tab-api-manager">
+            <div class="panel-header">
+                <h1>🔌 API Manager</h1>
+            </div>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">System CLI REST API — TubeCLI API Server Endpoints</p>
+
+            <!-- Server info -->
+            <div class="api-info-bar">
+                <span>🟢 Server Status: <b style="color:var(--green)">Running</b></span>
+                <span>🔗 Base URL: <code id="api-base-display">http://localhost:5295</code></span>
+                <span>📖 <a href="/api/v1/docs" target="_blank" style="color:var(--cyan);">Open Swagger Docs</a></span>
+                <span>📚 <a href="/api/v1/redoc" target="_blank" style="color:var(--purple);">Open ReDoc</a></span>
+            </div>
+
+            <!-- API Endpoints grouped -->
+            <h3 style="margin: 24px 0 12px; color: var(--cyan);">📡 Available Endpoints</h3>
+            <div id="api-endpoints-list" class="table-container"></div>
+        </section>
+
+        <!-- ═══ SETTINGS TAB ═══ -->
+        <section class="tab-panel" id="tab-settings">
+            <div class="panel-header"><h1>⚙️ Settings</h1></div>
+            <div class="settings-form">
+                <div class="form-group"><label>API Port</label><input id="set-port" value="5295"></div>
+                <div class="form-group"><label>AI Model</label><input id="set-model" value="qwen:latest"></div>
+                <div class="form-group"><label>API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
+                <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </section>
+    </main>
+</div>
+
+<!-- ═══ SHARED MODALS (outside main content) ═══ -->
+
+<!-- Install Extension Modal -->
+<div id="modal-install-ext" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header"><h2>📦 Install Extension from Git</h2><button class="btn-close" onclick="closeModal('modal-install-ext')">✕</button></div>
+        <div class="form-group" style="margin-top: 15px;"><label>Git Repository URL</label><input id="install-ext-url" placeholder="https://github.com/user/tubecli-extension-xxx.git"></div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-install-ext')">Cancel</button><button class="btn-primary" id="btn-install-ext" onclick="installExtension()">🚀 Install</button></div>
+    </div>
+</div>
+
+<!-- Create/Edit Agent Modal -->
+<div id="modal-agent" class="modal hidden">
+    <div class="modal-content modal-lg">
+        <div class="modal-header"><h2 id="agent-modal-title">Create Agent</h2><button class="btn-close" onclick="closeModal('modal-agent')">✕</button></div>
+        <div class="agent-tabs-container">
+            <div class="agent-tabs-nav">
+                <button class="agent-tab-btn active" data-atab="identity">👤 Identity</button>
+                <button class="agent-tab-btn" data-atab="behavior">🧠 Behavior</button>
+                <button class="agent-tab-btn" data-atab="browser">🌐 Browser</button>
+                <button class="agent-tab-btn" data-atab="schedule">⏰ Schedule</button>
+                <button class="agent-tab-btn" data-atab="history">📜 History</button>
+                <button class="agent-tab-btn" data-atab="skills">⚡ Skills</button>
+                <button class="agent-tab-btn" data-atab="telegram">✈️ Telegram</button>
+                <button class="agent-tab-btn" data-atab="messenger">💬 Messenger</button>
+            </div>
+            <div class="agent-tabs-content">
+                <div class="agent-tab-pane active" id="atab-identity">
+                    <h3>Identity & Options</h3>
+                    <input type="hidden" id="agent-id">
+                    <div class="form-group"><label>Agent Name</label><input id="agent-name" placeholder="Agent Name"></div>
+                    <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Agent Description"></div>
+                    <div class="form-group"><label>System Prompt</label><textarea id="agent-prompt" rows="4" placeholder="You are a helpful AI assistant."></textarea></div>
+                    <div class="form-row"><div class="form-group"><label>Chatbot Model</label><input id="agent-model" value="qwen:latest"></div><div class="form-group"><label>Browser Model</label><input id="agent-browser-model" value="qwen:latest"></div></div>
+                    <div class="form-row"><div class="form-group"><label>Avatar Type</label><select id="agent-avatar-type"><option value="bot">Bot</option><option value="human">Human</option></select></div><div class="form-group"><label>Avatar Color</label><select id="agent-avatar-color"><option value="blue">Blue</option><option value="red">Red</option><option value="green">Green</option></select></div></div>
+                </div>
+                <div class="agent-tab-pane" id="atab-behavior"><h3>Behavior & Keywords</h3><div class="form-group"><label>Keywords & Interests</label><input id="agent-interests" placeholder="AI, Technology, Automation"></div><div class="form-group"><label>Advanced Behavior (JSON)</label><textarea id="agent-behavior" rows="12" placeholder='{"dailyRoutine": [], "workHabits": {}}'></textarea></div></div>
+                <div class="agent-tab-pane" id="atab-browser"><h3>Browser & Proxy</h3><div class="form-group"><label>Proxy Mode</label><select id="agent-proxy-mode" onchange="onProxyModeChange()"><option value="none">🚫 None</option><option value="static">📌 Static IP</option><option value="dynamic">🔄 Dynamic API</option></select></div><div id="proxy-static-group" style="display:none"><div class="form-group"><label>Static Proxy URL</label><input id="agent-proxy" placeholder="socks5://user:pass@host:port"></div></div><div id="proxy-dynamic-group" style="display:none"><div class="form-group"><label>Provider API URL</label><input id="agent-proxy-api" placeholder="https://tmproxy.com/api/proxy/get-new-proxy"></div><div class="form-row"><div class="form-group"><label>API Key</label><input id="agent-proxy-api-key"></div><div class="form-group"><label>Location</label><input id="agent-proxy-location" placeholder="hanoi"></div></div></div><hr style="border:none;border-top:1px solid var(--border);margin:20px 0"><h4>Allowed Browser Profiles</h4><div id="agent-profiles-list" class="checkbox-list" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:10px"><p class="text-muted">Loading...</p></div></div>
+                <div class="agent-tab-pane" id="atab-schedule"><h3>Automated Schedule</h3><div class="custom-control-flex"><label>Enable Scheduling</label><input type="checkbox" id="agent-schedule-enable"></div><div class="form-row"><div class="form-group"><label>Timezone</label><input id="agent-timezone" value="Asia/Ho_Chi_Minh"></div><div class="form-group"><label>Repeat</label><select id="agent-schedule-repeat"><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="interval">Every X min</option></select></div></div><div class="form-group" id="schedule-interval-group" style="display:none"><label>Interval (min)</label><input type="number" id="agent-schedule-interval" value="60" min="1"></div><div id="schedule-days-group"><label style="font-weight:600;display:block;margin-bottom:8px">Active Days</label><div style="display:flex;gap:8px;flex-wrap:wrap"><label class="day-check"><input type="checkbox" value="mon" class="agent-day-cb" checked> Mon</label><label class="day-check"><input type="checkbox" value="tue" class="agent-day-cb" checked> Tue</label><label class="day-check"><input type="checkbox" value="wed" class="agent-day-cb" checked> Wed</label><label class="day-check"><input type="checkbox" value="thu" class="agent-day-cb" checked> Thu</label><label class="day-check"><input type="checkbox" value="fri" class="agent-day-cb" checked> Fri</label><label class="day-check"><input type="checkbox" value="sat" class="agent-day-cb"> Sat</label><label class="day-check"><input type="checkbox" value="sun" class="agent-day-cb"> Sun</label></div></div><div class="form-row" style="margin-top:16px"><div class="form-group"><label>Start</label><input type="time" id="agent-schedule-start" value="08:00"></div><div class="form-group"><label>End</label><input type="time" id="agent-schedule-end" value="22:00"></div></div><div class="form-group"><label>Max Runs/Day</label><input type="number" id="agent-schedule-max-runs" value="10" min="1"></div></div>
+                <div class="agent-tab-pane" id="atab-history"><h3>Scraper & History</h3><div class="custom-control-flex"><label>Enable Auto-Scraping</label><input type="checkbox" id="agent-scraping-enable"></div><div class="form-row"><div class="form-group"><label>Max Text (chars)</label><input type="number" id="agent-scraper-limit" value="10000"></div><div class="form-group"><label>Format</label><select id="agent-scraper-format"><option value="json">JSON</option><option value="txt">TXT</option><option value="srt">SRT</option></select></div></div></div>
+                <div class="agent-tab-pane" id="atab-skills"><h3>Allowed Skills</h3><div id="agent-skills-list" class="checkbox-list" style="max-height:250px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:10px"><p class="text-muted">Loading...</p></div></div>
+                <div class="agent-tab-pane" id="atab-telegram"><h3>Telegram Bot</h3><div class="form-group"><label>Bot Token</label><input type="password" id="agent-tg-token"></div><div class="form-group"><label>Chat ID</label><input id="agent-tg-chat"></div></div>
+                <div class="agent-tab-pane" id="atab-messenger"><h3>Messenger</h3><div class="form-group"><label>Page Access Token</label><input type="password" id="agent-ms-token"></div><div class="form-group"><label>Page ID</label><input id="agent-ms-page"></div><div class="form-group"><label>Webhook URL</label><input id="agent-ms-php"></div><div class="form-group"><label>Direct Trigger Skill</label><input id="agent-ms-skill"></div></div>
+            </div>
+        </div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-agent')">Cancel</button><button class="btn-primary" onclick="saveAgent()">Save Agent</button></div>
+    </div>
+</div>
+
+<!-- Generate Agent with AI Modal -->
+<div id="modal-generate-agent" class="modal hidden">
+    <div class="modal-content modal-lg" style="height:90vh">
+        <div class="modal-header"><h2>⚡ Generate Agent with AI</h2><button class="btn-close" onclick="closeModal('modal-generate-agent')">✕</button></div>
+        <div style="flex:1;overflow-y:auto;padding-top:16px">
+            <div class="form-row"><div class="form-group"><label>Agent Name</label><input id="agent-gen-name" placeholder="e.g. Tech Support Agent"></div><div class="form-group"><label>Tag Prefix</label><input id="agent-gen-prefix" placeholder="ev_tech"></div></div>
+            <div class="form-group"><label>Description</label><textarea id="agent-gen-desc" rows="3" placeholder="A support agent who helps..."></textarea></div>
+            <div class="form-row"><div class="form-group"><label>AI Provider</label><select id="agent-gen-provider" onchange="onGenProviderChange()"><option value="ollama">🖥️ Ollama</option><option value="gemini">✨ Gemini</option><option value="chatgpt">🤖 ChatGPT</option><option value="claude">🧠 Claude</option><option value="grok">⚡ Grok</option></select></div><div class="form-group"><label>Model</label><select id="agent-gen-model"></select></div></div>
+            <div class="form-group" id="agent-gen-apikey-group" style="display:none"><label>API Key</label><input type="password" id="agent-gen-apikey"></div>
+            <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
+            <div class="form-group"><label style="color:var(--purple)">🔑 Google Accounts (tab-separated)</label><textarea id="agent-gen-accounts" rows="3" style="font-family:'JetBrains Mono',monospace;font-size:.8rem;background:var(--bg2);color:#90ee90"></textarea><div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--text-muted);margin-top:4px"><span id="agent-gen-acc-count">0 accounts</span><span>1 account = 1 profile</span></div></div>
+            <div class="form-group"><label style="color:var(--cyan)">📄 Preview</label><textarea id="agent-gen-preview" rows="8" style="font-family:'JetBrains Mono',monospace;font-size:.8rem" readonly></textarea><div id="agent-gen-status" style="margin-top:8px;font-size:.85rem;font-weight:600"></div></div>
+        </div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-generate-agent')">Close</button><button class="btn-primary" id="btn-generate-ai" onclick="generateAgentJSON()">⚡ Generate</button><button class="btn-primary" id="btn-apply-ai" style="background:linear-gradient(135deg,var(--green),#10b981);display:none" onclick="applyGeneratedAgent()">🚀 Apply</button></div>
+    </div>
+</div>
+
+<!-- Chat Modal -->
+<div id="modal-chat" class="modal hidden">
+    <div class="modal-content modal-lg" style="height:80vh;display:flex;flex-direction:column">
+        <div class="modal-header"><h2>💬 Chat with <span id="chat-agent-name">Agent</span></h2><button class="btn-close" onclick="closeModal('modal-chat')">✕</button></div>
+        <div id="chat-history" style="flex:1;overflow-y:auto;padding:16px;background:var(--bg2);border-radius:6px;display:flex;flex-direction:column;gap:12px;margin-bottom:16px"><p class="text-muted" style="text-align:center">Loading...</p></div>
+        <div style="display:flex;gap:10px"><input type="text" id="chat-input" placeholder="Type a message..." style="flex:1;padding:12px;border-radius:6px;border:1px solid var(--border)" onkeypress="if(event.key==='Enter')sendChatMessage()"><button class="btn-primary" onclick="sendChatMessage()" style="padding:0 24px">Send</button></div>
+    </div>
+</div>
+
+<!-- Create Browser Profile Modal -->
+<div id="modal-profile" class="modal hidden">
+    <div class="modal-content">
+        <h2>Create Profile</h2>
+        <div class="form-group"><label>Name</label><input id="profile-name" placeholder="profile_name"></div>
+        <div class="form-group"><label>Proxy</label><input id="profile-proxy" placeholder="socks5://user:pass@host:port"></div>
+        <div class="form-row"><div class="form-group"><label>OS</label><select id="profile-os"><option value="Windows">Windows</option><option value="Mac OS X">macOS</option><option value="Linux">Linux</option></select></div><div class="form-group"><label>Browser</label><select id="profile-browser"><option value="Chrome">Chrome</option><option value="Firefox">Firefox</option></select></div></div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-profile')">Cancel</button><button class="btn-primary" onclick="createProfile()" id="btn-create-profile-submit">Create & Fetch Fingerprint</button></div>
+    </div>
+</div>
+
+<!-- Add API Key Modal -->
+<div id="modal-add-key" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header"><h2>🔑 Add API Key</h2><button class="btn-close" onclick="closeModal('modal-add-key')">✕</button></div>
+        <div class="form-group" style="margin-top:15px"><label>Provider</label><select id="add-key-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option><option value="grok">xAI Grok</option></select></div>
+        <div class="form-group"><label>API Key</label><input type="password" id="add-key-value" placeholder="Paste API key..."></div>
+        <div class="form-group"><label>Label</label><input id="add-key-label" value="default"></div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-add-key')">Cancel</button><button class="btn-primary" onclick="addApiKey()">Save Key</button></div>
+    </div>
+</div>
+
+<script src="/static/app.js?v=2"></script>
+</body>
+</html>

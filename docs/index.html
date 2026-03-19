@@ -318,7 +318,7 @@
         <div class="nav-links">
             <a href="#architecture">Kiến Trúc</a>
             <a href="#install">Cài Đặt</a>
-            <a href="#plugins">Plugins</a>
+            <a href="#extensions">Extensions</a>
             <a href="#browser">Browser</a>
             <a href="#commands">CLI</a>
             <a href="#workflow">Workflow</a>
@@ -337,7 +337,7 @@
     <div class="container">
         <div class="badge"><span class="dot"></span> Open Source • v0.1.0</div>
         <h1>AI Agent CLI System</h1>
-        <p>Quản lý AI agents, skills, workflows, browser profiles và plugins từ command line. Hệ thống plugin mở rộng với Web Dashboard, Marketplace và Browser Automation.</p>
+        <p>Quản lý AI agents, skills, workflows, browser profiles và extensions từ command line. Hệ thống extension mở rộng với Web Dashboard, Marketplace và Browser Automation.</p>
         <div class="hero-actions">
             <a href="#install" class="btn-primary">🚀 Bắt đầu</a>
             <a href="#architecture" class="btn-secondary">📖 Kiến trúc</a>
@@ -381,8 +381,8 @@
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🔌</div>
-                <h3>Plugin System</h3>
-                <p>Kiến trúc plugin mở rộng: Browser, Web Dashboard, Marketplace. Enable/disable qua CLI, auto-inject commands và API routes.</p>
+                <h3>Extension System</h3>
+                <p>Kiến trúc extension mở rộng: Browser, Web Dashboard, Marketplace. Enable/disable qua CLI, auto-inject commands và API routes.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
@@ -700,38 +700,38 @@
     </div>
 </section>
 
-<!-- ═══ Plugin System ═══ -->
-<section id="plugins">
+<!-- ═══ Extension System ═══ -->
+<section id="extensions">
     <div class="container">
         <div class="section-header fade-in">
-            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">PLUGIN SYSTEM</div>
-            <h2>Hệ Thống Plugin</h2>
-            <p>Mở rộng TubeCLI bằng plugins — enable/disable, auto-register CLI commands và API routes</p>
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">EXTENSION SYSTEM</div>
+            <h2>Hệ Thống Extension</h2>
+            <p>Mở rộng TubeCLI bằng extensions — enable/disable, auto-register CLI commands và API routes</p>
         </div>
         <div class="arch-grid">
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🌐</div>
-                <h3>Browser Plugin</h3>
+                <h3>Browser Extension</h3>
                 <p>Quản lý browser profiles, proxy, cookies. Launch/stop browser automation với AI prompts. Profile-based giống antidetect browsers.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🎨</div>
-                <h3>Web UI Plugin</h3>
+                <h3>Web UI Extension</h3>
                 <p>Dashboard SPA tại localhost:3000 với 6 tabs: Agents, Browser, Workflows, Skills, Market, Settings.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🛒</div>
-                <h3>Market Plugin</h3>
+                <h3>Market Extension</h3>
                 <p>Browse và install community skills từ marketplace. Search, install, và list skills từ registry.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🔌</div>
-                <h3>Plugin Manager</h3>
-                <p>Discover, enable/disable plugins. Auto-inject CLI commands và API routes. Config persist qua data/plugins.json.</p>
+                <h3>Extension Manager</h3>
+                <p>Discover, enable/disable extensions. Auto-inject CLI commands và API routes. Config persist qua data/extensions.json.</p>
             </div>
         </div>
         <div class="terminal fade-in">
@@ -739,22 +739,22 @@
                 <span class="terminal-dot red"></span>
                 <span class="terminal-dot yellow"></span>
                 <span class="terminal-dot green"></span>
-                <span class="terminal-title">Plugin Management</span>
+                <span class="terminal-title">Extension Management</span>
             </div>
             <div class="terminal-body">
-                <div><span class="comment"># Xem danh sách plugins</span></div>
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin list</span></div>
+                <div><span class="comment"># Xem danh sách extensions</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension list</span></div>
                 <div><span class="output">  browser   0.1.0  ○ Disabled  Browser profile management</span></div>
                 <div><span class="output">  webui     0.1.0  ○ Disabled  Web dashboard</span></div>
                 <div><span class="output">  market    0.1.0  ○ Disabled  Community marketplace</span></div>
                 <br>
-                <div><span class="comment"># Bật plugins</span></div>
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">browser</span></div>
-                <div><span class="success">✅ Plugin 'browser' enabled.</span></div>
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">webui</span></div>
-                <div><span class="success">✅ Plugin 'webui' enabled.</span></div>
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli plugin enable</span> <span class="arg">market</span></div>
-                <div><span class="success">✅ Plugin 'market' enabled.</span></div>
+                <div><span class="comment"># Bật extensions</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">browser</span></div>
+                <div><span class="success">✅ Extension 'browser' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">webui</span></div>
+                <div><span class="success">✅ Extension 'webui' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">market</span></div>
+                <div><span class="success">✅ Extension 'market' enabled.</span></div>
             </div>
         </div>
     </div>

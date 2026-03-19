@@ -32,8 +32,8 @@ class BrowserNode(BaseNode):
             return {"result": "", "screenshot_path": "", "status": "Error: No profile_name configured"}
 
         try:
-            from tubecli.plugins.browser.process_manager import browser_process_manager
-            from tubecli.plugins.browser.profile_manager import get_profile
+            from tubecli.extensions.browser.process_manager import browser_process_manager
+            from tubecli.extensions.browser.profile_manager import get_profile
 
             # Verify profile exists
             profile = get_profile(profile_name)
@@ -95,6 +95,6 @@ class BrowserNode(BaseNode):
                 return {"result": "", "screenshot_path": "", "status": f"Error: Unknown action '{action}'"}
 
         except ImportError as e:
-            return {"result": "", "screenshot_path": "", "status": f"Error: Browser plugin not available: {e}"}
+            return {"result": "", "screenshot_path": "", "status": f"Error: Browser extension not available: {e}"}
         except Exception as e:
             return {"result": "", "screenshot_path": "", "status": f"Error: {e}"}
