@@ -56,20 +56,39 @@ class BrowserProcessManager:
         logger.info(f"[Browser] Spawning: {cmd_str}")
 
         # Define launcher directory dynamically relative to project root
-        # tubecli project root = BASE_DIR (config.py), browser-laucher is a sibling
         from tubecli.config import BASE_DIR as _base
-        project_root = str(_base.parent)  # parent of tubecli/ = workspace root
+        
+        # tubecli codebase root (e.g. E:\tubecli)
+        repo_root = str(_base)
+        # parent of codebase (e.g. E:\)
+        parent_root = str(_base.parent)
 
-        env_dir = os.environ.get("BROWSER_LAUNCHER_DIR")
-        if env_dir and os.path.isdir(env_dir):
-            launcher_dir = env_dir
-        elif os.path.isdir(os.path.join(project_root, "browser-laucher")):
-            launcher_dir = os.path.join(project_root, "browser-laucher")
-        elif os.path.isdir(os.path.join(project_root, "python-video-studio", "browser-laucher")):
-            launcher_dir = os.path.join(project_root, "python-video-studio", "browser-laucher")
-        else:
-            launcher_dir = os.path.join(project_root, "browser-laucher")
-            logger.warning(f"[Browser] browser-laucher not found at {launcher_dir}")
+        # Possible names (handling the common typo)
+        folder_names = ["browser-launcher", "browser-laucher"]
+        
+        # Possible locations to check
+        search_paths = []
+        if os.environ.get("BROWSER_LAUNCHER_DIR"):
+            search_paths.append(os.environ.get("BROWSER_LAUNCHER_DIR"))
+            
+        for fn in folder_names:
+            search_paths.extend([
+                os.path.join(repo_root, fn),                            # Inside tubecli repo
+                os.path.join(parent_root, fn),                          # Sibling to tubecli repo
+                os.path.join(repo_root, "python-video-studio", fn),     # Old nested structure (inside repo)
+                os.path.join(parent_root, "python-video-studio", fn),   # Old nested structure (sibling)
+            ])
+
+        launcher_dir = None
+        for p in search_paths:
+            if p and os.path.isdir(p):
+                launcher_dir = p
+                break
+                
+        if not launcher_dir:
+            # Fallback for error message
+            launcher_dir = os.path.join(parent_root, "browser-launcher")
+            logger.warning(f"[Browser] browser-launcher not found in any standard location. Checked: {search_paths[:3]}...")
 
         logger.info(f"[Browser] Using launcher dir: {launcher_dir}")
 
