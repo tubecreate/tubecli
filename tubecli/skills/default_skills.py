@@ -182,6 +182,7 @@ DEFAULT_SKILLS: List[Dict] = [
         "name": "🌐 Google Search",
         "description": "Tự động mở trình duyệt, tìm kiếm Google theo từ khóa và trích xuất kết quả bằng AI. Dùng: tubecli skill run 'Google Search' --input 'Tìm kiếm về AI'",
         "skill_type": "Skill",
+        "commands": ["google search", "tìm kiếm google", "search google", "tìm video", "tìm google"],
         "workflow_data": {
             "name": "Google Search",
             "nodes": [
@@ -229,6 +230,7 @@ DEFAULT_SKILLS: List[Dict] = [
         "name": "📧 Gmail Login",
         "description": "Mở trình duyệt và yêu cầu AI tự động truy cập Gmail để đăng nhập hoặc kiểm tra hòm thư.",
         "skill_type": "Skill",
+        "commands": ["gmail login", "đăng nhập gmail", "check mail", "vào gmail", "login gmail"],
         "workflow_data": {
             "name": "Gmail Login",
             "nodes": [
