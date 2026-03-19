@@ -55,11 +55,16 @@ class BrowserProcessManager:
         cmd_str = " ".join(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
 
-        # Define launcher directory (hardcoded for now to local Dev path)
-        launcher_dir = os.environ.get(
-            "BROWSER_LAUNCHER_DIR", 
-            r"C:\tubecreate-vue\python-video-studio\browser-laucher"
-        )
+        # Define launcher directory: Try environment variable first, then standard paths
+        env_dir = os.environ.get("BROWSER_LAUNCHER_DIR")
+        if env_dir and os.path.exists(env_dir):
+            launcher_dir = env_dir
+        elif os.path.exists(r"C:\tubecreate-vue\browser-laucher"):
+            launcher_dir = r"C:\tubecreate-vue\browser-laucher"
+        elif os.path.exists(r"C:\tubecreate-vue\python-video-studio\browser-laucher"):
+            launcher_dir = r"C:\tubecreate-vue\python-video-studio\browser-laucher"
+        else:
+            launcher_dir = r"C:\tubecreate-vue\browser-laucher" # fallback default
 
         try:
             creation_flags = 0
@@ -95,11 +100,11 @@ class BrowserProcessManager:
             return {k: v for k, v in instance_info.items() if not k.startswith("_")}
 
         except FileNotFoundError:
-            logger.warning("[Browser] Browser launcher not found. Install Node.js browser-launcher.")
+            logger.warning("[Browser] Browser launcher Node server not found.")
             return {
                 "instance_id": instance_id,
                 "status": "error",
-                "error": "Browser launcher not installed. Place browser-launcher in data/browser-launcher/",
+                "error": f"Browser launcher not found at {launcher_dir}. Please install it first.",
             }
         except Exception as e:
             logger.error(f"[Browser] Spawn failed: {e}")
