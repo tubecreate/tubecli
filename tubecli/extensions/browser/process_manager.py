@@ -55,18 +55,33 @@ class BrowserProcessManager:
         cmd_str = " ".join(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
 
-        # Define launcher directory: Try environment variable first, then standard paths
+        # Define launcher directory dynamically relative to project root
+        # tubecli project root = BASE_DIR (config.py), browser-laucher is a sibling
+        from tubecli.config import BASE_DIR as _base
+        project_root = str(_base.parent)  # parent of tubecli/ = workspace root
+
         env_dir = os.environ.get("BROWSER_LAUNCHER_DIR")
-        if env_dir and os.path.exists(env_dir):
+        if env_dir and os.path.isdir(env_dir):
             launcher_dir = env_dir
-        elif os.path.exists(r"C:\tubecreate-vue\browser-laucher"):
-            launcher_dir = r"C:\tubecreate-vue\browser-laucher"
-        elif os.path.exists(r"C:\tubecreate-vue\python-video-studio\browser-laucher"):
-            launcher_dir = r"C:\tubecreate-vue\python-video-studio\browser-laucher"
+        elif os.path.isdir(os.path.join(project_root, "browser-laucher")):
+            launcher_dir = os.path.join(project_root, "browser-laucher")
+        elif os.path.isdir(os.path.join(project_root, "python-video-studio", "browser-laucher")):
+            launcher_dir = os.path.join(project_root, "python-video-studio", "browser-laucher")
         else:
-            launcher_dir = r"C:\tubecreate-vue\browser-laucher" # fallback default
+            launcher_dir = os.path.join(project_root, "browser-laucher")
+            logger.warning(f"[Browser] browser-laucher not found at {launcher_dir}")
+
+        logger.info(f"[Browser] Using launcher dir: {launcher_dir}")
 
         try:
+            if not os.path.isdir(launcher_dir):
+                return {
+                    "instance_id": instance_id,
+                    "status": "error",
+                    "error": f"Browser launcher directory not found: {launcher_dir}. "
+                             f"Please place the browser-laucher folder next to the tubecli project.",
+                }
+
             creation_flags = 0
             if os.name == "nt":
                 creation_flags = subprocess.CREATE_NO_WINDOW
@@ -99,12 +114,12 @@ class BrowserProcessManager:
 
             return {k: v for k, v in instance_info.items() if not k.startswith("_")}
 
-        except FileNotFoundError:
-            logger.warning("[Browser] Browser launcher Node server not found.")
+        except (FileNotFoundError, NotADirectoryError) as e:
+            logger.warning(f"[Browser] Launcher error: {e}")
             return {
                 "instance_id": instance_id,
                 "status": "error",
-                "error": f"Browser launcher not found at {launcher_dir}. Please install it first.",
+                "error": f"Browser launcher error at {launcher_dir}: {e}",
             }
         except Exception as e:
             logger.error(f"[Browser] Spawn failed: {e}")
