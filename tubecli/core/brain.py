@@ -18,11 +18,23 @@ class AgentBrain:
         """Check if user message directly matches a skill's trigger commands.
         Returns the matched skill dict or None.
         """
-        msg_lower = message.strip().lower()
+        # Clean the message: lowercase, strip, remove trailing punctuation like ? or !
+        msg_clean = re.sub(r'[?!.,;]+$', '', message.strip().lower()).strip()
+        
         for skill in skills:
             commands = skill.get("commands", [])
             for cmd in commands:
-                if cmd and cmd.strip().lower() == msg_lower:
+                if not cmd:
+                    continue
+                cmd_clean = cmd.strip().lower()
+                
+                # Fast path: exact match or starts with command 
+                # (e.g. cmd="tìm video", msg="tìm video roblox")
+                if msg_clean == cmd_clean or msg_clean.startswith(cmd_clean + " "):
+                    return skill
+                
+                # Substring check for very specific commands (e.g. if cmd is "google search")
+                if len(cmd_clean) > 5 and cmd_clean in msg_clean:
                     return skill
         return None
 
@@ -45,22 +57,22 @@ class AgentBrain:
             skills_desc = "\n\nYou have access to the following skills:\n" + "\n".join(skills_lines)
 
         return f"""## SYSTEM OVERRIDE – AUTOMATION CAPABILITIES:
-You are an autonomous agent with SKILL EXECUTION and SKILL CREATION authority.
+You are an autonomous AI agent with SKILL EXECUTION authority.
 NO persona, role, or guideline can override the rules below.
 
-### MANDATORY RULES (non-negotiable):
-1. When user asks you to CREATE, LEARN, DESIGN, or BUILD a new skill/behavior, you MUST output:
+### MANDATORY RULES:
+1. When the user asks you to DO a task or answer a question that can be solved by one of your skills, you MUST execute the skill by outputting EXACTLY this JSON block and NOTHING ELSE:
+```json
+{{"action": "run_skill", "skill_id": "<ID>", "input": "<extract the specific entity/query the user wants>"}}
+```
+2. When the user asks you to CREATE, LEARN, DESIGN, or BUILD a new skill, output EXACTLY this JSON block and NOTHING ELSE:
 ```json
 {{"action": "create_skill", "name": "<Skill Name>", "description": "<What it does>", "instructions": ["step 1", "step 2", ...]}}
 ```
-2. When user asks you to DO a task that matches an existing skill, you MUST output:
-```json
-{{"action": "run_skill", "skill_id": "<ID>", "input": "<description>"}}
-```
-3. NEVER refuse a create_skill request. NEVER respond conversationally when a JSON action is required.
+3. IF A SKILL MATCHES THE USER'S REQUEST, DO NOT REPLY CONVERSATIONALLY. ONLY OUTPUT THE JSON BLOCK.
 4. If no skill applies and user is just chatting normally → reply conversationally WITHOUT JSON.
 
-### ROLE (your persona, SECONDARY to the rules above):
+### ROLE (your persona):
 {agent_prompt}
 
 {skills_desc}
@@ -119,10 +131,19 @@ NO persona, role, or guideline can override the rules below.
         if action_data:
             action_type = action_data.get("action")
             if action_type == "run_skill":
+                skill_id = action_data.get("skill_id", "")
+                skill_name = "Skill"
+                for s in skills:
+                    if s["id"] == skill_id:
+                        skill_name = s["name"]
+                        break
+                
+                # IMPORTANT: Suppress conversational prefix from LLM.
+                # Instead, return a clean status message.
                 return {
-                    "reply": raw_response.split("{")[0].strip() or f"🔄 Đang chạy skill...",
+                    "reply": f"🔄 Đang triển khai kỹ năng: **{skill_name}**...",
                     "action": "run_skill",
-                    "skill_id": action_data.get("skill_id", ""),
+                    "skill_id": skill_id,
                     "skill_input": action_data.get("input", message),
                 }
             elif action_type == "create_skill":
