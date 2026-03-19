@@ -157,12 +157,19 @@ class ExtensionManager:
 
     # Built-in system extensions to discover
     BUILTIN_EXTENSIONS = [
-        "tubecli.extensions.browser",
         "tubecli.extensions.webui",
         "tubecli.extensions.market",
         "tubecli.extensions.cloud_api",
         "tubecli.extensions.ollama_manager",
         "tubecli.extensions.multi_agents",
+    ]
+
+    # Essential external extensions to auto-install if missing
+    ESSENTIAL_EXTENSIONS = [
+        {
+            "name": "browser",
+            "git_url": "https://github.com/tubecreate/browser-control.git"
+        }
     ]
 
     def __init__(self):
@@ -187,6 +194,9 @@ class ExtensionManager:
 
     def discover_extensions(self):
         """Auto-discover all extensions: built-in system + external."""
+        # 0. Ensure essential extensions are installed
+        self.ensure_essential_extensions()
+
         # 1. Built-in system extensions
         for module_path in self.BUILTIN_EXTENSIONS:
             try:
@@ -206,6 +216,38 @@ class ExtensionManager:
 
         # 2. External extensions (git-installed)
         self.discover_external_extensions()
+
+    def ensure_essential_extensions(self):
+        """Auto-install essential extensions from git if missing."""
+        ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
+        for essential in self.ESSENTIAL_EXTENSIONS:
+            # Check if directory exists (by repo name or manifest name)
+            # Standard repo name for browser-control is browser-control or browser-laucher
+            # We check the manifest name matches to be sure.
+            
+            is_installed = False
+            if os.path.exists(ext_dir):
+                for entry in os.listdir(ext_dir):
+                    target_dir = os.path.join(ext_dir, entry)
+                    manifest_file = os.path.join(target_dir, "tubecli-extension.json")
+                    if os.path.exists(manifest_file):
+                        try:
+                            with open(manifest_file, "r", encoding="utf-8") as f:
+                                manifest = json.load(f)
+                                if manifest.get("name") == essential["name"]:
+                                    is_installed = True
+                                    break
+                        except Exception:
+                            continue
+            
+            if not is_installed:
+                logger.info(f"Auto-installing essential extension: {essential['name']}...")
+                print(f"📦 First run: Auto-installing {essential['name']} extension...")
+                res = self.install_from_git(essential["git_url"])
+                if res["status"] == "success":
+                    logger.info(f"Successfully auto-installed {essential['name']}")
+                else:
+                    logger.error(f"Failed to auto-install {essential['name']}: {res['message']}")
 
     def discover_external_extensions(self):
         """Scan data/extensions_external/ for installed external extensions."""
@@ -415,10 +457,16 @@ class ExtensionManager:
         ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
         os.makedirs(ext_dir, exist_ok=True)
 
+        # Replace backslashes for cross-platform split
+        normalized_url = git_url.replace("\\", "/")
         # Extract repo name from URL
-        repo_name = git_url.rstrip("/").split("/")[-1]
+        repo_name = normalized_url.rstrip("/").split("/")[-1]
         if repo_name.endswith(".git"):
             repo_name = repo_name[:-4]
+
+        # Ensure repo_name is just the folder name, not an absolute path (e.g. C:)
+        if ":" in repo_name:
+            repo_name = repo_name.split(":")[-1]
 
         target_dir = os.path.join(ext_dir, repo_name)
 
