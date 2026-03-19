@@ -33,6 +33,20 @@ def init_cmd():
         )
         console.print("  🤖 Created default agent: [green]Personal Assistant[/green]")
 
-    console.print("\n✅ [bold green]TubeCLI workspace ready![/bold green]")
-    console.print("   Try: [cyan]tubecli agent list[/cyan]")
-    console.print("   Try: [cyan]tubecli skill list[/cyan]\n")
+    # 4. Enable default extensions
+    console.print("  🧩 Enabling core extensions...")
+    from tubecli.core.extension_manager import extension_manager
+    extension_manager.discover_extensions()
+    for ext in extension_manager.get_all():
+        if ext.extension_type == "system":
+            extension_manager.enable(ext.name)
+    console.print("  ✅ Core extensions enabled.")
+
+    console.print("\n✅ [bold green]TubeCLI workspace successfully initialized![/bold green]\n")
+    console.print(" [bold yellow]Next Steps — How to use TubeCLI:[/bold yellow]")
+    console.print("  1. Start the API Server and Web UI:")
+    console.print("     [cyan]tubecli api start[/cyan]")
+    console.print("  2. Open the Dashboard in your browser:")
+    console.print("     [cyan]http://localhost:5295/dashboard[/cyan]")
+    console.print("  3. Check the API documentation:")
+    console.print("     [cyan]http://localhost:5295/api/v1/docs[/cyan]\n")
