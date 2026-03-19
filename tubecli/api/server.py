@@ -613,6 +613,263 @@ async def get_extension_skill_mds():
     return {"skill_mds": extension_manager.get_all_skill_mds()}
 
 
+# ── System Version & Update ─────────────────────────────────────────
+
+@app.get("/api/v1/system/version")
+async def system_version():
+    """Get current system version and git info."""
+    import subprocess
+    from tubecli import __version__
+    from tubecli.config import BASE_DIR
+
+    git_hash = ""
+    git_branch = ""
+    project_root = str(BASE_DIR)
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            git_hash = result.stdout.strip()
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            git_branch = result.stdout.strip()
+    except Exception:
+        pass
+
+    return {
+        "version": __version__,
+        "git_hash": git_hash,
+        "git_branch": git_branch,
+    }
+
+
+@app.post("/api/v1/system/check-update")
+async def system_check_update():
+    """Check if a system update is available by comparing local vs remote git."""
+    import subprocess
+    from tubecli import __version__
+    from tubecli.config import BASE_DIR
+
+    project_root = str(BASE_DIR)
+
+    try:
+        # Fetch latest from remote
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=project_root, capture_output=True, text=True, timeout=30,
+        )
+
+        # Get current hash
+        r_local = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        current_hash = r_local.stdout.strip() if r_local.returncode == 0 else ""
+
+        # Get remote hash
+        r_remote = subprocess.run(
+            ["git", "rev-parse", "--short", "origin/main"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        latest_hash = r_remote.stdout.strip() if r_remote.returncode == 0 else ""
+
+        # Count commits behind
+        r_count = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/main"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        commits_behind = int(r_count.stdout.strip()) if r_count.returncode == 0 else 0
+
+        # Get changelog (commit messages)
+        changelog = []
+        if commits_behind > 0:
+            r_log = subprocess.run(
+                ["git", "log", "--oneline", f"HEAD..origin/main", "--format=%s"],
+                cwd=project_root, capture_output=True, text=True, timeout=10,
+            )
+            if r_log.returncode == 0:
+                changelog = [line.strip() for line in r_log.stdout.strip().split("\n") if line.strip()]
+
+        return {
+            "has_update": commits_behind > 0,
+            "current_version": __version__,
+            "current_hash": current_hash,
+            "latest_hash": latest_hash,
+            "commits_behind": commits_behind,
+            "changelog": changelog[:20],
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to check for updates: {e}")
+
+
+@app.post("/api/v1/system/update")
+async def system_update():
+    """Pull latest code from git and reinstall dependencies."""
+    import subprocess, sys
+    from tubecli import __version__
+    from tubecli.config import BASE_DIR
+
+    project_root = str(BASE_DIR)
+    old_version = __version__
+
+    try:
+        # Git pull
+        r_pull = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=project_root, capture_output=True, text=True, timeout=60,
+        )
+        if r_pull.returncode != 0:
+            return {"status": "error", "error": f"git pull failed: {r_pull.stderr}"}
+
+        # Reinstall (update dependencies)
+        r_install = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"],
+            cwd=project_root, capture_output=True, text=True, timeout=120,
+        )
+
+        # Read new version from file (since module cache still has old value)
+        new_version = old_version
+        init_file = os.path.join(project_root, "tubecli", "__init__.py")
+        try:
+            with open(init_file, "r") as f:
+                for line in f:
+                    if line.startswith("__version__"):
+                        new_version = line.split("=")[1].strip().strip('"').strip("'")
+                        break
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "old_version": old_version,
+            "new_version": new_version,
+            "git_output": r_pull.stdout.strip()[:500],
+            "message": "Updated successfully! Please restart the API server to apply changes.",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Update failed: {e}")
+
+
+# ── Extension Update ─────────────────────────────────────────────────
+
+@app.post("/api/v1/extensions/{name}/check-update")
+async def check_extension_update(name: str):
+    """Check if an external extension has updates available."""
+    import subprocess
+    from tubecli.core.extension_manager import extension_manager
+
+    ext = extension_manager.get(name)
+    if not ext:
+        raise HTTPException(404, f"Extension '{name}' not found")
+
+    # System extensions update with the core system
+    if ext.extension_type != "external":
+        return {
+            "name": name,
+            "has_update": False,
+            "message": "System extensions update with 'System Update'. Use Settings → Update.",
+            "current_version": ext.version,
+        }
+
+    ext_dir = ext.extension_dir
+    if not ext_dir or not os.path.isdir(os.path.join(ext_dir, ".git")):
+        return {
+            "name": name,
+            "has_update": False,
+            "message": "Extension is not a git repository.",
+            "current_version": ext.version,
+        }
+
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=ext_dir, capture_output=True, text=True, timeout=30,
+        )
+
+        r_count = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/main"],
+            cwd=ext_dir, capture_output=True, text=True, timeout=10,
+        )
+        commits_behind = int(r_count.stdout.strip()) if r_count.returncode == 0 else 0
+
+        changelog = []
+        if commits_behind > 0:
+            r_log = subprocess.run(
+                ["git", "log", "--oneline", "HEAD..origin/main", "--format=%s"],
+                cwd=ext_dir, capture_output=True, text=True, timeout=10,
+            )
+            if r_log.returncode == 0:
+                changelog = [l.strip() for l in r_log.stdout.strip().split("\n") if l.strip()]
+
+        return {
+            "name": name,
+            "has_update": commits_behind > 0,
+            "current_version": ext.version,
+            "commits_behind": commits_behind,
+            "changelog": changelog[:10],
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to check extension update: {e}")
+
+
+@app.post("/api/v1/extensions/{name}/update")
+async def update_extension(name: str):
+    """Pull latest code for an external extension."""
+    import subprocess
+    from tubecli.core.extension_manager import extension_manager
+
+    ext = extension_manager.get(name)
+    if not ext:
+        raise HTTPException(404, f"Extension '{name}' not found")
+
+    if ext.extension_type != "external":
+        raise HTTPException(400, "System extensions cannot be updated individually. Use System Update.")
+
+    ext_dir = ext.extension_dir
+    if not ext_dir or not os.path.isdir(os.path.join(ext_dir, ".git")):
+        raise HTTPException(400, "Extension directory is not a git repository.")
+
+    try:
+        r_pull = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=ext_dir, capture_output=True, text=True, timeout=60,
+        )
+        if r_pull.returncode != 0:
+            return {"status": "error", "error": f"git pull failed: {r_pull.stderr}"}
+
+        # Re-read manifest to get new version
+        import json
+        new_version = ext.version
+        manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                    new_version = manifest.get("version", ext.version)
+            except Exception:
+                pass
+
+        return {
+            "status": "success",
+            "name": name,
+            "new_version": new_version,
+            "git_output": r_pull.stdout.strip()[:300],
+            "message": f"Extension '{name}' updated. Restart API to apply.",
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Extension update failed: {e}")
+
+
 # ── Register Extension Routes ───────────────────────────────────────
 from tubecli.core.extension_manager import extension_manager
 extension_manager.register_api_routes(app)

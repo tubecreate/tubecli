@@ -192,3 +192,33 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 /* ─── API Manager ─── */
 .api-info-bar { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 20px; margin-bottom: 20px; font-size: 0.88rem; }
 .api-info-bar code { background: var(--bg); padding: 4px 10px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--cyan); }
+
+/* ─── Version & Update ─── */
+.settings-section { margin-bottom: 8px; }
+.version-card { display: flex; align-items: center; justify-content: space-between; background: linear-gradient(135deg, var(--bg3), rgba(0,212,255,0.05)); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; gap: 16px; flex-wrap: wrap; }
+.version-info { flex: 1; }
+.version-badge-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.version-badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, var(--cyan), var(--purple)); color: #000; letter-spacing: 0.3px; }
+.version-hash { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--text-muted); background: var(--bg); padding: 4px 10px; border-radius: 6px; }
+.version-branch { font-size: 0.8rem; color: var(--green); font-weight: 600; }
+.version-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.update-status { margin-top: 8px; font-size: 0.85rem; color: var(--text2); }
+.update-status.has-update { color: var(--orange); font-weight: 600; }
+.update-status.up-to-date { color: var(--green); }
+.btn-update { background: linear-gradient(135deg, var(--green), #10b981) !important; color: #fff !important; animation: pulseGlow 2s infinite; }
+@keyframes pulseGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); } 50% { box-shadow: 0 0 16px 4px rgba(34,197,94,0.2); } }
+.changelog-box { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; margin-top: 12px; }
+.changelog-box h4 { margin-bottom: 10px; color: var(--text2); font-size: 0.9rem; }
+.changelog-box ul { list-style: none; padding: 0; }
+.changelog-box li { padding: 6px 0; font-size: 0.85rem; color: var(--text); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.changelog-box li::before { content: '•'; color: var(--cyan); font-weight: 700; }
+.changelog-box li:last-child { border-bottom: none; }
+
+/* Extension card update badge */
+.ext-update-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 12px; font-size: 0.7rem; font-weight: 700; background: rgba(245,158,11,0.15); color: var(--orange); animation: pulse 2s infinite; cursor: pointer; border: none; }
+.ext-update-badge:hover { background: rgba(245,158,11,0.3); }
+.btn-ext-update { padding: 4px 12px; border: none; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: linear-gradient(135deg, var(--green), #10b981); color: #fff; cursor: pointer; transition: all 0.2s; }
+.btn-ext-update:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(34,197,94,0.3); }
+
+/* Restart banner */
+.restart-banner { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem; color: var(--orange); font-weight: 600; }

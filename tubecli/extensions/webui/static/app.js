@@ -328,6 +328,102 @@ function searchMarket() { const q=(document.getElementById('market-search')?.val
 // ═══ Settings ═══
 function saveSettings() { const api=document.getElementById('set-api').value.trim(); if(api){localStorage.setItem('tubecli_api',api);location.reload();} }
 
+// ═══ Version & Update ═══
+async function loadVersionInfo() {
+    const d = await apiGet('/api/v1/system/version');
+    if (!d) return;
+    document.getElementById('version-badge').textContent = '⚡ TubeCLI v' + (d.version || '?');
+    document.getElementById('version-hash').textContent = d.git_hash ? ('#' + d.git_hash) : '';
+    document.getElementById('version-branch').textContent = d.git_branch ? ('📌 ' + d.git_branch) : '';
+    document.getElementById('update-status').textContent = '';
+    document.getElementById('update-status').className = 'update-status';
+}
+
+async function checkForUpdate() {
+    const btn = document.getElementById('btn-check-update');
+    const st = document.getElementById('update-status');
+    btn.disabled = true; btn.textContent = '🔍 Checking...';
+    st.textContent = 'Fetching from GitHub...'; st.className = 'update-status';
+    
+    const d = await apiPost('/api/v1/system/check-update', {});
+    btn.disabled = false; btn.textContent = '🔍 Check for Update';
+    
+    if (!d || d.error) {
+        st.textContent = '❌ ' + (d?.error || 'Failed to check'); st.className = 'update-status';
+        return;
+    }
+    if (d.has_update) {
+        st.textContent = `🔔 Update available! ${d.commits_behind} new commit(s)`;
+        st.className = 'update-status has-update';
+        document.getElementById('btn-system-update').style.display = 'inline-block';
+        // Show changelog
+        if (d.changelog && d.changelog.length > 0) {
+            document.getElementById('changelog-box').style.display = 'block';
+            document.getElementById('changelog-list').innerHTML = d.changelog.map(c => `<li>${esc(c)}</li>`).join('');
+        }
+    } else {
+        st.textContent = '✅ You are up to date!';
+        st.className = 'update-status up-to-date';
+        document.getElementById('btn-system-update').style.display = 'none';
+        document.getElementById('changelog-box').style.display = 'none';
+    }
+}
+
+async function performSystemUpdate() {
+    const btn = document.getElementById('btn-system-update');
+    const st = document.getElementById('update-status');
+    if (!confirm('Update TubeCLI to latest version? The API server will need to restart after update.')) return;
+    btn.disabled = true; btn.textContent = '⏳ Updating...';
+    st.textContent = 'Pulling latest code from GitHub...'; st.className = 'update-status';
+    
+    const d = await apiPost('/api/v1/system/update', {});
+    btn.disabled = false;
+    
+    if (d?.status === 'success') {
+        st.innerHTML = `✅ Updated to v${esc(d.new_version)}! <strong>Please restart the API server.</strong>`;
+        st.className = 'update-status has-update';
+        btn.textContent = '✅ Done';
+        btn.style.display = 'none';
+        document.getElementById('changelog-box').style.display = 'none';
+        // Show restart banner
+        const card = document.getElementById('version-card');
+        if (!document.getElementById('restart-banner')) {
+            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>tubecli api start</code></div>');
+        }
+    } else {
+        st.textContent = '❌ Update failed: ' + (d?.error || 'Unknown error');
+        st.className = 'update-status';
+        btn.textContent = '⬆️ Update Now';
+    }
+}
+
+// ═══ Extension Update (External) ═══
+async function checkExtensionUpdate(name, btn) {
+    btn.disabled = true; btn.textContent = '...';
+    const d = await apiPost(`/api/v1/extensions/${name}/check-update`, {});
+    if (d?.has_update) {
+        btn.textContent = '⬆️ Update'; btn.disabled = false;
+        btn.className = 'btn-ext-update';
+        btn.onclick = () => updateExtension(name, btn);
+    } else {
+        btn.textContent = '✅'; btn.disabled = true;
+        setTimeout(() => { btn.textContent = d?.message || 'Up to date'; }, 500);
+    }
+}
+
+async function updateExtension(name, btn) {
+    btn.disabled = true; btn.textContent = '⏳...';
+    const d = await apiPost(`/api/v1/extensions/${name}/update`, {});
+    if (d?.status === 'success') {
+        btn.textContent = '✅ v' + (d.new_version || '?');
+        alert(d.message || 'Updated! Restart API to apply.');
+    } else {
+        btn.textContent = '❌';
+        alert('Update failed: ' + (d?.error || d?.detail || 'Unknown'));
+        btn.disabled = false;
+    }
+}
+
 // ═══ Sidebar Toggle ═══
 function toggleSidebar() { document.getElementById('sidebar').classList.toggle('collapsed'); }
 
@@ -338,4 +434,10 @@ function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.tex
 async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(r.ok) document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot"></span> API Connected'; else throw 0; } catch { document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot" style="background:var(--red)"></span> API Offline'; } }
 
 // ═══ Init ═══
-document.addEventListener('DOMContentLoaded', () => { checkConnection(); loadDashboard(); const s=localStorage.getItem('tubecli_api'); if(s) document.getElementById('set-api').value=s; });
+document.addEventListener('DOMContentLoaded', () => {
+    checkConnection();
+    loadDashboard();
+    loadVersionInfo();
+    const s=localStorage.getItem('tubecli_api');
+    if(s) document.getElementById('set-api').value=s;
+});

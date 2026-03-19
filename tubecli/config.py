@@ -20,6 +20,7 @@ EXTENSIONS_EXTERNAL_DIR = DATA_DIR / "extensions_external"
 DEFAULT_API_PORT = 5295
 DEFAULT_AI_MODEL = "qwen:latest"
 OLLAMA_BASE_URL = "http://localhost:11434"
+GIT_REPO_URL = "https://github.com/tubecreate/tubecli.git"
 
 # ── Port Settings ────────────────────────────────────────────────────
 PORT_SETTINGS_FILE = DATA_DIR / "api_port.json"
