@@ -160,7 +160,13 @@ def install_model(model_name: str) -> bool:
     try:
         # Run directly so user sees the native ollama progress bar
         result = subprocess.run(["ollama", "pull", model_name])
-        return result.returncode == 0
+        
+        if result.returncode != 0:
+            console.print(f"\n[bold red]❌ Failed to pull model '{model_name}'.[/bold red]")
+            console.print("[yellow]Hint: Please check your internet connection or if the Ollama service is running.[/yellow]")
+            return False
+            
+        return True
     except Exception as e:
-        console.print(f"[bold red]Failed to pull model:[/bold red] {e}")
+        console.print(f"\n[bold red]Failed to execute pull command:[/bold red] {e}")
         return False
