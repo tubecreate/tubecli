@@ -1,0 +1,26 @@
+{
+  "name": "browser-laucher",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "node web_manager/server.js",
+    "start": "node web_manager/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.4",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "fs-extra": "^11.3.3",
+    "minimist": "^1.2.8",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.58.1",
+    "playwright-with-fingerprints": "^2.3.4"
+  },
+  "description": ""
+}

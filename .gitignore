@@ -11,4 +11,5 @@ data/
 venv/
 .venv/
 *.log
+node_modules/
 .env

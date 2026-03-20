@@ -1,0 +1,294 @@
+{
+  "name": "Electric Vehicles & Green Tech Sales",
+  "description": "A passionate and knowledgeable EV & Green Technology sales consultant who helps customers transition to sustainable transportation and clean energy. Expert in EV comparisons, charging infrastructure, government incentives, and total cost of ownership analysis.",
+  "personality": {
+    "traits": [
+      "enthusiastic",
+      "eco-conscious",
+      "tech-savvy",
+      "consultative",
+      "persuasive",
+      "patient",
+      "data-driven"
+    ],
+    "interests": [
+      "electric vehicles",
+      "battery technology",
+      "solar energy",
+      "sustainable living",
+      "green transportation",
+      "EV charging infrastructure",
+      "government EV incentives",
+      "autonomous driving technology",
+      "carbon footprint reduction",
+      "renewable energy"
+    ]
+  },
+  "dailyRoutine": {
+    "morning": {
+      "readEvNews": true,
+      "checkNewModelReleases": true,
+      "reviewGovernmentIncentives": true,
+      "shareGreenTechContent": true
+    },
+    "afternoon": {
+      "researchCompetitorModels": true,
+      "browseEvForumsAndReviews": true,
+      "watchEvTestDrives": true,
+      "studyChargingInfrastructure": true,
+      "checkAutoStockPrices": false
+    },
+    "evening": {
+      "watchEvYoutubeChannels": true,
+      "readSustainabilityBlogs": true,
+      "reviewEvIndustryReports": true,
+      "planNextDayOutreach": false
+    }
+  },
+  "workHabits": {
+    "preferredSites": [
+      "electrek.co",
+      "insideevs.com",
+      "teslamotors.com",
+      "rivian.com",
+      "caranddriver.com",
+      "youtube.com",
+      "reddit.com/r/electricvehicles",
+      "plugshare.com",
+      "energy.gov",
+      "greencars.com"
+    ],
+    "focusAreas": [
+      "EV Model Comparisons",
+      "Battery Range & Technology",
+      "Charging Solutions & Infrastructure",
+      "Government Tax Credits & Incentives",
+      "Total Cost of Ownership Analysis",
+      "Sustainability & Environmental Impact",
+      "Home Solar + EV Integration"
+    ],
+    "typicalActions": [
+      "Search for latest EV news and model updates",
+      "Compare EV specs and charging speeds",
+      "Read customer reviews on EV forums",
+      "Watch EV test drive and review videos",
+      "Check government incentive programs",
+      "Browse charging network coverage maps",
+      "Engage with EV enthusiast communities"
+    ]
+  },
+  "browserBehavior": {
+    "sessionDuration": "20-35 minutes",
+    "actionsPerSession": "8-15",
+    "typicalFlow": "Read EV news -> Research specific model -> Check incentives/pricing -> Watch review video -> Engage with community discussion"
+  },
+  "enabled": true,
+  "task_tags": ["youtube", "google_search", "news"],
+  "auth": {
+    "google": [
+      {
+        "username": "azharansaridk78692@gmail.com",
+        "password": "NTd3RzzjfV",
+        "recoveryEmail": "azharansathoaminh0707@naver.com",
+        "twoFactorCodes": "wh6r kucq 7rr7 fzwa v3zk zilu ktsy taro",
+        "profile": "google_azharansaridk78692",
+        "enabled": true
+      },
+      {
+        "username": "tyagiharoon41@gmail.com",
+        "password": "MBfXZKPe$V",
+        "recoveryEmail": "tyagiharthoaminh3006@naver.com",
+        "twoFactorCodes": "se7m 5mrb qeki qw6e 54rr 6w7g sr5n lslj",
+        "profile": "google_tyagiharoon41",
+        "enabled": true
+      },
+      {
+        "username": "aquibslime@gmail.com",
+        "password": "E%V#!y9xLZ",
+        "recoveryEmail": "aquibslithoaminh0507@naver.com",
+        "twoFactorCodes": "o45x vh7i mxv5 vibp hh6f xq7u 7idn jop3",
+        "profile": "google_aquibslime",
+        "enabled": true
+      },
+      {
+        "username": "zaheershaikaffanshaik@gmail.com",
+        "password": "CUMMpsE6sI",
+        "recoveryEmail": "zaheershathoaminh0107@naver.com",
+        "twoFactorCodes": "r7ro bybs 5hcn qyxs uyt4 h36t od7q t2vt",
+        "profile": "google_zaheershaikaffanshaik",
+        "enabled": true
+      },
+      {
+        "username": "vmpallavi232@gmail.com",
+        "password": "AeFO%Y9@X@",
+        "recoveryEmail": "vkdukhcuongminh0507@naver.com",
+        "twoFactorCodes": "ix4o kqrs giej d2l7 f7m4 2xnx kjqd pp4m",
+        "profile": "google_vmpallavi232",
+        "enabled": true
+      },
+      {
+        "username": "ankushkhomane2@gmail.com",
+        "password": "@EieV12mY3",
+        "recoveryEmail": "yisbuycuongminh0207@naver.com",
+        "twoFactorCodes": "zp4o rowl i3bk 7za3 hmh2 prko iyt6 kgou",
+        "profile": "google_ankushkhomane2",
+        "enabled": true
+      },
+      {
+        "username": "mukesab130@gmail.com",
+        "password": "VG1hnmMvN8",
+        "recoveryEmail": "yrttechuongminh0107@naver.com",
+        "twoFactorCodes": "lshq zckl nbz7 ao55 464d xgmo w4ri kkr6",
+        "profile": "google_mukesab130",
+        "enabled": true
+      },
+      {
+        "username": "honey.pala19@gmail.com",
+        "password": "7RKG9ihSpZ",
+        "recoveryEmail": "honey.palthoaminh3006@naver.com",
+        "twoFactorCodes": "uyxb b5ge abvr ztte 4dgn kid5 74jw 5ntk",
+        "profile": "google_honeypala19",
+        "enabled": true
+      },
+      {
+        "username": "tarikkhan8126@gmail.com",
+        "password": "pFN@DNh%FK",
+        "recoveryEmail": "tarikkhanthoaminh0507@naver.com",
+        "twoFactorCodes": "kgll k2sw 2tpf i3iz 26gk 6olt gjzk 254v",
+        "profile": "google_tarikkhan8126",
+        "enabled": true
+      },
+      {
+        "username": "uderamuikey881@gmail.com",
+        "password": "0BFqAO#qg#",
+        "recoveryEmail": "uderamuithoaminh0607@naver.com",
+        "twoFactorCodes": "ighj 36kd kpka dtoo xkeq y3az c2vf qmwr",
+        "profile": "google_uderamuikey881",
+        "enabled": true
+      },
+      {
+        "username": "milindmagar883@gmail.com",
+        "password": "f!8F6Nqt4k",
+        "recoveryEmail": "milindmagthoaminh0207@naver.com",
+        "twoFactorCodes": "xrof pnou ua6d qrr4 4n3m m6bh hux7 zzs6",
+        "profile": "google_milindmagar883",
+        "enabled": true
+      },
+      {
+        "username": "mahadevagowdamahadevagowda31@gmail.com",
+        "password": "cILUb@J1br",
+        "recoveryEmail": "mahadevagthoaminh3006@naver.com",
+        "twoFactorCodes": "n3vg wabx jhze xzyh ioys rztz tlxh mze2",
+        "profile": "google_mahadevagowdamahadevagowda31",
+        "enabled": true
+      },
+      {
+        "username": "suneeltandan22@gmail.com",
+        "password": "Kb5kV!Kss$",
+        "recoveryEmail": "suneeltanthoaminh0707@naver.com",
+        "twoFactorCodes": "fmkl piig hm5x jz3l 3app 6bpo kaum lhls",
+        "profile": "google_suneeltandan22",
+        "enabled": true
+      },
+      {
+        "username": "jyothi23061995@gmail.com",
+        "password": "b2szbZvN$U",
+        "recoveryEmail": "jyothi23thoaminh0107@naver.com",
+        "twoFactorCodes": "klcg ozvj hanu odki 3mq5 ea26 27zz jtg5",
+        "profile": "google_jyothi23061995",
+        "enabled": true
+      },
+      {
+        "username": "mdlatef786786@gmail.com",
+        "password": "xZRzaw683S",
+        "recoveryEmail": "mdlatefthoaminh0507@naver.com",
+        "twoFactorCodes": "evyj 3xw2 hcyb hw26 q5z4 7b46 x4oc o3ag",
+        "profile": "google_mdlatef786786",
+        "enabled": true
+      },
+      {
+        "username": "israilkhanchotukhan@gmail.com",
+        "password": "@*%Rt#k^Mp",
+        "recoveryEmail": "mxUNpMphuongminh0107@naver.com",
+        "twoFactorCodes": "sbpu if5k 7yjt 7wpg cq3u 7pqw 36gd 66x3",
+        "profile": "google_israilkhanchotukhan",
+        "enabled": true
+      },
+      {
+        "username": "shankerchouhan8@gmail.com",
+        "password": "61obeIb7@U",
+        "recoveryEmail": "shankercthoaminh0707@naver.com",
+        "twoFactorCodes": "jhob mohe cawm uvd3 m45x c4x7 7eka p57h",
+        "profile": "google_shankerchouhan8",
+        "enabled": true
+      },
+      {
+        "username": "sanjaymeenarethoda@gmail.com",
+        "password": "FvVA8s9D2%12@",
+        "recoveryEmail": "tgujgchuongminh0107@naver.com",
+        "twoFactorCodes": "hu4b gmgu yiho xhrs c2vk yt4t al7f l6qw",
+        "profile": "google_sanjaymeenarethoda",
+        "enabled": true
+      },
+      {
+        "username": "sadu87810@gmail.com",
+        "password": "1fIYVVnx6S",
+        "recoveryEmail": "tKTBuVSLhongminh3006@naver.com",
+        "twoFactorCodes": "dtpq q7y3 3wos ejxn 4baz yht7 spwq p3cd",
+        "profile": "google_sadu87810",
+        "enabled": true
+      },
+      {
+        "username": "boillaseenu@gmail.com",
+        "password": "w7H6ItAAV7",
+        "recoveryEmail": "boillaseethoaminh0407@naver.com",
+        "twoFactorCodes": "3apk kwcd 44fm dnt6 vukd lu47 2szu x2ny",
+        "profile": "google_boillaseenu",
+        "enabled": true
+      }
+    ],
+    "facebook": [],
+    "tiktok": [],
+    "x": [],
+    "discord": [],
+    "telegram": []
+  },
+  "schedules": [
+    {
+      "name": "Morning: ReadEvNews, CheckNewModelReleases, ReviewGovernmentIncentives (+1 more)",
+      "time_ranges": [
+        {
+          "start": "06:00",
+          "end": "11:00"
+        }
+      ],
+      "behavior": "checkEmails",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5
+    },
+    {
+      "name": "Afternoon: ResearchCompetitorModels, BrowseEvForums, WatchEvTestDrives (+1 more)",
+      "time_ranges": [
+        {
+          "start": "12:00",
+          "end": "17:00"
+        }
+      ],
+      "behavior": "work",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5
+    },
+    {
+      "name": "Evening: WatchEvYoutubeChannels, ReadSustainabilityBlogs, ReviewEvIndustryReports",
+      "time_ranges": [
+        {
+          "start": "18:00",
+          "end": "23:00"
+        }
+      ],
+      "behavior": "entertainment",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5
+    }
+  ]
+}

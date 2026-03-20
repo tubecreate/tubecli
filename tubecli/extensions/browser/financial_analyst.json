@@ -1,0 +1,216 @@
+{
+  "name": "Financial Analyst",
+  "description": "A professional financial analyst who researches markets, analyzes stocks, and stays updated on economic trends. Expert in technical analysis, fundamental research, and market forecasting.",
+  "personality": {
+    "traits": [
+      "analytical",
+      "detail-oriented",
+      "data-driven",
+      "strategic",
+      "professional"
+    ],
+    "interests": [
+      "stock market",
+      "cryptocurrency",
+      "economic indicators",
+      "financial news",
+      "investment strategies",
+      "technical analysis",
+      "company earnings",
+      "market trends"
+    ]
+  },
+  "dailyRoutine": {
+    "morning": {
+      "checkMarketNews": true,
+      "reviewStockPrices": true,
+      "readFinancialNews": true,
+      "checkEconomicCalendar": true
+    },
+    "afternoon": {
+      "analyzeStocks": true,
+      "researchCompanies": true,
+      "reviewEarningsReports": true,
+      "studyTechnicalCharts": true,
+      "checkCryptoMarket": false
+    },
+    "evening": {
+      "watchFinanceVideos": true,
+      "readMarketAnalysis": true,
+      "updatePortfolio": true,
+      "planTomorrowTrades": false
+    }
+  },
+  "workHabits": {
+    "preferredSites": [
+      "bloomberg.com",
+      "investing.com",
+      "finance.yahoo.com",
+      "seekingalpha.com",
+      "tradingview.com",
+      "reuters.com"
+    ],
+    "focusAreas": [
+      "S&P 500 analysis",
+      "Tech stock trends",
+      "Cryptocurrency markets",
+      "Economic indicators (GDP, inflation, unemployment)",
+      "Earnings reports",
+      "Technical analysis patterns"
+    ],
+    "typicalActions": [
+      "Search for stock analysis",
+      "Read financial reports",
+      "Watch market update videos",
+      "Check stock charts",
+      "Research company fundamentals",
+      "Monitor economic news"
+    ]
+  },
+  "browserBehavior": {
+    "sessionDuration": "15-30 minutes",
+    "actionsPerSession": "8-15",
+    "typicalFlow": "Search market news -> Read articles -> Check stock prices -> Watch analysis videos -> Research companies"
+  },
+  "enabled": true,
+  "task_tags": ["youtube", "google_search", "news"],
+  "auth": {
+    "google": [
+      {
+        "username": "kumarbulet1000@gmail.com",
+        "password": "VAwY93L1rR",
+        "recoveryEmail": "kumarbulthoaminh0607@naver.com",
+        "twoFactorCodes": "2ooh xehr usg2 43ri jeub xnp2 55rq xjtj",
+        "notes": "Main Google account",
+        "profile": "financial_analyst",
+        "enabled": true
+      },
+      {
+        "username": "abdulromanali45@gmail.com",
+        "password": "eiqzi2y1Hi",
+        "recoveryEmail": "abdulrothoaminh0207@naver.com",
+        "twoFactorCodes": "fauv 5ssc uv24 tr7u pd3h 5zsb owim unjx",
+        "profile": "google_abdulromanali45",
+        "enabled": true
+      },
+      {
+        "username": "enderpura@gmail.com",
+        "password": "Aht94TxFOp",
+        "recoveryEmail": "trygchuongminh0207@naver.com",
+        "twoFactorCodes": "kwdg s4nd ztvv hp74 senb eyqk f2rm s3fm",
+        "profile": "google_enderpura",
+        "enabled": true
+      },
+      {
+        "username": "jyotishanijyoti@gmail.com",
+        "password": "Qst!PGEuvB",
+        "recoveryEmail": "tnuuttcuongminh3006@naver.com",
+        "twoFactorCodes": "fy6u fvrz yixd iun4 nyho ry3t htwo vave",
+        "profile": "google_jyotishanijyoti",
+        "enabled": true
+      },
+      {
+        "username": "sainathasarode@gmail.com",
+        "password": "UEGHxeIz96",
+        "recoveryEmail": "cvKLQDphuongminh0407@naver.com",
+        "twoFactorCodes": "lzqs xeyw ngss pq7f nv67 vja3 r4pt vsh5",
+        "profile": "google_sainathasarode",
+        "enabled": true
+      },
+      {
+        "username": "raoreshma990@gmail.com",
+        "password": "31pBKLj33Q",
+        "recoveryEmail": "xygimfcuongminh0607@naver.com",
+        "twoFactorCodes": "ybho xpa7 pjba us6s d73j xpdk iz6p rrxd",
+        "profile": "google_raoreshma990",
+        "enabled": true
+      },
+      {
+        "username": "maheshkumar3049378@gmail.com",
+        "password": "!39V&*oK0C",
+        "recoveryEmail": "ghrtjhtyudfgeeanminh3006@gmail.com",
+        "twoFactorCodes": "m5t7 ke2t engb 4hhu 37gj cnun sw4t agkz",
+        "profile": "google_maheshkumar3049378",
+        "enabled": true
+      },
+      {
+        "username": "laxmankashyap062@gmail.com",
+        "password": "D5#Hw!RyQ1",
+        "recoveryEmail": "eLW8Q4phuongminh0607@naver.com",
+        "twoFactorCodes": "hoze zwj7 h7lf c2jc uala uzbp amqq agd6",
+        "profile": "google_laxmankashyap062",
+        "enabled": true
+      },
+      {
+        "username": "bemeshgolla13@gmail.com",
+        "password": "YXVsDOMIT!",
+        "recoveryEmail": "bemeshgthoaminh0107@naver.com",
+        "twoFactorCodes": "heql joh4 5wyi x3b4 dfpb faqf 6hav qfr2",
+        "profile": "google_bemeshgolla13",
+        "enabled": true
+      },
+      {
+        "username": "gulabsharma8952@gmail.com",
+        "password": "201XLl9#oA",
+        "recoveryEmail": "zcbfadcuongminh0207@naver.com",
+        "twoFactorCodes": "rb3r u3v6 v3u5 wzwu 4vas prpo 74cz ccq5",
+        "profile": "google_gulabsharma8952",
+        "enabled": true
+      },
+      {
+        "username": "sukhdevdurve626@gmail.com",
+        "password": "PmHA$X3Gq#",
+        "recoveryEmail": "sukhdevdthoaminh0707@naver.com",
+        "twoFactorCodes": "57hd mojl ibve ejtq dqln 7pf3 lrrx jceg",
+        "profile": "google_sukhdevdurve626",
+        "enabled": true
+      }
+    ],
+    "facebook": [],
+    "tiktok": [],
+    "x": [],
+    "discord": [],
+    "telegram": []
+  },
+  "schedules": [
+    {
+      "name": "Morning: Checkmarketnews, Reviewstockprices, Readfinancialnews (+1 more)",
+      "time_ranges": [
+        {
+          "start": "06:00",
+          "end": "11:00"
+        }
+      ],
+      "behavior": "checkEmails",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5,
+      "last_launch_time": "2026-02-18T12:55:20.487243"
+    },
+    {
+      "name": "Afternoon: Analyzestocks, Researchcompanies, Reviewearningsreports (+1 more)",
+      "time_ranges": [
+        {
+          "start": "12:00",
+          "end": "17:00"
+        }
+      ],
+      "behavior": "work",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5,
+      "last_launch_time": "2026-02-18T12:57:35.847756"
+    },
+    {
+      "name": "Evening: Watchfinancevideos, Readmarketanalysis, Updateportfolio",
+      "time_ranges": [
+        {
+          "start": "18:00",
+          "end": "23:00"
+        }
+      ],
+      "behavior": "entertainment",
+      "interval_minutes": 5,
+      "random_offset_minutes": 5,
+      "last_launch_time": "2026-02-18T13:04:48.637945"
+    }
+  ]
+}

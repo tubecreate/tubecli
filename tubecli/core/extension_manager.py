@@ -162,14 +162,12 @@ class ExtensionManager:
         "tubecli.extensions.cloud_api",
         "tubecli.extensions.ollama_manager",
         "tubecli.extensions.multi_agents",
+        "tubecli.extensions.browser",
     ]
 
     # Essential external extensions to auto-install if missing
     ESSENTIAL_EXTENSIONS = [
-        {
-            "name": "browser",
-            "git_url": "https://github.com/tubecreate/browser-control.git"
-        }
+        # browser is now a built-in extension
     ]
 
     def __init__(self):
