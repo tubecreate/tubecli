@@ -222,3 +222,19 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 
 /* Restart banner */
 .restart-banner { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem; color: var(--orange); font-weight: 600; }
+
+/* ─── Loading Overlay / Download Progress ─── */
+.loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.loading-overlay.hidden { display: none; }
+.loading-content { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; width: 450px; max-width: 90vw; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.spinner { width: 40px; height: 40px; border: 4px solid rgba(0,212,255,0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-bar-container { width: 100%; height: 10px; background: var(--bg3); border-radius: 5px; margin-top: 20px; overflow: hidden; border: 1px solid var(--border); }
+.progress-bar { height: 100%; background: linear-gradient(90deg, var(--cyan), var(--purple)); transition: width 0.3s ease; }
+
+/* ─── Browser Engine Table Extras ─── */
+.engine-status-installed { color: var(--green); font-weight: 600; }
+.engine-status-missing { color: var(--text-muted); }
+.btn-install { background: var(--blue); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+.btn-install:hover { background: #2563eb; transform: translateY(-1px); }

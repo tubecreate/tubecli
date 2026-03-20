@@ -494,15 +494,92 @@ async function main() {
 
   if (args['download-version']) {
     const v = args['download-version'];
-    console.log(`[Download] Triggering download for version: ${v}...`);
+    const extDir = path.dirname(fileURLToPath(import.meta.url));
+    const engineBaseDir = path.join(extDir, 'data', 'engine');
+    const progressFile = path.join(engineBaseDir, `${v}.progress.json`);
+    
+    await fs.ensureDir(engineBaseDir);
+
+    async function updateProgress(data) {
+        await fs.writeJson(progressFile, { 
+            version: v, 
+            status: 'downloading', 
+            percent: 0, 
+            ...data 
+        }, { spaces: 2 });
+    }
+
+    console.log(`[Download] Starting download for version: ${v}...`);
     try {
-      // Setting version and calling fetch will trigger engine download
-      await plugin.useBrowserVersion(v).fetch(); 
-      console.log(`[Download] ✅ Version ${v} is ready.`);
-      process.exit(0);
+        await updateProgress({ status: 'fetching-list', percent: 5 });
+        const list = await plugin.versions('extended');
+        const verInfo = list.find(x => x.browser_version === v || x.bas_version === v);
+        
+        if (!verInfo) {
+            throw new Error(`Version ${v} not found in available engines list.`);
+        }
+
+        const basVer = verInfo.bas_version;
+        const targetDir = path.join(engineBaseDir, basVer);
+        const zipPath = path.join(targetDir, `FastExecuteScript.x64.zip`);
+        
+        await fs.ensureDir(targetDir);
+        
+        // If already installed, skip
+        if (await fs.pathExists(path.join(targetDir, 'FastExecuteScript.exe'))) {
+            console.log(`[Download] ✅ Version ${v} is already installed.`);
+            await updateProgress({ status: 'completed', percent: 100 });
+            process.exit(0);
+        }
+
+        const ARCH = '64';
+        let url = args['download-url'] || `http://distr.bablosoft.com/distr/FastExecuteScript${ARCH}/${basVer}/FastExecuteScript.x${ARCH}.zip`;
+        
+        console.log(`[Download] Downloading from: ${url}`);
+        await updateProgress({ status: 'downloading', percent: 10 });
+
+        const response = await axios({
+            url,
+            method: 'GET',
+            responseType: 'stream'
+        });
+
+        const totalLength = response.headers['content-length'];
+        let downloadedLength = 0;
+
+        const writer = fs.createWriteStream(zipPath);
+        response.data.on('data', (chunk) => {
+            downloadedLength += chunk.length;
+            const percent = Math.round((downloadedLength / totalLength) * 80) + 10; // 10% to 90%
+            updateProgress({ status: 'downloading', percent });
+        });
+
+        response.data.pipe(writer);
+
+        await new Promise((resolve, reject) => {
+            writer.on('finish', resolve);
+            writer.on('error', reject);
+        });
+
+        console.log(`[Download] Extracting...`);
+        await updateProgress({ status: 'extracting', percent: 95 });
+        
+        // Use adm-zip or similar if available, or just use plugin.useBrowserVersion(v).fetch()
+        // since we already have the ZIP, it might skip download? 
+        // Actually, plugin.fetch() is easier if we just let it handle extraction.
+        // But since we already downloaded the zip to zipPath, we can just call plugin.fetch()
+        // and it should see the file if it checks the same path.
+        // The default path for fingerprints plugin is indeed data/engine/BAS_VER/FastExecuteScript.x64.zip
+        
+        await plugin.useBrowserVersion(v).fetch(); 
+
+        await updateProgress({ status: 'completed', percent: 100 });
+        console.log(`[Download] ✅ Version ${v} is ready.`);
+        process.exit(0);
     } catch (e) {
-      console.error(`[Download] ❌ Failed: ${e.message}`);
-      process.exit(1);
+        console.error(`[Download] ❌ Failed: ${e.message}`);
+        await updateProgress({ status: 'error', error: e.message, percent: 0 });
+        process.exit(1);
     }
   }
 
