@@ -538,12 +538,6 @@ class ExtensionManager:
                             cwd=target_dir, timeout=300, shell=True
                         )
                     
-                    if "playwright-with-fingerprints" in deps:
-                        print(f"🧬 Patching Playwright with Fingerprints for {manifest['name']}...")
-                        subprocess.run(
-                            [sys.executable, "-c", "import subprocess; subprocess.run(['node', '-e', \"require('playwright-with-fingerprints').plugin.versions()\"], check=True)"],
-                            cwd=target_dir, timeout=600, shell=True
-                        )
             except Exception as e:
                 logger.warning(f"Failed to install extension node dependencies: {e}")
 

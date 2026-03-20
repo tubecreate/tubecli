@@ -150,7 +150,7 @@ async function renderBrowserExt(el) {
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
     const runningProfiles = (status?.instances||[]).map(i => i.profile);
-    let h = `<div style="margin-bottom:16px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button></div>`;
+    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="installBrowserEngine()">Download / Check Browser Engine</button></div>`;
     if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
@@ -325,8 +325,45 @@ async function generateAgentJSON() { const name=document.getElementById('agent-g
 function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||[],workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
 
 // ═══ Browser Profile CRUD ═══
-function showCreateProfile() { document.getElementById('modal-profile').classList.remove('hidden'); }
-async function createProfile() { const btn=document.getElementById('btn-create-profile-submit'); const name=document.getElementById('profile-name').value.trim(); if(!name) return; btn.disabled=true; btn.textContent='Creating...'; await apiPost('/api/v1/browser/profiles',{name,proxy:document.getElementById('profile-proxy').value,tags:[document.getElementById('profile-os').value,document.getElementById('profile-browser').value]}); btn.disabled=false; btn.textContent='Create & Fetch Fingerprint'; closeModal('modal-profile'); document.getElementById('profile-name').value=''; document.getElementById('profile-proxy').value=''; renderBrowserExt(document.getElementById('ext-detail-body')); }
+async function showCreateProfile() { 
+    document.getElementById('modal-profile').classList.remove('hidden'); 
+    // Fetch browser versions
+    const sel = document.getElementById('profile-version');
+    if (sel && sel.options.length <= 1) {
+        sel.innerHTML = '<option value="default">Loading...</option>';
+        try {
+            const r = await apiGet('/api/v1/browser/engine/versions');
+            if (r && r.success && r.versions) {
+                sel.innerHTML = '<option value="default">Default Latest</option>' + 
+                    r.versions.map(v => `<option value="${v}">${v}</option>`).join('');
+            } else {
+                sel.innerHTML = '<option value="default">Default Latest</option>';
+            }
+        } catch (e) {
+            sel.innerHTML = '<option value="default">Default Latest</option>';
+        }
+    }
+}
+async function installBrowserEngine() {
+    alert('Connecting to engine and fetching versions... Please wait if it is downloading for the first time.');
+    try {
+        const r = await apiGet('/api/v1/browser/engine/versions');
+        if (r && r.success && r.versions) {
+            alert(`Engine is installed! Available versions: \n${r.versions.join(', ')}`);
+            // Pre-fill select options if it exists
+            const sel = document.getElementById('profile-version');
+            if (sel) {
+                sel.innerHTML = '<option value="default">Default Latest</option>' + 
+                    r.versions.map(v => `<option value="${v}">${v}</option>`).join('');
+            }
+        } else {
+            alert('Failed to fetch/install engine: ' + (r?.error || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+async function createProfile() { const btn=document.getElementById('btn-create-profile-submit'); const name=document.getElementById('profile-name').value.trim(); if(!name) return; btn.disabled=true; btn.textContent='Creating...'; await apiPost('/api/v1/browser/profiles',{name,proxy:document.getElementById('profile-proxy').value,tags:[document.getElementById('profile-os').value,document.getElementById('profile-browser').value],browser_version:document.getElementById('profile-version')?.value}); btn.disabled=false; btn.textContent='Create & Fetch Fingerprint'; closeModal('modal-profile'); document.getElementById('profile-name').value=''; document.getElementById('profile-proxy').value=''; renderBrowserExt(document.getElementById('ext-detail-body')); }
 async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(document.getElementById('ext-detail-body'));if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} alert('Failed to launch: ' + (r?.error || r?.detail || 'Unknown error')); } }
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),1000); }
 async function deleteProfile(name) { if(!confirm('Delete '+name+'?')) return; await apiDelete('/api/v1/browser/profiles/'+name); }
