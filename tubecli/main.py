@@ -15,7 +15,10 @@ def cli():
     Manage agents, skills, and workflows from the command line.
     AI agents can read .agents/skills/SKILL.md to self-operate.
     """
-    pass
+    # Auto-load language on every CLI invocation
+    from tubecli.config import get_language
+    from tubecli.i18n import load_language
+    load_language(get_language())
 
 
 # ── Core Commands ─────────────────────────────────────────

@@ -16,14 +16,14 @@
             <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">☰</button>
         </div>
         <nav class="sidebar-nav">
-            <div class="nav-section-label">MAIN</div>
-            <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span> <span class="nav-text">Dashboard</span></button>
-            <button class="nav-item" data-tab="extensions"><span class="nav-icon">🧩</span> <span class="nav-text">Extensions</span></button>
-            <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text">API Manager</span></button>
-            <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text">Settings</span></button>
+            <div class="nav-section-label" data-i18n="nav.main">MAIN</div>
+            <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
+            <button class="nav-item" data-tab="extensions"><span class="nav-icon">🧩</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span></button>
+            <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
+            <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
         </nav>
-        <div class="sidebar-footer">
-            <span class="status-dot"></span> API Connected
+        <div class="sidebar-footer" id="sidebar-footer">
+            <span class="status-dot"></span> <span data-i18n="sidebar.connected">API Connected</span>
         </div>
     </aside>
 
@@ -32,42 +32,42 @@
 
         <!-- ═══ DASHBOARD TAB (Stats Only) ═══ -->
         <section class="tab-panel active" id="tab-dashboard">
-            <div class="panel-header"><h1>📊 Dashboard</h1></div>
+            <div class="panel-header"><h1 data-i18n="dash.title">📊 Dashboard</h1></div>
 
             <!-- System Stats -->
             <div class="stats-grid">
-                <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-info"><div id="stat-agents" class="stat-value">-</div><div class="stat-label">Agents</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-info"><div id="stat-profiles" class="stat-value">-</div><div class="stat-label">Browser Profiles</div></div></div>
-                <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-info"><div id="stat-skills" class="stat-value">-</div><div class="stat-label">Skills</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🔄</div><div class="stat-info"><div id="stat-workflows" class="stat-value">-</div><div class="stat-label">Workflows</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🧩</div><div class="stat-info"><div id="stat-extensions" class="stat-value">-</div><div class="stat-label">Extensions</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🔑</div><div class="stat-info"><div id="stat-api-keys" class="stat-value">-</div><div class="stat-label">API Keys</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-info"><div id="stat-agents" class="stat-value">-</div><div class="stat-label" data-i18n="stat.agents">Agents</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-info"><div id="stat-profiles" class="stat-value">-</div><div class="stat-label" data-i18n="stat.profiles">Browser Profiles</div></div></div>
+                <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-info"><div id="stat-skills" class="stat-value">-</div><div class="stat-label" data-i18n="stat.skills">Skills</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🔄</div><div class="stat-info"><div id="stat-workflows" class="stat-value">-</div><div class="stat-label" data-i18n="stat.workflows">Workflows</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🧩</div><div class="stat-info"><div id="stat-extensions" class="stat-value">-</div><div class="stat-label" data-i18n="stat.extensions">Extensions</div></div></div>
+                <div class="stat-card"><div class="stat-icon">🔑</div><div class="stat-info"><div id="stat-api-keys" class="stat-value">-</div><div class="stat-label" data-i18n="stat.api_keys">API Keys</div></div></div>
             </div>
 
-            <!-- Quick Overview cards -->
-            <h3 style="margin-bottom: 16px; color: var(--text2);">🟢 System Status</h3>
+            <!-- System Status -->
+            <h3 style="margin-bottom: 16px; color: var(--text2);" data-i18n="dash.system_status">🟢 System Status</h3>
             <div class="status-cards-grid">
-                <div class="status-mini-card"><span class="status-mini-icon" id="status-api-dot">●</span><span>API Server</span><span class="tag green" id="status-api-label">Online</span></div>
-                <div class="status-mini-card"><span class="status-mini-icon" id="status-ollama-dot">●</span><span>Ollama</span><span class="tag" id="status-ollama-label">Checking...</span></div>
-                <div class="status-mini-card"><span class="status-mini-icon" id="status-browser-dot">●</span><span>Browser</span><span class="tag" id="status-browser-label">Checking...</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-api-dot">●</span><span>API Server</span><span class="tag green" id="status-api-label" data-i18n="status.online">Online</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-ollama-dot">●</span><span>Ollama</span><span class="tag" id="status-ollama-label" data-i18n="status.checking">Checking...</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-browser-dot">●</span><span>Browser</span><span class="tag" id="status-browser-label" data-i18n="status.checking">Checking...</span></div>
             </div>
 
-            <h3 style="margin: 28px 0 16px; color: var(--text2);">📌 Quick Actions</h3>
+            <h3 style="margin: 28px 0 16px; color: var(--text2);" data-i18n="dash.quick_actions">📌 Quick Actions</h3>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="btn-primary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('agents'), 200)">🤖 Manage Agents</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('browser'), 200)">🌐 Browser Profiles</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('workflows'), 200)">🔄 Workflow Builder</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('cloud_api'), 200)">☁️ Cloud API Keys</button>
+                <button class="btn-primary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('agents'), 200)" data-i18n="dash.manage_agents">🤖 Manage Agents</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('browser'), 200)" data-i18n="dash.browser_profiles">🌐 Browser Profiles</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('workflows'), 200)" data-i18n="dash.workflow_builder">🔄 Workflow Builder</button>
+                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('cloud_api'), 200)" data-i18n="dash.cloud_api_keys">☁️ Cloud API Keys</button>
             </div>
         </section>
 
         <!-- ═══ EXTENSIONS TAB ═══ -->
         <section class="tab-panel" id="tab-extensions">
             <div class="panel-header">
-                <h1>🧩 Extensions</h1>
-                <button class="btn-primary" onclick="showInstallExtension()">+ Install from Git</button>
+                <h1 data-i18n="ext.title">🧩 Extensions</h1>
+                <button class="btn-primary" onclick="showInstallExtension()" data-i18n="ext.install_git">+ Install from Git</button>
             </div>
-            <p style="color: var(--text-muted); margin-bottom: 20px;">Click on an extension to open its management interface.</p>
+            <p style="color: var(--text-muted); margin-bottom: 20px;" data-i18n="ext.click_hint">Click on an extension to open its management interface.</p>
             <div id="extensions-grid" class="cards-grid"></div>
         </section>
 
@@ -131,12 +131,18 @@
 
             <!-- General Settings -->
             <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--text2);">⚙️ General</h3>
+                <h3 style="margin-bottom:16px; color:var(--text2);" data-i18n="settings.general">⚙️ General</h3>
                 <div class="settings-form">
-                    <div class="form-group"><label>API Port</label><input id="set-port" value="5295"></div>
-                    <div class="form-group"><label>AI Model</label><input id="set-model" value="qwen:latest"></div>
-                    <div class="form-group"><label>API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
-                    <button class="btn-primary" onclick="saveSettings()">Save Settings</button>
+                    <div class="form-group"><label data-i18n="settings.api_port">API Port</label><input id="set-port" value="5295"></div>
+                    <div class="form-group"><label data-i18n="settings.ai_model">AI Model</label><input id="set-model" value="qwen:latest"></div>
+                    <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
+                    <div class="form-group">
+                        <label data-i18n="settings.language">🌐 Language</label>
+                        <select id="set-lang" onchange="changeLanguage(this.value)">
+                            <option value="en">English</option>
+                            <option value="vi">Tiếng Việt</option>
+                        </select>
+                    </div>
                 </div>
             </div>
         </section>
@@ -240,6 +246,7 @@
     </div>
 </div>
 
+<script src="/static/i18n.js?v=2"></script>
 <script src="/static/app.js?v=2"></script>
 </body>
 </html>

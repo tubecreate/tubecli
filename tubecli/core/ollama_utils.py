@@ -21,9 +21,11 @@ def is_ollama_installed() -> bool:
 
 def install_ollama():
     """Download and run the official Windows Ollama installer."""
+    from tubecli.i18n import t
+
     if os.name != "nt":
-        console.print("[yellow]Auto-install is currently only supported on Windows.[/yellow]")
-        console.print("Please install Ollama manually from: https://ollama.com/download")
+        console.print(t("ollama.auto_install_windows_only"))
+        console.print(t("ollama.manual_install"))
         return False
 
     installer_url = "https://ollama.com/download/OllamaSetup.exe"
@@ -31,7 +33,7 @@ def install_ollama():
     installer_path = temp_dir / "OllamaSetup.exe"
 
     try:
-        console.print("\n[bold cyan]Downloading OllamaSetup.exe...[/bold cyan]")
+        console.print(t("ollama.downloading"))
         
         # Download with progress bar
         with Progress(
@@ -42,7 +44,7 @@ def install_ollama():
             TransferSpeedColumn(),
             console=console
         ) as progress:
-            task = progress.add_task("[cyan]Downloading...", total=100)
+            task = progress.add_task(t("ollama.download_progress"), total=100)
             
             def report(count, block_size, total_size):
                 if total_size > 0:
@@ -50,19 +52,19 @@ def install_ollama():
             
             urllib.request.urlretrieve(installer_url, installer_path, reporthook=report)
         
-        console.print("\n[bold green]Download complete. Launching installer...[/bold green]")
-        console.print("[yellow]Please follow the standard installer prompts to finish installation.[/yellow]")
+        console.print(t("ollama.download_complete"))
+        console.print(t("ollama.follow_prompts"))
         
         # Run installer
         subprocess.run([str(installer_path)], check=True)
         
-        console.print("\n[bold green]✅ Ollama installation finished.[/bold green]")
-        console.print("[yellow]Note: You might need to restart your terminal for 'ollama' command to be recognized.[/yellow]")
+        console.print(t("ollama.install_finished"))
+        console.print(t("ollama.restart_note"))
         return True
         
     except Exception as e:
-        console.print(f"[bold red]Failed to download or run Ollama installer:[/bold red] {e}")
-        console.print("Please install manually from: https://ollama.com/download")
+        console.print(t("ollama.install_failed", error=e))
+        console.print(t("ollama.install_manual"))
         return False
 
 
@@ -116,35 +118,36 @@ def _get_system_ram_gb() -> float:
 
 def get_recommended_models() -> list:
     """Return a list of dicts with model recommendations based on RAM."""
+    from tubecli.i18n import t
     ram_gb = _get_system_ram_gb()
     
     # Base minimal models
     models = [
-        {"name": "qwen2.5:0.5b", "desc": "Khoảng 400MB - Cực nhẹ, chạy tốt trên mọi máy", "ram_req": 2},
-        {"name": "tinyllama", "desc": "Khoảng 650MB - Rất nhẹ, model 1.1B params", "ram_req": 2},
+        {"name": "qwen2.5:0.5b", "desc": t("model.qwen_05b"), "ram_req": 2},
+        {"name": "tinyllama", "desc": t("model.tinyllama"), "ram_req": 2},
     ]
     
     # 8GB+ RAM
     if ram_gb >= 6.5:
         models.extend([
-            {"name": "deepseek-r1:1.5b", "desc": "Khoảng 1.1GB - Model R1 nhẹ của DeepSeek", "ram_req": 6},
-            {"name": "qwen2.5:3b", "desc": "Khoảng 1.9GB - Cân bằng tốc độ và độ thông minh", "ram_req": 8},
-            {"name": "llama3.2:3b", "desc": "Khoảng 2.0GB - Model mới của Meta, rất tốt", "ram_req": 8},
+            {"name": "deepseek-r1:1.5b", "desc": t("model.deepseek_15b"), "ram_req": 6},
+            {"name": "qwen2.5:3b", "desc": t("model.qwen_3b"), "ram_req": 8},
+            {"name": "llama3.2:3b", "desc": t("model.llama32_3b"), "ram_req": 8},
         ])
         
     # 16GB+ RAM
     if ram_gb >= 14:
         models.extend([
-            {"name": "qwen2.5:7b", "desc": "Khoảng 4.7GB - Cực kỳ thông minh, model mặc định tốt nhất", "ram_req": 16},
-            {"name": "llama3.1:8b", "desc": "Khoảng 4.7GB - Standard 8B model của Meta", "ram_req": 16},
-            {"name": "deepseek-r1:8b", "desc": "Khoảng 4.9GB - Model R1 mạnh nhưng vẫn nhẹ", "ram_req": 16},
+            {"name": "qwen2.5:7b", "desc": t("model.qwen_7b"), "ram_req": 16},
+            {"name": "llama3.1:8b", "desc": t("model.llama31_8b"), "ram_req": 16},
+            {"name": "deepseek-r1:8b", "desc": t("model.deepseek_8b"), "ram_req": 16},
         ])
         
     # 32GB+ RAM
     if ram_gb >= 28:
         models.extend([
-            {"name": "qwen2.5:14b", "desc": "Khoảng 9.0GB - Model 14B cực manh mẽ", "ram_req": 32},
-            {"name": "deepseek-r1:14b", "desc": "Khoảng 9.0GB - DeepSeek R1 14B", "ram_req": 32},
+            {"name": "qwen2.5:14b", "desc": t("model.qwen_14b"), "ram_req": 32},
+            {"name": "deepseek-r1:14b", "desc": t("model.deepseek_14b"), "ram_req": 32},
         ])
         
     return models
@@ -152,21 +155,23 @@ def get_recommended_models() -> list:
 
 def install_model(model_name: str) -> bool:
     """Run ollama pull to download a model."""
+    from tubecli.i18n import t
+
     if not is_ollama_installed():
-        console.print("[red]Ollama is not installed. Cannot pull model.[/red]")
+        console.print(t("ollama.not_installed"))
         return False
         
-    console.print(f"\n[bold cyan]Pulling model '{model_name}'... (This may take a while)[/bold cyan]")
+    console.print(t("ollama.pulling", name=model_name))
     try:
         # Run directly so user sees the native ollama progress bar
         result = subprocess.run(["ollama", "pull", model_name])
         
         if result.returncode != 0:
-            console.print(f"\n[bold red]❌ Failed to pull model '{model_name}'.[/bold red]")
-            console.print("[yellow]Hint: Please check your internet connection or if the Ollama service is running.[/yellow]")
+            console.print(t("ollama.pull_failed", name=model_name))
+            console.print(t("ollama.pull_hint"))
             return False
             
         return True
     except Exception as e:
-        console.print(f"\n[bold red]Failed to execute pull command:[/bold red] {e}")
+        console.print(t("ollama.pull_error", error=e))
         return False

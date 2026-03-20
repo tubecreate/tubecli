@@ -20,18 +20,19 @@ def skill_cmd():
 def list_skills():
     """List all available skills."""
     from tubecli.core.skill import skill_manager
+    from tubecli.i18n import t
 
     skills = skill_manager.get_all()
     if not skills:
-        console.print("\n[yellow]No skills found. Run:[/yellow] [cyan]tubecli init[/cyan]\n")
+        console.print(t("skill.no_skills"))
         return
 
-    table = Table(title="⚡ Skills", show_lines=True)
-    table.add_column("ID", style="dim", max_width=12)
-    table.add_column("Name", style="bold cyan")
-    table.add_column("Type", style="green")
-    table.add_column("Description")
-    table.add_column("Nodes", justify="right")
+    table = Table(title=t("skill.table_title"), show_lines=True)
+    table.add_column(t("skill.col_id"), style="dim", max_width=12)
+    table.add_column(t("skill.col_name"), style="bold cyan")
+    table.add_column(t("skill.col_type"), style="green")
+    table.add_column(t("skill.col_description"))
+    table.add_column(t("skill.col_nodes"), justify="right")
 
     for s in skills:
         nodes_count = len(s.workflow_data.get("nodes", []))
@@ -56,14 +57,15 @@ def run_skill(name, input_text):
     from tubecli.core.skill import skill_manager
     from tubecli.nodes.registry import create_node_from_dict
     from tubecli.core.workflow_engine import WorkflowEngine
+    from tubecli.i18n import t
 
     skill = skill_manager.find_by_name(name)
     if not skill:
-        console.print(f"\n[red]Skill not found:[/red] {name}")
-        console.print("[dim]Use 'tubecli skill list' to see available skills.[/dim]\n")
+        console.print(t("skill.not_found", name=name))
+        console.print(t("skill.use_list"))
         return
 
-    console.print(f"\n⚡ Running skill: [bold cyan]{skill.name}[/bold cyan]")
+    console.print(t("skill.running", name=skill.name))
 
     workflow_data = skill.workflow_data
     nodes_data = workflow_data.get("nodes", [])
@@ -79,7 +81,7 @@ def run_skill(name, input_text):
     try:
         nodes = [create_node_from_dict(nd) for nd in nodes_data]
     except Exception as e:
-        console.print(f"[red]Error creating nodes:[/red] {e}\n")
+        console.print(t("skill.node_error", error=e))
         return
 
     def on_progress(step, total, msg):
@@ -92,9 +94,9 @@ def run_skill(name, input_text):
 
     status = result.get("status", "unknown")
     if status == "completed":
-        console.print(f"\n✅ [green]Skill completed successfully[/green]\n")
+        console.print(t("skill.completed"))
     else:
-        console.print(f"\n⚠️  [yellow]Skill finished with status: {status}[/yellow]\n")
+        console.print(t("skill.finished_status", status=status))
 
 
 @skill_cmd.command("show")
@@ -102,10 +104,11 @@ def run_skill(name, input_text):
 def show_skill(name):
     """Show skill details and workflow definition."""
     from tubecli.core.skill import skill_manager
+    from tubecli.i18n import t
 
     skill = skill_manager.find_by_name(name) or skill_manager.get(name)
     if not skill:
-        console.print(f"\n[red]Skill not found:[/red] {name}\n")
+        console.print(t("skill.not_found", name=name))
         return
 
     console.print(f"\n⚡ [bold cyan]{skill.name}[/bold cyan]")

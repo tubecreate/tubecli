@@ -24,6 +24,11 @@ GIT_REPO_URL = "https://github.com/tubecreate/tubecli.git"
 
 # ── Port Settings ────────────────────────────────────────────────────
 PORT_SETTINGS_FILE = DATA_DIR / "api_port.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
+
+# ── Supported Languages ─────────────────────────────────────────
+SUPPORTED_LANGUAGES = ["vi", "en"]
+DEFAULT_LANGUAGE = "en"
 
 
 def get_api_port() -> int:
@@ -44,6 +49,40 @@ def set_api_port(port: int) -> bool:
         PORT_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(PORT_SETTINGS_FILE, "w") as f:
             json.dump({"port": port}, f)
+        return True
+    except Exception:
+        return False
+
+
+def get_language() -> str:
+    """Get configured language from settings file, or default."""
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                lang = data.get("language", DEFAULT_LANGUAGE)
+                if lang in SUPPORTED_LANGUAGES:
+                    return lang
+    except Exception:
+        pass
+    return DEFAULT_LANGUAGE
+
+
+def set_language(lang: str) -> bool:
+    """Save language preference to settings file."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # Read existing settings if any
+        settings = {}
+        if SETTINGS_FILE.exists():
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+            except Exception:
+                pass
+        settings["language"] = lang
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
         return True
     except Exception:
         return False

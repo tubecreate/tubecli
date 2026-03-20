@@ -23,6 +23,7 @@ def agent_cmd():
 def create(name, description, system_prompt, model):
     """Create a new agent."""
     from tubecli.core.agent import agent_manager
+    from tubecli.i18n import t
 
     agent = agent_manager.create(
         name=name,
@@ -30,26 +31,27 @@ def create(name, description, system_prompt, model):
         system_prompt=system_prompt,
         model=model,
     )
-    console.print(f"\n✅ Agent created: [bold green]{agent.name}[/bold green]")
-    console.print(f"   ID: [dim]{agent.id}[/dim]\n")
+    console.print(t("agent.created", name=agent.name))
+    console.print(t("agent.id_label", id=agent.id))
 
 
 @agent_cmd.command("list")
 def list_agents():
     """List all agents."""
     from tubecli.core.agent import agent_manager
+    from tubecli.i18n import t
 
     agents = agent_manager.get_all()
     if not agents:
-        console.print("\n[yellow]No agents found. Run:[/yellow] [cyan]tubecli init[/cyan]\n")
+        console.print(t("agent.no_agents"))
         return
 
-    table = Table(title="🤖 Agents", show_lines=True)
-    table.add_column("ID", style="dim", max_width=12)
-    table.add_column("Name", style="bold cyan")
-    table.add_column("Description")
-    table.add_column("Model", style="green")
-    table.add_column("Skills", justify="right")
+    table = Table(title=t("agent.table_title"), show_lines=True)
+    table.add_column(t("agent.col_id"), style="dim", max_width=12)
+    table.add_column(t("agent.col_name"), style="bold cyan")
+    table.add_column(t("agent.col_description"))
+    table.add_column(t("agent.col_model"), style="green")
+    table.add_column(t("agent.col_skills"), justify="right")
 
     for a in agents:
         table.add_row(
@@ -70,10 +72,11 @@ def list_agents():
 def show(agent_id):
     """Show agent details."""
     from tubecli.core.agent import agent_manager
+    from tubecli.i18n import t
 
     agent = agent_manager.get(agent_id) or agent_manager.find_by_name(agent_id)
     if not agent:
-        console.print(f"\n[red]Agent not found:[/red] {agent_id}\n")
+        console.print(t("agent.not_found", id=agent_id))
         return
 
     console.print(f"\n🤖 [bold cyan]{agent.name}[/bold cyan]")
@@ -87,12 +90,13 @@ def show(agent_id):
 def delete(agent_id):
     """Delete an agent."""
     from tubecli.core.agent import agent_manager
+    from tubecli.i18n import t
 
     agent = agent_manager.get(agent_id) or agent_manager.find_by_name(agent_id)
     if not agent:
-        console.print(f"\n[red]Agent not found:[/red] {agent_id}\n")
+        console.print(t("agent.not_found", id=agent_id))
         return
 
     name = agent.name
     agent_manager.delete(agent.id)
-    console.print(f"\n🗑️  Deleted agent: [red]{name}[/red]\n")
+    console.print(t("agent.deleted", name=name))

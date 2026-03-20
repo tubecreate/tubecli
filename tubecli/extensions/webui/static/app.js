@@ -58,28 +58,35 @@ async function loadDashboard() {
     // Status
     document.getElementById('status-api-dot').style.color = 'var(--green)';
     document.getElementById('status-api-label').className = 'tag green';
-    document.getElementById('status-api-label').textContent = 'Online';
-    if (ollamaStatus?.running) { document.getElementById('status-ollama-dot').style.color = 'var(--green)'; document.getElementById('status-ollama-label').className = 'tag green'; document.getElementById('status-ollama-label').textContent = `Online (${ollamaStatus.model_count} models)`; }
-    else { document.getElementById('status-ollama-dot').style.color = 'var(--red)'; document.getElementById('status-ollama-label').className = 'tag'; document.getElementById('status-ollama-label').textContent = 'Offline'; }
+    document.getElementById('status-api-label').textContent = T('status.online');
+    if (ollamaStatus?.running) {
+        document.getElementById('status-ollama-dot').style.color = 'var(--green)';
+        document.getElementById('status-ollama-label').className = 'tag green';
+        document.getElementById('status-ollama-label').textContent = `${T('status.online')} (${ollamaStatus.model_count} ${T('status.models')})`;
+    } else {
+        document.getElementById('status-ollama-dot').style.color = 'var(--red)';
+        document.getElementById('status-ollama-label').className = 'tag';
+        document.getElementById('status-ollama-label').textContent = T('status.offline');
+    }
     const browserStatus = await apiGet('/api/v1/browser/status');
     const runCount = browserStatus?.instances?.length ?? 0;
     document.getElementById('status-browser-dot').style.color = runCount > 0 ? 'var(--green)' : 'var(--text-muted)';
     document.getElementById('status-browser-label').className = runCount > 0 ? 'tag green' : 'tag';
-    document.getElementById('status-browser-label').textContent = runCount > 0 ? `${runCount} running` : 'Idle';
+    document.getElementById('status-browser-label').textContent = runCount > 0 ? `${runCount} ${T('status.running')}` : T('status.idle');
 }
 
 // ═══════════════════════════════════════════════════════════
 // ═══ EXTENSIONS (All features as clickable cards) ═══
 // ═══════════════════════════════════════════════════════════
 const EXT_REGISTRY = [
-    { id:'agents', icon:'🤖', name:'Agents', desc:'Create, edit and chat with AI agents', type:'core' },
-    { id:'browser', icon:'🌐', name:'Browser', desc:'Manage anti-detect browser profiles', type:'core' },
-    { id:'workflows', icon:'🔄', name:'Workflows', desc:'Visual workflow builder with node editor', type:'core' },
-    { id:'skills', icon:'⚡', name:'Skills', desc:'Manage and run agent skills', type:'core' },
-    { id:'market', icon:'🛒', name:'Market', desc:'Browse and install community extensions', type:'core' },
-    { id:'cloud_api', icon:'☁️', name:'Cloud API', desc:'Manage API keys for Gemini, OpenAI, Claude, DeepSeek, Grok', type:'extension' },
-    { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:'Manage local AI models via Ollama', type:'extension' },
-    { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:'Orchestrate agent teams and task delegation', type:'extension' },
+    { id:'agents', icon:'🤖', name:T('nav.dashboard'), desc:T('ext.agents_desc'), type:'core' },
+    { id:'browser', icon:'🌐', name:T('stat.profiles'), desc:T('ext.browser_desc'), type:'core' },
+    { id:'workflows', icon:'🔄', name:T('stat.workflows'), desc:T('ext.workflows_desc'), type:'core' },
+    { id:'skills', icon:'⚡', name:T('stat.skills'), desc:T('ext.skills_desc'), type:'core' },
+    { id:'market', icon:'🛒', name:T('ext.market_desc'), desc:T('ext.market_desc'), type:'core' },
+    { id:'cloud_api', icon:'☁️', name:T('dash.cloud_api_keys'), desc:T('ext.cloud_api_desc'), type:'extension' },
+    { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:T('ext.ollama_desc'), type:'extension' },
+    { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:T('ext.multi_agents_desc'), type:'extension' },
 ];
 
 async function loadExtensions() {
@@ -110,7 +117,7 @@ function openExtDetail(id) {
     const title = document.getElementById('ext-detail-title');
     const body = document.getElementById('ext-detail-body');
     title.textContent = ext.icon + ' ' + ext.name;
-    body.innerHTML = '<p class="text-muted">Loading...</p>';
+    body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
     overlay.classList.remove('hidden');
     // Route to detail renderer
     if (id === 'agents') renderAgentsExt(body);
@@ -129,11 +136,11 @@ async function renderAgentsExt(el) {
     const data = await apiGet('/api/v1/agents');
     const agents = data?.agents || [];
     let h = `<div style="display:flex;gap:10px;margin-bottom:20px">
-        <button class="btn-primary" style="background:linear-gradient(135deg,#a855f7,#ec4899)" onclick="showGenerateAgent()">⚡ Generate with AI</button>
-        <button class="btn-primary" onclick="showCreateAgent()">+ Create Agent</button>
+        <button class="btn-primary" style="background:linear-gradient(135deg,#a855f7,#ec4899)" onclick="showGenerateAgent()">${T('agents.generate_ai')}</button>
+        <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
-    if (agents.length === 0) h += '<p class="text-muted">No agents yet.</p>';
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card"><div class="card-icon">🤖</div><h3>${esc(a.name)}</h3><p class="card-meta">${esc(a.model||'default')}</p><p class="card-desc">${esc(a.description||'')}</p><div class="card-footer"><span class="tag">${(a.allowed_skills||[]).length} skills</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">💬 Chat</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">Edit</button><button class="btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(document.getElementById('ext-detail-body'))">Del</button></div></div></div>`).join('') + '</div>';
+    if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card"><div class="card-icon">🤖</div><h3>${esc(a.name)}</h3><p class="card-meta">${esc(a.model||'default')}</p><p class="card-desc">${esc(a.description||'')}</p><div class="card-footer"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(document.getElementById('ext-detail-body'))">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
@@ -143,12 +150,12 @@ async function renderBrowserExt(el) {
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
     const runningProfiles = (status?.instances||[]).map(i => i.profile);
-    let h = `<div style="margin-bottom:16px"><button class="btn-primary" onclick="showCreateProfile()">+ New Profile</button></div>`;
-    if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} running</div>`;
-    if (profiles.length === 0) h += '<p class="text-muted">No profiles yet.</p>';
+    let h = `<div style="margin-bottom:16px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button></div>`;
+    if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} ${T('status.running')}</div>`;
+    if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
-        return `<div class="card"><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||'No proxy')}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : '<span style="color:var(--orange)">⚠️ No FP</span>'} ${p.has_cookies ? '🍪' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),500)">✕</button></div></div></div>`;
+        return `<div class="card"><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }
@@ -162,8 +169,8 @@ async function renderWorkflowsExt(el) {
 async function renderSkillsExt(el) {
     const data = await apiGet('/api/v1/skills');
     const skills = data?.skills || [];
-    if (skills.length === 0) { el.innerHTML = '<p class="text-muted">No skills found.</p>'; return; }
-    el.innerHTML = '<div class="cards-grid">' + skills.map(s => `<div class="card"><div class="card-icon">⚡</div><h3>${esc(s.name)}</h3><p class="card-desc">${esc(s.description||'')}</p><div class="card-footer"><span class="tag">${esc(s.type||'Skill')}</span><button class="btn-sm" onclick="alert('Skill executed. Check CLI.')">▶ Run</button></div></div>`).join('') + '</div>';
+    if (skills.length === 0) { el.innerHTML = `<p class="text-muted">${T('skills.no_skills')}</p>`; return; }
+    el.innerHTML = '<div class="cards-grid">' + skills.map(s => `<div class="card"><div class="card-icon">⚡</div><h3>${esc(s.name)}</h3><p class="card-desc">${esc(s.description||'')}</p><div class="card-footer"><span class="tag">${esc(s.type||'Skill')}</span><button class="btn-sm" onclick="alert(T('skills.executed'))">${T('skills.run')}</button></div></div>`).join('') + '</div>';
 }
 
 // ── Market Ext ──
@@ -183,22 +190,22 @@ async function renderCloudApiExt(el) {
     const providers = provData?.providers || [];
     const keys = keysData?.keys || {};
     const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡' };
-    let h = `<div style="margin-bottom:20px"><button class="btn-primary" onclick="showAddApiKey()">+ Add Key</button></div>`;
+    let h = `<div style="margin-bottom:20px"><button class="btn-primary" onclick="showAddApiKey()">${T('cloud_api.add_key')}</button></div>`;
     // Provider cards
     h += '<div class="cards-grid" style="margin-bottom:28px">';
     providers.forEach(p => {
-        h += `<div class="card" style="text-align:center"><div class="card-icon">${provIcons[p.id]||'☁️'}</div><h3>${esc(p.name)}</h3><p class="card-desc">${p.models.slice(0,2).join(', ')}</p><div class="card-footer" style="justify-content:center;gap:8px"><span class="tag ${p.has_key?'green':''}">${p.has_key?'✅ Active':'❌ No Key'}</span>${!p.has_key ? `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">+ Add</button>` : `<button class="btn-sm" onclick="testApiKey('${esc(p.id)}')">🧪 Test</button>`}</div></div>`;
+        h += `<div class="card" style="text-align:center"><div class="card-icon">${provIcons[p.id]||'☁️'}</div><h3>${esc(p.name)}</h3><p class="card-desc">${p.models.slice(0,2).join(', ')}</p><div class="card-footer" style="justify-content:center;gap:8px"><span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')}</span>${!p.has_key ? `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>` : `<button class="btn-sm" onclick="testApiKey('${esc(p.id)}')">${T('cloud_api.test')}</button>`}</div></div>`;
     });
     h += '</div>';
     // Keys table
     const allKeys = [];
     Object.entries(keys).forEach(([prov, labels]) => { Object.entries(labels).forEach(([label, info]) => { allKeys.push({provider:prov, label, ...info}); }); });
-    h += '<h3 style="color:var(--cyan);margin-bottom:12px">🔐 Stored Keys</h3>';
+    h += `<h3 style="color:var(--cyan);margin-bottom:12px">${T('cloud_api.stored_keys')}</h3>`;
     if (allKeys.length > 0) {
-        h += `<div class="table-container"><table class="data-table"><thead><tr><th>Provider</th><th>Label</th><th>Key</th><th>Status</th><th>Actions</th></tr></thead><tbody>`;
-        allKeys.forEach(k => { h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${k.active?'<span style="color:var(--green)">● Active</span>':'○'}</td><td><button class="btn-danger" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button></td></tr>`; });
+        h += `<div class="table-container"><table class="data-table"><thead><tr><th>${T('cloud_api.provider')}</th><th>${T('cloud_api.label')}</th><th>${T('cloud_api.key')}</th><th>${T('cloud_api.status')}</th><th>${T('cloud_api.actions')}</th></tr></thead><tbody>`;
+        allKeys.forEach(k => { h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${k.active?`<span style="color:var(--green)">● ${T('cloud_api.active')}</span>`:'○'}</td><td><button class="btn-danger" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button></td></tr>`; });
         h += '</tbody></table></div>';
-    } else h += '<p class="text-muted">No keys stored.</p>';
+    } else h += `<p class="text-muted">${T('cloud_api.no_keys')}</p>`;
     el.innerHTML = h;
 }
 
@@ -211,17 +218,17 @@ async function renderOllamaExt(el) {
     const running = run?.running || [];
     const runNames = running.map(r => r.name);
     let h = `<div class="ext-info-grid" style="margin-bottom:24px">
-        <div class="ext-info-card"><div class="info-value" style="font-size:1.6rem">${st?.running?'🟢':'🔴'}</div><div class="info-label" style="font-weight:600;color:var(--text)">${st?.running?'Online':'Offline'}</div><div class="info-label">${esc(st?.base_url||'')}</div></div>
-        <div class="ext-info-card"><div class="info-value">${models.length}</div><div class="info-label">Models</div></div>
-        <div class="ext-info-card"><div class="info-value">${running.length}</div><div class="info-label">Loaded</div></div>
+        <div class="ext-info-card"><div class="info-value" style="font-size:1.6rem">${st?.running?'🟢':'🔴'}</div><div class="info-label" style="font-weight:600;color:var(--text)">${st?.running?T('status.online'):T('status.offline')}</div><div class="info-label">${esc(st?.base_url||'')}</div></div>
+        <div class="ext-info-card"><div class="info-value">${models.length}</div><div class="info-label">${T('ollama.models')}</div></div>
+        <div class="ext-info-card"><div class="info-value">${running.length}</div><div class="info-label">${T('ollama.loaded')}</div></div>
     </div>`;
-    h += '<h3 style="color:var(--cyan);margin-bottom:12px">📦 Models</h3>';
+    h += `<h3 style="color:var(--cyan);margin-bottom:12px">${T('ollama.models')}</h3>`;
     if (models.length > 0) {
-        h += '<div class="table-container"><table class="data-table"><thead><tr><th>Model</th><th>Size</th><th>Modified</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-        models.forEach(m => { const loaded = runNames.some(r => r.startsWith(m.name.split(':')[0])); h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(m.name)}</td><td>${esc(m.size_human)}</td><td style="color:var(--text-muted)">${esc((m.modified_at||'').slice(0,10))}</td><td>${loaded?'<span style="color:var(--green)">🔥 Loaded</span>':'💤 Idle'}</td><td><button class="btn-danger" onclick="removeOllamaModel('${esc(m.name)}')">✕</button></td></tr>`; });
+        h += `<div class="table-container"><table class="data-table"><thead><tr><th>${T('ollama.model_col')}</th><th>${T('ollama.size_col')}</th><th>${T('ollama.modified_col')}</th><th>${T('ollama.status_col')}</th><th>${T('ollama.actions_col')}</th></tr></thead><tbody>`;
+        models.forEach(m => { const loaded = runNames.some(r => r.startsWith(m.name.split(':')[0])); h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(m.name)}</td><td>${esc(m.size_human)}</td><td style="color:var(--text-muted)">${esc((m.modified_at||'').slice(0,10))}</td><td>${loaded?`<span style="color:var(--green)">${T('ollama.loaded')}</span>`:`💤 ${T('status.idle')}`}</td><td><button class="btn-danger" onclick="removeOllamaModel('${esc(m.name)}')">✕</button></td></tr>`; });
         h += '</tbody></table></div>';
-    } else h += `<p class="text-muted">${st?.running?'No models. Pull one below.':'Ollama not running.'}</p>`;
-    h += `<div style="margin-top:16px;display:flex;gap:10px"><input id="ollama-pull-input" placeholder="e.g. qwen:latest" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)"><button class="btn-primary" onclick="pullOllamaModel()">📥 Pull</button><button class="btn-secondary" onclick="renderOllamaExt(document.getElementById('ext-detail-body'))">🔄</button></div>`;
+    } else h += `<p class="text-muted">${st?.running?T('ollama.no_models'):T('ollama.not_running')}</p>`;
+    h += `<div style="margin-top:16px;display:flex;gap:10px"><input id="ollama-pull-input" placeholder="e.g. qwen:latest" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)"><button class="btn-primary" onclick="pullOllamaModel()">${T('ollama.pull')}</button><button class="btn-secondary" onclick="renderOllamaExt(document.getElementById('ext-detail-body'))">🔄</button></div>`;
     el.innerHTML = h;
 }
 async function pullOllamaModel() { const m = document.getElementById('ollama-pull-input')?.value.trim(); if(!m) return alert('Enter model name.'); alert(`Pulling "${m}"...`); const r = await apiPost('/api/v1/ollama/pull',{model:m}); if(r&&!r.error) { alert('Done!'); renderOllamaExt(document.getElementById('ext-detail-body')); } else alert('Failed: '+(r?.error||'?')); }
@@ -434,10 +441,12 @@ function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.tex
 async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(r.ok) document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot"></span> API Connected'; else throw 0; } catch { document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot" style="background:var(--red)"></span> API Offline'; } }
 
 // ═══ Init ═══
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadI18nFromApi();
     checkConnection();
     loadDashboard();
     loadVersionInfo();
     const s=localStorage.getItem('tubecli_api');
     if(s) document.getElementById('set-api').value=s;
+    if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
 });

@@ -243,9 +243,11 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                 reply = final_answer
                 skill_manager.update(skill_id, last_run=_dt.datetime.now().isoformat())
             except Exception as e:
-                reply = f"⚠️ Lỗi khi chạy skill '{skill.name}': {str(e)}"
+                from tubecli.i18n import t
+                reply = t("brain.skill_run_error", name=skill.name, error=str(e))
         else:
-            reply = f"⚠️ Không tìm thấy skill với ID: {skill_id}"
+            from tubecli.i18n import t
+            reply = t("brain.skill_not_found", id=skill_id)
 
     elif action == "create_skill":
         # Feature: AI Self-Creation of Skill
@@ -264,10 +266,12 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                 workflow_data={"sop": sop_text, "nodes": [{"type": "text", "data": {"text": sop_text}}]},
                 commands=[name.lower()]
             )
-            reply = f"✅ **Tôi đã tự thiết kế kỹ năng mới: {name}**\n\n**Mô tả:** {desc}\n\nKỹ năng này đã được lưu vào bộ nhớ. Bây giờ bạn có thể bảo tôi '{name}' bất cứ lúc nào!"
+            from tubecli.i18n import t
+            reply = t("brain.skill_created", name=name, desc=desc)
             skill_used = f"Created Skill: {name}"
         except Exception as e:
-            reply = f"⚠️ Lỗi khi tự tạo skill: {str(e)}"
+            from tubecli.i18n import t
+            reply = t("brain.skill_create_error", error=str(e))
 
     # Save to history
     history = agent.history_log or []
@@ -414,10 +418,10 @@ async def run_skill(skill_id: str, input_text: str = ""):
                     errors.append({"node": node_id, "error": node_result.get("status", "")})
 
     if errors or guidance:
+        from tubecli.i18n import t
         result["_skill_errors"] = errors
         result["_skill_guidance"] = guidance or [
-            "Workflow gặp lỗi. Kiểm tra: (1) credentials đã đúng chưa, "
-            "(2) spreadsheet_id có tồn tại không, (3) các API đã bật chưa."
+            t("brain.workflow_error_guidance")
         ]
 
     return result
@@ -867,6 +871,34 @@ async def update_extension(name: str):
         }
     except Exception as e:
         raise HTTPException(500, f"Extension update failed: {e}")
+
+
+# ── Language Settings ────────────────────────────────────────────────
+
+class LanguageUpdateRequest(BaseModel):
+    language: str
+
+
+@app.get("/api/v1/settings/language")
+async def get_language_setting():
+    """Get current language setting."""
+    from tubecli.config import get_language, SUPPORTED_LANGUAGES
+    return {
+        "language": get_language(),
+        "supported": SUPPORTED_LANGUAGES,
+    }
+
+
+@app.put("/api/v1/settings/language")
+async def set_language_setting(req: LanguageUpdateRequest):
+    """Update language setting."""
+    from tubecli.config import set_language, SUPPORTED_LANGUAGES
+    from tubecli.i18n import load_language
+    if req.language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(400, f"Unsupported language: {req.language}. Supported: {SUPPORTED_LANGUAGES}")
+    set_language(req.language)
+    load_language(req.language)
+    return {"status": "updated", "language": req.language}
 
 
 # ── Register Extension Routes ───────────────────────────────────────

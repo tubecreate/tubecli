@@ -21,24 +21,25 @@ def extension_group():
 def list_extensions():
     """List all available extensions."""
     from tubecli.core.extension_manager import extension_manager
+    from tubecli.i18n import t
     extension_manager.discover_extensions()
 
     extensions = extension_manager.get_all()
     if not extensions:
-        console.print("[dim]No extensions found.[/dim]")
+        console.print(t("ext.no_extensions"))
         return
 
-    table = Table(title="🔌 Extensions")
-    table.add_column("Name", style="cyan")
-    table.add_column("Version", style="dim")
-    table.add_column("Type", style="magenta")
-    table.add_column("Status", style="bold")
-    table.add_column("Description")
-    table.add_column("Extras", style="dim")
+    table = Table(title=t("ext.table_title"))
+    table.add_column(t("ext.col_name"), style="cyan")
+    table.add_column(t("ext.col_version"), style="dim")
+    table.add_column(t("ext.col_type"), style="magenta")
+    table.add_column(t("ext.col_status"), style="bold")
+    table.add_column(t("ext.col_description"))
+    table.add_column(t("ext.col_extras"), style="dim")
 
     for p in extensions:
-        status = "[green]● Enabled[/green]" if p.enabled else "[dim]○ Disabled[/dim]"
-        ptype = "[blue]system[/blue]" if p.extension_type == "system" else "[yellow]external[/yellow]"
+        status = t("ext.enabled") if p.enabled else t("ext.disabled")
+        ptype = t("ext.type_system") if p.extension_type == "system" else t("ext.type_external")
         extras = []
         if p.get_skill_md():
             extras.append("📖MD")
@@ -56,12 +57,13 @@ def list_extensions():
 def enable_extension(name):
     """Enable a extension."""
     from tubecli.core.extension_manager import extension_manager
+    from tubecli.i18n import t
     extension_manager.discover_extensions()
 
     if extension_manager.enable(name):
-        console.print(f"[green]✅ Extension '{name}' enabled.[/green]")
+        console.print(t("ext.enable_ok", name=name))
     else:
-        console.print(f"[red]❌ Extension '{name}' not found.[/red]")
+        console.print(t("ext.enable_fail", name=name))
 
 
 @extension_group.command("disable")
@@ -69,12 +71,13 @@ def enable_extension(name):
 def disable_extension(name):
     """Disable a extension."""
     from tubecli.core.extension_manager import extension_manager
+    from tubecli.i18n import t
     extension_manager.discover_extensions()
 
     if extension_manager.disable(name):
-        console.print(f"[yellow]⏸ Extension '{name}' disabled.[/yellow]")
+        console.print(t("ext.disable_ok", name=name))
     else:
-        console.print(f"[red]❌ Extension '{name}' not found.[/red]")
+        console.print(t("ext.disable_fail", name=name))
 
 
 @extension_group.command("install")
@@ -88,10 +91,11 @@ def install_extension(git_url):
         tubecli extension install https://github.com/user/my-extension.git
     """
     from tubecli.core.extension_manager import extension_manager
+    from tubecli.i18n import t
 
-    console.print(f"\n📦 Installing extension from: [cyan]{git_url}[/cyan]")
+    console.print(t("ext.installing", url=git_url))
 
-    with console.status("Cloning repository..."):
+    with console.status(t("ext.cloning")):
         result = extension_manager.install_from_git(git_url)
 
     if result["status"] == "success":
@@ -128,11 +132,12 @@ def uninstall_extension(name):
 def extension_info(name):
     """Show detailed information about a extension."""
     from tubecli.core.extension_manager import extension_manager
+    from tubecli.i18n import t
     extension_manager.discover_extensions()
 
     extension = extension_manager.get(name)
     if not extension:
-        console.print(f"[red]❌ Extension '{name}' not found.[/red]")
+        console.print(t("ext.not_found", name=name))
         return
 
     info_lines = []
