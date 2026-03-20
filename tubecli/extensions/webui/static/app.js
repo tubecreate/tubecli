@@ -150,7 +150,7 @@ async function renderBrowserExt(el) {
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
     const runningProfiles = (status?.instances||[]).map(i => i.profile);
-    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="installBrowserEngine()">Download / Check Browser Engine</button></div>`;
+    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">Browser Engines</button></div>`;
     if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
@@ -348,28 +348,117 @@ async function showCreateProfile() {
         }
     }
 }
-async function installBrowserEngine() {
-    alert('Connecting to engine and fetching versions... Please wait if it is downloading for the first time.');
+async function showBrowserEnginesModal() {
+    document.getElementById('modal-engines').classList.remove('hidden');
+    const container = document.getElementById('engines-list-container');
+    container.innerHTML = '<p class="text-muted">Fetching available engines...</p>';
+    
     try {
         const r = await apiGet('/api/v1/browser/engine/versions');
         if (r && r.success && r.versions) {
-            const list = r.versions.map(v => typeof v === 'object' ? v.name : v).join(', ');
-            alert(`Engine is installed! Available versions: \n${list}`);
-            // Pre-fill select options if it exists
-            const sel = document.getElementById('profile-version');
-            if (sel) {
-                sel.innerHTML = '<option value="default">Default Latest</option>' + 
-                    r.versions.map(v => {
-                        const name = typeof v === 'object' ? v.name : v;
-                        const status = (typeof v === 'object' && v.downloaded) ? ' (Installed)' : '';
-                        return `<option value="${name}">${name}${status}</option>`;
-                    }).join('');
-            }
+            let rows = r.versions.map(v => {
+                const name = typeof v === 'object' ? v.name : v;
+                const installed = (typeof v === 'object' && v.downloaded);
+                const path = (typeof v === 'object' && v.path) ? v.path : '-';
+                const isBas = (typeof v === 'object' && v.is_bas_app);
+                const downloadUrl = (typeof v === 'object' && v.download_url) ? v.download_url : '';
+                
+                return `<tr>
+                    <td style="font-weight:600;color:var(--cyan)">
+                        ${esc(name)}
+                        ${isBas ? '<span style="font-size:0.65rem;background:var(--purple);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">BAS APP</span>' : ''}
+                        ${v.is_private ? '<span style="font-size:0.65rem;background:var(--green);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">PRIVATE</span>' : ''}
+                    </td>
+                    <td style="color:${installed ? 'var(--green)' : 'var(--red)'}">${installed ? '✅ Installed' : '❌ Missing'}</td>
+                    <td style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${esc(path)}</td>
+                    <td style="text-align:right">
+                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(name)}', '${esc(downloadUrl)}')">Install</button>`}
+                    </td>
+                </tr>`;
+            }).join('');
+            
+            container.innerHTML = `<table class="data-table">
+                <thead><tr><th>Version</th><th>Status</th><th>Path</th><th style="text-align:right">Action</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
         } else {
-            alert('Failed to fetch/install engine: ' + (r?.error || r?.message || 'Unknown error'));
+            container.innerHTML = `<p class="text-muted">Failed to load engines: ${esc(r?.error || r?.message || 'Unknown error')}</p>`;
+        }
+    } catch (e) {
+        container.innerHTML = `<p class="text-muted">Error: ${esc(e.message)}</p>`;
+    }
+}
+
+let downloadCancelled = false;
+let currentDownloadVersion = null;
+
+async function cancelEngineDownload() {
+    downloadCancelled = true;
+    document.getElementById('download-overlay').classList.add('hidden');
+    if (currentDownloadVersion) {
+        await apiPost('/api/v1/browser/engine/cancel/' + currentDownloadVersion, {});
+    }
+}
+
+async function installEngineVersionProgress(version, downloadUrl = '') {
+    currentDownloadVersion = version;
+    const overlay = document.getElementById('download-overlay');
+    const progressBar = document.getElementById('download-progress-bar');
+    const percentText = document.getElementById('download-percent');
+    const titleText = document.getElementById('download-title');
+    
+    titleText.textContent = `Installing ${version}...`;
+    progressBar.style.width = '0%';
+    percentText.textContent = '0%';
+    overlay.classList.remove('hidden');
+    
+    try {
+        // Start download
+        const start = await apiPost('/api/v1/browser/engine/download/' + version, {
+            download_url: downloadUrl
+        });
+        if (!start || start.error) {
+            alert('Failed to start download: ' + (start?.error || 'Unknown error'));
+            overlay.classList.add('hidden');
+            return;
+        }
+        
+        // Poll for progress
+        let done = false;
+        downloadCancelled = false;
+        while (!done && !downloadCancelled) {
+            await new Promise(r => setTimeout(r, 1000));
+            const status = await apiGet('/api/v1/browser/engine/status/' + version);
+            
+            if (!status || status.error) {
+                console.warn('Status check failed', status);
+                continue;
+            }
+            
+            if (status.percent !== undefined) {
+                const p = Math.min(100, Math.max(0, status.percent));
+                progressBar.style.width = p + '%';
+                percentText.textContent = Math.round(p) + '%';
+            }
+            
+            if (status.status === 'completed') {
+                done = true;
+                progressBar.style.width = '100%';
+                percentText.textContent = '100%';
+                titleText.textContent = 'Installation Complete!';
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                    showBrowserEnginesModal(); // refresh list
+                }, 1000);
+            } else if (status.status === 'error') {
+                done = true;
+                alert('Installation failed: ' + (status.error || 'Unknown error'));
+                overlay.classList.add('hidden');
+            }
         }
     } catch (e) {
         alert('Request failed: ' + e.message);
+        overlay.classList.add('hidden');
     }
 }
 async function createProfile() { const btn=document.getElementById('btn-create-profile-submit'); const name=document.getElementById('profile-name').value.trim(); if(!name) return; btn.disabled=true; btn.textContent='Creating...'; await apiPost('/api/v1/browser/profiles',{name,proxy:document.getElementById('profile-proxy').value,tags:[document.getElementById('profile-os').value,document.getElementById('profile-browser').value],browser_version:document.getElementById('profile-version')?.value}); btn.disabled=false; btn.textContent='Create & Fetch Fingerprint'; closeModal('modal-profile'); document.getElementById('profile-name').value=''; document.getElementById('profile-proxy').value=''; renderBrowserExt(document.getElementById('ext-detail-body')); }
