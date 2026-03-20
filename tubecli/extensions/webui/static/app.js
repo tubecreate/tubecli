@@ -372,7 +372,7 @@ async function showBrowserEnginesModal() {
                     <td style="color:${installed ? 'var(--green)' : 'var(--red)'}">${installed ? '✅ Installed' : '❌ Missing'}</td>
                     <td style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${esc(path)}</td>
                     <td style="text-align:right">
-                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(name)}', '${esc(downloadUrl)}')">Install</button>`}
+                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(v.bas_version || name)}', '${esc(downloadUrl)}')">Install</button>`}
                     </td>
                 </tr>`;
             }).join('');
@@ -413,9 +413,10 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
     overlay.classList.remove('hidden');
     
     try {
-        // Start download
+        // Start download (version = bas_version like 29.7.0)
         const start = await apiPost('/api/v1/browser/engine/download/' + version, {
-            download_url: downloadUrl
+            download_url: downloadUrl,
+            bas_version: version
         });
         if (!start || start.error) {
             alert('Failed to start download: ' + (start?.error || 'Unknown error'));
