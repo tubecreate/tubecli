@@ -335,7 +335,11 @@ async function showCreateProfile() {
             const r = await apiGet('/api/v1/browser/engine/versions');
             if (r && r.success && r.versions) {
                 sel.innerHTML = '<option value="default">Default Latest</option>' + 
-                    r.versions.map(v => `<option value="${v}">${v}</option>`).join('');
+                    r.versions.map(v => {
+                        const name = typeof v === 'object' ? v.name : v;
+                        const status = (typeof v === 'object' && v.downloaded) ? ' (Installed)' : '';
+                        return `<option value="${name}">${name}${status}</option>`;
+                    }).join('');
             } else {
                 sel.innerHTML = '<option value="default">Default Latest</option>';
             }
@@ -349,15 +353,20 @@ async function installBrowserEngine() {
     try {
         const r = await apiGet('/api/v1/browser/engine/versions');
         if (r && r.success && r.versions) {
-            alert(`Engine is installed! Available versions: \n${r.versions.join(', ')}`);
+            const list = r.versions.map(v => typeof v === 'object' ? v.name : v).join(', ');
+            alert(`Engine is installed! Available versions: \n${list}`);
             // Pre-fill select options if it exists
             const sel = document.getElementById('profile-version');
             if (sel) {
                 sel.innerHTML = '<option value="default">Default Latest</option>' + 
-                    r.versions.map(v => `<option value="${v}">${v}</option>`).join('');
+                    r.versions.map(v => {
+                        const name = typeof v === 'object' ? v.name : v;
+                        const status = (typeof v === 'object' && v.downloaded) ? ' (Installed)' : '';
+                        return `<option value="${name}">${name}${status}</option>`;
+                    }).join('');
             }
         } else {
-            alert('Failed to fetch/install engine: ' + (r?.error || 'Unknown error'));
+            alert('Failed to fetch/install engine: ' + (r?.error || r?.message || 'Unknown error'));
         }
     } catch (e) {
         alert('Request failed: ' + e.message);

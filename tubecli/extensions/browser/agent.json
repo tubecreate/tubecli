@@ -1,0 +1,307 @@
+{
+  "name": "Etiquette & Aesthetic",
+  "description": "Là một phụ nữ thượng lưu giàu kín tiếng, sang trọng quý phái",
+  "personality": {
+    "traits": [
+      "Reserved",
+      "Elegant",
+      "Discreet",
+      "Cultured",
+      "Sophisticated"
+    ],
+    "interests": [
+      "Fashion",
+      "Art",
+      "Travel",
+      "Reading",
+      "Luxury Goods",
+      "Antique Collecting"
+    ]
+  },
+  "dailyRoutine": {
+    "morning": {
+      "Meditation": true,
+      "Breakfast": true,
+      "Check Emails": false,
+      "Read Newspaper": true,
+      "Gentle Exercise": true
+    },
+    "afternoon": {
+      "Business Meetings": true,
+      "Creative Tasks": true,
+      "Personal Calls": false,
+      "Networking": true,
+      "Relaxation": true
+    },
+    "evening": {
+      "Dinner": true,
+      "Social Activities": true,
+      "Entertainment": true,
+      "Relaxation": true,
+      "Cultural Events": false
+    }
+  },
+  "workHabits": {
+    "preferredSites": [
+      "LinkedIn",
+      "Pinterest",
+      "ArtMoMA.org",
+      "LuxuryBrand.com",
+      "AmazonFashion"
+    ],
+    "focusAreas": [
+      "Business",
+      "Arts",
+      "Personal Development",
+      "Luxury Lifestyle"
+    ],
+    "typicalActions": [
+      "Search",
+      "Browse",
+      "Shop",
+      "Read Articles"
+    ]
+  },
+  "browserBehavior": {
+    "sessionDuration": "30-45 minutes",
+    "actionsPerSession": "6-10",
+    "typicalFlow": "Open browser -> Search query -> Browse results -> Select item -> Close"
+  },
+  "enabled": true,
+  "task_tags": [
+    "youtube",
+    "google_search",
+    "news"
+  ],
+  "schedules": [
+    {
+      "name": "Morning Routine: Gentle morning activities for elegance and balance",
+      "time_ranges": [
+        {
+          "start": "06:00",
+          "end": "09:30"
+        }
+      ],
+      "behavior": "personalRoutine",
+      "interval_minutes": 30,
+      "random_offset_minutes": 10
+    },
+    {
+      "name": "Late Morning: Professional engagements and personal tasks",
+      "time_ranges": [
+        {
+          "start": "09:30",
+          "end": "12:00"
+        }
+      ],
+      "behavior": "work",
+      "interval_minutes": 25,
+      "random_offset_minutes": 10
+    },
+    {
+      "name": "Afternoon: Creative and networking activities",
+      "time_ranges": [
+        {
+          "start": "13:00",
+          "end": "17:30"
+        }
+      ],
+      "behavior": "work",
+      "interval_minutes": 30,
+      "random_offset_minutes": 10
+    },
+    {
+      "name": "Evening: Relaxation and social entertainment",
+      "time_ranges": [
+        {
+          "start": "18:00",
+          "end": "21:00"
+        }
+      ],
+      "behavior": "entertainment",
+      "interval_minutes": 30,
+      "random_offset_minutes": 10
+    },
+    {
+      "name": "Night Wind-down: Calming activities before rest",
+      "time_ranges": [
+        {
+          "start": "21:00",
+          "end": "23:30"
+        }
+      ],
+      "behavior": "entertainment",
+      "interval_minutes": 40,
+      "random_offset_minutes": 15
+    }
+  ],
+  "auth": {
+    "google": [
+      {
+        "username": "ginudas1988@gmail.com",
+        "password": "7WOZP5L7!V",
+        "recoveryEmail": "ginudas1thoaminh0207@naver.com",
+        "twoFactorCodes": "fi5g eowq ki4x ye7q alxx wqqj 5a2v gbln",
+        "profile": "google_ginudas1988",
+        "enabled": true
+      },
+      {
+        "username": "dinesh000bhai@gmail.com",
+        "password": "RZt51Pt6TX",
+        "recoveryEmail": "erdfbhfhrthdanminh3006@gmail.com",
+        "twoFactorCodes": "5ceg vf4n e3xo cp4k ju2d a6uz kuje o5wn",
+        "profile": "google_dinesh000bhai",
+        "enabled": true
+      },
+      {
+        "username": "amarsighrawat0@gmail.com",
+        "password": "crEdvKPaFL",
+        "recoveryEmail": "amarsighthoaminh0607@naver.com",
+        "twoFactorCodes": "wjgc pvhp pmww aq2q jjbk nqwe wxyq dj3a",
+        "profile": "google_amarsighrawat0",
+        "enabled": true
+      },
+      {
+        "username": "angrejsingh70271@gmail.com",
+        "password": "JfWAu%tGB^",
+        "recoveryEmail": "angrejsinthoaminh3006@naver.com",
+        "twoFactorCodes": "op3x 3ju6 pfxt q3xf 6bcr ktfz j3bi dxp2",
+        "profile": "google_angrejsingh70271",
+        "enabled": true
+      },
+      {
+        "username": "rasminisad02@gmail.com",
+        "password": "JZ#08rbaQf",
+        "recoveryEmail": "qsvinwcuongminh3006@naver.com",
+        "twoFactorCodes": "gk7c tvk2 bvgv hm3s 7gem vmje xn2j 4x4a",
+        "profile": "google_rasminisad02",
+        "enabled": true
+      },
+      {
+        "username": "madanpatra458@gmail.com",
+        "password": "f^20yz2^VL",
+        "recoveryEmail": "tyjychuongminh0407@naver.com",
+        "twoFactorCodes": "l7bo 6r5u 2gfz dqam vzzc ouug reaw vbnv",
+        "profile": "google_madanpatra458",
+        "enabled": true
+      },
+      {
+        "username": "shahnwajm61@gmail.com",
+        "password": "^g4LG6i0j8",
+        "recoveryEmail": "yfarudcuongminh0407@naver.com",
+        "twoFactorCodes": "a75t dkct zccm hg2y hwr4 zd5e vm6l sjna",
+        "profile": "google_shahnwajm61",
+        "enabled": true
+      },
+      {
+        "username": "sabiransari7061116953@gmail.com",
+        "password": "x6e!exVo9H",
+        "recoveryEmail": "truirngocminh0607@naver.com",
+        "twoFactorCodes": "6a4k 22gd nnee uab5 yh3e vm5p lam7 ei6i",
+        "profile": "google_sabiransari7061116953",
+        "enabled": true
+      },
+      {
+        "username": "gajulavarthipriyanka123@gmail.com",
+        "password": "lANY7l!aFn",
+        "recoveryEmail": "ryqrdocuongminh0507@naver.com",
+        "twoFactorCodes": "adbp mgyr 36md isbl rado 6wem dqon ntv3",
+        "profile": "google_gajulavarthipriyanka123",
+        "enabled": true
+      },
+      {
+        "username": "kondetirekhadevi@gmail.com",
+        "password": "rW@ho#@zQ5",
+        "recoveryEmail": "ihqzrccuongminh0607@naver.com",
+        "twoFactorCodes": "dnbr xl2r 3bgv owai m7a6 yus7 infk mv4n",
+        "profile": "google_kondetirekhadevi",
+        "enabled": true
+      },
+      {
+        "username": "shilabaski637@gmail.com",
+        "password": "f^qlf$qL0s",
+        "recoveryEmail": "kjuyhkungocminh0607@naver.com",
+        "twoFactorCodes": "2hjl o552 pz5d mrrm xnuf cu5e h3hj yrkv",
+        "profile": "google_shilabaski637",
+        "enabled": true
+      },
+      {
+        "username": "prasadchandan.0341@gmail.com",
+        "password": "l1!1LA8vyi",
+        "recoveryEmail": "SjxkEwKnhongminh3006@naver.com",
+        "twoFactorCodes": "oww6 uzvn e6nu 75kt asdl lojf phyu 7rdd",
+        "profile": "google_prasadchandan0341",
+        "enabled": true
+      },
+      {
+        "username": "amleshkumaram112@gmail.com",
+        "password": "jRpRxCCRpu",
+        "recoveryEmail": "amleshkuthoaminh3006@naver.com",
+        "twoFactorCodes": "n5yl ugbo mb4r r2th s7kw mty5 sxg5 dmej",
+        "profile": "google_amleshkumaram112",
+        "enabled": true
+      },
+      {
+        "username": "abhinashabhinash675@gmail.com",
+        "password": "!&#FX2RQ2e",
+        "recoveryEmail": "ytrytewdecuongminh0707@naver.com",
+        "twoFactorCodes": "hzll hoqe ha5b zqbp zysb bjcg qpcc bzzl",
+        "profile": "google_abhinashabhinash675",
+        "enabled": true
+      },
+      {
+        "username": "nakulverma543@gmail.com",
+        "password": "P9UN30z9Lf",
+        "recoveryEmail": "sdgbsdgbdfhrtanminh3006@gmail.com",
+        "twoFactorCodes": "gic6 cxxy fa3k zcaj yr5b u3ye i74h r4om",
+        "profile": "google_nakulverma543",
+        "enabled": true
+      },
+      {
+        "username": "imranpthan770@gmail.com",
+        "password": "Ha9vnFxu*3",
+        "recoveryEmail": "fUQGCGphuongminh0107@naver.com",
+        "twoFactorCodes": "wykv cmpk qksx 76uw mhu3 q6ep 2hia hvbe",
+        "profile": "google_imranpthan770",
+        "enabled": true
+      },
+      {
+        "username": "noorbabul706@gmail.com",
+        "password": "CJEI4iJOML",
+        "recoveryEmail": "sagdfnchuongminh0607@naver.com",
+        "twoFactorCodes": "5bnz sy7o ijew tmgs 5pb6 lg63 66kf 5xck",
+        "profile": "google_noorbabul706",
+        "enabled": true
+      },
+      {
+        "username": "pattak37@gmail.com",
+        "password": "i!0d2Yv4Z@",
+        "recoveryEmail": "ghjrewerecuongminh0407@naver.com",
+        "twoFactorCodes": "o4pu 7etc iqpj ul44 fvvd fa3o lqdh c7qt",
+        "profile": "google_pattak37",
+        "enabled": true
+      },
+      {
+        "username": "golu7061187425@gmail.com",
+        "password": "gtxcJ0@3c2",
+        "recoveryEmail": "bdfhbasdhjedanminh0707@naver.com",
+        "twoFactorCodes": "yqbb cfoq szk6 ayxc ikqu eb4o cip4 i5cu",
+        "profile": "google_golu7061187425",
+        "enabled": true
+      },
+      {
+        "username": "chandanchauhan257246@gmail.com",
+        "password": "6AHxRVsa%0",
+        "recoveryEmail": "ygxttzcuongminh0607@naver.com",
+        "twoFactorCodes": "oaxu 2ccf xafm h7ug r5m2 nfyu jnwt mihr",
+        "profile": "google_chandanchauhan257246",
+        "enabled": true
+      }
+    ],
+    "facebook": [],
+    "tiktok": [],
+    "x": [],
+    "discord": [],
+    "telegram": []
+  }
+}

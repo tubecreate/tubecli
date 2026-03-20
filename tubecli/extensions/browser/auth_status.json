@@ -1,0 +1,502 @@
+{
+  "kumarbulet1000@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-19T07:55:25.497Z",
+    "profile": "003-002",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "abdulromanali45@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-19T07:58:42.566Z",
+    "profile": "003-003",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "enderpura@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-19T08:00:17.674Z",
+    "profile": "003-003",
+    "reason": "page.goto: net::ERR_CONNECTION_CLOSED at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:003-007": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-20T03:48:06.016Z",
+    "account": "jyotishanijyoti@gmail.com"
+  },
+  "profile:003-004": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-20T03:51:01.532Z",
+    "account": "jyotishanijyoti@gmail.com"
+  },
+  "profile:003-008": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-20T03:54:08.630Z",
+    "account": "jyotishanijyoti@gmail.com"
+  },
+  "jyotishanijyoti@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-20T03:59:53.799Z",
+    "profile": "003-010",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "sainathasarode@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-20T04:01:36.355Z",
+    "profile": "003-009",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "raoreshma990@gmail.com": {
+    "lastUsedAt": "2026-02-20T04:03:13.186Z",
+    "failed": false
+  },
+  "profile:003-010": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-20T04:04:27.598Z",
+    "account": "raoreshma990@gmail.com"
+  },
+  "maheshkumar3049378@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-20T04:33:15.077Z",
+    "profile": "003-009",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "profile:003-009": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-20T04:38:09.136Z",
+    "account": "laxmankashyap062@gmail.com"
+  },
+  "ginudas1988@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-02T03:00:56.098Z",
+    "profile": "005-009",
+    "reason": "page.goto: net::ERR_CONNECTION_CLOSED at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "dinesh000bhai@gmail.com": {
+    "failed": false,
+    "failedAt": "2026-02-22T06:07:39.221Z",
+    "profile": "005-001",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n",
+    "lastUsedAt": "2026-03-02T03:37:53.099Z",
+    "inUseBy": "005-009"
+  },
+  "profile:005-007": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T07:13:32.462Z",
+    "account": "dinesh000bhai@gmail.com"
+  },
+  "amarsighrawat0@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:23:08.870Z",
+    "profile": "005-001",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:005-008": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T07:30:01.461Z",
+    "account": "amarsighrawat0@gmail.com"
+  },
+  "angrejsingh70271@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:37:54.879Z",
+    "profile": "005-006",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "profile:005-005": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T07:53:36.882Z",
+    "account": "angrejsingh70271@gmail.com"
+  },
+  "rasminisad02@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:42:48.397Z",
+    "profile": "005-009",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:005-002": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T07:57:51.553Z",
+    "account": "rasminisad02@gmail.com"
+  },
+  "madanpatra458@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T11:56:17.773Z",
+    "profile": "005-001",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "shahnwajm61@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:42:52.288Z",
+    "profile": "005-009",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:005-004": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T08:06:24.265Z",
+    "account": "shahnwajm61@gmail.com"
+  },
+  "sabiransari7061116953@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-21T08:19:23.867Z",
+    "profile": "005-009",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "gajulavarthipriyanka123@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-21T08:40:04.089Z",
+    "profile": "005-003",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "kondetirekhadevi@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-21T08:44:27.696Z",
+    "profile": "005-003",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "shilabaski637@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-21T09:11:54.000Z",
+    "profile": "005-006",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "profile:003-005": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T10:08:31.587Z",
+    "account": "prasadchandan.0341@gmail.com"
+  },
+  "prasadchandan.0341@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-21T10:10:14.068Z",
+    "profile": "005-003",
+    "reason": "page.waitForTimeout: Target page, context or browser has been closed"
+  },
+  "profile:005-003": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T10:10:37.109Z",
+    "account": "amleshkumaram112@gmail.com"
+  },
+  "profile:default": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T12:50:37.309Z",
+    "account": "chandanchauhan257246@gmail.com"
+  },
+  "chandanchauhan257246@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-25T04:13:33.763Z",
+    "profile": "test-stats",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "ramakirashanakireshana@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-25T04:50:10.380Z",
+    "profile": "test_proxy",
+    "reason": "page.goto: net::ERR_ABORTED at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:test_repro": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-21T12:54:29.920Z",
+    "account": "ramakirashanakireshana@gmail.com"
+  },
+  "shantibirpur@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T04:44:46.141Z",
+    "profile": "test_profile_config_api",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "adarshaqz269@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:01:36.550Z",
+    "profile": "test-stats",
+    "reason": "page.goto: net::ERR_CONNECTION_CLOSED at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:005-010": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-22T06:15:37.824Z",
+    "account": "amarsighrawat0@gmail.com"
+  },
+  "profile:test_final": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-22T06:23:04.812Z",
+    "account": "tellurimeghanatellurimaghana@gmail.com"
+  },
+  "profile:005-006": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-22T06:39:10.196Z",
+    "account": "rasminisad02@gmail.com"
+  },
+  "amleshkumaram112@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T06:45:09.665Z",
+    "profile": "005-009",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "tellurimeghanatellurimaghana@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T12:13:16.682Z",
+    "profile": "test_grounding",
+    "reason": "page.goto: net::ERR_SSL_PROTOCOL_ERROR at https://accounts.google.com/signin\nCall log:\n\u001b[2m  - navigating to \"https://accounts.google.com/signin\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "profile:test_fix": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-22T11:51:12.940Z",
+    "account": "tellurimeghanatellurimaghana@gmail.com"
+  },
+  "sakarsaral@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-02-22T12:36:29.520Z",
+    "profile": "test-stats",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "profile:test-stats-unit": {
+    "loggedIn": true,
+    "loggedInAt": "2026-02-22T13:43:40.772Z",
+    "account": "chandanchauhan257246@gmail.com"
+  },
+  "vandanatiwari7081@gmail.com": {
+    "lastUsedAt": "2026-03-02T03:38:30.528Z",
+    "failed": false
+  },
+  "nagendramala35@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-01T03:16:05.609Z",
+    "profile": "trolygiamdoc_001",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "tarachandjediya@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-01T03:25:39.427Z",
+    "profile": "agent_007",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "mdwasse265@gmail.com": {
+    "lastUsedAt": "2026-03-02T11:00:59.786Z",
+    "failed": false
+  },
+  "ramlalsah101069@gmail.com": {
+    "lastUsedAt": "2026-03-01T03:42:05.682Z",
+    "failed": false
+  },
+  "profile:agent_008": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-01T03:43:22.457Z",
+    "account": "ramlalsah101069@gmail.com"
+  },
+  "ajeebaaina@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-02T02:52:59.096Z",
+    "profile": "agent_007",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "profile:agent_002": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-01T03:50:50.844Z",
+    "account": "ajeebaaina@gmail.com"
+  },
+  "nvenkateswarlu719@gmail.com": {
+    "lastUsedAt": "2026-03-02T02:53:01.901Z",
+    "failed": false
+  },
+  "profile:agent_005": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-01T04:28:12.391Z",
+    "account": "nvenkateswarlu719@gmail.com"
+  },
+  "profile:agent_001": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-01T04:47:30.331Z",
+    "account": "ajeebaaina@gmail.com"
+  },
+  "profile:agent_007": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-02T02:54:16.598Z",
+    "account": "nvenkateswarlu719@gmail.com"
+  },
+  "babluyadav704270@gmail.com": {
+    "lastUsedAt": "2026-03-02T03:08:58.293Z",
+    "failed": false
+  },
+  "profile:agent_009": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-02T03:10:12.773Z",
+    "account": "babluyadav704270@gmail.com"
+  },
+  "profile:agent_004": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-02T03:39:44.670Z",
+    "account": "vandanatiwari7081@gmail.com"
+  },
+  "nagababujaka50@gmail.com": {
+    "lastUsedAt": "2026-03-02T06:24:51.126Z",
+    "failed": false
+  },
+  "profile:agent_006": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-02T06:26:08.411Z",
+    "account": "nagababujaka50@gmail.com"
+  },
+  "profile:agent_003": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-02T11:02:11.376Z",
+    "account": "mdwasse265@gmail.com"
+  },
+  "khumprasadpaudel9@gmail.com": {
+    "lastUsedAt": "2026-03-06T02:58:34.981Z",
+    "failed": false
+  },
+  "arukondashekar6@gmail.com": {
+    "lastUsedAt": "2026-03-07T08:58:47.736Z",
+    "failed": false
+  },
+  "dhirajpaldhirajpal94@gmail.com": {
+    "lastUsedAt": "2026-03-06T03:18:04.601Z",
+    "failed": false
+  },
+  "kaushalsainikaushalsaini464@gmail.com": {
+    "lastUsedAt": "2026-03-07T03:56:35.086Z",
+    "failed": false
+  },
+  "dabhirahul274@gmail.com": {
+    "lastUsedAt": "2026-03-05T11:53:26.742Z",
+    "failed": false
+  },
+  "profile:vanphong_007": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-05T11:54:34.905Z",
+    "account": "dabhirahul274@gmail.com"
+  },
+  "puraramchoudhary42@gmail.com": {
+    "lastUsedAt": "2026-03-05T12:08:35.042Z",
+    "failed": false
+  },
+  "profile:luat_su_004": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-05T12:09:45.609Z",
+    "account": "puraramchoudhary42@gmail.com"
+  },
+  "mukkumadhum@gmail.com": {
+    "lastUsedAt": "2026-03-05T12:18:16.725Z",
+    "failed": false
+  },
+  "profile:vanphong_006": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-05T12:19:28.840Z",
+    "account": "mukkumadhum@gmail.com"
+  },
+  "reddyuma393@gmail.com": {
+    "lastUsedAt": "2026-03-06T02:40:29.252Z",
+    "failed": false
+  },
+  "profile:luat_su_005": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T02:41:40.365Z",
+    "account": "reddyuma393@gmail.com"
+  },
+  "ssdovlapar@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-06T02:43:16.337Z",
+    "profile": "luat_su_010",
+    "reason": "page.goto: net::ERR_CONNECTION_REFUSED at https://www.google.com/\nCall log:\n\u001b[2m  - navigating to \"https://www.google.com/\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  "pirusapera@gmail.com": {
+    "lastUsedAt": "2026-03-06T02:45:15.302Z",
+    "failed": false
+  },
+  "profile:luat_su_003": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T02:46:23.903Z",
+    "account": "pirusapera@gmail.com"
+  },
+  "profile:vanphong_010": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T02:59:45.889Z",
+    "account": "khumprasadpaudel9@gmail.com"
+  },
+  "profile:luat_su_010": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T03:02:05.776Z",
+    "account": "kamarathisankara@gmail.com"
+  },
+  "profile:vanphong_002": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T03:19:15.929Z",
+    "account": "dhirajpaldhirajpal94@gmail.com"
+  },
+  "ajimalikhan06@gmail.com": {
+    "lastUsedAt": "2026-03-06T03:38:08.743Z",
+    "failed": false
+  },
+  "profile:luat_su_008": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T03:39:19.408Z",
+    "account": "ajimalikhan06@gmail.com"
+  },
+  "dayalal7032@gmail.com": {
+    "lastUsedAt": "2026-03-06T03:57:19.085Z",
+    "failed": false
+  },
+  "profile:luat_su_006": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T03:58:26.914Z",
+    "account": "dayalal7032@gmail.com"
+  },
+  "profile:vanphong_001": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T04:03:14.190Z",
+    "account": "arukondashekar6@gmail.com"
+  },
+  "bhavaniveeapu@gmail.com": {
+    "lastUsedAt": "2026-03-06T04:18:46.652Z",
+    "failed": false
+  },
+  "profile:luat_su_009": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T04:19:55.574Z",
+    "account": "bhavaniveeapu@gmail.com"
+  },
+  "profile:vanphong_008": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T04:21:10.026Z",
+    "account": "mukhyadavinder@gmail.com"
+  },
+  "sarvara549@gmail.com": {
+    "lastUsedAt": "2026-03-06T04:37:40.092Z",
+    "failed": false
+  },
+  "profile:luat_su_002": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-06T04:41:42.418Z",
+    "account": "sarvara549@gmail.com"
+  },
+  "rai070154@gmail.com": {
+    "lastUsedAt": "2026-03-07T03:17:12.903Z",
+    "failed": false
+  },
+  "profile:vanphong_004": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-07T03:18:22.756Z",
+    "account": "rai070154@gmail.com"
+  },
+  "profile:vanphong_003": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-07T03:57:48.026Z",
+    "account": "kaushalsainikaushalsaini464@gmail.com"
+  },
+  "dasraghuntah@gmail.com": {
+    "lastUsedAt": "2026-03-07T06:30:33.587Z",
+    "failed": false
+  },
+  "profile:vanphong_009": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-07T06:31:47.308Z",
+    "account": "dasraghuntah@gmail.com"
+  },
+  "meesalamallesh565@gmail.com": {
+    "failed": true,
+    "failedAt": "2026-03-07T08:58:45.402Z",
+    "profile": "vanphong_005",
+    "reason": "Google did not show logged-in state after login attempt"
+  },
+  "profile:vanphong_005": {
+    "loggedIn": true,
+    "loggedInAt": "2026-03-07T08:59:56.912Z",
+    "account": "arukondashekar6@gmail.com"
+  }
+}
