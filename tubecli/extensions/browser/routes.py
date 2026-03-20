@@ -126,122 +126,61 @@ async def api_browser_status():
 
 @router.get("/engine/versions")
 async def api_get_engine_versions():
-    import subprocess
     import json
     import os
     
     try:
         ext_dir = os.path.dirname(__file__)
-        open_script = os.path.join(ext_dir, "open.js")
+        versions = []
         
-        # Run node open.js --list-versions
-        result = subprocess.run(
-            ["node", open_script, "--list-versions"],
-            capture_output=True,
-            text=True,
-            cwd=ext_dir,
-            timeout=30
-        )
-        
-        if result.returncode != 0:
-            return {"success": False, "status": "error", "message": f"CLI error: {result.stderr}", "error": f"CLI error: {result.stderr}"}
-            
-        # Parse custom markers
-        output = result.stdout
-        start_marker = "__VERSIONS_START__"
-        end_marker = "__VERSIONS_END__"
-        
-        if start_marker in output and end_marker in output:
-            json_str = output.split(start_marker)[1].split(end_marker)[0].strip()
-            raw_versions = json.loads(json_str)
-            
-            # Enrich with local status
-            versions = []
-            
-            # 1. Discover versions from PRIVATE SERVER
-            private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
-            try:
-                import requests
-                resp = requests.get(private_api_url, timeout=5)
-                if resp.status_code == 200:
-                    private_data = resp.json()
-                    if private_data.get("success"):
-                        for pv in private_data.get("versions", []):
-                            pv_name = pv.get("browser_version", "Unknown")
-                            versions.append({
-                                "name": pv_name,
-                                "browser_version": pv_name,
-                                "bas_version": pv.get("bas_version", ""),
-                                "downloaded": False, # Will check local folder below
-                                "download_url": pv.get("download_url"),
-                                "is_private": True,
-                                "path": "-"
-                            })
-            except Exception as e:
-                print(f"[PrivateAPI] Error: {e}")
+        # 1. Fetch versions from private API server (fast, no HEAD requests)
+        private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
+        try:
+            import requests
+            resp = requests.get(private_api_url, timeout=15)
+            if resp.status_code == 200:
+                private_data = resp.json()
+                if private_data.get("success"):
+                    for pv in private_data.get("versions", []):
+                        pv_name = pv.get("browser_version")
+                        if not pv_name or pv_name == "Unknown":
+                            pv_name = pv.get("bas_version")
+                        if not pv_name:
+                            pv_name = "Unknown"
+                            
+                        versions.append({
+                            "name": pv_name,
+                            "browser_version": pv.get("browser_version", pv_name),
+                            "bas_version": pv.get("bas_version", ""),
+                            "downloaded": False,
+                            "download_url": pv.get("download_url"),
+                            "local_url": pv.get("local_url"),
+                            "bablosoft_url": pv.get("bablosoft_url"),
+                            "is_private": True,
+                            "path": "-"
+                        })
+        except Exception as e:
+            print(f"[PrivateAPI] Error: {e}")
 
-            # 2. Discover local BAS versions from AppData (fallback/local scan)
-            bas_apps_path = os.path.join(os.environ.get("APPDATA", ""), "BrowserAutomationStudio", "apps")
-            if os.path.isdir(bas_apps_path):
-                for dir_name in os.listdir(bas_apps_path):
-                    bas_ver_path = os.path.join(bas_apps_path, dir_name)
-                    json_path = os.path.join(bas_ver_path, "browser_versions.json")
-                    if os.path.isdir(bas_ver_path) and os.path.exists(json_path):
-                        try:
-                            with open(json_path, "r") as f:
-                                bas_data = json.load(f)
-                                for bv in bas_data:
-                                    bv_name = bv.get("browser_version", "Unknown")
-                                    # Update if already exists from API (mark as downloaded)
-                                    existing = next((x for x in versions if x["name"] == bv_name), None)
-                                    if existing:
-                                        existing["downloaded"] = True
-                                        existing["path"] = bas_ver_path
-                                    else:
-                                        versions.append({
-                                            "name": bv_name,
-                                            "browser_version": bv_name,
-                                            "bas_version": bv.get("bas_version", ""),
-                                            "downloaded": True,
-                                            "path": bas_ver_path,
-                                            "is_bas_app": True
-                                        })
-                        except: pass
-
-            # 3. Add remote versions and check internal data/engine
-            for v in raw_versions:
-                ver_name = v.get("browser_version", "Unknown")
-                bas_ver = v.get("bas_version", "")
-                
-                # Check if we already have this version
-                existing = next((x for x in versions if x["name"] == ver_name), None)
-                
-                # Check local internal engine folder
-                engine_dir = os.path.join(ext_dir, "data", "engine", bas_ver)
-                is_installed = False
-                if bas_ver and os.path.isdir(engine_dir):
-                    if os.listdir(engine_dir):
-                        is_installed = True
-                
-                if existing:
-                    if is_installed:
-                        existing["downloaded"] = True
-                        existing["path"] = engine_dir
-                else:
-                    versions.append({
-                        "name": ver_name,
-                        "browser_version": ver_name,
-                        "bas_version": bas_ver,
-                        "downloaded": is_installed,
-                        "path": engine_dir if is_installed else "-",
-                        "is_bas_app": False
-                    })
+        # 2. Check local install status — data/script/{bas_version}/
+        for v in versions:
+            bas_ver = v.get("bas_version", "")
+            if not bas_ver:
+                continue
             
-            # Sort: newest first
-            versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
-            return {"success": True, "versions": versions}
-        else:
-            return {"success": False, "status": "error", "message": "No versions data found in output", "error": "No versions data found in output"}
+            script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
+            is_installed = False
+            
+            if os.path.isdir(script_dir):
+                if any(os.path.isfile(os.path.join(script_dir, f)) for f in os.listdir(script_dir)):
+                    is_installed = True
+            
+            v["downloaded"] = is_installed
+            v["path"] = script_dir if is_installed else "-"
+        
+        # Sort: newest first
+        versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
+        return {"success": True, "versions": versions}
             
     except Exception as e:
         return {"success": False, "status": "error", "message": str(e), "error": str(e)}
@@ -249,28 +188,100 @@ async def api_get_engine_versions():
 @router.post("/engine/download/{version}")
 async def api_download_engine(version: str, request: Request):
     ext_dir = os.path.dirname(__file__)
-    open_script = os.path.join(ext_dir, "open.js")
     
-    # We run the download in a non-blocking way
-    async def run_download_task():
+    try:
+        body = await request.json()
+    except:
+        body = {}
+    
+    download_url = body.get("download_url", "")
+    bas_version = body.get("bas_version") or version
+    
+    # If no download_url provided, construct bablosoft URL
+    if not download_url:
+        download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
+    
+    # ZIP saved to data/engine/, extract to data/script/
+    target_dir = os.path.join(ext_dir, "data", "script", bas_version)
+    progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
+    
+    # Ensure directories exist
+    os.makedirs(os.path.join(ext_dir, "data", "engine"), exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
+    
+    def write_progress(status, percent=0, error=""):
+        import json as _json
+        data = {"version": version, "status": status, "percent": percent}
+        if error:
+            data["error"] = error
         try:
-            body = await request.json()
+            with open(progress_file, "w") as f:
+                _json.dump(data, f, indent=2)
         except:
-            body = {}
+            pass
+    
+    def download_and_extract():
+        import zipfile
+        import tempfile
         
-        download_url = body.get("download_url")
-        
-        args = ["node", open_script, "--download-version", version]
-        if download_url:
-            args.extend(["--download-url", download_url])
+        try:
+            write_progress("downloading", 5)
             
-        proc = subprocess.Popen(args, cwd=ext_dir)
-        download_processes[version] = proc
-        proc.wait()
-        if version in download_processes:
+            # Download with streaming
+            resp = requests.get(download_url, stream=True, timeout=300, verify=False)
+            if resp.status_code != 200:
+                write_progress("error", 0, f"HTTP {resp.status_code} from {download_url}")
+                return
+            
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            
+            # Save to temp file
+            tmp_zip = os.path.join(ext_dir, "data", "engine", f"{bas_version}.zip")
+            with open(tmp_zip, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024 * 256):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if total_size > 0:
+                            pct = int((downloaded / total_size) * 80) + 5  # 5-85%
+                            write_progress("downloading", min(pct, 85))
+            
+            write_progress("extracting", 90)
+            
+            # Extract ZIP
+            try:
+                with zipfile.ZipFile(tmp_zip, "r") as zf:
+                    zf.extractall(target_dir)
+            except zipfile.BadZipFile:
+                write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
+                os.remove(tmp_zip)
+                return
+            
+            # Clean up zip
+            try:
+                os.remove(tmp_zip)
+            except:
+                pass
+            
+            write_progress("completed", 100)
+            
+        except requests.exceptions.ConnectionError as e:
+            write_progress("error", 0, f"Connection failed: {str(e)[:200]}")
+        except requests.exceptions.Timeout:
+            write_progress("error", 0, "Download timed out after 5 minutes")
+        except Exception as e:
+            write_progress("error", 0, str(e)[:300])
+    
+    # Run download in background thread
+    def run_bg():
+        download_processes[version] = True
+        try:
+            download_and_extract()
+        finally:
             download_processes.pop(version, None)
-
-    threading.Thread(target=lambda: asyncio.run(run_download_task()), daemon=True).start()
+    
+    threading.Thread(target=run_bg, daemon=True).start()
     return {"status": "started", "version": version}
 
 @router.post("/engine/cancel/{version}")

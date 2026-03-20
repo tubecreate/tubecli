@@ -22,6 +22,8 @@ export class BrowserManager {
                 console.log('Service key fetched and decoded.');
                 return this.serviceKey;
             }
+            // Fallback: no key available
+            return null;
         } catch (e) {
             console.error(`Error fetching service key: ${e.message}`);
         }
@@ -252,41 +254,60 @@ export class BrowserManager {
 
         // Apply browser version if saved in config
         try {
-            if (await fs.pathExists(configPath)) {
-                const conf = await fs.readJson(configPath);
                 if (conf.browser_version && conf.browser_version !== 'default') {
                     console.log(`[Launch] Resolving path for browser version: ${conf.browser_version}`);
                     
                     let resolvedPath = null;
-                    const basAppsPath = path.join(process.env.APPDATA, 'BrowserAutomationStudio', 'apps');
+                    const basAppsPath = path.join(process.env.APPDATA || '', 'BrowserAutomationStudio', 'apps');
                     const extDir = path.dirname(fileURLToPath(import.meta.url));
-                    const internalEngineDir = path.join(extDir, 'data', 'engine');
-
-                    // 1. Check local BAS apps
+                    
+                    // 1. Check local BAS apps (AppData)
                     if (await fs.pathExists(basAppsPath)) {
-                        const basVersionDirs = await fs.readdir(basAppsPath);
+                        const basVersionDirs = await fs.readdir(basAppsPath).catch(() => []);
                         for (const dir of basVersionDirs) {
                             const vPath = path.join(basAppsPath, dir);
                             const jsonPath = path.join(vPath, 'browser_versions.json');
                             if (await fs.pathExists(jsonPath)) {
-                                const vData = await fs.readJson(jsonPath);
-                                if (vData.some(bv => bv.browser_version === conf.browser_version)) {
-                                    resolvedPath = path.join(vPath, 'RemoteExecuteScript.exe');
-                                    console.log(`[Launch] Found local BAS version at: ${resolvedPath}`);
-                                    break;
-                                }
+                                try {
+                                    const vData = await fs.readJson(jsonPath);
+                                    if (Array.isArray(vData) && vData.some(bv => bv.browser_version === conf.browser_version)) {
+                                        resolvedPath = path.join(vPath, 'RemoteExecuteScript.exe');
+                                        console.log(`[Launch] Found local BAS version at: ${resolvedPath}`);
+                                        break;
+                                    }
+                                } catch (e) {}
                             }
                         }
                     }
 
-                    // 2. If not found in BAS, check internal engine dir
+                    // 2. Check internal engine and script dirs
                     if (!resolvedPath) {
-                        const internalVers = await fs.readdir(internalEngineDir).catch(() => []);
-                        for (const basVer of internalVers) {
-                            // Check if this internal folder matches the requested browser_version
-                            // We might need to list versions to map browser_version -> bas_version
-                            // For simplicity, we can just use plugin.useBrowserVersion(v) as before
-                            // but if we want to be sure, we set the path.
+                        const internalDirs = [
+                            path.join(extDir, 'data', 'engine'),
+                            path.join(extDir, 'data', 'script')
+                        ];
+                        for (const engineDir of internalDirs) {
+                            if (await fs.pathExists(engineDir)) {
+                                const nestedFolders = await fs.readdir(engineDir).catch(() => []);
+                                for (const dir of nestedFolders) {
+                                    const vPath = path.join(engineDir, dir);
+                                    const jsonPath = path.join(vPath, 'browser_versions.json');
+                                    if (await fs.pathExists(jsonPath)) {
+                                        try {
+                                            const vData = await fs.readJson(jsonPath);
+                                            if (Array.isArray(vData) && vData.some(bv => bv.browser_version === conf.browser_version)) {
+                                                const exePath = path.join(vPath, 'RemoteExecuteScript.exe');
+                                                if (await fs.pathExists(exePath)) {
+                                                    resolvedPath = exePath;
+                                                    console.log(`[Launch] Found INTERNAL version ${conf.browser_version} at: ${vPath}`);
+                                                    break;
+                                                }
+                                            }
+                                        } catch (e) {}
+                                    }
+                                }
+                                if (resolvedPath) break;
+                            }
                         }
                     }
 
@@ -296,7 +317,6 @@ export class BrowserManager {
                         plugin.useBrowserVersion(conf.browser_version);
                     }
                 }
-            }
         } catch (e) {
             console.warn('Failed to resolve browser_version path:', e.message);
         }
