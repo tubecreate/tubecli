@@ -541,7 +541,7 @@ class ExtensionManager:
                     if "playwright-with-fingerprints" in deps:
                         print(f"🧬 Patching Playwright with Fingerprints for {manifest['name']}...")
                         subprocess.run(
-                            [sys.executable, "-c", "import subprocess; subprocess.run(['node', '-e', \"require('playwright-with-fingerprints').plugin.fetch({tags: ['Desktop']})\"], check=True)"],
+                            [sys.executable, "-c", "import subprocess; subprocess.run(['node', '-e', \"require('playwright-with-fingerprints').plugin.versions()\"], check=True)"],
                             cwd=target_dir, timeout=600, shell=True
                         )
             except Exception as e:
