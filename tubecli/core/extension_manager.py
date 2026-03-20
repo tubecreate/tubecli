@@ -530,11 +530,19 @@ class ExtensionManager:
                 with open(pkg_file, "r", encoding="utf-8") as f:
                     pkg_data = json.load(f)
                     deps = {**pkg_data.get("dependencies", {}), **pkg_data.get("devDependencies", {})}
+                    
                     if "playwright" in deps or "playwright-with-fingerprints" in deps:
                         print(f"🎭 Installing Playwright browsers for {manifest['name']}...")
                         subprocess.run(
                             ["npx", "playwright", "install", "chromium"],
                             cwd=target_dir, capture_output=True, timeout=300, shell=True
+                        )
+                    
+                    if "playwright-with-fingerprints" in deps:
+                        print(f"🧬 Patching Playwright with Fingerprints for {manifest['name']}...")
+                        subprocess.run(
+                            [sys.executable, "-c", "import subprocess; subprocess.run(['node', '-e', \"require('playwright-with-fingerprints').plugin.fetch({tags: ['Desktop']})\"], check=True)"],
+                            cwd=target_dir, capture_output=True, timeout=600, shell=True
                         )
             except Exception as e:
                 logger.warning(f"Failed to install extension node dependencies: {e}")
