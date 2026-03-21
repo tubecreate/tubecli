@@ -10,6 +10,7 @@ let allTeams = [];
 let allAgents = [];
 let templates = [];
 let currentTeamId = null;
+let currentTeamData = null;
 let selectedTemplateId = null;
 
 // ── Init ──────────────────────────────────────────────────
@@ -117,6 +118,7 @@ async function selectTeam(teamId) {
 
     try {
         const team = await api(`/teams/${teamId}`);
+        currentTeamData = team;
         renderTeamDetail(team);
     } catch (e) {
         toast('Failed to load team: ' + e.message, 'error');
@@ -132,11 +134,27 @@ function renderTeamDetail(team) {
     // Hide delegation results when switching teams
     document.getElementById('delegation-results').style.display = 'none';
 
-    // Render org chart
-    renderOrgChart(team);
+    // Render 3D office (only assigned agents shown)
+    const canvas3d = document.getElementById('office-3d-canvas');
+    if (canvas3d && typeof init3DOffice === 'function') {
+        init3DOffice(canvas3d, team, allAgents);
+    }
+}
+
+// ── Org Chart Modal ───────────────────────────────────────
+function showOrgChartModal() {
+    if (!currentTeamData) return;
+    renderOrgChart(currentTeamData);
+    document.getElementById('orgchart-modal').classList.add('open');
+}
+
+function closeOrgChartModal() {
+    document.getElementById('orgchart-modal').classList.remove('open');
 }
 
 // ── Render: Org Chart ─────────────────────────────────────
+let selectedOrgNodeId = null;
+
 function renderOrgChart(team) {
     const container = document.getElementById('org-chart');
     const nodes = team.nodes || [];
@@ -144,11 +162,7 @@ function renderOrgChart(team) {
     if (nodes.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                No hierarchy defined. This team uses <strong>${team.strategy}</strong> strategy.
-                <br><br>Agents: ${(team.agent_ids || []).map(id => {
-                    const a = allAgents.find(ag => ag.id === id);
-                    return a ? `<span class="tag tag-cyan">${escHtml(a.name)}</span>` : id;
-                }).join(' ')}
+                Chưa có sơ đồ phân cấp. Bấm <strong>➕ Thêm vai trò</strong> để bắt đầu.
             </div>`;
         return;
     }
@@ -171,13 +185,21 @@ function renderOrgChart(team) {
         html += '<div class="org-layer">';
         layers[layerKey].forEach(node => {
             const agent = node.agent_id ? allAgents.find(a => a.id === node.agent_id) : null;
+            const isSelected = selectedOrgNodeId === node.role_id;
             html += `
-                <div class="org-node ${agent ? 'assigned' : ''}" title="${escHtml(node.description || '')}">
+                <div class="org-node ${agent ? 'assigned' : ''} ${isSelected ? 'org-node-selected' : ''}"
+                     title="${escHtml(node.description || '')}"
+                     onclick="selectOrgNode('${node.role_id}')"
+                     style="cursor:pointer; position:relative;">
+                    <div class="org-node-actions">
+                        <button onclick="event.stopPropagation(); editOrgNode('${node.role_id}')" title="Sửa" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;opacity:0.5;">🖉</button>
+                        <button onclick="event.stopPropagation(); deleteOrgNode('${node.role_id}')" title="Xóa" style="background:none;border:none;cursor:pointer;font-size:13px;padding:2px 4px;opacity:0.5;">🗑</button>
+                    </div>
                     <span class="org-node-emoji">${node.emoji || '🤖'}</span>
                     <div class="org-node-role">${escHtml(node.role || node.role_id)}</div>
                     ${agent
-                        ? `<div class="org-node-agent">${escHtml(agent.name)}</div>`
-                        : `<div class="org-node-empty">unassigned</div>`
+                        ? `<div class="org-node-agent">🤖 ${escHtml(agent.name)}</div>`
+                        : `<div class="org-node-empty">⊕ Bấm để gán agent</div>`
                     }
                 </div>`;
         });
@@ -185,6 +207,155 @@ function renderOrgChart(team) {
     });
 
     container.innerHTML = html;
+
+    // Update "Add child" button
+    const btnChild = document.getElementById('btn-add-child');
+    if (btnChild) {
+        btnChild.disabled = !selectedOrgNodeId;
+    }
+}
+
+// ── Org Node Selection ────────────────────────────────────
+function selectOrgNode(roleId) {
+    if (selectedOrgNodeId === roleId) {
+        // Double-click: open assign modal
+        showAssignModal(roleId);
+        return;
+    }
+    selectedOrgNodeId = roleId;
+    if (currentTeamData) renderOrgChart(currentTeamData);
+}
+
+// ── Add Node ──────────────────────────────────────────────
+function addOrgNode() {
+    if (!currentTeamData) return;
+    // Determine highest layer
+    const nodes = currentTeamData.nodes || [];
+    const maxLayer = nodes.length > 0 ? Math.max(...nodes.map(n => n.layer || 0)) : -1;
+
+    document.getElementById('edit-node-id').value = '__new__';
+    document.getElementById('edit-node-role').value = '';
+    document.getElementById('edit-node-emoji').value = '🤖';
+    document.getElementById('edit-node-layer').value = maxLayer >= 0 ? maxLayer : 0;
+    document.getElementById('edit-node-desc').value = '';
+    document.getElementById('editnode-modal').classList.add('open');
+}
+
+function addOrgChildNode() {
+    if (!currentTeamData || !selectedOrgNodeId) return;
+    const parentNode = (currentTeamData.nodes || []).find(n => n.role_id === selectedOrgNodeId);
+    if (!parentNode) return;
+
+    document.getElementById('edit-node-id').value = '__new__';
+    document.getElementById('edit-node-role').value = '';
+    document.getElementById('edit-node-emoji').value = '🤖';
+    document.getElementById('edit-node-layer').value = (parentNode.layer || 0) + 1;
+    document.getElementById('edit-node-desc').value = '';
+    document.getElementById('editnode-modal').classList.add('open');
+}
+
+// ── Edit Node ─────────────────────────────────────────────
+function editOrgNode(roleId) {
+    if (!currentTeamData) return;
+    const node = (currentTeamData.nodes || []).find(n => n.role_id === roleId);
+    if (!node) return;
+
+    document.getElementById('edit-node-id').value = roleId;
+    document.getElementById('edit-node-role').value = node.role || '';
+    document.getElementById('edit-node-emoji').value = node.emoji || '🤖';
+    document.getElementById('edit-node-layer').value = node.layer || 0;
+    document.getElementById('edit-node-desc').value = node.description || '';
+    document.getElementById('editnode-modal').classList.add('open');
+}
+
+function closeEditNodeModal() {
+    document.getElementById('editnode-modal').classList.remove('open');
+}
+
+async function saveEditNode() {
+    if (!currentTeamData || !currentTeamId) return;
+    const nodeId = document.getElementById('edit-node-id').value;
+    const role = document.getElementById('edit-node-role').value.trim();
+    const emoji = document.getElementById('edit-node-emoji').value.trim() || '🤖';
+    const layer = parseInt(document.getElementById('edit-node-layer').value) || 0;
+    const desc = document.getElementById('edit-node-desc').value.trim();
+
+    if (!role) { toast('Vui lòng nhập tên vai trò', 'error'); return; }
+
+    let nodes = [...(currentTeamData.nodes || [])];
+
+    if (nodeId === '__new__') {
+        // Create new node with unique ID
+        const newId = 'role_' + role.toLowerCase().replace(/[^a-z0-9]/g, '_') + '_' + Date.now();
+        nodes.push({
+            role_id: newId,
+            role: role,
+            emoji: emoji,
+            layer: layer,
+            description: desc,
+            agent_id: '',
+        });
+    } else {
+        // Update existing
+        nodes = nodes.map(n => {
+            if (n.role_id === nodeId) {
+                return { ...n, role, emoji, layer, description: desc };
+            }
+            return n;
+        });
+    }
+
+    try {
+        const result = await api(`/teams/${currentTeamId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ nodes }),
+        });
+        currentTeamData = result.team;
+        closeEditNodeModal();
+        renderOrgChart(currentTeamData);
+        renderTeamDetail(currentTeamData);
+        toast(nodeId === '__new__' ? 'Đã thêm vai trò mới!' : 'Đã cập nhật vai trò!', 'success');
+        await loadTeams();
+        renderTeamsList();
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
+// ── Delete Node ───────────────────────────────────────────
+async function deleteOrgNode(roleId) {
+    if (!currentTeamData || !currentTeamId) return;
+    const node = (currentTeamData.nodes || []).find(n => n.role_id === roleId);
+    if (!node) return;
+    if (!confirm(`Xóa vai trò "${node.role}"?`)) return;
+
+    const nodes = (currentTeamData.nodes || []).filter(n => n.role_id !== roleId);
+
+    try {
+        const result = await api(`/teams/${currentTeamId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ nodes }),
+        });
+        currentTeamData = result.team;
+        if (selectedOrgNodeId === roleId) selectedOrgNodeId = null;
+        renderOrgChart(currentTeamData);
+        renderTeamDetail(currentTeamData);
+        toast('Đã xóa vai trò!', 'success');
+        await loadTeams();
+        renderTeamsList();
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
+async function deleteEditingNode() {
+    const nodeId = document.getElementById('edit-node-id').value;
+    if (nodeId === '__new__') {
+        closeEditNodeModal();
+        return;
+    }
+    closeEditNodeModal();
+    await deleteOrgNode(nodeId);
 }
 
 // ── Create Team Modal ─────────────────────────────────────
@@ -403,6 +574,69 @@ function renderDelegationResults(result) {
     }).join('');
 }
 
+// ── Assign Agent to Role ──────────────────────────────────
+function showAssignModal(roleId) {
+    if (!currentTeamData) return;
+    const node = (currentTeamData.nodes || []).find(n => n.role_id === roleId);
+    if (!node) return;
+
+    const modal = document.getElementById('assign-modal');
+    document.getElementById('assign-role-name').textContent = `${node.emoji} ${node.role}`;
+    document.getElementById('assign-role-desc').textContent = node.description || '';
+
+    // Build agent select
+    const select = document.getElementById('assign-agent-select');
+    select.innerHTML = `<option value="">-- Bỏ trống --</option>`
+        + allAgents.map(a => `<option value="${a.id}" ${a.id === node.agent_id ? 'selected' : ''}>${escHtml(a.name)}</option>`).join('');
+    select.dataset.roleId = roleId;
+
+    modal.classList.add('open');
+}
+
+function closeAssignModal() {
+    document.getElementById('assign-modal').classList.remove('open');
+}
+
+async function saveAssignment() {
+    if (!currentTeamId || !currentTeamData) return;
+    const select = document.getElementById('assign-agent-select');
+    const roleId = select.dataset.roleId;
+    const agentId = select.value;
+
+    // Update the node in current team data
+    const updatedNodes = (currentTeamData.nodes || []).map(n => {
+        if (n.role_id === roleId) {
+            return { ...n, agent_id: agentId };
+        }
+        return n;
+    });
+
+    try {
+        const result = await api(`/teams/${currentTeamId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ nodes: updatedNodes }),
+        });
+
+        currentTeamData = result.team;
+        renderTeamDetail(currentTeamData);
+        closeAssignModal();
+
+        // Re-render org chart if its modal is open
+        if (document.getElementById('orgchart-modal').classList.contains('open')) {
+            renderOrgChart(currentTeamData);
+        }
+
+        const agent = allAgents.find(a => a.id === agentId);
+        toast(agentId ? `Đã gán ${agent?.name || agentId} thành công!` : 'Đã bỏ gán agent', 'success');
+
+        // Refresh sidebar counts
+        await loadTeams();
+        renderTeamsList();
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+    }
+}
+
 // ── Utilities ─────────────────────────────────────────────
 function escHtml(str) {
     if (!str) return '';
@@ -427,3 +661,32 @@ function toast(msg, type = 'success') {
     container.appendChild(el);
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
 }
+
+// ── 3D Fullscreen Toggle ─────────────────────────────────
+function toggle3DFullscreen() {
+    const container = document.getElementById('office-3d-container');
+    if (!container) return;
+    container.classList.toggle('fullscreen');
+
+    // Resize the Three.js renderer after toggling
+    setTimeout(() => {
+        const canvas = document.getElementById('office-3d-canvas');
+        if (canvas && typeof renderer3d !== 'undefined' && renderer3d && typeof camera3d !== 'undefined' && camera3d) {
+            const w = canvas.clientWidth;
+            const h = canvas.clientHeight;
+            renderer3d.setSize(w, h);
+            camera3d.aspect = w / h;
+            camera3d.updateProjectionMatrix();
+        }
+    }, 100);
+}
+
+// ESC to exit fullscreen
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const container = document.getElementById('office-3d-container');
+        if (container && container.classList.contains('fullscreen')) {
+            toggle3DFullscreen();
+        }
+    }
+});

@@ -163,6 +163,7 @@ class ExtensionManager:
         "tubecli.extensions.ollama_manager",
         "tubecli.extensions.multi_agents",
         "tubecli.extensions.browser",
+        "tubecli.extensions.studio3d",
     ]
 
     # Essential external extensions to auto-install if missing

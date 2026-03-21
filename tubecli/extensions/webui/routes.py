@@ -35,6 +35,15 @@ async def teams_page():
     return {"error": "Teams dashboard not found"}
 
 
+@router.get("/studio")
+async def studio_page():
+    """Serve the 3D Studio editor page."""
+    studio_file = os.path.join(STATIC_DIR, "studio.html")
+    if os.path.exists(studio_file):
+        return FileResponse(studio_file)
+    return {"error": "Studio page not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""

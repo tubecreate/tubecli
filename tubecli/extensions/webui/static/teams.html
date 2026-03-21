@@ -6,6 +6,8 @@
     <title>Teams AI — TubeCLI</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/teams.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 <div id="app">
@@ -53,16 +55,24 @@
                     <span id="detail-strategy" class="tag tag-purple"></span>
                 </div>
                 <div class="detail-actions">
-                    <button class="btn-secondary" onclick="showDelegatePanel()">🎯 Delegate Task</button>
-                    <button class="btn-danger" onclick="deleteCurrentTeam()">🗑️ Delete</button>
+                    <a href="/studio" class="btn-secondary" style="text-decoration:none">🎨 Studio</a>
+                    <button class="btn-secondary" onclick="showOrgChartModal()">📊 Sơ đồ tổ chức</button>
+                    <button class="btn-secondary" onclick="showDelegatePanel()">🎯 Giao việc</button>
+                    <button class="btn-danger" onclick="deleteCurrentTeam()">🗑️ Xóa</button>
                 </div>
             </div>
             <p id="detail-desc" class="detail-desc"></p>
 
-            <!-- Org Chart -->
-            <div class="org-chart-container">
-                <h3>📊 Organization Chart</h3>
-                <div id="org-chart" class="org-chart"></div>
+            <!-- 3D Office View -->
+            <div class="office-3d-container" id="office-3d-container">
+                <div class="office-3d-header">
+                    <h3>🏢 Văn Phòng 3D</h3>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <span class="office-hint">Kéo chuột để xoay · Cuộn để zoom</span>
+                        <button onclick="toggle3DFullscreen()" class="btn-fullscreen" title="Toàn màn hình">⛶</button>
+                    </div>
+                </div>
+                <div id="office-3d-canvas" class="office-3d-canvas"></div>
             </div>
 
             <!-- Delegation Results -->
@@ -122,9 +132,83 @@
     </div>
 </div>
 
+<!-- Assign Agent Modal -->
+<div class="modal-overlay" id="assign-modal" onclick="if(event.target===this) closeAssignModal()" style="z-index:1100">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-header">
+            <h2>🤖 Gán Agent cho vai trò</h2>
+            <button class="btn-close" onclick="closeAssignModal()">✕</button>
+        </div>
+        <div style="margin-bottom:16px; padding:12px; background:var(--bg); border-radius:8px; border:1px solid var(--card-border);">
+            <div id="assign-role-name" style="font-weight:700; font-size:16px; margin-bottom:4px;"></div>
+            <div id="assign-role-desc" style="font-size:12px; color:var(--text3);"></div>
+        </div>
+        <div class="form-group">
+            <label>Chọn Agent</label>
+            <select id="assign-agent-select" class="input"></select>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeAssignModal()">Hủy</button>
+            <button class="btn-primary" onclick="saveAssignment()">✓ Lưu</button>
+        </div>
+    </div>
+</div>
+
+<!-- Org Chart Modal -->
+<div class="modal-overlay" id="orgchart-modal" onclick="if(event.target===this) closeOrgChartModal()" style="z-index:1050">
+    <div class="modal-dialog" style="width:860px; max-width:95vw;">
+        <div class="modal-header">
+            <h2>📊 Sơ đồ tổ chức</h2>
+            <button class="btn-close" onclick="closeOrgChartModal()">✕</button>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center;">
+            <button class="btn-primary" onclick="addOrgNode()" style="font-size:12px;padding:6px 14px;">➕ Thêm vai trò</button>
+            <button class="btn-secondary" onclick="addOrgChildNode()" style="font-size:12px;padding:6px 14px;" id="btn-add-child" disabled title="Chọn 1 node trước">➕ Thêm cấp dưới</button>
+            <span style="flex:1"></span>
+            <span style="font-size:11px;color:var(--text3);">Bấm 🖉 để sửa · 🗑 để xóa · Bấm node để gán agent</span>
+        </div>
+        <div id="org-chart" class="org-chart"></div>
+    </div>
+</div>
+
+<!-- Edit Node Modal -->
+<div class="modal-overlay" id="editnode-modal" onclick="if(event.target===this) closeEditNodeModal()" style="z-index:1200">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-header">
+            <h2>✏️ Chỉnh sửa vai trò</h2>
+            <button class="btn-close" onclick="closeEditNodeModal()">✕</button>
+        </div>
+        <div class="form-group">
+            <label>Tên vai trò</label>
+            <input id="edit-node-role" class="input" placeholder="VD: Product Manager">
+        </div>
+        <div class="form-group" style="display:flex;gap:12px;">
+            <div style="flex:0 0 80px;">
+                <label>Emoji</label>
+                <input id="edit-node-emoji" class="input" placeholder="🤖" style="text-align:center;font-size:20px;">
+            </div>
+            <div style="flex:1;">
+                <label>Tầng (layer)</label>
+                <input id="edit-node-layer" type="number" class="input" min="0" max="10" value="0">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Mô tả</label>
+            <textarea id="edit-node-desc" class="input" rows="2" placeholder="Mô tả vai trò..."></textarea>
+        </div>
+        <input type="hidden" id="edit-node-id">
+        <div class="modal-footer">
+            <button class="btn-danger" onclick="deleteEditingNode()" style="margin-right:auto;">🗑 Xóa</button>
+            <button class="btn-secondary" onclick="closeEditNodeModal()">Hủy</button>
+            <button class="btn-primary" onclick="saveEditNode()">✓ Lưu</button>
+        </div>
+    </div>
+</div>
+
 <!-- Toast container -->
 <div id="toast-container" class="toast-container"></div>
 
+<script src="/static/teams3d.js"></script>
 <script src="/static/teams.js"></script>
 </body>
 </html>

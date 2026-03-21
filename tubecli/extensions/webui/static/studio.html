@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Studio — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/teams.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        /* Studio-specific styles */
+        .studio-layout { display: flex; height: 100vh; background: var(--bg); color: var(--text); }
+        .studio-sidebar { width: 280px; background: var(--sidebar); border-right: 1px solid var(--card-border); display: flex; flex-direction: column; overflow-y: auto; }
+        .studio-main { flex: 1; display: flex; flex-direction: column; }
+        .studio-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; background: var(--sidebar); border-bottom: 1px solid var(--card-border); min-height: 48px; }
+        .studio-canvas-wrap { flex: 1; position: relative; }
+        .studio-canvas-wrap canvas { width: 100% !important; height: 100% !important; display: block; }
+
+        /* Sidebar sections */
+        .studio-sidebar .sidebar-header { padding: 16px; border-bottom: 1px solid var(--card-border); }
+        .studio-sidebar .sidebar-header h2 { margin: 0; font-size: 18px; }
+        .asset-tabs { display: flex; border-bottom: 1px solid var(--card-border); }
+        .asset-tab { flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; cursor: pointer; border: none; background: none; color: var(--text2); transition: all .2s; }
+        .asset-tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+        .asset-tab:hover { color: var(--text); }
+
+        .asset-list { padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .asset-item { display: flex; flex-direction: column; align-items: center; padding: 10px 6px; background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 8px; cursor: grab; transition: all .2s; font-size: 11px; text-align: center; gap: 4px; }
+        .asset-item:hover { border-color: var(--accent); background: rgba(244,63,94,0.08); transform: translateY(-2px); }
+        .asset-item .emoji { font-size: 24px; }
+        .asset-item .label { color: var(--text2); line-height: 1.2; }
+        .asset-item.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(244,63,94,0.3); }
+
+        /* Team selector */
+        .team-select-group { padding: 12px 16px; border-bottom: 1px solid var(--card-border); }
+        .team-select-group label { font-size: 12px; color: var(--text3); margin-bottom: 4px; display: block; }
+        .team-select-group select { width: 100%; }
+
+        /* Placed items list */
+        .placed-section { padding: 8px 16px; border-top: 1px solid var(--card-border); flex: 1; overflow-y: auto; }
+        .placed-section h4 { font-size: 12px; color: var(--text3); margin: 0 0 8px 0; }
+        .placed-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--card-bg); border-radius: 6px; margin-bottom: 4px; font-size: 12px; }
+        .placed-item .pi-name { flex: 1; }
+        .placed-item button { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px 4px; }
+        .placed-item button:hover { color: #f43f5e; }
+        .agent-assign-select { padding:2px 4px; font-size:10px; background:#0c0e18; color:#e2e8f0; border:1px solid #1e2030; border-radius:4px; max-width:100px; font-family:var(--font); cursor:pointer; }
+        .agent-assign-select:focus { border-color:#22d3ee; outline:none; }
+
+        /* Agent picker popup */
+        .desk-agent-popup { position:fixed; z-index:9999; display:none; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:0; min-width:200px; box-shadow:0 8px 32px rgba(0,0,0,0.6); overflow:hidden; animation: popIn 0.15s ease; }
+        .desk-agent-popup.open { display:block; }
+        .desk-agent-popup-header { padding:10px 14px; border-bottom:1px solid var(--card-border); font-size:13px; font-weight:700; color:var(--text); }
+        .desk-agent-popup-list { max-height:250px; overflow-y:auto; }
+        .desk-agent-opt { padding:8px 14px; cursor:pointer; font-size:12px; color:var(--text2); transition:all 0.15s; display:flex; align-items:center; gap:8px; }
+        .desk-agent-opt:hover { background:rgba(34,211,238,0.1); color:var(--text); }
+        .desk-agent-opt.active { background:rgba(34,211,238,0.15); color:#22d3ee; font-weight:600; }
+        .desk-agent-opt .agent-dot { width:8px; height:8px; border-radius:50%; background:#22d3ee; flex-shrink:0; }
+        @keyframes popIn { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
+
+        /* Toolbar buttons */
+        .tb-btn { padding: 6px 14px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-bg); color: var(--text); cursor: pointer; font-size: 13px; transition: all .2s; }
+        .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .tb-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        .tb-label { font-size: 12px; color: var(--text3); margin-right: 4px; }
+
+        /* Status bar */
+        .status-bar { display: flex; justify-content: space-between; padding: 6px 16px; background: var(--sidebar); border-top: 1px solid var(--card-border); font-size: 11px; color: var(--text3); }
+    </style>
+</head>
+<body>
+
+<div class="studio-layout">
+    <!-- Left: Asset Palette -->
+    <div class="studio-sidebar">
+        <div class="sidebar-header">
+            <h2>🎨 3D Studio</h2>
+            <a href="/teams" style="font-size:12px; color:var(--text3);">← Quay lại Teams</a>
+        </div>
+
+        <div class="team-select-group">
+            <label>Team đang chỉnh sửa</label>
+            <select id="team-select" class="input" onchange="onTeamSelect()"></select>
+        </div>
+
+        <div class="team-select-group">
+            <label>📐 Kích thước phòng</label>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+                <span style="font-size:11px;color:var(--text3);min-width:28px;">Rộng</span>
+                <input type="range" id="room-width" min="8" max="60" value="16" step="2"
+                       oninput="resizeRoom()" style="flex:1;">
+                <span id="room-w-val" style="font-size:11px;min-width:24px;">16</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
+                <span style="font-size:11px;color:var(--text3);min-width:28px;">Dài</span>
+                <input type="range" id="room-depth" min="8" max="60" value="12" step="2"
+                       oninput="resizeRoom()" style="flex:1;">
+                <span id="room-d-val" style="font-size:11px;min-width:24px;">12</span>
+            </div>
+        </div>
+
+        <div class="asset-tabs">
+            <button class="asset-tab active" onclick="filterAssets('all', this)">Tất cả</button>
+            <button class="asset-tab" onclick="filterAssets('furniture', this)">🪑 Nội thất</button>
+            <button class="asset-tab" onclick="filterAssets('decoration', this)">🌿 Trang trí</button>
+            <button class="asset-tab" onclick="filterAssets('structure', this)">🧱 Kiến trúc</button>
+        </div>
+
+        <div id="asset-list" class="asset-list"></div>
+
+        <div class="placed-section">
+            <h4>📦 Đã đặt (<span id="placed-count">0</span>)</h4>
+            <div id="placed-list"></div>
+        </div>
+    </div>
+
+    <!-- Center: 3D Canvas -->
+    <div class="studio-main">
+        <div class="studio-toolbar">
+            <span class="tb-label">Công cụ:</span>
+            <button class="tb-btn active" id="tool-place" onclick="setTool('place')">📌 Đặt</button>
+            <button class="tb-btn" id="tool-move" onclick="setTool('move')">✋ Di chuyển</button>
+            <button class="tb-btn" id="tool-rotate" onclick="setTool('rotate')">🔄 Xoay</button>
+            <button class="tb-btn" id="tool-delete" onclick="setTool('delete')">🗑️ Xóa</button>
+            <div style="flex:1"></div>
+            <button class="tb-btn" onclick="clearScene()">🧹 Xóa hết</button>
+            <button class="tb-btn" onclick="saveScene()" style="background:var(--accent); color:#fff; border-color:var(--accent);">💾 Lưu</button>
+        </div>
+        <div class="studio-canvas-wrap" id="studio-canvas"></div>
+        <div class="status-bar">
+            <span id="status-text">Sẵn sàng — chọn vật phẩm bên trái rồi bấm vào sàn để đặt</span>
+            <span id="status-pos">x: 0, z: 0</span>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" class="toast-container"></div>
+
+<!-- Agent Picker Popup -->
+<div id="desk-agent-popup" class="desk-agent-popup">
+    <div class="desk-agent-popup-header">🤖 Gán agent cho bàn này</div>
+    <div id="desk-agent-popup-list" class="desk-agent-popup-list"></div>
+</div>
+
+<script>
+// ── State ──
+const API = '/api/v1';
+let assets = [];
+let teams = [];
+let currentTeamId = null;
+let placedAssets = []; // { id, asset_id, x, z, rotation, scale, mesh, custom_color }
+let selectedAssetId = null;
+let currentTool = 'place';
+let scene, camera, renderer, controls, clock;
+let groundMesh, gridHelper;
+let ghostMesh = null; // Preview mesh following cursor
+let placedMeshes = []; // Three.js meshes
+let roomW = 16, roomD = 12;
+let studioAgents = [];
+const GRID_SNAP = 0.5;
+
+// ── Init ──
+async function init() {
+    await Promise.all([loadAssets(), loadTeams(), loadStudioAgents()]);
+    renderAssetList();
+    initScene();
+}
+
+async function loadStudioAgents() {
+    try {
+        const res = await fetch('/api/v1/agents');
+        const data = await res.json();
+        studioAgents = data.agents || data || [];
+    } catch (e) { studioAgents = []; }
+}
+
+// Built-in asset catalog (fallback if API unavailable)
+const BUILTIN_ASSETS = [
+    {id:"desk_modern",name:"Bàn hiện đại",category:"furniture",emoji:"🖥️",mesh:"box",size:[1.6,0.07,0.9],color:"#f0ebe4",yOffset:0.72},
+    {id:"desk_wood",name:"Bàn gỗ cổ điển",category:"furniture",emoji:"📚",mesh:"box",size:[1.4,0.06,0.8],color:"#5c3a1e",yOffset:0.45},
+    {id:"chair_office",name:"Ghế xoay",category:"furniture",emoji:"🪑",mesh:"box",size:[0.5,0.06,0.5],color:"#2d3250",yOffset:0.48},
+    {id:"sofa",name:"Sofa",category:"furniture",emoji:"🛋️",mesh:"box",size:[1.8,0.5,0.8],color:"#3d4a8a",yOffset:0.25},
+    {id:"bookshelf",name:"Tủ sách",category:"furniture",emoji:"📕",mesh:"box",size:[1.2,2.0,0.4],color:"#6b4226",yOffset:1.0},
+    {id:"table_round",name:"Bàn tròn",category:"furniture",emoji:"🍽️",mesh:"cylinder",size:[0.6,0.72,0.6],color:"#d4c8b0",yOffset:0.36},
+    {id:"cabinet",name:"Tủ hồ sơ",category:"furniture",emoji:"🗄️",mesh:"box",size:[0.6,1.2,0.5],color:"#8a8a8a",yOffset:0.6},
+    {id:"plant_pot",name:"Chậu cây",category:"decoration",emoji:"🌿",mesh:"cylinder",size:[0.25,0.8,0.25],color:"#22c55e",yOffset:0.4},
+    {id:"lantern",name:"Đèn lồng",category:"decoration",emoji:"🏮",mesh:"sphere",size:[0.2,0.2,0.2],color:"#cc3333",yOffset:2.5,emissive:true},
+    {id:"whiteboard",name:"Bảng trắng",category:"decoration",emoji:"📋",mesh:"box",size:[1.5,1.0,0.05],color:"#f0f0f0",yOffset:1.5},
+    {id:"monitor",name:"Màn hình",category:"decoration",emoji:"🖥️",mesh:"box",size:[0.7,0.5,0.04],color:"#1a1a2e",yOffset:1.05},
+    {id:"pillar_red",name:"Cột đỏ",category:"decoration",emoji:"🔴",mesh:"cylinder",size:[0.18,3.5,0.18],color:"#c9302c",yOffset:1.75},
+    {id:"wall_segment",name:"Tường",category:"structure",emoji:"🧱",mesh:"box",size:[2.0,3.5,0.15],color:"#c8bca8",yOffset:1.75},
+    {id:"floor_tile",name:"Ô sàn",category:"structure",emoji:"⬜",mesh:"box",size:[2.0,0.1,2.0],color:"#d4c8b0",yOffset:0.05},
+    {id:"door_frame",name:"Cửa ra vào",category:"structure",emoji:"🚪",mesh:"box",size:[1.0,2.5,0.15],color:"#5c3a1e",yOffset:1.25},
+];
+
+async function loadAssets() {
+    try {
+        const res = await fetch(`${API}/studio3d/assets`);
+        if (res.ok) {
+            const data = await res.json();
+            assets = data.assets || BUILTIN_ASSETS;
+        } else {
+            assets = BUILTIN_ASSETS;
+        }
+    } catch (e) {
+        console.warn('API unavailable, using built-in assets');
+        assets = BUILTIN_ASSETS;
+    }
+}
+
+async function loadTeams() {
+    try {
+        const res = await fetch(`${API}/multi-agents/teams`);
+        const data = await res.json();
+        teams = data.teams || [];
+        const sel = document.getElementById('team-select');
+        sel.innerHTML = '<option value="">-- Chọn team --</option>'
+            + teams.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+    } catch (e) { console.error('Failed to load teams', e); }
+}
+
+async function loadScene(teamId) {
+    try {
+        const res = await fetch(`${API}/studio3d/scenes/${teamId}`);
+        const data = await res.json();
+        const scn = data.scene || {};
+        // Restore room size
+        if (scn.room_width) { roomW = scn.room_width; document.getElementById('room-width').value = roomW; document.getElementById('room-w-val').textContent = roomW; }
+        if (scn.room_depth) { roomD = scn.room_depth; document.getElementById('room-depth').value = roomD; document.getElementById('room-d-val').textContent = roomD; }
+        resizeRoom();
+        placedAssets = [];
+        clearAllMeshes();
+        (scn.assets || []).forEach(a => {
+            addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, a.scale || 1, false, a.agent_id || '');
+        });
+        updatePlacedList();
+    } catch (e) { console.error('Failed to load scene', e); }
+}
+
+async function saveScene() {
+    if (!currentTeamId) { toast('Chọn team trước khi lưu!', 'error'); return; }
+    try {
+        const body = {
+            team_id: currentTeamId,
+            room_width: roomW,
+            room_depth: roomD,
+            assets: placedAssets.map(p => ({
+                asset_id: p.asset_id, x: p.x, z: p.z, rotation: p.rotation, scale: p.scale,
+                agent_id: p.agent_id || ''
+            })),
+        };
+        await fetch(`${API}/studio3d/scenes/${currentTeamId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        toast('💾 Đã lưu thành công!', 'success');
+    } catch (e) { toast('Lỗi lưu: ' + e.message, 'error'); }
+}
+
+function onTeamSelect() {
+    currentTeamId = document.getElementById('team-select').value;
+    if (currentTeamId) {
+        loadScene(currentTeamId);
+        setStatus(`Đang chỉnh sửa: ${teams.find(t => t.id === currentTeamId)?.name || currentTeamId}`);
+    }
+}
+
+// ── Asset palette ──
+function renderAssetList(filter = 'all') {
+    const list = document.getElementById('asset-list');
+    const filtered = filter === 'all' ? assets : assets.filter(a => a.category === filter);
+    list.innerHTML = filtered.map(a => `
+        <div class="asset-item ${selectedAssetId === a.id ? 'selected' : ''}"
+             onclick="selectAsset('${a.id}')" title="${a.name}">
+            <span class="emoji">${a.emoji}</span>
+            <span class="label">${a.name}</span>
+        </div>
+    `).join('');
+}
+
+function filterAssets(cat, btn) {
+    document.querySelectorAll('.asset-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderAssetList(cat);
+}
+
+// ── Room resize ──
+function resizeRoom() {
+    roomW = parseInt(document.getElementById('room-width').value) || 16;
+    roomD = parseInt(document.getElementById('room-depth').value) || 12;
+    document.getElementById('room-w-val').textContent = roomW;
+    document.getElementById('room-d-val').textContent = roomD;
+
+    if (!groundMesh || !scene) return;
+
+    // Replace floor geometry
+    groundMesh.geometry.dispose();
+    groundMesh.geometry = new THREE.PlaneGeometry(roomW, roomD);
+
+    // Replace grid
+    if (gridHelper) { scene.remove(gridHelper); gridHelper.geometry.dispose(); }
+    const gridSize = Math.max(roomW, roomD);
+    gridHelper = new THREE.GridHelper(gridSize, gridSize * 2, 0x4a4a4a, 0x2a2a3a);
+    gridHelper.position.y = 0.01;
+    gridHelper.material.opacity = 0.5;
+    gridHelper.material.transparent = true;
+    scene.add(gridHelper);
+
+    // Adjust camera constraints for bigger rooms
+    if (controls) {
+        controls.maxDistance = Math.max(40, gridSize * 2);
+    }
+
+    setStatus(`📐 Phòng: ${roomW} × ${roomD}`);
+}
+
+function selectAsset(id) {
+    selectedAssetId = (selectedAssetId === id) ? null : id;
+    renderAssetList();
+    removeGhost();
+    if (selectedAssetId) {
+        createGhost(selectedAssetId);
+        setTool('place');
+        setStatus(`Đã chọn: ${assets.find(a => a.id === id)?.name} — bấm vào sàn để đặt`);
+    }
+}
+
+// ── Tools ──
+function setTool(tool) {
+    currentTool = tool;
+    document.querySelectorAll('.tb-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tool-' + tool)?.classList.add('active');
+    if (tool !== 'place') removeGhost();
+    setStatus({
+        place: 'Chọn vật phẩm bên trái rồi bấm vào sàn',
+        move: 'Bấm giữ vật phẩm rồi kéo để di chuyển',
+        rotate: 'Bấm vật phẩm để xoay 90°',
+        delete: 'Bấm vật phẩm để xóa',
+    }[tool] || '');
+}
+
+// ── 3D Scene ──
+function initScene() {
+    const container = document.getElementById('studio-canvas');
+    const W = container.clientWidth, H = container.clientHeight;
+
+    scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x080a12, 0.01);
+
+    camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 200);
+    camera.position.set(12, 10, 12);
+    camera.lookAt(0, 0, 0);
+
+    const canvas = document.createElement('canvas');
+    container.appendChild(canvas);
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    renderer.setSize(W, H);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setClearColor(0x060810);
+    renderer.shadowMap.enabled = true;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+    controls = new THREE.OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.maxPolarAngle = Math.PI / 2.2;
+    controls.minDistance = 4;
+    controls.maxDistance = 40;
+
+    clock = new THREE.Clock();
+
+    // Lighting
+    scene.add(new THREE.AmbientLight(0x667788, 0.7));
+    const sun = new THREE.DirectionalLight(0xffeedd, 0.9);
+    sun.position.set(10, 15, 8); sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const d = 20;
+    sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+    scene.add(sun);
+    scene.add(new THREE.PointLight(0xf43f5e, 0.3, 20).position.clone().set(-6, 4, 5) && new THREE.PointLight(0xf43f5e, 0.3, 20));
+    scene.add(new THREE.PointLight(0x22d3ee, 0.2, 18));
+
+    // Ground
+    const floorMat = new THREE.MeshStandardMaterial({ color: 0xd4c8b0, roughness: 0.85 });
+    groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(roomW, roomD), floorMat);
+    groundMesh.rotation.x = -Math.PI / 2;
+    groundMesh.receiveShadow = true;
+    scene.add(groundMesh);
+
+    // Grid
+    const gridSize = Math.max(roomW, roomD);
+    gridHelper = new THREE.GridHelper(gridSize, gridSize * 2, 0x4a4a4a, 0x2a2a3a);
+    gridHelper.position.y = 0.01;
+    gridHelper.material.opacity = 0.5;
+    gridHelper.material.transparent = true;
+    scene.add(gridHelper);
+
+    // Dark ground beyond
+    const farGround = new THREE.Mesh(new THREE.PlaneGeometry(100, 100),
+        new THREE.MeshStandardMaterial({ color: 0x10121c, roughness: 0.9 }));
+    farGround.rotation.x = -Math.PI / 2;
+    farGround.position.y = -0.02;
+    scene.add(farGround);
+
+    // Events
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const hits = raycaster.intersectObject(groundMesh);
+        if (hits.length > 0) {
+            const p = hits[0].point;
+            const sx = Math.round(p.x / GRID_SNAP) * GRID_SNAP;
+            const sz = Math.round(p.z / GRID_SNAP) * GRID_SNAP;
+            document.getElementById('status-pos').textContent = `x: ${sx.toFixed(1)}, z: ${sz.toFixed(1)}`;
+            if (ghostMesh) {
+                ghostMesh.position.set(sx, ghostMesh.userData.yOff || 0.5, sz);
+            }
+        }
+    });
+
+    let dragTarget = null;
+    let dragOffset = { x: 0, z: 0 };
+
+    canvas.addEventListener('mousedown', (e) => {
+        if (currentTool === 'move') {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const meshList = placedAssets.map(p => p.mesh).filter(Boolean);
+            const hits = raycaster.intersectObjects(meshList, true);
+            if (hits.length > 0) {
+                let hitObj = hits[0].object;
+                // Find the root group
+                while (hitObj.parent && !hitObj.userData.placedId) hitObj = hitObj.parent;
+                if (hitObj.userData.placedId) {
+                    dragTarget = hitObj;
+                    controls.enabled = false;
+                    const gHits = raycaster.intersectObject(groundMesh);
+                    if (gHits.length) {
+                        dragOffset.x = dragTarget.position.x - gHits[0].point.x;
+                        dragOffset.z = dragTarget.position.z - gHits[0].point.z;
+                    }
+                }
+            }
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (dragTarget && currentTool === 'move') {
+            const rect = canvas.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObject(groundMesh);
+            if (hits.length > 0) {
+                const sx = Math.round((hits[0].point.x + dragOffset.x) / GRID_SNAP) * GRID_SNAP;
+                const sz = Math.round((hits[0].point.z + dragOffset.z) / GRID_SNAP) * GRID_SNAP;
+                dragTarget.position.x = sx;
+                dragTarget.position.z = sz;
+            }
+        }
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        if (dragTarget) {
+            // Save new position
+            const pa = placedAssets.find(p => p.id === dragTarget.userData.placedId);
+            if (pa) { pa.x = dragTarget.position.x; pa.z = dragTarget.position.z; }
+            dragTarget = null;
+            controls.enabled = true;
+            updatePlacedList();
+        }
+    });
+
+    canvas.addEventListener('click', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+
+        if (currentTool === 'place' && selectedAssetId) {
+            const hits = raycaster.intersectObject(groundMesh);
+            if (hits.length > 0) {
+                const p = hits[0].point;
+                const sx = Math.round(p.x / GRID_SNAP) * GRID_SNAP;
+                const sz = Math.round(p.z / GRID_SNAP) * GRID_SNAP;
+                addPlacedAsset(selectedAssetId, sx, sz, 0, 1, true);
+            }
+        } else if (currentTool === 'rotate' || currentTool === 'delete') {
+            const meshList = placedAssets.map(p => p.mesh).filter(Boolean);
+            const hits = raycaster.intersectObjects(meshList, true);
+            if (hits.length > 0) {
+                let hitObj = hits[0].object;
+                while (hitObj.parent && !hitObj.userData.placedId) hitObj = hitObj.parent;
+                const pa = placedAssets.find(p => p.id === hitObj.userData.placedId);
+                if (pa) {
+                    if (currentTool === 'rotate') {
+                        pa.rotation = (pa.rotation || 0) + Math.PI / 2;
+                        pa.mesh.rotation.y = pa.rotation;
+                        toast(`🔄 Đã xoay`, 'success');
+                    } else if (currentTool === 'delete') {
+                        scene.remove(pa.mesh);
+                        placedAssets = placedAssets.filter(p => p.id !== pa.id);
+                        toast(`🗑️ Đã xóa`, 'success');
+                    }
+                    updatePlacedList();
+                }
+            }
+        }
+    });
+
+    // Double-click on desk → show agent picker (works regardless of tool)
+    canvas.addEventListener('dblclick', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const meshList = placedAssets.map(p => p.mesh).filter(Boolean);
+        const hits = raycaster.intersectObjects(meshList, true);
+        if (hits.length > 0) {
+            let hitObj = hits[0].object;
+            while (hitObj.parent && !hitObj.userData.placedId) hitObj = hitObj.parent;
+            const pa = placedAssets.find(p => p.id === hitObj.userData.placedId);
+            if (pa && pa.asset_id.startsWith('desk_')) {
+                showDeskAgentPopup(pa, e.clientX, e.clientY);
+            }
+        }
+    });
+
+    window.addEventListener('resize', () => {
+        const w = container.clientWidth, h = container.clientHeight;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+    });
+
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+    }
+    animate();
+}
+
+// ── Asset mesh creation ──
+function createAssetMesh(assetDef, isGhost = false) {
+    const color = new THREE.Color(assetDef.color || '#888888');
+    const mat = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.5,
+        metalness: 0.1,
+        transparent: isGhost,
+        opacity: isGhost ? 0.4 : 1,
+    });
+
+    let geo;
+    const [sx, sy, sz] = assetDef.size || [1, 1, 1];
+    switch (assetDef.mesh) {
+        case 'cylinder':
+            geo = new THREE.CylinderGeometry(sx, sx, sy, 16);
+            break;
+        case 'sphere':
+            geo = new THREE.SphereGeometry(sx, 12, 8);
+            break;
+        default:
+            geo = new THREE.BoxGeometry(sx, sy, sz);
+    }
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = !isGhost;
+    mesh.receiveShadow = !isGhost;
+    mesh.userData.yOff = assetDef.yOffset || 0.5;
+    mesh.position.y = assetDef.yOffset || 0.5;
+
+    if (assetDef.emissive && !isGhost) {
+        mat.emissive = color;
+        mat.emissiveIntensity = 0.5;
+    }
+
+    return mesh;
+}
+
+function createGhost(assetId) {
+    removeGhost();
+    const def = assets.find(a => a.id === assetId);
+    if (!def) return;
+    ghostMesh = createAssetMesh(def, true);
+    scene.add(ghostMesh);
+}
+
+function removeGhost() {
+    if (ghostMesh) { scene.remove(ghostMesh); ghostMesh = null; }
+}
+
+// ── Place / Remove ──
+let _placeCounter = 0;
+function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId) {
+    const def = assets.find(a => a.id === assetId);
+    if (!def) return;
+
+    const mesh = createAssetMesh(def);
+    mesh.position.set(x, def.yOffset || 0.5, z);
+    mesh.rotation.y = rotation || 0;
+    mesh.scale.setScalar(scale || 1);
+
+    const id = 'p_' + (++_placeCounter);
+    mesh.userData.placedId = id;
+    scene.add(mesh);
+
+    placedAssets.push({ id, asset_id: assetId, x, z, rotation: rotation || 0, scale: scale || 1, mesh, agent_id: agentId || '' });
+    updatePlacedList();
+    if (showToast) toast(`📌 Đã đặt ${def.name}`, 'success');
+}
+
+function removePlacedById(id) {
+    const pa = placedAssets.find(p => p.id === id);
+    if (pa && pa.mesh) scene.remove(pa.mesh);
+    placedAssets = placedAssets.filter(p => p.id !== id);
+    updatePlacedList();
+}
+
+// ── Desk Agent Picker Popup ──
+let _popupDeskId = null;
+async function showDeskAgentPopup(pa, clientX, clientY) {
+    _popupDeskId = pa.id;
+    const popup = document.getElementById('desk-agent-popup');
+    const list = document.getElementById('desk-agent-popup-list');
+
+    // Get agents of the currently selected team
+    let teamAgents = [];
+    if (currentTeamId) {
+        try {
+            const teamRes = await fetch(`${API}/multi-agents/teams/${currentTeamId}`);
+            const teamData = await teamRes.json();
+            const nodes = teamData.nodes || [];
+            const agentIds = nodes.map(n => n.agent_id).filter(Boolean);
+            // Match with loaded agents
+            teamAgents = studioAgents.filter(a => agentIds.includes(a.id));
+        } catch (e) { teamAgents = studioAgents; }
+    }
+
+    const opts = [`<div class="desk-agent-opt ${!pa.agent_id ? 'active' : ''}" onclick="pickDeskAgent('', '${pa.id}')">❌ Bỏ gán</div>`];
+    teamAgents.forEach(ag => {
+        const isActive = pa.agent_id === ag.id;
+        opts.push(`<div class="desk-agent-opt ${isActive ? 'active' : ''}" onclick="pickDeskAgent('${ag.id}', '${pa.id}')">
+            <span class="agent-dot"></span>${ag.name}
+        </div>`);
+    });
+    if (teamAgents.length === 0) {
+        opts.push(`<div class="desk-agent-opt" style="color:#64748b;cursor:default;">Chưa có agent nào trong team</div>`);
+    }
+    list.innerHTML = opts.join('');
+    popup.style.left = clientX + 'px';
+    popup.style.top = clientY + 'px';
+    popup.classList.add('open');
+}
+
+function pickDeskAgent(agentId, placedId) {
+    const pa = placedAssets.find(p => p.id === placedId);
+    if (pa) {
+        pa.agent_id = agentId;
+        const agent = studioAgents.find(a => a.id === agentId);
+        toast(agentId ? `🤖 Đã gán ${agent?.name || agentId} cho bàn` : 'Đã bỏ gán agent', 'success');
+        updatePlacedList();
+    }
+    closeDeskAgentPopup();
+}
+
+function closeDeskAgentPopup() {
+    document.getElementById('desk-agent-popup').classList.remove('open');
+    _popupDeskId = null;
+}
+
+// Close popup when clicking outside
+document.addEventListener('click', (e) => {
+    const popup = document.getElementById('desk-agent-popup');
+    if (popup.classList.contains('open') && !popup.contains(e.target)) {
+        closeDeskAgentPopup();
+    }
+}, true);
+
+function clearScene() {
+    if (!confirm('Xóa hết tất cả vật phẩm?')) return;
+    clearAllMeshes();
+    updatePlacedList();
+    toast('🧹 Đã xóa hết', 'success');
+}
+
+function clearAllMeshes() {
+    placedAssets.forEach(p => { if (p.mesh) scene.remove(p.mesh); });
+    placedAssets = [];
+}
+
+function updatePlacedList() {
+    document.getElementById('placed-count').textContent = placedAssets.length;
+    const list = document.getElementById('placed-list');
+    list.innerHTML = placedAssets.map(p => {
+        const def = assets.find(a => a.id === p.asset_id);
+        const isDesk = p.asset_id.startsWith('desk_');
+        const agentOpts = isDesk ? `<select class="agent-assign-select" onchange="assignAgentToDesk('${p.id}', this.value)" title="Gán agent">
+            <option value="">-- Chưa gán --</option>
+            ${studioAgents.map(ag => `<option value="${ag.id}" ${p.agent_id === ag.id ? 'selected' : ''}>${ag.name}</option>`).join('')}
+        </select>` : '';
+        const agentBadge = isDesk && p.agent_id ? `<span style="font-size:10px;color:#22d3ee;">🤖</span>` : '';
+        return `<div class="placed-item">
+            <span>${def?.emoji || '📦'} ${agentBadge}</span>
+            <span class="pi-name">${def?.name || p.asset_id}</span>
+            ${agentOpts}
+            <button onclick="removePlacedById('${p.id}')" title="Xóa">✕</button>
+        </div>`;
+    }).join('');
+}
+
+function assignAgentToDesk(placedId, agentId) {
+    const pa = placedAssets.find(p => p.id === placedId);
+    if (pa) {
+        pa.agent_id = agentId;
+        const agent = studioAgents.find(a => a.id === agentId);
+        toast(agentId ? `🤖 Đã gán ${agent?.name || agentId} cho bàn` : 'Đã bỏ gán agent', 'success');
+    }
+}
+
+// ── Utils ──
+function setStatus(msg) { document.getElementById('status-text').textContent = msg; }
+
+function toast(msg, type = 'success') {
+    const container = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2500);
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>

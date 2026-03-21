@@ -111,6 +111,10 @@ async function loadExtensions() {
 
 // ═══ Extension Detail Overlay ═══
 function openExtDetail(id) {
+    // Redirect to dedicated pages
+    if (id === 'multi_agents') { window.location.href = '/teams'; return; }
+    if (id === 'studio3d') { window.location.href = '/studio'; return; }
+
     const ext = EXT_REGISTRY.find(e => e.id === id);
     if (!ext) return;
     const overlay = document.getElementById('ext-detail-overlay');
@@ -128,7 +132,6 @@ function openExtDetail(id) {
     else if (id === 'market') renderMarketExt(body);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
-    else if (id === 'multi_agents') renderMultiAgentsExt(body);
 }
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
 
