@@ -87,6 +87,7 @@ const EXT_REGISTRY = [
     { id:'cloud_api', icon:'☁️', name:T('dash.cloud_api_keys'), desc:T('ext.cloud_api_desc'), type:'extension' },
     { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:T('ext.ollama_desc'), type:'extension' },
     { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:T('ext.multi_agents_desc'), type:'extension' },
+    { id:'downloader', icon:'📥', name:'Video Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
 ];
 
 async function loadExtensions() {
@@ -111,8 +112,7 @@ async function loadExtensions() {
 
 // ═══ Extension Detail Overlay ═══
 function openExtDetail(id) {
-    // Redirect to dedicated pages
-    if (id === 'multi_agents') { window.location.href = '/teams'; return; }
+    // Redirect to dedicated pages (only studio3d has no overlay)
     if (id === 'studio3d') { window.location.href = '/studio'; return; }
 
     const ext = EXT_REGISTRY.find(e => e.id === id);
@@ -132,8 +132,14 @@ function openExtDetail(id) {
     else if (id === 'market') renderMarketExt(body);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
+    else if (id === 'multi_agents') renderFullPageExt(body, 'Multi-Agents', 'Quản lý đội nhóm agent và phân công nhiệm vụ tự động.', '/teams');
+    else if (id === 'downloader') renderFullPageExt(body, 'Video Downloader', 'Tải video từ TikTok & Douyin. Hỗ trợ quét kênh, tải hàng loạt.', '/downloader');
 }
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
+
+function renderFullPageExt(el, name, desc, url) {
+    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="${url}" style="width:100%;height:100%;border:none"></iframe></div>`;
+}
 
 // ── Agents Ext ──
 async function renderAgentsExt(el) {
