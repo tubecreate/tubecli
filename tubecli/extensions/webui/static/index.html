@@ -263,6 +263,30 @@
     </div>
 </div>
 
+<!-- Engine Required Alert Modal -->
+<div id="modal-engine-alert" class="modal hidden">
+    <div class="modal-content" style="max-width:480px;text-align:center;border:1px solid var(--purple);overflow:hidden">
+        <div style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(6,182,212,0.1));padding:28px 24px 20px;margin:-24px -24px 20px">
+            <div style="font-size:3rem;margin-bottom:12px;animation:pulse 2s infinite">⚙️</div>
+            <h2 style="margin:0;font-size:1.3rem;color:var(--text)">Browser Engine Required</h2>
+        </div>
+        <p style="color:var(--text-muted);font-size:0.95rem;line-height:1.6;margin-bottom:6px">
+            Bạn cần tải ít nhất <b style="color:var(--cyan)">1 Browser Engine</b> trước khi tạo profile.
+        </p>
+        <div id="engine-alert-version" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;margin:16px 0;display:flex;align-items:center;justify-content:center;gap:10px">
+            <span style="font-size:1.2rem">🚀</span>
+            <span style="font-size:0.9rem;color:var(--text-muted)">Phiên bản mới nhất:</span>
+            <span id="engine-alert-latest" style="font-weight:700;color:var(--green);font-size:1.05rem">...</span>
+        </div>
+        <div class="modal-actions" style="justify-content:center;gap:12px;padding-top:8px">
+            <button class="btn-secondary" onclick="closeModal('modal-engine-alert')" style="min-width:100px">Để sau</button>
+            <button class="btn-primary" id="btn-engine-alert-download" onclick="downloadLatestEngineNow()" style="min-width:160px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);font-weight:700">
+                ⬇️ Tải về ngay
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Download Progress Overlay -->
 <div id="download-overlay" class="loading-overlay hidden">
     <div class="loading-content">
@@ -280,6 +304,6 @@
 </div>
 
 <script src="/static/i18n.js?v=3"></script>
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>
