@@ -44,6 +44,15 @@ async def studio_page():
     return {"error": "Studio page not found"}
 
 
+@router.get("/downloader")
+async def downloader_page():
+    """Serve the Video Downloader page."""
+    dl_file = os.path.join(STATIC_DIR, "downloader.html")
+    if os.path.exists(dl_file):
+        return FileResponse(dl_file)
+    return {"error": "Downloader page not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""

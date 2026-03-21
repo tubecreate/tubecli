@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TubeCLI — Video Downloader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #060810; --bg2: #0c0e18; --card: #10121e; --card2: #161829;
+    --border: #1e2030; --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
+    --accent: #22d3ee; --accent2: #06b6d4; --accent-glow: rgba(34,211,238,0.15);
+    --red: #f43f5e; --green: #22c55e; --yellow: #f59e0b;
+    --font: 'Inter', system-ui, sans-serif;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* Header */
+.header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; background:var(--bg2); }
+.header h1 { font-size:18px; font-weight:700; }
+.header h1 span { color:var(--accent); }
+.back-link { color:var(--text3); text-decoration:none; font-size:13px; }
+.back-link:hover { color:var(--accent); }
+
+/* Tabs */
+.tabs { display:flex; gap:4px; padding:16px 24px 0; }
+.tab { padding:8px 20px; border-radius:8px 8px 0 0; background:var(--card); color:var(--text3); border:1px solid var(--border); border-bottom:none; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.2s; }
+.tab.active { background:var(--card2); color:var(--accent); border-color:var(--accent); }
+.tab:hover { color:var(--text); }
+
+/* Main */
+.main { max-width:900px; margin:0 auto; padding:24px; }
+.section { display:none; }
+.section.active { display:block; }
+
+/* Input Area */
+.input-area { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
+.input-area label { font-size:13px; font-weight:600; color:var(--text2); display:block; margin-bottom:8px; }
+.url-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:12px 16px; font-size:14px; font-family:var(--font); resize:vertical; min-height:60px; outline:none; transition:border 0.2s; }
+.url-input:focus { border-color:var(--accent); }
+.url-input::placeholder { color:var(--text3); }
+.btn-row { display:flex; gap:10px; margin-top:12px; }
+.btn { padding:10px 24px; border-radius:8px; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); transition:all 0.2s; }
+.btn-primary { background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#000; }
+.btn-primary:hover { filter:brightness(1.1); transform:translateY(-1px); box-shadow:0 4px 16px var(--accent-glow); }
+.btn-primary:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+.btn-ghost { background:var(--card2); color:var(--text2); border:1px solid var(--border); }
+.btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
+
+/* Video Cards */
+.video-cards { display:flex; flex-direction:column; gap:12px; }
+.video-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; gap:16px; transition:border 0.2s; }
+.video-card:hover { border-color:var(--accent); }
+.video-thumb { width:160px; height:90px; border-radius:8px; object-fit:cover; background:var(--bg); flex-shrink:0; }
+.video-info { flex:1; min-width:0; }
+.video-title { font-size:14px; font-weight:600; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.video-meta { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--text3); margin-bottom:10px; }
+.video-meta span { display:flex; align-items:center; gap:4px; }
+.video-actions { display:flex; gap:8px; }
+.btn-sm { padding:6px 14px; font-size:12px; border-radius:6px; }
+.btn-download { background:var(--green); color:#fff; border:none; cursor:pointer; font-weight:600; font-family:var(--font); transition:all 0.2s; }
+.btn-download:hover { filter:brightness(1.15); }
+.btn-download:disabled { opacity:0.5; cursor:not-allowed; }
+
+/* Progress */
+.progress-bar { width:100%; height:6px; background:var(--bg); border-radius:3px; overflow:hidden; margin-top:8px; }
+.progress-fill { height:100%; background:linear-gradient(90deg, var(--accent), var(--green)); border-radius:3px; transition:width 0.3s; }
+
+/* History */
+.history-item { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+.history-item .hi-icon { font-size:24px; }
+.history-item .hi-info { flex:1; min-width:0; }
+.history-item .hi-name { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.history-item .hi-size { font-size:11px; color:var(--text3); }
+.history-item .hi-actions { display:flex; gap:6px; }
+.btn-icon { width:32px; height:32px; border-radius:6px; border:1px solid var(--border); background:var(--card2); color:var(--text3); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all 0.2s; }
+.btn-icon:hover { border-color:var(--accent); color:var(--accent); }
+.btn-icon.danger:hover { border-color:var(--red); color:var(--red); }
+
+/* Settings */
+.setting-group { margin-bottom:16px; }
+.setting-group label { font-size:13px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; }
+.setting-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 14px; font-size:13px; font-family:var(--font); outline:none; }
+.setting-input:focus { border-color:var(--accent); }
+
+/* Empty state */
+.empty-state { text-align:center; padding:48px; color:var(--text3); }
+.empty-state .emoji { font-size:48px; margin-bottom:12px; }
+.empty-state p { font-size:14px; }
+
+/* Toast */
+.toast-container { position:fixed; top:20px; right:20px; z-index:9999; }
+.toast { padding:10px 20px; border-radius:8px; font-size:13px; margin-bottom:8px; animation:slideIn 0.3s ease; }
+.toast.success { background:#065f46; color:#6ee7b7; }
+.toast.error { background:#7f1d1d; color:#fca5a5; }
+@keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+
+/* Loading spinner */
+.spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--text3); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Platform badge */
+.badge { padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; text-transform:uppercase; }
+.badge-douyin { background:rgba(254,44,85,0.15); color:#fe2c55; }
+.badge-tiktok { background:rgba(0,0,0,0.3); color:#fff; }
+
+/* Batch bar */
+.batch-bar { display:flex; align-items:center; gap:16px; padding:10px 16px; background:var(--card); border:1px solid var(--border); border-radius:10px; margin-bottom:12px; }
+.batch-select-all { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text2); user-select:none; }
+.batch-select-all input { accent-color:var(--accent); width:16px; height:16px; cursor:pointer; }
+.batch-count { font-size:12px; color:var(--text3); flex:1; }
+
+/* Card checkbox */
+.card-checkbox { position:absolute; top:10px; left:10px; z-index:2; cursor:pointer; }
+.card-checkbox input { accent-color:var(--accent); width:18px; height:18px; cursor:pointer; border-radius:4px; }
+.video-card { position:relative; }
+.video-card:has(.video-cb:checked) { border-color:var(--accent); background:rgba(0,188,212,0.04); }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <a href="/dashboard" class="back-link">← Dashboard</a>
+    <h1>📥 <span>Video Downloader</span></h1>
+</div>
+
+<div class="tabs">
+    <div class="tab active" onclick="switchTab('download')">📥 Tải video</div>
+    <div class="tab" onclick="switchTab('history')">📂 Lịch sử</div>
+    <div class="tab" onclick="switchTab('settings')">⚙️ Cài đặt</div>
+</div>
+
+<div class="main">
+    <!-- Download Tab -->
+    <div id="tab-download" class="section active">
+        <div class="input-area">
+            <label>Dán link TikTok / Douyin vào đây</label>
+            <textarea id="url-input" class="url-input" placeholder="https://www.douyin.com/video/7439076585594339627&#10;https://www.douyin.com/user/MS4wLjABAAAA...&#10;https://www.tiktok.com/@user/video/7439076585594339627&#10;&#10;Hỗ trợ: Video link, user profile (quét kênh), hoặc video ID" rows="3"></textarea>
+            <div class="btn-row">
+                <button class="btn btn-primary" id="btn-parse" onclick="parseLinks()">🔍 Phân tích</button>
+                <button class="btn btn-ghost" onclick="clearAll()">🗑️ Xóa</button>
+            </div>
+        </div>
+
+        <div id="batch-bar" class="batch-bar" style="display:none;">
+            <label class="batch-select-all">
+                <input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)">
+                <span>Chọn tất cả</span>
+            </label>
+            <span id="batch-count" class="batch-count">0 đã chọn</span>
+            <button class="btn btn-sm btn-primary" id="btn-download-all" onclick="downloadSelected()" disabled>📥 Tải tất cả đã chọn</button>
+        </div>
+
+        <div id="video-cards" class="video-cards"></div>
+    </div>
+
+    <!-- History Tab -->
+    <div id="tab-history" class="section">
+        <div id="history-list"></div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="tab-settings" class="section">
+        <div class="input-area">
+            <div class="setting-group">
+                <label>🍪 Douyin Cookie</label>
+                <textarea id="set-cookie-douyin" class="setting-input" rows="3" placeholder='Hỗ trợ: JSON array [{"name":"key","value":"val"}], JSON {"url":"...","cookies":[...]}, hoặc chuỗi key=val; key=val'></textarea>
+                <div style="font-size:11px;color:var(--text3);margin-top:4px;">Tự động nhận dạng format: JSON export từ trình duyệt hoặc cookie string</div>
+            </div>
+            <div class="setting-group">
+                <label>🍪 TikTok Cookie</label>
+                <textarea id="set-cookie-tiktok" class="setting-input" rows="3" placeholder='Paste JSON hoặc cookie string...'></textarea>
+                <div style="font-size:11px;color:var(--text3);margin-top:4px;">Tự động convert JSON → cookie string khi lưu</div>
+            </div>
+            <div class="setting-group">
+                <label>🌐 Proxy</label>
+                <input type="text" id="set-proxy" class="setting-input" placeholder="http://127.0.0.1:7890">
+            </div>
+            <div class="btn-row">
+                <button class="btn btn-primary" onclick="saveSettings()">💾 Lưu cài đặt</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="toast-container" class="toast-container"></div>
+
+<script>
+const API = '/api/v1/downloader';
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + tab).classList.add('active');
+    if (tab === 'history') loadHistory();
+    if (tab === 'settings') loadSettings();
+}
+
+function toast(msg, type = 'success') {
+    const c = document.getElementById('toast-container');
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = msg;
+    c.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+function formatSpeed(bps) {
+    if (bps < 1024) return bps + ' B/s';
+    if (bps < 1048576) return (bps / 1024).toFixed(1) + ' KB/s';
+    return (bps / 1048576).toFixed(1) + ' MB/s';
+}
+
+// === Parse ===
+async function parseLinks() {
+    const input = document.getElementById('url-input').value.trim();
+    if (!input) { toast('Nhập link trước!', 'error'); return; }
+
+    const btn = document.getElementById('btn-parse');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Đang phân tích...';
+
+    try {
+        const urls = input.split('\n').map(u => u.trim()).filter(u => u);
+        const cards = document.getElementById('video-cards');
+        cards.innerHTML = '';
+
+        // Check if any URL is a user profile link
+        const isUserProfile = urls.some(u => /douyin\.com\/user\//.test(u) || (u.startsWith('MS4') && u.length > 30));
+
+        if (isUserProfile) {
+            // Parse as user profile
+            const userUrl = urls.find(u => /douyin\.com\/user\//.test(u) || (u.startsWith('MS4') && u.length > 30));
+            try {
+                btn.innerHTML = '<span class="spinner"></span> Đang quét kênh...';
+                const res = await fetch(`${API}/parse-user`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: userUrl}),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    // Show user info header
+                    if (data.user) {
+                        cards.innerHTML += renderUserHeader(data.user, data.total);
+                    }
+                    // Show all videos
+                    if (data.videos && data.videos.length > 0) {
+                        for (const v of data.videos) {
+                            cards.innerHTML += renderVideoCard(v, `https://www.douyin.com/video/${v.id}`);
+                        }
+                        toast(`Tìm thấy ${data.total} video!`, 'success');
+                    } else {
+                        cards.innerHTML += renderErrorCard(userUrl, 'Không tìm thấy video nào từ kênh này.');
+                    }
+                } else {
+                    cards.innerHTML += renderErrorCard(userUrl, data.detail || 'Lỗi không xác định');
+                }
+            } catch (e) {
+                cards.innerHTML += renderErrorCard(userUrl, e.message);
+            }
+        } else {
+            // Parse individual video links
+            for (const url of urls) {
+                try {
+                    const res = await fetch(`${API}/parse`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url}),
+                    });
+                    const data = await res.json();
+                    if (data.success && data.data) {
+                        cards.innerHTML += renderVideoCard(data.data, url);
+                    } else {
+                        cards.innerHTML += renderErrorCard(url, data.detail || 'Lỗi không xác định');
+                    }
+                } catch (e) {
+                    cards.innerHTML += renderErrorCard(url, e.message);
+                }
+            }
+        }
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Phân tích';
+    showBatchBar();
+}
+
+function renderUserHeader(user, total) {
+    return `<div class="video-card" style="border-color:var(--cyan);background:rgba(0,188,212,0.05);">
+        ${user.avatar ? `<img src="${user.avatar}" class="video-thumb" style="border-radius:50%;width:80px;height:80px;object-fit:cover;" alt="">` : ''}
+        <div class="video-info">
+            <div class="video-title" style="font-size:1.1em;">👤 ${escHtml(user.nickname || 'Unknown')}</div>
+            <div class="video-meta">
+                <span>🎬 ${user.aweme_count || total} video</span>
+                <span>👥 ${formatCount(user.follower_count || 0)} follower</span>
+                <span>❤️ ${formatCount(user.total_favorited || 0)} lượt thích</span>
+            </div>
+            ${user.signature ? `<div style="font-size:12px;color:var(--text3);margin-top:4px;">${escHtml(user.signature)}</div>` : ''}
+        </div>
+    </div>`;
+}
+
+function renderVideoCard(v, originalUrl) {
+    const badge = v.platform === 'douyin'
+        ? '<span class="badge badge-douyin">Douyin</span>'
+        : '<span class="badge badge-tiktok">TikTok</span>';
+
+    const coverImg = v.cover_url
+        ? `<img src="${v.cover_url}" class="video-thumb" alt="" onerror="this.style.display='none'">`
+        : '<div class="video-thumb" style="display:flex;align-items:center;justify-content:center;font-size:32px;">🎬</div>';
+
+    const uid = 'vc_' + Math.random().toString(36).slice(2, 8);
+
+    return `<div class="video-card" id="${uid}" data-url="${escAttr(originalUrl)}">
+        <label class="card-checkbox">
+            <input type="checkbox" class="video-cb" onchange="updateBatchBar()">
+        </label>
+        ${coverImg}
+        <div class="video-info">
+            <div class="video-title">${badge} ${escHtml(v.title || 'Không có tiêu đề')}</div>
+            <div class="video-meta">
+                <span>👤 ${escHtml(v.author || '?')}</span>
+                <span>⏱️ ${v.duration || '--'}</span>
+                <span>📐 ${v.width}×${v.height}</span>
+                ${v.play_count > 0 ? `<span>👁️ ${formatCount(v.play_count)}</span>` : ''}
+                ${v.like_count > 0 ? `<span>❤️ ${formatCount(v.like_count)}</span>` : ''}
+            </div>
+            <div class="video-actions">
+                <button class="btn btn-sm btn-download" onclick="downloadVideo('${uid}', '${escAttr(originalUrl)}')">📥 Tải xuống</button>
+            </div>
+            <div id="prog-${uid}" style="display:none;">
+                <div class="progress-bar"><div class="progress-fill" id="fill-${uid}" style="width:0%"></div></div>
+                <div style="font-size:11px;color:var(--text3);margin-top:4px;" id="stat-${uid}"></div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderErrorCard(url, error) {
+    return `<div class="video-card" style="border-color:var(--red);">
+        <div class="video-thumb" style="display:flex;align-items:center;justify-content:center;font-size:32px;">❌</div>
+        <div class="video-info">
+            <div class="video-title" style="color:var(--red);">Lỗi phân tích</div>
+            <div class="video-meta"><span>${escHtml(url)}</span></div>
+            <div style="font-size:12px;color:var(--text3);">${escHtml(error)}</div>
+        </div>
+    </div>`;
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+function formatCount(n) { if (n >= 1e6) return (n/1e6).toFixed(1)+'M'; if (n >= 1e3) return (n/1e3).toFixed(1)+'K'; return n; }
+
+// === Download ===
+async function downloadVideo(uid, url) {
+    const btn = document.querySelector(`#${uid} .btn-download`);
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang tải...';
+    document.getElementById('prog-' + uid).style.display = 'block';
+
+    try {
+        const res = await fetch(`${API}/download`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({url}),
+        });
+        const data = await res.json();
+        if (data.success) {
+            pollProgress(uid, data.task_id);
+        } else {
+            toast('Lỗi: ' + (data.detail || 'unknown'), 'error');
+            btn.disabled = false;
+            btn.textContent = '📥 Tải xuống';
+        }
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+        btn.disabled = false;
+        btn.textContent = '📥 Tải xuống';
+    }
+}
+
+async function pollProgress(uid, taskId) {
+    const fill = document.getElementById('fill-' + uid);
+    const stat = document.getElementById('stat-' + uid);
+    const btn = document.querySelector(`#${uid} .btn-download`);
+
+    const poll = setInterval(async () => {
+        try {
+            const res = await fetch(`${API}/status/${taskId}`);
+            const data = await res.json();
+            const t = data.data;
+
+            fill.style.width = t.progress + '%';
+            stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
+
+            if (t.status === 'done') {
+                clearInterval(poll);
+                fill.style.width = '100%';
+                fill.style.background = 'var(--green)';
+                stat.textContent = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
+                btn.textContent = '✅ Đã tải';
+                btn.style.background = 'var(--green)';
+                toast('Tải thành công: ' + t.filename, 'success');
+            } else if (t.status === 'error') {
+                clearInterval(poll);
+                fill.style.background = 'var(--red)';
+                stat.textContent = `❌ Lỗi: ${t.error}`;
+                btn.disabled = false;
+                btn.textContent = '📥 Thử lại';
+                btn.style.background = '';
+            }
+        } catch (e) {
+            // ignore polling errors
+        }
+    }, 500);
+}
+
+function clearAll() {
+    document.getElementById('url-input').value = '';
+    document.getElementById('video-cards').innerHTML = '';
+    document.getElementById('batch-bar').style.display = 'none';
+    document.getElementById('select-all-cb').checked = false;
+}
+
+// === Batch Select & Download ===
+function showBatchBar() {
+    const bar = document.getElementById('batch-bar');
+    const cards = document.querySelectorAll('.video-cb');
+    bar.style.display = cards.length > 0 ? 'flex' : 'none';
+    updateBatchBar();
+}
+
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.video-cb').forEach(cb => { cb.checked = checked; });
+    updateBatchBar();
+}
+
+function updateBatchBar() {
+    const all = document.querySelectorAll('.video-cb');
+    const checked = document.querySelectorAll('.video-cb:checked');
+    const count = checked.length;
+    document.getElementById('batch-count').textContent = `${count} / ${all.length} đã chọn`;
+    document.getElementById('btn-download-all').disabled = count === 0;
+    // Sync select-all checkbox
+    const selectAllCb = document.getElementById('select-all-cb');
+    selectAllCb.checked = all.length > 0 && count === all.length;
+    selectAllCb.indeterminate = count > 0 && count < all.length;
+}
+
+async function downloadSelected() {
+    const checked = document.querySelectorAll('.video-cb:checked');
+    if (checked.length === 0) { toast('Chưa chọn video nào!', 'error'); return; }
+
+    const btn = document.getElementById('btn-download-all');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Đang tải 0/' + checked.length + '...';
+
+    let done = 0;
+    for (const cb of checked) {
+        const card = cb.closest('.video-card');
+        const uid = card.id;
+        const url = card.dataset.url;
+        if (!url) continue;
+
+        // Skip already downloaded
+        const dlBtn = card.querySelector('.btn-download');
+        if (dlBtn && dlBtn.textContent.includes('Đã tải')) { done++; continue; }
+
+        try {
+            const res = await fetch(`${API}/download`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({url}),
+            });
+            const data = await res.json();
+            if (data.success) {
+                // Start progress polling
+                document.getElementById('prog-' + uid).style.display = 'block';
+                if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '⏳ Đang tải...'; }
+                await waitForDownload(uid, data.task_id);
+            }
+        } catch (e) {
+            toast(`Lỗi tải ${uid}: ${e.message}`, 'error');
+        }
+        done++;
+        btn.innerHTML = `<span class="spinner"></span> Đang tải ${done}/${checked.length}...`;
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = '📥 Tải tất cả đã chọn';
+    toast(`Hoàn tất tải ${done} video!`, 'success');
+}
+
+function waitForDownload(uid, taskId) {
+    return new Promise((resolve) => {
+        const fill = document.getElementById('fill-' + uid);
+        const stat = document.getElementById('stat-' + uid);
+        const btn = document.querySelector(`#${uid} .btn-download`);
+
+        const poll = setInterval(async () => {
+            try {
+                const res = await fetch(`${API}/status/${taskId}`);
+                const data = await res.json();
+                const t = data.data;
+                fill.style.width = t.progress + '%';
+                stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
+
+                if (t.status === 'done') {
+                    clearInterval(poll);
+                    fill.style.width = '100%';
+                    fill.style.background = 'var(--green)';
+                    stat.textContent = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
+                    if (btn) { btn.textContent = '✅ Đã tải'; btn.style.background = 'var(--green)'; }
+                    resolve();
+                } else if (t.status === 'error') {
+                    clearInterval(poll);
+                    fill.style.background = 'var(--red)';
+                    stat.textContent = `❌ Lỗi: ${t.error}`;
+                    if (btn) { btn.disabled = false; btn.textContent = '📥 Thử lại'; }
+                    resolve();
+                }
+            } catch (e) { /* ignore */ }
+        }, 500);
+    });
+}
+
+// === History ===
+async function loadHistory() {
+    const list = document.getElementById('history-list');
+    try {
+        const res = await fetch(`${API}/history`);
+        const data = await res.json();
+        const files = data.data || [];
+
+        if (files.length === 0) {
+            list.innerHTML = '<div class="empty-state"><div class="emoji">📂</div><p>Chưa có file nào được tải</p></div>';
+            return;
+        }
+
+        list.innerHTML = files.map(f => `
+            <div class="history-item">
+                <div class="hi-icon">${f.filename.endsWith('.mp4') ? '🎬' : '🖼️'}</div>
+                <div class="hi-info">
+                    <div class="hi-name">${escHtml(f.filename)}</div>
+                    <div class="hi-size">${formatSize(f.size)} — ${new Date(f.modified * 1000).toLocaleString('vi')}</div>
+                </div>
+                <div class="hi-actions">
+                    <a href="${API}/file/${encodeURIComponent(f.filename)}" download class="btn-icon" title="Tải về">📥</a>
+                    <button class="btn-icon danger" onclick="deleteFile('${escAttr(f.filename)}')" title="Xóa">🗑️</button>
+                </div>
+            </div>
+        `).join('');
+    } catch (e) {
+        list.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Lỗi tải lịch sử</p></div>';
+    }
+}
+
+async function deleteFile(filename) {
+    if (!confirm('Xóa file ' + filename + '?')) return;
+    try {
+        await fetch(`${API}/history/${encodeURIComponent(filename)}`, {method: 'DELETE'});
+        toast('Đã xóa', 'success');
+        loadHistory();
+    } catch (e) {
+        toast('Lỗi xóa: ' + e.message, 'error');
+    }
+}
+
+// === Settings ===
+async function loadSettings() {
+    try {
+        const res = await fetch(`${API}/settings`);
+        const data = await res.json();
+        const s = data.data || {};
+        document.getElementById('set-cookie-douyin').value = s.cookie_douyin || '';
+        document.getElementById('set-cookie-tiktok').value = s.cookie_tiktok || '';
+        document.getElementById('set-proxy').value = s.proxy || '';
+    } catch (e) {}
+}
+
+async function saveSettings() {
+    const body = {};
+    const cd = document.getElementById('set-cookie-douyin').value.trim();
+    const ct = document.getElementById('set-cookie-tiktok').value.trim();
+    const px = document.getElementById('set-proxy').value.trim();
+    if (cd && !cd.startsWith('***')) body.cookie_douyin = cd;
+    if (ct && !ct.startsWith('***')) body.cookie_tiktok = ct;
+    body.proxy = px;
+
+    try {
+        await fetch(`${API}/settings`, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        toast('Đã lưu cài đặt!', 'success');
+    } catch (e) {
+        toast('Lỗi: ' + e.message, 'error');
+    }
+}
+</script>
+</body>
+</html>
