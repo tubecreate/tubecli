@@ -139,7 +139,9 @@ async def api_get_engine_versions():
         private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
         try:
             import requests
-            resp = requests.get(private_api_url, timeout=15)
+            from tubecli.config import get_language
+            lang = get_language()
+            resp = requests.post(private_api_url, json={"lang": lang}, timeout=15)
             if resp.status_code == 200:
                 private_data = resp.json()
                 if private_data.get("success"):
@@ -262,59 +264,88 @@ async def api_download_engine(version: str, request: Request):
         except:
             pass
     
+    # Build fallback bablosoft URL
+    bablosoft_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
+    
     def download_and_extract():
         import zipfile
         import tempfile
         import requests
         
-        try:
-            write_progress("downloading", 5)
-            
-            # Download with streaming
-            resp = requests.get(download_url, stream=True, timeout=300, verify=False)
-            if resp.status_code != 200:
-                write_progress("error", 0, f"HTTP {resp.status_code} from {download_url}")
-                return
-            
-            total_size = int(resp.headers.get("content-length", 0))
-            downloaded = 0
-            
-            # Save to temp file
-            tmp_zip = os.path.join(ext_dir, "data", "engine", f"{bas_version}.zip")
-            with open(tmp_zip, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=1024 * 256):
-                    if chunk:
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = int((downloaded / total_size) * 80) + 5  # 5-85%
-                            write_progress("downloading", min(pct, 85))
-            
-            write_progress("extracting", 90)
-            
-            # Extract ZIP
+        # Try local_url first, then fallback to bablosoft
+        urls_to_try = []
+        if download_url and download_url != bablosoft_url:
+            urls_to_try.append(("local", download_url))
+        urls_to_try.append(("bablosoft", bablosoft_url))
+        
+        for url_label, url in urls_to_try:
             try:
-                with zipfile.ZipFile(tmp_zip, "r") as zf:
-                    zf.extractall(target_dir)
-            except zipfile.BadZipFile:
-                write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
-                os.remove(tmp_zip)
+                write_progress("downloading", 3, f"Trying {url_label} server...")
+                
+                resp = requests.get(url, stream=True, timeout=300, verify=False)
+                if resp.status_code != 200:
+                    if url_label == "local":
+                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to bablosoft...")
+                        continue  # Try next URL
+                    write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
+                    return
+                
+                total_size = int(resp.headers.get("content-length", 0))
+                downloaded = 0
+                
+                write_progress("downloading", 5, f"Downloading from {url_label} server...")
+                
+                # Save to temp file
+                tmp_zip = os.path.join(ext_dir, "data", "engine", f"{bas_version}.zip")
+                with open(tmp_zip, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 256):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                pct = int((downloaded / total_size) * 80) + 5  # 5-85%
+                                write_progress("downloading", min(pct, 85))
+                
+                write_progress("extracting", 90)
+                
+                # Extract ZIP
+                try:
+                    with zipfile.ZipFile(tmp_zip, "r") as zf:
+                        zf.extractall(target_dir)
+                except zipfile.BadZipFile:
+                    try:
+                        os.remove(tmp_zip)
+                    except:
+                        pass
+                    if url_label == "local":
+                        write_progress("downloading", 3, "Local file corrupt, switching to bablosoft...")
+                        continue  # Try next URL
+                    write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
+                    return
+                
+                # Clean up zip
+                try:
+                    os.remove(tmp_zip)
+                except:
+                    pass
+                
+                write_progress("completed", 100)
+                return  # Success!
+                
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                if url_label == "local":
+                    write_progress("downloading", 3, f"Local server failed ({type(e).__name__}), switching to bablosoft...")
+                    continue  # Try next URL
+                write_progress("error", 0, f"Connection failed: {str(e)[:200]}")
                 return
-            
-            # Clean up zip
-            try:
-                os.remove(tmp_zip)
-            except:
-                pass
-            
-            write_progress("completed", 100)
-            
-        except requests.exceptions.ConnectionError as e:
-            write_progress("error", 0, f"Connection failed: {str(e)[:200]}")
-        except requests.exceptions.Timeout:
-            write_progress("error", 0, "Download timed out after 5 minutes")
-        except Exception as e:
-            write_progress("error", 0, str(e)[:300])
+            except Exception as e:
+                if url_label == "local":
+                    write_progress("downloading", 3, f"Local error: {str(e)[:100]}, switching to bablosoft...")
+                    continue  # Try next URL
+                write_progress("error", 0, str(e)[:300])
+                return
+        
+        write_progress("error", 0, "All download servers failed")
     
     # Run download in background thread
     def run_bg():

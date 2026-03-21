@@ -403,7 +403,7 @@ async function showBrowserEnginesModal() {
                 const installed = (typeof v === 'object' && v.downloaded);
                 const path = (typeof v === 'object' && v.path) ? v.path : '-';
                 const isBas = (typeof v === 'object' && v.is_bas_app);
-                const downloadUrl = (typeof v === 'object' && v.download_url) ? v.download_url : '';
+                const downloadUrl = (typeof v === 'object' && (v.local_url || v.download_url)) ? (v.local_url || v.download_url) : '';
                 
                 return `<tr>
                     <td style="font-weight:600;color:var(--cyan)">
@@ -456,7 +456,7 @@ async function downloadLatestEngineNow() {
         return;
     }
     const version = data.bas_version || data.name;
-    const downloadUrl = data.download_url || '';
+    const downloadUrl = data.local_url || data.download_url || '';
     installEngineVersionProgress(version, downloadUrl);
 }
 
