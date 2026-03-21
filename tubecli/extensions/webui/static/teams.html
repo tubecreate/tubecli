@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teams AI — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/teams.css">
+</head>
+<body>
+<div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">⚡ TubeCLI</div>
+            <a href="/dashboard" class="back-link">← Dashboard</a>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="section-title">
+                <span>🏛️ Teams</span>
+                <button class="btn-icon" onclick="showCreateModal()" title="Create Team">+</button>
+            </div>
+            <div id="teams-list" class="teams-list">
+                <div class="empty-state">Loading...</div>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="section-title">📋 Task Log</div>
+            <div id="task-log" class="task-log">
+                <div class="empty-state">No tasks yet</div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+        <!-- Empty State -->
+        <div id="empty-main" class="empty-main">
+            <div class="empty-icon">🏛️</div>
+            <h2>Teams AI</h2>
+            <p>Create a team to organize your agents into powerful hierarchical structures</p>
+            <button class="btn-primary btn-lg" onclick="showCreateModal()">+ Create Team</button>
+        </div>
+
+        <!-- Team Detail View -->
+        <div id="team-detail" class="team-detail" style="display:none;">
+            <div class="detail-header">
+                <div class="detail-title">
+                    <h1 id="detail-name"></h1>
+                    <span id="detail-template" class="tag"></span>
+                    <span id="detail-strategy" class="tag tag-purple"></span>
+                </div>
+                <div class="detail-actions">
+                    <button class="btn-secondary" onclick="showDelegatePanel()">🎯 Delegate Task</button>
+                    <button class="btn-danger" onclick="deleteCurrentTeam()">🗑️ Delete</button>
+                </div>
+            </div>
+            <p id="detail-desc" class="detail-desc"></p>
+
+            <!-- Org Chart -->
+            <div class="org-chart-container">
+                <h3>📊 Organization Chart</h3>
+                <div id="org-chart" class="org-chart"></div>
+            </div>
+
+            <!-- Delegation Results -->
+            <div id="delegation-results" class="delegation-results" style="display:none;">
+                <h3>🎯 Delegation Results</h3>
+                <div id="results-content"></div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Create Team Modal -->
+<div class="modal-overlay" id="create-modal" onclick="if(event.target===this) closeCreateModal()">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <h2>🏛️ Create Team</h2>
+            <button class="btn-close" onclick="closeCreateModal()">✕</button>
+        </div>
+
+        <!-- Step 1: Choose Template -->
+        <div id="step-template" class="step-content">
+            <p class="step-desc">Choose an organizational template:</p>
+            <div id="templates-grid" class="templates-grid"></div>
+        </div>
+
+        <!-- Step 2: Configure & Assign Agents -->
+        <div id="step-configure" class="step-content" style="display:none;">
+            <div class="form-group">
+                <label>Team Name</label>
+                <input type="text" id="team-name-input" class="input" placeholder="My Team">
+            </div>
+            <p class="step-desc">Assign agents to roles (optional — you can assign later):</p>
+            <div id="role-assignments" class="role-assignments"></div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="backToTemplates()">← Back</button>
+                <button class="btn-primary" onclick="createTeamFromTemplate()">✓ Create Team</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delegate Task Modal -->
+<div class="modal-overlay" id="delegate-modal" onclick="if(event.target===this) closeDelegatePanel()">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-header">
+            <h2>🎯 Delegate Task</h2>
+            <button class="btn-close" onclick="closeDelegatePanel()">✕</button>
+        </div>
+        <div class="form-group">
+            <label>Task Description</label>
+            <textarea id="delegate-task-input" class="input textarea" rows="5" placeholder="Describe the task to delegate to this team..."></textarea>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-secondary" onclick="closeDelegatePanel()">Cancel</button>
+            <button class="btn-primary" id="btn-delegate" onclick="delegateTask()">🚀 Delegate</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast container -->
+<div id="toast-container" class="toast-container"></div>
+
+<script src="/static/teams.js"></script>
+</body>
+</html>

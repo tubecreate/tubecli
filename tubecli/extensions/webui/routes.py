@@ -26,6 +26,15 @@ async def workflow_page():
     return {"error": "Workflow builder not found"}
 
 
+@router.get("/teams")
+async def teams_page():
+    """Serve the Teams AI dashboard page."""
+    teams_file = os.path.join(STATIC_DIR, "teams.html")
+    if os.path.exists(teams_file):
+        return FileResponse(teams_file)
+    return {"error": "Teams dashboard not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""
