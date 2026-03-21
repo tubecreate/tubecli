@@ -31,7 +31,7 @@ document.querySelectorAll('.agent-tab-btn').forEach(btn => {
 });
 
 // ═══ API Helpers ═══
-async function apiGet(path) { try { const r = await fetch(API + (path.includes('?') ? `${path}&_t=${Date.now()}` : `${path}?_t=${Date.now()}`)); return await r.json(); } catch(e) { console.error('GET', path, e); return null; } }
+async function apiGet(path) { try { const r = await fetch(API + (path.includes('?') ? `${path}&_t=${Date.now()}` : `${path}?_t=${Date.now()}`)); if (!r.ok) { const t = await r.text().catch(()=>''); console.error('GET', path, r.status, t.slice(0,200)); return { error: `Server error ${r.status}`, status_code: r.status, detail: t.slice(0,200) }; } return await r.json(); } catch(e) { console.error('GET', path, e); return { error: e.message || 'Network error' }; } }
 async function apiPost(path, data) { try { const r = await fetch(API + path, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) }); return await r.json(); } catch(e) { console.error('POST', path, e); return { error: e.message }; } }
 async function apiPut(path, data) { try { const r = await fetch(API + path, { method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) }); return await r.json(); } catch(e) { console.error('PUT', path, e); return { error: e.message }; } }
 async function apiDelete(path, data) { try { const opts = { method:'DELETE' }; if(data) { opts.headers = {'Content-Type':'application/json'}; opts.body = JSON.stringify(data); } const r = await fetch(API + path, opts); return await r.json(); } catch(e) { console.error('DEL', path, e); return { error: e.message }; } }
@@ -434,7 +434,9 @@ async function showBrowserEnginesModal() {
                 container.innerHTML = `<div style="background:rgba(255,165,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.85rem">⚠️ ${esc(r.warning)} — Showing fallback versions list.</div>` + container.innerHTML;
             }
         } else {
-            container.innerHTML = `<p class="text-muted">Failed to load engines: ${esc(r?.error || r?.message || 'Unknown error')}</p>`;
+            const errMsg = r?.error || r?.message || 'Unknown error';
+            const errDetail = r?.detail ? `<br><small style="color:var(--text-muted)">${esc(r.detail.slice(0,200))}</small>` : '';
+            container.innerHTML = `<p class="text-muted">Failed to load engines: ${esc(errMsg)}${errDetail}</p><p style="margin-top:10px"><button class="btn-secondary" onclick="showBrowserEnginesModal()">🔄 Retry</button></p>`;
         }
     } catch (e) {
         container.innerHTML = `<p class="text-muted">Error: ${esc(e.message)}</p>`;
