@@ -9,8 +9,9 @@ import json
 import subprocess
 import threading
 import asyncio
-import psutil
-import requests
+
+# Note: psutil and requests are imported lazily inside handlers to avoid
+# preventing route registration when these packages aren't installed.
 
 from .profile_manager import list_profiles, create_profile, get_profile, update_profile, delete_profile, get_fingerprint, reset_fingerprint
 
@@ -260,6 +261,7 @@ async def api_download_engine(version: str, request: Request):
     def download_and_extract():
         import zipfile
         import tempfile
+        import requests
         
         try:
             write_progress("downloading", 5)
@@ -326,6 +328,7 @@ async def api_cancel_engine(version: str):
     if version in download_processes:
         proc = download_processes[version]
         try:
+            import psutil
             parent = psutil.Process(proc.pid)
             for child in parent.children(recursive=True):
                 child.terminate()
