@@ -25,6 +25,10 @@ import { createRequire } from 'module';
 // Mission Manager (CommonJS require to load from tasks/)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// CRITICAL: Tell plugin to use our directory for engine storage (data/script/)
+// Without this, plugin looks in node_modules/ and re-downloads engines
+plugin.setWorkingFolder(__dirname);
 const _require = createRequire(import.meta.url);
 let missionManager = null;
 try {
