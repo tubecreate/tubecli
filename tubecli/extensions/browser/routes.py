@@ -276,17 +276,8 @@ async def api_download_engine(version: str, request: Request):
     if version in download_processes:
         return {"status": "already_downloading", "version": version}
     
-    # If no download_url provided, construct bablosoft URL
-    if not download_url:
-        download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
-    
-    # ZIP saved to data/engine/, extract to data/script/
-    target_dir = os.path.join(ext_dir, "data", "script", bas_version)
     progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
-    
-    # Ensure directories exist
     os.makedirs(os.path.join(ext_dir, "data", "engine"), exist_ok=True)
-    os.makedirs(target_dir, exist_ok=True)
     
     def write_progress(status, percent=0, error=""):
         import json as _json
@@ -299,94 +290,72 @@ async def api_download_engine(version: str, request: Request):
         except:
             pass
     
-    # Build fallback bablosoft URL
-    bablosoft_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
-    
-    def download_and_extract():
-        import zipfile
-        import tempfile
-        import requests
+    def run_node_download():
+        """Spawn node open.js --download-version to use plugin's native engine download."""
+        import subprocess
+        import json as _json
         
-        # Try local_url first, then fallback to bablosoft
-        urls_to_try = []
-        if download_url and download_url != bablosoft_url:
-            urls_to_try.append(("local", download_url))
-        urls_to_try.append(("bablosoft", bablosoft_url))
-        
-        for url_label, url in urls_to_try:
-            try:
-                write_progress("downloading", 3, f"Trying {url_label} server...")
+        try:
+            write_progress("downloading", 5, "Starting engine download via plugin...")
+            
+            # Build command: node open.js --download-version {version}
+            args = ["node", "open.js", "--download-version", bas_version]
+            if download_url:
+                args.extend(["--download-url", download_url])
+            
+            print(f"[EngineDownload] Running: {' '.join(args)} in {ext_dir}")
+            
+            process = subprocess.Popen(
+                args,
+                cwd=ext_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                shell=True,
+            )
+            
+            # Read output line by line and update progress
+            for line in iter(process.stdout.readline, ''):
+                line = line.strip()
+                if not line:
+                    continue
+                print(f"[EngineDownload] {line}")
                 
-                resp = requests.get(url, stream=True, timeout=300, verify=False)
-                if resp.status_code != 200:
-                    if url_label == "local":
-                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to bablosoft...")
-                        continue  # Try next URL
-                    write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
-                    return
-                
-                total_size = int(resp.headers.get("content-length", 0))
-                downloaded = 0
-                
-                write_progress("downloading", 5, f"Downloading from {url_label} server...")
-                
-                # Save to temp file
-                tmp_zip = os.path.join(ext_dir, "data", "engine", f"{bas_version}.zip")
-                with open(tmp_zip, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size > 0:
-                                pct = int((downloaded / total_size) * 80) + 5  # 5-85%
-                                write_progress("downloading", min(pct, 85))
-                
-                write_progress("extracting", 90)
-                
-                # Extract ZIP
-                try:
-                    with zipfile.ZipFile(tmp_zip, "r") as zf:
-                        zf.extractall(target_dir)
-                except zipfile.BadZipFile:
-                    try:
-                        os.remove(tmp_zip)
-                    except:
-                        pass
-                    if url_label == "local":
-                        write_progress("downloading", 3, "Local file corrupt, switching to bablosoft...")
-                        continue  # Try next URL
-                    write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
-                    return
-                
-                # Clean up zip
-                try:
-                    os.remove(tmp_zip)
-                except:
-                    pass
-                
+                # Parse progress from open.js output
+                if "downloading" in line.lower() or "fetching" in line.lower():
+                    write_progress("downloading", 30, line)
+                elif "extracting" in line.lower():
+                    write_progress("extracting", 85, line)
+                elif "ready" in line.lower() or "installed" in line.lower():
+                    write_progress("completed", 100)
+                elif "failed" in line.lower() or "error" in line.lower():
+                    write_progress("error", 0, line)
+            
+            return_code = process.wait()
+            
+            if return_code == 0:
                 write_progress("completed", 100)
-                return  # Success!
+                print(f"[EngineDownload] ✅ Version {version} installed successfully")
+            else:
+                # Read progress file to check if error was already written
+                try:
+                    with open(progress_file, "r") as f:
+                        current = _json.load(f)
+                    if current.get("status") != "error":
+                        write_progress("error", 0, f"Download process exited with code {return_code}")
+                except:
+                    write_progress("error", 0, f"Download process exited with code {return_code}")
+                print(f"[EngineDownload] ❌ Failed with exit code {return_code}")
                 
-            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
-                if url_label == "local":
-                    write_progress("downloading", 3, f"Local server failed ({type(e).__name__}), switching to bablosoft...")
-                    continue  # Try next URL
-                write_progress("error", 0, f"Connection failed: {str(e)[:200]}")
-                return
-            except Exception as e:
-                if url_label == "local":
-                    write_progress("downloading", 3, f"Local error: {str(e)[:100]}, switching to bablosoft...")
-                    continue  # Try next URL
-                write_progress("error", 0, str(e)[:300])
-                return
-        
-        write_progress("error", 0, "All download servers failed")
+        except Exception as e:
+            write_progress("error", 0, str(e)[:300])
+            print(f"[EngineDownload] ❌ Exception: {e}")
     
     # Run download in background thread
     def run_bg():
         download_processes[version] = True
         try:
-            download_and_extract()
+            run_node_download()
         finally:
             download_processes.pop(version, None)
     
