@@ -50,11 +50,13 @@ class BrowserProcessManager:
         Returns dict with instance_id, pid, profile, status.
         """
         instance_id = f"browser-{uuid.uuid4().hex[:8]}"
+        debug_info = {}
 
         # Build command — expects browser-launcher in PATH or data dir
         args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id)
         cmd_str = " ".join(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
+        debug_info["command"] = cmd_str
 
         # For the standalone extension, the launcher logic is in the same directory as process_manager.py
         launcher_dir = str(Path(__file__).parent.absolute())
@@ -65,6 +67,47 @@ class BrowserProcessManager:
             launcher_dir = env_dir
 
         logger.info(f"[Browser] Using launcher dir: {launcher_dir}")
+        debug_info["launcher_dir"] = launcher_dir
+
+        # Check prerequisites
+        # 1. Check if node is available
+        try:
+            node_check = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=5, shell=True)
+            debug_info["node_version"] = node_check.stdout.strip()
+            debug_info["node_available"] = True
+        except Exception as e:
+            debug_info["node_available"] = False
+            debug_info["node_error"] = str(e)
+            return {
+                "instance_id": instance_id,
+                "status": "error",
+                "error": f"Node.js not found. Please install Node.js (https://nodejs.org). Error: {e}",
+                "debug": debug_info,
+            }
+
+        # 2. Check if open.js exists
+        open_js_path = os.path.join(launcher_dir, "open.js")
+        debug_info["open_js_exists"] = os.path.exists(open_js_path)
+        debug_info["open_js_path"] = open_js_path
+        
+        if not os.path.exists(open_js_path):
+            # List what's actually in the directory
+            try:
+                dir_contents = os.listdir(launcher_dir)
+                debug_info["launcher_dir_contents"] = dir_contents[:20]
+            except Exception as e:
+                debug_info["launcher_dir_error"] = str(e)
+            
+            return {
+                "instance_id": instance_id,
+                "status": "error",
+                "error": f"open.js not found at {open_js_path}. Launcher directory may be incorrect.",
+                "debug": debug_info,
+            }
+
+        # 3. Check if node_modules exists
+        node_modules_path = os.path.join(launcher_dir, "node_modules")
+        debug_info["node_modules_exists"] = os.path.exists(node_modules_path)
 
         try:
             if not os.path.isdir(launcher_dir):
@@ -73,6 +116,7 @@ class BrowserProcessManager:
                     "status": "error",
                     "error": f"Browser launcher directory not found: {launcher_dir}. "
                              f"Please place the browser-laucher folder next to the tubecli project.",
+                    "debug": debug_info,
                 }
 
             # Create log directory for browser output
@@ -81,6 +125,7 @@ class BrowserProcessManager:
             log_file_path = log_dir / f"{instance_id}.log"
             log_file = open(log_file_path, "w", encoding="utf-8")
             logger.info(f"[Browser] Log file: {log_file_path}")
+            debug_info["log_file"] = str(log_file_path)
 
             # NOTE: Do NOT use CREATE_NO_WINDOW — it hides the browser window!
             process = subprocess.Popen(
@@ -89,6 +134,34 @@ class BrowserProcessManager:
                 stdout=log_file,
                 stderr=log_file,
             )
+
+            debug_info["pid"] = process.pid
+            logger.info(f"[Browser] Process started with PID: {process.pid}")
+
+            # Wait a moment and check if process immediately crashed
+            import time
+            time.sleep(1)
+            poll_result = process.poll()
+            if poll_result is not None:
+                # Process already exited!
+                log_file.close()
+                try:
+                    with open(log_file_path, "r", encoding="utf-8") as f:
+                        log_content = f.read(2000)
+                except:
+                    log_content = "(could not read log)"
+                
+                debug_info["exit_code"] = poll_result
+                debug_info["log_output"] = log_content
+                logger.error(f"[Browser] Process exited immediately with code {poll_result}")
+                
+                return {
+                    "instance_id": instance_id,
+                    "status": "error",
+                    "error": f"Browser process exited immediately (code {poll_result}). Check log for details.",
+                    "log_output": log_content,
+                    "debug": debug_info,
+                }
 
             instance_info = {
                 "instance_id": instance_id,
@@ -110,17 +183,22 @@ class BrowserProcessManager:
             t = threading.Thread(target=self._monitor, args=(instance_id,), daemon=True)
             t.start()
 
-            return {k: v for k, v in instance_info.items() if not k.startswith("_")}
+            result = {k: v for k, v in instance_info.items() if not k.startswith("_")}
+            result["debug"] = debug_info
+            return result
 
         except (FileNotFoundError, NotADirectoryError) as e:
             logger.warning(f"[Browser] Launcher error: {e}")
+            debug_info["exception"] = str(e)
             return {
                 "instance_id": instance_id,
                 "status": "error",
                 "error": f"Browser launcher error at {launcher_dir}: {e}",
+                "debug": debug_info,
             }
         except Exception as e:
             logger.error(f"[Browser] Spawn failed: {e}")
+            debug_info["exception"] = str(e)
             raise
 
     def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id):
