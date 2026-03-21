@@ -306,78 +306,39 @@ async def api_download_engine(version: str, request: Request):
     bablosoft_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
     
     def download_and_extract():
-        import zipfile
-        import requests
+        import subprocess
         
-        # Try local_url first, then fallback to bablosoft
-        urls_to_try = []
-        if download_url and download_url != bablosoft_url:
-            urls_to_try.append(("local", download_url))
-        urls_to_try.append(("bablosoft", bablosoft_url))
-        
-        for url_label, url in urls_to_try:
-            try:
-                write_progress("downloading", 3, f"Trying {url_label} server...")
-                
-                resp = requests.get(url, stream=True, timeout=300, verify=False)
-                if resp.status_code != 200:
-                    if url_label == "local":
-                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to bablosoft...")
-                        continue
-                    write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
-                    return
-                
-                total_size = int(resp.headers.get("content-length", 0))
-                downloaded = 0
-                
-                write_progress("downloading", 5, f"Downloading from {url_label} server...")
-                
-                tmp_zip = os.path.join(ext_dir, "data", "engine", f"{bas_version}.zip")
-                with open(tmp_zip, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size > 0:
-                                pct = int((downloaded / total_size) * 80) + 5
-                                write_progress("downloading", min(pct, 85))
-                
-                write_progress("extracting", 90)
-                
-                try:
-                    with zipfile.ZipFile(tmp_zip, "r") as zf:
-                        zf.extractall(target_dir)
-                except zipfile.BadZipFile:
-                    try:
-                        os.remove(tmp_zip)
-                    except:
-                        pass
-                    if url_label == "local":
-                        write_progress("downloading", 3, "Local file corrupt, switching to bablosoft...")
-                        continue
-                    write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
-                    return
-                
-                try:
-                    os.remove(tmp_zip)
-                except:
-                    pass
-                
+        write_progress("downloading", 5, "Starting engine and browser download...")
+        try:
+            # We must use open.js to download so it calls plugin.fetch() which downloads both 
+            # the BAS Wrapper AND the 150MB Chromium binaries!
+            process = subprocess.Popen(
+                ["node", "open.js", "--download-version", version],
+                cwd=ext_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            # Store process for cancellation
+            download_processes[version] = process
+            
+            # The node script updates the progress file itself.
+            out, err = process.communicate()
+            
+            if process.returncode == 0:
                 write_progress("completed", 100)
-                return
+            else:
+                write_progress("error", 0, f"Download failed: {err.strip() or out.strip()}")
                 
-            except Exception as e:
-                if url_label == "local":
-                    write_progress("downloading", 3, f"Local server failed, switching to bablosoft...")
-                    continue
-                write_progress("error", 0, str(e)[:300])
-                return
-        
-        write_progress("error", 0, "All download servers failed")
+        except Exception as e:
+            write_progress("error", 0, str(e)[:300])
     
     # Run download in background thread
     def run_bg():
-        download_processes[version] = True
+        # Temporarily mark as running until subprocess spawns
+        if version not in download_processes:
+            download_processes[version] = True 
         try:
             download_and_extract()
         finally:
