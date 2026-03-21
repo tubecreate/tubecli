@@ -120,6 +120,7 @@ function openExtDetail(id) {
     body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
     overlay.classList.remove('hidden');
     // Route to detail renderer
+    stopBrowserStatusPoller();
     if (id === 'agents') renderAgentsExt(body);
     else if (id === 'browser') renderBrowserExt(body);
     else if (id === 'workflows') renderWorkflowsExt(body);
@@ -145,11 +146,32 @@ async function renderAgentsExt(el) {
 }
 
 // ── Browser Ext ──
+let _browserStatusPoller = null;
+let _lastRunningProfiles = '';
+function startBrowserStatusPoller(el) {
+    stopBrowserStatusPoller();
+    _browserStatusPoller = setInterval(async () => {
+        try {
+            const status = await apiGet('/api/v1/browser/status');
+            const running = (status?.instances||[]).map(i => i.profile).sort().join(',');
+            if (running !== _lastRunningProfiles) {
+                _lastRunningProfiles = running;
+                renderBrowserExt(el);
+            }
+        } catch(e) {}
+    }, 5000);
+}
+function stopBrowserStatusPoller() {
+    if (_browserStatusPoller) { clearInterval(_browserStatusPoller); _browserStatusPoller = null; }
+}
+
 async function renderBrowserExt(el) {
     const data = await apiGet('/api/v1/browser/profiles');
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
     const runningProfiles = (status?.instances||[]).map(i => i.profile);
+    _lastRunningProfiles = runningProfiles.slice().sort().join(',');
+    startBrowserStatusPoller(el);
     let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">Browser Engines</button></div>`;
     if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
