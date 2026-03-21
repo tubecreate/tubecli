@@ -348,19 +348,45 @@ function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent();
 
 // ═══ Browser Profile CRUD ═══
 async function showCreateProfile() { 
+    // Check if any engine is installed first
+    try {
+        const r = await apiGet('/api/v1/browser/engine/versions');
+        const versions = (r && r.success && r.versions) ? r.versions : [];
+        const hasInstalled = versions.some(v => v.downloaded);
+        
+        if (!hasInstalled) {
+            // No engine installed - prompt to download first
+            const latest = versions[0] || null;
+            const latestName = latest ? latest.name : 'latest';
+            const shouldDownload = confirm(
+                `⚠️ Chưa có Browser Engine nào được cài đặt!\n\n` +
+                `Bạn cần tải về ít nhất 1 engine trước khi tạo profile.\n` +
+                `Phiên bản mới nhất: ${latestName}\n\n` +
+                `Bấm OK để mở trang tải engine.`
+            );
+            if (shouldDownload) {
+                showBrowserEnginesModal();
+                return;
+            }
+            return; // Don't show create profile if no engine
+        }
+    } catch(e) {
+        console.warn('Failed to check engines:', e);
+    }
+    
     document.getElementById('modal-profile').classList.remove('hidden'); 
-    // Fetch browser versions
+    // Fetch browser versions for dropdown
     const sel = document.getElementById('profile-version');
     if (sel && sel.options.length <= 1) {
         sel.innerHTML = '<option value="default">Loading...</option>';
         try {
             const r = await apiGet('/api/v1/browser/engine/versions');
             if (r && r.success && r.versions) {
+                const installed = r.versions.filter(v => v.downloaded);
                 sel.innerHTML = '<option value="default">Default Latest</option>' + 
-                    r.versions.map(v => {
+                    installed.map(v => {
                         const name = typeof v === 'object' ? v.name : v;
-                        const status = (typeof v === 'object' && v.downloaded) ? ' (Installed)' : '';
-                        return `<option value="${name}">${name}${status}</option>`;
+                        return `<option value="${name}">${name} ✅</option>`;
                     }).join('');
             } else {
                 sel.innerHTML = '<option value="default">Default Latest</option>';
@@ -403,6 +429,10 @@ async function showBrowserEnginesModal() {
                 <thead><tr><th>Version</th><th>Status</th><th>Path</th><th style="text-align:right">Action</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
+            // Show warning if using fallback
+            if (r.warning) {
+                container.innerHTML = `<div style="background:rgba(255,165,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.85rem">⚠️ ${esc(r.warning)} — Showing fallback versions list.</div>` + container.innerHTML;
+            }
         } else {
             container.innerHTML = `<p class="text-muted">Failed to load engines: ${esc(r?.error || r?.message || 'Unknown error')}</p>`;
         }

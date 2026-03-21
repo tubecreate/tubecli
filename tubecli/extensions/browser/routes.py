@@ -132,6 +132,7 @@ async def api_get_engine_versions():
     try:
         ext_dir = os.path.dirname(__file__)
         versions = []
+        api_error = None
         
         # 1. Fetch versions from private API server (fast, no HEAD requests)
         private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
@@ -159,10 +160,40 @@ async def api_get_engine_versions():
                             "is_private": True,
                             "path": "-"
                         })
+                else:
+                    api_error = private_data.get("message", "API returned success=false")
+            else:
+                api_error = f"API returned status {resp.status_code}"
+        except ImportError:
+            api_error = "Python 'requests' module not installed. Run: pip install requests"
+            print(f"[PrivateAPI] {api_error}")
         except Exception as e:
+            api_error = f"API connection error: {str(e)}"
             print(f"[PrivateAPI] Error: {e}")
 
-        # 2. Check local install status — data/script/{bas_version}/
+        # 2. Fallback hardcoded versions if API failed
+        if not versions:
+            fallback_versions = [
+                {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.8.1/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.7.0", "browser_version": "144.0.7559.60",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.7.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.5.0", "browser_version": "142.0.7444.60",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
+            ]
+            for fv in fallback_versions:
+                versions.append({
+                    "name": fv["browser_version"],
+                    "browser_version": fv["browser_version"],
+                    "bas_version": fv["bas_version"],
+                    "downloaded": False,
+                    "download_url": fv["download_url"],
+                    "is_private": False,
+                    "is_fallback": True,
+                    "path": "-"
+                })
+
+        # 3. Check local install status — data/script/{bas_version}/
         for v in versions:
             bas_ver = v.get("bas_version", "")
             if not bas_ver:
@@ -180,9 +211,15 @@ async def api_get_engine_versions():
         
         # Sort: newest first
         versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
-        return {"success": True, "versions": versions}
+        
+        result = {"success": True, "versions": versions}
+        if api_error and not any(v.get("is_private") for v in versions):
+            result["warning"] = api_error
+        return result
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {"success": False, "status": "error", "message": str(e), "error": str(e)}
 
 @router.post("/engine/download/{version}")
