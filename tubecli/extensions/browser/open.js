@@ -26,9 +26,10 @@ import { createRequire } from 'module';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// CRITICAL: Tell plugin to use our directory for engine storage (data/script/)
-// Without this, plugin looks in node_modules/ and re-downloads engines
-plugin.setWorkingFolder(__dirname);
+// CRITICAL: Tell plugin to use data/ directory for engine storage
+// Plugin looks for engines at {cwd}/script/{version}/ and {cwd}/engine/{version}/
+// Our engines are at data/script/ and data/engine/, so cwd must be data/
+plugin.setWorkingFolder(path.join(__dirname, 'data'));
 const _require = createRequire(import.meta.url);
 let missionManager = null;
 try {
