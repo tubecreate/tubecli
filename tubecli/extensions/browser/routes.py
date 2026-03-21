@@ -235,6 +235,10 @@ async def api_download_engine(version: str, request: Request):
     download_url = body.get("download_url", "")
     bas_version = body.get("bas_version") or version
     
+    # Check if already downloading this version
+    if version in download_processes:
+        return {"status": "already_downloading", "version": version}
+    
     # If no download_url provided, construct bablosoft URL
     if not download_url:
         download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
@@ -352,16 +356,15 @@ async def api_engine_status(version: str):
     # For now, let's assume open.js writes to data/engine/{version}.progress.json
     
     progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
+    is_running = version in download_processes
     
     if os.path.exists(progress_file):
         try:
             with open(progress_file, "r") as f:
                 data = json.load(f)
+                data["is_running"] = is_running
                 return data
         except:
-            return {"status": "downloading", "percent": 0}
-            
-    # Check if a folder already exists with that version (installed)
-    # We might need to iterate through folders to find which one matches 'version'
-    # For now, if no progress file, return downloading 0 or check if it's already in versions list
-    return {"status": "downloading", "percent": 0}
+            return {"status": "downloading", "percent": 0, "is_running": is_running}
+    
+    return {"status": "unknown", "percent": 0, "is_running": is_running}
