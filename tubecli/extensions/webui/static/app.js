@@ -478,7 +478,10 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
             download_url: downloadUrl,
             bas_version: version
         });
-        if (!start || start.error) {
+        if (start && start.status === 'already_downloading') {
+            // Another tab already started this download - just poll progress
+            titleText.textContent = `Downloading ${version}... (resuming)`;
+        } else if (!start || start.error) {
             alert('Failed to start download: ' + (start?.error || 'Unknown error'));
             overlay.classList.add('hidden');
             return;
