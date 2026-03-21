@@ -355,20 +355,14 @@ async function showCreateProfile() {
         const hasInstalled = versions.some(v => v.downloaded);
         
         if (!hasInstalled) {
-            // No engine installed - prompt to download first
+            // No engine installed - show custom alert modal
             const latest = versions[0] || null;
-            const latestName = latest ? latest.name : 'latest';
-            const shouldDownload = confirm(
-                `⚠️ Chưa có Browser Engine nào được cài đặt!\n\n` +
-                `Bạn cần tải về ít nhất 1 engine trước khi tạo profile.\n` +
-                `Phiên bản mới nhất: ${latestName}\n\n` +
-                `Bấm OK để mở trang tải engine.`
-            );
-            if (shouldDownload) {
-                showBrowserEnginesModal();
-                return;
-            }
-            return; // Don't show create profile if no engine
+            const latestName = latest ? latest.name : 'N/A';
+            document.getElementById('engine-alert-latest').textContent = latestName;
+            // Store latest version data for direct download
+            window._latestEngineData = latest;
+            document.getElementById('modal-engine-alert').classList.remove('hidden');
+            return;
         }
     } catch(e) {
         console.warn('Failed to check engines:', e);
@@ -452,6 +446,18 @@ async function cancelEngineDownload() {
     if (currentDownloadVersion) {
         await apiPost('/api/v1/browser/engine/cancel/' + currentDownloadVersion, {});
     }
+}
+
+async function downloadLatestEngineNow() {
+    closeModal('modal-engine-alert');
+    const data = window._latestEngineData;
+    if (!data) {
+        showBrowserEnginesModal();
+        return;
+    }
+    const version = data.bas_version || data.name;
+    const downloadUrl = data.download_url || '';
+    installEngineVersionProgress(version, downloadUrl);
 }
 
 async function installEngineVersionProgress(version, downloadUrl = '') {

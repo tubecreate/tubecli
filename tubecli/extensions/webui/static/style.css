@@ -238,3 +238,5 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .engine-status-missing { color: var(--text-muted); }
 .btn-install { background: var(--blue); color: #fff; border: none; padding: 6px 12px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
 .btn-install:hover { background: #2563eb; transform: translateY(-1px); }
+
+@keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
