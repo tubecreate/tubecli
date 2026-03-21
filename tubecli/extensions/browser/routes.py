@@ -285,7 +285,10 @@ async def api_download_engine(version: str, request: Request):
     progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
     
     # Ensure directories exist
-    os.makedirs(os.path.join(ext_dir, "data", "engine"), exist_ok=True)
+    # CRITICAL: We MUST create the data/engine/{bas_version} directory
+    # The plugin checks for its existence to skip downloading
+    engine_dir = os.path.join(ext_dir, "data", "engine", bas_version)
+    os.makedirs(engine_dir, exist_ok=True)
     os.makedirs(target_dir, exist_ok=True)
     
     def write_progress(status, percent=0, error=""):

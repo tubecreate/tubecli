@@ -256,9 +256,58 @@ export class BrowserManager {
         // Apply browser version if saved in config
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
-                if (conf.browser_version && conf.browser_version !== 'default') {
-                    console.log(`[Launch] Using browser version: ${conf.browser_version}`);
-                    plugin.useBrowserVersion(conf.browser_version);
+                let targetChromiumVer = conf.browser_version;
+                let targetBasVer = null;
+                
+                const ENGINE_MAP = {
+                    '29.8.1': '145.0.7632.46',
+                    '29.7.0': '144.0.7559.60',
+                    '29.5.0': '142.0.7444.60',
+                    '28.3.1': '138.0.7333.45',
+                    '28.2.0': '137.0.7222.35'
+                };
+                
+                const REVERSE_MAP = Object.fromEntries(Object.entries(ENGINE_MAP).map(([k, v]) => [v, k]));
+                
+                // If not set or default, find the latest downloaded engine
+                if (!targetChromiumVer || targetChromiumVer === 'default' || targetChromiumVer === 'latest') {
+                    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                    const scriptDir = path.join(__dirname, 'data', 'script');
+                    if (await fs.pathExists(scriptDir)) {
+                        const dirs = await fs.readdir(scriptDir);
+                        const versions = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+                        if (versions.length > 0) {
+                            targetBasVer = versions[0];
+                            targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer; // Fallback to raw if unknown
+                            console.log(`[Launch] Auto-detected installed BAS engine: ${targetBasVer} (Chromium ${targetChromiumVer})`);
+                        }
+                    }
+                } else {
+                    // Try to resolve targetBasVer from config's chromium version
+                    targetBasVer = REVERSE_MAP[targetChromiumVer];
+                }
+
+                if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
+                    console.log(`[Launch] Using browser version: ${targetChromiumVer}`);
+                    plugin.useBrowserVersion(targetChromiumVer);
+                    
+                    // CRITICAL HOTFIX: The plugin's engine.js ignores useBrowserVersion() when 
+                    // deciding which FastExecuteScript.exe to spawn, relying on project.xml instead.
+                    // We must dynamically rewrite its project.xml to match our target BAS version!
+                    if (targetBasVer) {
+                        try {
+                            const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                            const projectXmlPath = path.join(__dirname, 'node_modules', 'browser-with-fingerprints', 'project.xml');
+                            if (await fs.pathExists(projectXmlPath)) {
+                                let xmlContent = await fs.readFile(projectXmlPath, 'utf8');
+                                xmlContent = xmlContent.replace(/<EngineVersion>.*?<\/EngineVersion>/, `<EngineVersion>${targetBasVer}</EngineVersion>`);
+                                await fs.writeFile(projectXmlPath, xmlContent, 'utf8');
+                                console.log(`[Launch] Hotfixed plugin project.xml engine version to ${targetBasVer}`);
+                            }
+                        } catch (err) {
+                            console.warn('[Launch] Failed to apply project.xml hotfix:', err.message);
+                        }
+                    }
                 }
         } catch (e) {
             console.warn('Failed to resolve browser_version path:', e.message);
