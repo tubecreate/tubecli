@@ -123,7 +123,42 @@ async def api_stop_browser(req: StopRequest):
 @router.get("/status")
 async def api_browser_status():
     from .process_manager import browser_process_manager
-    return {"instances": browser_process_manager.list_running()}
+    return {"instances": browser_process_manager.list_all()}
+
+@router.get("/log/{profile}")
+async def api_browser_log(profile: str):
+    """Read latest log file for a browser profile instance."""
+    from .process_manager import browser_process_manager
+    # Find latest instance for this profile
+    all_instances = browser_process_manager.list_all()
+    instance = None
+    for inst in reversed(all_instances):
+        if inst.get("profile") == profile:
+            instance = inst
+            break
+    
+    if not instance:
+        return {"error": "No instance found for this profile", "log": ""}
+    
+    log_file = instance.get("log_file", "")
+    log_content = ""
+    if log_file and os.path.exists(log_file):
+        try:
+            with open(log_file, "r", encoding="utf-8") as f:
+                log_content = f.read(5000)  # Last 5KB
+        except Exception as e:
+            log_content = f"Error reading log: {e}"
+    else:
+        log_content = f"Log file not found: {log_file}"
+    
+    return {
+        "instance_id": instance.get("instance_id"),
+        "status": instance.get("status"),
+        "command": instance.get("command"),
+        "log_file": log_file,
+        "log": log_content,
+        "debug": instance.get("debug", {}),
+    }
 
 @router.get("/engine/versions")
 async def api_get_engine_versions():
