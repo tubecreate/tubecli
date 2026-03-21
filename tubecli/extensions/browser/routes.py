@@ -231,21 +231,12 @@ async def api_get_engine_versions():
                     "path": "-"
                 })
 
-        # 3. Check local install status — data/script/{bas_version}/
+        # 3. Install status — plugin manages engines internally now
+        # Always show Install button; plugin.useBrowserVersion(v).fetch() 
+        # will skip download if engine already exists
         for v in versions:
-            bas_ver = v.get("bas_version", "")
-            if not bas_ver:
-                continue
-            
-            script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
-            is_installed = False
-            
-            if os.path.isdir(script_dir):
-                if any(os.path.isfile(os.path.join(script_dir, f)) for f in os.listdir(script_dir)):
-                    is_installed = True
-            
-            v["downloaded"] = is_installed
-            v["path"] = script_dir if is_installed else "-"
+            v["downloaded"] = False
+            v["path"] = "-"
         
         # Sort: newest first
         versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
