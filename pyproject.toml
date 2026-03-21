@@ -21,6 +21,7 @@ dependencies = [
     "uuid7",
     "aiohttp",
     "requests",
+    "psutil",
     "rich>=13.0",
 ]
 
