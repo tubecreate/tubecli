@@ -409,9 +409,16 @@ async function pollProgress(uid, taskId) {
                 clearInterval(poll);
                 fill.style.width = '100%';
                 fill.style.background = 'var(--green)';
-                stat.textContent = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
+                stat.innerHTML = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
                 btn.textContent = '✅ Đã tải';
                 btn.style.background = 'var(--green)';
+                // Add copy link & download file icons
+                const actions = document.querySelector(`#${uid} .video-actions`);
+                if (actions) {
+                    const fname = encodeURIComponent(t.filename || '');
+                    actions.innerHTML += ` <button class="btn btn-sm btn-ghost" onclick="copyFileLink('${fname}')" title="Copy link file">📋</button>`;
+                    actions.innerHTML += ` <a href="${API}/file/${fname}" download class="btn btn-sm btn-ghost" title="Tải video về máy">💾</a>`;
+                }
                 toast('Tải thành công: ' + t.filename, 'success');
             } else if (t.status === 'error') {
                 clearInterval(poll);
@@ -425,6 +432,11 @@ async function pollProgress(uid, taskId) {
             // ignore polling errors
         }
     }, 500);
+}
+
+function copyFileLink(encodedFilename) {
+    const link = location.origin + `${API}/file/${encodedFilename}`;
+    navigator.clipboard.writeText(link).then(() => toast('Đã copy link file!', 'success'));
 }
 
 function clearAll() {

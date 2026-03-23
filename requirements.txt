@@ -7,3 +7,5 @@ aiohttp
 requests
 rich>=13.0
 pyotp>=2.9
+gmssl
+httpx>=0.24

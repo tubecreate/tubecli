@@ -301,6 +301,52 @@
             transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+        /* ─── Nav Dropdown ─────────────────────────────────── */
+        .nav-dropdown {
+            position: relative;
+        }
+        .nav-dropdown > a {
+            cursor: pointer;
+        }
+        .nav-dropdown > a::after {
+            content: ' ▾';
+            font-size: 0.7em;
+            opacity: 0.6;
+        }
+        .nav-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            min-width: 180px;
+            background: rgba(18, 18, 26, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 0;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            z-index: 200;
+        }
+        .nav-dropdown:hover .nav-dropdown-menu {
+            display: block;
+        }
+        .nav-dropdown-menu a {
+            display: block;
+            padding: 8px 20px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .nav-dropdown-menu a:hover {
+            color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        .nav-dropdown-menu a::after { display: none; }
     </style>
 </head>
 <body>
@@ -318,13 +364,19 @@
         <div class="nav-links">
             <a href="#architecture">Kiến Trúc</a>
             <a href="#install">Cài Đặt</a>
-            <a href="#extensions">Extensions</a>
-            <a href="#browser">Browser</a>
+            <div class="nav-dropdown">
+                <a>Extensions</a>
+                <div class="nav-dropdown-menu">
+                    <a href="#browser">🌐 Browser</a>
+                    <a href="#teams">👥 Teams</a>
+                    <a href="#studio3d">🏢 3D Studio</a>
+                    <a href="#workflow">🔄 Workflow</a>
+                    <a href="#dashboard">🎨 Dashboard</a>
+                    <a href="#market">🛒 Market</a>
+                </div>
+            </div>
             <a href="#commands">CLI</a>
-            <a href="#workflow">Workflow</a>
             <a href="#api">API</a>
-            <a href="#dashboard">Dashboard</a>
-            <a href="#market">Market</a>
         </div>
         <a href="https://github.com/tubecreate/tubecli" target="_blank" class="github-btn">
             ⭐ GitHub
@@ -335,9 +387,9 @@
 <!-- ═══ Hero ═══ -->
 <section class="hero">
     <div class="container">
-        <div class="badge"><span class="dot"></span> Open Source • v0.1.0</div>
+        <div class="badge"><span class="dot"></span> Open Source • v0.2.0</div>
         <h1>AI Agent CLI System</h1>
-        <p>Quản lý AI agents, skills, workflows, browser profiles và extensions từ command line. Hệ thống extension mở rộng với Web Dashboard, Marketplace và Browser Automation.</p>
+        <p>Quản lý AI agents, skills, workflows, browser profiles và extensions từ command line. Hệ thống extension mở rộng với Web Dashboard, Marketplace, Browser Automation với Auto-Login và AI Session.</p>
         <div class="hero-actions">
             <a href="#install" class="btn-primary">🚀 Bắt đầu</a>
             <a href="#architecture" class="btn-secondary">📖 Kiến trúc</a>
@@ -350,8 +402,8 @@
     <div class="container">
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">KIẾN TRÚC</div>
-            <h2>8 Hệ Thống Con</h2>
-            <p>TubeCLI được xây dựng từ 8 subsystems hoạt động cùng nhau</p>
+            <h2>10 Hệ Thống Con</h2>
+            <p>TubeCLI được xây dựng từ 10 subsystems hoạt động cùng nhau</p>
         </div>
         <div class="arch-grid">
             <div class="arch-card fade-in">
@@ -388,13 +440,25 @@
                 <div class="glow-line"></div>
                 <div class="icon">🌐</div>
                 <h3>Browser Engine</h3>
-                <p>Quản lý browser profiles, proxy, cookies. Spawn/terminate browser processes. AI automation qua prompts.</p>
+                <p>Quản lý browser profiles, proxy, fingerprint, cookies. Auto-login Google với TOTP 2FA. AI automation qua prompts. Profile settings với proxy, fingerprint OS/device, Google Account.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🎨</div>
                 <h3>Web Dashboard</h3>
-                <p>Giao diện web SPA tại localhost:3000. Quản lý agents, browser, workflows, skills, marketplace và settings.</p>
+                <p>Giao diện web SPA tại localhost:5295/dashboard. Quản lý agents, browser profiles (với profile settings ⚙️), workflows, skills, marketplace và settings. Auto-polling trạng thái browser realtime.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">👥</div>
+                <h3>Teams Agents</h3>
+                <p>Multi-agent orchestration: tạo team từ template, org chart phân cấp, giao task tự động cho nhiều agents theo strategy (sequential, parallel, hierarchical).</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🏢</div>
+                <h3>3D Studio</h3>
+                <p>Văn phòng 3D isometric (Three.js) với nhân vật Roblox-style. 15+ asset types (bàn, ghế, đèn...). Scene management cho từng team. Fullscreen mode.</p>
             </div>
             <div class="arch-card full fade-in">
                 <div class="glow-line"></div>
@@ -428,7 +492,7 @@
                 <div><span class="prompt">❯ </span><span class="cmd">pip install -e .</span></div>
                 <br>
                 <div><span class="comment"># 2. Initialize workspace</span></div>
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span> <span class="cmd">--lang</span> <span class="arg">vi</span></div>
                 <div><span class="output">🚀 Initializing TubeCLI workspace...</span></div>
                 <div><span class="output">  📁 Data directory: ./data</span></div>
                 <div><span class="output">  ✅ Added skill: 🧠 AI Summarizer</span></div>
@@ -672,7 +736,7 @@
     <div class="container">
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">BUILT-IN</div>
-            <h2>4 Skills Mặc Định</h2>
+            <h2>6 Skills Mặc Định</h2>
             <p>Cài sẵn khi chạy <code style="background: var(--bg-card); padding: 2px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">tubecli init</code></p>
         </div>
         <div class="skills-grid">
@@ -713,13 +777,13 @@
                 <div class="glow-line"></div>
                 <div class="icon">🌐</div>
                 <h3>Browser Extension</h3>
-                <p>Quản lý browser profiles, proxy, cookies. Launch/stop browser automation với AI prompts. Profile-based giống antidetect browsers.</p>
+                <p>Quản lý browser profiles với proxy, fingerprint, cookies. Auto-login Google Account khi mở browser. Launch/stop browser automation với AI prompts. Profile settings (⚙️) cho proxy, fingerprint OS/device, Google Account với TOTP 2FA.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🎨</div>
                 <h3>Web UI Extension</h3>
-                <p>Dashboard SPA tại localhost:3000 với 6 tabs: Agents, Browser, Workflows, Skills, Market, Settings.</p>
+                <p>Dashboard SPA tại localhost:5295/dashboard với 6 tabs: Agents, Browser, Workflows, Skills, Market, Settings. Auto-polling trạng thái browser mỗi 5s.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
@@ -766,7 +830,7 @@
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">BROWSER</div>
             <h2>Browser Automation</h2>
-            <p>Quản lý browser profiles, proxy, cookies — launch browser với AI prompts</p>
+            <p>Quản lý browser profiles, proxy, fingerprint, cookies — Auto-login Google, AI prompts, Profile Settings</p>
         </div>
         <div class="terminal fade-in" style="margin-bottom: 24px;">
             <div class="terminal-header">
@@ -788,11 +852,25 @@
                 <div><span class="prompt">❯ </span><span class="cmd">tubecli browser launch</span> <span class="arg">"my-profile"</span> <span class="cmd">--prompt</span> <span class="arg">"Go to youtube and subscribe"</span></div>
                 <div><span class="output">🚀 Browser launched</span></div>
                 <div><span class="output">   Instance: browser-a1b2c3d4</span></div>
+                <div><span class="output">   [AutoLogin] Login action completed.</span></div>
                 <br>
                 <div><span class="comment"># Xem status &amp; dừng browser</span></div>
                 <div><span class="prompt">❯ </span><span class="cmd">tubecli browser status</span></div>
                 <div><span class="prompt">❯ </span><span class="cmd">tubecli browser stop</span> <span class="arg">"my-profile"</span></div>
                 <div><span class="output">⏹ Browser 'my-profile' stopped.</span></div>
+                <br>
+                <div><span class="comment"># ═══ Profile Settings (⚙️ trên Dashboard) ═══</span></div>
+                <div><span class="comment"># Mỗi profile có thể cấu hình:</span></div>
+                <div><span class="output">  • Proxy: socks5://user:pass@host:port</span></div>
+                <div><span class="output">  • Fingerprint: OS (Windows/macOS) + Browser</span></div>
+                <div><span class="output">  • Google Account: email|password|recovery|2fa_secret</span></div>
+                <br>
+                <div><span class="comment"># Auto-Login Flow khi mở browser:</span></div>
+                <div><span class="output">  1. Đọc google_account từ profile config</span></div>
+                <div><span class="output">  2. Kiểm tra đã login (myaccount.google.com)</span></div>
+                <div><span class="output">  3. Nếu chưa → tự nhập email/password</span></div>
+                <div><span class="output">  4. 2FA → gọi API /api/v1/browser/2fa (TOTP live code)</span></div>
+                <div><span class="output">  5. Login xong → tiếp tục lệnh ban đầu</span></div>
             </div>
         </div>
 
@@ -800,14 +878,141 @@
         <table class="api-table fade-in">
             <thead><tr><th>Method</th><th>Endpoint</th><th>Mô tả</th></tr></thead>
             <tbody>
-                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Danh sách profiles</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Danh sách profiles (kèm google_account, proxy, fingerprint)</td></tr>
                 <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Tạo profile mới</td></tr>
                 <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Chi tiết profile</td></tr>
-                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Update profile</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Update profile (proxy, fingerprint, google_account)</td></tr>
                 <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Xóa profile</td></tr>
-                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/launch</td><td>Launch browser</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/launch</td><td>Launch browser (auto-login nếu có google_account)</td></tr>
                 <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/stop</td><td>Stop browser</td></tr>
-                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/status</td><td>Running instances</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/status</td><td>Running instances (auto-poll mỗi 5s)</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/log/{profile}</td><td>Đọc log file của browser instance</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/2fa?secret=...</td><td>Generate mã TOTP 6 số từ secret key (pyotp)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Teams Agents ═══ -->
+<section id="teams">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">TEAMS</div>
+            <h2>Teams — Multi-Agent Orchestration</h2>
+            <p>Tạo đội nhóm AI agents, phân vai trò, giao task tự động theo chiến lược</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">👥</div>
+                <h3>Team Builder</h3>
+                <p>Tạo team từ template có sẵn hoặc custom. Mỗi team có roles (vai trò), agents được gán vào roles, và strategy thực thi (sequential, parallel, hierarchical).</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📊</div>
+                <h3>Org Chart</h3>
+                <p>Sơ đồ tổ chức phân cấp: mỗi role có emoji, layer, description. Drag-drop gán agent vào role. Hỗ trợ multi-layer hierarchy (CEO → Manager → Staff).</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🚀</div>
+                <h3>Task Delegation</h3>
+                <p>Giao task cho toàn bộ team — hệ thống tự phân công cho từng agent theo role và strategy. Xem kết quả từng agent realtime.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📋</div>
+                <h3>Templates</h3>
+                <p>Chọn template có sẵn (Dev Team, Marketing, Support...) với roles đã định nghĩa sẵn. Chỉ cần gán agents và bắt đầu.</p>
+            </div>
+        </div>
+
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Teams API</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Tạo team từ template</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">POST</span> <span class="arg">/api/v1/multi-agents/teams/from-template</span></div>
+                <div><span class="output">  { "template_id": "dev_team", "name": "My Dev Team", "agent_assignments": {...} }</span></div>
+                <br>
+                <div><span class="comment"># Delegate task cho team</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">POST</span> <span class="arg">/api/v1/multi-agents/teams/{id}/delegate</span></div>
+                <div><span class="output">  { "task": "Viết bài marketing cho sản phẩm mới" }</span></div>
+                <div><span class="success">  ✅ 3 agents hoàn thành: Researcher → Writer → Editor</span></div>
+                <br>
+                <div><span class="comment"># Xem org chart & gán agents</span></div>
+                <div><span class="output">  📊 CEO (🧠 GPT-4) → 📋 Manager (🤖 Qwen) → 💻 Developer (⚡ Gemini)</span></div>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">👥 Teams API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Mô tả</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/teams</td><td>Danh sách teams</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams</td><td>Tạo team mới (custom)</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams/from-template</td><td>Tạo team từ template</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Chi tiết team</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Cập nhật team (nodes, agents)</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Xóa team</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}/delegate</td><td>Giao task cho team</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/templates</td><td>Danh sách templates</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/log</td><td>Lịch sử delegation</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ 3D Studio ═══ -->
+<section id="studio3d">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">3D STUDIO</div>
+            <h2>3D Office Visualization</h2>
+            <p>Văn phòng 3D isometric với nhân vật Roblox-style — trực quan hóa đội nhóm AI</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🏢</div>
+                <h3>Isometric 3D Office</h3>
+                <p>Three.js render phòng làm việc 3D với sàn, tường, ánh sáng. Mỗi team có theme riêng (Dev, Marketing...). Camera xoay orbit controls.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎮</div>
+                <h3>Roblox-style Characters</h3>
+                <p>Nhân vật AI agent hiển thị dạng 3D blocky (đầu tròn, thân hộp). Mỗi agent có nhãn tên, hiệu ứng hover tooltip, animation float.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🪑</div>
+                <h3>15+ Asset Types</h3>
+                <p>Đồ nội thất: bàn, ghế, sofa, tủ sách, bảng trắng, màn hình. Trang trí: chậu cây, đèn lồng, cột đỏ. Kết cấu: tường, sàn, cửa.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💾</div>
+                <h3>Scene Management</h3>
+                <p>Lưu/tải layout phòng cho từng team. Tùy chỉnh kích thước phòng, màu sàn/tường. API CRUD scenes. Fullscreen mode (ESC thoát).</p>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🏢 Studio 3D API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Mô tả</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/studio3d/assets</td><td>Catalog 15+ built-in 3D assets</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Lấy scene layout cho team</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Lưu scene layout (assets, room size, colors)</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Xóa scene</td></tr>
             </tbody>
         </table>
     </div>
@@ -819,7 +1024,7 @@
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">WEB UI</div>
             <h2>Web Dashboard</h2>
-            <p>Giao diện web quản lý toàn bộ hệ thống TubeCLI tại localhost:3000</p>
+            <p>Giao diện web quản lý toàn bộ hệ thống TubeCLI tại localhost:5295/dashboard</p>
         </div>
         <div class="terminal fade-in" style="margin-bottom: 24px;">
             <div class="terminal-header">
@@ -829,9 +1034,10 @@
                 <span class="terminal-title">Start Dashboard</span>
             </div>
             <div class="terminal-body">
-                <div><span class="prompt">❯ </span><span class="cmd">tubecli webui start</span> <span class="cmd">--port</span> <span class="arg">3000</span></div>
-                <div><span class="output">🎨 TubeCLI Dashboard started</span></div>
-                <div><span class="output">   URL: http://localhost:3000</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span></div>
+                <div><span class="output">🚀 Đang khởi tạo TubeCLI workspace...</span></div>
+                <div><span class="output">✅ TubeCLI workspace đã khởi tạo thành công!</span></div>
+                <div><span class="output">  Dashboard: http://localhost:5295/dashboard</span></div>
             </div>
         </div>
         <div class="skills-grid">
@@ -843,7 +1049,7 @@
             <div class="skill-card fade-in">
                 <div class="skill-icon">🌐</div>
                 <h4>Browser Tab</h4>
-                <p>Quản lý profiles, launch/stop browser, xem running instances realtime.</p>
+                <p>Quản lý profiles, launch/stop browser, xem running instances realtime. Profile Settings (⚙️): proxy, fingerprint, Google Account. Auto-login khi mở browser.</p>
             </div>
             <div class="skill-card fade-in">
                 <div class="skill-icon">🔄</div>
@@ -935,7 +1141,7 @@
 <!-- ═══ Footer ═══ -->
 <footer>
     <div class="container">
-        <p>⚡ <strong>TubeCLI</strong> v0.1.0 — Open Source AI Agent CLI System</p>
+        <p>⚡ <strong>TubeCLI</strong> v0.2.0 — Open Source AI Agent CLI System</p>
         <p style="margin-top: 8px;">
             <a href="https://github.com/tubecreate/tubecli">GitHub</a> &nbsp;·&nbsp;
             MIT License &nbsp;·&nbsp;

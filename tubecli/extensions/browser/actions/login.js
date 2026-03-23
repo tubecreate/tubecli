@@ -6,22 +6,20 @@ import path from 'path';
 
 /**
  * Fetch a live TOTP code from the 2FA API.
- * API: https://ffmpeg.eztub-tk.com/2fa.php?2fa=<secret>
+ * API: http://localhost:5295/api/v1/browser/2fa?secret=<secret>
  * Returns the 6-digit code, or null on failure.
  * @param {string} twoFactorCodes - the secret string (space-separated or raw)
  * @returns {Promise<string|null>}
  */
 async function fetchTotpCode(twoFactorCodes) {
   try {
-    const fetch = (await import('node-fetch')).default;
-    // Remove spaces from the base32 secret code as standard TOTP libraries expect contiguous strings
+    // Remove spaces from the base32 secret code
     const cleanSecret = twoFactorCodes.replace(/\s+/g, '').toUpperCase();
     const encoded = encodeURIComponent(cleanSecret);
     
     // Load config if exists
     let apiUrl = 'http://localhost:5295/api/v1/browser/2fa?secret=';
     try {
-      // Navigate up from browser-laucher/actions/login.js to python-video-studio/.cache/browser_config.json
       const configPath = path.join(process.cwd(), '..', '.cache', 'browser_config.json');
       if (fs.existsSync(configPath)) {
         const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
@@ -34,17 +32,60 @@ async function fetchTotpCode(twoFactorCodes) {
     }
 
     const url = `${apiUrl}${encoded}`;
-    console.log(`[2FA] Fetching live TOTP code from API...`);
-    const resp = await fetch(url, { timeout: 10000 });
-    const data = await resp.json();
+    console.log(`[2FA] Fetching live TOTP code from: ${url}`);
+
+    // Try multiple fetch methods for compatibility
+    let data;
+    
+    // Method 1: Native fetch (Node 18+)
+    if (typeof globalThis.fetch === 'function') {
+      try {
+        const resp = await globalThis.fetch(url, { signal: AbortSignal.timeout(10000) });
+        data = await resp.json();
+      } catch (e) {
+        console.warn('[2FA] Native fetch failed:', e.message);
+      }
+    }
+
+    // Method 2: node-fetch
+    if (!data) {
+      try {
+        const nodeFetch = (await import('node-fetch')).default;
+        const resp = await nodeFetch(url, { timeout: 10000 });
+        data = await resp.json();
+      } catch (e) {
+        console.warn('[2FA] node-fetch failed:', e.message);
+      }
+    }
+
+    // Method 3: Built-in http module (always available)
+    if (!data) {
+      try {
+        const http = await import('http');
+        data = await new Promise((resolve, reject) => {
+          const req = http.get(url, (res) => {
+            let body = '';
+            res.on('data', chunk => body += chunk);
+            res.on('end', () => {
+              try { resolve(JSON.parse(body)); } catch(e) { reject(e); }
+            });
+          });
+          req.on('error', reject);
+          req.setTimeout(10000, () => { req.destroy(); reject(new Error('timeout')); });
+        });
+      } catch (e) {
+        console.warn('[2FA] http module failed:', e.message);
+      }
+    }
+
     if (data && data.code) {
-      console.log(`[2FA] Got TOTP code: ${data.code} (valid for ~${30 - (data.time % 30)}s)`);
+      console.log(`[2FA] Got TOTP code: ${data.code} (valid for ~${data.remaining || (30 - (data.time % 30))}s)`);
       return String(data.code);
     }
     console.warn('[2FA] API returned no code:', data);
     return null;
   } catch (e) {
-    console.warn('[2FA] Failed to fetch TOTP code:', e.message);
+    console.error('[2FA] Failed to fetch TOTP code:', e.message);
     return null;
   }
 }
