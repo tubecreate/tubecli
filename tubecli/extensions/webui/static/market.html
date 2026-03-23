@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeCLI — Extension Market</title>
+    <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/market.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div style="padding:20px 16px 12px;">
+            <span class="sidebar-logo">🚀 TubeCLI</span>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Main</div>
+            <a href="/dashboard" class="nav-item"><span class="nav-icon">📊</span><span class="nav-text">Dashboard</span></a>
+            <a href="/workflow" class="nav-item"><span class="nav-icon">⚡</span><span class="nav-text">Workflows</span></a>
+            <a href="/teams" class="nav-item"><span class="nav-icon">🤖</span><span class="nav-text">AI Teams</span></a>
+            <a href="/studio" class="nav-item"><span class="nav-icon">🎨</span><span class="nav-text">3D Studio</span></a>
+            <div class="nav-section-label">Community</div>
+            <a href="/market" class="nav-item active"><span class="nav-icon">🛒</span><span class="nav-text">Market</span></a>
+            <div class="nav-section-label">Tools</div>
+            <a href="/downloader" class="nav-item"><span class="nav-icon">⬇️</span><span class="nav-text">Downloader</span></a>
+        </nav>
+        <div class="sidebar-footer">
+            <span class="status-dot"></span>
+            <span>API Online</span>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content market-page">
+        <!-- Header -->
+        <div class="market-header">
+            <div class="market-header-left">
+                <div>
+                    <h1 class="market-title">🛒 Extension Market</h1>
+                    <p class="market-subtitle">Browse & trade extensions, nodes, skills, and 3D models</p>
+                </div>
+            </div>
+            <div class="market-header-actions">
+                <div class="market-search-wrap">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="marketSearch" placeholder="Search items..." oninput="debounceSearch()">
+                </div>
+                <!-- User info (visible when logged in) -->
+                <div class="market-user-info" id="marketUserInfo" style="display:none;">
+                    <span class="market-user-name" id="marketUserName"></span>
+                    <button class="btn-logout" onclick="logoutMarket()" title="Đăng xuất">🚪</button>
+                </div>
+                <button class="btn-upload btn-sell" onclick="requireAuth(() => openUploadModal())">
+                    <span>📤</span> Sell Item
+                </button>
+            </div>
+        </div>
+
+        <!-- Category Tabs -->
+        <div class="market-tabs" id="categoryTabs">
+            <button class="market-tab active" data-category="" onclick="switchCategory(this, '')">
+                <span class="tab-icon">🌐</span> All <span class="tab-count" id="countAll">0</span>
+            </button>
+            <button class="market-tab" data-category="extension" onclick="switchCategory(this, 'extension')">
+                <span class="tab-icon">🧩</span> Extensions <span class="tab-count" id="countExtension">0</span>
+            </button>
+            <button class="market-tab" data-category="node" onclick="switchCategory(this, 'node')">
+                <span class="tab-icon">🔗</span> Nodes <span class="tab-count" id="countNode">0</span>
+            </button>
+            <button class="market-tab" data-category="skill" onclick="switchCategory(this, 'skill')">
+                <span class="tab-icon">⚡</span> Skills <span class="tab-count" id="countSkill">0</span>
+            </button>
+            <button class="market-tab" data-category="model3d" onclick="switchCategory(this, 'model3d')">
+                <span class="tab-icon">🎨</span> 3D Models <span class="tab-count" id="countModel3d">0</span>
+            </button>
+        </div>
+
+        <!-- Layout -->
+        <div class="market-layout">
+            <!-- Filter Sidebar -->
+            <aside class="market-filters" id="filterSidebar">
+                <!-- Sort -->
+                <div class="filter-section">
+                    <h4>Sort By</h4>
+                    <select class="sort-select" id="sortSelect" onchange="applyFilters()">
+                        <option value="newest">🕐 Newest</option>
+                        <option value="popular">🔥 Most Popular</option>
+                        <option value="rating">⭐ Highest Rated</option>
+                        <option value="price_asc">💰 Price: Low → High</option>
+                        <option value="price_desc">💰 Price: High → Low</option>
+                    </select>
+                </div>
+
+                <!-- Price -->
+                <div class="filter-section">
+                    <h4>Price Range</h4>
+                    <label class="filter-option">
+                        <input type="radio" name="price" value="" checked onchange="applyFilters()"> All Prices
+                    </label>
+                    <label class="filter-option">
+                        <input type="radio" name="price" value="free" onchange="applyFilters()"> Free Only
+                    </label>
+                    <label class="filter-option">
+                        <input type="radio" name="price" value="paid" onchange="applyFilters()"> Paid Only
+                    </label>
+                    <div class="price-range-wrap" id="priceRangeWrap" style="display:none; margin-top:8px;">
+                        <input type="range" id="priceRange" min="0" max="10000" value="10000" oninput="updatePriceLabel()">
+                        <div class="price-labels">
+                            <span>0</span>
+                            <span id="priceLabel">10,000 credits</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rating -->
+                <div class="filter-section">
+                    <h4>Minimum Rating</h4>
+                    <div class="star-filter" id="starFilter">
+                        <span class="star" data-rating="1" onclick="setMinRating(1)">★</span>
+                        <span class="star" data-rating="2" onclick="setMinRating(2)">★</span>
+                        <span class="star" data-rating="3" onclick="setMinRating(3)">★</span>
+                        <span class="star" data-rating="4" onclick="setMinRating(4)">★</span>
+                        <span class="star" data-rating="5" onclick="setMinRating(5)">★</span>
+                    </div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;" id="ratingLabel">Any rating</div>
+                </div>
+
+                <!-- Popular Tags -->
+                <div class="filter-section">
+                    <h4>Popular Tags</h4>
+                    <div class="tag-pills" id="tagPills">
+                        <!-- Populated dynamically -->
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Items Grid -->
+            <div id="marketContent">
+                <div class="market-loading" id="marketLoading">
+                    <div class="market-spinner"></div>
+                    <span style="color:var(--text-muted)">Loading marketplace...</span>
+                </div>
+                <div class="market-grid" id="marketGrid" style="display:none;"></div>
+                <div class="market-empty" id="marketEmpty" style="display:none;">
+                    <div class="empty-icon">📦</div>
+                    <h3>No items found</h3>
+                    <p>Try adjusting your filters or search query</p>
+                </div>
+                <div class="market-pagination" id="marketPagination" style="display:none;"></div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- Detail Modal -->
+<div class="market-modal-overlay" id="detailModal">
+    <div class="market-modal">
+        <div class="modal-hero" id="modalHero">
+            <span class="hero-icon" id="modalHeroIcon">🧩</span>
+            <button class="modal-close" onclick="closeDetailModal()">✕</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <!-- Populated dynamically -->
+        </div>
+    </div>
+</div>
+
+<!-- Upload Modal (Two-Step Wizard) -->
+<div class="market-modal-overlay" id="uploadModal">
+    <div class="market-modal" style="width:620px;">
+        <div style="padding:28px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+                <h2 style="font-size:1.3rem;font-weight:800;">📤 Sell on Market</h2>
+                <button class="modal-close" onclick="closeUploadModal()" style="position:static;background:var(--bg3);">✕</button>
+            </div>
+
+            <!-- Step Indicator -->
+            <div class="upload-steps" id="uploadSteps">
+                <div class="upload-step active" data-step="1"><span class="step-num">1</span> Select Item</div>
+                <div class="upload-step-line"></div>
+                <div class="upload-step" data-step="2"><span class="step-num">2</span> Set Price & Publish</div>
+            </div>
+
+            <!-- Step 1: Category + Item Picker -->
+            <div id="uploadStep1">
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>Category</label>
+                    <div class="upload-category-tabs">
+                        <button type="button" class="ucat-tab active" data-cat="skill" onclick="switchUploadCategory('skill', this)">⚡ Skills</button>
+                        <button type="button" class="ucat-tab" data-cat="extension" onclick="switchUploadCategory('extension', this)">🧩 Extensions</button>
+                        <button type="button" class="ucat-tab" data-cat="node" onclick="switchUploadCategory('node', this)">🔗 Nodes</button>
+                        <button type="button" class="ucat-tab" data-cat="model3d" onclick="switchUploadCategory('model3d', this)">🎨 3D Models</button>
+                    </div>
+                </div>
+
+                <!-- Item Search -->
+                <div class="form-group" style="margin-bottom:12px;">
+                    <input type="text" id="uploadItemSearch" placeholder="🔍 Filter items..." oninput="filterUploadItems()" style="padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:0.9rem;width:100%;">
+                </div>
+
+                <!-- Items List -->
+                <div class="upload-items-list" id="uploadItemsList">
+                    <div class="market-loading" style="padding:40px 0;">
+                        <div class="market-spinner"></div>
+                        <span style="color:var(--text-muted)">Loading your items...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Pricing & Details (hidden initially) -->
+            <div id="uploadStep2" style="display:none;">
+                <!-- Selected Item Preview -->
+                <div class="selected-item-preview" id="selectedItemPreview"></div>
+
+                <form class="upload-form" onsubmit="submitUpload(event)">
+                    <input type="hidden" id="uploadCategory">
+                    <input type="hidden" id="uploadData">
+                    <input type="hidden" id="uploadTitle">
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Display Name</label>
+                            <input type="text" id="uploadDisplayName" required placeholder="Name shown on Market">
+                        </div>
+                        <div class="form-group">
+                            <label>Price (credits)</label>
+                            <input type="number" id="uploadPrice" value="0" min="0" placeholder="0 = Free">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Visibility</label>
+                            <select id="uploadVisibility">
+                                <option value="PUBLIC">🌐 Public</option>
+                                <option value="PRIVATE">🔒 Private</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Version</label>
+                            <input type="text" id="uploadVersion" value="1.0.0" placeholder="1.0.0">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Tags (comma separated)</label>
+                        <input type="text" id="uploadTags" placeholder="automation, youtube, ai">
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <textarea id="uploadDesc" placeholder="Describe what this item does..." rows="3"></textarea>
+                    </div>
+                    <div style="display:flex;gap:12px;justify-content:space-between;margin-top:12px;">
+                        <button type="button" class="btn-secondary" onclick="goToUploadStep(1)">← Back</button>
+                        <button type="submit" class="btn-upload" id="uploadSubmitBtn">📤 Publish to Market</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="market-toast" id="marketToast"></div>
+
+<!-- Login / Register Modal -->
+<div class="market-modal-overlay" id="loginModal">
+    <div class="market-modal" style="max-width:420px;">
+        <div style="padding:28px;position:relative;">
+            <button class="modal-close" onclick="closeLoginModal()" style="position:absolute;top:14px;right:14px;">✕</button>
+            <h2 id="authTitle" style="font-size:1.3rem;font-weight:800;margin-bottom:6px;">🔐 Đăng nhập</h2>
+            <p id="authSubtitle" style="color:var(--text-muted,#6868a0);margin:0 0 20px;font-size:0.9rem;">Đăng nhập để bán trên Market</p>
+            <div id="authErrorMsg" style="display:none;background:rgba(239,68,68,.15);color:#ef4444;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;"></div>
+
+            <!-- Register-only fields (top) -->
+            <div id="registerFieldsTop" style="display:none;">
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="font-size:0.82rem;font-weight:600;color:var(--text2,#9898b8);margin-bottom:4px;display:block;">Tên hiển thị</label>
+                    <input type="text" id="authName" placeholder="Nguyễn Văn A" autocomplete="name" style="width:100%;padding:10px 14px;border:1px solid var(--border,#2a2a4a);border-radius:8px;background:var(--bg,#0a0a0f);color:var(--text,#e8e8f0);font-size:0.9rem;">
+                </div>
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="font-size:0.82rem;font-weight:600;color:var(--text2,#9898b8);margin-bottom:4px;display:block;">Username</label>
+                    <input type="text" id="authUsername" placeholder="username123" autocomplete="username" style="width:100%;padding:10px 14px;border:1px solid var(--border,#2a2a4a);border-radius:8px;background:var(--bg,#0a0a0f);color:var(--text,#e8e8f0);font-size:0.9rem;">
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="font-size:0.82rem;font-weight:600;color:var(--text2,#9898b8);margin-bottom:4px;display:block;">Email</label>
+                <input type="email" id="authEmail" placeholder="you@email.com" autocomplete="email" style="width:100%;padding:10px 14px;border:1px solid var(--border,#2a2a4a);border-radius:8px;background:var(--bg,#0a0a0f);color:var(--text,#e8e8f0);font-size:0.9rem;">
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="font-size:0.82rem;font-weight:600;color:var(--text2,#9898b8);margin-bottom:4px;display:block;">Mật khẩu</label>
+                <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password" style="width:100%;padding:10px 14px;border:1px solid var(--border,#2a2a4a);border-radius:8px;background:var(--bg,#0a0a0f);color:var(--text,#e8e8f0);font-size:0.9rem;">
+            </div>
+
+            <!-- Register-only field (bottom) -->
+            <div id="registerFieldsBottom" style="display:none;">
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label style="font-size:0.82rem;font-weight:600;color:var(--text2,#9898b8);margin-bottom:4px;display:block;">Xác nhận mật khẩu</label>
+                    <input type="password" id="authConfirmPassword" placeholder="••••••••" autocomplete="new-password" style="width:100%;padding:10px 14px;border:1px solid var(--border,#2a2a4a);border-radius:8px;background:var(--bg,#0a0a0f);color:var(--text,#e8e8f0);font-size:0.9rem;">
+                </div>
+            </div>
+
+            <button class="btn-buy" id="authSubmitBtn" onclick="handleMarketAuth()" style="width:100%;margin-top:8px;padding:14px;font-size:1rem;justify-content:center;">
+                🔑 Đăng nhập
+            </button>
+
+            <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-muted,#6868a0);">
+                <span id="authToggleText">Chưa có tài khoản?</span>
+                <a href="#" id="authToggleLink" onclick="toggleMarketAuthMode(event)" style="color:#00d4ff;text-decoration:none;font-weight:600;margin-left:4px;">Đăng ký</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/market.js"></script>
+</body>
+</html>

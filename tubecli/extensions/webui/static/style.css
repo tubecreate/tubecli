@@ -240,3 +240,51 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .btn-install:hover { background: #2563eb; transform: translateY(-1px); }
 
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.1); } }
+
+/* ─── API Manager Enhanced ─── */
+.api-group { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+.api-group-header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; cursor: pointer; user-select: none; transition: background 0.2s; }
+.api-group-header:hover { background: var(--bg-hover); }
+.api-group-header .group-icon { font-size: 1.2rem; }
+.api-group-header .group-title { flex: 1; font-weight: 700; font-size: 0.95rem; }
+.api-group-header .group-count { font-size: 0.75rem; color: var(--text-muted); background: var(--bg); padding: 2px 10px; border-radius: 12px; }
+.api-group-header .group-arrow { font-size: 0.7rem; color: var(--text-muted); transition: transform 0.2s; }
+.api-group.open .group-arrow { transform: rotate(90deg); }
+.api-group-body { display: none; border-top: 1px solid var(--border); }
+.api-group.open .api-group-body { display: block; }
+
+.api-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid rgba(42,42,74,0.5); cursor: pointer; transition: background 0.15s; }
+.api-row:last-child { border-bottom: none; }
+.api-row:hover { background: var(--bg-hover); }
+.api-row.hidden { display: none; }
+
+.method-badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 0.7rem; font-weight: 800; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; min-width: 52px; text-align: center; }
+.method-get { background: rgba(34,197,94,0.15); color: var(--green); }
+.method-post { background: rgba(59,130,246,0.15); color: var(--blue); }
+.method-put { background: rgba(245,158,11,0.15); color: var(--orange); }
+.method-delete { background: rgba(239,68,68,0.15); color: var(--red); }
+
+.api-row .api-path { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: var(--text); }
+.api-row .api-desc { font-size: 0.78rem; color: var(--text-muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.api-row .btn-test { padding: 3px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 0.72rem; background: none; color: var(--cyan); cursor: pointer; opacity: 0; transition: opacity 0.2s; }
+.api-row:hover .btn-test { opacity: 1; }
+
+/* Test panel */
+.api-test-panel { background: var(--bg3); border: 1px solid var(--cyan); border-radius: var(--radius); padding: 20px; margin-top: 16px; animation: fadeIn 0.2s; }
+.api-test-panel.hidden { display: none; }
+.api-test-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.api-response { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-top: 12px; }
+.api-response.hidden { display: none; }
+.api-test-params-group { margin-bottom: 8px; }
+.api-test-params-group label { display: block; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 4px; font-weight: 600; }
+.api-test-params-group input { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; }
+.api-test-params-group input:focus { outline: none; border-color: var(--cyan); }
+
+/* ─── Command Chip Buttons ─── */
+.btn-chip { padding: 6px 14px; border: 1px solid var(--border); border-radius: 20px; font-size: 0.78rem; font-weight: 500; background: var(--bg3); color: var(--text2); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.btn-chip:hover { border-color: var(--purple); color: var(--text); background: rgba(168,85,247,0.1); transform: translateY(-1px); }
+
+/* ─── Profile Settings Button ─── */
+.btn-settings { position: absolute; top: 8px; right: 8px; background: none; border: none; cursor: pointer; font-size: 1.1rem; opacity: 0.5; transition: all 0.2s; padding: 4px; border-radius: 6px; z-index: 2; }
+.btn-settings:hover { opacity: 1; background: rgba(255,255,255,0.08); transform: scale(1.15); }
+.card:hover .btn-settings { opacity: 0.8; }

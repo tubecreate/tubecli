@@ -3,7 +3,7 @@ Browser Extension — API routes.
 """
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Any
 import os
 import json
 import subprocess
@@ -34,6 +34,7 @@ class ProfileUpdateRequest(BaseModel):
     version: Optional[str] = None # Compatibility with UI
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
+    google_account: Optional[Any] = None  # Can be raw string or dict
 
 class LaunchRequest(BaseModel):
     profile: str
@@ -41,6 +42,7 @@ class LaunchRequest(BaseModel):
     url: str = ""
     headless: bool = False
     manual: bool = True
+    ai_model: str = "qwen:latest"
 
 class StopRequest(BaseModel):
     profile: str
@@ -76,7 +78,23 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
     data = req.model_dump(exclude_none=True)
     if "version" in data and "browser_version" not in data:
         data["browser_version"] = data.pop("version")
-        
+    
+    # Parse google_account string -> JSON if needed
+    if "google_account" in data and isinstance(data["google_account"], str):
+        raw = data["google_account"].strip()
+        if raw:
+            # Split by pipe or tab
+            parts = raw.split("|") if "|" in raw else raw.split("\t")
+            parts = [p.strip() for p in parts if p.strip()]
+            data["google_account"] = {
+                "email": parts[0] if len(parts) > 0 else "",
+                "password": parts[1] if len(parts) > 1 else "",
+                "recoveryEmail": parts[2] if len(parts) > 2 else "",
+                "twoFactorCodes": parts[3] if len(parts) > 3 else "",
+            }
+        else:
+            data["google_account"] = None
+    
     profile = update_profile(name, **data)
     if not profile:
         raise HTTPException(404, f"Profile '{name}' not found")
@@ -109,7 +127,7 @@ async def api_reset_fingerprint(name: str):
 async def api_launch_browser(req: LaunchRequest):
     from .process_manager import browser_process_manager
     result = browser_process_manager.spawn(
-        profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual
+        profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual, ai_model=req.ai_model
     )
     return result
 
@@ -427,3 +445,21 @@ async def api_engine_status(version: str):
             return {"status": "downloading", "percent": 0, "is_running": is_running}
     
     return {"status": "unknown", "percent": 0, "is_running": is_running}
+
+
+@router.get("/2fa")
+async def api_get_2fa(secret: str = ""):
+    """Generate a live 6-digit TOTP code from a base32 secret."""
+    if not secret:
+        raise HTTPException(400, "Missing 'secret' query parameter")
+    try:
+        import pyotp
+        import time
+        # Clean up the secret: remove spaces, uppercase
+        clean_secret = secret.replace(" ", "").upper()
+        totp = pyotp.TOTP(clean_secret)
+        code = totp.now()
+        remaining = 30 - (int(time.time()) % 30)
+        return {"code": code, "time": int(time.time()), "remaining": remaining}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to generate TOTP: {str(e)}")

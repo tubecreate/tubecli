@@ -1,0 +1,25 @@
+{
+  "scrapedArticles": [
+    {
+      "title": "[testsock] Google",
+      "url": "https://www.google.com/",
+      "ip": "27.77.150.189",
+      "scrapedAt": "2026-03-23T03:21:27.921Z",
+      "isScraped": false
+    },
+    {
+      "title": "[testsock] giá vàng hôm nay - Tìm trên Google",
+      "url": "https://www.google.com/search?q=gi%C3%A1+v%C3%A0ng+h%C3%B4m+nay&sca_esv=c1aacbe12cc47292&source=hp&ei=trHAafa3HbOevr0P6oOl8Qc&iflsig=AFdpzrgAAAAAacC_xmyfOPK5sfePEy7XlXS4XT1unNem&ved=0ahUKEwj26rq9iLWTAxUzj68BHepBKX4Q4dUDCBQ&uact=5&oq=gi%C3%A1+v%C3%A0ng+h%C3%B4m+nay&gs_lp=Egdnd3Mtd2l6IhNnacOhIHbDoG5nIGjDtG0gbmF5MgQQABgDMgUQABiABDIFEAAYgAQyBBAAGAMyBBAAGAMyBBAAGAMyBBAAGAMyBRAAGIAEMgQQABgDMgUQABiABEjlE1APWI4PcAF4AJABAZgB_wOgAeoaqgELMC42LjMuMS4yLjG4AQPIAQD4AQGYAg2gAosZqAIKwgITEAAYgAQYigUYQxjnBhjqAhi0AsICHRAAGIAEGIoFGNQDGOUCGOcGGOoCGLQCGIoDGLcDwgIQEAAYgAQYigUYQxixAxiDAcICCxAAGIAEGLEDGIMBwgIOEAAYgAQYigUYsQMYgwHCAgoQABiABBiKBRhDwgIIEAAYgAQYsQOYAwLxBQoc5IPqfflZkgcJMS42LjIuMS4zoAfsQbIHCTAuNi4yLjEuM7gHiBnCBwUzLjguMsgHGYAIAQ&sclient=gws-wiz",
+      "ip": "27.77.150.189",
+      "scrapedAt": "2026-03-23T03:21:37.969Z",
+      "isScraped": false
+    },
+    {
+      "title": "[testsock] Google",
+      "url": "https://www.google.com/",
+      "ip": "27.77.150.189",
+      "scrapedAt": "2026-03-23T03:23:11.406Z",
+      "isScraped": false
+    }
+  ]
+}

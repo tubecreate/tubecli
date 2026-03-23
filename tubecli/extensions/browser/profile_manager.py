@@ -35,6 +35,7 @@ def list_profiles() -> List[Dict[str, Any]]:
                 "notes": config.get("notes", ""),
                 "has_cookies": os.path.exists(os.path.join(profile_path, "cookies.json")),
                 "has_fingerprint": os.path.exists(os.path.join(profile_path, "fingerprint.json")),
+                "google_account": config.get("google_account", None),
             })
     # Sort newest first
     profiles.sort(key=lambda p: p.get("created_at", ""), reverse=True)
@@ -92,7 +93,7 @@ def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
     if not os.path.isdir(profile_path):
         return None
     config = _load_config(name)
-    for key in ("tags", "proxy", "browser_version", "notes", "blacklist"):
+    for key in ("tags", "proxy", "browser_version", "notes", "blacklist", "google_account"):
         if key in kwargs and kwargs[key] is not None:
             config[key] = kwargs[key]
     _save_config(name, config)

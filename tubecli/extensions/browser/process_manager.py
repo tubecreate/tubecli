@@ -226,6 +226,26 @@ class BrowserProcessManager:
         if headless:
             args.append("--headless")
         args.extend(["--ai-model", ai_model])
+        
+        # Auto-login: load google_account from profile config
+        try:
+            config_path = os.path.join(profiles_dir, profile, "config.json")
+            if os.path.exists(config_path):
+                import json as _json
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = _json.load(f)
+                ga = config.get("google_account")
+                if ga and isinstance(ga, dict) and ga.get("email"):
+                    args.extend(["--login-email", ga["email"]])
+                    args.extend(["--login-password", ga.get("password", "")])
+                    if ga.get("recoveryEmail"):
+                        args.extend(["--login-recovery", ga["recoveryEmail"]])
+                    if ga.get("twoFactorCodes"):
+                        args.extend(["--login-2fa", ga["twoFactorCodes"]])
+                    logger.info(f"[Browser] Auto-login enabled for {ga['email']}")
+        except Exception as e:
+            logger.warning(f"[Browser] Failed to load google_account: {e}")
+        
         return args
 
     def _monitor(self, instance_id: str):
