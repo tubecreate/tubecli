@@ -653,15 +653,72 @@ async function main() {
   
   if (!exportCookies && !isManual) { // Skip planning if exporting cookies or manual mode
       if (prompt) { 
-        // OPTIMIZATION: If prompt looks like a structured command (contains 'then' or starts with 'read gmail'), skip AI planning
-        if (prompt.includes(', then ') || prompt.includes(', and then ') || prompt.startsWith('read gmail')) {
+        // OPTIMIZATION: If prompt looks like a structured command (contains 'then' or starts with 'read gmail' or 'login'), skip AI planning
+        if (prompt.includes(', then ') || prompt.includes(', and then ') || prompt.startsWith('read gmail') || prompt.toLowerCase().startsWith('login ')) {
             console.log('>>> Detected structured prompt. Skipping AI planning for speed.');
             // Simple heuristic parsing
             actionSequence = prompt.split(/, then |, and then /).map(step => {
                 const s = step.trim().toLowerCase();
+                const sRaw = step.trim(); // Keep original case for credentials
                 let action = 'browse';
                 let params = {};
-                if (s.startsWith('navigate to ')) {
+                if (s.startsWith('login ')) {
+                    action = 'login';
+                    const loginBody = sRaw.substring(6).trim(); // Remove 'login '
+                    const knownPlatforms = ['google', 'facebook', 'tiktok', 'x', 'twitter', 'discord', 'telegram'];
+                    let platform = 'google', email = '', password = '', recoveryEmail = '', twoFactorCodes = '';
+
+                    if (loginBody.includes('\t')) {
+                        // Tab-separated mode (legacy)
+                        const parts = loginBody.split(/\t+/);
+                        let idx = 0;
+                        if (parts[0] && knownPlatforms.includes(parts[0].trim().toLowerCase())) {
+                            platform = parts[0].trim().toLowerCase();
+                            idx = 1;
+                        }
+                        email = (parts[idx] || '').trim();
+                        password = (parts[idx + 1] || '').trim();
+                        recoveryEmail = (parts[idx + 2] || '').trim();
+                        twoFactorCodes = parts.slice(idx + 3).join(' ').trim();
+                    } else {
+                        // Smart space-separated: detect fields by pattern
+                        const words = loginBody.split(/\s+/);
+                        let idx = 0;
+                        // Check platform keyword
+                        if (words[0] && knownPlatforms.includes(words[0].toLowerCase())) {
+                            platform = words[0].toLowerCase();
+                            if (platform === 'twitter') platform = 'x';
+                            idx = 1;
+                        }
+                        // Find emails by @ sign
+                        let emailIdx = -1, recoveryIdx = -1;
+                        for (let i = idx; i < words.length; i++) {
+                            if (words[i].includes('@')) {
+                                if (emailIdx === -1) emailIdx = i;
+                                else if (recoveryIdx === -1) recoveryIdx = i;
+                            }
+                        }
+                        if (emailIdx >= 0) {
+                            email = words[emailIdx];
+                            // Password = word right after first email
+                            password = words[emailIdx + 1] || '';
+                            if (recoveryIdx >= 0) {
+                                recoveryEmail = words[recoveryIdx];
+                                // Everything after recovery email = 2FA codes
+                                twoFactorCodes = words.slice(recoveryIdx + 1).join(' ');
+                            }
+                        } else {
+                            // No @ found — assume: email password
+                            email = words[idx] || '';
+                            password = words[idx + 1] || '';
+                        }
+                    }
+                    if (platform === 'twitter') platform = 'x';
+                    params = { platform, email, password };
+                    if (recoveryEmail) params.recoveryEmail = recoveryEmail;
+                    if (twoFactorCodes) params.twoFactorCodes = twoFactorCodes;
+                    console.log(`[Login Parse] platform=${platform} email=${email} recovery=${recoveryEmail} 2FA=${twoFactorCodes ? 'yes' : 'no'}`);
+                } else if (s.startsWith('navigate to ')) {
                     action = 'navigate';
                     params = { url: s.replace('navigate to ', '').trim() };
                 } else if (s.startsWith('search for ')) {
@@ -743,8 +800,23 @@ async function main() {
       }
   }
 
+  // --- AUTO-LOGIN FROM PROFILE SETTINGS ---
+  // If --login-email is provided (from profile config's google_account), inject login action
+  if (args['login-email']) {
+      const autoLoginParams = {
+          platform: 'google',
+          email: args['login-email'],
+          password: args['login-password'] || '',
+      };
+      if (args['login-recovery']) autoLoginParams.recoveryEmail = args['login-recovery'];
+      if (args['login-2fa']) autoLoginParams.twoFactorCodes = args['login-2fa'];
+      
+      // Prepend login to action sequence (runs before other actions)
+      actionSequence.unshift({ action: 'login', params: autoLoginParams });
+      console.log(`[AutoLogin] Injected login action for: ${autoLoginParams.email}`);
+  }
 
-  
+
   const profilePath = path.resolve(profilesDir, profileName);
   console.log(`Target Profile: ${profileName} (${profilePath})`);
 
@@ -1073,6 +1145,30 @@ async function main() {
           }
       }
 
+      // --- Execute auto-login from actionSequence BEFORE manual mode check ---
+      // This ensures login runs even in manual mode when google_account is set
+      if (actionSequence.length > 0 && actionSequence[0].action === 'login') {
+          const loginStep = actionSequence[0];
+          console.log(`\n--- Executing: auto-login ---`);
+          try {
+              const actionFn = ACTION_REGISTRY['login'];
+              if (actionFn) {
+                  await actionFn(page, loginStep.params);
+                  console.log('[AutoLogin] Login action completed.');
+              }
+          } catch (err) {
+              console.error(`[AutoLogin] Login failed: ${err.message}`);
+          }
+          // Remove the login action so it doesn't run again
+          actionSequence.shift();
+          // Navigate to google.com so remaining actions (search, etc.) work
+          try {
+              await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 10000 });
+          } catch (e) { /* ignore */ }
+          await page.waitForTimeout(1000);
+          console.log(`[AutoLogin] Remaining actions: ${actionSequence.length}`);
+      }
+
       // 3. Manual Mode Check
       if (isManual) {
         console.log('>>> MANUAL MODE: Browser launched. Waiting for user to close window...');
@@ -1117,8 +1213,8 @@ async function main() {
         return process.exit(0);
       }
 
-      // 4. Execute Action Sequence (Only if NOT in session mode)
-      if (!sessionMode) {
+      // 4. Execute Action Sequence (ALWAYS runs first, even if session mode follows)
+      if (actionSequence.length > 0) {
         let initialActionsSucceeded = true;
         const results = [];
         for (const step of actionSequence) {
@@ -1695,6 +1791,21 @@ async function main() {
                   error.message.includes('ERR_NAME_NOT_RESOLVED') ||
                   error.message.includes('ERR_SSL_PROTOCOL_ERROR') ||
                   error.message.includes('ERR_CONNECTION_CLOSED')) && attempt < maxAttempts) {
+        // Check if user manually closed the browser (no pages left = user closed)
+        let userClosed = false;
+        try {
+          if (!context || context.pages().length === 0) {
+            userClosed = true;
+          }
+        } catch (e) {
+          // Context destroyed = user closed the browser
+          userClosed = true;
+        }
+        if (userClosed) {
+          console.log('\n>>> Browser closed by user. Exiting gracefully.');
+          success = true; // Don't treat as failure
+          break;
+        }
         console.error(`\n>>> Browser Crash/Network Error detected: ${error.message}. Retrying...`);
         attempt++;
       } else if (error.message === 'CAPTCHA_TIMEOUT') {

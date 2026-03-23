@@ -88,19 +88,22 @@
             <div class="panel-header">
                 <h1>🔌 API Manager</h1>
             </div>
-            <p style="color: var(--text-muted); margin-bottom: 20px;">System CLI REST API — TubeCLI API Server Endpoints</p>
 
             <!-- Server info -->
             <div class="api-info-bar">
-                <span>🟢 Server Status: <b style="color:var(--green)">Running</b></span>
-                <span>🔗 Base URL: <code id="api-base-display">http://localhost:5295</code></span>
-                <span>📖 <a href="/api/v1/docs" target="_blank" style="color:var(--cyan);">Open Swagger Docs</a></span>
-                <span>📚 <a href="/api/v1/redoc" target="_blank" style="color:var(--purple);">Open ReDoc</a></span>
+                <span>🟢 Server: <b style="color:var(--green)">Running</b></span>
+                <span>🔗 <code id="api-base-display">http://localhost:5295</code></span>
+                <span>📖 <a href="/api/v1/docs" target="_blank" style="color:var(--cyan);">Swagger</a></span>
+                <span>📚 <a href="/api/v1/redoc" target="_blank" style="color:var(--purple);">ReDoc</a></span>
             </div>
 
-            <!-- API Endpoints grouped -->
-            <h3 style="margin: 24px 0 12px; color: var(--cyan);">📡 Available Endpoints</h3>
-            <div id="api-endpoints-list" class="table-container"></div>
+            <!-- Search -->
+            <div style="margin:16px 0;">
+                <input id="api-search" type="text" class="input" placeholder="🔍 Tìm API endpoint... (VD: agents, download, skills)" oninput="filterApiEndpoints()" style="width:100%;max-width:500px;">
+            </div>
+
+            <!-- Endpoints grouped -->
+            <div id="api-endpoints-list"></div>
         </section>
 
         <!-- ═══ SETTINGS TAB ═══ -->
@@ -306,7 +309,102 @@
     </div>
 </div>
 
+<!-- Browser Command Modal -->
+<div id="modal-command" class="modal hidden">
+    <div class="modal-content" style="max-width:560px">
+        <div class="modal-header">
+            <h2>🚀 Browser Command</h2>
+            <button class="btn-close" onclick="closeModal('modal-command')">✕</button>
+        </div>
+        <p style="color:var(--text-muted);margin:8px 0 4px;font-size:.9rem">
+            Profile: <strong id="cmd-profile-name" style="color:var(--cyan)"></strong>
+        </p>
+        <div class="form-group" style="margin-top:12px">
+            <label>Nhập lệnh (tự nhiên)</label>
+            <textarea id="cmd-input" class="input" rows="2" placeholder="VD: vào google tìm kiếm giá vàng hôm nay&#10;login google&#9;email@gmail.com&#9;password&#9;recovery@email.com&#9;2FA codes" style="width:100%;font-size:0.95rem;padding:12px 14px;resize:vertical;font-family:inherit" onkeydown="if(event.key==='Tab'){event.preventDefault();var s=this.selectionStart;this.value=this.value.substring(0,s)+'\t'+this.value.substring(this.selectionEnd);this.selectionStart=this.selectionEnd=s+1}if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();executeProfileCommand()}"></textarea>
+            <small style="color:var(--text-muted);font-size:.75rem">Login: dùng Tab ngăn cách các trường: login google⇥email⇥pass⇥recovery⇥2FA</small>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+            <label>🤖 AI Model</label>
+            <select id="cmd-ai-model" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:0.9rem;font-family:inherit">
+                <option value="qwen:latest">Qwen (Local - Ollama)</option>
+                <option value="qwen3:latest">Qwen 3 (Local - Ollama)</option>
+                <option value="deepseek-r1:latest">DeepSeek R1 (Local - Ollama)</option>
+                <option value="llama3:latest">Llama 3 (Local - Ollama)</option>
+                <option value="gemma3:latest">Gemma 3 (Local - Ollama)</option>
+                <option value="gemini-2.0-flash">Gemini 2.0 Flash (Cloud)</option>
+                <option value="gpt-4o-mini">GPT-4o Mini (Cloud)</option>
+            </select>
+        </div>
+        <div style="margin:12px 0 16px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn-chip" onclick="setCommand('login google\temail@gmail.com\tpassword\trecovery@email.com\t2FA codes')">🔐 Login Google</button>
+            <button class="btn-chip" onclick="setCommand('vào google tìm kiếm giá vàng hôm nay')">🔍 Giá vàng</button>
+            <button class="btn-chip" onclick="setCommand('navigate to https://mail.google.com')">📧 Gmail</button>
+            <button class="btn-chip" onclick="setCommand('vào facebook.com')">📘 Facebook</button>
+            <button class="btn-chip" onclick="setCommand('search for latest tech news, then click first result, then browse 30 seconds')">📰 Đọc tin tech</button>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal('modal-command')">Huỷ</button>
+            <button class="btn-primary" id="btn-run-command" onclick="executeProfileCommand()" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4);font-weight:700">
+                🚀 Chạy lệnh
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Profile Settings Modal -->
+<div id="modal-settings" class="modal hidden">
+    <div class="modal-content" style="max-width:560px">
+        <div class="modal-header">
+            <h2>⚙️ Profile Settings</h2>
+            <button class="btn-close" onclick="closeModal('modal-settings')">✕</button>
+        </div>
+        <p style="color:var(--text-muted);margin:8px 0 4px;font-size:.9rem">
+            Profile: <strong id="settings-profile-name" style="color:var(--cyan)"></strong>
+        </p>
+        <div class="form-group" style="margin-top:12px">
+            <label>🔌 Proxy</label>
+            <input id="settings-proxy" type="text" class="input" placeholder="socks5://user:pass@host:port" style="width:100%;padding:10px 14px">
+        </div>
+        <div class="form-group" style="margin-top:8px">
+            <label>🧬 Fingerprint Tags (OS, Device)</label>
+            <div style="display:flex;gap:8px">
+                <select id="settings-fp-os" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
+                    <option value="Windows">Windows</option>
+                    <option value="macOS">macOS</option>
+                    <option value="Linux">Linux</option>
+                    <option value="Android">Android</option>
+                </select>
+                <select id="settings-fp-browser" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
+                    <option value="Chrome">Chrome</option>
+                    <option value="Firefox">Firefox</option>
+                    <option value="Edge">Edge</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+            <label>🔐 Google Account <small style="color:var(--text-muted)">(auto-login khi mở browser)</small></label>
+            <textarea id="settings-google-account" class="input" rows="2" placeholder="email@gmail.com|password|recovery@email.com|2FA codes" style="width:100%;padding:10px 14px;font-size:.9rem;resize:vertical;font-family:inherit" oninput="previewGoogleAccount()"></textarea>
+            <small style="color:var(--text-muted);font-size:.75rem">Ngăn cách bằng <code>|</code> hoặc Tab: email|pass|recovery|2FA</small>
+            <div id="settings-account-preview" style="margin-top:6px;font-size:.8rem;color:var(--text-muted);display:none">
+                <div style="background:var(--bg-secondary);border-radius:6px;padding:8px 10px;border:1px solid var(--border)">
+                    <div>📧 <span id="preview-email" style="color:var(--cyan)"></span></div>
+                    <div>🔑 <span id="preview-pass"></span></div>
+                    <div>📩 <span id="preview-recovery"></span></div>
+                    <div>🔢 <span id="preview-2fa"></span></div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal('modal-settings')">Huỷ</button>
+            <button class="btn-primary" onclick="saveProfileSettings()" style="background:linear-gradient(135deg,#f59e0b,#ef4444);font-weight:700">
+                💾 Lưu Settings
+            </button>
+        </div>
+    </div>
+</div>
+
 <script src="/static/i18n.js?v=3"></script>
-<script src="/static/app.js?v=13"></script>
+<script src="/static/app.js?v=15"></script>
 </body>
 </html>

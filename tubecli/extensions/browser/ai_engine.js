@@ -15,7 +15,7 @@ export class AIEngine {
       { name: 'search', description: 'Search for a keyword on Google', params: ['keyword'] },
       { name: 'browse', description: 'Scroll and move mouse naturally', params: ['iterations'] },
       { name: 'click', description: 'Click on a result or selector', params: ['selector (optional)'] },
-      { name: 'login', description: 'Login to Google/account', params: ['email', 'password'] },
+      { name: 'login', description: 'Login to a website (google/facebook/tiktok/x/discord)', params: ['platform', 'email', 'password', 'recoveryEmail (optional)', 'twoFactorCodes (optional)'] },
       { name: 'comment', description: 'Post a context-aware comment', params: ['instruction (optional)'] },
       { name: 'watch', description: 'Watch video for specific time', params: ['duration (e.g. 50-100s)'] },
       { name: 'visual_scan', description: 'Analyze screen with AI and suggest actions', params: [] }
@@ -77,6 +77,12 @@ Example Output: {
     {"action": "save_image", "params": {}}
   ]
 }
+
+LOGIN Example: If user says "login google email@gmail.com pass123 recovery@email.com 2FA_CODES"
+{
+  "actions": [{"action": "login", "params": {"platform": "google", "email": "email@gmail.com", "password": "pass123", "recoveryEmail": "recovery@email.com", "twoFactorCodes": "2FA_CODES"}}]
+}
+IMPORTANT: For login commands, extract ALL fields separated by tabs or spaces: platform, email, password, recoveryEmail, twoFactorCodes.
 NOTE: Only add verification steps if explicitly asked or if navigation fails.
 `;
 
@@ -337,25 +343,60 @@ NOTE: Only add verification steps if explicitly asked or if navigation fails.
             actions.push({ action: 'click', params });
           }
         } else if (current.key === 'login') {
-          // Extract email/username and password
-          // Priority 1: "username:password:recovery" or "username:password" (no spaces around colon)
-          // Allow username to be email OR just a string (e.g. voanhtk5)
-          const tripleMatch = segmentContext.match(/([^\s:'"]+)[:]([^\s:'"]+)[:]([^\s:'"]+)/);
-          const doubleMatch = tripleMatch ? null : segmentContext.match(/([^\s:'"]+)[:]([^\s'"]+)/);
+          // Extract login credentials from the segment
+          // Smart detection: emails detected by @, password by position
+          const rawSegment = segmentContext;
+          const knownPlatforms = ['google', 'facebook', 'tiktok', 'x', 'twitter', 'discord', 'telegram'];
+          let platform = 'google';
+          let email = '', password = '', recoveryEmail = '', twoFactorCodes = '';
           
-          if (tripleMatch) {
-            actions.push({ action: 'login', params: { email: tripleMatch[1], password: tripleMatch[2], recoveryEmail: tripleMatch[3] } });
-          } else if (doubleMatch) {
-            actions.push({ action: 'login', params: { email: doubleMatch[1], password: doubleMatch[2] } });
+          if (rawSegment.includes('\t')) {
+            // Tab-separated mode
+            const parts = rawSegment.split(/\t+/);
+            let idx = 0;
+            if (parts[0] && knownPlatforms.includes(parts[0].trim().toLowerCase())) {
+              platform = parts[0].trim().toLowerCase();
+              idx = 1;
+            }
+            email = (parts[idx] || '').trim();
+            password = (parts[idx + 1] || '').trim();
+            recoveryEmail = (parts[idx + 2] || '').trim();
+            twoFactorCodes = parts.slice(idx + 3).join(' ').trim();
           } else {
-             // Fallback for space-separated
-            const parts = segmentContext.split(/[\s:'"]+/).filter(p => p.length > 0 && !p.toLowerCase().includes('login'));
-            // ... (keep existing extensive logic if needed, or simplify)
-            // For now, simpler fallback for emails
-            const email = parts.find(p => p.includes('@')) || parts[0] || '';
-            const password = parts.find(p => p !== email && p.length > 3) || '';
-            actions.push({ action: 'login', params: { email, password, recoveryEmail: '' } });
+            // Smart space-separated: detect fields by @ pattern
+            const words = rawSegment.trim().split(/\s+/).filter(p => p.length > 0);
+            let idx = 0;
+            if (words[0] && knownPlatforms.includes(words[0].toLowerCase())) {
+              platform = words[0].toLowerCase();
+              idx = 1;
+            }
+            // Find emails by @ sign
+            let emailIdx = -1, recoveryIdx = -1;
+            for (let i = idx; i < words.length; i++) {
+              if (words[i].includes('@')) {
+                if (emailIdx === -1) emailIdx = i;
+                else if (recoveryIdx === -1) recoveryIdx = i;
+              }
+            }
+            if (emailIdx >= 0) {
+              email = words[emailIdx];
+              password = words[emailIdx + 1] || '';
+              if (recoveryIdx >= 0) {
+                recoveryEmail = words[recoveryIdx];
+                twoFactorCodes = words.slice(recoveryIdx + 1).join(' ');
+              }
+            } else {
+              email = words[idx] || '';
+              password = words[idx + 1] || '';
+            }
           }
+          if (platform === 'twitter') platform = 'x';
+          
+          const loginParams = { platform, email, password };
+          if (recoveryEmail) loginParams.recoveryEmail = recoveryEmail;
+          if (twoFactorCodes) loginParams.twoFactorCodes = twoFactorCodes;
+          console.log(`[Login Fallback] platform=${platform} email=${email} recovery=${recoveryEmail} 2FA=${twoFactorCodes ? 'yes' : 'no'}`);
+          actions.push({ action: 'login', params: loginParams });
         } else if (current.key === 'comment') {
           // Extract content: "comment [instruction] [until next keyword]"
           const instructionParams = {};

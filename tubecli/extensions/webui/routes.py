@@ -44,6 +44,15 @@ async def studio_page():
     return {"error": "Studio page not found"}
 
 
+@router.get("/market")
+async def market_page():
+    """Serve the Extension Market page."""
+    market_file = os.path.join(STATIC_DIR, "market.html")
+    if os.path.exists(market_file):
+        return FileResponse(market_file)
+    return {"error": "Market page not found"}
+
+
 @router.get("/downloader")
 async def downloader_page():
     """Serve the Video Downloader page."""

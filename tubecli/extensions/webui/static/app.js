@@ -162,7 +162,7 @@ function startBrowserStatusPoller(el) {
     _browserStatusPoller = setInterval(async () => {
         try {
             const status = await apiGet('/api/v1/browser/status');
-            const running = (status?.instances||[]).map(i => i.profile).sort().join(',');
+            const running = (status?.instances||[]).filter(i => i.status === 'running').map(i => i.profile).sort().join(',');
             if (running !== _lastRunningProfiles) {
                 _lastRunningProfiles = running;
                 renderBrowserExt(el);
@@ -178,15 +178,17 @@ async function renderBrowserExt(el) {
     const data = await apiGet('/api/v1/browser/profiles');
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
-    const runningProfiles = (status?.instances||[]).map(i => i.profile);
+    const runningInstances = (status?.instances||[]).filter(i => i.status === 'running');
+    const runningProfiles = runningInstances.map(i => i.profile);
     _lastRunningProfiles = runningProfiles.slice().sort().join(',');
     startBrowserStatusPoller(el);
     let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">Browser Engines</button></div>`;
-    if (status?.instances?.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${status.instances.length} ${T('status.running')}</div>`;
+    if (runningInstances.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${runningInstances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
-        return `<div class="card"><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="viewProfileLog('${esc(p.name)}')" title="View Log">📋</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),500)">✕</button></div></div></div>`;
+        const hasGA = p.google_account && p.google_account.email;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="Settings">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="Run Command" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }
@@ -295,27 +297,299 @@ async function installExtension() { const u = document.getElementById('install-e
 // ═══════════════════════════════════════════════════════════
 // ═══ API MANAGER PAGE ═══
 // ═══════════════════════════════════════════════════════════
+
+// Group config: icon, label, description (vi/en)
+const API_GROUPS = {
+    'health': { icon: '💓', label: 'Health', desc_vi: 'Kiểm tra trạng thái server', desc_en: 'Server health check' },
+    'agents': { icon: '🤖', label: 'Agents', desc_vi: 'Quản lý AI agents, tạo, sửa, xóa, chat', desc_en: 'Manage AI agents — create, edit, delete, chat' },
+    'skills': { icon: '⚡', label: 'Skills', desc_vi: 'Quản lý kỹ năng agent, chạy skill', desc_en: 'Manage agent skills, run skills' },
+    'workflows': { icon: '🔄', label: 'Workflows', desc_vi: 'Tạo và quản lý workflow tự động', desc_en: 'Create and manage automated workflows' },
+    'nodes': { icon: '🧩', label: 'Nodes', desc_vi: 'Danh sách node workflow khả dụng', desc_en: 'List available workflow nodes' },
+    'extensions': { icon: '📦', label: 'Extensions', desc_vi: 'Quản lý extension: bật/tắt, cài đặt, cập nhật', desc_en: 'Manage extensions: enable/disable, install, update' },
+    'system': { icon: '⚙️', label: 'System', desc_vi: 'Phiên bản, cập nhật hệ thống', desc_en: 'Version info, system updates' },
+    'settings': { icon: '🔧', label: 'Settings', desc_vi: 'Cài đặt hệ thống (ngôn ngữ, proxy...)', desc_en: 'System settings (language, proxy...)' },
+    'cloud-api': { icon: '☁️', label: 'Cloud API', desc_vi: 'Quản lý API key cho Gemini, OpenAI, Claude...', desc_en: 'Manage API keys for Gemini, OpenAI, Claude...' },
+    'downloader': { icon: '📥', label: 'Downloader', desc_vi: 'Tải video TikTok & Douyin, quét kênh', desc_en: 'Download TikTok & Douyin videos, scan channels' },
+    'ollama': { icon: '🧠', label: 'Ollama', desc_vi: 'Quản lý mô hình AI local', desc_en: 'Manage local AI models' },
+    'other': { icon: '📡', label: 'Other', desc_vi: 'Các API khác', desc_en: 'Other APIs' },
+};
+
+// i18n description overrides for specific endpoints
+const API_DESC_VI = {
+    '/api/v1/health': 'Kiểm tra server đang chạy',
+    '/api/v1/agents': { 'get': 'Danh sách tất cả agents', 'post': 'Tạo agent mới' },
+    '/api/v1/agents/generate': 'Tạo agent bằng AI',
+    '/api/v1/agents/{agent_id}': { 'get': 'Chi tiết một agent', 'put': 'Cập nhật agent', 'delete': 'Xóa agent' },
+    '/api/v1/agents/{agent_id}/chat': 'Chat với agent',
+    '/api/v1/skills': { 'get': 'Danh sách kỹ năng', 'post': 'Tạo kỹ năng mới' },
+    '/api/v1/skills/{skill_id}': { 'get': 'Chi tiết kỹ năng', 'delete': 'Xóa kỹ năng' },
+    '/api/v1/skills/{skill_id}/run': 'Chạy kỹ năng',
+    '/api/v1/workflows': { 'get': 'Danh sách workflows' },
+    '/api/v1/workflows/run': 'Chạy workflow',
+    '/api/v1/workflows/save-as-skill': 'Lưu workflow thành skill',
+    '/api/v1/extensions': 'Danh sách extension',
+    '/api/v1/extensions/{name}/enable': 'Bật extension',
+    '/api/v1/extensions/{name}/disable': 'Tắt extension',
+    '/api/v1/extensions/install': 'Cài extension từ Git',
+    '/api/v1/system/version': 'Phiên bản hiện tại',
+    '/api/v1/system/check-update': 'Kiểm tra cập nhật',
+    '/api/v1/system/update': 'Cập nhật hệ thống',
+    '/api/v1/settings/language': { 'get': 'Lấy ngôn ngữ hiện tại', 'post': 'Đổi ngôn ngữ' },
+};
+
+let _apiSpec = null; // cached spec
+
 async function loadApiManagerPage() {
     document.getElementById('api-base-display').textContent = API;
     const el = document.getElementById('api-endpoints-list');
-    // Fetch OpenAPI spec
+
     try {
         const resp = await fetch(API + '/openapi.json');
-        const spec = await resp.json();
-        const paths = spec.paths || {};
-        let rows = '';
-        const methodColors = { get:'var(--green)', post:'var(--blue)', put:'var(--orange)', delete:'var(--red)', patch:'var(--purple)' };
-        Object.entries(paths).forEach(([path, methods]) => {
-            Object.entries(methods).forEach(([method, info]) => {
-                if (['get','post','put','delete','patch'].includes(method)) {
-                    rows += `<tr><td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:700;text-transform:uppercase;background:${methodColors[method]||'var(--text-muted)'}22;color:${methodColors[method]||'var(--text-muted)'}">${method}</span></td><td style="font-family:'JetBrains Mono',monospace;font-size:.82rem">${esc(path)}</td><td style="color:var(--text2);font-size:.82rem">${esc(info.summary||info.description||'')}</td><td>${(info.tags||[]).map(t=>`<span class="tag">${esc(t)}</span>`).join(' ')}</td></tr>`;
-                }
-            });
-        });
-        el.innerHTML = `<table class="data-table"><thead><tr><th style="width:70px">Method</th><th>Path</th><th>Description</th><th>Tags</th></tr></thead><tbody>${rows}</tbody></table>`;
+        _apiSpec = await resp.json();
+        renderApiGroups(_apiSpec, el);
     } catch(e) {
         el.innerHTML = '<p class="text-muted" style="padding:20px">Cannot load API spec. Check if server is running.</p>';
     }
+}
+
+function renderApiGroups(spec, el) {
+    const paths = spec.paths || {};
+    const lang = (document.documentElement.lang || 'en').startsWith('vi') ? 'vi' : 'en';
+
+    // Group endpoints by prefix
+    const groups = {};
+    Object.entries(paths).forEach(([path, methods]) => {
+        Object.entries(methods).forEach(([method, info]) => {
+            if (!['get','post','put','delete','patch'].includes(method)) return;
+            // Determine group from path
+            const parts = path.replace('/api/v1/', '').split('/');
+            let groupKey = parts[0] || 'other';
+            if (groupKey === '{name}' || groupKey === '{agent_id}' || groupKey === '{skill_id}') groupKey = 'other';
+
+            if (!groups[groupKey]) groups[groupKey] = [];
+
+            // Get description
+            let desc = info.summary || info.description || '';
+            const viDesc = API_DESC_VI[path];
+            if (lang === 'vi' && viDesc) {
+                desc = typeof viDesc === 'string' ? viDesc : (viDesc[method] || desc);
+            }
+
+            groups[groupKey].push({ path, method, desc, info, tags: info.tags || [] });
+        });
+    });
+
+    // Render groups
+    let html = '';
+    const orderKeys = Object.keys(API_GROUPS);
+    const allGroupKeys = [...new Set([...orderKeys.filter(k => groups[k]), ...Object.keys(groups)])];
+
+    allGroupKeys.forEach(key => {
+        const items = groups[key];
+        if (!items || items.length === 0) return;
+        const grp = API_GROUPS[key] || { icon: '📡', label: key.charAt(0).toUpperCase() + key.slice(1), desc_vi: '', desc_en: '' };
+        const grpDesc = lang === 'vi' ? grp.desc_vi : grp.desc_en;
+
+        html += `<div class="api-group open" data-group="${key}">
+            <div class="api-group-header" onclick="this.parentElement.classList.toggle('open')">
+                <span class="group-icon">${grp.icon}</span>
+                <span class="group-title">${grp.label}</span>
+                <span style="font-size:0.75rem;color:var(--text-muted)">${esc(grpDesc)}</span>
+                <span class="group-count">${items.length}</span>
+                <span class="group-arrow">▶</span>
+            </div>
+            <div class="api-group-body">`;
+
+        items.forEach(ep => {
+            html += `<div class="api-row" data-path="${esc(ep.path)}" data-method="${ep.method}" onclick="openApiTest('${esc(ep.method)}','${esc(ep.path)}','${esc(ep.desc.replace(/'/g,''))}')">
+                <span class="method-badge method-${ep.method}">${ep.method}</span>
+                <span class="api-path">${esc(ep.path)}</span>
+                <span class="api-desc">${esc(ep.desc)}</span>
+                <button class="btn-test">▶ Test</button>
+            </div>`;
+        });
+
+        html += '</div></div>';
+    });
+
+    el.innerHTML = html;
+}
+
+function filterApiEndpoints() {
+    const q = document.getElementById('api-search').value.toLowerCase().trim();
+    document.querySelectorAll('.api-row').forEach(row => {
+        const path = (row.dataset.path || '').toLowerCase();
+        const method = (row.dataset.method || '').toLowerCase();
+        const desc = (row.querySelector('.api-desc')?.textContent || '').toLowerCase();
+        row.classList.toggle('hidden', q && !path.includes(q) && !method.includes(q) && !desc.includes(q));
+    });
+    document.querySelectorAll('.api-group').forEach(grp => {
+        const visibleRows = grp.querySelectorAll('.api-row:not(.hidden)');
+        grp.style.display = visibleRows.length > 0 ? '' : 'none';
+        if (q && visibleRows.length > 0) grp.classList.add('open');
+    });
+}
+
+// === API Test Runner (inline below clicked row) ===
+let _testMethod = 'GET', _testPath = '';
+
+function openApiTest(method, path, desc, event) {
+    if (event) event.stopPropagation();
+    _testMethod = method.toUpperCase();
+    _testPath = path;
+
+    // Remove any existing inline test panel
+    const existing = document.getElementById('api-test-inline');
+    if (existing) existing.remove();
+
+    // Find the clicked row
+    const rows = document.querySelectorAll('.api-row');
+    let targetRow = null;
+    rows.forEach(r => {
+        if (r.dataset.path === path && r.dataset.method === method) targetRow = r;
+    });
+    if (!targetRow) return;
+
+    // Build param inputs
+    const pathParams = (path.match(/\{(\w+)\}/g) || []).map(p => p.slice(1,-1));
+    let phtml = '';
+    pathParams.forEach(p => {
+        phtml += `<div class="api-test-params-group">
+            <label>${p}</label>
+            <input type="text" id="param-${p}" placeholder="Enter ${p}...">
+        </div>`;
+    });
+
+    // Add request body if POST/PUT with JSON example
+    if (['POST','PUT','PATCH'].includes(_testMethod)) {
+        let exBody = '{}';
+        if (_apiSpec && _apiSpec.paths[path] && _apiSpec.paths[path][method]) {
+            const rb = _apiSpec.paths[path][method].requestBody;
+            if (rb) {
+                const schema = rb.content?.['application/json']?.schema;
+                if (schema) {
+                    exBody = JSON.stringify(buildExample(schema, _apiSpec), null, 2);
+                }
+            }
+        }
+        phtml += `<div class="api-test-params-group">
+            <label>Request Body (JSON)</label>
+            <textarea id="param-body" rows="6" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:.82rem;">${esc(exBody)}</textarea>
+        </div>`;
+    }
+
+    // Create inline panel
+    const panel = document.createElement('div');
+    panel.id = 'api-test-inline';
+    panel.className = 'api-test-panel';
+    panel.innerHTML = `
+        <div class="api-test-header">
+            <span class="method-badge method-${method}">${_testMethod}</span>
+            <code style="flex:1;font-size:14px;">${esc(path)}</code>
+            <button class="btn-sm" onclick="closeApiTest()" style="background:var(--red);">✕ Đóng</button>
+        </div>
+        <p style="color:var(--text-muted);font-size:13px;margin:8px 0;">${esc(desc)}</p>
+        <div>${phtml}</div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+            <button class="btn-primary" onclick="runApiTest()" id="btn-run-test">▶ Run Test</button>
+        </div>
+        <div id="api-test-response" class="api-response hidden">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+                <span id="api-test-status" style="font-weight:700;"></span>
+                <button class="btn-sm" onclick="copyApiResponse()">📋 Copy</button>
+            </div>
+            <pre id="api-test-body" style="max-height:400px;overflow:auto;font-size:12px;white-space:pre-wrap;"></pre>
+        </div>`;
+
+    // Insert right after the clicked row
+    targetRow.insertAdjacentElement('afterend', panel);
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// Build example JSON from OpenAPI schema
+function buildExample(schema, spec) {
+    if (!schema) return {};
+    // Resolve $ref
+    if (schema['$ref']) {
+        const refPath = schema['$ref'].replace('#/', '').split('/');
+        let resolved = spec;
+        refPath.forEach(p => { resolved = resolved?.[p]; });
+        return buildExample(resolved, spec);
+    }
+    if (schema.properties) {
+        const obj = {};
+        Object.entries(schema.properties).forEach(([k, v]) => {
+            if (v['$ref']) {
+                obj[k] = buildExample(v, spec);
+            } else if (v.type === 'array') {
+                obj[k] = v.items ? [buildExample(v.items, spec)] : [];
+            } else if (v.type === 'object') {
+                obj[k] = v.properties ? buildExample(v, spec) : {};
+            } else {
+                obj[k] = v.default !== undefined ? v.default
+                    : v.example !== undefined ? v.example
+                    : v.type === 'string' ? (v.enum ? v.enum[0] : '')
+                    : v.type === 'integer' || v.type === 'number' ? 0
+                    : v.type === 'boolean' ? false : null;
+            }
+        });
+        return obj;
+    }
+    return {};
+}
+
+function closeApiTest() {
+    const panel = document.getElementById('api-test-inline');
+    if (panel) panel.remove();
+}
+
+async function runApiTest() {
+    const btn = document.getElementById('btn-run-test');
+    btn.disabled = true; btn.textContent = '⏳ Running...';
+
+    // Build URL with path params
+    let url = _testPath;
+    const pathParams = (_testPath.match(/\{(\w+)\}/g) || []).map(p => p.slice(1,-1));
+    pathParams.forEach(p => {
+        const val = document.getElementById('param-' + p)?.value || '';
+        url = url.replace(`{${p}}`, encodeURIComponent(val));
+    });
+
+    const fetchOpts = { method: _testMethod, headers: {} };
+    if (['POST','PUT','PATCH'].includes(_testMethod)) {
+        const bodyEl = document.getElementById('param-body');
+        if (bodyEl) {
+            fetchOpts.headers['Content-Type'] = 'application/json';
+            fetchOpts.body = bodyEl.value;
+        }
+    }
+
+    const respDiv = document.getElementById('api-test-response');
+    const statusEl = document.getElementById('api-test-status');
+    const bodyEl = document.getElementById('api-test-body');
+
+    try {
+        const t0 = Date.now();
+        const res = await fetch(url, fetchOpts);
+        const elapsed = Date.now() - t0;
+        const text = await res.text();
+        let formatted = text;
+        try { formatted = JSON.stringify(JSON.parse(text), null, 2); } catch(e) {}
+
+        statusEl.innerHTML = `<span style="color:${res.ok?'var(--green)':'var(--red)'}"> ${res.status} ${res.statusText}</span> <span style="color:var(--text-muted);font-weight:400;font-size:.8rem;">(${elapsed}ms)</span>`;
+        bodyEl.textContent = formatted;
+        respDiv.classList.remove('hidden');
+    } catch(e) {
+        statusEl.innerHTML = `<span style="color:var(--red)">Error</span>`;
+        bodyEl.textContent = e.message;
+        respDiv.classList.remove('hidden');
+    }
+    btn.disabled = false; btn.textContent = '▶ Run Test';
+}
+
+function copyApiResponse() {
+    const text = document.getElementById('api-test-body').textContent;
+    navigator.clipboard.writeText(text).then(() => alert('Copied!'));
 }
 
 // ═══ API Key Management ═══
@@ -340,6 +614,7 @@ async function openEditAgent(id) { const d=await apiGet('/api/v1/agents/'+id); i
 async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML='<p class="text-muted">No profiles.</p>'; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
 async function populateAgentSkills(allowed) { const d=await apiGet('/api/v1/skills'); const c=document.getElementById('agent-skills-list'); if(!d?.skills?.length) { c.innerHTML='<p class="text-muted">No skills.</p>'; return; } c.innerHTML=d.skills.map(s=>`<label class="checkbox-item"><input type="checkbox" value="${s.id}" class="agent-skill-cb" ${allowed.includes(s.id)?'checked':''}>${esc(s.name)} <span class="tag" style="margin-left:auto">${esc(s.type)}</span></label>`).join(''); }
 
+function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function onProxyModeChange() { const m=document.getElementById('agent-proxy-mode').value; document.getElementById('proxy-static-group').style.display=m==='static'?'block':'none'; document.getElementById('proxy-dynamic-group').style.display=m==='dynamic'?'block':'none'; }
 function onScheduleRepeatChange() { document.getElementById('schedule-interval-group').style.display=document.getElementById('agent-schedule-repeat').value==='interval'?'block':'none'; }
@@ -539,6 +814,12 @@ async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textConte
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),1000); }
 async function deleteProfile(name) { if(!confirm('Delete '+name+'?')) return; await apiDelete('/api/v1/browser/profiles/'+name); }
 async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name)); if (!r || r.error) { alert('No log available: ' + (r?.error || 'Unknown')); return; } let msg = '📋 Browser Log for: ' + name; msg += '\n\nStatus: ' + (r.status || '-'); msg += '\nCommand: ' + (r.command || '-'); msg += '\nLog file: ' + (r.log_file || '-'); if (r.debug) { const d = r.debug; if (d.node_version) msg += '\nNode: ' + d.node_version; if (d.open_js_exists !== undefined) msg += '\nopen.js: ' + (d.open_js_exists ? '✅' : '❌'); if (d.node_modules_exists !== undefined) msg += '\nnode_modules: ' + (d.node_modules_exists ? '✅' : '❌'); if (d.launcher_dir) msg += '\nLauncher: ' + d.launcher_dir; } msg += '\n\n─── LOG OUTPUT ───\n' + (r.log || '(empty)'); alert(msg); }
+
+// ═══ Browser Command ═══
+let _cmdProfile = '';
+function showProfileCommand(name) { _cmdProfile = name; document.getElementById('cmd-profile-name').textContent = name; document.getElementById('cmd-input').value = ''; document.getElementById('modal-command').classList.remove('hidden'); setTimeout(() => document.getElementById('cmd-input').focus(), 100); }
+function setCommand(cmd) { document.getElementById('cmd-input').value = cmd; document.getElementById('cmd-input').focus(); }
+async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert('Vui lòng nhập lệnh!'); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ Đang chạy...'; const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 Chạy lệnh'; if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(document.getElementById('ext-detail-body')); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = 'Lỗi: ' + (r?.error || r?.detail || 'Unknown'); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
 // ═══ Settings ═══
@@ -645,6 +926,98 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 
 // ═══ Utility ═══
 function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ═══ Profile Settings ═══
+let _settingsProfileName = '';
+
+async function showProfileSettings(name) {
+    _settingsProfileName = name;
+    document.getElementById('settings-profile-name').textContent = name;
+    
+    // Load profile data
+    try {
+        const data = await apiGet(`/api/v1/browser/profiles/${name}`);
+        if (data) {
+            document.getElementById('settings-proxy').value = data.proxy || '';
+            // Set fingerprint tags
+            const tags = data.tags || ['Windows', 'Chrome'];
+            const osEl = document.getElementById('settings-fp-os');
+            const brEl = document.getElementById('settings-fp-browser');
+            for (const t of tags) {
+                if (['Windows','macOS','Linux','Android'].includes(t)) osEl.value = t;
+                if (['Chrome','Firefox','Edge'].includes(t)) brEl.value = t;
+            }
+            // Google account
+            const ga = data.google_account;
+            if (ga && ga.email) {
+                const parts = [ga.email, ga.password || '', ga.recoveryEmail || '', ga.twoFactorCodes || ''].filter(p => p);
+                document.getElementById('settings-google-account').value = parts.join('|');
+            } else {
+                document.getElementById('settings-google-account').value = '';
+            }
+            previewGoogleAccount();
+        }
+    } catch (e) {
+        console.error('Failed to load profile:', e);
+    }
+    
+    openModal('modal-settings');
+}
+
+function previewGoogleAccount() {
+    const raw = document.getElementById('settings-google-account').value.trim();
+    const previewEl = document.getElementById('settings-account-preview');
+    if (!raw) { previewEl.style.display = 'none'; return; }
+    
+    const parts = raw.includes('|') ? raw.split('|') : raw.split('\t');
+    document.getElementById('preview-email').textContent = (parts[0] || '').trim();
+    document.getElementById('preview-pass').textContent = (parts[1] || '').trim() ? '••••••••' : '(empty)';
+    document.getElementById('preview-recovery').textContent = (parts[2] || '').trim() || '(none)';
+    document.getElementById('preview-2fa').textContent = (parts[3] || '').trim() || '(none)';
+    previewEl.style.display = 'block';
+}
+
+async function saveProfileSettings() {
+    const proxy = document.getElementById('settings-proxy').value.trim();
+    const os = document.getElementById('settings-fp-os').value;
+    const browser = document.getElementById('settings-fp-browser').value;
+    const googleRaw = document.getElementById('settings-google-account').value.trim();
+    
+    const payload = {
+        proxy: proxy,
+        tags: [os, browser],
+    };
+    
+    // Send google_account as raw string — backend will parse it
+    if (googleRaw) {
+        payload.google_account = googleRaw;
+    } else {
+        payload.google_account = '';
+    }
+    
+    try {
+        console.log('[Settings] Saving:', _settingsProfileName, payload);
+        const result = await apiPut(`/api/v1/browser/profiles/${_settingsProfileName}`, payload);
+        console.log('[Settings] Result:', result);
+        if (result && result.status === 'updated') {
+            closeModal('modal-settings');
+            // Show inline toast
+            const toast = document.createElement('div');
+            toast.textContent = '✅ Settings saved!';
+            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#22c55e;color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:fadeIn .3s';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2500);
+            // Refresh the browser extension view
+            const el = document.getElementById('ext-detail-body');
+            if (el) renderBrowserExt(el);
+        } else {
+            alert('❌ Save failed: ' + JSON.stringify(result));
+        }
+    } catch (e) {
+        console.error('[Settings] Error:', e);
+        alert('❌ Error: ' + e.message);
+    }
+}
 
 // ═══ Connection Check ═══
 async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(r.ok) document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot"></span> API Connected'; else throw 0; } catch { document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot" style="background:var(--red)"></span> API Offline'; } }

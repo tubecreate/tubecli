@@ -6,3 +6,4 @@ uuid7
 aiohttp
 requests
 rich>=13.0
+pyotp>=2.9

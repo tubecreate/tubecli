@@ -19,7 +19,7 @@ async function fetchTotpCode(twoFactorCodes) {
     const encoded = encodeURIComponent(cleanSecret);
     
     // Load config if exists
-    let apiUrl = 'http://localhost:5295/api/v1/2fa?secret=';
+    let apiUrl = 'http://localhost:5295/api/v1/browser/2fa?secret=';
     try {
       // Navigate up from browser-laucher/actions/login.js to python-video-studio/.cache/browser_config.json
       const configPath = path.join(process.cwd(), '..', '.cache', 'browser_config.json');
@@ -145,15 +145,32 @@ async function loginGoogle(page, params) {
 
     // 1. Check if already logged in
     await page.waitForTimeout(2000);
-    let isAlreadyLoggedIn = false;
-    if (page.url().includes('youtube.com')) {
-      isAlreadyLoggedIn = await page.locator('button#avatar-btn').first().isVisible();
-    } else {
-      isAlreadyLoggedIn = await page.locator('.gb_A, a[href*="SignOut"]').first().isVisible();
-    }
-    if (isAlreadyLoggedIn) {
-      console.log('[Google] Already logged in. Skipping.');
-      return;
+    try {
+      // Navigate to myaccount.google.com — it shows the account if logged in,
+      // or redirects to login page if not
+      await page.goto('https://myaccount.google.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(2000);
+      const currentUrl = page.url();
+      
+      if (!currentUrl.includes('accounts.google.com/signin') && !currentUrl.includes('ServiceLogin')) {
+        // We're on myaccount page = logged in. Check if same email
+        const pageText = await page.locator('body').first().innerText().catch(() => '');
+        if (pageText.toLowerCase().includes(email.toLowerCase())) {
+          console.log(`[Google] Already logged in with ${email}. Skipping.`);
+          await page.goto('https://www.google.com');
+          return;
+        } else {
+          console.log(`[Google] Logged in with different account. Will re-login as ${email}...`);
+          try {
+            await page.goto('https://accounts.google.com/Logout');
+            await page.waitForTimeout(3000);
+          } catch (e) { /* ignore */ }
+        }
+      } else {
+        console.log('[Google] Not logged in. Proceeding with login...');
+      }
+    } catch (e) {
+      console.log('[Google] Login check failed, proceeding with login...');
     }
 
     // 2. Navigate/click sign-in
@@ -282,11 +299,8 @@ async function loginGoogle(page, params) {
         // Try live TOTP first (from API)
         let code = await fetchTotpCode(twoFactorCodes);
 
-        // Fallback: treat twoFactorCodes as space-separated backup codes
         if (!code) {
-          const backupCodes = twoFactorCodes.trim().split(/\s+/);
-          code = backupCodes[0];
-          console.log(`[Google] Using backup code (${backupCodes.length} available): ${code}`);
+          console.warn('[Google] Could not generate TOTP code from API. 2FA may require manual intervention.');
         }
 
         if (code) {
