@@ -516,11 +516,24 @@ function buildExample(schema, spec) {
         refPath.forEach(p => { resolved = resolved?.[p]; });
         return buildExample(resolved, spec);
     }
+    // Handle anyOf (Pydantic Optional types)
+    if (schema.anyOf) {
+        const nonNull = schema.anyOf.find(s => s.type !== 'null');
+        if (nonNull) return buildExample(nonNull, spec);
+        return null;
+    }
     if (schema.properties) {
         const obj = {};
         Object.entries(schema.properties).forEach(([k, v]) => {
             if (v['$ref']) {
                 obj[k] = buildExample(v, spec);
+            } else if (v.anyOf) {
+                const nonNull = v.anyOf.find(s => s.type !== 'null');
+                if (nonNull) {
+                    obj[k] = buildExample(nonNull, spec);
+                } else {
+                    obj[k] = null;
+                }
             } else if (v.type === 'array') {
                 obj[k] = v.items ? [buildExample(v.items, spec)] : [];
             } else if (v.type === 'object') {
@@ -535,6 +548,10 @@ function buildExample(schema, spec) {
         });
         return obj;
     }
+    // Handle primitive types directly
+    if (schema.type === 'string') return schema.default !== undefined ? schema.default : '';
+    if (schema.type === 'integer' || schema.type === 'number') return schema.default !== undefined ? schema.default : 0;
+    if (schema.type === 'boolean') return schema.default !== undefined ? schema.default : false;
     return {};
 }
 
@@ -559,8 +576,30 @@ async function runApiTest() {
     if (['POST','PUT','PATCH'].includes(_testMethod)) {
         const bodyEl = document.getElementById('param-body');
         if (bodyEl) {
+            let bodyText = bodyEl.value.trim();
+            // Auto-fix common JSON mistakes: single quotes → double quotes
+            if (bodyText) {
+                // Replace single-quoted string values with double-quoted
+                bodyText = bodyText.replace(/:\s*'([^']*)'/g, ': "$1"');
+                // Remove trailing commas before } or ]
+                bodyText = bodyText.replace(/,\s*([}\]])/g, '$1');
+                bodyEl.value = bodyText;
+            }
+            // Validate JSON
+            try {
+                JSON.parse(bodyText);
+            } catch(e) {
+                const respDiv = document.getElementById('api-test-response');
+                const statusEl = document.getElementById('api-test-status');
+                const bodyPre = document.getElementById('api-test-body');
+                statusEl.innerHTML = `<span style="color:var(--red)">❌ Invalid JSON</span>`;
+                bodyPre.textContent = `JSON không hợp lệ: ${e.message}\n\nLưu ý: JSON phải dùng dấu nháy kép (") chứ không phải nháy đơn (')\n\nBody hiện tại:\n${bodyText}`;
+                respDiv.classList.remove('hidden');
+                btn.disabled = false; btn.textContent = '▶ Run Test';
+                return;
+            }
             fetchOpts.headers['Content-Type'] = 'application/json';
-            fetchOpts.body = bodyEl.value;
+            fetchOpts.body = bodyText;
         }
     }
 

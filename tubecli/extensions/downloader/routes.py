@@ -60,8 +60,8 @@ class ParseRequest(BaseModel):
 
 
 class DownloadRequest(BaseModel):
-    url: str
-    filename: Optional[str] = None
+    url: str = "https://www.douyin.com/video/7615246740991511846"
+    filename: Optional[str] = "aaa.mp4"
     proxy: Optional[str] = None
 
 
@@ -76,28 +76,37 @@ class SettingsUpdate(BaseModel):
 @router.post("/parse")
 async def parse_link(req: ParseRequest):
     """Parse a TikTok/Douyin link and return video info."""
-    from tubecli.extensions.downloader.link_parser import LinkParser
-    from tubecli.extensions.downloader.api_client import APIClient
+    try:
+        from tubecli.extensions.downloader.link_parser import LinkParser
+        from tubecli.extensions.downloader.api_client import APIClient
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"Thiếu thư viện: {e}. Chạy: pip install gmssl httpx")
 
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
 
-    # Parse link — pass cookies for short URL resolution
-    cookie_douyin = settings.get("cookie_douyin", "")
-    platform, detail_id = await LinkParser.parse(req.url, proxy, cookie_douyin)
-    if not platform or not detail_id:
-        raise HTTPException(status_code=400, detail="Không thể phân tích link. Hãy nhập link đầy đủ (https://www.douyin.com/video/xxx) hoặc video ID.")
+    try:
+        # Parse link — pass cookies for short URL resolution
+        cookie_douyin = settings.get("cookie_douyin", "")
+        platform, detail_id = await LinkParser.parse(req.url, proxy, cookie_douyin)
+        if not platform or not detail_id:
+            raise HTTPException(status_code=400, detail="Không thể phân tích link. Hãy nhập link đầy đủ (https://www.douyin.com/video/xxx) hoặc video ID.")
 
-    # Get video info
-    cookie = settings.get(f"cookie_{platform}", "")
-    info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
-    if not info:
-        raise HTTPException(status_code=404, detail="Không thể lấy thông tin video. Cookie có thể đã hết hạn.")
+        # Get video info
+        cookie = settings.get(f"cookie_{platform}", "")
+        info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
+        if not info:
+            raise HTTPException(status_code=404, detail="Không thể lấy thông tin video. Cookie có thể đã hết hạn.")
 
-    return {
-        "success": True,
-        "data": info.to_dict(),
-    }
+        return {
+            "success": True,
+            "data": info.to_dict(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"parse error: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi: {str(e)}")
 
 
 @router.post("/parse-batch")
@@ -144,21 +153,25 @@ async def parse_user(req: ParseRequest):
     if not sec_user_id:
         raise HTTPException(status_code=400, detail="Không tìm thấy sec_user_id. Hãy nhập link user Douyin (https://www.douyin.com/user/xxx).")
 
-    # Get user info
-    user_info = await APIClient.get_user_info(sec_user_id, cookie, proxy)
+    try:
+        # Get user info
+        user_info = await APIClient.get_user_info(sec_user_id, cookie, proxy)
 
-    # Get max_pages from request proxy field (hacky, but works)
-    max_pages = 10  # default: 10 pages * 18 = ~180 videos
+        # Get max_pages from request proxy field (hacky, but works)
+        max_pages = 10  # default: 10 pages * 18 = ~180 videos
 
-    # Get all user posts
-    videos = await APIClient.get_user_posts(sec_user_id, cookie, proxy, max_pages=max_pages)
+        # Get all user posts
+        videos = await APIClient.get_user_posts(sec_user_id, cookie, proxy, max_pages=max_pages)
 
-    return {
-        "success": True,
-        "user": user_info,
-        "videos": [v.to_dict() for v in videos],
-        "total": len(videos),
-    }
+        return {
+            "success": True,
+            "user": user_info,
+            "videos": [v.to_dict() for v in videos],
+            "total": len(videos),
+        }
+    except Exception as e:
+        logger.error(f"parse-user error: {e}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi phân tích user: {str(e)}. Kiểm tra thư viện gmssl đã cài chưa (pip install gmssl).")
 
 
 
@@ -194,6 +207,8 @@ async def start_download(req: DownloadRequest):
         "success": True,
         "task_id": task_id,
         "filename": task.filename,
+        "save_path": task.save_path,
+        "original_url": req.url,
     }
 
 
@@ -231,6 +246,7 @@ async def serve_file(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, filename=filename)
+
 
 
 @router.get("/settings")
