@@ -484,7 +484,8 @@ async function installItem(publicId, itemName, category) {
 
 // ── Uninstall Item ──
 async function uninstallItem(publicId, itemName, category) {
-    if (!confirm(`Uninstall "${itemName}"?\nThis will remove the extension files.`)) return;
+    const confirmed = await customConfirm('Gỡ cài đặt extension', `Bạn có chắc muốn gỡ cài đặt "${itemName}"?<br>Hành động này sẽ xóa toàn bộ source files của extension này khỏi máy.`);
+    if (!confirmed) return;
 
     const unBtn = document.getElementById('uninstallBtn_' + publicId);
     if (unBtn) {
@@ -1143,9 +1144,31 @@ function renderMyListings(items) {
         }
     };
 }
+// ── Custom Confirm Dialog ──
+function customConfirm(title, message) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmTitle').innerHTML = title;
+        document.getElementById('confirmMessage').innerHTML = message;
+        
+        modal.style.display = 'flex';
+        // Add subtle animation
+        modal.querySelector('.market-modal').style.animation = 'marketModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
+
+        const cleanup = () => {
+            modal.style.display = 'none';
+            document.getElementById('confirmOkBtn').onclick = null;
+            document.getElementById('confirmCancelBtn').onclick = null;
+        };
+
+        document.getElementById('confirmOkBtn').onclick = () => { cleanup(); resolve(true); };
+        document.getElementById('confirmCancelBtn').onclick = () => { cleanup(); resolve(false); };
+    });
+}
 
 async function confirmDeleteListing(publicId, title) {
-    if (!confirm(`Delete "${title}" from Market?\nThis action cannot be undone.`)) return;
+    const confirmed = await customConfirm('Xoá Listing', `Bạn có chắc muốn xoá <b>"${title}"</b> khỏi Market?<br>Hành động này không thể hoàn tác.`);
+    if (!confirmed) return;
 
     const el = document.getElementById('myListing_' + publicId);
     if (el) {
