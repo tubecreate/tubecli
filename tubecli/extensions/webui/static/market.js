@@ -1117,16 +1117,31 @@ function renderMyListings(items) {
                     </div>
                 </div>
                 <div class="my-listing-actions">
-                    <button class="btn-view-listing" onclick="closeMyListingsModal(); setTimeout(() => openDetailModal('${item.public_id}'), 200);" title="View">
+                    <button class="btn-view-listing" data-action="view" data-id="${item.public_id}" title="View">
                         👁️
                     </button>
-                    <button class="btn-delete-listing" onclick="confirmDeleteListing('${item.public_id}', '${escapeHtml(item.title)}')" title="Delete">
+                    <button class="btn-delete-listing" data-action="delete" data-id="${item.public_id}" data-title="${escapeHtml(item.title)}" title="Delete">
                         🗑️
                     </button>
                 </div>
             </div>
         `;
     }).join('');
+
+    // Event delegation for View/Delete buttons
+    container.onclick = function(e) {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.getAttribute('data-action');
+        const id = btn.getAttribute('data-id');
+        if (action === 'view') {
+            closeMyListingsModal();
+            setTimeout(() => openDetailModal(id), 200);
+        } else if (action === 'delete') {
+            const title = btn.getAttribute('data-title');
+            confirmDeleteListing(id, title);
+        }
+    };
 }
 
 async function confirmDeleteListing(publicId, title) {
