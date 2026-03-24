@@ -335,6 +335,19 @@
     </div>
 </div>
 
-<script src="/static/market.js?v=1.1"></script>
+<!-- Custom Confirm Alert -->
+<div class="market-modal-overlay" id="confirmModal" style="z-index:3000; display:none; align-items:center; justify-content:center;">
+    <div class="market-modal" style="width:400px; padding:28px; text-align:center;">
+        <div style="font-size:3.5rem; margin-bottom:16px;">⚠️</div>
+        <h3 id="confirmTitle" style="font-size:1.3rem; font-weight:800; margin-bottom:12px; color:var(--text, #e8e8f0);">Xác nhận</h3>
+        <p id="confirmMessage" style="font-size:0.95rem; color:var(--text-muted, #6868a0); margin-bottom:28px; line-height:1.5;"></p>
+        <div style="display:flex; gap:12px; justify-content:center;">
+            <button class="btn-secondary" id="confirmCancelBtn" style="padding:12px 28px; border-radius:12px; font-weight:600;">Huỷ</button>
+            <button class="btn-delete-listing" id="confirmOkBtn" style="padding:12px 28px; border:none; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border-radius:12px; font-weight:700; cursor:pointer;">Tiếp tục</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/market.js?v=1.2"></script>
 </body>
 </html>
