@@ -319,10 +319,10 @@ async function openDetailModal(publicId) {
             <div class="modal-description">${escapeHtml(item.description || 'No description provided.')}</div>
             ${tags.length ? `<div class="modal-tags">${tags.map(t => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
             <div class="modal-action-row">
-                <button class="btn-buy ${isFree ? 'free' : ''}" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
-                    ${isFree ? '⬇️ Get Free' : `🛒 Buy for ${formatCredits(price)}`}
-                </button>
-                <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}">
+                ${isFree ? '' : `<button class="btn-buy" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
+                    🛒 Buy for ${formatCredits(price)}
+                </button>`}
+                <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}" style="${isFree ? '' : 'display:none;'}">
                     📦 Install
                 </button>
             </div>
@@ -340,6 +340,27 @@ async function openDetailModal(publicId) {
                 `).join('') : '<p style="color:var(--text-muted);font-size:0.85rem;">No reviews yet</p>'}
             </div>
         `;
+
+        // Check if item is already installed locally
+        try {
+            const checkParams = new URLSearchParams({ item_name: item.title, category: item.category });
+            const checkRes = await fetch(`${API}/items/${publicId}/check-installed?${checkParams}`);
+            const checkData = await checkRes.json();
+            if (checkData.installed) {
+                const installBtn = document.getElementById('installBtn_' + publicId);
+                if (installBtn) {
+                    installBtn.innerHTML = '✅ Installed';
+                    installBtn.disabled = true;
+                    installBtn.style.display = '';
+                    installBtn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                }
+                // Hide buy button if item is already installed (no need to buy again)
+                const buyBtn = document.getElementById('buyBtn_' + publicId);
+                if (buyBtn) buyBtn.style.display = 'none';
+            }
+        } catch (e) {
+            console.warn('[Market] Check installed error:', e);
+        }
     } catch (e) {
         body.innerHTML = '<p style="color:var(--red)">Error loading item details</p>';
         console.error('[Market] Detail error:', e);
@@ -374,6 +395,12 @@ async function buyItem(publicId) {
             btn.innerHTML = '✅ Purchased';
             btn.classList.add('free');
             showToast('Item purchased successfully!', 'success');
+
+            // Show Install button after successful purchase
+            const installBtn = document.getElementById('installBtn_' + publicId);
+            if (installBtn) {
+                installBtn.style.display = '';
+            }
         } else {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -428,6 +455,11 @@ async function installItem(publicId, itemName, category) {
             btn.innerHTML = '✅ Installed';
             btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
             showToast(data.message || 'Installed successfully!', 'success');
+        } else if (res.status === 409 || data.detail?.already_installed) {
+            // Already installed
+            btn.innerHTML = '✅ Installed';
+            btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+            showToast(data.detail?.message || 'This item is already installed', 'error');
         } else {
             btn.disabled = false;
             btn.innerHTML = originalText;
@@ -498,8 +530,31 @@ function goToUploadStep(step) {
             document.getElementById('uploadDisplayName').value = item._displayName;
             document.getElementById('uploadCategory').value = uploadState.category;
             document.getElementById('uploadTitle').value = item._displayName;
-            document.getElementById('uploadData').value = JSON.stringify(item._rawData);
             document.getElementById('uploadDesc').value = item._description || '';
+
+            // For extensions: package all source files via /package API
+            if (uploadState.category === 'extension') {
+                document.getElementById('uploadData').value = '{}'; // placeholder
+                fetch(`/api/v1/extensions/${encodeURIComponent(item._id)}/package`)
+                    .then(r => r.json())
+                    .then(pkg => {
+                        if (pkg.status === 'success') {
+                            document.getElementById('uploadData').value = JSON.stringify({
+                                manifest: pkg.manifest,
+                                files: pkg.files,
+                            });
+                            console.log(`[Market] Packaged extension: ${pkg.file_count} files`);
+                        } else {
+                            showToast('Failed to package extension files', 'error');
+                            document.getElementById('uploadData').value = JSON.stringify(item._rawData);
+                        }
+                    })
+                    .catch(() => {
+                        document.getElementById('uploadData').value = JSON.stringify(item._rawData);
+                    });
+            } else {
+                document.getElementById('uploadData').value = JSON.stringify(item._rawData);
+            }
         }
     }
 }
@@ -919,6 +974,7 @@ async function handleMarketAuth() {
 function updateMarketAuthUI() {
     const userInfo = document.getElementById('marketUserInfo');
     const userName = document.getElementById('marketUserName');
+    const myListingsBtn = document.getElementById('btnMyListings');
 
     if (isLoggedIn()) {
         const user = JSON.parse(localStorage.getItem('market_user') || '{}');
@@ -927,8 +983,10 @@ function updateMarketAuthUI() {
             userInfo.style.display = 'flex';
             userName.textContent = '👤 ' + displayName;
         }
+        if (myListingsBtn) myListingsBtn.style.display = '';
     } else {
         if (userInfo) userInfo.style.display = 'none';
+        if (myListingsBtn) myListingsBtn.style.display = 'none';
     }
 }
 
@@ -937,8 +995,129 @@ function logoutMarket() {
     localStorage.removeItem('market_user');
     updateMarketAuthUI();
     showToast('Đã đăng xuất', 'success');
-    // Reload to clear any cached auth state
     setTimeout(() => location.reload(), 500);
+}
+
+// ── My Listings Management ──
+
+function openMyListingsModal() {
+    document.getElementById('myListingsModal').classList.add('active');
+    loadMyListings();
+}
+
+function closeMyListingsModal() {
+    document.getElementById('myListingsModal').classList.remove('active');
+}
+
+async function loadMyListings() {
+    const container = document.getElementById('myListingsContent');
+    container.innerHTML = '<div class="market-loading" style="padding:40px 0;"><div class="market-spinner"></div><span style="color:var(--text-muted)">Loading your listings...</span></div>';
+
+    try {
+        const token = getAuthToken();
+        const res = await fetch(`${API}/my-items`, {
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+
+        if (data.status === 'success' && data.data && data.data.length > 0) {
+            renderMyListings(data.data);
+        } else if (data.data && data.data.length === 0) {
+            container.innerHTML = `
+                <div style="text-align:center;padding:40px 0;color:var(--text-muted);">
+                    <div style="font-size:2.5rem;margin-bottom:12px;">📦</div>
+                    <h3 style="font-size:1.1rem;margin-bottom:6px;">No listings yet</h3>
+                    <p style="font-size:0.85rem;">Sell your extensions, skills, and nodes to the community!</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Failed to load listings</p>';
+        }
+    } catch (e) {
+        console.error('[Market] My listings error:', e);
+        container.innerHTML = '<p style="color:var(--red);text-align:center;padding:20px;">Network error</p>';
+    }
+}
+
+function renderMyListings(items) {
+    const container = document.getElementById('myListingsContent');
+    const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
+
+    container.innerHTML = items.map(item => {
+        const icon = categoryIcons[item.category] || '📦';
+        const price = parseFloat(item.price || 0);
+        const isFree = price <= 0;
+
+        return `
+            <div class="my-listing-item" id="myListing_${item.public_id}">
+                <div class="my-listing-icon">${icon}</div>
+                <div class="my-listing-info">
+                    <div class="my-listing-title">${escapeHtml(item.title)}</div>
+                    <div class="my-listing-meta">
+                        <span class="my-listing-category">${escapeHtml(item.category)}</span>
+                        <span>·</span>
+                        <span>${isFree ? '🆓 Free' : '💰 ' + formatCredits(price)}</span>
+                        <span>·</span>
+                        <span>⬇️ ${item.downloads || 0}</span>
+                        <span>·</span>
+                        <span>⭐ ${parseFloat(item.rating_avg || 0).toFixed(1)}</span>
+                    </div>
+                </div>
+                <div class="my-listing-actions">
+                    <button class="btn-view-listing" onclick="closeMyListingsModal(); setTimeout(() => openDetailModal('${item.public_id}'), 200);" title="View">
+                        👁️
+                    </button>
+                    <button class="btn-delete-listing" onclick="confirmDeleteListing('${item.public_id}', '${escapeHtml(item.title)}')" title="Delete">
+                        🗑️
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function confirmDeleteListing(publicId, title) {
+    if (!confirm(`Delete "${title}" from Market?\nThis action cannot be undone.`)) return;
+
+    const el = document.getElementById('myListing_' + publicId);
+    if (el) {
+        el.style.opacity = '0.5';
+        el.style.pointerEvents = 'none';
+    }
+
+    try {
+        const token = getAuthToken();
+        const res = await fetch(`${API}/items/${publicId}`, {
+            method: 'DELETE',
+            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        });
+        const data = await res.json();
+
+        if (data.status === 'success' || res.ok) {
+            showToast(`"${title}" deleted from Market`, 'success');
+            if (el) el.remove();
+            // Check if no items left
+            const container = document.getElementById('myListingsContent');
+            if (!container.querySelector('.my-listing-item')) {
+                container.innerHTML = `
+                    <div style="text-align:center;padding:40px 0;color:var(--text-muted);">
+                        <div style="font-size:2.5rem;margin-bottom:12px;">📦</div>
+                        <h3 style="font-size:1.1rem;margin-bottom:6px;">No listings yet</h3>
+                        <p style="font-size:0.85rem;">Sell your extensions, skills, and nodes to the community!</p>
+                    </div>
+                `;
+            }
+            // Refresh main grid
+            loadItems();
+            loadCategories();
+        } else {
+            showToast(data.message || data.detail || 'Delete failed', 'error');
+            if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
+        }
+    } catch (e) {
+        showToast('Network error', 'error');
+        if (el) { el.style.opacity = '1'; el.style.pointerEvents = ''; }
+    }
 }
 
 // Close modals on overlay click
@@ -951,6 +1130,9 @@ document.getElementById('uploadModal').addEventListener('click', (e) => {
 document.getElementById('loginModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeLoginModal();
 });
+document.getElementById('myListingsModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeMyListingsModal();
+});
 
 // Close modals on Escape
 document.addEventListener('keydown', (e) => {
@@ -958,6 +1140,7 @@ document.addEventListener('keydown', (e) => {
         closeDetailModal();
         closeUploadModal();
         closeLoginModal();
+        closeMyListingsModal();
     }
 });
 
