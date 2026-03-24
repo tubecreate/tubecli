@@ -609,6 +609,66 @@ async def uninstall_extension(name: str):
     return result
 
 
+@app.get("/api/v1/extensions/{name}/package")
+async def package_extension(name: str):
+    """Package all files of an extension into a JSON structure for Market upload.
+    Returns manifest + all source files so buyers can fully install the extension.
+    """
+    import json as json_lib
+    from tubecli.core.extension_manager import extension_manager
+
+    ext = extension_manager.get(name)
+    if not ext:
+        raise HTTPException(404, f"Extension '{name}' not found")
+
+    ext_dir = ext.extension_dir
+    if not ext_dir or not os.path.isdir(ext_dir):
+        raise HTTPException(400, "Extension directory not found")
+
+    # Read manifest
+    manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+    manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            manifest = json_lib.load(f)
+
+    # Collect all files (skip __pycache__, .git, .pyc, etc.)
+    SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "venv"}
+    SKIP_EXTS = {".pyc", ".pyo", ".egg-info"}
+    MAX_FILE_SIZE = 500_000  # 500KB per file
+
+    files = []
+    for root, dirs, filenames in os.walk(ext_dir):
+        # Filter out skip directories
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+
+        for fname in filenames:
+            if any(fname.endswith(ext) for ext in SKIP_EXTS):
+                continue
+
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, ext_dir).replace("\\", "/")
+
+            # Skip too large files
+            if os.path.getsize(fpath) > MAX_FILE_SIZE:
+                continue
+
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                files.append({"path": rel_path, "content": content})
+            except (UnicodeDecodeError, PermissionError):
+                # Skip binary files
+                continue
+
+    return {
+        "status": "success",
+        "manifest": manifest,
+        "files": files,
+        "file_count": len(files),
+    }
+
+
 @app.get("/api/v1/extensions/skill-mds")
 async def get_extension_skill_mds():
     """Return all SKILL.md contents from enabled extensions for AI agents."""

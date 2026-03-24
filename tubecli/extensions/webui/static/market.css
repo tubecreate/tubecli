@@ -223,6 +223,23 @@
 .btn-logout { padding: 4px 10px; border: 1px solid rgba(239,68,68,0.25); border-radius: 8px; background: rgba(239,68,68,0.08); color: #ef4444; font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
 .btn-logout:hover { background: rgba(239,68,68,0.2); border-color: #ef4444; }
 
+/* ─── My Listings Button ─── */
+.btn-my-listings { background: linear-gradient(135deg, #3b82f6, #06b6d4) !important; }
+.btn-my-listings:hover { box-shadow: 0 6px 24px rgba(59,130,246,0.35) !important; }
+
+/* ─── My Listings Items ─── */
+.my-listing-item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--border, #2a2a4a); border-radius: 12px; background: var(--bg3, #1a1a2e); margin-bottom: 8px; transition: all 0.2s; }
+.my-listing-item:hover { border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.03); }
+.my-listing-icon { font-size: 1.8rem; flex-shrink: 0; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; background: rgba(168,85,247,0.08); border-radius: 10px; }
+.my-listing-info { flex: 1; min-width: 0; }
+.my-listing-title { font-size: 0.95rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.my-listing-meta { font-size: 0.78rem; color: var(--text-muted, #6868a0); margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.my-listing-category { text-transform: uppercase; font-weight: 700; color: #00d4ff; letter-spacing: 0.5px; font-size: 0.7rem; }
+.my-listing-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.btn-view-listing, .btn-delete-listing { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border, #2a2a4a); background: transparent; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.btn-view-listing:hover { border-color: #00d4ff; background: rgba(0,212,255,0.08); }
+.btn-delete-listing:hover { border-color: #ef4444; background: rgba(239,68,68,0.12); }
+
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
     .market-layout { flex-direction: column; }

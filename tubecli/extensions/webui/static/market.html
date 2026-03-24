@@ -53,6 +53,9 @@
                     <span class="market-user-name" id="marketUserName"></span>
                     <button class="btn-logout" onclick="logoutMarket()" title="Đăng xuất">🚪</button>
                 </div>
+                <button class="btn-upload btn-my-listings" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">
+                    <span>📋</span> My Listings
+                </button>
                 <button class="btn-upload btn-sell" onclick="requireAuth(() => openUploadModal())">
                     <span>📤</span> Sell Item
                 </button>
@@ -256,6 +259,24 @@
                         <button type="submit" class="btn-upload" id="uploadSubmitBtn">📤 Publish to Market</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- My Listings Modal -->
+<div class="market-modal-overlay" id="myListingsModal">
+    <div class="market-modal" style="width:680px;max-height:85vh;">
+        <div style="padding:28px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <h2 style="font-size:1.3rem;font-weight:800;">📋 My Listings</h2>
+                <button class="modal-close" onclick="closeMyListingsModal()" style="position:static;background:var(--bg3);">✕</button>
+            </div>
+            <div id="myListingsContent" style="max-height:60vh;overflow-y:auto;">
+                <div class="market-loading" style="padding:40px 0;">
+                    <div class="market-spinner"></div>
+                    <span style="color:var(--text-muted)">Loading your listings...</span>
+                </div>
             </div>
         </div>
     </div>

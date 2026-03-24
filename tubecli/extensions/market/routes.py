@@ -83,6 +83,27 @@ async def list_items(
     )
 
 
+@router.get("/my-items")
+async def my_items(authorization: Optional[str] = Header(None)):
+    """Get items listed by the current user."""
+    token = _get_token(authorization)
+    # Get user profile to find user_id
+    profile = market_service.get_user_profile(token)
+    if profile.get("status") == "error":
+        raise HTTPException(401, "Could not fetch user profile")
+    # user.php returns {status, profile: {user_id, display_name, ...}}
+    user_id = (
+        profile.get("profile", {}).get("user_id")
+        or profile.get("user", {}).get("user_id")
+        or profile.get("user_id")
+    )
+    if not user_id:
+        raise HTTPException(401, "Could not determine user ID")
+    # Fetch all items by this user
+    result = market_service.list_items(user_id=user_id, limit=100)
+    return result
+
+
 @router.get("/items/{public_id}")
 async def get_item_detail(public_id: str):
     """Get item detail with reviews and seller info."""
@@ -129,6 +150,48 @@ async def delete_item(public_id: str, authorization: Optional[str] = Header(None
 
 # ── Install Extension from Market ──
 
+def _make_install_id(name: str, public_id: str) -> str:
+    """Create a unique install identifier: name__public_id."""
+    name_clean = name.replace(" ", "_").lower()
+    return f"{name_clean}__{public_id}"
+
+
+def _check_item_installed(public_id: str, name: str, category: str) -> dict:
+    """Check if an item is already installed locally using public_id."""
+    import os
+    from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
+
+    install_id = _make_install_id(name, public_id)
+    installed = False
+    install_path = ""
+
+    if category == "extension":
+        ext_dir = str(EXTENSIONS_EXTERNAL_DIR / install_id)
+        installed = os.path.isdir(ext_dir)
+        install_path = ext_dir
+    elif category == "skill":
+        skill_path = os.path.join(str(DATA_DIR), "skills", f"{install_id}.json")
+        installed = os.path.isfile(skill_path)
+        install_path = skill_path
+    elif category == "node":
+        node_path = os.path.join(str(DATA_DIR), "custom_nodes", f"{install_id}.json")
+        installed = os.path.isfile(node_path)
+        install_path = node_path
+    elif category == "model3d":
+        wf_path = os.path.join(str(DATA_DIR), "workflows", f"{install_id}.json")
+        installed = os.path.isfile(wf_path)
+        install_path = wf_path
+
+    return {"installed": installed, "path": install_path, "install_id": install_id}
+
+
+@router.get("/items/{public_id}/check-installed")
+async def check_installed(public_id: str, item_name: str, category: str):
+    """Check if a market item is already installed locally."""
+    result = _check_item_installed(public_id, item_name, category)
+    return {"status": "success", **result}
+
+
 class MarketInstallRequest(BaseModel):
     item_data: str   # JSON of the extension package data
     item_name: str   # extension name
@@ -155,11 +218,25 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 
     category = req.category
     name = req.item_name.replace(" ", "_").lower()
+    install_id = _make_install_id(req.item_name, public_id)
+
+    # Check for duplicate installation by public_id
+    check = _check_item_installed(public_id, req.item_name, category)
+    if check["installed"]:
+        raise HTTPException(
+            409,
+            detail={
+                "message": f"'{req.item_name}' (ID: {public_id}) is already installed",
+                "already_installed": True,
+                "path": check["path"],
+            },
+        )
 
     if category == "extension":
         # Full extension install: item_data should contain manifest + files info
-        ext_dir = str(EXTENSIONS_EXTERNAL_DIR / name)
+        ext_dir = str(EXTENSIONS_EXTERNAL_DIR / install_id)
         import os
+        import shutil
         os.makedirs(ext_dir, exist_ok=True)
 
         # If item_data contains files dict, write each file
@@ -170,10 +247,51 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 with open(fpath, "w", encoding="utf-8") as f:
                     f.write(file_info["content"])
         else:
-            # Save item_data as the manifest or extension data
-            manifest = item_data.get("manifest", item_data)
-            with open(os.path.join(ext_dir, "tubecli-extension.json"), "w", encoding="utf-8") as f:
-                json_lib.dump(manifest, f, indent=2, ensure_ascii=False)
+            # Fallback: try to find the extension locally and copy all files
+            source_dir = None
+
+            # Check extensions_external for a folder matching the extension name
+            for entry in os.listdir(str(EXTENSIONS_EXTERNAL_DIR)):
+                candidate = os.path.join(str(EXTENSIONS_EXTERNAL_DIR), entry)
+                if not os.path.isdir(candidate) or candidate == ext_dir:
+                    continue
+                manifest_file = os.path.join(candidate, "tubecli-extension.json")
+                if os.path.exists(manifest_file):
+                    try:
+                        with open(manifest_file, "r", encoding="utf-8") as f:
+                            m = json_lib.load(f)
+                        if m.get("name", "").lower() == name:
+                            source_dir = candidate
+                            break
+                    except Exception:
+                        continue
+
+            # Also check built-in extensions
+            if not source_dir:
+                from tubecli.core.extension_manager import extension_manager
+                ext_obj = extension_manager.get(name)
+                if ext_obj and ext_obj.extension_dir and os.path.isdir(ext_obj.extension_dir):
+                    source_dir = ext_obj.extension_dir
+
+            if source_dir:
+                # Copy all files from source extension
+                SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
+                SKIP_EXTS = {".pyc", ".pyo"}
+                for root, dirs, filenames in os.walk(source_dir):
+                    dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+                    for fname in filenames:
+                        if any(fname.endswith(e) for e in SKIP_EXTS):
+                            continue
+                        src_path = os.path.join(root, fname)
+                        rel_path = os.path.relpath(src_path, source_dir)
+                        dst_path = os.path.join(ext_dir, rel_path)
+                        os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+            else:
+                # Last resort: save item_data as the manifest
+                manifest = item_data.get("manifest", item_data)
+                with open(os.path.join(ext_dir, "tubecli-extension.json"), "w", encoding="utf-8") as f:
+                    json_lib.dump(manifest, f, indent=2, ensure_ascii=False)
 
         # Install pip requirements if present
         req_file = os.path.join(ext_dir, "requirements.txt")
@@ -194,7 +312,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         import os
         skills_dir = os.path.join(str(DATA_DIR), "skills")
         os.makedirs(skills_dir, exist_ok=True)
-        skill_path = os.path.join(skills_dir, f"{name}.json")
+        skill_path = os.path.join(skills_dir, f"{install_id}.json")
         with open(skill_path, "w", encoding="utf-8") as f:
             json_lib.dump(item_data, f, indent=2, ensure_ascii=False)
         return {"status": "success", "message": f"Skill '{name}' installed", "type": "skill"}
@@ -204,7 +322,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         import os
         nodes_dir = os.path.join(str(DATA_DIR), "custom_nodes")
         os.makedirs(nodes_dir, exist_ok=True)
-        node_path = os.path.join(nodes_dir, f"{name}.json")
+        node_path = os.path.join(nodes_dir, f"{install_id}.json")
         with open(node_path, "w", encoding="utf-8") as f:
             json_lib.dump(item_data, f, indent=2, ensure_ascii=False)
         return {"status": "success", "message": f"Node '{name}' installed", "type": "node"}
@@ -214,7 +332,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         import os
         wf_dir = os.path.join(str(DATA_DIR), "workflows")
         os.makedirs(wf_dir, exist_ok=True)
-        wf_path = os.path.join(wf_dir, f"{name}.json")
+        wf_path = os.path.join(wf_dir, f"{install_id}.json")
         with open(wf_path, "w", encoding="utf-8") as f:
             json_lib.dump(item_data, f, indent=2, ensure_ascii=False)
         return {"status": "success", "message": f"3D Model '{name}' installed", "type": "model3d"}
