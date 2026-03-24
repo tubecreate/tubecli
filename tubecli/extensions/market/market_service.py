@@ -67,6 +67,17 @@ class MarketService:
             print(f"[MarketCLI] Detail error: {e}")
         return {"status": "error"}
 
+    def download_item_data(self, public_id: str) -> Dict:
+        """Download item_data (packaged files) for a marketplace item."""
+        url = f"{self.api_base}/download-data.php"
+        try:
+            response = requests.get(url, params={"id": public_id}, timeout=30)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(f"[MarketCLI] Download data error: {e}")
+        return {"status": "error"}
+
     def upload_item(
         self,
         token: str,

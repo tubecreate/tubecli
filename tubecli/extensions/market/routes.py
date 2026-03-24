@@ -239,6 +239,21 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         import shutil
         os.makedirs(ext_dir, exist_ok=True)
 
+        # If item_data doesn't contain files, try downloading from server
+        if not (isinstance(item_data, dict) and "files" in item_data):
+            try:
+                dl = market_service.download_item_data(public_id)
+                if dl.get("status") == "success" and dl.get("item_data"):
+                    raw = dl["item_data"]
+                    if isinstance(raw, str):
+                        server_data = json_lib.loads(raw)
+                    else:
+                        server_data = raw
+                    if isinstance(server_data, dict) and "files" in server_data:
+                        item_data = server_data
+            except Exception as e:
+                print(f"[Market] Download item_data failed: {e}")
+
         # If item_data contains files dict, write each file
         if isinstance(item_data, dict) and "files" in item_data:
             for file_info in item_data["files"]:
