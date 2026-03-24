@@ -193,6 +193,52 @@ async def check_installed(public_id: str, item_name: str, category: str):
     return {"status": "success", **result}
 
 
+@router.post("/items/{public_id}/uninstall")
+async def uninstall_from_market(public_id: str, item_name: str, category: str):
+    """Uninstall a market-installed extension. Only removes files from extensions_external."""
+    import os
+    import shutil
+    from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
+
+    install_id = _make_install_id(item_name, public_id)
+
+    if category == "extension":
+        ext_dir = str(EXTENSIONS_EXTERNAL_DIR / install_id)
+        if not os.path.isdir(ext_dir):
+            raise HTTPException(404, "Extension not installed")
+        # Safety: only allow removing from extensions_external
+        ext_external_str = str(EXTENSIONS_EXTERNAL_DIR)
+        real_ext = os.path.realpath(ext_dir)
+        real_external = os.path.realpath(ext_external_str)
+        if not real_ext.startswith(real_external):
+            raise HTTPException(403, "Cannot uninstall: path outside extensions_external")
+        shutil.rmtree(ext_dir)
+        return {"status": "success", "message": f"'{item_name}' uninstalled successfully"}
+
+    elif category == "skill":
+        skill_path = os.path.join(str(DATA_DIR), "skills", f"{install_id}.json")
+        if os.path.isfile(skill_path):
+            os.remove(skill_path)
+            return {"status": "success", "message": f"Skill '{item_name}' uninstalled"}
+        raise HTTPException(404, "Skill not installed")
+
+    elif category == "node":
+        node_path = os.path.join(str(DATA_DIR), "custom_nodes", f"{install_id}.json")
+        if os.path.isfile(node_path):
+            os.remove(node_path)
+            return {"status": "success", "message": f"Node '{item_name}' uninstalled"}
+        raise HTTPException(404, "Node not installed")
+
+    elif category == "model3d":
+        wf_path = os.path.join(str(DATA_DIR), "workflows", f"{install_id}.json")
+        if os.path.isfile(wf_path):
+            os.remove(wf_path)
+            return {"status": "success", "message": f"Workflow '{item_name}' uninstalled"}
+        raise HTTPException(404, "Workflow not installed")
+
+    raise HTTPException(400, "Unknown category")
+
+
 class MarketInstallRequest(BaseModel):
     item_data: str   # JSON of the extension package data
     item_name: str   # extension name

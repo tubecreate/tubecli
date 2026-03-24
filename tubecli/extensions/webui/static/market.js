@@ -354,9 +354,20 @@ async function openDetailModal(publicId) {
                     installBtn.style.display = '';
                     installBtn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
                 }
-                // Hide buy button if item is already installed (no need to buy again)
+                // Hide buy button if item is already installed
                 const buyBtn = document.getElementById('buyBtn_' + publicId);
                 if (buyBtn) buyBtn.style.display = 'none';
+
+                // Add Uninstall button
+                const actionRow = installBtn?.parentElement;
+                if (actionRow && !document.getElementById('uninstallBtn_' + publicId)) {
+                    const unBtn = document.createElement('button');
+                    unBtn.id = 'uninstallBtn_' + publicId;
+                    unBtn.className = 'btn-uninstall';
+                    unBtn.innerHTML = '🗑️ Uninstall';
+                    unBtn.onclick = () => uninstallItem(publicId, item.title, item.category);
+                    actionRow.appendChild(unBtn);
+                }
             }
         } catch (e) {
             console.warn('[Market] Check installed error:', e);
@@ -456,9 +467,8 @@ async function installItem(publicId, itemName, category) {
             btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
             showToast(data.message || 'Installed successfully!', 'success');
         } else if (res.status === 409 || data.detail?.already_installed) {
-            // Already installed
             btn.innerHTML = '✅ Installed';
-            btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+            btn.disabled = true;
             showToast(data.detail?.message || 'This item is already installed', 'error');
         } else {
             btn.disabled = false;
@@ -469,6 +479,49 @@ async function installItem(publicId, itemName, category) {
         btn.disabled = false;
         btn.innerHTML = originalText;
         showToast('Network error', 'error');
+    }
+}
+
+// ── Uninstall Item ──
+async function uninstallItem(publicId, itemName, category) {
+    if (!confirm(`Uninstall "${itemName}"?\nThis will remove the extension files.`)) return;
+
+    const unBtn = document.getElementById('uninstallBtn_' + publicId);
+    if (unBtn) {
+        unBtn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Removing...';
+        unBtn.disabled = true;
+    }
+
+    try {
+        const params = new URLSearchParams({ item_name: itemName, category });
+        const res = await fetch(`${API}/items/${publicId}/uninstall?${params}`, {
+            method: 'POST',
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.status === 'success')) {
+            showToast(data.message || `"${itemName}" uninstalled`, 'success');
+            // Reset Install button
+            const installBtn = document.getElementById('installBtn_' + publicId);
+            if (installBtn) {
+                installBtn.innerHTML = '📦 Install';
+                installBtn.disabled = false;
+                installBtn.style.background = '';
+            }
+            // Remove Uninstall button
+            if (unBtn) unBtn.remove();
+            // Show buy button again if needed
+            const buyBtn = document.getElementById('buyBtn_' + publicId);
+            if (buyBtn) buyBtn.style.display = '';
+        } else {
+            throw new Error(data.detail || data.message || 'Uninstall failed');
+        }
+    } catch (e) {
+        showToast(e.message || 'Uninstall error', 'error');
+        if (unBtn) {
+            unBtn.innerHTML = '🗑️ Uninstall';
+            unBtn.disabled = false;
+        }
     }
 }
 
