@@ -3,6 +3,7 @@ Marketplace API routes — Proxy to PHP backend.
 """
 from fastapi import APIRouter, HTTPException, Header
 from typing import Optional
+import json
 from pydantic import BaseModel
 from tubecli.extensions.market.market_service import market_service
 
@@ -246,7 +247,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 if dl.get("status") == "success" and dl.get("item_data"):
                     raw = dl["item_data"]
                     if isinstance(raw, str):
-                        server_data = json_lib.loads(raw)
+                        server_data = json.loads(raw)
                     else:
                         server_data = raw
                     if isinstance(server_data, dict) and "files" in server_data:
