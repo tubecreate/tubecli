@@ -240,6 +240,11 @@
 .btn-view-listing:hover { border-color: #00d4ff; background: rgba(0,212,255,0.08); }
 .btn-delete-listing:hover { border-color: #ef4444; background: rgba(239,68,68,0.12); }
 
+/* ─── Uninstall Button (Detail Modal) ─── */
+.btn-uninstall { padding: 12px 32px; border: 2px solid rgba(239,68,68,0.4); border-radius: 12px; font-size: 0.95rem; font-weight: 700; background: transparent; color: #ef4444; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
+.btn-uninstall:hover { background: rgba(239,68,68,0.12); border-color: #ef4444; transform: translateY(-2px); box-shadow: 0 6px 24px rgba(239,68,68,0.2); }
+.btn-uninstall:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
     .market-layout { flex-direction: column; }
