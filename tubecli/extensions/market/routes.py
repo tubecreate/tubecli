@@ -321,7 +321,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 if os.path.exists(manifest_file):
                     try:
                         with open(manifest_file, "r", encoding="utf-8") as f:
-                            m = json_lib.load(f)
+                            m = json.load(f)
                         if m.get("name", "").lower() == name:
                             source_dir = candidate
                             break
@@ -350,10 +350,13 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                         os.makedirs(os.path.dirname(dst_path), exist_ok=True)
                         shutil.copy2(src_path, dst_path)
             else:
-                # Last resort: save item_data as the manifest
-                manifest = item_data.get("manifest", item_data)
-                with open(os.path.join(ext_dir, "tubecli-extension.json"), "w", encoding="utf-8") as f:
-                    json_lib.dump(manifest, f, indent=2, ensure_ascii=False)
+                # No source files available — clean up empty dir and fail
+                shutil.rmtree(ext_dir, ignore_errors=True)
+                raise HTTPException(
+                    500,
+                    "Could not install: extension source files not available. "
+                    "The marketplace server may not support file downloads yet."
+                )
 
         # Install pip requirements if present
         req_file = os.path.join(ext_dir, "requirements.txt")
