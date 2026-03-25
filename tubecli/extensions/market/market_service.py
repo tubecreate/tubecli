@@ -148,7 +148,7 @@ class MarketService:
         """Delete an item from marketplace."""
         try:
             return await self._post(f"{self.api_base}/delete.php",
-                                    payload={"item_id": item_id},
+                                    payload={"public_id": item_id},
                                     headers={"Authorization": f"Bearer {token}"})
         except Exception as e:
             print(f"[MarketCLI] Delete error: {e}")
