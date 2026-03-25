@@ -288,3 +288,8 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .btn-settings { position: absolute; top: 8px; right: 8px; background: none; border: none; cursor: pointer; font-size: 1.1rem; opacity: 0.5; transition: all 0.2s; padding: 4px; border-radius: 6px; z-index: 2; }
 .btn-settings:hover { opacity: 1; background: rgba(255,255,255,0.08); transform: scale(1.15); }
 .card:hover .btn-settings { opacity: 0.8; }
+
+/* ─── Extension Detail Tab Chips ─── */
+.ext-chip { padding: 7px 16px; border: 1px solid var(--border); border-radius: 20px; font-size: 0.82rem; font-weight: 500; background: var(--bg3); color: var(--text2); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+.ext-chip:hover { border-color: var(--cyan); color: var(--text); background: rgba(0,212,255,0.08); }
+.ext-chip.active { border-color: var(--cyan); background: rgba(0,212,255,0.12); color: var(--cyan); font-weight: 600; }

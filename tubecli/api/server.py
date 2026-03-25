@@ -963,4 +963,5 @@ async def set_language_setting(req: LanguageUpdateRequest):
 
 # ── Register Extension Routes ───────────────────────────────────────
 from tubecli.core.extension_manager import extension_manager
+extension_manager.discover_extensions()
 extension_manager.register_api_routes(app)

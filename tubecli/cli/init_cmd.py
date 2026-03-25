@@ -74,6 +74,26 @@ def init_cmd(lang):
     _run_control_panel()
 
 
+def _kill_server_on_port(port: int):
+    """Kill any process listening on the given port (cross-platform)."""
+    import subprocess, os
+    try:
+        if os.name == "nt":
+            result = subprocess.run(
+                f"netstat -ano | findstr :{port}",
+                shell=True, capture_output=True, text=True
+            )
+            for line in result.stdout.splitlines():
+                if "LISTENING" in line:
+                    parts = line.strip().split()
+                    pid = parts[-1]
+                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+        else:
+            subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
+    except Exception:
+        pass
+
+
 def _run_control_panel():
     """Interactive control panel menu displayed after initialization."""
     from tubecli.core.ollama_utils import is_ollama_installed, get_recommended_models, install_model
@@ -85,20 +105,20 @@ def _run_control_panel():
     import os
     
     port = get_api_port()
-    
-    # Auto-start API Server if not running
-    try:
-        resp = requests.get(f"http://localhost:{port}/api/v1/health", timeout=1)
-        if resp.status_code == 200:
-            console.print(t("panel.api_running", port=port))
-    except requests.exceptions.ConnectionError:
-        console.print(t("panel.api_starting", port=port))
-        if os.name == "nt":
-            creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creation_flags)
-        else:
-            subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        console.print(t("panel.api_started"))
+
+    # Kill any existing server on this port, then restart to pick up new extension routes
+    _kill_server_on_port(port)
+    import time
+    time.sleep(1)  # Brief wait for port to free up
+
+    console.print(t("panel.api_starting", port=port))
+    if os.name == "nt":
+        creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+        subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creation_flags)
+    else:
+        subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    console.print(t("panel.api_started"))
+    time.sleep(2)  # Wait for server to be ready
 
     while True:
         console.print("\n[bold cyan]╔══════════════════════════════════════════════╗[/bold cyan]")
