@@ -16,15 +16,27 @@ def api_cmd():
 @api_cmd.command("start")
 @click.option("--port", "-p", default=None, type=int, help="Port number")
 @click.option("--host", "-h", default="0.0.0.0", help="Host to bind")
-def start(port, host):
+@click.option("--lang", "-l", default=None, type=click.Choice(["vi", "en"]),
+              help="UI language (vi=Vietnamese, en=English). Saves to settings.")
+def start(port, host, lang):
     """Start the API server."""
     from tubecli.config import get_api_port
     import uvicorn
 
     actual_port = port or get_api_port()
+
+    # Apply language if provided
+    if lang:
+        from tubecli.config import set_language
+        from tubecli.i18n import load_language
+        set_language(lang)
+        load_language(lang)
+
     console.print(f"\n🌐 [bold cyan]Starting TubeCLI API Server[/bold cyan]")
     console.print(f"   URL: [green]http://{host}:{actual_port}[/green]")
     console.print(f"   Docs: [green]http://localhost:{actual_port}/api/v1/docs[/green]")
+    if lang:
+        console.print(f"   Lang: [green]{lang}[/green]")
     console.print(f"   Press Ctrl+C to stop.\n")
 
     uvicorn.run(

@@ -366,11 +366,15 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 capture_output=True, timeout=120,
             )
 
-        # Register with ExtensionManager
+        # Register with ExtensionManager and auto-enable
         from tubecli.core.extension_manager import extension_manager
         extension_manager.discover_external_extensions()
+        # Auto-enable the newly installed extension (discover doesn't enable by default)
+        ext_obj = extension_manager.get(name)
+        if ext_obj and not ext_obj.enabled:
+            extension_manager.enable(ext_obj.name)
 
-        return {"status": "success", "message": f"Extension '{name}' installed", "type": "extension"}
+        return {"status": "success", "message": f"Extension '{name}' installed and enabled", "type": "extension"}
 
     elif category == "skill":
         # Save as skill JSON

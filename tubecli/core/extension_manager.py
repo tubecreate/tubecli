@@ -134,6 +134,7 @@ class Extension:
     # ── Serialization ────────────────────────────────────────
 
     def to_dict(self) -> dict:
+        manifest = self._manifest or {}
         return {
             "name": self.name,
             "version": self.version,
@@ -144,6 +145,7 @@ class Extension:
             "current_port": self.current_port,
             "extension_type": self.extension_type,
             "extension_dir": self.extension_dir,
+            "icon": manifest.get("icon", "📦"),
             "has_skill_md": self.get_skill_md() is not None,
             "has_nodes": bool(self.get_nodes()),
             "has_ui": self.get_ui_static_dir() is not None,
@@ -408,11 +410,21 @@ class ExtensionManager:
         """Register all enabled extension API routes to the FastAPI app."""
         for extension in self.get_enabled():
             try:
+                # Ensure extension dir is in sys.path so local imports work
+                # (e.g. `from routes import router` inside extension.py)
+                ext_dir = getattr(extension, 'extension_dir', None)
+                if ext_dir and ext_dir not in sys.path:
+                    sys.path.insert(0, ext_dir)
+
                 router = extension.get_routes()
                 if router:
                     app.include_router(router)
+                    logger.info(f"Registered API routes for extension '{extension.name}'")
+                    print(f"SUCCESS registering {extension.name} routes")
             except Exception as e:
-                logger.error(f"Error registering API for {extension.name}: {e}")
+                import traceback
+                print(f"FAILED to register API routes for extension '{extension.name}': {e}")
+                traceback.print_exc()
 
     # ── Extension Nodes Registration ────────────────────────────
 

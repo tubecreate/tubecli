@@ -96,7 +96,9 @@ async function loadExtensions() {
     const extensionMap = {};
     extensions.forEach(p => { extensionMap[p.name] = p; });
     const grid = document.getElementById('extensions-grid');
-    grid.innerHTML = EXT_REGISTRY.map(ext => {
+
+    // Render built-in/known extensions from EXT_REGISTRY
+    let cards = EXT_REGISTRY.map(ext => {
         const extension = extensionMap[ext.id];
         const version = extension?.version || '-';
         const isEnabled = extension ? extension.enabled : true;
@@ -108,7 +110,383 @@ async function loadExtensions() {
             <div class="card-footer" style="margin-top:10px"><span class="tag ${ext.type === 'extension' ? 'blue' : 'green'}">${ext.type}</span></div>
         </div>`;
     }).join('');
+
+    // Also render external extensions not in EXT_REGISTRY (installed from market/git)
+    extensions.forEach(ext => {
+        const inRegistry = EXT_REGISTRY.some(e => e.id === ext.name);
+        if (!inRegistry && ext.extension_type === 'external') {
+            const isEnabled = ext.enabled;
+            cards += `<div class="card ext-card" onclick="openExternalExtDetail('${esc(ext.name)}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
+                <div class="card-icon">${esc(ext.icon || '\ud83d\udce6')}</div>
+                <h3>${esc(ext.name)}</h3>
+                <p class="card-meta">v${esc(ext.version || '-')} · external</p>
+                <p class="card-desc">${esc(ext.description || '')}</p>
+                <div class="card-footer" style="margin-top:10px;gap:8px">
+                    <span class="tag blue">external</span>
+                    <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
+                        onclick="event.stopPropagation();toggleExternalExt('${esc(ext.name)}',${isEnabled})">
+                        ${isEnabled ? 'Disable' : 'Enable'}
+                    </button>
+                    <button class="btn-sm" style="background:var(--red)"
+                        onclick="event.stopPropagation();uninstallExternalExt('${esc(ext.name)}')">
+                        Uninstall
+                    </button>
+                </div>
+            </div>`;
+        }
+    });
+
+    grid.innerHTML = cards;
 }
+
+async function toggleExternalExt(name, isEnabled) {
+    const action = isEnabled ? 'disable' : 'enable';
+    await apiPost(`/api/v1/extensions/${encodeURIComponent(name)}/${action}`, {});
+    loadExtensions();
+}
+
+async function uninstallExternalExt(name) {
+    if (!confirm(`Uninstall extension "${name}"?`)) return;
+    const r = await apiDelete(`/api/v1/extensions/${encodeURIComponent(name)}/uninstall`);
+    if (r && r.status === 'success') { closeExtDetail(); loadExtensions(); }
+    else alert('Failed: ' + (r?.message || r?.detail || '?'));
+}
+
+async function openExternalExtDetail(name) {
+    stopBrowserStatusPoller();
+    const overlay = document.getElementById('ext-detail-overlay');
+    const title = document.getElementById('ext-detail-title');
+    const body = document.getElementById('ext-detail-body');
+    title.textContent = '📦 ' + name;
+    body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
+    overlay.classList.remove('hidden');
+
+    const info = await apiGet(`/api/v1/extensions/${encodeURIComponent(name)}/info`);
+    if (!info || info.error) { body.innerHTML = `<p class="text-muted">Failed to load extension info.</p>`; return; }
+
+    const manifest = info.manifest || {};
+    const isEnabled = info.enabled;
+    const icon = manifest.icon || '📦';
+    const apiPrefix = manifest.api_prefix || '';
+    title.textContent = icon + ' ' + (manifest.name || name);
+
+    // Determine if this extension has a download-like API
+    const hasDownload = apiPrefix && (apiPrefix.includes('ytdl') || apiPrefix.includes('download'));
+
+    // Build code examples based on api_prefix
+    const baseUrl = API;
+    const exampleUrl = hasDownload ? `${apiPrefix}/download` : `${apiPrefix}`;
+    const exampleBody = hasDownload
+        ? JSON.stringify({url: 'https://youtube.com/watch?v=dQw4w9WgXcQ', format: 'mp4', quality: '720p'}, null, 2)
+        : JSON.stringify({}, null, 2);
+
+    const examples = {
+        curl: `curl -X POST "${baseUrl}${exampleUrl}" \\
+  -H "Content-Type: application/json" \\
+  -d '${exampleBody.replace(/\n/g,'\\n')}'`,
+        python: `import requests
+
+response = requests.post(
+    "${baseUrl}${exampleUrl}",
+    json=${exampleBody}
+)
+print(response.json())`,
+        javascript: `const response = await fetch("${baseUrl}${exampleUrl}", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(${exampleBody})
+});
+const data = await response.json();
+console.log(data);`,
+    };
+
+    body.innerHTML = `
+    <!-- Header info row -->
+    <div class="ext-info-grid" style="margin-bottom:20px">
+        <div class="ext-info-card"><div class="info-value">${esc(info.version||'-')}</div><div class="info-label">Version</div></div>
+        <div class="ext-info-card"><div class="info-value">${icon}</div><div class="info-label">external</div></div>
+        <div class="ext-info-card"><div class="info-value">${info.has_nodes?'✅':'—'}</div><div class="info-label">Nodes</div></div>
+        <div class="ext-info-card"><div class="info-value">${info.has_skill_md?'✅':'—'}</div><div class="info-label">Skill.md</div></div>
+    </div>
+    <p style="color:var(--text-muted);margin-bottom:20px">${esc(info.description||'')}</p>
+
+    <!-- Tab Chips -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px" id="ext-tab-chips">
+        ${hasDownload?`<button class="ext-chip active" style="pointer-events:none">📥 Download Mode</button>`:''}
+        <button class="ext-chip" onclick="document.getElementById('ext-api-dialog').showModal()">⚡ API</button>
+        ${info.has_skill_md?`<button class="ext-chip" onclick="document.getElementById('ext-skill-dialog').showModal()">📖 SKILL.md</button>`:''}
+        <button class="ext-chip" onclick="document.getElementById('ext-info-dialog').showModal()">ℹ️ Info</button>
+        ${hasDownload?`<button class="ext-chip" onclick="document.getElementById('ytdl-settings-dialog').showModal()">⚙️ Settings</button>`:''}
+    </div>
+
+    <!-- TAB: Download -->
+    ${hasDownload?`<div id="ext-tab-download" class="ext-tab-panel">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px">
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:var(--cyan)">🔗 Video / Audio URLs (Multi-row)</label>
+            <textarea id="ytdl-url" rows="4" placeholder="https://youtube.com/...\nhttps://tiktok.com/...\nNhập nhiều URL, mỗi link một dòng. Hệ thống tự xếp hàng chờ tải (tối đa 5 luồng cùng lúc)."
+                style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;margin-bottom:12px;font-family:inherit;resize:vertical"></textarea>
+
+            <button class="btn-primary" id="ytdl-btn" onclick="runYtdlDownload()"
+                style="width:100%;padding:14px;font-size:1rem;font-weight:700;border-radius:10px">
+                📥 Start Download
+            </button>
+
+            <div id="ytdl-queue-container" style="margin-top:16px;display:flex;flex-direction:column;gap:10px"></div>
+        </div>
+    </div>`:''}
+
+    <!-- Dialog: Settings -->
+    ${hasDownload?`<dialog id="ytdl-settings-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:500px;width:90%;color:var(--text)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="margin:0;color:var(--text)">⚙️ Cấu hình Download</h3>
+                <button onclick="document.getElementById('ytdl-settings-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
+            </div>
+            
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:var(--text)">🏷️ Filename Template</label>
+            <input id="set-ytdl-filename" type="text" placeholder="%(title)s.%(ext)s" value="${localStorage.getItem('ytdl_filename')||'%(title)s.%(ext)s'}"
+                style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;margin-bottom:12px">
+            <div style="font-size:0.8rem;color:var(--text-muted);margin-top:-8px;margin-bottom:16px">Biến hỗ trợ: %(title)s, %(ext)s, %(id)s, %(uploader)s, %(resolution)s...</div>
+
+            <label style="display:block;margin-bottom:8px;font-weight:600;color:var(--text)">📁 Save Directory</label>
+            <input id="set-ytdl-save-dir" type="text" placeholder="Để trống = Mặc định" value="${localStorage.getItem('ytdl_save_dir')||''}"
+                style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;margin-bottom:16px">
+
+            <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+                <div style="flex:1;min-width:120px">
+                    <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--text-muted)">Format</label>
+                    <select id="set-ytdl-format" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)">
+                        <option value="mp4" ${localStorage.getItem('ytdl_format')==='mp4'?'selected':''}>🎬 MP4 (Video)</option>
+                        <option value="mp3" ${localStorage.getItem('ytdl_format')==='mp3'?'selected':''}>🎵 MP3 (Audio)</option>
+                        <option value="webm" ${localStorage.getItem('ytdl_format')==='webm'?'selected':''}>🎞️ WebM</option>
+                    </select>
+                </div>
+                <div style="flex:1;min-width:120px">
+                    <label style="display:block;margin-bottom:6px;font-size:.8rem;color:var(--text-muted)">Quality</label>
+                    <select id="set-ytdl-quality" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)">
+                        <option value="720p" ${(localStorage.getItem('ytdl_quality')||'720p')==='720p'?'selected':''}>720p (HD)</option>
+                        <option value="1080p" ${localStorage.getItem('ytdl_quality')==='1080p'?'selected':''}>1080p (Full HD)</option>
+                        <option value="480p" ${localStorage.getItem('ytdl_quality')==='480p'?'selected':''}>480p</option>
+                        <option value="360p" ${localStorage.getItem('ytdl_quality')==='360p'?'selected':''}>360p</option>
+                        <option value="best" ${localStorage.getItem('ytdl_quality')==='best'?'selected':''}>Best quality</option>
+                    </select>
+                </div>
+            </div>
+
+            <button class="btn-primary" onclick="window.saveYtdlSettings()"
+                style="width:100%;padding:14px;font-size:1rem;font-weight:700;border-radius:10px;background:var(--cyan);color:#000">
+                💾 Save Settings
+            </button>
+        </div>
+    </dialog>`:''}
+
+    <!-- Dialog: API Examples -->
+    <dialog id="ext-api-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:600px;width:90%;color:var(--text)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="margin:0;color:var(--text)">⚡ API Examples</h3>
+                <button onclick="document.getElementById('ext-api-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+                <button class="ext-chip active" onclick="switchCodeLang('curl',this)">🖥️ cURL</button>
+                <button class="ext-chip" onclick="switchCodeLang('python',this)">🐍 Python</button>
+                <button class="ext-chip" onclick="switchCodeLang('javascript',this)">🌐 JavaScript</button>
+            </div>
+            <div style="position:relative">
+                <button onclick="copyExtCode()" style="position:absolute;top:8px;right:8px;z-index:1;padding:4px 10px;font-size:.75rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer">📋 Copy</button>
+                <pre id="ext-code-block" style="background:var(--bg);padding:16px;border-radius:10px;font-size:.82rem;overflow:auto;max-height:50vh;white-space:pre;tab-size:2;color:var(--text)">${esc(examples.curl)}</pre>
+            </div>
+            ${apiPrefix?`<p style="margin-top:12px;font-size:.8rem;color:var(--text-muted)">API Base: <code>${esc(baseUrl)}${esc(apiPrefix)}</code></p>`:''}
+        </div>
+    </dialog>
+
+    <!-- Dialog: SKILL.md -->
+    ${info.has_skill_md&&info.skill_md_content?`<dialog id="ext-skill-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:800px;width:95%;color:var(--text)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="margin:0;color:var(--text)">📖 SKILL.md</h3>
+                <button onclick="document.getElementById('ext-skill-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
+            </div>
+            <pre style="background:var(--bg);padding:16px;border-radius:10px;font-size:.82rem;overflow:auto;max-height:60vh;white-space:pre-wrap;color:var(--text)">${esc(info.skill_md_content)}</pre>
+        </div>
+    </dialog>`:''}
+
+    <!-- Dialog: Info -->
+    <dialog id="ext-info-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:400px;width:90%;color:var(--text)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h3 style="margin:0;color:var(--text)">ℹ️ Info</h3>
+                <button onclick="document.getElementById('ext-info-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
+            </div>
+            ${info.author?`<p style="margin-bottom:8px"><strong>Author:</strong> ${esc(info.author)}</p>`:''}
+            ${apiPrefix?`<p style="margin-bottom:8px"><strong>API Prefix:</strong> <code>${esc(apiPrefix)}</code></p>`:''}
+            ${(info.nodes||[]).length>0?`<p style="margin-bottom:8px"><strong>Nodes:</strong> ${info.nodes.map(n=>`<span class="tag">${esc(n)}</span>`).join(' ')}</p>`:''}
+            ${(manifest.dependencies||[]).length>0?`<p style="margin-bottom:8px"><strong>Dependencies:</strong> ${manifest.dependencies.map(d=>`<code>${esc(d)}</code>`).join(', ')}</p>`:''}
+            ${manifest.homepage?`<p style="margin-bottom:8px"><strong>Homepage:</strong> <a href="${esc(manifest.homepage)}" target="_blank">${esc(manifest.homepage)}</a></p>`:''}
+        </div>
+    </dialog>
+
+    <!-- Footer buttons -->
+    <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);display:flex;gap:10px">
+        <button class="btn-primary ${isEnabled?'btn-danger':''}" onclick="toggleExternalExt('${esc(name)}',${isEnabled});closeExtDetail();loadExtensions()">
+            ${isEnabled?'⏸ Disable':'▶ Enable'}
+        </button>
+        <button class="btn-sm" style="background:var(--red)" onclick="uninstallExternalExt('${esc(name)}')">
+            🗑 Uninstall
+        </button>
+    </div>`;
+
+    // Store examples for switchCodeLang
+    window._extExamples = examples;
+}
+
+function switchExtTab(tab) {
+    document.querySelectorAll('.ext-tab-panel').forEach(p => p.style.display = 'none');
+    const el = document.getElementById('ext-tab-' + tab);
+    if (el) el.style.display = '';
+    document.querySelectorAll('#ext-tab-chips .ext-chip').forEach(c => {
+        c.classList.toggle('active', c.textContent.toLowerCase().includes(tab) || (tab==='api'&&c.textContent.includes('API')) || (tab==='skill'&&c.textContent.includes('SKILL')) || (tab==='info'&&c.textContent.includes('Info')));
+    });
+}
+
+function switchCodeLang(lang, btn) {
+    document.querySelectorAll('#ext-tab-api .ext-chip').forEach(c => c.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const pre = document.getElementById('ext-code-block');
+    if (pre && window._extExamples) pre.textContent = window._extExamples[lang] || '';
+}
+
+function copyExtCode() {
+    const text = document.getElementById('ext-code-block')?.textContent || '';
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.querySelector('#ext-tab-api button[onclick="copyExtCode()"]');
+        if (btn) { btn.textContent = '✅ Copied!'; setTimeout(() => btn.textContent='📋 Copy', 1500); }
+    });
+}
+
+window._ytdlQueue = [];
+window._ytdlActive = 0;
+const YTDL_CONCURRENCY = 5;
+
+window.saveYtdlSettings = function() {
+    localStorage.setItem('ytdl_filename', document.getElementById('set-ytdl-filename').value.trim());
+    localStorage.setItem('ytdl_save_dir', document.getElementById('set-ytdl-save-dir').value.trim());
+    localStorage.setItem('ytdl_format', document.getElementById('set-ytdl-format').value);
+    localStorage.setItem('ytdl_quality', document.getElementById('set-ytdl-quality').value);
+    document.getElementById('ytdl-settings-dialog').close();
+};
+
+function runYtdlDownload() {
+    const text = document.getElementById('ytdl-url')?.value?.trim();
+    if (!text) { alert('Nhập URL vào!'); return; }
+    
+    const urls = text.split('\n').map(u => u.trim()).filter(u => u);
+    const format = localStorage.getItem('ytdl_format') || 'mp4';
+    const quality = localStorage.getItem('ytdl_quality') || '720p';
+    const save_dir = localStorage.getItem('ytdl_save_dir') || '';
+    const filename_template = localStorage.getItem('ytdl_filename') || '';
+    const container = document.getElementById('ytdl-queue-container');
+    
+    for (const url of urls) {
+        const uid = 'q_' + Math.random().toString(36).slice(2);
+        container.innerHTML += `
+            <div id="${uid}" style="padding:12px;border-radius:8px;background:var(--bg2);border:1px solid var(--border)">
+                <div style="font-size:.85rem;color:var(--text);margin-bottom:6px;word-break:break-all">${esc(url)}</div>
+                <div style="display:flex;align-items:center;margin-bottom:4px;gap:8px">
+                    <div style="flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden">
+                        <div id="prog-${uid}" style="height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--green));transition:width 0.3s"></div>
+                    </div>
+                    <div id="pct-${uid}" style="font-size:.8rem;color:var(--text-muted);width:35px;text-align:right">0%</div>
+                </div>
+                <div id="stat-${uid}" style="font-size:.75rem;color:var(--text-muted)">⏳ Queued...</div>
+                <div id="res-${uid}" style="margin-top:6px;display:none;font-size:0.85rem"></div>
+            </div>`;
+        window._ytdlQueue.push({uid, url, format, quality, save_dir, filename_template});
+    }
+    document.getElementById('ytdl-url').value = '';
+    processYtdlQueue();
+}
+
+async function processYtdlQueue() {
+    while (window._ytdlActive < YTDL_CONCURRENCY && window._ytdlQueue.length > 0) {
+        const task = window._ytdlQueue.shift();
+        window._ytdlActive++;
+        startYtdlTask(task).finally(() => {
+            window._ytdlActive--;
+            processYtdlQueue();
+        });
+    }
+}
+
+async function startYtdlTask(task) {
+    const st = document.getElementById('stat-' + task.uid);
+    if(st) { st.textContent = '🚀 Preparing...'; st.style.color = 'var(--cyan)'; }
+    try {
+        const r = await apiPost('/api/v1/ytdl/download_async', { 
+            url: task.url, 
+            format: task.format, 
+            quality: task.quality,
+            save_dir: task.save_dir
+        });
+        if (r && r.status === 'success' && r.task_id) {
+            await pollYtdlTask(task.uid, r.task_id);
+        } else {
+            if(st) { st.textContent = '❌ Lỗi khởi tạo'; st.style.color = 'var(--red)'; }
+        }
+    } catch(e) {
+        if(st) { st.textContent = '❌ Lỗi server'; st.style.color = 'var(--red)'; }
+    }
+}
+
+async function pollYtdlTask(uid, taskId) {
+    return new Promise(resolve => {
+        const poll = setInterval(async () => {
+            try {
+                const r = await apiGet('/api/v1/ytdl/status/' + taskId);
+                if (r && r.success && r.data) {
+                    const d = r.data;
+                    const prog = document.getElementById('prog-' + uid);
+                    const pct = document.getElementById('pct-' + uid);
+                    const stat = document.getElementById('stat-' + uid);
+                    const res = document.getElementById('res-' + uid);
+                    
+                    if (prog) prog.style.width = d.progress + '%';
+                    if (pct) pct.textContent = Math.round(d.progress) + '%';
+                    
+                    if (d.status === 'downloading') {
+                        const dl = (d.downloaded/1024/1024).toFixed(1);
+                        const tot = (d.total_size/1024/1024).toFixed(1);
+                        const spd = (d.speed/1024/1024).toFixed(1);
+                        if (d.progress >= 100) {
+                            if (stat) stat.textContent = `⚙️ Đang xử lý/gộp file video và audio (có thể mất thời gian tuỳ độ dài)...`;
+                            if (prog) prog.style.background = 'var(--cyan)';
+                        } else {
+                            if (stat) stat.textContent = `⬇️ Đang tải: ${dl}MB / ${tot}MB (${spd}MB/s)`;
+                        }
+                    } else if (d.status === 'done') {
+                        clearInterval(poll);
+                        if (prog) prog.style.background = 'var(--green)';
+                        if (stat) { stat.textContent = '✅ Xong! (100%)'; stat.style.color = 'var(--green)'; }
+                        if (res) {
+                            res.style.display = 'block';
+                            res.innerHTML = `
+                                <div style="font-weight:600;margin-bottom:8px;color:var(--text)">${esc(d.filename)}</div>
+                                <a href="/api/v1/ytdl/downloads/${encodeURIComponent(d.filename)}" download class="btn-sm" style="background:var(--green);color:#fff;text-decoration:none">⬇️ Save File</a>
+                            `;
+                        }
+                        resolve();
+                    } else if (d.status === 'error') {
+                        clearInterval(poll);
+                        if (prog) prog.style.background = 'var(--red)';
+                        if (stat) { stat.textContent = '❌ ' + esc(d.error || 'Syntax'); stat.style.color = 'var(--red)'; }
+                        resolve();
+                    }
+                }
+            } catch(e) {}
+        }, 800);
+    });
+}
+
 
 // ═══ Extension Detail Overlay ═══
 function openExtDetail(id) {
