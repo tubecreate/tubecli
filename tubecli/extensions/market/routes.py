@@ -301,7 +301,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         # If item_data doesn't contain files, try downloading from server
         if not (isinstance(item_data, dict) and "files" in item_data):
             try:
-                dl = market_service.download_item_data(public_id)
+                dl = await market_service.download_item_data(public_id)
                 if dl.get("status") == "success" and dl.get("item_data"):
                     raw = dl["item_data"]
                     if isinstance(raw, str):
