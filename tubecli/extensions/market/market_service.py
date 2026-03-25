@@ -144,7 +144,17 @@ class MarketService:
             print(f"[MarketCLI] Reviews error: {e}")
         return {"status": "error", "data": []}
 
-    async def post_review(self, token: str, item_id: str, rating: int, comment: str = "") -> Dict:
+    async def delete_item(self, item_id: str, token: str) -> Dict:
+        """Delete an item from marketplace."""
+        try:
+            return await self._post(f"{self.api_base}/delete.php",
+                                    payload={"item_id": item_id},
+                                    headers={"Authorization": f"Bearer {token}"})
+        except Exception as e:
+            print(f"[MarketCLI] Delete error: {e}")
+            return {"status": "error", "message": str(e)}
+
+    async def add_review(self, item_id: str, rating: float, comment: str, token: str) -> Dict:
         """Submit a review."""
         try:
             return await self._post(f"{self.api_base}/review.php",
