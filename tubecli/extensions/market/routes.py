@@ -1,9 +1,9 @@
 """
 Marketplace API routes — Proxy to PHP backend.
 """
-from fastapi import APIRouter, HTTPException, Header
-from typing import Optional
 import json
+from typing import Dict, Optional, List
+from fastapi import APIRouter, HTTPException, BackgroundTasks, UploadFile, File, Form, Request, Header
 from pydantic import BaseModel
 from tubecli.extensions.market.market_service import market_service
 
@@ -148,6 +148,18 @@ async def delete_item(public_id: str, authorization: Optional[str] = Header(None
         raise HTTPException(400, result.get("message", "Delete failed"))
     return result
 
+@router.delete("/items/{public_id}")
+async def delete_market_item(public_id: str, request: Request):
+    """Delete an item from the marketplace."""
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    token = auth_header.split(" ")[1]
+
+    result = await market_service.delete_item(public_id, token)
+    if result.get("status") == "success":
+        return result
+    raise HTTPException(status_code=400, detail=result.get("message", result.get("error", "Failed to delete item")))
 
 # ── Install Extension from Market ──
 
