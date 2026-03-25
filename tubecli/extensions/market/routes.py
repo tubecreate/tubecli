@@ -77,7 +77,7 @@ async def list_items(
     limit: int = 20,
 ):
     """List marketplace items with filters."""
-    return market_service.list_items(
+    return await market_service.list_items(
         category=category, search=search, sort=sort,
         min_price=min_price, max_price=max_price, min_rating=min_rating,
         tags=tags, user_id=user_id, mode=mode, page=page, limit=limit,
@@ -89,7 +89,7 @@ async def my_items(authorization: Optional[str] = Header(None)):
     """Get items listed by the current user."""
     token = _get_token(authorization)
     # Get user profile to find user_id
-    profile = market_service.get_user_profile(token)
+    profile = await market_service.get_user_profile(token)
     if profile.get("status") == "error":
         raise HTTPException(401, "Could not fetch user profile")
     # user.php returns {status, profile: {user_id, display_name, ...}}
@@ -101,14 +101,14 @@ async def my_items(authorization: Optional[str] = Header(None)):
     if not user_id:
         raise HTTPException(401, "Could not determine user ID")
     # Fetch all items by this user
-    result = market_service.list_items(user_id=user_id, limit=100)
+    result = await market_service.list_items(user_id=user_id, limit=100)
     return result
 
 
 @router.get("/items/{public_id}")
 async def get_item_detail(public_id: str):
     """Get item detail with reviews and seller info."""
-    result = market_service.get_detail(public_id)
+    result = await market_service.get_detail(public_id)
     if result.get("status") == "error":
         raise HTTPException(404, "Item not found")
     return result
@@ -118,7 +118,7 @@ async def get_item_detail(public_id: str):
 async def upload_item(req: UploadRequest, authorization: Optional[str] = Header(None)):
     """Upload a new item to the marketplace."""
     token = _get_token(authorization)
-    result = market_service.upload_item(
+    result = await market_service.upload_item(
         token=token, title=req.title, description=req.description,
         category=req.category, price=req.price, item_data=req.item_data,
         visibility=req.visibility, tags=req.tags, version=req.version,
@@ -133,7 +133,7 @@ async def upload_item(req: UploadRequest, authorization: Optional[str] = Header(
 async def buy_item(public_id: str, authorization: Optional[str] = Header(None)):
     """Purchase an item."""
     token = _get_token(authorization)
-    result = market_service.buy_item(token=token, item_id=public_id)
+    result = await market_service.buy_item(token=token, item_id=public_id)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Purchase failed"))
     return result
@@ -143,7 +143,7 @@ async def buy_item(public_id: str, authorization: Optional[str] = Header(None)):
 async def delete_item(public_id: str, authorization: Optional[str] = Header(None)):
     """Delete a listing (seller only)."""
     token = _get_token(authorization)
-    result = market_service.delete_item(token=token, public_id=public_id)
+    result = await market_service.delete_item(token=token, public_id=public_id)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Delete failed"))
     return result
