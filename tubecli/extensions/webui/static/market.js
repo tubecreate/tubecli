@@ -589,6 +589,9 @@ function goToUploadStep(step) {
             // For extensions: package all source files via /package API
             if (uploadState.category === 'extension') {
                 document.getElementById('uploadData').value = '{}'; // placeholder
+                const depsGroup = document.getElementById('uploadDepsGroup');
+                if (depsGroup) depsGroup.style.display = 'block';
+                
                 fetch(`/api/v1/extensions/${encodeURIComponent(item._id)}/package`)
                     .then(r => r.json())
                     .then(pkg => {
@@ -598,6 +601,11 @@ function goToUploadStep(step) {
                                 files: pkg.files,
                             });
                             console.log(`[Market] Packaged extension: ${pkg.file_count} files`);
+                            // Auto-fill dependencies from manifest
+                            const depsInput = document.getElementById('uploadDeps');
+                            if (depsInput && pkg.manifest?.dependencies?.length) {
+                                depsInput.value = pkg.manifest.dependencies.join(', ');
+                            }
                         } else {
                             showToast('Failed to package extension files', 'error');
                             document.getElementById('uploadData').value = JSON.stringify(item._rawData);
@@ -607,6 +615,9 @@ function goToUploadStep(step) {
                         document.getElementById('uploadData').value = JSON.stringify(item._rawData);
                     });
             } else {
+                // Hide deps group for non-extension categories
+                const depsGroup = document.getElementById('uploadDepsGroup');
+                if (depsGroup) depsGroup.style.display = 'none';
                 document.getElementById('uploadData').value = JSON.stringify(item._rawData);
             }
         }
@@ -744,7 +755,27 @@ async function submitUpload(e) {
         version: document.getElementById('uploadVersion').value || '1.0.0',
         tags: tags,
         description: document.getElementById('uploadDesc').value,
-        item_data: document.getElementById('uploadData').value,
+        item_data: (() => {
+            // For extensions: merge user-declared dependencies into item_data
+            let raw = document.getElementById('uploadData').value;
+            const category = document.getElementById('uploadCategory').value;
+            if (category === 'extension') {
+                try {
+                    const parsed = JSON.parse(raw);
+                    const depsInput = document.getElementById('uploadDeps')?.value || '';
+                    const deps = depsInput.split(',').map(d => d.trim()).filter(Boolean);
+                    if (deps.length > 0) {
+                        if (parsed.manifest) {
+                            parsed.manifest.dependencies = deps;
+                        } else {
+                            parsed.dependencies = deps;
+                        }
+                    }
+                    raw = JSON.stringify(parsed);
+                } catch(e) {}
+            }
+            return raw;
+        })(),
     };
 
     try {

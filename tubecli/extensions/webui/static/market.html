@@ -250,6 +250,11 @@
                         <label>Tags (comma separated)</label>
                         <input type="text" id="uploadTags" placeholder="automation, youtube, ai">
                     </div>
+                    <div class="form-group" id="uploadDepsGroup" style="display:none;">
+                        <label>📦 Python Dependencies <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(pip packages required by this extension)</span></label>
+                        <input type="text" id="uploadDeps" placeholder="yt-dlp, requests, pillow" style="width:100%;">
+                        <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;">Comma separated. These will be auto-installed when users install your extension.</div>
+                    </div>
                     <div class="form-group">
                         <label>Description</label>
                         <textarea id="uploadDesc" placeholder="Describe what this item does..." rows="3"></textarea>
