@@ -140,26 +140,19 @@ async def buy_item(public_id: str, authorization: Optional[str] = Header(None)):
 
 
 @router.delete("/items/{public_id}")
-async def delete_item(public_id: str, authorization: Optional[str] = Header(None)):
-    """Delete a listing (seller only)."""
+async def delete_market_item(public_id: str, authorization: Optional[str] = Header(None)):
+    """Delete an item from the marketplace (seller only)."""
     token = _get_token(authorization)
-    result = await market_service.delete_item(token=token, public_id=public_id)
-    if result.get("status") == "error":
-        raise HTTPException(400, result.get("message", "Delete failed"))
-    return result
+    if not token:
+        raise HTTPException(status_code=401, detail="Unauthorized: no token provided")
 
-@router.delete("/items/{public_id}")
-async def delete_market_item(public_id: str, request: Request):
-    """Delete an item from the marketplace."""
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    token = auth_header.split(" ")[1]
-
-    result = await market_service.delete_item(public_id, token)
+    result = await market_service.delete_item(item_id=public_id, token=token)
     if result.get("status") == "success":
         return result
-    raise HTTPException(status_code=400, detail=result.get("message", result.get("error", "Failed to delete item")))
+    raise HTTPException(
+        status_code=400,
+        detail=result.get("message", result.get("error", "Failed to delete item"))
+    )
 
 # ── Install Extension from Market ──
 
