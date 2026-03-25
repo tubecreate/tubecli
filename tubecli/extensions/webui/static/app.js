@@ -830,11 +830,27 @@ function openApiTest(method, path, desc, event) {
 
     // Build param inputs
     const pathParams = (path.match(/\{(\w+)\}/g) || []).map(p => p.slice(1,-1));
+    
+    let queryParams = [];
+    if (typeof _apiSpec !== 'undefined' && _apiSpec?.paths?.[path]?.[method]) {
+        const specParams = _apiSpec.paths[path][method].parameters || [];
+        specParams.forEach(p => {
+            if (p.in === 'query') queryParams.push(p.name);
+        });
+    }
+
     let phtml = '';
     pathParams.forEach(p => {
         phtml += `<div class="api-test-params-group">
             <label>${p}</label>
-            <input type="text" id="param-${p}" placeholder="Enter ${p}...">
+            <input type="text" id="param-path-${p}" placeholder="Enter ${p}...">
+        </div>`;
+    });
+    
+    queryParams.forEach(p => {
+        phtml += `<div class="api-test-params-group">
+            <label>${p} <span style="color:var(--text-muted);font-weight:normal;font-size:0.8rem;">(query)</span></label>
+            <input type="text" id="param-query-${p}" data-query-param="${p}" placeholder="Enter ${p}...">
         </div>`;
     });
 
@@ -942,13 +958,25 @@ async function runApiTest() {
     const btn = document.getElementById('btn-run-test');
     btn.disabled = true; btn.textContent = '⏳ Running...';
 
-    // Build URL with path params
+    // Build URL with path and query params
     let url = _testPath;
     const pathParams = (_testPath.match(/\{(\w+)\}/g) || []).map(p => p.slice(1,-1));
     pathParams.forEach(p => {
-        const val = document.getElementById('param-' + p)?.value || '';
+        const val = document.getElementById('param-path-' + p)?.value || '';
         url = url.replace(`{${p}}`, encodeURIComponent(val));
     });
+
+    const queryInputs = document.querySelectorAll('input[data-query-param]');
+    if (queryInputs.length > 0) {
+        const params = new URLSearchParams();
+        queryInputs.forEach(inp => {
+            if (inp.value && inp.value.trim() !== '') {
+                params.append(inp.getAttribute('data-query-param'), inp.value);
+            }
+        });
+        const qs = params.toString();
+        if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+    }
 
     const fetchOpts = { method: _testMethod, headers: {} };
     if (['POST','PUT','PATCH'].includes(_testMethod)) {
