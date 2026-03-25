@@ -370,15 +370,45 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                     "The marketplace server may not support file downloads yet."
                 )
 
-        # Install pip requirements if present
+        # Install pip requirements: from requirements.txt first, then manifest.dependencies
+        deps_to_install = []
+
+        # 1. requirements.txt takes priority (specific versions)
         req_file = os.path.join(ext_dir, "requirements.txt")
         if os.path.exists(req_file):
             subprocess.run(
                 [sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"],
-                capture_output=True, timeout=120,
+                capture_output=True, timeout=180,
+            )
+            # Read what's in requirements.txt to avoid reinstalling below
+            with open(req_file, "r") as f:
+                installed_pkgs = {line.strip().split("==")[0].split(">=")[0].split("<=")[0].lower()
+                                  for line in f if line.strip() and not line.startswith("#")}
+        else:
+            installed_pkgs = set()
+
+        # 2. manifest.dependencies — install any not already covered by requirements.txt
+        manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+        if os.path.exists(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest_data = json_lib.load(f)
+                for dep in manifest_data.get("dependencies", []):
+                    pkg = dep.strip().split("==")[0].split(">=")[0].split("<=")[0].lower()
+                    if pkg and pkg not in installed_pkgs:
+                        deps_to_install.append(dep.strip())
+            except Exception as e:
+                print(f"[Market] Could not read manifest for deps: {e}")
+
+        if deps_to_install:
+            print(f"[Market] Installing manifest dependencies: {deps_to_install}")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", *deps_to_install, "--quiet"],
+                capture_output=True, timeout=180,
             )
 
         # Register with ExtensionManager and auto-enable
+
         from tubecli.core.extension_manager import extension_manager
         extension_manager.discover_external_extensions()
         # Auto-enable the newly installed extension (discover doesn't enable by default)
