@@ -1439,6 +1439,88 @@ async function saveProfileSettings() {
 // ═══ Connection Check ═══
 async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(r.ok) document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot"></span> API Connected'; else throw 0; } catch { document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot" style="background:var(--red)"></span> API Offline'; } }
 
+// ═══ Version & Update ═══
+async function loadVersionInfo() {
+    const badge = document.getElementById('version-badge');
+    const hashEl = document.getElementById('version-hash');
+    const branchEl = document.getElementById('version-branch');
+    if (!badge) return;
+    try {
+        const info = await apiGet('/api/v1/version');
+        if (!info || info.error) return;
+        badge.textContent = '⚡ TubeCLI v' + (info.version || '?');
+        if (hashEl && info.git_hash) hashEl.textContent = '#' + info.git_hash;
+        if (branchEl && info.git_branch) branchEl.textContent = '🌿 ' + info.git_branch;
+        // Auto-check update on startup (silent)
+        checkForUpdate(true);
+    } catch(e) { console.warn('[Version] Failed to load version info', e); }
+}
+
+async function checkForUpdate(silent = false) {
+    const btn = document.getElementById('btn-check-update');
+    const statusEl = document.getElementById('update-status');
+    const changelogBox = document.getElementById('changelog-box');
+    const changelogList = document.getElementById('changelog-list');
+    const updateBtn = document.getElementById('btn-system-update');
+    if (btn && !silent) { btn.disabled = true; btn.textContent = '🔍 Checking...'; }
+    try {
+        // Get local version
+        const local = await apiGet('/api/v1/version');
+        const localVer = local?.version || '0';
+
+        // Fetch remote version.json from server
+        const res = await fetch('https://api.tubecreate.com/api/market-cli/version.json?_t=' + Date.now(), {
+            signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) throw new Error('Server not reachable');
+        const remote = await res.json();
+        const remoteVer = remote.version || '0';
+
+        // Compare
+        const hasUpdate = remoteVer > localVer;
+        if (statusEl) {
+            if (hasUpdate) {
+                statusEl.innerHTML = `<span style="color:var(--yellow);font-weight:700">🆕 Phiên bản mới có sẵn: v${remoteVer}</span>`;
+                if (updateBtn) updateBtn.style.display = '';
+                // Show changelog
+                if (changelogBox && changelogList && remote.changelog?.length) {
+                    changelogList.innerHTML = remote.changelog.map(c => `<li>${esc(c)}</li>`).join('');
+                    changelogBox.style.display = '';
+                }
+            } else {
+                if (!silent) statusEl.innerHTML = `<span style="color:var(--green)">✅ Đang dùng phiên bản mới nhất (v${localVer})</span>`;
+                if (updateBtn) updateBtn.style.display = 'none';
+                if (changelogBox) changelogBox.style.display = 'none';
+            }
+        }
+    } catch(e) {
+        if (!silent && statusEl) statusEl.innerHTML = `<span style="color:var(--red)">⚠️ Không kết nối được server kiểm tra update</span>`;
+        console.warn('[Update] Check failed:', e.message);
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Check for Update'; }
+}
+
+async function performSystemUpdate() {
+    const btn = document.getElementById('btn-system-update');
+    const statusEl = document.getElementById('update-status');
+    if (!confirm('🚀 Bắt đầu cập nhật phiên bản mới?\n\nApp sẽ chạy git pull và có thể cần khởi động lại.')) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⬇️ Đang cập nhật...'; }
+    if (statusEl) statusEl.innerHTML = '<span style="color:var(--cyan)">⏳ Đang tải bản cập nhật...</span>';
+    try {
+        const r = await apiPost('/api/v1/version/update', {});
+        if (r.status === 'success') {
+            if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✅ Cập nhật xong! Vui lòng tải lại trang.<br><small style="color:var(--text-muted)">${esc(r.output)}</small></span>`;
+            setTimeout(() => { if (confirm('✅ Cập nhật thành công! Tải lại trang ngay?')) location.reload(); }, 1500);
+        } else {
+            if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi: ${esc(r.output)}</span>`;
+        }
+    } catch(e) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi kết nối: ${e.message}</span>`;
+    }
+    if (btn) { btn.disabled = false; btn.textContent = '⬆️ Update Now'; }
+}
+
+
 // ═══ Init ═══
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
