@@ -126,8 +126,8 @@ async def health():
 @app.get("/api/v1/version")
 async def get_version_info():
     import subprocess
-    from tubecli import __version__
-    info = {"version": __version__, "git_hash": None, "git_branch": None}
+    from tubecli import __version__, __build__
+    info = {"version": __build__, "pip_version": __version__, "git_hash": None, "git_branch": None}
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=repo, timeout=3)
@@ -141,11 +141,11 @@ async def get_version_info():
 @app.post("/api/v1/version/update")
 async def perform_git_update():
     import subprocess
-    from tubecli import __version__
+    from tubecli import __build__
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         r = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=repo, timeout=30)
-        return {"status": "success", "output": r.stdout.strip() or r.stderr.strip(), "version": __version__}
+        return {"status": "success", "output": r.stdout.strip() or r.stderr.strip(), "version": __build__}
     except Exception as e:
         return {"status": "error", "output": str(e)}
 
