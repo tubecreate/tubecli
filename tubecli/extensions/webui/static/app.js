@@ -507,7 +507,7 @@ function openExtDetail(id) {
     else if (id === 'browser') renderBrowserExt(body);
     else if (id === 'workflows') renderWorkflowsExt(body);
     else if (id === 'skills') renderSkillsExt(body);
-    else if (id === 'market') { closeExtDetail(); window.location.href = '/market'; }
+    else if (id === 'market') renderFullPageExt(body, 'Marketplace', 'Khám phá và cài đặt extension từ cộng đồng', `/market?v=${Date.now()}`);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
     else if (id === 'multi_agents') renderFullPageExt(body, 'Multi-Agents', 'Quản lý đội nhóm agent và phân công nhiệm vụ tự động.', '/teams');
@@ -516,7 +516,7 @@ function openExtDetail(id) {
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
 
 function renderFullPageExt(el, name, desc, url) {
-    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="${url}" style="width:100%;height:100%;border:none"></iframe></div>`;
+    el.innerHTML = `<div style="height:calc(100vh - 150px);overflow:hidden"><iframe src="${url}" style="width:100%;height:100%;border:none"></iframe></div>`;
 }
 
 // ── Agents Ext ──
