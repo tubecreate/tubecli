@@ -4,6 +4,9 @@
 
 const API = '/api/v1/market';
 
+// Language for this iframe context (fetched from API at init)
+let _marketLang = localStorage.getItem('tubecli_lang') || 'en';
+
 // ── State ──
 const state = {
     category: '',
@@ -21,7 +24,24 @@ let searchTimer = null;
 let categoriesData = null;
 
 // ── Init ──
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Fetch current language from server (works correctly inside iframe)
+    try {
+        const r = await fetch('/api/v1/settings/language');
+        const d = await r.json();
+        if (d && d.language) {
+            _marketLang = d.language;
+            // Sync with i18n.js _lang variable if available
+            if (typeof _lang !== 'undefined') _lang = _marketLang;
+        }
+    } catch(e) { /* keep default */ }
+
+    // Apply translations to all data-i18n elements
+    if (typeof applyI18n === 'function') {
+        if (typeof _lang !== 'undefined') _lang = _marketLang;
+        applyI18n();
+    }
+
     loadCategories();
     loadItems();
 });
@@ -306,35 +326,41 @@ async function openDetailModal(publicId) {
         const rating = parseFloat(item.rating_avg || 0);
         const tags = item.tags || [];
 
+        // Load locale strings if extension has an installed local counterpart
+        const extSlug = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+        const locale = await loadExtLocale(extSlug);
+        const displayTitle = extT(locale, 'name', item.title);
+        const displayDesc  = extT(locale, 'description', item.description || 'No description provided.');
+
         const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
         heroIcon.textContent = categoryIcons[item.category] || '📦';
 
         body.innerHTML = `
-            <h2 class="modal-title">${escapeHtml(item.title)}</h2>
+            <h2 class="modal-title">${escapeHtml(displayTitle)}</h2>
             <div class="modal-seller">
-                ${item.seller_avatar ? `<img src="${escapeHtml(item.seller_avatar)}" alt="avatar">` : '<span>👤</span>'}
+                ${item.seller_avatar ? `<img src="${escapeHtml(item.seller_avatar)}" alt="avatar">` : '<span>\u{1F464}</span>'}
                 <span class="seller-name">${escapeHtml(item.seller_name || item.seller_id)}</span>
                 <span>·</span>
-                <span>${data.seller_item_count || 0} other items</span>
+                <span>${data.seller_item_count || 0} ${T('detail.other_items')}</span>
             </div>
             <div class="modal-stats-row">
-                <div class="modal-stat"><span class="stat-icon">⬇️</span> ${formatNumber(item.downloads || 0)} downloads</div>
-                <div class="modal-stat"><span class="stat-icon">⭐</span> ${rating.toFixed(1)} (${item.rating_count || 0} reviews)</div>
+                <div class="modal-stat"><span class="stat-icon">⬇️</span> ${formatNumber(item.downloads || 0)} ${T('detail.downloads')}</div>
+                <div class="modal-stat"><span class="stat-icon">⭐</span> ${rating.toFixed(1)} (${item.rating_count || 0} ${T('detail.reviews')})</div>
                 <div class="modal-stat"><span class="stat-icon">📦</span> v${escapeHtml(item.version || '1.0.0')}</div>
                 <div class="modal-stat"><span class="stat-icon">🏷️</span> ${escapeHtml(item.category)}</div>
             </div>
-            <div class="modal-description">${escapeHtml(item.description || 'No description provided.')}</div>
+            <div class="modal-description">${escapeHtml(displayDesc)}</div>
             ${tags.length ? `<div class="modal-tags">${tags.map(t => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
             <div class="modal-action-row">
                 ${isFree ? '' : `<button class="btn-buy" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
-                    🛒 Buy for ${formatCredits(price)}
+                    🛒 ${T('detail.buy_for')} ${formatCredits(price)}
                 </button>`}
                 <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}" style="${isFree ? '' : 'display:none;'}">
-                    📦 Install
+                    📦 ${T('detail.install')}
                 </button>
             </div>
             <div class="reviews-section">
-                <h3>⭐ Reviews (${reviews.length})</h3>
+                <h3>⭐ ${T('detail.reviews_title')} (${reviews.length})</h3>
                 ${reviews.length ? reviews.map(r => `
                     <div class="review-card">
                         <div class="review-header">
@@ -344,7 +370,7 @@ async function openDetailModal(publicId) {
                         <div class="review-stars">${renderStars(r.rating)}</div>
                         ${r.comment ? `<div class="review-text">${escapeHtml(r.comment)}</div>` : ''}
                     </div>
-                `).join('') : '<p style="color:var(--text-muted);font-size:0.85rem;">No reviews yet</p>'}
+                `).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;">${T('detail.no_reviews')}</p>`}
             </div>
         `;
 
@@ -356,7 +382,7 @@ async function openDetailModal(publicId) {
             if (checkData.installed) {
                 const installBtn = document.getElementById('installBtn_' + publicId);
                 if (installBtn) {
-                    installBtn.innerHTML = '✅ Installed';
+                    installBtn.innerHTML = '✅ ' + T('detail.installed');
                     installBtn.disabled = true;
                     installBtn.style.display = '';
                     installBtn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
@@ -371,7 +397,7 @@ async function openDetailModal(publicId) {
                     const unBtn = document.createElement('button');
                     unBtn.id = 'uninstallBtn_' + publicId;
                     unBtn.className = 'btn-uninstall';
-                    unBtn.innerHTML = '🗑️ Uninstall';
+                    unBtn.innerHTML = '🗑️ ' + T('detail.uninstall');
                     unBtn.onclick = () => uninstallItem(publicId, item.title, item.category);
                     actionRow.appendChild(unBtn);
                 }
@@ -821,6 +847,44 @@ function showLoading() {
     document.getElementById('marketGrid').style.display = 'none';
     document.getElementById('marketEmpty').style.display = 'none';
     document.getElementById('marketPagination').style.display = 'none';
+}
+
+/**
+ * Get the current app language (works in iframe context).
+ */
+function getAppLang() {
+    return _marketLang || localStorage.getItem('tubecli_lang') || 'en';
+}
+
+/**
+ * Load locale strings for a local extension (identified by its name slug).
+ * Calls /api/v1/extensions/{name}/locale/{lang} with fallback.
+ * Results are cached in window._extLocaleCache.
+ * Returns flat key-value object (may be empty if no locales found).
+ */
+const _extLocaleCache = {};
+async function loadExtLocale(extName) {
+    if (!extName) return {};
+    const lang = getAppLang();
+    const cacheKey = `${extName}__${lang}`;
+    if (_extLocaleCache[cacheKey] !== undefined) return _extLocaleCache[cacheKey];
+    try {
+        const res = await fetch(`/api/v1/extensions/${encodeURIComponent(extName)}/locale/${encodeURIComponent(lang)}`);
+        if (res.ok) {
+            const data = await res.json();
+            _extLocaleCache[cacheKey] = data || {};
+            return _extLocaleCache[cacheKey];
+        }
+    } catch(e) { /* ignore */ }
+    _extLocaleCache[cacheKey] = {};
+    return {};
+}
+
+/**
+ * Get a translated string from extension locale, fallback to default value.
+ */
+function extT(locale, key, fallback) {
+    return (locale && locale[key]) ? locale[key] : (fallback || '');
 }
 
 function setText(id, text) {
