@@ -614,6 +614,32 @@ async def extension_info(name: str):
     return info
 
 
+@app.get("/api/v1/extensions/{name}/locale/{lang}")
+async def extension_locale(name: str, lang: str):
+    """Return locale strings for an extension.
+    Looks for locales/{lang}.json, falls back to en.json, returns {} if none found.
+    """
+    from tubecli.core.extension_manager import extension_manager
+    import re
+    # Sanitize lang to prevent path traversal
+    if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
+        lang = "en"
+    extension = extension_manager.get(name)
+    if not extension or not extension.extension_dir:
+        return {}
+    locales_dir = os.path.join(extension.extension_dir, "locales")
+    # Try requested lang first, then "en" fallback
+    for try_lang in [lang, "en"]:
+        locale_path = os.path.join(locales_dir, f"{try_lang}.json")
+        if os.path.isfile(locale_path):
+            try:
+                with open(locale_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+
 class ExtensionInstallRequest(BaseModel):
     git_url: str
 
