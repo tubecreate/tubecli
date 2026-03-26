@@ -642,7 +642,10 @@ async def uninstall_extension(name: str):
 async def package_extension(name: str):
     """Package all files of an extension into a JSON structure for Market upload.
     Returns manifest + all source files so buyers can fully install the extension.
+    Auto-detects pip dependencies from Python imports.
     """
+    import re
+    import ast
     import json as json_lib
     from tubecli.core.extension_manager import extension_manager
 
@@ -654,31 +657,130 @@ async def package_extension(name: str):
     if not ext_dir or not os.path.isdir(ext_dir):
         raise HTTPException(400, "Extension directory not found")
 
-    # Read manifest
-    manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
-    manifest = {}
-    if os.path.exists(manifest_path):
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest = json_lib.load(f)
+    # ── Mapping: Python module name → pip package name ──────────────
+    # Standard library modules are excluded automatically via sys.stdlib_module_names (Python 3.10+)
+    # or a manual list. Any module not in stdlib that is imported is considered a dep.
+    IMPORT_TO_PIP = {
+        # Media / video
+        "yt_dlp": "yt-dlp",
+        "imageio_ffmpeg": "imageio-ffmpeg",
+        "imageio": "imageio",
+        "cv2": "opencv-python",
+        "PIL": "Pillow",
+        "moviepy": "moviepy",
+        "ffmpeg": "ffmpeg-python",
+        # HTTP / network
+        "requests": "requests",
+        "httpx": "httpx",
+        "aiohttp": "aiohttp",
+        "bs4": "beautifulsoup4",
+        "lxml": "lxml",
+        "selenium": "selenium",
+        "playwright": "playwright",
+        "pyppeteer": "pyppeteer",
+        # Data / AI
+        "numpy": "numpy",
+        "pandas": "pandas",
+        "sklearn": "scikit-learn",
+        "scipy": "scipy",
+        "torch": "torch",
+        "tensorflow": "tensorflow",
+        "openai": "openai",
+        "anthropic": "anthropic",
+        "google.generativeai": "google-generativeai",
+        # Web / API
+        "fastapi": "fastapi",
+        "pydantic": "pydantic",
+        "uvicorn": "uvicorn",
+        "flask": "Flask",
+        "django": "Django",
+        "starlette": "starlette",
+        # Utils
+        "dotenv": "python-dotenv",
+        "yaml": "PyYAML",
+        "toml": "tomli",
+        "rich": "rich",
+        "click": "click",
+        "tqdm": "tqdm",
+        "loguru": "loguru",
+        "cryptography": "cryptography",
+        "jwt": "PyJWT",
+        "paramiko": "paramiko",
+        "pyautogui": "pyautogui",
+        "pynput": "pynput",
+        "pyperclip": "pyperclip",
+        "psutil": "psutil",
+        "pytesseract": "pytesseract",
+        "docx": "python-docx",
+        "openpyxl": "openpyxl",
+        "xlrd": "xlrd",
+        "reportlab": "reportlab",
+        "telegram": "python-telegram-bot",
+        "discord": "discord.py",
+        "tweepy": "tweepy",
+        "boto3": "boto3",
+        "google.cloud": "google-cloud",
+        "google.auth": "google-auth",
+        "pymongo": "pymongo",
+        "redis": "redis",
+        "sqlalchemy": "SQLAlchemy",
+        "alembic": "alembic",
+        "celery": "celery",
+    }
 
-    # Collect all files (skip __pycache__, .git, .pyc, etc.)
+    # Known stdlib top-level module names (supplemented if sys.stdlib_module_names unavailable)
+    import sys
+    try:
+        _STDLIB = sys.stdlib_module_names  # Python 3.10+
+    except AttributeError:
+        _STDLIB = {
+            "os", "sys", "re", "io", "ast", "abc", "math", "time", "json",
+            "uuid", "enum", "copy", "glob", "shutil", "logging", "pathlib",
+            "typing", "hashlib", "base64", "struct", "socket", "threading",
+            "asyncio", "subprocess", "functools", "itertools", "collections",
+            "contextlib", "dataclasses", "importlib", "inspect", "traceback",
+            "random", "string", "token", "tokenize", "weakref", "signal",
+            "platform", "tempfile", "datetime", "calendar", "urllib",
+            "http", "html", "email", "csv", "sqlite3", "xml", "zipfile",
+            "tarfile", "gzip", "bz2", "lzma", "codecs", "multiprocessing",
+        }
+
+    def _scan_imports(py_source: str) -> set:
+        """Extract top-level module names from Python source."""
+        found = set()
+        try:
+            tree = ast.parse(py_source)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        found.add(alias.name.split(".")[0])
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module:
+                        found.add(node.module.split(".")[0])
+        except SyntaxError:
+            # Fallback: regex
+            for m in re.finditer(r"^(?:import|from)\s+([\w]+)", py_source, re.MULTILINE):
+                found.add(m.group(1))
+        return found
+
+    # ── Collect all files ──────────────────────────────────────────
     SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "venv"}
     SKIP_EXTS = {".pyc", ".pyo", ".egg-info"}
     MAX_FILE_SIZE = 500_000  # 500KB per file
 
     files = []
+    all_imports: set = set()
+
     for root, dirs, filenames in os.walk(ext_dir):
-        # Filter out skip directories
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
 
         for fname in filenames:
-            if any(fname.endswith(ext) for ext in SKIP_EXTS):
+            if any(fname.endswith(e) for e in SKIP_EXTS):
                 continue
 
             fpath = os.path.join(root, fname)
             rel_path = os.path.relpath(fpath, ext_dir).replace("\\", "/")
 
-            # Skip too large files
             if os.path.getsize(fpath) > MAX_FILE_SIZE:
                 continue
 
@@ -686,15 +788,78 @@ async def package_extension(name: str):
                 with open(fpath, "r", encoding="utf-8") as f:
                     content = f.read()
                 files.append({"path": rel_path, "content": content})
+
+                # Scan Python files for imports
+                if fname.endswith(".py"):
+                    all_imports |= _scan_imports(content)
             except (UnicodeDecodeError, PermissionError):
-                # Skip binary files
                 continue
+
+    # ── Auto-detect pip packages ───────────────────────────────────
+    detected_deps: list = []
+
+    # 1. From requirements.txt (highest priority, preserves version pins)
+    req_deps: set = set()
+    req_file = os.path.join(ext_dir, "requirements.txt")
+    if os.path.exists(req_file):
+        try:
+            with open(req_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        detected_deps.append(line)
+                        pkg = re.split(r"[=<>!;]", line)[0].strip().lower().replace("-", "_")
+                        req_deps.add(pkg)
+        except Exception:
+            pass
+
+    # 2. From scanned imports → map to pip packages
+    req_deps_normalized = {r.replace("-", "_").lower() for r in req_deps}
+    for module in sorted(all_imports):
+        if module in _STDLIB:
+            continue
+        # Check if already covered by requirements.txt
+        mod_normalized = module.replace("-", "_").lower()
+        pip_name = IMPORT_TO_PIP.get(module)
+        if not pip_name:
+            continue  # Unknown mapping, skip
+        pip_normalized = pip_name.replace("-", "_").lower()
+        if pip_normalized in req_deps_normalized or mod_normalized in req_deps_normalized:
+            continue  # Already in requirements.txt
+        detected_deps.append(pip_name)
+
+    # 3. Merge with existing manifest.dependencies (don't lose manually declared ones)
+    read_manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+    manifest = {}
+    if os.path.exists(read_manifest_path):
+        with open(read_manifest_path, "r", encoding="utf-8") as f:
+            manifest = json_lib.load(f)
+
+    existing_deps = manifest.get("dependencies", [])
+    existing_normalized = {d.replace("-", "_").lower() for d in existing_deps}
+    for dep in existing_deps:
+        dep_norm = dep.replace("-", "_").lower()
+        if dep_norm not in {d.replace("-", "_").lower() for d in detected_deps}:
+            detected_deps.append(dep)
+
+    # Deduplicate while preserving order
+    seen = set()
+    final_deps = []
+    for dep in detected_deps:
+        key = re.split(r"[=<>!;]", dep)[0].strip().lower().replace("-", "_")
+        if key not in seen:
+            seen.add(key)
+            final_deps.append(dep)
+
+    # Update manifest with auto-detected deps
+    manifest["dependencies"] = final_deps
 
     return {
         "status": "success",
         "manifest": manifest,
         "files": files,
         "file_count": len(files),
+        "detected_deps": final_deps,
     }
 
 
