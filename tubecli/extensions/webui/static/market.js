@@ -96,6 +96,10 @@ function renderItems(items) {
 
     loading.style.display = 'none';
 
+    // Update result count
+    const countEl = document.getElementById('vsx-result-count');
+    if (countEl) countEl.textContent = `${items.length} Result${items.length !== 1 ? 's' : ''}`;
+
     if (!items.length) {
         grid.style.display = 'none';
         empty.style.display = 'block';
@@ -118,37 +122,40 @@ function createCard(item) {
     const rating = parseFloat(item.rating_avg || 0);
     const downloads = parseInt(item.downloads || 0);
     const category = item.category || 'extension';
-    const tags = item.tags || [];
+    const icons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
+    const badgeClass = { extension: 'badge-extension', node: 'badge-node', skill: 'badge-skill', model3d: 'badge-model3d' };
 
     const card = document.createElement('div');
-    card.className = 'market-card';
+    card.className = 'vsx-card';
     card.onclick = () => openDetailModal(item.public_id);
 
-    const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
-    const categoryColors = { extension: 'badge-extension', node: 'badge-node', skill: 'badge-skill', model3d: 'badge-model3d' };
+    const iconContent = item.thumbnail_url
+        ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="icon" loading="lazy">`
+        : (icons[category] || '📦');
 
     card.innerHTML = `
-        <div class="card-thumbnail">
-            ${item.thumbnail_url 
-                ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="${escapeHtml(item.title)}" loading="lazy">` 
-                : `<span class="thumb-icon">${categoryIcons[category] || '📦'}</span>`}
-            <span class="card-category-badge ${categoryColors[category] || 'badge-extension'}">${category}</span>
-        </div>
-        <div class="card-body">
-            <div class="card-title">${escapeHtml(item.title)}</div>
-            <div class="card-desc">${escapeHtml(item.description || 'No description')}</div>
-            <div class="card-meta">
-                <span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>
-                <div class="card-stats">
-                    <span><span class="star-icon">★</span> ${rating.toFixed(1)}</span>
-                    <span>⬇ ${formatNumber(downloads)}</span>
-                </div>
+        <span class="vsx-card-badge ${badgeClass[category] || 'badge-extension'}">${category}</span>
+        <div class="vsx-card-icon">${iconContent}</div>
+        <div class="vsx-card-name" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+        <div class="vsx-card-author">${escapeHtml(item.seller_name || item.author || 'Unknown')}</div>
+        <div class="vsx-card-version">v${escapeHtml(item.version || '1.0.0')}</div>
+        <div class="vsx-card-bottom">
+            <div class="vsx-card-stats">
+                <span class="vsx-card-rating">★ ${rating.toFixed(1)}</span>
+                <span class="vsx-card-downloads">⬇ ${formatNumber(downloads)}</span>
             </div>
-            ${tags.length ? `<div class="card-tags">${tags.slice(0, 3).map(t => `<span class="card-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+            <span class="vsx-card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>
         </div>
     `;
 
     return card;
+}
+
+// setCategoryFromSelect — syncs the dropdown with category state
+function setCategoryFromSelect(val) {
+    state.category = val;
+    state.page = 1;
+    applyFilters();
 }
 
 // ── Pagination ──

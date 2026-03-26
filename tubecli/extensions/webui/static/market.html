@@ -5,155 +5,98 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TubeCLI — Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
-    <link rel="stylesheet" href="/static/style.css">
-    <link rel="stylesheet" href="/static/market.css">
+    <link rel="stylesheet" href="/static/style.css?v=4">
+    <link rel="stylesheet" href="/static/market.css?v=4">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
-<div id="app">
-    <!-- Sidebar -->
-    <aside class="sidebar" id="sidebar">
-        <div style="padding:20px 16px 12px;">
-            <span class="sidebar-logo">🚀 TubeCLI</span>
-        </div>
-        <nav class="sidebar-nav">
-            <div class="nav-section-label">Main</div>
-            <a href="/dashboard" class="nav-item"><span class="nav-icon">📊</span><span class="nav-text">Dashboard</span></a>
-            <a href="/workflow" class="nav-item"><span class="nav-icon">⚡</span><span class="nav-text">Workflows</span></a>
-            <a href="/teams" class="nav-item"><span class="nav-icon">🤖</span><span class="nav-text">AI Teams</span></a>
-            <a href="/studio" class="nav-item"><span class="nav-icon">🎨</span><span class="nav-text">3D Studio</span></a>
-            <div class="nav-section-label">Community</div>
-            <a href="/market" class="nav-item active"><span class="nav-icon">🛒</span><span class="nav-text">Market</span></a>
-            <div class="nav-section-label">Tools</div>
-            <a href="/downloader" class="nav-item"><span class="nav-icon">⬇️</span><span class="nav-text">Downloader</span></a>
-        </nav>
-        <div class="sidebar-footer">
-            <span class="status-dot"></span>
-            <span>API Online</span>
-        </div>
-    </aside>
+<div id="app" style="display:block;">
 
     <!-- Main Content -->
-    <main class="content market-page">
-        <!-- Header -->
-        <div class="market-header">
-            <div class="market-header-left">
-                <div>
-                    <h1 class="market-title">🛒 Extension Market</h1>
-                    <p class="market-subtitle">Browse & trade extensions, nodes, skills, and 3D models</p>
-                </div>
+    <main class="content market-page" style="margin-left:0;">
+
+        <!-- ── VSX-style Top Bar ── -->
+        <div class="vsx-topbar">
+            <div class="vsx-topbar-left">
+                <h1 class="vsx-title">🛍️ TubeCLI Marketplace</h1>
             </div>
-            <div class="market-header-actions">
-                <div class="market-search-wrap">
-                    <span class="search-icon">🔍</span>
-                    <input type="text" id="marketSearch" placeholder="Search items..." oninput="debounceSearch()">
+            <div class="vsx-topbar-right">
+                <div class="vsx-search-wrap">
+                    <span class="vsx-search-icon">🔍</span>
+                    <input type="text" id="marketSearch" placeholder="Search by Name, Tag, or Description" oninput="debounceSearch()">
+                    <button class="vsx-search-btn" onclick="applyFilters()">Search</button>
                 </div>
-                <!-- User info (visible when logged in) -->
+                <!-- Category dropdown -->
+                <select class="vsx-cat-select" id="catSelect" onchange="setCategoryFromSelect(this.value)">
+                    <option value="">All Categories</option>
+                    <option value="extension">🧩 Extensions</option>
+                    <option value="node">🔗 Nodes</option>
+                    <option value="skill">⚡ Skills</option>
+                    <option value="model3d">🎨 3D Models</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ── Subtitle toolbar ── -->
+        <div class="vsx-subtoolbar">
+            <span class="vsx-result-count" id="vsx-result-count"></span>
+            <div class="vsx-toolbar-right">
+                <label class="vsx-filter-label">
+                    <input type="radio" name="price" value="" checked onchange="applyFilters()"> All
+                </label>
+                <label class="vsx-filter-label">
+                    <input type="radio" name="price" value="free" onchange="applyFilters()"> Free Only
+                </label>
+                <label class="vsx-filter-label">
+                    <input type="radio" name="price" value="paid" onchange="applyFilters()"> Paid Only
+                </label>
+                <span class="vsx-sep">|</span>
+                <span class="vsx-sort-label">Sort by</span>
+                <select class="vsx-sort-select" id="sortSelect" onchange="applyFilters()">
+                    <option value="newest">Newest</option>
+                    <option value="popular">Most Downloaded</option>
+                    <option value="rating">Highest Rated</option>
+                    <option value="price_asc">Price ↑</option>
+                    <option value="price_desc">Price ↓</option>
+                </select>
+                <span class="vsx-sep">|</span>
+                <!-- Auth buttons -->
                 <div class="market-user-info" id="marketUserInfo" style="display:none;">
                     <span class="market-user-name" id="marketUserName"></span>
                     <button class="btn-logout" onclick="logoutMarket()" title="Đăng xuất">🚪</button>
                 </div>
-                <button class="btn-upload btn-my-listings" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">
-                    <span>📋</span> My Listings
-                </button>
-                <button class="btn-upload btn-sell" onclick="requireAuth(() => openUploadModal())">
-                    <span>📤</span> Sell Item
-                </button>
+                <button class="vsx-btn-secondary" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">📋 My Listings</button>
+                <button class="vsx-btn-primary" onclick="requireAuth(() => openUploadModal())">📤 Sell Item</button>
             </div>
         </div>
 
-        <!-- Category Tabs -->
-        <div class="market-tabs" id="categoryTabs">
-            <button class="market-tab active" data-category="" onclick="switchCategory(this, '')">
-                <span class="tab-icon">🌐</span> All <span class="tab-count" id="countAll">0</span>
-            </button>
-            <button class="market-tab" data-category="extension" onclick="switchCategory(this, 'extension')">
-                <span class="tab-icon">🧩</span> Extensions <span class="tab-count" id="countExtension">0</span>
-            </button>
-            <button class="market-tab" data-category="node" onclick="switchCategory(this, 'node')">
-                <span class="tab-icon">🔗</span> Nodes <span class="tab-count" id="countNode">0</span>
-            </button>
-            <button class="market-tab" data-category="skill" onclick="switchCategory(this, 'skill')">
-                <span class="tab-icon">⚡</span> Skills <span class="tab-count" id="countSkill">0</span>
-            </button>
-            <button class="market-tab" data-category="model3d" onclick="switchCategory(this, 'model3d')">
-                <span class="tab-icon">🎨</span> 3D Models <span class="tab-count" id="countModel3d">0</span>
-            </button>
+        <!-- ── Tag pills row ── -->
+        <div class="vsx-tags-row" id="tagPills"></div>
+
+        <!-- ── Items Grid ── -->
+        <div id="marketContent" style="padding: 0 24px 40px;">
+            <div class="market-loading" id="marketLoading">
+                <div class="market-spinner"></div>
+                <span style="color:var(--text-muted)">Loading marketplace...</span>
+            </div>
+            <div class="vsx-grid" id="marketGrid" style="display:none;"></div>
+            <div class="market-empty" id="marketEmpty" style="display:none;">
+                <div class="empty-icon">📦</div>
+                <h3>No items found</h3>
+                <p>Try adjusting your filters or search query</p>
+            </div>
+            <div class="market-pagination" id="marketPagination" style="display:none;"></div>
         </div>
 
-        <!-- Layout -->
-        <div class="market-layout">
-            <!-- Filter Sidebar -->
-            <aside class="market-filters" id="filterSidebar">
-                <!-- Sort -->
-                <div class="filter-section">
-                    <h4>Sort By</h4>
-                    <select class="sort-select" id="sortSelect" onchange="applyFilters()">
-                        <option value="newest">🕐 Newest</option>
-                        <option value="popular">🔥 Most Popular</option>
-                        <option value="rating">⭐ Highest Rated</option>
-                        <option value="price_asc">💰 Price: Low → High</option>
-                        <option value="price_desc">💰 Price: High → Low</option>
-                    </select>
-                </div>
-
-                <!-- Price -->
-                <div class="filter-section">
-                    <h4>Price Range</h4>
-                    <label class="filter-option">
-                        <input type="radio" name="price" value="" checked onchange="applyFilters()"> All Prices
-                    </label>
-                    <label class="filter-option">
-                        <input type="radio" name="price" value="free" onchange="applyFilters()"> Free Only
-                    </label>
-                    <label class="filter-option">
-                        <input type="radio" name="price" value="paid" onchange="applyFilters()"> Paid Only
-                    </label>
-                    <div class="price-range-wrap" id="priceRangeWrap" style="display:none; margin-top:8px;">
-                        <input type="range" id="priceRange" min="0" max="10000" value="10000" oninput="updatePriceLabel()">
-                        <div class="price-labels">
-                            <span>0</span>
-                            <span id="priceLabel">10,000 credits</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Rating -->
-                <div class="filter-section">
-                    <h4>Minimum Rating</h4>
-                    <div class="star-filter" id="starFilter">
-                        <span class="star" data-rating="1" onclick="setMinRating(1)">★</span>
-                        <span class="star" data-rating="2" onclick="setMinRating(2)">★</span>
-                        <span class="star" data-rating="3" onclick="setMinRating(3)">★</span>
-                        <span class="star" data-rating="4" onclick="setMinRating(4)">★</span>
-                        <span class="star" data-rating="5" onclick="setMinRating(5)">★</span>
-                    </div>
-                    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:6px;" id="ratingLabel">Any rating</div>
-                </div>
-
-                <!-- Popular Tags -->
-                <div class="filter-section">
-                    <h4>Popular Tags</h4>
-                    <div class="tag-pills" id="tagPills">
-                        <!-- Populated dynamically -->
-                    </div>
-                </div>
-            </aside>
-
-            <!-- Items Grid -->
-            <div id="marketContent">
-                <div class="market-loading" id="marketLoading">
-                    <div class="market-spinner"></div>
-                    <span style="color:var(--text-muted)">Loading marketplace...</span>
-                </div>
-                <div class="market-grid" id="marketGrid" style="display:none;"></div>
-                <div class="market-empty" id="marketEmpty" style="display:none;">
-                    <div class="empty-icon">📦</div>
-                    <h3>No items found</h3>
-                    <p>Try adjusting your filters or search query</p>
-                </div>
-                <div class="market-pagination" id="marketPagination" style="display:none;"></div>
-            </div>
+        <!-- hidden inputs for JS compat -->
+        <div style="display:none">
+            <div id="countAll"></div>
+            <div id="countExtension"></div>
+            <div id="countNode"></div>
+            <div id="countSkill"></div>
+            <div id="countModel3d"></div>
+            <div id="starFilter"></div>
+            <div id="ratingLabel"></div>
         </div>
     </main>
 </div>
@@ -365,6 +308,6 @@
     </div>
 </div>
 
-<script src="/static/market.js?v=1.2"></script>
+<script src="/static/market.js?v=1.3"></script>
 </body>
 </html>
