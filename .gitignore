@@ -14,3 +14,8 @@ venv/
 node_modules/
 .env
 *.zip
+
+# Test/debug files rác
+test_fingerprint*.json
+test_*.py
+open_head.js
