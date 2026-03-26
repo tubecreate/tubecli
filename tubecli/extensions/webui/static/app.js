@@ -83,7 +83,7 @@ const EXT_REGISTRY = [
     { id:'browser', icon:'🌐', name:T('stat.profiles'), desc:T('ext.browser_desc'), type:'core' },
     { id:'workflows', icon:'🔄', name:T('stat.workflows'), desc:T('ext.workflows_desc'), type:'core' },
     { id:'skills', icon:'⚡', name:T('stat.skills'), desc:T('ext.skills_desc'), type:'core' },
-    { id:'market', icon:'🛒', name:T('ext.market_desc'), desc:T('ext.market_desc'), type:'core' },
+    { id:'market', icon:'🛍️', name:'Marketplace', desc:'Khám phá và cài đặt extension từ cộng đồng', type:'core' },
     { id:'cloud_api', icon:'☁️', name:T('dash.cloud_api_keys'), desc:T('ext.cloud_api_desc'), type:'extension' },
     { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:T('ext.ollama_desc'), type:'extension' },
     { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:T('ext.multi_agents_desc'), type:'extension' },
@@ -507,7 +507,7 @@ function openExtDetail(id) {
     else if (id === 'browser') renderBrowserExt(body);
     else if (id === 'workflows') renderWorkflowsExt(body);
     else if (id === 'skills') renderSkillsExt(body);
-    else if (id === 'market') renderMarketExt(body);
+    else if (id === 'market') { closeExtDetail(); window.location.href = '/market'; }
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
     else if (id === 'multi_agents') renderFullPageExt(body, 'Multi-Agents', 'Quản lý đội nhóm agent và phân công nhiệm vụ tự động.', '/teams');
