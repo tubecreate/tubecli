@@ -655,13 +655,15 @@ async function loadUploadItems(category) {
             }));
         } else if (category === 'extension') {
             const raw = data.extensions || data || [];
-            items = (Array.isArray(raw) ? raw : []).map(e => ({
-                _id: e.name || e.id,
-                _displayName: e.name || e.id || 'Unnamed Extension',
-                _description: e.description || '',
-                _meta: `v${e.version || '1.0'}`,
-                _rawData: e,
-            }));
+            items = (Array.isArray(raw) ? raw : [])
+                .filter(e => e.extension_type === 'external')  // Only allow selling external extensions
+                .map(e => ({
+                    _id: e.name || e.id,
+                    _displayName: e.name || e.id || 'Unnamed Extension',
+                    _description: e.description || '',
+                    _meta: `v${e.version || '1.0'}`,
+                    _rawData: e,
+                }));
         } else if (category === 'node') {
             const raw = data.nodes || data || [];
             items = (Array.isArray(raw) ? raw : []).map(n => ({
