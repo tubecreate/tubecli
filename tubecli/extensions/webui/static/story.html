@@ -733,6 +733,27 @@ async function _runAIGenerate(prompt, provider, model) {
     const btnAI = document.getElementById('btn-ai-gen');
     if (btnAI) { btnAI.disabled = true; btnAI.textContent = '⏳ Đang tạo...'; }
 
+    // Auto-inject agent desk waypoints from 3D scene
+    const waypoints = [...(storyEditor.script.waypoints || [])];
+    const actors = storyEditor.script.actors || [];
+    if (typeof agentCharacters !== 'undefined') {
+        for (const actor of actors) {
+            const ch = agentCharacters.find(c => c.agentId === actor.agent_id);
+            if (ch && ch.homePos) {
+                const deskId = `desk_${actor.key}`;
+                // Don't duplicate if already exists
+                if (!waypoints.find(wp => wp.id === deskId)) {
+                    waypoints.push({
+                        id: deskId,
+                        label: `Bàn của ${actor.name || actor.key}`,
+                        x: Math.round(ch.homePos.x * 100) / 100,
+                        z: Math.round(ch.homePos.z * 100) / 100,
+                    });
+                }
+            }
+        }
+    }
+
     try {
         const res = await fetch('/api/v1/story/ai-generate', {
             method: 'POST',
@@ -742,8 +763,8 @@ async function _runAIGenerate(prompt, provider, model) {
                 provider,
                 model,
                 scene_id: storyEditor.script.scene_id,
-                actors: storyEditor.script.actors,
-                waypoints: storyEditor.script.waypoints,
+                actors,
+                waypoints,
             }),
         });
         const data = await res.json();
