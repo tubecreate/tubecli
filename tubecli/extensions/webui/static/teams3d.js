@@ -585,6 +585,9 @@ function animate3d() {
 
         ac.stateTimer -= dt;
 
+        // Skip characters controlled by story player
+        if (ac.state && ac.state.startsWith('story_')) return;
+
         switch (ac.state) {
             case 'working': {
                 // Face the desk (rotate towards desk, away from camera)
@@ -771,6 +774,16 @@ function animate3d() {
     });
 
     if (particlesMesh) particlesMesh.rotation.y = t * 0.015;
+
+    // Story player animation hook — walks, chats, animations during playback
+    if (typeof storyAnimateUpdate === 'function' && typeof storyPlayer !== 'undefined') {
+        storyAnimateUpdate(dt, t, storyPlayer);
+    }
+
+    // Speech bubbles follow characters in screen space
+    if (typeof storyBubbles !== 'undefined' && storyBubbles.update) {
+        storyBubbles.update();
+    }
 
     renderer3d.render(scene3d, camera3d);
 }

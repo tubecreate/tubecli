@@ -8,6 +8,10 @@ import os
 router = APIRouter(tags=["webui"])
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+# ── Include Story API ───────────────────────────────────────────────
+from .story_api import story_router
+router.include_router(story_router)
+
 
 @router.get("/dashboard")
 async def dashboard():
@@ -60,6 +64,15 @@ async def downloader_page():
     if os.path.exists(dl_file):
         return FileResponse(dl_file)
     return {"error": "Downloader page not found"}
+
+
+@router.get("/story")
+async def story_page():
+    """Serve the 3D Story Engine page."""
+    story_file = os.path.join(STATIC_DIR, "story.html")
+    if os.path.exists(story_file):
+        return FileResponse(story_file)
+    return {"error": "Story page not found"}
 
 
 @router.get("/static/{filename:path}")
