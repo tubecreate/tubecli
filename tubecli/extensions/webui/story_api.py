@@ -460,22 +460,53 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
         ]
 
     else:
-        # GENERIC: varied random sequence
+        # GENERIC: varied random sequence using available waypoints
         anims = ["think", "read", "write_board", "cheer"]
-        wp_order = random.sample(["board", "sofa", "door"], 3)
+        topic_display = prompt[:40] if prompt else "công việc hôm nay"
+        
+        # Extract generic waypoints (not desks) from the scene
+        available_wps = [wp["id"] for wp in (waypoints or []) if not wp["id"].startswith("desk_")]
+        if len(available_wps) >= 3:
+            wp_order = random.sample(available_wps, 3)
+        elif len(available_wps) > 0:
+            wp_order = [random.choice(available_wps) for _ in range(3)]
+        else:
+            wp_order = ["board", "sofa", "door"]
+            
+        greetings = [
+            f"Chào {n0}! Mình bàn về {topic_display} nhé!",
+            f"Hey {n0}! Xem qua phần {topic_display} xíu nha.",
+            f"{n0} ơi, có vài idea về {topic_display} nè."
+        ]
+        responses = [
+            f"Ok {n1}! Mình lắng nghe đây!",
+            f"Được đấy, bắt đầu thôi {n1}!",
+            f"Tuyệt! Mình cũng đang nghĩ về {topic_display}."
+        ]
+        ideas = [
+            f"Điểm mấu chốt của {topic_display} là phần này nè...",
+            f"Theo mình, triển khai {topic_display} nên làm thế này.",
+            f"Mình thấy có vài rủi ro với {topic_display}, cần lưu ý."
+        ]
+        reactions = [
+            "Hay quá! Share chi tiết thêm đi!",
+            "Hợp lý đó! Mình đồng ý hướng này.",
+            "Wow góc nhìn mới lạ! Rất thú vị."
+        ]
+            
         timeline = [
             {"time": 0,  "actor": k0, "action": "walk_to",  "target": wp_order[0]},
             {"time": 3,  "actor": k1, "action": "walk_to",  "target": {"x": random.uniform(-2, 3), "z": random.uniform(-2, 2)}},
             {"time": 6,  "actor": k0, "action": "animate",  "anim": random.choice(anims)},
             {"time": 9,  "actor": k1, "action": "walk_to",  "target": wp_order[0]},
-            {"time": 12, "actor": k1, "action": "chat",     "dialog": f"Chào {n0}! Bàn về chủ đề hôm nay nhé!", "duration": 3},
-            {"time": 15, "actor": k0, "action": "chat",     "dialog": f"Ok {n1}! Mình bắt đầu thôi!", "duration": 3},
+            {"time": 12, "actor": k1, "action": "chat",     "dialog": random.choice(greetings), "duration": 3},
+            {"time": 15, "actor": k0, "action": "chat",     "dialog": random.choice(responses), "duration": 3},
             {"time": 18, "actor": k0, "action": "emote",    "emoji": e()},
             {"time": 20, "actor": k1, "action": "animate",  "anim": random.choice(anims)},
             {"time": 24, "actor": k0, "action": "walk_to",  "target": wp_order[1]},
             {"time": 27, "actor": k1, "action": "walk_to",  "target": wp_order[1]},
-            {"time": 30, "actor": k0, "action": "chat",     "dialog": "Mình có ý tưởng hay về vấn đề này!", "duration": 4},
-            {"time": 34, "actor": k1, "action": "chat",     "dialog": "Hay quá! Share thêm đi!", "duration": 3},
+            {"time": 30, "actor": k0, "action": "chat",     "dialog": random.choice(ideas), "duration": 4},
+            {"time": 34, "actor": k1, "action": "chat",     "dialog": random.choice(reactions), "duration": 3},
             {"time": 37, "actor": k0, "action": "animate",  "anim": random.choice(anims)},
             {"time": 40, "actor": k1, "action": "emote",    "emoji": e()},
             {"time": 42, "actor": k0, "action": "walk_to",  "target": wp_order[2]},
