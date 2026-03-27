@@ -717,53 +717,62 @@ async function doAIGenerate() {
                 placeholder="VD: Buổi họp sáng thứ hai, team báo cáo công việc tuần, thảo luận kế hoạch..."></textarea>
             <small style="color:var(--muted)">AI sẽ tạo timeline tự động dựa trên nhân vật và waypoints hiện tại.</small>
         </div>
-    `, async () => {
+    `, () => {
         const prompt = document.getElementById('ai-prompt-area')?.value?.trim();
         if (!prompt) return;
         const modelSel = document.getElementById('ai-model-select')?.value || '';
         const [provider, model] = modelSel.includes('::') ? modelSel.split('::', 2) : ['ollama', ''];
 
-        showToast('⏳ Đang tạo kịch bản bằng AI...', 'info');
-
-        try {
-            const res = await fetch('/api/v1/story/ai-generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    prompt,
-                    provider,
-                    model,
-                    scene_id: storyEditor.script.scene_id,
-                    actors: storyEditor.script.actors,
-                    waypoints: storyEditor.script.waypoints,
-                }),
-            });
-            const data = await res.json();
-            if (data.ok && data.script) {
-                const s = data.script;
-                // Preserve current actors if AI didn't return them
-                if (!s.actors || s.actors.length === 0) {
-                    s.actors = storyEditor.script.actors;
-                }
-                s.scene_id = storyEditor.script.scene_id;
-                storyEditor.script.title = s.title || storyEditor.script.title;
-                storyEditor.script.waypoints = s.waypoints || storyEditor.script.waypoints;
-                storyEditor.script.timeline = s.timeline || [];
-                const titleEl = document.getElementById('se-title');
-                if (titleEl && s.title) titleEl.value = s.title;
-                storyEditor._renderWaypoints();
-                storyEditor._renderTimeline();
-
-                const note = data.note === 'demo_fallback' ? ' (demo fallback)' : '';
-                const prov = data.provider ? ` · ${data.provider}/${data.model}` : '';
-                showToast(`✅ Đã tạo kịch bản AI${note}${prov} · ${(s.timeline||[]).length} events`, 'success');
-            } else {
-                showToast(`❌ Lỗi: ${data.error || 'Không thể tạo kịch bản'}`, 'error');
-            }
-        } catch(e) {
-            showToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
-        }
+        // Fire and forget — modal will close immediately
+        _runAIGenerate(prompt, provider, model);
     });
+}
+
+async function _runAIGenerate(prompt, provider, model) {
+    showToast('⏳ Đang tạo kịch bản bằng AI... (có thể mất 30-60 giây)', 'info');
+    const btnAI = document.getElementById('btn-ai-gen');
+    if (btnAI) { btnAI.disabled = true; btnAI.textContent = '⏳ Đang tạo...'; }
+
+    try {
+        const res = await fetch('/api/v1/story/ai-generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                prompt,
+                provider,
+                model,
+                scene_id: storyEditor.script.scene_id,
+                actors: storyEditor.script.actors,
+                waypoints: storyEditor.script.waypoints,
+            }),
+        });
+        const data = await res.json();
+        if (data.ok && data.script) {
+            const s = data.script;
+            if (!s.actors || s.actors.length === 0) {
+                s.actors = storyEditor.script.actors;
+            }
+            s.scene_id = storyEditor.script.scene_id;
+            storyEditor.script.title = s.title || storyEditor.script.title;
+            storyEditor.script.waypoints = s.waypoints || storyEditor.script.waypoints;
+            storyEditor.script.timeline = s.timeline || [];
+            const titleEl = document.getElementById('se-title');
+            if (titleEl && s.title) titleEl.value = s.title;
+            storyEditor._renderWaypoints();
+            storyEditor._renderTimeline();
+            storyPlayer.load(storyEditor.script);
+
+            const note = data.note === 'demo_fallback' ? ' (demo fallback)' : '';
+            const prov = data.provider ? ` · ${data.provider}/${data.model}` : '';
+            showToast(`✅ Đã tạo kịch bản AI${note}${prov} · ${(s.timeline||[]).length} events`, 'success');
+        } else {
+            showToast(`❌ Lỗi: ${data.error || 'Không thể tạo kịch bản'}`, 'error');
+        }
+    } catch(e) {
+        showToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
+    } finally {
+        if (btnAI) { btnAI.disabled = false; btnAI.textContent = '🤖 AI Generate'; }
+    }
 }
 
 

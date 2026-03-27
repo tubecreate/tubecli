@@ -649,7 +649,10 @@ function showModal(title, bodyHtml, onConfirm) {
         </div>
     `;
     overlay.style.display = 'flex';
-    document.getElementById('se-modal-confirm').onclick = () => { if (onConfirm) onConfirm(); closeModal(); };
+    document.getElementById('se-modal-confirm').onclick = async () => {
+        if (onConfirm) await onConfirm();
+        closeModal();
+    };
 }
 
 function closeModal() {
