@@ -45,9 +45,23 @@ class AIGenerateRequest(BaseModel):
 
 # ── AI Models listing ───────────────────────────────────────────────
 
+CLOUD_KEYS_FILE = os.path.normpath(os.path.join(
+    os.path.dirname(__file__),
+    "..", "..", "..", "data", "cloud_api_keys.json"
+))
+
+def _load_cloud_keys() -> dict:
+    """Load cloud API keys from data/cloud_api_keys.json (Cloud API Keys extension)."""
+    try:
+        with open(CLOUD_KEYS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 @story_router.get("/ai-models")
 async def list_ai_models():
-    """Return available AI models: local Ollama + cloud providers with keys from agents."""
+    """Return available AI models: local Ollama + cloud providers."""
     result = {"ollama": [], "cloud": []}
 
     # 1. Ollama local models
@@ -63,25 +77,12 @@ async def list_ai_models():
     except Exception:
         pass
 
-    # 2. Cloud providers from agent cloud_api_keys
-    # Mapping: agent stores 'openai' key, our provider name is 'chatgpt'
-    PROVIDER_KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok"}
-    KEY_PROVIDER_MAP = {v: k for k, v in PROVIDER_KEY_MAP.items()}  # reverse
-    cloud_providers = set()
-    try:
-        from tubecli.core.agent import agent_manager
-        for agent in agent_manager.get_all():
-            d = agent.to_dict()
-            keys = d.get("cloud_api_keys") or {}
-            for key_name, key_val in keys.items():
-                if key_val and str(key_val).strip():
-                    # Map stored key name to our provider name
-                    provider = KEY_PROVIDER_MAP.get(key_name, key_name)
-                    cloud_providers.add(provider)
-    except Exception:
-        pass
+    # 2. Cloud providers from data/cloud_api_keys.json
+    cloud_keys = _load_cloud_keys()
 
     # Known cloud provider configs
+    # Key in JSON → provider name mapping
+    PROVIDER_MAP = {"openai": "chatgpt"}  # openai key → chatgpt provider
     CLOUD_MODELS = {
         "gemini": [
             {"name": "gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
@@ -101,34 +102,50 @@ async def list_ai_models():
             {"name": "grok-3-mini-fast", "label": "Grok 3 Mini Fast"},
             {"name": "grok-3-fast", "label": "Grok 3 Fast"},
         ],
+        "deepseek": [
+            {"name": "deepseek-chat", "label": "DeepSeek Chat"},
+            {"name": "deepseek-reasoner", "label": "DeepSeek Reasoner"},
+        ],
     }
-    for provider in cloud_providers:
-        p = provider.lower()
-        if p in CLOUD_MODELS:
+    PROVIDER_LABELS = {
+        "gemini": "Google Gemini", "chatgpt": "OpenAI", "claude": "Anthropic Claude",
+        "grok": "xAI Grok", "deepseek": "DeepSeek",
+    }
+
+    for key_name, key_entries in cloud_keys.items():
+        # Check if there's at least one active key
+        has_active = any(
+            v.get("active", False) and v.get("key", "").strip()
+            for v in (key_entries.values() if isinstance(key_entries, dict) else [])
+        )
+        if not has_active:
+            continue
+        # Map stored key name to provider name
+        provider = PROVIDER_MAP.get(key_name, key_name)
+        if provider in CLOUD_MODELS:
             result["cloud"].append({
-                "provider": p,
-                "label": p.title(),
-                "models": CLOUD_MODELS[p],
+                "provider": provider,
+                "label": PROVIDER_LABELS.get(provider, provider.title()),
+                "models": CLOUD_MODELS[provider],
             })
 
     return result
 
 
 def _get_cloud_api_key(provider: str) -> str:
-    """Get API key for a cloud provider from any agent that has it configured."""
-    # Map our provider name to the key name stored in agent
-    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok"}
+    """Get first active API key for a provider from data/cloud_api_keys.json."""
+    # Map our provider name to the key name stored in JSON
+    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude",
+               "grok": "grok", "deepseek": "deepseek"}
     key_name = KEY_MAP.get(provider, provider)
-    try:
-        from tubecli.core.agent import agent_manager
-        for agent in agent_manager.get_all():
-            d = agent.to_dict()
-            keys = d.get("cloud_api_keys") or {}
-            key = keys.get(key_name, "")
-            if key and str(key).strip():
-                return str(key).strip()
-    except Exception:
-        pass
+    cloud_keys = _load_cloud_keys()
+    entries = cloud_keys.get(key_name, {})
+    if isinstance(entries, dict):
+        for label, entry in entries.items():
+            if isinstance(entry, dict) and entry.get("active", False):
+                key = entry.get("key", "").strip()
+                if key:
+                    return key
     return ""
 
 
@@ -155,34 +172,57 @@ async def ai_generate_script(req: AIGenerateRequest):
         wp_list.append(f"  - {wp.get('id','?')} ({wp.get('label','')}) tại ({wp.get('x',0)}, {wp.get('z',0)})")
     wp_text = "\n".join(wp_list) if wp_list else "  - board (Whiteboard), sofa (Sofa), door (Cửa)"
 
-    system_prompt = f"""Bạn là một AI viết kịch bản tương tác 3D cho văn phòng ảo.
-Hãy sinh ra một story script JSON theo đúng format sau:
+    system_prompt = f"""Bạn là một AI chuyên viết kịch bản tương tác 3D cho văn phòng ảo. Nhiệm vụ: tạo story script JSON phong phú, dài, có câu chuyện hấp dẫn.
 
+FORMAT JSON bắt buộc:
 {{
-  "title": "Tên kịch bản",
-  "waypoints": [{{"id":"wp_id","label":"Tên","x":0,"z":0}}],
+  "title": "Tên kịch bản ngắn gọn",
+  "waypoints": [{{"id":"wp_id","label":"Tên vị trí","x":số,"z":số}}],
   "timeline": [
-    {{"time": 0, "actor": "actor_key", "action": "walk_to", "target": "wp_id"}},
-    {{"time": 3, "actor": "actor_key", "action": "chat", "dialog": "Xin chào!", "duration": 3}},
+    {{"time": 0, "actor": "actor_key", "action": "walk_to", "target": "wp_id_hoặc_tọa_độ"}},
+    {{"time": 3, "actor": "actor_key", "action": "chat", "dialog": "Nội dung hội thoại", "duration": 3}},
     {{"time": 7, "actor": "actor_key", "action": "animate", "anim": "think"}},
-    {{"time": 10, "actor": "actor_key", "action": "emote", "emoji": "💡"}},
+    {{"time": 9, "actor": "actor_key", "action": "emote", "emoji": "💡"}},
     {{"time": 12, "actor": "actor_key", "action": "return_desk"}}
   ]
 }}
 
-Các action hỗ trợ: walk_to, chat, animate, return_desk, sit, stand, emote
-Các anim hỗ trợ: read, write_board, shake_hand, cheer, think
-target có thể là waypoint id (string) hoặc {{"x": số, "z": số}}
+CÁC ACTION:
+- walk_to: di chuyển đến waypoint (target: string id) hoặc tọa độ (target: {{"x":số,"z":số}})
+- chat: nói chuyện (dialog: nội dung, duration: 2-5 giây)
+- animate: thực hiện hoạt cảnh (anim: read/write_board/shake_hand/cheer/think)
+- emote: biểu cảm (emoji: 1 emoji)
+- sit: ngồi xuống
+- stand: đứng dậy
+- return_desk: quay về bàn làm việc
 
-Nhân vật (actor keys): {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
-Waypoints có sẵn trên map:
+NHÂN VẬT: {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
+
+WAYPOINTS TRÊN MAP:
 {wp_text}
+
+QUY TẮC QUAN TRỌNG:
+1. Tạo ÍT NHẤT 15-25 events trong timeline, kéo dài 60-120 giây
+2. Mỗi nhân vật phải có ít nhất 6-8 events riêng
+3. Xen kẽ các action đa dạng: walk → chat → animate → emote → walk → chat...
+4. Dialog phải tự nhiên, sinh động, có cảm xúc, KHÁC NHAU mỗi câu (không lặp lại khuôn mẫu)
+5. Sử dụng nhiều emoji đa dạng trong emote: 💡🎉😄🤔💪🔥✨🎯👋❤️
+6. Nhân vật di chuyển đến nhiều vị trí khác nhau, đừng đứng yên một chỗ
+7. Có ít nhất 2-3 tương tác giữa các nhân vật (chat qua lại, shake_hand, walk cùng nhau)
+8. Kết thúc bằng return_desk cho tất cả nhân vật
+9. Hãy SÁNG TẠO — mỗi kịch bản phải KHÁC BIỆT, đừng dùng mẫu cố định
 
 CHỈ trả về JSON thuần, không markdown, không giải thích."""
 
     user_prompt = f"""Kịch bản: {req.prompt}
-Tạo kịch bản khoảng 45-90 giây với nhiều tương tác thú vị giữa các nhân vật.
-Dùng đúng actor keys: {', '.join(actor_keys)}"""
+
+Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
+- Ít nhất 18-25 events trong timeline
+- Thời lượng 60-120 giây  
+- Hội thoại tự nhiên, có nội dung ý nghĩa liên quan đến chủ đề "{req.prompt}"
+- Nhiều loại action khác nhau, không chỉ walk+chat
+- Dùng đúng actor keys: {', '.join(actor_keys)}
+- Mỗi nhân vật active xuyên suốt kịch bản"""
 
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
@@ -259,11 +299,177 @@ Dùng đúng actor keys: {', '.join(actor_keys)}"""
 
 
 def _generate_demo_script(prompt: str, actors: list) -> dict:
-    """Generate a basic demo script when LLM is unavailable."""
+    """Generate a topic-aware demo script with different timeline structures per topic."""
+    import random
     k0 = actors[0]["key"] if actors else "a"
     k1 = actors[1]["key"] if len(actors) > 1 else k0
     n0 = actors[0].get("name", "Agent A") if actors else "Agent A"
     n1 = actors[1].get("name", "Agent B") if len(actors) > 1 else "Agent B"
+    topic = (prompt or "").lower()
+
+    emojis_pool = ["💡", "🎉", "😄", "🤔", "💪", "🔥", "✨", "🎯", "👋", "❤️", "🚀", "⭐", "📰", "📝", "🎊"]
+    def e(): return random.choice(emojis_pool)
+
+    # ── Detect topic and build appropriate timeline ──
+    if any(kw in topic for kw in ["tin tức", "news", "đọc", "read", "bài báo", "tin"]):
+        # NEWS & DISCUSSION: read at desk → discuss at board → sofa wrap-up
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": {"x": -1, "z": -2}},
+            {"time": 2,  "actor": k0, "action": "animate",  "anim": "read"},
+            {"time": 5,  "actor": k0, "action": "chat",     "dialog": f"Có bài tin thú vị quá, {n1} xem này!", "duration": 3},
+            {"time": 6,  "actor": k1, "action": "walk_to",  "target": {"x": -0.5, "z": -2}},
+            {"time": 9,  "actor": k1, "action": "chat",     "dialog": "Gì vậy? Share mình xem nào!", "duration": 3},
+            {"time": 12, "actor": k0, "action": "emote",    "emoji": "📰"},
+            {"time": 13, "actor": k0, "action": "walk_to",  "target": "board"},
+            {"time": 16, "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 19, "actor": k0, "action": "chat",     "dialog": "Đây nè, mình tóm tắt lên board cho rõ", "duration": 4},
+            {"time": 21, "actor": k1, "action": "walk_to",  "target": "board"},
+            {"time": 24, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 27, "actor": k1, "action": "chat",     "dialog": "Hmm, mình thấy góc nhìn này hay đó!", "duration": 3},
+            {"time": 30, "actor": k0, "action": "chat",     "dialog": "Đúng! Theo mình phân tích thì...", "duration": 4},
+            {"time": 34, "actor": k1, "action": "emote",    "emoji": "💡"},
+            {"time": 35, "actor": k1, "action": "chat",     "dialog": "À mình hiểu rồi! Quan điểm thú vị!", "duration": 3},
+            {"time": 38, "actor": k0, "action": "walk_to",  "target": "sofa"},
+            {"time": 41, "actor": k1, "action": "walk_to",  "target": "sofa"},
+            {"time": 44, "actor": k0, "action": "chat",     "dialog": "Ngồi đây trao đổi thêm nhé!", "duration": 3},
+            {"time": 47, "actor": k1, "action": "animate",  "anim": "read"},
+            {"time": 50, "actor": k1, "action": "chat",     "dialog": "Có thêm bài nữa nè, đọc tiếp!", "duration": 3},
+            {"time": 53, "actor": k0, "action": "emote",    "emoji": e()},
+            {"time": 55, "actor": k0, "action": "chat",     "dialog": "Ok tổng kết lại, hôm nay nhiều tin hay!", "duration": 4},
+            {"time": 60, "actor": k0, "action": "return_desk"},
+            {"time": 60, "actor": k1, "action": "return_desk"},
+        ]
+
+    elif any(kw in topic for kw in ["họp", "meeting", "báo cáo", "report", "thảo luận", "discuss"]):
+        # MEETING: gather at board → present → discuss → shake hands
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": "board"},
+            {"time": 1,  "actor": k1, "action": "walk_to",  "target": "board"},
+            {"time": 4,  "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 7,  "actor": k0, "action": "chat",     "dialog": f"Chào mọi người! Bắt đầu meeting nhé!", "duration": 3},
+            {"time": 10, "actor": k1, "action": "chat",     "dialog": "Ready! Mình nghe đây!", "duration": 2},
+            {"time": 13, "actor": k0, "action": "chat",     "dialog": "Tuần này mình hoàn thành 3 task chính", "duration": 4},
+            {"time": 17, "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 20, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 23, "actor": k1, "action": "chat",     "dialog": "Phần mình cũng xong, kết quả rất khả quan!", "duration": 4},
+            {"time": 27, "actor": k0, "action": "emote",    "emoji": "🎯"},
+            {"time": 28, "actor": k0, "action": "chat",     "dialog": "Tuyệt! Vậy kế hoạch tuần tới?", "duration": 3},
+            {"time": 31, "actor": k1, "action": "walk_to",  "target": {"x": 1, "z": -3}},
+            {"time": 34, "actor": k1, "action": "animate",  "anim": "write_board"},
+            {"time": 37, "actor": k1, "action": "chat",     "dialog": "Mình đề xuất ưu tiên những task này...", "duration": 4},
+            {"time": 41, "actor": k0, "action": "chat",     "dialog": "Đồng ý! Plan rất rõ ràng!", "duration": 3},
+            {"time": 44, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+            {"time": 47, "actor": k1, "action": "animate",  "anim": "cheer"},
+            {"time": 50, "actor": k0, "action": "emote",    "emoji": "🚀"},
+            {"time": 52, "actor": k0, "action": "chat",     "dialog": "Meeting kết thúc! Team mình quá giỏi!", "duration": 3},
+            {"time": 56, "actor": k0, "action": "return_desk"},
+            {"time": 56, "actor": k1, "action": "return_desk"},
+        ]
+
+    elif any(kw in topic for kw in ["nghỉ", "break", "giải lao", "ăn", "coffee", "cà phê", "lunch", "trưa"]):
+        # BREAK TIME: leave desk → sofa → chill → chat casual
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": "door"},
+            {"time": 2,  "actor": k0, "action": "chat",     "dialog": f"Ê {n1}! Nghỉ ngơi tí đi!", "duration": 3},
+            {"time": 4,  "actor": k1, "action": "walk_to",  "target": "door"},
+            {"time": 7,  "actor": k1, "action": "chat",     "dialog": "Ok! Mệt quá rồi 😫", "duration": 2},
+            {"time": 10, "actor": k0, "action": "walk_to",  "target": "sofa"},
+            {"time": 12, "actor": k1, "action": "walk_to",  "target": "sofa"},
+            {"time": 15, "actor": k0, "action": "sit"},
+            {"time": 16, "actor": k1, "action": "sit"},
+            {"time": 18, "actor": k0, "action": "chat",     "dialog": "Ngồi đây relax chút!", "duration": 3},
+            {"time": 21, "actor": k1, "action": "emote",    "emoji": "😄"},
+            {"time": 22, "actor": k1, "action": "chat",     "dialog": "Cuối tuần này có plan gì không?", "duration": 3},
+            {"time": 26, "actor": k0, "action": "chat",     "dialog": "Chưa, có gợi ý gì thú vị không?", "duration": 3},
+            {"time": 30, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 33, "actor": k1, "action": "chat",     "dialog": "Đi cafe hoặc xem phim đi!", "duration": 3},
+            {"time": 36, "actor": k0, "action": "animate",  "anim": "cheer"},
+            {"time": 38, "actor": k0, "action": "emote",    "emoji": "🎉"},
+            {"time": 40, "actor": k0, "action": "chat",     "dialog": "Deal! Quay lại làm việc nào!", "duration": 3},
+            {"time": 43, "actor": k0, "action": "stand"},
+            {"time": 44, "actor": k1, "action": "stand"},
+            {"time": 46, "actor": k0, "action": "return_desk"},
+            {"time": 46, "actor": k1, "action": "return_desk"},
+        ]
+
+    elif any(kw in topic for kw in ["code", "lập trình", "develop", "debug", "fix", "build", "feature"]):
+        # CODING SESSION: work at desk → whiteboard design → pair code
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "animate",  "anim": "think"},
+            {"time": 3,  "actor": k0, "action": "chat",     "dialog": "Hmm, mình cần solve cái bug này...", "duration": 3},
+            {"time": 5,  "actor": k1, "action": "walk_to",  "target": {"x": 0, "z": -1}},
+            {"time": 8,  "actor": k1, "action": "chat",     "dialog": f"Cần giúp không {n0}?", "duration": 2},
+            {"time": 10, "actor": k0, "action": "walk_to",  "target": "board"},
+            {"time": 13, "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 16, "actor": k0, "action": "chat",     "dialog": "Để mình vẽ flow ra board!", "duration": 3},
+            {"time": 18, "actor": k1, "action": "walk_to",  "target": "board"},
+            {"time": 21, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 24, "actor": k1, "action": "chat",     "dialog": "Ah! Mình thấy vấn đề ở đây nè!", "duration": 3},
+            {"time": 27, "actor": k0, "action": "emote",    "emoji": "💡"},
+            {"time": 28, "actor": k1, "action": "animate",  "anim": "write_board"},
+            {"time": 31, "actor": k1, "action": "chat",     "dialog": "Sửa logic ở chỗ này sẽ fix được!", "duration": 4},
+            {"time": 35, "actor": k0, "action": "chat",     "dialog": "Genius! Mình implement thử!", "duration": 3},
+            {"time": 38, "actor": k0, "action": "walk_to",  "target": {"x": -2, "z": 1}},
+            {"time": 41, "actor": k0, "action": "animate",  "anim": "read"},
+            {"time": 44, "actor": k0, "action": "chat",     "dialog": "Chạy rồi! Bug fixed! 🎉", "duration": 3},
+            {"time": 47, "actor": k1, "action": "animate",  "anim": "cheer"},
+            {"time": 49, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+            {"time": 52, "actor": k1, "action": "emote",    "emoji": "🚀"},
+            {"time": 55, "actor": k0, "action": "return_desk"},
+            {"time": 55, "actor": k1, "action": "return_desk"},
+        ]
+
+    elif any(kw in topic for kw in ["demo", "trình bày", "present", "show", "chia sẻ", "giới thiệu"]):
+        # PRESENTATION: setup board → present → Q&A → celebrate
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": "board"},
+            {"time": 3,  "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 6,  "actor": k0, "action": "chat",     "dialog": "Chuẩn bị xong! Bắt đầu demo nhé!", "duration": 3},
+            {"time": 8,  "actor": k1, "action": "walk_to",  "target": {"x": 1, "z": 0}},
+            {"time": 11, "actor": k1, "action": "chat",     "dialog": "Ready! Mình nghe đây!", "duration": 2},
+            {"time": 14, "actor": k0, "action": "chat",     "dialog": "Feature đầu tiên: giao diện mới!", "duration": 4},
+            {"time": 18, "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 21, "actor": k1, "action": "emote",    "emoji": "✨"},
+            {"time": 22, "actor": k0, "action": "chat",     "dialog": "Tiếp theo là phần performance!", "duration": 4},
+            {"time": 26, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 29, "actor": k1, "action": "chat",     "dialog": "Ấn tượng! Metrics cải thiện bao nhiêu?", "duration": 3},
+            {"time": 33, "actor": k0, "action": "chat",     "dialog": "Tăng 40%! Mình có data chứng minh!", "duration": 4},
+            {"time": 37, "actor": k1, "action": "emote",    "emoji": "🔥"},
+            {"time": 38, "actor": k1, "action": "chat",     "dialog": "Incredible! Team mình làm tốt lắm!", "duration": 3},
+            {"time": 42, "actor": k0, "action": "animate",  "anim": "cheer"},
+            {"time": 44, "actor": k1, "action": "animate",  "anim": "cheer"},
+            {"time": 47, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+            {"time": 50, "actor": k0, "action": "emote",    "emoji": "🎉"},
+            {"time": 52, "actor": k0, "action": "return_desk"},
+            {"time": 52, "actor": k1, "action": "return_desk"},
+        ]
+
+    else:
+        # GENERIC: varied random sequence
+        anims = ["think", "read", "write_board", "cheer"]
+        wp_order = random.sample(["board", "sofa", "door"], 3)
+        timeline = [
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": wp_order[0]},
+            {"time": 3,  "actor": k1, "action": "walk_to",  "target": {"x": random.uniform(-2, 3), "z": random.uniform(-2, 2)}},
+            {"time": 6,  "actor": k0, "action": "animate",  "anim": random.choice(anims)},
+            {"time": 9,  "actor": k1, "action": "walk_to",  "target": wp_order[0]},
+            {"time": 12, "actor": k1, "action": "chat",     "dialog": f"Chào {n0}! Bàn về chủ đề hôm nay nhé!", "duration": 3},
+            {"time": 15, "actor": k0, "action": "chat",     "dialog": f"Ok {n1}! Mình bắt đầu thôi!", "duration": 3},
+            {"time": 18, "actor": k0, "action": "emote",    "emoji": e()},
+            {"time": 20, "actor": k1, "action": "animate",  "anim": random.choice(anims)},
+            {"time": 24, "actor": k0, "action": "walk_to",  "target": wp_order[1]},
+            {"time": 27, "actor": k1, "action": "walk_to",  "target": wp_order[1]},
+            {"time": 30, "actor": k0, "action": "chat",     "dialog": "Mình có ý tưởng hay về vấn đề này!", "duration": 4},
+            {"time": 34, "actor": k1, "action": "chat",     "dialog": "Hay quá! Share thêm đi!", "duration": 3},
+            {"time": 37, "actor": k0, "action": "animate",  "anim": random.choice(anims)},
+            {"time": 40, "actor": k1, "action": "emote",    "emoji": e()},
+            {"time": 42, "actor": k0, "action": "walk_to",  "target": wp_order[2]},
+            {"time": 45, "actor": k1, "action": "walk_to",  "target": wp_order[2]},
+            {"time": 48, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+            {"time": 50, "actor": k1, "action": "animate",  "anim": "cheer"},
+            {"time": 53, "actor": k0, "action": "return_desk"},
+            {"time": 53, "actor": k1, "action": "return_desk"},
+        ]
 
     return {
         "title": prompt[:60] if prompt else "Câu chuyện văn phòng",
@@ -272,27 +478,11 @@ def _generate_demo_script(prompt: str, actors: list) -> dict:
         "waypoints": [
             {"id": "board", "label": "Whiteboard", "x": 0.5, "z": -4},
             {"id": "sofa",  "label": "Sofa",       "x": 5.0, "z": -3.5},
-            {"id": "door",  "label": "Cửa",         "x": 0.5, "z": 6.0},
+            {"id": "door",  "label": "Cửa",        "x": 0.5, "z": 6.0},
         ],
-        "timeline": [
-            {"time": 0,  "actor": k0, "action": "walk_to",  "target": "board"},
-            {"time": 3,  "actor": k1, "action": "walk_to",  "target": {"x": 2, "z": 1}},
-            {"time": 6,  "actor": k0, "action": "animate",  "anim": "write_board"},
-            {"time": 8,  "actor": k1, "action": "chat",     "dialog": f"Chào {n0}! Hôm nay làm task gì vậy?", "duration": 3},
-            {"time": 11, "actor": k0, "action": "chat",     "dialog": "Mình đang cập nhật tính năng mới 🚀", "duration": 3},
-            {"time": 15, "actor": k0, "action": "emote",    "emoji": "💡"},
-            {"time": 16, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 20, "actor": k1, "action": "walk_to",  "target": "sofa"},
-            {"time": 24, "actor": k1, "action": "sit"},
-            {"time": 25, "actor": k0, "action": "walk_to",  "target": "sofa"},
-            {"time": 28, "actor": k0, "action": "chat",     "dialog": "Nghỉ giải lao tí nhé 😄", "duration": 3},
-            {"time": 31, "actor": k1, "action": "animate",  "anim": "cheer"},
-            {"time": 35, "actor": k0, "action": "animate",  "anim": "shake_hand"},
-            {"time": 38, "actor": k1, "action": "stand"},
-            {"time": 40, "actor": k0, "action": "return_desk"},
-            {"time": 40, "actor": k1, "action": "return_desk"},
-        ]
+        "timeline": timeline
     }
+
 
 
 

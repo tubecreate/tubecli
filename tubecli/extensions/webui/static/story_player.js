@@ -172,6 +172,7 @@ class StoryPlayer {
         ch.state = 'story_walking';
         ch.storyTarget = { x: tx, z: tz };
         ch.stateTimer = 0;
+        // Face target will be set dynamically during walk
     }
 
     _returnToDesk(ch) {
@@ -188,6 +189,8 @@ class StoryPlayer {
     _setChatState(ch, duration) {
         ch.state = 'story_chat';
         ch.storyStateEnd = this.currentTime + duration;
+        // Face nearest other actor that's also chatting or nearby
+        ch.storyFaceTarget = this._findNearestOtherActor(ch);
     }
 
     _triggerAnimation(ch, anim) {
@@ -200,11 +203,30 @@ class StoryPlayer {
         };
         ch.state = animMap[anim] || 'story_think';
         ch.storyStateEnd = this.currentTime + 4;
+
+        // Set face target based on animation type
+        if (anim === 'write_board') {
+            // Face the whiteboard waypoint
+            const board = this.waypointMap['board'] || this.waypointMap['whiteboard'];
+            if (board) ch.storyFaceTarget = { x: board.x, z: board.z };
+        } else if (anim === 'read') {
+            // Face nearest bookshelf or keep current face
+            const shelf = this.waypointMap['bookshelf'];
+            if (shelf) ch.storyFaceTarget = { x: shelf.x, z: shelf.z };
+        } else if (anim === 'shake_hand') {
+            // Face nearest other actor
+            ch.storyFaceTarget = this._findNearestOtherActor(ch);
+        } else {
+            // think, cheer etc. — face nearest actor or keep
+            ch.storyFaceTarget = this._findNearestOtherActor(ch);
+        }
     }
 
     _setSitState(ch) {
         ch.state = 'story_sit';
         ch.storyStateEnd = Infinity;
+        // Face center of room
+        ch.storyFaceTarget = { x: 0, z: 0 };
     }
 
     _setStandState(ch) {
@@ -213,13 +235,50 @@ class StoryPlayer {
             ch.stateTimer = 2;
         }
     }
+
+    // ── Helpers ────────────────────────────────────────────────────────
+
+    _findNearestOtherActor(ch) {
+        const chars = (typeof agentCharacters !== 'undefined') ? agentCharacters : [];
+        let nearest = null;
+        let minDist = Infinity;
+        const px = ch.group.position.x;
+        const pz = ch.group.position.z;
+        for (const other of chars) {
+            if (other === ch || !other.hasAgent) continue;
+            const dx = other.group.position.x - px;
+            const dz = other.group.position.z - pz;
+            const dist = Math.sqrt(dx * dx + dz * dz);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = { x: other.group.position.x, z: other.group.position.z };
+            }
+        }
+        return nearest;
+    }
 }
 
 // ── Story Animation Updates (integrated with teams3d.js animate loop) ──
 
 /**
+ * Smoothly rotate character to face target position.
+ * Uses lerp on Y rotation for natural-looking turns.
+ */
+function _faceTowards(ac, targetX, targetZ, dt, lerpSpeed) {
+    const dx = targetX - ac.group.position.x;
+    const dz = targetZ - ac.group.position.z;
+    if (Math.abs(dx) < 0.01 && Math.abs(dz) < 0.01) return; // too close, skip
+    const targetAngle = Math.atan2(dx, dz);
+    // Lerp rotation (shortest path around circle)
+    let diff = targetAngle - ac.group.rotation.y;
+    // Normalize to [-PI, PI]
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    ac.group.rotation.y += diff * Math.min(1, (lerpSpeed || 5) * dt);
+}
+
+/**
  * Call this from the animate3d() loop in teams3d.js
- * OR call storyAnimateUpdate(dt, t) in your own RAF loop.
  */
 function storyAnimateUpdate(dt, t, player) {
     if (!player || !player.script) return;
@@ -239,7 +298,8 @@ function storyAnimateUpdate(dt, t, player) {
                 if (dist > 0.15) {
                     p.x += dx * ac.walkSpeed * 60 * dt;
                     p.z += dz * ac.walkSpeed * 60 * dt;
-                    ac.group.rotation.y = Math.atan2(dx, dz);
+                    // Smooth face towards walk target
+                    _faceTowards(ac, tgt.x, tgt.z, dt, 8);
                     // Walk animation
                     ac.limbs.legL.rotation.x = Math.sin(t * 8) * 0.5;
                     ac.limbs.legR.rotation.x = Math.sin(t * 8 + Math.PI) * 0.5;
@@ -262,12 +322,19 @@ function storyAnimateUpdate(dt, t, player) {
                 break;
             }
 
-            case 'story_idle':
-                // Stand in place, slight bob
+            case 'story_idle': {
+                // Stand in place, slight bob + face nearest actor
                 p.y = ac.homeY + Math.sin(t * 0.8 + ac.bobPhase) * 0.02;
+                // Gently look around — find nearest other actor
+                const nearIdle = _findNearestInScene(ac);
+                if (nearIdle) _faceTowards(ac, nearIdle.x, nearIdle.z, dt, 2);
                 break;
+            }
 
             case 'story_chat': {
+                // Face the chat partner (dynamically update)
+                const chatTarget = ac.storyFaceTarget || _findNearestInScene(ac);
+                if (chatTarget) _faceTowards(ac, chatTarget.x, chatTarget.z, dt, 6);
                 // Wave arm while talking
                 ac.limbs.armR.rotation.x = Math.sin(t * 3) * 0.5 - 0.4;
                 ac.limbs.armR.rotation.z = -0.35;
@@ -282,7 +349,8 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_read': {
-                // Hold book up, head tilted down
+                // Face bookshelf/object
+                if (ac.storyFaceTarget) _faceTowards(ac, ac.storyFaceTarget.x, ac.storyFaceTarget.z, dt, 4);
                 ac.limbs.armL.rotation.x = -1.2;
                 ac.limbs.armR.rotation.x = -1.0;
                 ac.limbs.armL.rotation.z = 0.3;
@@ -295,7 +363,8 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_write': {
-                // Right arm extended, writing
+                // Face the whiteboard
+                if (ac.storyFaceTarget) _faceTowards(ac, ac.storyFaceTarget.x, ac.storyFaceTarget.z, dt, 4);
                 ac.limbs.armR.rotation.x = -0.9 + Math.sin(t * 4 + ac.bobPhase) * 0.15;
                 ac.limbs.armR.rotation.z = -0.2;
                 ac.limbs.armL.rotation.x = -0.3;
@@ -307,7 +376,9 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_shake': {
-                // Arm extended forward for handshake
+                // Face the handshake partner
+                const shakePartner = ac.storyFaceTarget || _findNearestInScene(ac);
+                if (shakePartner) _faceTowards(ac, shakePartner.x, shakePartner.z, dt, 8);
                 ac.limbs.armR.rotation.x = -Math.PI / 2;
                 ac.limbs.armR.rotation.z = 0;
                 ac.group.position.y = ac.homeY + Math.sin(t * 6) * 0.04;
@@ -318,7 +389,9 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_cheer': {
-                // Both arms up
+                // Face nearest actor or center
+                const cheerTarget = ac.storyFaceTarget || _findNearestInScene(ac);
+                if (cheerTarget) _faceTowards(ac, cheerTarget.x, cheerTarget.z, dt, 3);
                 ac.limbs.armL.rotation.x = -2.2 + Math.sin(t * 4) * 0.2;
                 ac.limbs.armR.rotation.x = -2.2 + Math.sin(t * 4 + 0.5) * 0.2;
                 ac.limbs.armL.rotation.z = 0.4;
@@ -331,7 +404,9 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_think': {
-                // Hand on chin
+                // Gentle head rotation + face nearest actor
+                const thinkTarget = ac.storyFaceTarget || _findNearestInScene(ac);
+                if (thinkTarget) _faceTowards(ac, thinkTarget.x, thinkTarget.z, dt, 2);
                 ac.limbs.armR.rotation.x = -0.6;
                 ac.limbs.armR.rotation.z = -0.5;
                 ac.limbs.head.rotation.y = Math.sin(t * 0.5) * 0.2;
@@ -343,7 +418,8 @@ function storyAnimateUpdate(dt, t, player) {
             }
 
             case 'story_sit': {
-                // Squat effect (lower body)
+                // Face center or stored target
+                if (ac.storyFaceTarget) _faceTowards(ac, ac.storyFaceTarget.x, ac.storyFaceTarget.z, dt, 2);
                 ac.limbs.legL.rotation.x = -0.7;
                 ac.limbs.legR.rotation.x = -0.7;
                 p.y = ac.homeY - 0.15;
@@ -356,5 +432,24 @@ function storyAnimateUpdate(dt, t, player) {
     });
 }
 
+/** Helper: find nearest other agent character in scene */
+function _findNearestInScene(ac) {
+    const chars = (typeof agentCharacters !== 'undefined') ? agentCharacters : [];
+    let nearest = null;
+    let minDist = Infinity;
+    for (const other of chars) {
+        if (other === ac || !other.hasAgent) continue;
+        const dx = other.group.position.x - ac.group.position.x;
+        const dz = other.group.position.z - ac.group.position.z;
+        const dist = dx * dx + dz * dz;
+        if (dist < minDist) {
+            minDist = dist;
+            nearest = { x: other.group.position.x, z: other.group.position.z };
+        }
+    }
+    return nearest;
+}
+
 // Global story player instance (used by story.html)
 const storyPlayer = new StoryPlayer();
+
