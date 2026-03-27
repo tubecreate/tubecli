@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/teams.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="/static/furniture3d.js"></script>
     <style>
         /* Studio-specific styles */
         .studio-layout { display: flex; height: 100vh; background: var(--bg); color: var(--text); }
@@ -551,8 +552,18 @@ function initScene() {
     animate();
 }
 
-// ── Asset mesh creation ──
+// ── Asset mesh creation (HQ composite + fallback) ──
 function createAssetMesh(assetDef, isGhost = false) {
+    // For placed objects (not ghost), try HQ builder first
+    if (!isGhost && typeof createHQFurniture === 'function') {
+        const hqGroup = createHQFurniture(assetDef.id, assetDef);
+        if (hqGroup) {
+            hqGroup.userData.yOff = 0;
+            return hqGroup;
+        }
+    }
+
+    // Fallback: simple primitive (used for ghost preview and unknown assets)
     const color = new THREE.Color(assetDef.color || '#888888');
     const mat = new THREE.MeshStandardMaterial({
         color,
@@ -565,14 +576,9 @@ function createAssetMesh(assetDef, isGhost = false) {
     let geo;
     const [sx, sy, sz] = assetDef.size || [1, 1, 1];
     switch (assetDef.mesh) {
-        case 'cylinder':
-            geo = new THREE.CylinderGeometry(sx, sx, sy, 16);
-            break;
-        case 'sphere':
-            geo = new THREE.SphereGeometry(sx, 12, 8);
-            break;
-        default:
-            geo = new THREE.BoxGeometry(sx, sy, sz);
+        case 'cylinder': geo = new THREE.CylinderGeometry(sx, sx, sy, 16); break;
+        case 'sphere': geo = new THREE.SphereGeometry(sx, 12, 8); break;
+        default: geo = new THREE.BoxGeometry(sx, sy, sz);
     }
 
     const mesh = new THREE.Mesh(geo, mat);
@@ -608,7 +614,9 @@ function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId) {
     if (!def) return;
 
     const mesh = createAssetMesh(def);
-    mesh.position.set(x, def.yOffset || 0.5, z);
+    // HQ groups use y=0 (builders handle their own offsets), fallback uses yOffset
+    const yPos = mesh.userData.yOff || 0;
+    mesh.position.set(x, yPos, z);
     mesh.rotation.y = rotation || 0;
     mesh.scale.setScalar(scale || 1);
 
