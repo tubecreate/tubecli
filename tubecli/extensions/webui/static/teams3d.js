@@ -19,6 +19,12 @@ const STUDIO_ASSETS = [
     {id:"table_round",name:"Bàn tròn",category:"furniture",mesh:"cylinder",size:[0.6,0.72,0.6],color:"#d4c8b0",yOffset:0.36},
     {id:"cabinet",name:"Tủ hồ sơ",category:"furniture",mesh:"box",size:[0.6,1.2,0.5],color:"#8a8a8a",yOffset:0.6},
     {id:"plant_pot",name:"Chậu cây",category:"decoration",mesh:"cylinder",size:[0.25,0.8,0.25],color:"#22c55e",yOffset:0.4},
+    {id:"plant_tall",name:"Cây cao",category:"decoration",mesh:"cylinder",size:[0.2,1.8,0.2],color:"#228B22",yOffset:0.9},
+    {id:"plant_cactus",name:"Xương rồng",category:"decoration",mesh:"cylinder",size:[0.12,0.6,0.12],color:"#2e8b57",yOffset:0.3},
+    {id:"aquarium_small",name:"Bể cá nhỏ",category:"decoration",mesh:"sphere",size:[0.18,0.3,0.18],color:"#87ceeb",yOffset:0.15},
+    {id:"aquarium_large",name:"Bể cá lớn",category:"decoration",mesh:"box",size:[1.2,0.55,0.45],color:"#1c7ed6",yOffset:0.6},
+    {id:"terrarium",name:"Tiểu cảnh",category:"decoration",mesh:"box",size:[0.8,0.1,0.5],color:"#2d5a27",yOffset:0.05},
+    {id:"rock_garden",name:"Hòn non bộ",category:"decoration",mesh:"box",size:[1.4,1.0,0.9],color:"#5a5a5a",yOffset:0.5},
     {id:"lantern",name:"Đèn lồng",category:"decoration",mesh:"sphere",size:[0.2,0.2,0.2],color:"#cc3333",yOffset:2.5,emissive:true},
     {id:"whiteboard",name:"Bảng trắng",category:"decoration",mesh:"box",size:[1.5,1.0,0.05],color:"#f0f0f0",yOffset:1.5},
     {id:"monitor",name:"Màn hình",category:"decoration",mesh:"box",size:[0.7,0.5,0.04],color:"#1a1a2e",yOffset:1.05},
@@ -26,6 +32,13 @@ const STUDIO_ASSETS = [
     {id:"wall_segment",name:"Tường",category:"structure",mesh:"box",size:[2.0,3.5,0.15],color:"#c8bca8",yOffset:1.75},
     {id:"floor_tile",name:"Ô sàn",category:"structure",mesh:"box",size:[2.0,0.1,2.0],color:"#d4c8b0",yOffset:0.05},
     {id:"door_frame",name:"Cửa ra vào",category:"structure",mesh:"box",size:[1.0,2.5,0.15],color:"#5c3a1e",yOffset:1.25},
+    {id:"chair_classic",name:"Ghế cổ điển",category:"furniture",mesh:"box",size:[0.44,0.04,0.44],color:"#5c3a1e",yOffset:0.45},
+    {id:"chair_dining",name:"Ghế bàn ăn",category:"furniture",mesh:"box",size:[0.44,0.06,0.42],color:"#8B4513",yOffset:0.46},
+    {id:"fridge",name:"Tủ lạnh",category:"furniture",mesh:"box",size:[0.7,1.8,0.65],color:"#e8e8e8",yOffset:0.9},
+    {id:"washing_machine",name:"Máy giặt",category:"furniture",mesh:"box",size:[0.6,0.85,0.6],color:"#e0e0e0",yOffset:0.425},
+    {id:"bar_counter",name:"Bar nước",category:"furniture",mesh:"box",size:[2.4,0.06,0.6],color:"#3a2518",yOffset:1.05},
+    {id:"coffee_machine",name:"Máy pha cà phê",category:"decoration",mesh:"box",size:[0.35,0.45,0.3],color:"#2c2c2c",yOffset:0.225},
+    {id:"pool_table",name:"Bàn bida",category:"furniture",mesh:"box",size:[2.4,0.04,1.3],color:"#006400",yOffset:0.82},
 ];
 
 const CHAR_COLORS = [0xf43f5e, 0xa855f7, 0x22d3ee, 0x22c55e, 0xf59e0b, 0x3b82f6, 0xec4899, 0x14b8a6, 0xf97316, 0x8b5cf6, 0x06b6d4, 0x10b981];
