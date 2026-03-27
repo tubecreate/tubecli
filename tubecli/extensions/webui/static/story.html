@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>3D Story Engine — TubeCLI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ─── Reset & Base ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+    --bg:      #080b14;
+    --surface: #0f1220;
+    --card:    #161b2e;
+    --border:  #1e2640;
+    --accent:  #22d3ee;
+    --accent2: #a855f7;
+    --green:   #22c55e;
+    --yellow:  #f59e0b;
+    --red:     #f43f5e;
+    --text:    #e2e8f0;
+    --muted:   #64748b;
+    --radius:  10px;
+}
+html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); }
+
+/* ─── Layout ────────────────────────────────────────────── */
+.story-app {
+    display: grid;
+    grid-template-rows: 52px 1fr 220px;
+    grid-template-columns: 260px 1fr;
+    grid-template-areas:
+        "header header"
+        "sidebar canvas"
+        "sidebar timeline";
+    height: 100vh;
+    gap: 0;
+}
+
+/* ─── Header / Toolbar ──────────────────────────────────── */
+.story-header {
+    grid-area: header;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    flex-wrap: wrap;
+}
+.story-logo { font-size: 18px; font-weight: 700; color: var(--accent); margin-right: 4px; }
+#se-title {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 13px;
+    width: 180px;
+}
+#se-title:focus { outline: none; border-color: var(--accent); }
+
+.btn-group { display: flex; gap: 6px; margin-left: auto; }
+.hbtn {
+    padding: 5px 13px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+.hbtn-play    { background: var(--green);  color: #fff; }
+.hbtn-pause   { background: var(--yellow); color: #000; }
+.hbtn-stop    { background: var(--red);    color: #fff; }
+.hbtn-save    { background: var(--accent); color: #000; }
+.hbtn-new     { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.hbtn-load    { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.hbtn-ai      { background: var(--accent2); color: #fff; }
+.hbtn:hover   { filter: brightness(1.15); transform: translateY(-1px); }
+.hbtn:active  { transform: translateY(0); }
+
+.speed-sel {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.story-time-display {
+    font-size: 12px;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    min-width: 80px;
+    text-align: center;
+}
+
+/* ─── Sidebar ────────────────────────────────────────────── */
+.story-sidebar {
+    grid-area: sidebar;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+.sidebar-section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.sidebar-title { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 10px; }
+
+/* Actors */
+.se-actor-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 13px; }
+.se-actor-color { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.se-actor-name { font-weight: 600; flex: 1; }
+.se-actor-key { font-size: 11px; color: var(--muted); }
+.se-add-actor { margin-top: 8px; }
+
+/* Waypoints */
+.se-waypoint-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; }
+.se-wp-icon { color: var(--yellow); }
+.se-wp-label { flex: 1; }
+.se-wp-pos { font-size: 10px; color: var(--muted); }
+
+/* Scripts list */
+.script-item {
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    margin-bottom: 4px;
+}
+.script-item:hover { background: var(--card); border-color: var(--border); }
+.script-item-title { font-weight: 600; }
+.script-item-meta { color: var(--muted); font-size: 11px; }
+
+/* Status bar */
+#se-status { font-size: 11px; color: var(--accent); padding: 6px 14px; }
+
+/* ─── 3D Canvas area ─────────────────────────────────────── */
+.story-canvas-wrap {
+    grid-area: canvas;
+    position: relative;
+    background: var(--bg);
+    overflow: hidden;
+}
+#story-canvas-container { width: 100%; height: 100%; }
+#story-canvas-container canvas { display: block; }
+
+.bubble-overlay {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none;
+}
+
+/* ─── Timeline ───────────────────────────────────────────── */
+.story-timeline {
+    grid-area: timeline;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.timeline-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.timeline-toolbar span { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; }
+
+#se-timeline {
+    flex: 1;
+    overflow: auto;
+    padding: 6px 0;
+    position: relative;
+}
+.se-ruler {
+    position: relative;
+    height: 20px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    margin-left: 60px;
+    flex-shrink: 0;
+    min-width: 100%;
+}
+.se-ruler-tick {
+    position: absolute;
+    font-size: 10px;
+    color: var(--muted);
+    transform: translateX(-50%);
+    top: 4px;
+    white-space: nowrap;
+}
+.se-track {
+    display: flex;
+    align-items: center;
+    height: 40px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+}
+.se-track-label {
+    width: 60px;
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text);
+}
+.se-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.se-track-lane {
+    flex: 1;
+    position: relative;
+    height: 100%;
+    cursor: crosshair;
+    background: repeating-linear-gradient(90deg, transparent, transparent 59px, var(--border) 60px);
+}
+.se-event-block {
+    position: absolute;
+    top: 4px;
+    height: 32px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    gap: 4px;
+    font-size: 11px;
+    cursor: grab;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: filter 0.15s;
+    min-width: 30px;
+}
+.se-event-block:hover { filter: brightness(1.3); }
+.se-event-block:active { cursor: grabbing; }
+.se-evt-icon { font-size: 13px; flex-shrink: 0; }
+.se-evt-label { font-size: 10px; color: rgba(255,255,255,0.85); overflow: hidden; text-overflow: ellipsis; }
+
+/* Playhead */
+#se-playhead {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 2px;
+    background: var(--accent);
+    pointer-events: none;
+    z-index: 10;
+    left: 60px;
+    box-shadow: 0 0 6px var(--accent);
+}
+
+/* ─── Buttons ────────────────────────────────────────────── */
+.se-btn-primary { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; }
+.se-btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+.se-btn-secondary:hover, .se-btn-secondary.active { border-color: var(--accent); color: var(--accent); }
+.se-btn-danger { background: var(--red); color: #fff; border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; margin-top: 8px; }
+.se-btn-icon { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; border-radius: 4px; }
+.se-btn-icon:hover { color: var(--red); background: rgba(244,63,94,0.1); }
+
+/* ─── Form elements ──────────────────────────────────────── */
+.se-form { display: flex; flex-direction: column; gap: 8px; }
+.se-form label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+.se-input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    width: 100%;
+    transition: border-color 0.15s;
+}
+.se-input:focus { outline: none; border-color: var(--accent); }
+.se-input-color { width: 60px; height: 36px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; background: none; padding: 2px; }
+.se-textarea { resize: vertical; min-height: 60px; }
+
+/* ─── Modal ──────────────────────────────────────────────── */
+.se-modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 9000;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(4px);
+}
+.se-modal {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: 420px;
+    max-width: 95vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.se-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 14px; }
+.se-modal-body { padding: 16px; overflow-y: auto; flex: 1; }
+.se-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+
+/* ─── Toast ──────────────────────────────────────────────── */
+.se-toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+.se-toast { padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; max-width: 320px; transition: opacity 0.4s; opacity: 1; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+.se-toast-success { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; }
+.se-toast-error   { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
+.se-toast-info    { background: #0c1a2e; color: #93c5fd; border: 1px solid #1e3a5f; }
+
+/* ─── Load-scripts modal list ────────────────────────────── */
+#load-script-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
+
+/* ─── Scrollbars ─────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ─── AI Prompt modal ────────────────────────────────────── */
+#ai-prompt-area { width: 100%; min-height: 80px; }
+</style>
+</head>
+<body>
+
+<div class="story-app">
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <header class="story-header">
+        <span class="story-logo">🎬 Story</span>
+        <input id="se-title" placeholder="Tên kịch bản...">
+
+        <!-- Team picker -->
+        <select id="se-team-sel" class="speed-sel" style="width:160px;max-width:160px" onchange="doSelectTeam(this.value)">
+            <option value="">-- Chọn Team --</option>
+        </select>
+
+        <!-- Playback -->
+        <button class="hbtn hbtn-play"  id="btn-play"  onclick="doPlay()">▶ Play</button>
+        <button class="hbtn hbtn-pause" id="btn-pause" onclick="doPause()" style="display:none">⏸ Pause</button>
+        <button class="hbtn hbtn-stop"  onclick="doStop()">■ Stop</button>
+        <select class="speed-sel" onchange="storyPlayer.setSpeed(parseFloat(this.value))">
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+        </select>
+        <span class="story-time-display" id="time-display">0:00 / 0:00</span>
+
+        <!-- File operations -->
+        <div class="btn-group">
+            <button class="hbtn hbtn-new"  onclick="doNew()">＋ Mới</button>
+            <button class="hbtn hbtn-load" onclick="doLoad()">📂 Tải</button>
+            <button class="hbtn hbtn-save" onclick="storyEditor.save()">💾 Lưu</button>
+            <button class="hbtn hbtn-ai"   id="btn-ai-gen" onclick="doAIGenerate()">🤖 AI Generate</button>
+        </div>
+    </header>
+
+    <!-- ── Sidebar ─────────────────────────────────────────── -->
+    <aside class="story-sidebar">
+        <!-- Current team info -->
+        <div class="sidebar-section" id="se-team-info" style="display:none">
+            <div class="sidebar-title">🏛️ Team đang dùng</div>
+            <div id="se-team-badge" style="font-size:13px;font-weight:600;color:var(--accent)"></div>
+            <div id="se-team-agents-count" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
+        </div>
+
+        <!-- Actors -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">👤 Nhân vật (từ team)</div>
+            <div id="se-actors"><span style="color:var(--muted);font-size:12px">Chọn Team ở trên để load nhân vật</span></div>
+        </div>
+
+        <!-- Waypoints -->
+        <div class="sidebar-section">
+            <div class="sidebar-title">📍 Vị trí</div>
+            <div id="se-waypoints"></div>
+        </div>
+
+        <!-- Saved scripts -->
+        <div class="sidebar-section" style="flex:1">
+            <div class="sidebar-title">📁 Kịch bản đã lưu</div>
+            <div id="se-scripts-list"><span style="color:var(--muted);font-size:12px">Chưa có</span></div>
+        </div>
+
+        <div id="se-status"></div>
+    </aside>
+
+    <!-- ── 3D Canvas ────────────────────────────────────────── -->
+    <main class="story-canvas-wrap">
+        <div id="story-canvas-container"></div>
+        <div class="bubble-overlay story-bubble-overlay" id="bubble-overlay"></div>
+    </main>
+
+    <!-- ── Timeline Editor ─────────────────────────────────── -->
+    <section class="story-timeline">
+        <div class="timeline-toolbar">
+            <span>⏱ Timeline</span>
+            <button class="se-btn-icon" id="btn-zoom-out" title="Thu nhỏ">−</button>
+            <button class="se-btn-icon" id="btn-zoom-in"  title="Phóng to">＋</button>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted)">Click vào track để thêm event · Kéo event để đổi thời gian</span>
+        </div>
+        <div style="position:relative;flex:1;overflow:auto;">
+            <div id="se-playhead"></div>
+            <div id="se-timeline"></div>
+        </div>
+    </section>
+
+</div><!-- .story-app -->
+
+<!-- ── Three.js & deps (same version as teams.html) ──── -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<!-- ── TubeCLI 3D office engine ────────────────────────── -->
+<script src="/static/teams3d.js"></script>
+
+<!-- ── Story Engine modules ─────────────────────────────── -->
+<script src="/static/story_bubbles.js"></script>
+<script src="/static/story_player.js"></script>
+<script src="/static/story_editor.js"></script>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// Story Page Bootstrap — Team-driven
+// ══════════════════════════════════════════════════════════
+
+let allTeams = [];
+let allAgentsGlobal = [];
+let currentTeamData = null;
+let CHAR_COLOR_LIST = ['#f43f5e','#22d3ee','#a855f7','#22c55e','#f59e0b','#3b82f6','#ec4899','#14b8a6'];
+
+async function initStoryPage() {
+    // Load teams + agents in parallel
+    const [teamsRes, agentsRes] = await Promise.all([
+        fetch('/api/v1/story/teams').then(r=>r.json()).catch(()=>({teams:[]})),
+        fetch('/api/v1/agents').then(r=>r.json()).catch(()=>({agents:[]})),
+    ]);
+    allTeams = teamsRes.teams || [];
+    allAgentsGlobal = agentsRes.agents || agentsRes || [];
+
+    // Populate team selector
+    const sel = document.getElementById('se-team-sel');
+    allTeams.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        sel.appendChild(opt);
+    });
+
+    // Auto-select first team if exists
+    if (allTeams.length > 0) {
+        sel.value = allTeams[0].id;
+        await doSelectTeam(allTeams[0].id);
+    } else {
+        // No teams: init empty 3D scene
+        _init3DScene({ id:'story_scene', name:'Story Scene', template:'dev_team', nodes:[] }, []);
+    }
+
+    // Init editor UI (without re-loading agents, we already have them)
+    storyEditor._agents = allAgentsGlobal;
+    storyEditor._renderWaypoints();
+    storyEditor._bindControls();
+
+    // Load saved scripts list
+    await refreshScriptsList();
+}
+
+async function doSelectTeam(teamId) {
+    if (!teamId) return;
+
+    // Fetch full team detail (nodes with agent assignments)
+    let team = allTeams.find(t => t.id === teamId) || {};
+    try {
+        const res = await fetch(`/api/v1/story/teams/${teamId}`);
+        team = await res.json();
+    } catch(e) {}
+    currentTeamData = team;
+
+    // Update team info badge
+    const badge = document.getElementById('se-team-badge');
+    const countEl = document.getElementById('se-team-agents-count');
+    const teamInfo = document.getElementById('se-team-info');
+    if (badge) badge.textContent = `🏛️ ${team.name}`;
+    const assignedCount = (team.nodes || []).filter(n => n.agent_id).length;
+    if (countEl) countEl.textContent = `${assignedCount} agent được gán · ${(team.nodes||[]).length} vai trò`;
+    if (teamInfo) teamInfo.style.display = '';
+
+    // Build actors from team nodes (only assigned agents)
+    const actors = [];
+    (team.nodes || []).forEach((node, idx) => {
+        if (!node.agent_id) return;
+        const agent = allAgentsGlobal.find(a => a.id === node.agent_id);
+        const key = node.role_id || `actor${idx}`;
+        actors.push({
+            key,
+            name: agent ? agent.name : node.role,
+            agent_id: node.agent_id,
+            color: CHAR_COLOR_LIST[idx % CHAR_COLOR_LIST.length],
+            emoji: node.emoji || '🤖',
+            role: node.role,
+        });
+    });
+
+    // Update the editor script actors
+    storyEditor.script.actors = actors;
+    storyEditor.script.scene_id = teamId;
+    storyEditor._renderActors();
+    storyEditor._renderTimeline();
+
+    // Set title input
+    const titleEl = document.getElementById('se-title');
+    if (titleEl && !titleEl.value) titleEl.value = `Kịch bản — ${team.name}`;
+    storyEditor.script.title = titleEl?.value || `Kịch bản — ${team.name}`;
+
+    // Init/re-init 3D scene with this team's map and agents
+    _init3DScene(team, allAgentsGlobal);
+
+    showToast(`🏛️ Đã load team: ${team.name} · ${actors.length} nhân vật`, 'success');
+}
+
+function _init3DScene(teamData, agents) {
+    const container = document.getElementById('story-canvas-container');
+    init3DOffice(container, teamData, agents);
+
+    // Waypoint raycast
+    container.onclick = null;
+    container.addEventListener('click', (e) => {
+        if (!storyEditor.waypointMode) return;
+        const rect = container.getBoundingClientRect();
+        const mx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const my = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        raycasterWP.setFromCamera({ x: mx, y: my }, camera3d);
+        const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const hit = new THREE.Vector3();
+        if (raycasterWP.ray.intersectPlane(groundPlane, hit)) {
+            storyEditor.addWaypointAt(hit.x, hit.z);
+        }
+    });
+
+    // Init speech bubbles after scene builds
+    setTimeout(() => {
+        storyBubbles.init(
+            document.getElementById('bubble-overlay'),
+            camera3d,
+            renderer3d
+        );
+        // Rebuild actor map now that scene is ready
+        storyPlayer._rebuildActorMap();
+    }, 1400);
+}
+
+
+// Raycaster for 3D ground click (waypoint placement)
+const raycasterWP = new THREE.Raycaster();
+
+// ── Playback controls ─────────────────────────────────────
+function doPlay() {
+    if (!storyPlayer.script) {
+        showToast('⚠️ Chưa có kịch bản. Tạo mới hoặc tải kịch bản!', 'error');
+        return;
+    }
+    _tlAutoScroll = true; // Re-enable auto-scroll on Play
+    // Sync before playing
+    storyPlayer.script = storyEditor.script;
+    storyPlayer._rebuildActorMap();
+    storyPlayer.load(storyEditor.script);
+
+    storyPlayer.play();
+    document.getElementById('btn-play').style.display = 'none';
+    document.getElementById('btn-pause').style.display = '';
+}
+
+function doPause() {
+    storyPlayer.pause();
+    document.getElementById('btn-play').style.display = '';
+    document.getElementById('btn-pause').style.display = 'none';
+}
+
+function doStop() {
+    storyPlayer.stop();
+    document.getElementById('btn-play').style.display = '';
+    document.getElementById('btn-pause').style.display = 'none';
+    updateTimeDisplay(0, storyPlayer.duration);
+    updatePlayhead(0, storyPlayer.duration);
+}
+
+// ── Time display & playhead ───────────────────────────────
+storyPlayer.onTimeUpdate = (cur, dur) => {
+    updateTimeDisplay(cur, dur);
+    updatePlayhead(cur, dur);
+};
+storyPlayer.onFinish = () => {
+    document.getElementById('btn-play').style.display = '';
+    document.getElementById('btn-pause').style.display = 'none';
+    showToast('✅ Kịch bản kết thúc!', 'success');
+};
+storyPlayer.onEventFired = (evt) => {
+    const status = document.getElementById('se-status');
+    if (status) {
+        const icon = { walk_to:'🚶', chat:'💬', animate:'🎭', return_desk:'🏃', sit:'🪑', stand:'⬆️', emote:'✨' }[evt.action] || '•';
+        status.textContent = `${icon} [${evt.actor}] ${evt.action} @ ${evt.time}s`;
+    }
+};
+
+function fmt(s) { return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`; }
+function updateTimeDisplay(cur, dur) {
+    const el = document.getElementById('time-display');
+    if (el) el.textContent = `${fmt(cur)} / ${fmt(dur)}`;
+}
+// Auto-scroll state
+let _tlAutoScroll = true;
+
+function updatePlayhead(cur, dur) {
+    const ph = document.getElementById('se-playhead');
+    if (!ph || !dur) return;
+    const scale = storyEditor.timelineScale;
+    const leftPx = 60 + cur * scale;
+    ph.style.left = `${leftPx}px`;
+
+    // Auto-scroll timeline container to follow playhead
+    if (_tlAutoScroll && storyPlayer.isPlaying) {
+        const tl = document.getElementById('se-timeline');
+        if (tl) {
+            const visibleWidth = tl.clientWidth;
+            const targetScroll = leftPx - visibleWidth * 0.35; // keep playhead ~35% from left
+            tl.scrollLeft = Math.max(0, targetScroll);
+        }
+    }
+}
+
+// Pause auto-scroll when user manually interacts with timeline
+(function() {
+    const tl = document.getElementById('se-timeline');
+    if (!tl) return;
+    const pauseAutoScroll = () => { _tlAutoScroll = false; };
+    tl.addEventListener('mousedown', pauseAutoScroll);
+    tl.addEventListener('wheel', pauseAutoScroll, { passive: true });
+    tl.addEventListener('touchstart', pauseAutoScroll, { passive: true });
+})();
+
+// ── Timeline scrub ────────────────────────────────────────
+document.getElementById('se-timeline').addEventListener('click', (e) => {
+    const tl = document.getElementById('se-timeline');
+    if (!tl) return;
+    // Only scrub on ruler click
+    if (!e.target.classList.contains('se-ruler') && !e.target.classList.contains('se-ruler-tick')) return;
+    const rect = tl.getBoundingClientRect();
+    const timeClicked = (e.clientX - rect.left - 60) / storyEditor.timelineScale;
+    storyPlayer.seek(Math.max(0, timeClicked));
+});
+
+// ── New / Load / Save / AI ────────────────────────────────
+function doNew() {
+    if (!confirm('Tạo kịch bản mới? Dữ liệu chưa lưu sẽ mất.')) return;
+    storyEditor.newScript();
+    const titleEl = document.getElementById('se-title');
+    if (titleEl) titleEl.value = 'Kịch bản mới';
+}
+
+async function doLoad() {
+    const scripts = await storyEditor.loadList();
+    const listHtml = scripts.length === 0
+        ? '<p style="color:var(--muted);font-size:13px">Chưa có kịch bản nào.</p>'
+        : scripts.map(s => `
+            <div class="script-item" onclick="storyEditor.loadScript('${s.id}'); closeModal();">
+                <div class="script-item-title">${s.title}</div>
+                <div class="script-item-meta">${s.actor_count} nhân vật · ${s.event_count} events</div>
+            </div>
+        `).join('');
+    showModal('📂 Tải kịch bản', `<div id="load-script-list">${listHtml}</div>`, null);
+}
+
+async function doAIGenerate() {
+    // Fetch available models
+    let aiModels = { ollama: [], cloud: [] };
+    try {
+        const r = await fetch('/api/v1/story/ai-models');
+        aiModels = await r.json();
+    } catch(e) {}
+
+    // Build Ollama options
+    const ollamaOpts = (aiModels.ollama || []).map(m =>
+        `<option value="ollama::${m.name}">${m.name} (local)</option>`
+    ).join('');
+
+    // Build cloud options grouped by provider
+    const cloudOpts = (aiModels.cloud || []).map(cp =>
+        cp.models.map(m =>
+            `<option value="${cp.provider}::${m.name}">☁️ ${cp.label} — ${m.label}</option>`
+        ).join('')
+    ).join('');
+
+    const noModels = !ollamaOpts && !cloudOpts;
+    const defaultOpt = noModels
+        ? '<option value="">Không tìm thấy model nào</option>'
+        : '';
+
+    showModal('🤖 AI Generate Kịch Bản', `
+        <div class="se-form">
+            <label>🧠 Chọn AI Model:</label>
+            <select id="ai-model-select" class="se-input" style="margin-bottom:10px;">
+                ${ollamaOpts ? '<optgroup label="🖥️ Ollama (Local)">' + ollamaOpts + '</optgroup>' : ''}
+                ${cloudOpts ? '<optgroup label="☁️ Cloud AI">' + cloudOpts + '</optgroup>' : ''}
+                ${defaultOpt}
+            </select>
+            <label>Mô tả kịch bản:</label>
+            <textarea id="ai-prompt-area" class="se-input se-textarea" rows="4"
+                placeholder="VD: Buổi họp sáng thứ hai, team báo cáo công việc tuần, thảo luận kế hoạch..."></textarea>
+            <small style="color:var(--muted)">AI sẽ tạo timeline tự động dựa trên nhân vật và waypoints hiện tại.</small>
+        </div>
+    `, async () => {
+        const prompt = document.getElementById('ai-prompt-area')?.value?.trim();
+        if (!prompt) return;
+        const modelSel = document.getElementById('ai-model-select')?.value || '';
+        const [provider, model] = modelSel.includes('::') ? modelSel.split('::', 2) : ['ollama', ''];
+
+        showToast('⏳ Đang tạo kịch bản bằng AI...', 'info');
+
+        try {
+            const res = await fetch('/api/v1/story/ai-generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt,
+                    provider,
+                    model,
+                    scene_id: storyEditor.script.scene_id,
+                    actors: storyEditor.script.actors,
+                    waypoints: storyEditor.script.waypoints,
+                }),
+            });
+            const data = await res.json();
+            if (data.ok && data.script) {
+                const s = data.script;
+                // Preserve current actors if AI didn't return them
+                if (!s.actors || s.actors.length === 0) {
+                    s.actors = storyEditor.script.actors;
+                }
+                s.scene_id = storyEditor.script.scene_id;
+                storyEditor.script.title = s.title || storyEditor.script.title;
+                storyEditor.script.waypoints = s.waypoints || storyEditor.script.waypoints;
+                storyEditor.script.timeline = s.timeline || [];
+                const titleEl = document.getElementById('se-title');
+                if (titleEl && s.title) titleEl.value = s.title;
+                storyEditor._renderWaypoints();
+                storyEditor._renderTimeline();
+
+                const note = data.note === 'demo_fallback' ? ' (demo fallback)' : '';
+                const prov = data.provider ? ` · ${data.provider}/${data.model}` : '';
+                showToast(`✅ Đã tạo kịch bản AI${note}${prov} · ${(s.timeline||[]).length} events`, 'success');
+            } else {
+                showToast(`❌ Lỗi: ${data.error || 'Không thể tạo kịch bản'}`, 'error');
+            }
+        } catch(e) {
+            showToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
+        }
+    });
+}
+
+
+async function refreshScriptsList() {
+    try {
+        const scripts = await storyEditor.loadList();
+        const listEl = document.getElementById('se-scripts-list');
+        if (!listEl) return;
+        if (scripts.length === 0) {
+            listEl.innerHTML = '<span style="color:var(--muted);font-size:12px">Chưa có kịch bản</span>';
+            return;
+        }
+        listEl.innerHTML = scripts.slice(0, 8).map(s => `
+            <div class="script-item" onclick="storyEditor.loadScript('${s.id}')">
+                <div class="script-item-title">${s.title}</div>
+                <div class="script-item-meta">${s.actor_count} nhân vật · ${s.event_count} events</div>
+            </div>
+        `).join('');
+    } catch(e) {}
+}
+
+// ── Boot ──────────────────────────────────────────────────
+window.addEventListener('load', initStoryPage);
+</script>
+</body>
+</html>
