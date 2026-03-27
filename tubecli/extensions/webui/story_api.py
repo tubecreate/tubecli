@@ -354,50 +354,122 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
 
     elif any(kw in topic for kw in ["họp", "meeting", "báo cáo", "report", "thảo luận", "discuss"]):
         # MEETING: gather at board → present → discuss → shake hands
+        meet_greetings = [
+            "Chào mọi người! Bắt đầu meeting nhé!",
+            "Mọi người tập trung nhé, mình bắt đầu cuộc họp.",
+            "Ok, đủ người rồi. Cùng tổng kết tiến độ nào."
+        ]
+        meet_responses = [
+            "Ready! Mình nghe đây!",
+            "Ok, mình đã chuẩn bị xong báo cáo.",
+            "Bắt đầu đi bạn, mình sẵn sàng rồi."
+        ]
+        meet_reports = [
+            "Tuần này mình hoàn thành 3 task chính như đã định.",
+            "Tiến độ hiện tại đang đi đúng hướng, các chỉ số đều tốt.",
+            "Điểm nhấn tuần qua là mình đã release bản update ổn định."
+        ]
+        meet_feedback = [
+            "Phần mình cũng xong, kết quả rất khả quan!",
+            "Tuyệt vời, phía bên mình cũng không vướng mắc gì.",
+            "Good! Nhìn chung tiến độ team rất đồng đều."
+        ]
+        meet_plans = [
+            "Tuyệt! Vậy kế hoạch tuần tới mình làm gì tiếp?",
+            "Thế tuần sau mục tiêu chính của chúng ta là gì?",
+            "Ok, vậy next step cho dự án này là gì nhỉ?"
+        ]
+        meet_proposals = [
+            "Mình đề xuất ưu tiên dứt điểm những phần này...",
+            "Theo mình, tuần tới nên focus vào tối ưu hiệu năng.",
+            "Mình nghĩ nên đẩy nhanh tiến độ khâu kiểm thử."
+        ]
+        meet_agrees = [
+            "Đồng ý! Plan rất rõ ràng!",
+            "Hợp lý đấy, chốt phương án này nhé.",
+            "Ok, mình sẽ follow theo kế hoạch này."
+        ]
+        meet_closings = [
+            "Meeting kết thúc! Team mình quá giỏi!",
+            "Xong! Mọi người quay lại làm việc nhé.",
+            "Cảm ơn mọi người, cuộc họp rất hiệu quả!"
+        ]
+        
         timeline = [
             {"time": 0,  "actor": k0, "action": "walk_to",  "target": "board"},
             {"time": 1,  "actor": k1, "action": "walk_to",  "target": "board"},
             {"time": 4,  "actor": k0, "action": "animate",  "anim": "write_board"},
-            {"time": 7,  "actor": k0, "action": "chat",     "dialog": f"Chào mọi người! Bắt đầu meeting nhé!", "duration": 3},
-            {"time": 10, "actor": k1, "action": "chat",     "dialog": "Ready! Mình nghe đây!", "duration": 2},
-            {"time": 13, "actor": k0, "action": "chat",     "dialog": "Tuần này mình hoàn thành 3 task chính", "duration": 4},
+            {"time": 7,  "actor": k0, "action": "chat",     "dialog": random.choice(meet_greetings), "duration": 3},
+            {"time": 10, "actor": k1, "action": "chat",     "dialog": random.choice(meet_responses), "duration": 2},
+            {"time": 13, "actor": k0, "action": "chat",     "dialog": random.choice(meet_reports), "duration": 4},
             {"time": 17, "actor": k0, "action": "animate",  "anim": "write_board"},
             {"time": 20, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 23, "actor": k1, "action": "chat",     "dialog": "Phần mình cũng xong, kết quả rất khả quan!", "duration": 4},
+            {"time": 23, "actor": k1, "action": "chat",     "dialog": random.choice(meet_feedback), "duration": 4},
             {"time": 27, "actor": k0, "action": "emote",    "emoji": "🎯"},
-            {"time": 28, "actor": k0, "action": "chat",     "dialog": "Tuyệt! Vậy kế hoạch tuần tới?", "duration": 3},
+            {"time": 28, "actor": k0, "action": "chat",     "dialog": random.choice(meet_plans), "duration": 3},
             {"time": 31, "actor": k1, "action": "walk_to",  "target": {"x": 1, "z": -3}},
             {"time": 34, "actor": k1, "action": "animate",  "anim": "write_board"},
-            {"time": 37, "actor": k1, "action": "chat",     "dialog": "Mình đề xuất ưu tiên những task này...", "duration": 4},
-            {"time": 41, "actor": k0, "action": "chat",     "dialog": "Đồng ý! Plan rất rõ ràng!", "duration": 3},
+            {"time": 37, "actor": k1, "action": "chat",     "dialog": random.choice(meet_proposals), "duration": 4},
+            {"time": 41, "actor": k0, "action": "chat",     "dialog": random.choice(meet_agrees), "duration": 3},
             {"time": 44, "actor": k0, "action": "animate",  "anim": "shake_hand"},
             {"time": 47, "actor": k1, "action": "animate",  "anim": "cheer"},
             {"time": 50, "actor": k0, "action": "emote",    "emoji": "🚀"},
-            {"time": 52, "actor": k0, "action": "chat",     "dialog": "Meeting kết thúc! Team mình quá giỏi!", "duration": 3},
+            {"time": 52, "actor": k0, "action": "chat",     "dialog": random.choice(meet_closings), "duration": 3},
             {"time": 56, "actor": k0, "action": "return_desk"},
             {"time": 56, "actor": k1, "action": "return_desk"},
         ]
 
     elif any(kw in topic for kw in ["nghỉ", "break", "giải lao", "ăn", "coffee", "cà phê", "lunch", "trưa"]):
         # BREAK TIME: leave desk → sofa → chill → chat casual
+        br_invites = [
+            f"Ê {n1}! Nghỉ ngơi tí đi!",
+            f"{n1} ơi uống cà phê không? Mỏi mắt quá.",
+            "Relax xíu nha, nãy giờ tập trung quá rồi."
+        ]
+        br_agrees = [
+            "Ok! Mệt quá rồi 😫",
+            "Đồng ý, đi pha cốc nước đã.",
+            "Ý hay đấy, xả stress tí."
+        ]
+        br_chats = [
+            "Cuối tuần này có plan gì không?",
+            "Dạo này công việc nhiều, căng phết nhỉ?",
+            "Bộ phim mới ra rạp xem hay lắm, đi xem chưa?"
+        ]
+        br_replies = [
+            "Chưa, có gợi ý gì thú vị không?",
+            "Cũng bình thường, cố gắng qua giai đoạn này thôi.",
+            "Chưa xem nữa, chắc cuối tuần rảnh đi xem."
+        ]
+        br_ideas = [
+            "Đi cafe hoặc xem phim đi!",
+            "Cứ nghỉ ngơi ngủ một giấc cho khoẻ.",
+            "Theo mình đi ăn món gì ngon ngon là tốt nhất."
+        ]
+        br_ends = [
+            "Deal! Quay lại làm việc nào!",
+            "Ok nha. Thôi hết giờ giải lao rồi.",
+            "Quyết định vậy đi. Mình về bàn đây."
+        ]
+        
         timeline = [
             {"time": 0,  "actor": k0, "action": "walk_to",  "target": "door"},
-            {"time": 2,  "actor": k0, "action": "chat",     "dialog": f"Ê {n1}! Nghỉ ngơi tí đi!", "duration": 3},
+            {"time": 2,  "actor": k0, "action": "chat",     "dialog": random.choice(br_invites), "duration": 3},
             {"time": 4,  "actor": k1, "action": "walk_to",  "target": "door"},
-            {"time": 7,  "actor": k1, "action": "chat",     "dialog": "Ok! Mệt quá rồi 😫", "duration": 2},
+            {"time": 7,  "actor": k1, "action": "chat",     "dialog": random.choice(br_agrees), "duration": 2},
             {"time": 10, "actor": k0, "action": "walk_to",  "target": "sofa"},
             {"time": 12, "actor": k1, "action": "walk_to",  "target": "sofa"},
             {"time": 15, "actor": k0, "action": "sit"},
             {"time": 16, "actor": k1, "action": "sit"},
             {"time": 18, "actor": k0, "action": "chat",     "dialog": "Ngồi đây relax chút!", "duration": 3},
             {"time": 21, "actor": k1, "action": "emote",    "emoji": "😄"},
-            {"time": 22, "actor": k1, "action": "chat",     "dialog": "Cuối tuần này có plan gì không?", "duration": 3},
-            {"time": 26, "actor": k0, "action": "chat",     "dialog": "Chưa, có gợi ý gì thú vị không?", "duration": 3},
+            {"time": 22, "actor": k1, "action": "chat",     "dialog": random.choice(br_chats), "duration": 3},
+            {"time": 26, "actor": k0, "action": "chat",     "dialog": random.choice(br_replies), "duration": 3},
             {"time": 30, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 33, "actor": k1, "action": "chat",     "dialog": "Đi cafe hoặc xem phim đi!", "duration": 3},
+            {"time": 33, "actor": k1, "action": "chat",     "dialog": random.choice(br_ideas), "duration": 3},
             {"time": 36, "actor": k0, "action": "animate",  "anim": "cheer"},
             {"time": 38, "actor": k0, "action": "emote",    "emoji": "🎉"},
-            {"time": 40, "actor": k0, "action": "chat",     "dialog": "Deal! Quay lại làm việc nào!", "duration": 3},
+            {"time": 40, "actor": k0, "action": "chat",     "dialog": random.choice(br_ends), "duration": 3},
             {"time": 43, "actor": k0, "action": "stand"},
             {"time": 44, "actor": k1, "action": "stand"},
             {"time": 46, "actor": k0, "action": "return_desk"},
@@ -407,25 +479,51 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
     elif any(kw in topic for kw in ["code", "lập trình", "develop", "debug", "fix", "build", "feature"]):
         # CODING SESSION: code at own desk → colleague comes to help → whiteboard → back to desk
         code_desk = desk0 if has_desk0 else {"x": -2, "z": 1}
+        cod_probs = [
+            "Hmm, mình cần giải quyết cái phần logic này...",
+            "Đang tối ưu đoạn code này mà cấn cấn...",
+            "Lỗi lạ quá, check log mãi chưa ra nguyên nhân."
+        ]
+        cod_offers = [
+            f"Cần giúp không {n0}? Mình qua xem!",
+            "Để mình ngó qua phụ một tay nhé?",
+            "Có vẻ khoai đấy, mình qua cùng debug xem."
+        ]
+        cod_finds = [
+            "Ah! Mình thấy vấn đề ở chỗ này nè!",
+            "Hình như đoạn này bắt case chưa đủ?",
+            "Thử đổi thuật toán chỗ này xem sao."
+        ]
+        cod_solves = [
+            "Sửa logic ở chỗ này sẽ xử lý được!",
+            "Chỉ cần thêm điều kiện chặn là ngon lành.",
+            "Refactor lại một chút là hết bị conflict ngay."
+        ]
+        cod_succs = [
+            "Chạy rồi! Tuyệt vời quá! 🎉",
+            "Bug đã được fixed hoàn toàn!",
+            "Test build pass rồi, cảm ơn nhé!"
+        ]
+        
         timeline = [
             {"time": 0,  "actor": k0, "action": "walk_to",  "target": code_desk},
             {"time": 2,  "actor": k0, "action": "animate",  "anim": "think"},
-            {"time": 5,  "actor": k0, "action": "chat",     "dialog": "Hmm, mình cần solve cái bug này...", "duration": 3},
+            {"time": 5,  "actor": k0, "action": "chat",     "dialog": random.choice(cod_probs), "duration": 3},
             {"time": 7,  "actor": k1, "action": "walk_to",  "target": code_desk},
-            {"time": 10, "actor": k1, "action": "chat",     "dialog": f"Cần giúp không {n0}? Mình qua bàn xem!", "duration": 3},
+            {"time": 10, "actor": k1, "action": "chat",     "dialog": random.choice(cod_offers), "duration": 3},
             {"time": 13, "actor": k0, "action": "walk_to",  "target": "board"},
             {"time": 16, "actor": k0, "action": "animate",  "anim": "write_board"},
-            {"time": 19, "actor": k0, "action": "chat",     "dialog": "Để mình vẽ flow ra board!", "duration": 3},
+            {"time": 19, "actor": k0, "action": "chat",     "dialog": "Để mình vẽ flow ra board cho dễ nhìn!", "duration": 3},
             {"time": 21, "actor": k1, "action": "walk_to",  "target": "board"},
             {"time": 24, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 27, "actor": k1, "action": "chat",     "dialog": "Ah! Mình thấy vấn đề ở đây nè!", "duration": 3},
+            {"time": 27, "actor": k1, "action": "chat",     "dialog": random.choice(cod_finds), "duration": 3},
             {"time": 30, "actor": k0, "action": "emote",    "emoji": "💡"},
             {"time": 31, "actor": k1, "action": "animate",  "anim": "write_board"},
-            {"time": 34, "actor": k1, "action": "chat",     "dialog": "Sửa logic ở chỗ này sẽ fix được!", "duration": 4},
-            {"time": 38, "actor": k0, "action": "chat",     "dialog": "Genius! Mình implement thử!", "duration": 3},
+            {"time": 34, "actor": k1, "action": "chat",     "dialog": random.choice(cod_solves), "duration": 4},
+            {"time": 38, "actor": k0, "action": "chat",     "dialog": "Genius! Mình implement thử ngay!", "duration": 3},
             {"time": 41, "actor": k0, "action": "walk_to",  "target": code_desk},
             {"time": 44, "actor": k0, "action": "animate",  "anim": "read"},
-            {"time": 47, "actor": k0, "action": "chat",     "dialog": "Chạy rồi! Bug fixed! 🎉", "duration": 3},
+            {"time": 47, "actor": k0, "action": "chat",     "dialog": random.choice(cod_succs), "duration": 3},
             {"time": 50, "actor": k1, "action": "walk_to",  "target": code_desk},
             {"time": 52, "actor": k1, "action": "animate",  "anim": "cheer"},
             {"time": 54, "actor": k0, "action": "animate",  "anim": "shake_hand"},
@@ -436,19 +534,45 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
 
     elif any(kw in topic for kw in ["demo", "trình bày", "present", "show", "chia sẻ", "giới thiệu"]):
         # PRESENTATION: setup board → present → Q&A → celebrate
+        pre_starts = [
+            "Chuẩn bị xong! Mình bắt đầu demo luôn nhé!",
+            "Tài liệu đã sẵn sàng trên bảng, mọi người chú ý.",
+            "Buổi trình bày hôm nay sẽ xoay quanh kết quả đạt được."
+        ]
+        pre_points = [
+            "Feature đầu tiên: UI mới mượt mà hơn rất nhiều!",
+            "Phần core logic đã được đập đi xây lại hoàn thiện.",
+            "Điểm nhấn là tính năng tự động hoá hoàn toàn mới."
+        ]
+        pre_metrics = [
+            "Tiếp theo, hãy nhìn vào biểu đồ performance này!",
+            "Kết quả đo lường cho thấy độ trễ giảm đi rõ rệt.",
+            "Tỷ lệ chuyển đổi đã tăng lên đáng kể tuần qua."
+        ]
+        pre_asks = [
+            "Ấn tượng thật! Metrics cải thiện bao nhiêu %?",
+            "Tuyệt! Chi phí vận hành có giảm theo không?",
+            "Rất tốt. Phản hồi từ user thế nào?"
+        ]
+        pre_answers = [
+            "Tăng 40% hiệu suất! Mình có lưu cả data report.",
+            "Giảm một nửa chi phí server trong khi traffic tăng gấp đôi.",
+            "Đa số user đều thích giao diện mới và đánh giá 5 sao."
+        ]
+        
         timeline = [
             {"time": 0,  "actor": k0, "action": "walk_to",  "target": "board"},
             {"time": 3,  "actor": k0, "action": "animate",  "anim": "write_board"},
-            {"time": 6,  "actor": k0, "action": "chat",     "dialog": "Chuẩn bị xong! Bắt đầu demo nhé!", "duration": 3},
+            {"time": 6,  "actor": k0, "action": "chat",     "dialog": random.choice(pre_starts), "duration": 3},
             {"time": 8,  "actor": k1, "action": "walk_to",  "target": {"x": 1, "z": 0}},
             {"time": 11, "actor": k1, "action": "chat",     "dialog": "Ready! Mình nghe đây!", "duration": 2},
-            {"time": 14, "actor": k0, "action": "chat",     "dialog": "Feature đầu tiên: giao diện mới!", "duration": 4},
+            {"time": 14, "actor": k0, "action": "chat",     "dialog": random.choice(pre_points), "duration": 4},
             {"time": 18, "actor": k0, "action": "animate",  "anim": "write_board"},
             {"time": 21, "actor": k1, "action": "emote",    "emoji": "✨"},
-            {"time": 22, "actor": k0, "action": "chat",     "dialog": "Tiếp theo là phần performance!", "duration": 4},
+            {"time": 22, "actor": k0, "action": "chat",     "dialog": random.choice(pre_metrics), "duration": 4},
             {"time": 26, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 29, "actor": k1, "action": "chat",     "dialog": "Ấn tượng! Metrics cải thiện bao nhiêu?", "duration": 3},
-            {"time": 33, "actor": k0, "action": "chat",     "dialog": "Tăng 40%! Mình có data chứng minh!", "duration": 4},
+            {"time": 29, "actor": k1, "action": "chat",     "dialog": random.choice(pre_asks), "duration": 3},
+            {"time": 33, "actor": k0, "action": "chat",     "dialog": random.choice(pre_answers), "duration": 4},
             {"time": 37, "actor": k1, "action": "emote",    "emoji": "🔥"},
             {"time": 38, "actor": k1, "action": "chat",     "dialog": "Incredible! Team mình làm tốt lắm!", "duration": 3},
             {"time": 42, "actor": k0, "action": "animate",  "anim": "cheer"},
@@ -462,7 +586,6 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
     else:
         # GENERIC: varied random sequence using available waypoints
         anims = ["think", "read", "write_board", "cheer"]
-        topic_display = prompt[:40] if prompt else "công việc hôm nay"
         
         # Extract generic waypoints (not desks) from the scene
         available_wps = [wp["id"] for wp in (waypoints or []) if not wp["id"].startswith("desk_")]
@@ -474,24 +597,24 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
             wp_order = ["board", "sofa", "door"]
             
         greetings = [
-            f"Chào {n0}! Mình bàn về {topic_display} nhé!",
-            f"Hey {n0}! Xem qua phần {topic_display} xíu nha.",
-            f"{n0} ơi, có vài idea về {topic_display} nè."
+            f"Chào {n0}! Bắt đầu công việc hôm nay nhé.",
+            f"Hey {n0}! Mình cùng trao đổi vài việc xíu nha.",
+            f"{n0} ơi, gặp nhau một lát thảo luận nhé."
         ]
         responses = [
             f"Ok {n1}! Mình lắng nghe đây!",
-            f"Được đấy, bắt đầu thôi {n1}!",
-            f"Tuyệt! Mình cũng đang nghĩ về {topic_display}."
+            f"Được đấy, mình đang rảnh luôn.",
+            f"Tuyệt! Ra đây nói chuyện cho thoải mái."
         ]
         ideas = [
-            f"Điểm mấu chốt của {topic_display} là phần này nè...",
-            f"Theo mình, triển khai {topic_display} nên làm thế này.",
-            f"Mình thấy có vài rủi ro với {topic_display}, cần lưu ý."
+            "Về phần công việc chung, mình thấy cần cải thiện.",
+            "Mình mới nảy ra một hướng đi khá hay cho team.",
+            "Có vài điểm mình đã note lại, bạn xem thử."
         ]
         reactions = [
-            "Hay quá! Share chi tiết thêm đi!",
-            "Hợp lý đó! Mình đồng ý hướng này.",
-            "Wow góc nhìn mới lạ! Rất thú vị."
+            "Hay quá! Share chi tiết cho mình xem với!",
+            "Hợp lý đó! Mình hoàn toàn đồng ý.",
+            "Góc nhìn rất sáng tạo! Triển khai luôn thôi."
         ]
             
         timeline = [
