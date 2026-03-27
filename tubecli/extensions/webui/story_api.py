@@ -194,12 +194,17 @@ CÁC ACTION:
 - emote: biểu cảm (emoji: 1 emoji)
 - sit: ngồi xuống
 - stand: đứng dậy
-- return_desk: quay về bàn làm việc
+- return_desk: quay về bàn làm việc của chính mình
 
 NHÂN VẬT: {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
 
-WAYPOINTS TRÊN MAP:
+WAYPOINTS TRÊN MAP (bao gồm bàn làm việc của từng nhân vật):
 {wp_text}
+
+LƯU Ý QUAN TRỌNG VỀ BÀN LÀM VIỆC:
+- Waypoint "desk_<key>" là bàn làm việc riêng của nhân vật đó (VD: desk_pa = bàn của Personal Assistant)
+- Nhân vật có thể walk_to bàn của nhân vật KHÁC để trao đổi công việc (VD: pa walk_to desk_tb để bàn dự án với Test Bot)
+- Đây là cách tự nhiên nhất để nhân vật tương tác: đến bàn đồng nghiệp → trò chuyện → thảo luận
 
 QUY TẮC QUAN TRỌNG:
 1. Tạo ÍT NHẤT 15-25 events trong timeline, kéo dài 60-120 giây
@@ -207,8 +212,8 @@ QUY TẮC QUAN TRỌNG:
 3. Xen kẽ các action đa dạng: walk → chat → animate → emote → walk → chat...
 4. Dialog phải tự nhiên, sinh động, có cảm xúc, KHÁC NHAU mỗi câu (không lặp lại khuôn mẫu)
 5. Sử dụng nhiều emoji đa dạng trong emote: 💡🎉😄🤔💪🔥✨🎯👋❤️
-6. Nhân vật di chuyển đến nhiều vị trí khác nhau, đừng đứng yên một chỗ
-7. Có ít nhất 2-3 tương tác giữa các nhân vật (chat qua lại, shake_hand, walk cùng nhau)
+6. Nhân vật di chuyển đến nhiều vị trí khác nhau: BÀN ĐỒNG NGHIỆP, board, sofa, door, vị trí bất kỳ
+7. Có ít nhất 2-3 tương tác giữa các nhân vật (chat qua lại, shake_hand, walk cùng nhau, đến bàn nhau)
 8. Kết thúc bằng return_desk cho tất cả nhân vật
 9. Hãy SÁNG TẠO — mỗi kịch bản phải KHÁC BIỆT, đừng dùng mẫu cố định
 
@@ -280,7 +285,7 @@ Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
             {"key": actor_keys[0], "name": actor_names[0], "color": "#f43f5e"},
             {"key": actor_keys[1] if len(actor_keys) > 1 else "b",
              "name": actor_names[1] if len(actor_names) > 1 else "Agent B", "color": "#22d3ee"},
-        ])
+        ], req.waypoints or [])
         return {"ok": True, "script": demo, "note": "demo_fallback", "error_detail": err}
 
     # Extract JSON from response
@@ -294,11 +299,11 @@ Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
             {"key": actor_keys[0], "name": actor_names[0], "color": "#f43f5e"},
             {"key": actor_keys[1] if len(actor_keys) > 1 else "b",
              "name": actor_names[1] if len(actor_names) > 1 else "Agent B", "color": "#22d3ee"},
-        ])
+        ], req.waypoints or [])
         return {"ok": True, "script": demo, "note": "demo_fallback", "raw_preview": raw[:300]}
 
 
-def _generate_demo_script(prompt: str, actors: list) -> dict:
+def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> dict:
     """Generate a topic-aware demo script with different timeline structures per topic."""
     import random
     k0 = actors[0]["key"] if actors else "a"
@@ -307,18 +312,25 @@ def _generate_demo_script(prompt: str, actors: list) -> dict:
     n1 = actors[1].get("name", "Agent B") if len(actors) > 1 else "Agent B"
     topic = (prompt or "").lower()
 
+    # Build desk references from waypoints
+    desk0 = f"desk_{k0}"
+    desk1 = f"desk_{k1}"
+    has_desk0 = any(wp.get("id") == desk0 for wp in (waypoints or []))
+    has_desk1 = any(wp.get("id") == desk1 for wp in (waypoints or []))
+
     emojis_pool = ["💡", "🎉", "😄", "🤔", "💪", "🔥", "✨", "🎯", "👋", "❤️", "🚀", "⭐", "📰", "📝", "🎊"]
     def e(): return random.choice(emojis_pool)
 
     # ── Detect topic and build appropriate timeline ──
     if any(kw in topic for kw in ["tin tức", "news", "đọc", "read", "bài báo", "tin"]):
-        # NEWS & DISCUSSION: read at desk → discuss at board → sofa wrap-up
+        # NEWS & DISCUSSION: read at own desk → colleague comes over → discuss at board → sofa
+        start0 = desk0 if has_desk0 else {"x": -1, "z": -2}
         timeline = [
-            {"time": 0,  "actor": k0, "action": "walk_to",  "target": {"x": -1, "z": -2}},
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": start0},
             {"time": 2,  "actor": k0, "action": "animate",  "anim": "read"},
-            {"time": 5,  "actor": k0, "action": "chat",     "dialog": f"Có bài tin thú vị quá, {n1} xem này!", "duration": 3},
-            {"time": 6,  "actor": k1, "action": "walk_to",  "target": {"x": -0.5, "z": -2}},
-            {"time": 9,  "actor": k1, "action": "chat",     "dialog": "Gì vậy? Share mình xem nào!", "duration": 3},
+            {"time": 5,  "actor": k0, "action": "chat",     "dialog": f"Có bài tin thú vị quá, {n1} lại bàn mình xem!", "duration": 3},
+            {"time": 6,  "actor": k1, "action": "walk_to",  "target": start0},
+            {"time": 9,  "actor": k1, "action": "chat",     "dialog": "Gì vậy? Show mình xem nào!", "duration": 3},
             {"time": 12, "actor": k0, "action": "emote",    "emoji": "📰"},
             {"time": 13, "actor": k0, "action": "walk_to",  "target": "board"},
             {"time": 16, "actor": k0, "action": "animate",  "anim": "write_board"},
@@ -393,30 +405,33 @@ def _generate_demo_script(prompt: str, actors: list) -> dict:
         ]
 
     elif any(kw in topic for kw in ["code", "lập trình", "develop", "debug", "fix", "build", "feature"]):
-        # CODING SESSION: work at desk → whiteboard design → pair code
+        # CODING SESSION: code at own desk → colleague comes to help → whiteboard → back to desk
+        code_desk = desk0 if has_desk0 else {"x": -2, "z": 1}
         timeline = [
-            {"time": 0,  "actor": k0, "action": "animate",  "anim": "think"},
-            {"time": 3,  "actor": k0, "action": "chat",     "dialog": "Hmm, mình cần solve cái bug này...", "duration": 3},
-            {"time": 5,  "actor": k1, "action": "walk_to",  "target": {"x": 0, "z": -1}},
-            {"time": 8,  "actor": k1, "action": "chat",     "dialog": f"Cần giúp không {n0}?", "duration": 2},
-            {"time": 10, "actor": k0, "action": "walk_to",  "target": "board"},
-            {"time": 13, "actor": k0, "action": "animate",  "anim": "write_board"},
-            {"time": 16, "actor": k0, "action": "chat",     "dialog": "Để mình vẽ flow ra board!", "duration": 3},
-            {"time": 18, "actor": k1, "action": "walk_to",  "target": "board"},
-            {"time": 21, "actor": k1, "action": "animate",  "anim": "think"},
-            {"time": 24, "actor": k1, "action": "chat",     "dialog": "Ah! Mình thấy vấn đề ở đây nè!", "duration": 3},
-            {"time": 27, "actor": k0, "action": "emote",    "emoji": "💡"},
-            {"time": 28, "actor": k1, "action": "animate",  "anim": "write_board"},
-            {"time": 31, "actor": k1, "action": "chat",     "dialog": "Sửa logic ở chỗ này sẽ fix được!", "duration": 4},
-            {"time": 35, "actor": k0, "action": "chat",     "dialog": "Genius! Mình implement thử!", "duration": 3},
-            {"time": 38, "actor": k0, "action": "walk_to",  "target": {"x": -2, "z": 1}},
-            {"time": 41, "actor": k0, "action": "animate",  "anim": "read"},
-            {"time": 44, "actor": k0, "action": "chat",     "dialog": "Chạy rồi! Bug fixed! 🎉", "duration": 3},
-            {"time": 47, "actor": k1, "action": "animate",  "anim": "cheer"},
-            {"time": 49, "actor": k0, "action": "animate",  "anim": "shake_hand"},
-            {"time": 52, "actor": k1, "action": "emote",    "emoji": "🚀"},
-            {"time": 55, "actor": k0, "action": "return_desk"},
-            {"time": 55, "actor": k1, "action": "return_desk"},
+            {"time": 0,  "actor": k0, "action": "walk_to",  "target": code_desk},
+            {"time": 2,  "actor": k0, "action": "animate",  "anim": "think"},
+            {"time": 5,  "actor": k0, "action": "chat",     "dialog": "Hmm, mình cần solve cái bug này...", "duration": 3},
+            {"time": 7,  "actor": k1, "action": "walk_to",  "target": code_desk},
+            {"time": 10, "actor": k1, "action": "chat",     "dialog": f"Cần giúp không {n0}? Mình qua bàn xem!", "duration": 3},
+            {"time": 13, "actor": k0, "action": "walk_to",  "target": "board"},
+            {"time": 16, "actor": k0, "action": "animate",  "anim": "write_board"},
+            {"time": 19, "actor": k0, "action": "chat",     "dialog": "Để mình vẽ flow ra board!", "duration": 3},
+            {"time": 21, "actor": k1, "action": "walk_to",  "target": "board"},
+            {"time": 24, "actor": k1, "action": "animate",  "anim": "think"},
+            {"time": 27, "actor": k1, "action": "chat",     "dialog": "Ah! Mình thấy vấn đề ở đây nè!", "duration": 3},
+            {"time": 30, "actor": k0, "action": "emote",    "emoji": "💡"},
+            {"time": 31, "actor": k1, "action": "animate",  "anim": "write_board"},
+            {"time": 34, "actor": k1, "action": "chat",     "dialog": "Sửa logic ở chỗ này sẽ fix được!", "duration": 4},
+            {"time": 38, "actor": k0, "action": "chat",     "dialog": "Genius! Mình implement thử!", "duration": 3},
+            {"time": 41, "actor": k0, "action": "walk_to",  "target": code_desk},
+            {"time": 44, "actor": k0, "action": "animate",  "anim": "read"},
+            {"time": 47, "actor": k0, "action": "chat",     "dialog": "Chạy rồi! Bug fixed! 🎉", "duration": 3},
+            {"time": 50, "actor": k1, "action": "walk_to",  "target": code_desk},
+            {"time": 52, "actor": k1, "action": "animate",  "anim": "cheer"},
+            {"time": 54, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+            {"time": 57, "actor": k1, "action": "emote",    "emoji": "🚀"},
+            {"time": 60, "actor": k0, "action": "return_desk"},
+            {"time": 60, "actor": k1, "action": "return_desk"},
         ]
 
     elif any(kw in topic for kw in ["demo", "trình bày", "present", "show", "chia sẻ", "giới thiệu"]):
@@ -471,15 +486,23 @@ def _generate_demo_script(prompt: str, actors: list) -> dict:
             {"time": 53, "actor": k1, "action": "return_desk"},
         ]
 
+    # Merge standard waypoints with desk waypoints from request
+    all_waypoints = [
+        {"id": "board", "label": "Whiteboard", "x": 0.5, "z": -4},
+        {"id": "sofa",  "label": "Sofa",       "x": 5.0, "z": -3.5},
+        {"id": "door",  "label": "Cửa",        "x": 0.5, "z": 6.0},
+    ]
+    # Add desk waypoints from request if present
+    for wp in (waypoints or []):
+        wp_id = wp.get("id", "")
+        if wp_id.startswith("desk_") and not any(w.get("id") == wp_id for w in all_waypoints):
+            all_waypoints.append(wp)
+
     return {
         "title": prompt[:60] if prompt else "Câu chuyện văn phòng",
         "scene_id": "team_trieudionh",
         "actors": actors[:4],
-        "waypoints": [
-            {"id": "board", "label": "Whiteboard", "x": 0.5, "z": -4},
-            {"id": "sofa",  "label": "Sofa",       "x": 5.0, "z": -3.5},
-            {"id": "door",  "label": "Cửa",        "x": 0.5, "z": 6.0},
-        ],
+        "waypoints": all_waypoints,
         "timeline": timeline
     }
 
