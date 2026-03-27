@@ -71,6 +71,9 @@ def call_gemini(model: str, api_key: str, prompt: str) -> str:
         response = gen_model.generate_content(prompt)
         return response.text
     except Exception as ex:
+        err_str = str(ex)
+        if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
+            return f"[QUOTA_ERROR] Gemini: {err_str}"
         return f"[ERROR] Gemini: {ex}"
 
 def call_openai_compatible(model: str, api_key: str, prompt: str, base_url: str = None) -> str:
@@ -87,6 +90,9 @@ def call_openai_compatible(model: str, api_key: str, prompt: str, base_url: str 
         )
         return response.choices[0].message.content
     except Exception as ex:
+        err_str = str(ex)
+        if "429" in err_str or "RateLimitError" in err_str or "quota" in err_str.lower():
+            return f"[QUOTA_ERROR] OpenAI-compatible: {err_str}"
         return f"[ERROR] OpenAI-compatible: {ex}"
 
 def call_claude(model: str, api_key: str, prompt: str) -> str:
@@ -111,30 +117,49 @@ def call_claude(model: str, api_key: str, prompt: str) -> str:
         blocks = data.get("content", [])
         return "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     except Exception as ex:
+        err_str = str(ex)
+        if hasattr(ex, 'response') and ex.response is not None and ex.response.status_code == 429:
+            return f"[QUOTA_ERROR] Claude: {err_str}"
+        if "429" in err_str or "quota" in err_str.lower():
+            return f"[QUOTA_ERROR] Claude: {err_str}"
         return f"[ERROR] Claude: {ex}"
 
 def generate_agent_json(name: str, description: str, provider: str, model: str, api_key: str = "") -> dict:
+    from tubecli.extensions.cloud_api.extension import key_manager
     prompt = build_ai_prompt(name, description)
     
-    if provider == "ollama":
-        raw = call_ollama(model, prompt)
-    elif provider == "gemini":
-        raw = call_gemini(model, api_key, prompt)
-    elif provider == "chatgpt":
-        raw = call_openai_compatible(model, api_key, prompt)
-    elif provider == "grok":
-        raw = call_openai_compatible(model, api_key, prompt, base_url="https://api.x.ai/v1")
-    elif provider == "claude":
-        raw = call_claude(model, api_key, prompt)
-    else:
-        raise ValueError(f"Unknown provider: {provider}")
+    max_retries = 3
+    for attempt in range(max_retries):
+        current_key = api_key or key_manager.get_active_key(provider) or ""
+        
+        if provider == "ollama":
+            raw = call_ollama(model, prompt)
+        elif provider == "gemini":
+            raw = call_gemini(model, current_key, prompt)
+        elif provider == "chatgpt":
+            raw = call_openai_compatible(model, current_key, prompt)
+        elif provider == "grok":
+            raw = call_openai_compatible(model, current_key, prompt, base_url="https://api.x.ai/v1")
+        elif provider == "claude":
+            raw = call_claude(model, current_key, prompt)
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
 
-    if raw.startswith("[ERROR]"):
-        raise RuntimeError(raw)
+        if raw.startswith("[QUOTA_ERROR]"):
+            if not api_key and current_key:
+                key_manager.report_key_error(provider, current_key, "Quota Exceeded")
+                continue
+            else:
+                raise RuntimeError(raw)
+        elif raw.startswith("[ERROR]"):
+            raise RuntimeError(raw)
 
-    json_str = extract_json(raw)
-    try:
-        data = json.loads(json_str)
-        return data
-    except Exception as e:
-        raise ValueError(f"AI did not return valid JSON. Raw output: {raw[:200]}...")
+        json_str = extract_json(raw)
+        try:
+            import json
+            data = json.loads(json_str)
+            return data
+        except Exception as e:
+            raise ValueError(f"AI did not return valid JSON. Raw output: {raw[:200]}...")
+            
+    raise RuntimeError(f"All keys for {provider} are exhausted or invalid.")

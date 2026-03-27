@@ -253,6 +253,54 @@
     </div>
 </div>
 
+<!-- Edit AI Models Modal -->
+<div id="modal-edit-models" class="modal hidden">
+    <div class="modal-content" style="max-width:550px">
+        <div class="modal-header">
+            <h2 id="edit-models-title">⚙️ Cấu hình Models</h2>
+            <button class="btn-close" onclick="closeModal('modal-edit-models')">✕</button>
+        </div>
+        <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;margin-top:10px;max-height:70vh;overflow-y:auto;padding-right:5px">
+            <p class="text-muted" style="font-size:0.9rem;margin-bottom:0">Quản lý danh sách các AI Models hỗ trợ cho Provider này.</p>
+            <div style="display:flex;gap:8px">
+                <input type="text" id="add-model-input" placeholder="Nhập tên model (vd: gemini-2.5-pro)" autocomplete="off" onkeypress="if(event.key==='Enter') window.addModelToList()" style="flex:1">
+                <button class="btn-primary" onclick="window.addModelToList()">Thêm</button>
+            </div>
+            <div class="table-container" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg-lighter);margin-top:8px;">
+                <table class="data-table">
+                    <tbody id="edit-models-list">
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Auto Test Panel -->
+            <div id="model-test-panel" style="display:none;margin-top:15px;padding-top:15px;border-top:1px solid var(--border)">
+                <h3 style="margin-bottom:10px;color:var(--cyan);font-size:1.1rem">🛠️ Auto Test: <span id="test-model-name"></span></h3>
+                <div class="form-group">
+                    <label>Prompt Template</label>
+                    <textarea id="test-model-prompt" rows="2" style="width:100%;resize:vertical" oninput="window.updateCurlPreview()">Bạn là trợ lý AI. Hãy trả lời ngắn gọn: "Test thành công!"</textarea>
+                </div>
+                <div class="form-group" style="position:relative;margin-top:8px">
+                    <label>Generated cURL Preview</label>
+                    <div style="background:var(--bg-dark);padding:10px;border-radius:4px;font-family:monospace;font-size:0.8rem;color:var(--text-muted);white-space:pre-wrap;word-break:break-all;" id="test-model-curl"></div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;margin-top:10px;margin-bottom:10px">
+                    <button class="btn-primary" onclick="window.runModelTest()" id="btn-run-model-test" style="background:var(--green)">▶ Gửi Request 🚀</button>
+                </div>
+                <div class="form-group">
+                    <label>API Response</label>
+                    <div id="test-model-result" style="background:var(--bg-dark);color:var(--text);padding:10px;border-radius:4px;min-height:50px;border:1px solid var(--border);white-space:pre-wrap;font-family:monospace;font-size:0.9rem">Dữ liệu trả về sẽ hiển thị ở đây...</div>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-actions" style="margin-top:20px;">
+            <button class="btn-secondary" onclick="closeModal('modal-edit-models')">Đóng</button>
+            <button class="btn-primary" onclick="window.saveProviderModels()">Lưu danh sách</button>
+        </div>
+    </div>
+</div>
+
 <!-- Browser Engines Modal -->
 <div id="modal-engines" class="modal hidden">
     <div class="modal-content modal-lg">
@@ -405,7 +453,7 @@
     </div>
 </div>
 
-<script src="/static/i18n.js?v=3"></script>
-<script src="/static/app.js?v=15"></script>
+<script src="/static/i18n.js?v=4"></script>
+<script src="/static/app.js?v=16"></script>
 </body>
 </html>

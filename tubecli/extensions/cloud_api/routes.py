@@ -75,3 +75,48 @@ async def api_get_active_key(provider: str):
     # Return masked for security
     masked = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
     return {"provider": provider, "has_key": True, "masked_key": masked}
+
+class UpdateProviderSettings(BaseModel):
+    models: list[str]
+
+@router.put("/providers/{provider}/settings")
+async def api_update_provider_settings(provider: str, req: UpdateProviderSettings):
+    """Update settings (e.g. models list) for a provider."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    result = key_manager.set_models(provider, req.models)
+    if result["status"] == "error":
+        raise HTTPException(400, result["message"])
+    return result
+
+class TestModelRequest(BaseModel):
+    model: str
+    prompt: str = "Reply 'Hello from API!'"
+
+@router.post("/providers/{provider}/test-model")
+async def api_test_provider_model(provider: str, req: TestModelRequest):
+    """Test a specific model."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    from tubecli.core.ai_generator import call_gemini, call_openai_compatible, call_claude
+    
+    key = key_manager.get_active_key(provider)
+    if not key:
+        raise HTTPException(400, f"No active key configured for {provider}")
+        
+    try:
+        prov = provider.lower()
+        if prov == "gemini":
+            res = call_gemini(req.model, key, req.prompt)
+        elif prov == "openai" or prov == "chatgpt":
+            res = call_openai_compatible(req.model, key, req.prompt)
+        elif prov == "grok":
+            res = call_openai_compatible(req.model, key, req.prompt, base_url="https://api.x.ai/v1")
+        elif prov == "deepseek":
+            res = call_openai_compatible(req.model, key, req.prompt, base_url="https://api.deepseek.com")
+        elif prov == "claude":
+            res = call_claude(req.model, key, req.prompt)
+        else:
+            raise HTTPException(400, f"Direct testing for {provider} not supported.")
+            
+        return {"status": "success", "response": res}
+    except Exception as e:
+        raise HTTPException(500, str(e))

@@ -132,23 +132,6 @@ async def list_ai_models():
     return result
 
 
-def _get_cloud_api_key(provider: str) -> str:
-    """Get first active API key for a provider from data/cloud_api_keys.json."""
-    # Map our provider name to the key name stored in JSON
-    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude",
-               "grok": "grok", "deepseek": "deepseek"}
-    key_name = KEY_MAP.get(provider, provider)
-    cloud_keys = _load_cloud_keys()
-    entries = cloud_keys.get(key_name, {})
-    if isinstance(entries, dict):
-        for label, entry in entries.items():
-            if isinstance(entry, dict) and entry.get("active", False):
-                key = entry.get("key", "").strip()
-                if key:
-                    return key
-    return ""
-
-
 # ── Routes ──────────────────────────────────────────────────────────
 
 @story_router.post("/ai-generate")
@@ -234,51 +217,71 @@ Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
     # Determine provider and model
     provider = (req.provider or "ollama").lower()
     model = req.model or ""
-    api_key = req.api_key or ""
-
-    # Get cloud API key if not provided
-    if provider != "ollama" and not api_key:
-        api_key = _get_cloud_api_key(provider)
+    api_key_override = req.api_key or ""
 
     raw = ""
     error_msg = ""
+    
+    from tubecli.extensions.cloud_api.extension import key_manager
+    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok", "deepseek": "deepseek"}
+    km_provider = KEY_MAP.get(provider, provider)
 
-    try:
-        if provider == "ollama":
-            if not model:
-                model = "qwen2.5:7b"
-            raw = call_ollama(model, full_prompt)
-        elif provider == "gemini":
-            if not model:
-                model = "gemini-2.0-flash"
-            if not api_key:
-                return {"ok": False, "error": "Chưa cấu hình Gemini API key. Vào Dashboard → Agent → Cloud API Keys để thêm."}
-            raw = call_gemini(model, api_key, full_prompt)
-        elif provider == "chatgpt":
-            if not model:
-                model = "gpt-4o-mini"
-            if not api_key:
-                return {"ok": False, "error": "Chưa cấu hình OpenAI API key. Vào Dashboard → Agent → Cloud API Keys để thêm."}
-            raw = call_openai_compatible(model, api_key, full_prompt)
-        elif provider == "grok":
-            if not model:
-                model = "grok-3-mini-fast"
-            if not api_key:
-                return {"ok": False, "error": "Chưa cấu hình Grok API key."}
-            raw = call_openai_compatible(model, api_key, full_prompt, base_url="https://api.x.ai/v1")
-        elif provider == "claude":
-            if not model:
-                model = "claude-sonnet-4-20250514"
-            if not api_key:
-                return {"ok": False, "error": "Chưa cấu hình Claude API key."}
-            raw = call_claude(model, api_key, full_prompt)
-        else:
-            return {"ok": False, "error": f"Provider không hỗ trợ: {provider}"}
-    except Exception as e:
-        error_msg = str(e)
+    max_retries = 3
+    for attempt in range(max_retries):
+        current_key = api_key_override or key_manager.get_active_key(km_provider) or ""
+        error_msg = ""
+        raw = ""
+        
+        try:
+            if provider == "ollama":
+                if not model: model = "qwen2.5:7b"
+                raw = call_ollama(model, full_prompt)
+            elif provider == "gemini":
+                if not model: model = "gemini-2.0-flash"
+                if not current_key:
+                    error_msg = "Chưa cấu hình Gemini API key. Vào Dashboard → Agent → Cloud API Keys để thêm."
+                    break
+                raw = call_gemini(model, current_key, full_prompt)
+            elif provider == "chatgpt":
+                if not model: model = "gpt-4o-mini"
+                if not current_key:
+                    error_msg = "Chưa cấu hình OpenAI API key. Vào Dashboard → Agent → Cloud API Keys để thêm."
+                    break
+                raw = call_openai_compatible(model, current_key, full_prompt)
+            elif provider == "grok":
+                if not model: model = "grok-3-mini-fast"
+                if not current_key:
+                    error_msg = "Chưa cấu hình Grok API key."
+                    break
+                raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://api.x.ai/v1")
+            elif provider == "claude":
+                if not model: model = "claude-sonnet-4-20250514"
+                if not current_key:
+                    error_msg = "Chưa cấu hình Claude API key."
+                    break
+                raw = call_claude(model, current_key, full_prompt)
+            else:
+                error_msg = f"Provider không hỗ trợ: {provider}"
+                break
+                
+            if raw.startswith("[QUOTA_ERROR]"):
+                if not api_key_override and current_key:
+                    key_manager.report_key_error(km_provider, current_key, "Quota Exceeded")
+                    continue
+                else:
+                    error_msg = raw
+                    break
+            elif raw.startswith("[ERROR]"):
+                error_msg = raw
+                break
+                
+            break # Success
+        except Exception as e:
+            error_msg = str(e)
+            break
 
     # Check for errors
-    if raw.startswith("[ERROR]") or error_msg:
+    if raw.startswith("[QUOTA_ERROR]") or raw.startswith("[ERROR]") or error_msg:
         err = error_msg or raw
         # Fallback to demo
         demo = _generate_demo_script(req.prompt, req.actors or [
@@ -617,28 +620,82 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
             "Góc nhìn rất sáng tạo! Triển khai luôn thôi."
         ]
             
-        timeline = [
-            {"time": 0,  "actor": k0, "action": "walk_to",  "target": wp_order[0]},
-            {"time": 3,  "actor": k1, "action": "walk_to",  "target": {"x": random.uniform(-2, 3), "z": random.uniform(-2, 2)}},
-            {"time": 6,  "actor": k0, "action": "animate",  "anim": random.choice(anims)},
-            {"time": 9,  "actor": k1, "action": "walk_to",  "target": wp_order[0]},
-            {"time": 12, "actor": k1, "action": "chat",     "dialog": random.choice(greetings), "duration": 3},
-            {"time": 15, "actor": k0, "action": "chat",     "dialog": random.choice(responses), "duration": 3},
-            {"time": 18, "actor": k0, "action": "emote",    "emoji": e()},
-            {"time": 20, "actor": k1, "action": "animate",  "anim": random.choice(anims)},
-            {"time": 24, "actor": k0, "action": "walk_to",  "target": wp_order[1]},
-            {"time": 27, "actor": k1, "action": "walk_to",  "target": wp_order[1]},
-            {"time": 30, "actor": k0, "action": "chat",     "dialog": random.choice(ideas), "duration": 4},
-            {"time": 34, "actor": k1, "action": "chat",     "dialog": random.choice(reactions), "duration": 3},
-            {"time": 37, "actor": k0, "action": "animate",  "anim": random.choice(anims)},
-            {"time": 40, "actor": k1, "action": "emote",    "emoji": e()},
-            {"time": 42, "actor": k0, "action": "walk_to",  "target": wp_order[2]},
-            {"time": 45, "actor": k1, "action": "walk_to",  "target": wp_order[2]},
-            {"time": 48, "actor": k0, "action": "animate",  "anim": "shake_hand"},
-            {"time": 50, "actor": k1, "action": "animate",  "anim": "cheer"},
-            {"time": 53, "actor": k0, "action": "return_desk"},
-            {"time": 53, "actor": k1, "action": "return_desk"},
-        ]
+        # Available patterns for generic fallback
+        patterns = ["walk_around"]
+        if has_desk0:
+            patterns.append("desk_discussion")
+        
+        chosen_pattern = random.choice(patterns)
+        
+        if chosen_pattern == "desk_discussion":
+            # STAY AT DESK AND ASK FOR HELP
+            desk_probs = [
+                "Hmm, phần này mãi chưa xử lý được...",
+                "Có một vấn đề nhỏ ở đây cần ý kiến.",
+                "Đang vướng một chút chỗ cấu hình này."
+            ]
+            desk_helps = [
+                f"Sao thế {n0}? Mình qua xem thử.",
+                "Cần mình hỗ trợ gì không?",
+                "Có vẻ căng thẳng vậy, để mình qua góp ý."
+            ]
+            desk_shows = [
+                "Đây nè, bạn nhìn chi tiết phần này đi.",
+                "Mình đang nghĩ đến giải pháp này, ổn không?",
+                "Theo bạn thì chỗ này nên đi theo hướng nào?"
+            ]
+            desk_advices = [
+                "À, có thể thử hướng tiếp cận kia xem.",
+                "Chỗ này mình từng gặp rồi, sửa nhẹ là xong.",
+                "Góc nhìn của bạn khá hay, mình đồng ý chỉnh lại."
+            ]
+            desk_ends = [
+                "Cảm ơn nhé! Mình sẽ thử ngay.",
+                "Tuyệt, hướng đi này khả thi đấy.",
+                "Ok, được rồi. Chốt phương án này nha."
+            ]
+            
+            timeline = [
+                {"time": 0,  "actor": k0, "action": "walk_to",  "target": desk0},
+                {"time": 2,  "actor": k0, "action": "animate",  "anim": "think"},
+                {"time": 5,  "actor": k0, "action": "chat",     "dialog": random.choice(desk_probs), "duration": 4},
+                {"time": 8,  "actor": k1, "action": "walk_to",  "target": desk0},
+                {"time": 11, "actor": k1, "action": "chat",     "dialog": random.choice(desk_helps), "duration": 3},
+                {"time": 15, "actor": k0, "action": "chat",     "dialog": random.choice(desk_shows), "duration": 4},
+                {"time": 19, "actor": k0, "action": "animate",  "anim": "write_board"}, # point to screen
+                {"time": 22, "actor": k1, "action": "animate",  "anim": "think"},
+                {"time": 25, "actor": k1, "action": "chat",     "dialog": random.choice(desk_advices), "duration": 4},
+                {"time": 29, "actor": k0, "action": "emote",    "emoji": "💡"},
+                {"time": 30, "actor": k0, "action": "chat",     "dialog": random.choice(desk_ends), "duration": 3},
+                {"time": 34, "actor": k1, "action": "animate",  "anim": "cheer"},
+                {"time": 36, "actor": k1, "action": "emote",    "emoji": "👌"},
+                {"time": 39, "actor": k1, "action": "return_desk"},
+                {"time": 39, "actor": k0, "action": "return_desk"}
+            ]
+        else:
+            # ORIGINAL GENERIC (Walk around)
+            timeline = [
+                {"time": 0,  "actor": k0, "action": "walk_to",  "target": wp_order[0]},
+                {"time": 3,  "actor": k1, "action": "walk_to",  "target": {"x": random.uniform(-2, 3), "z": random.uniform(-2, 2)}},
+                {"time": 6,  "actor": k0, "action": "animate",  "anim": random.choice(anims)},
+                {"time": 9,  "actor": k1, "action": "walk_to",  "target": wp_order[0]},
+                {"time": 12, "actor": k1, "action": "chat",     "dialog": random.choice(greetings), "duration": 3},
+                {"time": 15, "actor": k0, "action": "chat",     "dialog": random.choice(responses), "duration": 3},
+                {"time": 18, "actor": k0, "action": "emote",    "emoji": e()},
+                {"time": 20, "actor": k1, "action": "animate",  "anim": random.choice(anims)},
+                {"time": 24, "actor": k0, "action": "walk_to",  "target": wp_order[1]},
+                {"time": 27, "actor": k1, "action": "walk_to",  "target": wp_order[1]},
+                {"time": 30, "actor": k0, "action": "chat",     "dialog": random.choice(ideas), "duration": 4},
+                {"time": 34, "actor": k1, "action": "chat",     "dialog": random.choice(reactions), "duration": 3},
+                {"time": 37, "actor": k0, "action": "animate",  "anim": random.choice(anims)},
+                {"time": 40, "actor": k1, "action": "emote",    "emoji": e()},
+                {"time": 42, "actor": k0, "action": "walk_to",  "target": wp_order[2]},
+                {"time": 45, "actor": k1, "action": "walk_to",  "target": wp_order[2]},
+                {"time": 48, "actor": k0, "action": "animate",  "anim": "shake_hand"},
+                {"time": 50, "actor": k1, "action": "animate",  "anim": "cheer"},
+                {"time": 53, "actor": k0, "action": "return_desk"},
+                {"time": 53, "actor": k1, "action": "return_desk"},
+            ]
 
     # Merge standard waypoints with desk waypoints from request
     all_waypoints = [
