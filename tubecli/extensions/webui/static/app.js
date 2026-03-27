@@ -627,7 +627,11 @@ async function renderCloudApiExt(el) {
         allKeys.forEach(k => { 
             let st = k.active ? `<span style="color:var(--green)">● ${T('cloud_api.active')}</span>` : `<span style="color:var(--text-muted)">○ Bị tắt</span>`;
             if (!k.active && k.status_msg) st = `<span style="color:var(--red)">⚠️ ${esc(k.status_msg)}</span>`;
-            h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}</td><td><button class="btn-danger" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button></td></tr>`; 
+            h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}</td>
+            <td style="white-space:nowrap">
+                <button class="btn-sm" style="background:var(--green);color:white;border:none;margin-right:4px;padding:2px 8px" onclick="testApiKey('${esc(k.provider)}', '${esc(k.label)}')">▶ Test</button>
+                <button class="btn-danger btn-sm" style="padding:2px 8px" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button>
+            </td></tr>`; 
         });
         h += '</tbody></table></div>';
     } else h += `<p class="text-muted">${T('cloud_api.no_keys')}</p>`;
@@ -1180,7 +1184,19 @@ function copyApiResponse() {
 function showAddApiKey() { document.getElementById('modal-add-key').classList.remove('hidden'); }
 function prefillAddKey(provider) { document.getElementById('add-key-provider').value = provider; document.getElementById('add-key-value').value = ''; document.getElementById('add-key-label').value = 'default'; document.getElementById('modal-add-key').classList.remove('hidden'); }
 async function addApiKey() { const prov=document.getElementById('add-key-provider').value, key=document.getElementById('add-key-value').value.trim(), label=document.getElementById('add-key-label').value.trim()||'default'; if(!key) return alert('Key required.'); const r = await apiPost('/api/v1/cloud-api/keys',{provider:prov,api_key:key,label}); if(r&&r.status==='success') { closeModal('modal-add-key'); renderCloudApiExt(document.getElementById('ext-detail-body')); alert('Added!'); } else alert('Failed.'); }
-async function testApiKey(provider) { alert(`Testing ${provider}...`); const r = await apiPost('/api/v1/cloud-api/keys/test',{provider}); if(r) alert(`${r.status==='success'?'✅':'❌'} ${r.message||r.status}`); }
+async function testApiKey(provider, label = 'default') { 
+    alert(`Testing ${provider} [${label}]...`); 
+    const r = await apiPost('/api/v1/cloud-api/keys/test', {provider, label}); 
+    if (r) {
+        if (r.status === 'success') {
+            alert(`✅ OK! ${r.message}`);
+        } else if (r.status === 'info') {
+            alert(`ℹ️ INFO: ${r.message}`);
+        } else {
+            alert(`❌ LỖI: ${r.message || r.status}`);
+        }
+    } 
+}
 
 // ═══════════════════════════════════════════════════════════
 // ═══ AGENT CRUD (unchanged logic) ═══
