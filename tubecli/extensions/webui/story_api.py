@@ -77,42 +77,19 @@ async def list_ai_models():
     except Exception:
         pass
 
-    # 2. Cloud providers from data/cloud_api_keys.json
-    cloud_keys = _load_cloud_keys()
-
-    # Known cloud provider configs
-    # Key in JSON → provider name mapping
+    # 2. Cloud providers — dynamic models from KeyManager
+    from tubecli.extensions.cloud_api.extension import key_manager, PROVIDERS as CLOUD_PROVIDERS
     PROVIDER_MAP = {"openai": "chatgpt"}  # openai key → chatgpt provider
-    CLOUD_MODELS = {
-        "gemini": [
-            {"name": "gemini-2.0-flash", "label": "Gemini 2.0 Flash"},
-            {"name": "gemini-2.5-flash-preview-05-20", "label": "Gemini 2.5 Flash"},
-            {"name": "gemini-1.5-pro", "label": "Gemini 1.5 Pro"},
-        ],
-        "chatgpt": [
-            {"name": "gpt-4o-mini", "label": "GPT-4o Mini"},
-            {"name": "gpt-4o", "label": "GPT-4o"},
-            {"name": "gpt-4.1-mini", "label": "GPT-4.1-mini"},
-        ],
-        "claude": [
-            {"name": "claude-sonnet-4-20250514", "label": "Claude Sonnet 4"},
-            {"name": "claude-3-5-haiku-20241022", "label": "Claude 3.5 Haiku"},
-        ],
-        "grok": [
-            {"name": "grok-3-mini-fast", "label": "Grok 3 Mini Fast"},
-            {"name": "grok-3-fast", "label": "Grok 3 Fast"},
-        ],
-        "deepseek": [
-            {"name": "deepseek-chat", "label": "DeepSeek Chat"},
-            {"name": "deepseek-reasoner", "label": "DeepSeek Reasoner"},
-        ],
-    }
+
     PROVIDER_LABELS = {
         "gemini": "Google Gemini", "chatgpt": "OpenAI", "claude": "Anthropic Claude",
         "grok": "xAI Grok", "deepseek": "DeepSeek",
     }
 
+    cloud_keys = _load_cloud_keys()
     for key_name, key_entries in cloud_keys.items():
+        if key_name.startswith("_"):
+            continue
         # Check if there's at least one active key
         has_active = any(
             v.get("active", False) and v.get("key", "").strip()
@@ -122,11 +99,13 @@ async def list_ai_models():
             continue
         # Map stored key name to provider name
         provider = PROVIDER_MAP.get(key_name, key_name)
-        if provider in CLOUD_MODELS:
+        # Get models dynamically from KeyManager settings (or defaults)
+        model_names = key_manager.get_models(key_name)
+        if model_names:
             result["cloud"].append({
                 "provider": provider,
                 "label": PROVIDER_LABELS.get(provider, provider.title()),
-                "models": CLOUD_MODELS[provider],
+                "models": [{"name": m, "label": m} for m in model_names],
             })
 
     return result
@@ -155,11 +134,18 @@ async def ai_generate_script(req: AIGenerateRequest):
         wp_list.append(f"  - {wp.get('id','?')} ({wp.get('label','')}) tại ({wp.get('x',0)}, {wp.get('z',0)})")
     wp_text = "\n".join(wp_list) if wp_list else "  - board (Whiteboard), sofa (Sofa), door (Cửa)"
 
-    system_prompt = f"""Bạn là một AI chuyên viết kịch bản tương tác 3D cho văn phòng ảo. Nhiệm vụ: tạo story script JSON phong phú, dài, có câu chuyện hấp dẫn.
+    system_prompt = f"""Bạn là một AI đạo diễn chuyên viết kịch bản tương tác 3D cho văn phòng ảo. 
+Nhiệm vụ: Phân tích kỹ ý định người dùng, số lượng nhân vật, và các đối tượng (waypoint) trên map để HÌNH THÀNH môt cốt truyện hợp lý TRƯỚC khi xuất ra timeline.
 
-FORMAT JSON bắt buộc:
+FORMAT JSON BẮT BUỘC (Phải trả về đúng thứ tự này):
 {{
   "title": "Tên kịch bản ngắn gọn",
+  "intent_analysis": "TEXT: Phân tích số lượng nhân vật {len(actor_keys)} người, vai trò của họ, và cách tận dụng linh hoạt các đối tượng trên map thay vì đi theo lối mòn.",
+  "plot_outline": [
+    "Cảnh 1: ...",
+    "Cảnh 2: ...",
+    "Cảnh 3: ..."
+  ],
   "waypoints": [{{"id":"wp_id","label":"Tên vị trí","x":số,"z":số}}],
   "timeline": [
     {{"time": 0, "actor": "actor_key", "action": "walk_to", "target": "wp_id_hoặc_tọa_độ"}},
@@ -184,33 +170,25 @@ NHÂN VẬT: {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
 WAYPOINTS TRÊN MAP (bao gồm bàn làm việc của từng nhân vật):
 {wp_text}
 
-LƯU Ý QUAN TRỌNG VỀ BÀN LÀM VIỆC:
-- Waypoint "desk_<key>" là bàn làm việc riêng của nhân vật đó (VD: desk_pa = bàn của Personal Assistant)
-- Nhân vật có thể walk_to bàn của nhân vật KHÁC để trao đổi công việc (VD: pa walk_to desk_tb để bàn dự án với Test Bot)
-- Đây là cách tự nhiên nhất để nhân vật tương tác: đến bàn đồng nghiệp → trò chuyện → thảo luận
+LƯU Ý VỀ TƯƠNG TÁC VÀ BÀN LÀM VIỆC:
+- Waypoint "desk_<key>" là bàn làm việc riêng (VD: desk_pa = bàn của Personal Assistant).
+- Để hai người nói chuyện, người A phải walk_to bàn của người B, hoặc cả hai walk_to cùng 1 waypoint (VD: sofa, board). KHÔNG nói chuyện xuyên tường xa cách.
 
-QUY TẮC QUAN TRỌNG:
-1. Tạo ÍT NHẤT 15-25 events trong timeline, kéo dài 60-120 giây
-2. Mỗi nhân vật phải có ít nhất 6-8 events riêng
-3. Xen kẽ các action đa dạng: walk → chat → animate → emote → walk → chat...
-4. Dialog phải tự nhiên, sinh động, có cảm xúc, KHÁC NHAU mỗi câu (không lặp lại khuôn mẫu)
-5. Sử dụng nhiều emoji đa dạng trong emote: 💡🎉😄🤔💪🔥✨🎯👋❤️
-6. Nhân vật di chuyển đến nhiều vị trí khác nhau: BÀN ĐỒNG NGHIỆP, board, sofa, door, vị trí bất kỳ
-7. Có ít nhất 2-3 tương tác giữa các nhân vật (chat qua lại, shake_hand, walk cùng nhau, đến bàn nhau)
-8. Kết thúc bằng return_desk cho tất cả nhân vật
-9. Hãy SÁNG TẠO — mỗi kịch bản phải KHÁC BIỆT, đừng dùng mẫu cố định
+QUY TẮC ĐẠO DIỄN:
+1. SÁNG TẠO ĐỊA ĐIỂM: Khai thác TOÀN BỘ map (đặc biệt là đến bàn nhau để làm việc). Đừng lặp lại mô típ "ra bảng nói chuyện rồi về". 
+2. CHAIN OF THOUGHT: Bắt buộc điền "intent_analysis" và "plot_outline" thật chất lượng. Các hành động trong timeline phải phản ánh DỰA THEO "plot_outline" vừa đề cập.
+3. Tạo ÍT NHẤT 15-30 events, mỗi nhân vật phải năng động di chuyển, đổi vị trí, làm hoạt cảnh hoặc tương tác liên tục.
+4. Hội thoại tự nhiên, có thông tin, KHÁC NHAU mỗi câu. Sử dụng cảm xúc emoji trong emote.
+5. Kết thúc bằng return_desk cho tất cả nhân vật.
 
-CHỈ trả về JSON thuần, không markdown, không giải thích."""
+CHỈ trả về kết quả định dạng JSON thuần hợp lệ, KHÔNG markdown, KHÔNG giải thích."""
 
     user_prompt = f"""Kịch bản: {req.prompt}
 
-Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
-- Ít nhất 18-25 events trong timeline
-- Thời lượng 60-120 giây  
-- Hội thoại tự nhiên, có nội dung ý nghĩa liên quan đến chủ đề "{req.prompt}"
-- Nhiều loại action khác nhau, không chỉ walk+chat
-- Dùng đúng actor keys: {', '.join(actor_keys)}
-- Mỗi nhân vật active xuyên suốt kịch bản"""
+Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành Timeline). Đảm bảo:
+- Hành động logic, thời lượng tổng khoảng 60-120 giây
+- Kịch bản thú vị, sinh động, tận dụng {len(actor_keys)} nhân vật: {', '.join(actor_keys)}
+- Phải trả về ĐÚNG JSON gốc (bắt buộc)."""
 
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
@@ -254,6 +232,12 @@ Hãy tạo một kịch bản thật PHONG PHÚ, DÀI, và SÁNG TẠO với:
                     error_msg = "Chưa cấu hình Grok API key."
                     break
                 raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://api.x.ai/v1")
+            elif provider == "deepseek":
+                if not model: model = "deepseek-chat"
+                if not current_key:
+                    error_msg = "Chưa cấu hình DeepSeek API key."
+                    break
+                raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://api.deepseek.com")
             elif provider == "claude":
                 if not model: model = "claude-sonnet-4-20250514"
                 if not current_key:
