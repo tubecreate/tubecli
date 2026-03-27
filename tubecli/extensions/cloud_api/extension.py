@@ -104,6 +104,35 @@ class KeyManager:
             return os.environ.get(env_var)
         return None
 
+    def get_models(self, provider: str) -> List[str]:
+        """Get models for a provider, merging defaults with custom settings."""
+        self._load()
+        default_models = PROVIDERS.get(provider, {}).get("models", [])
+        custom_models = self._keys.get("_settings", {}).get(provider, {}).get("models")
+        return custom_models if custom_models is not None else default_models
+
+    def set_models(self, provider: str, models: List[str]) -> dict:
+        """Save a custom list of models for a provider."""
+        if provider not in PROVIDERS:
+            return {"status": "error", "message": f"Unknown provider: {provider}"}
+        settings = self._keys.setdefault("_settings", {})
+        prov_settings = settings.setdefault(provider, {})
+        prov_settings["models"] = models
+        self._save()
+        return {"status": "success", "message": f"Models updated for {provider}"}
+
+    def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded") -> None:
+        """Mark a key as inactive due to an error (e.g., 429 Too Many Requests)."""
+        self._load()
+        entries = self._keys.get(provider, {})
+        for label, entry in entries.items():
+            if entry.get("key") == api_key:
+                entry["active"] = False
+                entry["status_msg"] = error_msg
+                self._save()
+                logger.warning(f"Key '{label}' for {provider} disabled automatically. Reason: {error_msg}")
+                return
+
     def get_active_key(self, provider: str) -> Optional[str]:
         """Get any active key for a provider (round-robin ready)."""
         self._load()
@@ -116,24 +145,30 @@ class KeyManager:
         return os.environ.get(env_var) if env_var else None
 
     def list_keys(self, provider: str = None) -> dict:
-        """List all stored keys (masked)."""
+        """List all stored keys (masked) with their extended status."""
         self._load()
         result = {}
-        sources = {provider: self._keys.get(provider, {})} if provider else self._keys
+        # Ignore _settings key
+        sources = {p: self._keys[p] for p in self._keys if p != "_settings"}
+        if provider:
+            sources = {provider: sources.get(provider, {})}
+            
         for prov, keys in sources.items():
             result[prov] = {}
             for label, entry in keys.items():
+                if not isinstance(entry, dict): continue
                 key_val = entry.get("key", "")
                 masked = key_val[:6] + "..." + key_val[-4:] if len(key_val) > 10 else "***"
                 result[prov][label] = {
                     "masked_key": masked,
                     "active": entry.get("active", False),
+                    "status_msg": entry.get("status_msg", ""),
                     "added_at": entry.get("added_at", ""),
                 }
         return result
 
     def list_providers(self) -> List[dict]:
-        """List all supported providers with their status."""
+        """List all supported providers with their status and custom models."""
         self._load()
         result = []
         for prov_id, prov_info in PROVIDERS.items():
@@ -141,9 +176,9 @@ class KeyManager:
             result.append({
                 "id": prov_id,
                 "name": prov_info["name"],
-                "models": prov_info["models"],
+                "models": self.get_models(prov_id),
                 "has_key": has_key,
-                "key_count": len(self._keys.get(prov_id, {})),
+                "key_count": len(self._keys.get(prov_id, {})) if prov_id in self._keys else 0,
             })
         return result
 

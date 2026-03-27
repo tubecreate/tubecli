@@ -605,7 +605,17 @@ async function renderCloudApiExt(el) {
     // Provider cards
     h += '<div class="cards-grid" style="margin-bottom:28px">';
     providers.forEach(p => {
-        h += `<div class="card" style="text-align:center"><div class="card-icon">${provIcons[p.id]||'☁️'}</div><h3>${esc(p.name)}</h3><p class="card-desc">${p.models.slice(0,2).join(', ')}</p><div class="card-footer" style="justify-content:center;gap:8px"><span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')}</span>${!p.has_key ? `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>` : `<button class="btn-sm" onclick="testApiKey('${esc(p.id)}')">${T('cloud_api.test')}</button>`}</div></div>`;
+        h += `<div class="card" style="text-align:center">
+        <div class="card-icon" style="position:relative">${provIcons[p.id]||'☁️'}
+            <button class="btn-sm" style="position:absolute;top:0;right:0;padding:2px 6px;background:transparent;color:var(--text-muted);border:none" onclick="editProviderSettings('${esc(p.id)}', '${esc(p.models.join(','))}')" title="Edit Models">⚙️</button>
+        </div>
+        <h3>${esc(p.name)}</h3>
+        <p class="card-desc" title="${esc(p.models.join(', '))}">${p.models.slice(0,3).join(', ')}${p.models.length>3?'...':''}</p>
+        <div class="card-footer" style="justify-content:center;gap:8px">
+            <span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')}</span>
+            ${!p.has_key ? `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>` : `<button class="btn-sm" onclick="testApiKey('${esc(p.id)}')">${T('cloud_api.test')}</button>`}
+        </div>
+        </div>`;
     });
     h += '</div>';
     // Keys table
@@ -614,11 +624,140 @@ async function renderCloudApiExt(el) {
     h += `<h3 style="color:var(--cyan);margin-bottom:12px">${T('cloud_api.stored_keys')}</h3>`;
     if (allKeys.length > 0) {
         h += `<div class="table-container"><table class="data-table"><thead><tr><th>${T('cloud_api.provider')}</th><th>${T('cloud_api.label')}</th><th>${T('cloud_api.key')}</th><th>${T('cloud_api.status')}</th><th>${T('cloud_api.actions')}</th></tr></thead><tbody>`;
-        allKeys.forEach(k => { h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${k.active?`<span style="color:var(--green)">● ${T('cloud_api.active')}</span>`:'○'}</td><td><button class="btn-danger" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button></td></tr>`; });
+        allKeys.forEach(k => { 
+            let st = k.active ? `<span style="color:var(--green)">● ${T('cloud_api.active')}</span>` : `<span style="color:var(--text-muted)">○ Bị tắt</span>`;
+            if (!k.active && k.status_msg) st = `<span style="color:var(--red)">⚠️ ${esc(k.status_msg)}</span>`;
+            h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}</td><td><button class="btn-danger" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button></td></tr>`; 
+        });
         h += '</tbody></table></div>';
     } else h += `<p class="text-muted">${T('cloud_api.no_keys')}</p>`;
     el.innerHTML = h;
 }
+
+let currentEditProvider = '';
+let currentEditModels = [];
+
+function editProviderSettings(provider, currentModelsStr) {
+    currentEditProvider = provider;
+    currentEditModels = currentModelsStr ? currentModelsStr.split(',').map(m => m.trim()).filter(Boolean) : [];
+    document.getElementById('edit-models-title').innerHTML = `⚙️ Models: <strong>${esc(provider.toUpperCase())}</strong>`;
+    document.getElementById('add-model-input').value = '';
+    document.getElementById('model-test-panel').style.display = 'none';
+    renderEditModelsList();
+    document.getElementById('modal-edit-models').classList.remove('hidden');
+    setTimeout(() => document.getElementById('add-model-input').focus(), 100);
+}
+
+window.addModelToList = function() {
+    const input = document.getElementById('add-model-input');
+    const val = input.value.trim();
+    if (val && !currentEditModels.includes(val)) {
+        currentEditModels.unshift(val); // Add to top
+        input.value = '';
+        renderEditModelsList();
+    }
+};
+
+window.removeModelFromList = function(idx) {
+    currentEditModels.splice(idx, 1);
+    renderEditModelsList();
+};
+
+function renderEditModelsList() {
+    const tbody = document.getElementById('edit-models-list');
+    if(currentEditModels.length === 0) {
+        tbody.innerHTML = '<tr><td class="text-muted" style="text-align:center;padding:15px">Chưa có model nào. Hãy thêm mới!</td></tr>';
+        return;
+    }
+    let h = '';
+    currentEditModels.forEach((m, i) => {
+        h += `<tr>
+            <td style="font-weight:600;color:var(--cyan);white-space:nowrap">${esc(m)}</td>
+            <td style="text-align:right;width:95px;white-space:nowrap">
+                <button class="btn-sm" style="background:var(--green);color:white;border:none;margin-right:2px;padding:2px 8px" onclick="window.openModelTest('${esc(m)}')">▶ Test</button>
+                <button class="btn-danger btn-sm" style="padding:2px 8px" onclick="window.removeModelFromList(${i})">✕</button>
+            </td>
+        </tr>`;
+    });
+    tbody.innerHTML = h;
+}
+
+window.openModelTest = function(model) {
+    document.getElementById('model-test-panel').style.display = 'block';
+    document.getElementById('test-model-name').textContent = model;
+    document.getElementById('test-model-result').textContent = 'Dữ liệu trả về sẽ hiển thị ở đây...';
+    document.getElementById('test-model-result').style.color = 'var(--text)';
+    window.currentTestModel = model;
+    window.updateCurlPreview();
+    // Scroll to panel
+    setTimeout(() => {
+        const mb = document.querySelector('#modal-edit-models .modal-body');
+        if(mb) mb.scrollTop = mb.scrollHeight;
+    }, 50);
+};
+
+window.updateCurlPreview = function() {
+    if(!window.currentTestModel) return;
+    const model = window.currentTestModel;
+    const provider = currentEditProvider;
+    const prompt = document.getElementById('test-model-prompt').value;
+    const safePrompt = prompt.replace(/'/g, "'\\''").replace(/\n/g, "\\n");
+    
+    let curl = '';
+    if (provider === 'gemini') {
+        curl = `curl -X POST "https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=$API_KEY" \\\n-H "Content-Type: application/json" \\\n-d '{"contents":[{"parts":[{"text":"${safePrompt}"}]}]}'`;
+    } else if (provider === 'claude') {
+        curl = `curl -X POST "https://api.anthropic.com/v1/messages" \\\n-H "x-api-key: $API_KEY" \\\n-H "anthropic-version: 2023-06-01" \\\n-H "content-type: application/json" \\\n-d '{"model":"${model}","max_tokens":1024,"messages":[{"role":"user","content":"${safePrompt}"}]}'`;
+    } else {
+        let baseUrl = "https://api.openai.com/v1/chat/completions";
+        if (provider === 'deepseek') baseUrl = "https://api.deepseek.com/chat/completions";
+        if (provider === 'grok') baseUrl = "https://api.x.ai/v1/chat/completions";
+        curl = `curl -X POST "${baseUrl}" \\\n-H "Content-Type: application/json" \\\n-H "Authorization: Bearer $API_KEY" \\\n-d '{"model":"${model}","messages":[{"role":"user","content":"${safePrompt}"}]}'`;
+    }
+    document.getElementById('test-model-curl').textContent = curl;
+};
+
+window.runModelTest = async function() {
+    if(!window.currentTestModel) return;
+    const btn = document.getElementById('btn-run-model-test');
+    const resBox = document.getElementById('test-model-result');
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang gửi...';
+    resBox.textContent = 'Đang gọi API...';
+    resBox.style.color = 'var(--text-muted)';
+    
+    try {
+        const r = await apiPost(`/api/v1/cloud-api/providers/${currentEditProvider}/test-model`, {
+            model: window.currentTestModel,
+            prompt: document.getElementById('test-model-prompt').value
+        });
+        
+        if (r && r.status === 'success') {
+            resBox.style.color = 'var(--green)';
+            resBox.textContent = typeof r.response === 'string' ? r.response : JSON.stringify(r.response, null, 2);
+        } else {
+            resBox.style.color = 'var(--red)';
+            resBox.textContent = r?.error || r?.message || JSON.stringify(r);
+        }
+    } catch (e) {
+        resBox.style.color = 'var(--red)';
+        resBox.textContent = 'Lỗi kết nối: ' + e.message;
+    }
+    btn.disabled = false;
+    btn.textContent = '▶ Gửi Request 🚀';
+};
+
+window.saveProviderModels = function() {
+    apiPut(`/api/v1/cloud-api/providers/${currentEditProvider}/settings`, {models: currentEditModels})
+    .then(r => {
+        if(r?.status === 'success') {
+            closeModal('modal-edit-models');
+            renderCloudApiExt(document.getElementById('ext-detail-body'));
+        } else {
+            alert(r.error || r.message || 'Lỗi khi lưu models.');
+        }
+    });
+};
 
 async function removeApiKeyExt(provider, label) { if (!confirm(`Remove "${label}" from ${provider}?`)) return; await apiDelete('/api/v1/cloud-api/keys', {provider,label}); renderCloudApiExt(document.getElementById('ext-detail-body')); }
 
@@ -1069,8 +1208,8 @@ async function saveAgent() { const name=document.getElementById('agent-name').va
 async function deleteAgent(id) { if(!confirm('Delete agent?')) return; await apiDelete('/api/v1/agents/'+id); }
 
 // ═══ Generate Agent ═══
-const AI_PROVIDERS = { "ollama":{models:["deepseek-r1:latest","llama3.2","mistral-nemo"],needs_api:false}, "gemini":{models:["gemini-2.5-flash","gemini-2.0-flash","gemini-2.5-pro"],needs_api:true}, "chatgpt":{models:["gpt-4o","gpt-4o-mini","gpt-4-turbo"],needs_api:true}, "claude":{models:["claude-sonnet-4-20250514","claude-3-5-haiku-20241022"],needs_api:true}, "grok":{models:["grok-3","grok-3-mini","grok-2"],needs_api:true} };
-function showGenerateAgent() { document.getElementById('agent-gen-name').value=''; document.getElementById('agent-gen-prefix').value=''; document.getElementById('agent-gen-desc').value=''; document.getElementById('agent-gen-provider').value='ollama'; document.getElementById('agent-gen-accounts').value=''; document.getElementById('agent-gen-preview').value=''; document.getElementById('agent-gen-status').textContent=''; document.getElementById('btn-apply-ai').style.display='none'; onGenProviderChange(); const ni=document.getElementById('agent-gen-name'); const nn=ni.cloneNode(true); ni.parentNode.replaceChild(nn,ni); nn.addEventListener('input',e=>{ document.getElementById('agent-gen-prefix').value=e.target.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/(^_|_$)/g,''); }); document.getElementById('modal-generate-agent').classList.remove('hidden'); }
+let AI_PROVIDERS = { "ollama":{models:["deepseek-r1:latest","llama3.2","mistral-nemo"],needs_api:false}, "gemini":{models:["gemini-2.5-flash","gemini-2.0-flash","gemini-2.5-pro"],needs_api:true}, "chatgpt":{models:["gpt-4o","gpt-4o-mini","gpt-4-turbo"],needs_api:true}, "claude":{models:["claude-sonnet-4-20250514","claude-3-5-haiku-20241022"],needs_api:true}, "grok":{models:["grok-3","grok-3-mini","grok-2"],needs_api:true} };
+function showGenerateAgent() { document.getElementById('agent-gen-name').value=''; document.getElementById('agent-gen-prefix').value=''; document.getElementById('agent-gen-desc').value=''; document.getElementById('agent-gen-provider').value='ollama'; document.getElementById('agent-gen-accounts').value=''; document.getElementById('agent-gen-preview').value=''; document.getElementById('agent-gen-status').textContent=''; document.getElementById('btn-apply-ai').style.display='none'; onGenProviderChange(); const ni=document.getElementById('agent-gen-name'); const nn=ni.cloneNode(true); ni.parentNode.replaceChild(nn,ni); nn.addEventListener('input',e=>{ document.getElementById('agent-gen-prefix').value=e.target.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/(^_|_$)/g,''); }); document.getElementById('modal-generate-agent').classList.remove('hidden'); apiGet('/api/v1/cloud-api/providers').then(res=>{if(res&&res.providers){res.providers.forEach(p=>{if(AI_PROVIDERS[p.id])AI_PROVIDERS[p.id].models=p.models;});onGenProviderChange();}}); }
 function onGenProviderChange() { const p=document.getElementById('agent-gen-provider').value; const i=AI_PROVIDERS[p]||AI_PROVIDERS.ollama; document.getElementById('agent-gen-model').innerHTML=i.models.map(m=>`<option value="${m}">${m}</option>`).join(''); document.getElementById('agent-gen-apikey-group').style.display=i.needs_api?'block':'none'; }
 async function generateAgentJSON() { const name=document.getElementById('agent-gen-name').value.trim(), desc=document.getElementById('agent-gen-desc').value.trim(); if(!name||!desc) return alert('Name & Description required!'); const btn=document.getElementById('btn-generate-ai'); btn.disabled=true; document.getElementById('btn-apply-ai').style.display='none'; const prov=document.getElementById('agent-gen-provider').value, model=document.getElementById('agent-gen-model').value, api_key=document.getElementById('agent-gen-apikey')?.value?.trim()||''; const st=document.getElementById('agent-gen-status'); st.style.color='var(--text)'; st.textContent=`🤖 Calling ${prov}/${model}...`; document.getElementById('agent-gen-preview').value='Generating...'; try { const r=await apiPost('/api/v1/agents/generate',{name,description:desc,provider:prov,model,api_key}); if(r?.status==='success'&&r.data) { document.getElementById('agent-gen-preview').value=JSON.stringify(r.data,null,2); st.textContent='✅ Done!'; st.style.color='var(--green)'; document.getElementById('btn-apply-ai').style.display='inline-block'; window._lastGen=r.data; } else { st.textContent='❌ Failed'; st.style.color='var(--red)'; document.getElementById('agent-gen-preview').value=JSON.stringify(r,null,2); } } catch(e) { st.textContent='❌ Error'; st.style.color='var(--red)'; } btn.disabled=false; }
 function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||[],workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
