@@ -167,6 +167,7 @@ class ExtensionManager:
         "tubecli.extensions.browser",
         "tubecli.extensions.studio3d",
         "tubecli.extensions.downloader",
+        "tubecli.extensions.auth_manager",
     ]
 
     # Essential external extensions to auto-install if missing

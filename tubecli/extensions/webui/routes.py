@@ -75,6 +75,15 @@ async def story_page():
     return {"error": "Story page not found"}
 
 
+@router.get("/auth-manager")
+async def auth_manager_page():
+    """Serve the Auth Manager page."""
+    am_file = os.path.join(STATIC_DIR, "auth_manager.html")
+    if os.path.exists(am_file):
+        return FileResponse(am_file)
+    return {"error": "Auth Manager page not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""
