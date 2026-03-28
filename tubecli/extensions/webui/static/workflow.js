@@ -1048,6 +1048,11 @@ const WF = (() => {
     $logStatus.textContent = '🔄 Running...';
     addLog('engine', 'Workflow Engine', 'started', 'Starting workflow...');
 
+    // Mark all nodes as pending
+    state.nodes.forEach(n => {
+      if (n._el) n._el.classList.add('wf-pending');
+    });
+
     const data = toJSON();
     try {
       const resp = await fetch('/api/v1/workflows/run', {
@@ -1057,8 +1062,31 @@ const WF = (() => {
       });
       const result = await resp.json();
 
+      // Animate logs sequentially for visual progress
       if (result.logs) {
-        result.logs.forEach(l => addLog(l.node_id, l.node_name, l.status, l.message));
+        for (let i = 0; i < result.logs.length; i++) {
+          const l = result.logs[i];
+          addLog(l.node_id, l.node_name, l.status, l.message);
+
+          // Highlight nodes as they execute
+          const node = state.nodes.find(n => n.id === l.node_id);
+          if (node && node._el) {
+            node._el.classList.remove('wf-pending');
+            if (l.status === 'started') {
+              node._el.classList.add('wf-running');
+            } else if (l.status === 'completed') {
+              node._el.classList.remove('wf-running');
+              node._el.classList.add('wf-done');
+            } else if (l.status === 'error') {
+              node._el.classList.remove('wf-running');
+              node._el.classList.add('wf-error');
+            }
+          }
+          // Small delay between log entries for visual effect
+          if (i < result.logs.length - 1) {
+            await new Promise(r => setTimeout(r, 300));
+          }
+        }
       }
       $logStatus.textContent = result.status === 'completed' ? '✅ Done' : '⚠️ ' + result.status;
       toast('Workflow finished', result.status === 'completed' ? 'success' : 'error');
@@ -1068,6 +1096,13 @@ const WF = (() => {
       toast('Run failed: ' + e.message, 'error');
     }
     state.isRunning = false;
+
+    // Clear highlights after 5 seconds
+    setTimeout(() => {
+      state.nodes.forEach(n => {
+        if (n._el) n._el.classList.remove('wf-pending', 'wf-running', 'wf-done', 'wf-error');
+      });
+    }, 5000);
   }
 
   function stopWorkflow() {

@@ -42,9 +42,13 @@ def build_system_prompt(available_nodes: list) -> str:
     prompt += (
         "If NO existing node can handle a specific task (e.g., scraping a website, "
         "calling a custom API, data transformation), use a `python_code` node.\n"
-        "Set config.code to valid Python. The variable `input_data` contains input. "
+        "Set config.code to valid Python. Available variables:\n"
+        "  - `input_data`: auto-set to text_input or json_input (whichever has data)\n"
+        "  - `text_input`: text from connected input port\n"
+        "  - `json_input`: JSON data from connected input port\n"
+        "  - Pre-imported: `json`, `re`, `os`\n"
+        "  - You may also `import requests, subprocess, urllib` in your code.\n"
         "Assign the final value to `result`.\n"
-        "You may use: requests, json, re, os, subprocess, urllib.\n"
         "Example config: {\"code\": \"import requests\\nresp = requests.get(input_data)\\nresult = resp.json()\"}\n\n"
     )
 
@@ -57,25 +61,36 @@ def build_system_prompt(available_nodes: list) -> str:
             {
                 "id": "node_1",
                 "type": "text_input",
-                "label": "Input URLs",
+                "label": "Input URL",
                 "x": 100, "y": 150,
-                "config": {"text": "https://example.com"}
+                "config": {"text": "https://example.com/user/123"}
             },
             {
                 "id": "node_2",
+                "type": "google_auth",
+                "label": "Google Auth",
+                "x": 100, "y": 350,
+                "config": {"scopes": "https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive"}
+            },
+            {
+                "id": "node_3",
                 "type": "python_code",
-                "label": "Process Data",
+                "label": "Scrape Data",
                 "x": 450, "y": 150,
-                "config": {"code": "result = input_data.upper()"}
+                "config": {"code": "import requests\nresp = requests.get(input_data)\nresult = resp.json()"}
+            },
+            {
+                "id": "node_4",
+                "type": "google_sheets",
+                "label": "Save to Sheet",
+                "x": 800, "y": 150,
+                "config": {"action": "append", "spreadsheet_id": "auto", "title": "Scraped Data"}
             }
         ],
         "connections": [
-            {
-                "from_node_id": "node_1",
-                "from_port_id": "content",
-                "to_node_id": "node_2",
-                "to_port_id": "text_input"
-            }
+            {"from_node_id": "node_1", "from_port_id": "content", "to_node_id": "node_3", "to_port_id": "text_input"},
+            {"from_node_id": "node_2", "from_port_id": "credentials", "to_node_id": "node_4", "to_port_id": "credentials"},
+            {"from_node_id": "node_3", "from_port_id": "result", "to_node_id": "node_4", "to_port_id": "data"}
         ]
     }, indent=2, ensure_ascii=False)
     prompt += "\n```\n\n"
@@ -91,6 +106,13 @@ def build_system_prompt(available_nodes: list) -> str:
     prompt += "7. UNIQUE IDs: Each node must have a unique `id` string.\n"
     prompt += "8. PREFER NATIVE NODES: Use built-in nodes over python_code when possible.\n"
     prompt += "9. For loops/batches: connect a data source to `loop` node's `items` input, then use `current_item` output.\n"
+    prompt += "10. GOOGLE SHEETS: ALWAYS use `google_auth` node + `google_sheets` node together (NOT python_code).\n"
+    prompt += "    - Connect google_auth `credentials` port → google_sheets `credentials` port.\n"
+    prompt += "    - Set google_sheets config: action='append'|'write'|'read', spreadsheet_id='auto' (creates new sheet), title='My Data'.\n"
+    prompt += "    - Connect data to google_sheets `data` port. Data MUST be a 2D array: [[col1, col2], [val1, val2]].\n"
+    prompt += "11. DATA FORMAT: python_code result for Google Sheets must be a 2D array (list of lists). First row = headers.\n"
+    prompt += "    Example: result = [['Title', 'URL', 'Views'], ['Video 1', 'https://...', '1000']]\n"
+    prompt += "12. google_auth node auto-uses saved OAuth credentials (no config needed). Just add it to the workflow.\n"
 
     return prompt
 

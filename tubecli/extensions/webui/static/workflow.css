@@ -756,3 +756,28 @@ body {
 @keyframes ai-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── Workflow Execution Progress ──────────────────────────── */
+.wf-pending {
+  opacity: 0.5;
+  transition: opacity 0.3s, box-shadow 0.3s;
+}
+.wf-running {
+  opacity: 1 !important;
+  box-shadow: 0 0 20px rgba(99, 102, 241, 0.6), 0 0 40px rgba(99, 102, 241, 0.3) !important;
+  animation: wf-pulse 1s ease-in-out infinite;
+}
+.wf-done {
+  opacity: 1 !important;
+  box-shadow: 0 0 16px rgba(34, 197, 94, 0.5), 0 0 32px rgba(34, 197, 94, 0.2) !important;
+  transition: box-shadow 0.5s;
+}
+.wf-error {
+  opacity: 1 !important;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.5), 0 0 32px rgba(239, 68, 68, 0.2) !important;
+  transition: box-shadow 0.5s;
+}
+@keyframes wf-pulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(99, 102, 241, 0.6); }
+  50% { box-shadow: 0 0 30px rgba(99, 102, 241, 0.9), 0 0 50px rgba(99, 102, 241, 0.4); }
+}

@@ -1,6 +1,9 @@
 """Built-in node: Python Code — executes arbitrary Python code."""
 from typing import Dict, Any
 from tubecli.nodes.base_node import BaseNode, PortType
+import json as _json
+import re as _re
+import os as _os
 
 
 class PythonCodeNode(BaseNode):
@@ -17,11 +20,22 @@ class PythonCodeNode(BaseNode):
     async def execute(self, inputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         code = self.config.get("code", "result = 'No code provided'")
 
-        # Build execution namespace
+        text_in = inputs.get("text_input", "")
+        json_in = inputs.get("json_input", "")
+
+        # input_data = convenience alias (text_input or json_input, whichever is provided)
+        input_data = text_in if text_in else json_in
+
+        # Build execution namespace with common modules pre-imported
         namespace = {
-            "text_input": inputs.get("text_input", ""),
-            "json_input": inputs.get("json_input", ""),
+            "text_input": text_in,
+            "json_input": json_in,
+            "input_data": input_data,
             "result": None,
+            # Common modules
+            "json": _json,
+            "re": _re,
+            "os": _os,
         }
 
         try:
@@ -30,3 +44,4 @@ class PythonCodeNode(BaseNode):
             return {"result": result}
         except Exception as e:
             return {"result": f"Error: {e}"}
+

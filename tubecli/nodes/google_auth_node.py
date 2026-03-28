@@ -7,7 +7,7 @@ import json
 class GoogleAuthNode(BaseNode):
     node_type = "google_auth"
     display_name = "🔐 Google Auth"
-    description = "Authenticate with Google APIs using a service account JSON key."
+    description = "Authenticate with Google APIs using Auth Manager OAuth or service account JSON."
     icon = "🔐"
     category = "Auth"
 
@@ -16,15 +16,81 @@ class GoogleAuthNode(BaseNode):
         self.add_output("status", PortType.TEXT, "Auth status message")
 
     async def execute(self, inputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        creds_json = self.config.get("credentials_json", "")
         scopes_str = self.config.get("scopes", "https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive")
+        scopes = [s.strip() for s in scopes_str.split(",")]
 
-        if not creds_json:
-            return {"credentials": None, "status": "Error: No credentials_json provided"}
+        # ── Strategy 1: Use Auth Manager extension (OAuth tokens) ──
+        auth_result = self._try_auth_manager(scopes)
+        if auth_result:
+            return auth_result
 
+        # ── Strategy 2: Use service account JSON (manual config) ──
+        creds_json = self.config.get("credentials_json", "")
+        if creds_json:
+            return self._try_service_account(creds_json, scopes)
+
+        return {
+            "credentials": None,
+            "status": "Error: Không tìm thấy credentials. Vui lòng cấp quyền Google trong Auth Manager hoặc nhập Service Account JSON."
+        }
+
+    def _try_auth_manager(self, scopes: list) -> Dict[str, Any] | None:
+        """Try to get credentials from auth_manager extension."""
+        try:
+            from tubecli.extensions.auth_manager.extension import auth_manager
+
+            # Find Google credentials with active tokens
+            google_creds = auth_manager.list_credentials(provider="google")
+            if not google_creds:
+                return None
+
+            # Find one that has an active token and matching scopes
+            best_cred = None
+            for cred in google_creds:
+                if cred.get("has_token") and cred.get("token_status") == "active":
+                    best_cred = cred
+                    break
+                elif cred.get("has_token") and cred.get("token_status") == "expired":
+                    # Still viable — get_active_token will auto-refresh
+                    if not best_cred:
+                        best_cred = cred
+
+            if not best_cred:
+                return None
+
+            cred_id = best_cred["id"]
+            access_token = auth_manager.get_active_token(cred_id)
+            if not access_token:
+                return None
+
+            # Get full credential data for service account fallback info
+            full_cred = auth_manager.get_credential(cred_id)
+            token_data = auth_manager.get_token_data(cred_id)
+
+            return {
+                "credentials": {
+                    "_type": "google_oauth",
+                    "_access_token": access_token,
+                    "_credential_id": cred_id,
+                    "_scopes": scopes,
+                    "client_email": token_data.get("authorized_email", "") if token_data else "",
+                    "credential_name": best_cred.get("name", ""),
+                    "project_id": "",
+                },
+                "status": f"✅ OAuth: {token_data.get('authorized_email', 'authorized')} (via Auth Manager: {best_cred.get('name', cred_id)})",
+            }
+
+        except ImportError:
+            return None
+        except Exception as e:
+            import logging
+            logging.getLogger("GoogleAuthNode").warning(f"Auth Manager lookup failed: {e}")
+            return None
+
+    def _try_service_account(self, creds_json: str, scopes: list) -> Dict[str, Any]:
+        """Authenticate using service account JSON key."""
         try:
             creds_data = json.loads(creds_json) if isinstance(creds_json, str) else creds_json
-            scopes = [s.strip() for s in scopes_str.split(",")]
 
             from google.oauth2.service_account import Credentials
             credentials = Credentials.from_service_account_info(creds_data, scopes=scopes)
@@ -37,7 +103,7 @@ class GoogleAuthNode(BaseNode):
                     "project_id": creds_data.get("project_id", ""),
                     "client_email": creds_data.get("client_email", ""),
                 },
-                "status": f"✅ Authenticated as {creds_data.get('client_email', 'unknown')}",
+                "status": f"✅ Service Account: {creds_data.get('client_email', 'unknown')}",
             }
 
         except ImportError:
@@ -46,3 +112,4 @@ class GoogleAuthNode(BaseNode):
             return {"credentials": None, "status": "Error: Invalid JSON in credentials_json"}
         except Exception as e:
             return {"credentials": None, "status": f"Error: {e}"}
+

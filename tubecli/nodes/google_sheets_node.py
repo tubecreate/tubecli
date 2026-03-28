@@ -38,27 +38,45 @@ class GoogleSheetsNode(BaseNode):
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive",
             ]
+            credentials = None  # Will hold the final google credentials object
 
-            if creds_input and isinstance(creds_input, dict) and creds_input.get("_type") == "google_credentials":
-                creds_data = creds_input["_creds_data"]
-                scopes = creds_input.get("_scopes", scopes)
-                # Ensure drive scope is included for auto-create
-                if "https://www.googleapis.com/auth/drive" not in scopes:
-                    scopes.append("https://www.googleapis.com/auth/drive")
-            elif creds_json_str:
-                creds_data = json.loads(creds_json_str) if isinstance(creds_json_str, str) else creds_json_str
+            if creds_input and isinstance(creds_input, dict):
+                cred_type = creds_input.get("_type", "")
 
-            if not creds_data:
-                return {
-                    "rows": [], "spreadsheet_id": "", 
-                    "status": "Error: No credentials. Connect Google Auth node or set credentials_json.",
-                    "_error_guidance": "Kết nối node 🔐 Google Auth trước node 📊 Google Sheets, hoặc dán Service Account JSON vào config.",
-                }
+                if cred_type == "google_oauth":
+                    # OAuth token from Auth Manager
+                    from google.oauth2.credentials import Credentials as OAuthCredentials
+                    access_token = creds_input.get("_access_token", "")
+                    if not access_token:
+                        return {
+                            "rows": [], "spreadsheet_id": "",
+                            "status": "Error: OAuth token is empty. Re-authorize in Auth Manager.",
+                        }
+                    credentials = OAuthCredentials(token=access_token)
 
-            from google.oauth2.service_account import Credentials
+                elif cred_type == "google_credentials":
+                    # Service account from Google Auth node
+                    creds_data = creds_input["_creds_data"]
+                    scopes = creds_input.get("_scopes", scopes)
+                    if "https://www.googleapis.com/auth/drive" not in scopes:
+                        scopes.append("https://www.googleapis.com/auth/drive")
+
+            if not credentials and not creds_data:
+                if creds_json_str:
+                    creds_data = json.loads(creds_json_str) if isinstance(creds_json_str, str) else creds_json_str
+                else:
+                    return {
+                        "rows": [], "spreadsheet_id": "",
+                        "status": "Error: No credentials. Connect Google Auth node or set credentials_json.",
+                        "_error_guidance": "Kết nối node 🔐 Google Auth trước node 📊 Google Sheets, hoặc dán Service Account JSON vào config.",
+                    }
+
+            # Build credentials object if not already built (service account path)
+            if not credentials and creds_data:
+                from google.oauth2.service_account import Credentials
+                credentials = Credentials.from_service_account_info(creds_data, scopes=scopes)
+
             from googleapiclient.discovery import build
-
-            credentials = Credentials.from_service_account_info(creds_data, scopes=scopes)
             sheets_service = build("sheets", "v4", credentials=credentials)
             sheets = sheets_service.spreadsheets()
 
@@ -67,8 +85,8 @@ class GoogleSheetsNode(BaseNode):
                 spreadsheet_id, sheet_name = self._create_spreadsheet(
                     sheets_service, title or "TubeCLI Data"
                 )
-                self.config["spreadsheet_id"] = spreadsheet_id
-                self.config["sheet_name"] = sheet_name
+                self.config.set("spreadsheet_id", spreadsheet_id)
+                self.config.set("sheet_name", sheet_name)
 
             # Fetch actual sheet names to prevent "Unable to parse range" error
             try:
