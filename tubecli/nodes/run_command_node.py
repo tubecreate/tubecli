@@ -7,11 +7,12 @@ from tubecli.nodes.base_node import BaseNode, PortType
 class RunCommandNode(BaseNode):
     node_type = "run_command"
     display_name = "💻 Run Command"
-    description = "Execute a shell command."
+    description = "Execute a shell command. Use {text_input} or {input_data} as placeholders."
     category = "System"
 
     def _setup_ports(self):
         self.add_input("command", PortType.TEXT, "Command to execute", required=False)
+        self.add_input("text_input", PortType.TEXT, "Text data (replaces {text_input} in command)", required=False)
         self.add_output("stdout", PortType.TEXT, "Standard output")
         self.add_output("exit_code", PortType.TEXT, "Exit code")
 
@@ -22,6 +23,17 @@ class RunCommandNode(BaseNode):
 
         if not command:
             return {"stdout": "No command provided", "exit_code": "1"}
+
+        # Resolve template variables from inputs
+        text_input = inputs.get("text_input", "")
+        template_vars = {
+            "text_input": str(text_input) if text_input else "",
+            "input_data": str(text_input) if text_input else "",
+            "command_input": str(inputs.get("command", "")) if inputs.get("command") else "",
+        }
+        for key, val in template_vars.items():
+            command = command.replace("{" + key + "}", val)
+            command = command.replace("{{" + key + "}}", val)
 
         try:
             result = subprocess.run(
@@ -40,3 +52,4 @@ class RunCommandNode(BaseNode):
             return {"stdout": f"Command timed out after {timeout}s", "exit_code": "124"}
         except Exception as e:
             return {"stdout": f"Error: {e}", "exit_code": "1"}
+
