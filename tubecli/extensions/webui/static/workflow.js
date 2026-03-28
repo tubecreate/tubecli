@@ -862,9 +862,41 @@ const WF = (() => {
     });
 
     (data.connections || []).forEach(c => {
-      state.connections.push({ id: 'conn_' + crypto.randomUUID().slice(0, 8), ...c });
-      updatePortVisuals(c.from_port_id, true);
-      updatePortVisuals(c.to_port_id, true);
+      // Resolve port name → port UUID if the port_id doesn't match any existing port UUID
+      const fromNode = state.nodes.find(n => n.id === c.from_node_id);
+      const toNode = state.nodes.find(n => n.id === c.to_node_id);
+      if (!fromNode || !toNode) return;
+
+      let fromPortId = c.from_port_id;
+      let toPortId = c.to_port_id;
+
+      // Check if from_port_id is a name (not matching any UUID) → resolve to UUID
+      if (!fromNode.outputs.some(p => p.id === fromPortId)) {
+        const match = fromNode.outputs.find(p =>
+          p.name === fromPortId || p.name.replace(/[^a-z0-9]/gi, '').toLowerCase() === String(fromPortId).replace(/[^a-z0-9]/gi, '').toLowerCase()
+        );
+        if (match) fromPortId = match.id;
+        else if (fromNode.outputs.length > 0) fromPortId = fromNode.outputs[0].id; // fallback first output
+      }
+
+      // Check if to_port_id is a name (not matching any UUID) → resolve to UUID
+      if (!toNode.inputs.some(p => p.id === toPortId)) {
+        const match = toNode.inputs.find(p =>
+          p.name === toPortId || p.name.replace(/[^a-z0-9]/gi, '').toLowerCase() === String(toPortId).replace(/[^a-z0-9]/gi, '').toLowerCase()
+        );
+        if (match) toPortId = match.id;
+        else if (toNode.inputs.length > 0) toPortId = toNode.inputs[0].id; // fallback first input
+      }
+
+      state.connections.push({
+        id: 'conn_' + crypto.randomUUID().slice(0, 8),
+        from_node_id: c.from_node_id,
+        from_port_id: fromPortId,
+        to_node_id: c.to_node_id,
+        to_port_id: toPortId,
+      });
+      updatePortVisuals(fromPortId, true);
+      updatePortVisuals(toPortId, true);
     });
 
     setTimeout(redrawConnections, 100);
@@ -1065,6 +1097,180 @@ const WF = (() => {
     setTimeout(() => el.remove(), 3000);
   }
 
+  // ── AI Generate Workflow ───────────────────────────────────────────
+
+  // Cache loaded provider info
+  let _aiProviderCache = null;
+
+  async function loadAiProviders() {
+    /** Fetch available providers from Cloud API Keys + Ollama. */
+    if (_aiProviderCache) return _aiProviderCache;
+
+    const result = { cloudProviders: [], ollamaModels: [] };
+
+    // 1. Load Cloud API providers (has_key, models, name)
+    try {
+      const resp = await fetch('/api/v1/cloud-api/providers');
+      if (resp.ok) {
+        const data = await resp.json();
+        result.cloudProviders = data.providers || [];
+      }
+    } catch (e) { console.log('[AI] Cloud API providers not available:', e.message); }
+
+    // 2. Load Ollama models
+    try {
+      const resp = await fetch('/api/v1/localai/tags', { signal: AbortSignal.timeout(3000) });
+      if (resp.ok) {
+        const data = await resp.json();
+        result.ollamaModels = (data.models || []).map(m => m.id || m.name).filter(Boolean);
+      }
+    } catch (e) { console.log('[AI] Ollama not available:', e.message); }
+
+    _aiProviderCache = result;
+    setTimeout(() => { _aiProviderCache = null; }, 60000);
+    return result;
+  }
+
+  async function openAiGenerate() {
+    document.getElementById('ai-gen-status').style.display = 'none';
+    const $spinner = document.querySelector('#ai-gen-status .ai-spinner');
+    if ($spinner) $spinner.style.display = 'block';
+    document.getElementById('btn-ai-generate').disabled = false;
+    document.getElementById('ai-generate-modal').classList.add('visible');
+    document.getElementById('ai-prompt-input').focus();
+
+    // Dynamically populate provider dropdown
+    const info = await loadAiProviders();
+    const $select = document.getElementById('ai-provider-select');
+
+    let html = '';
+
+    // Ollama (local) — always first
+    if (info.ollamaModels.length > 0) {
+      html += `<option value="ollama" data-models="${info.ollamaModels.join(',')}" data-has-key="1">🤖 Ollama (${info.ollamaModels.length} models)</option>`;
+    } else {
+      html += `<option value="ollama" data-models="" data-has-key="1">🤖 Ollama (Local)</option>`;
+    }
+
+    // Cloud providers from cloud_api extension
+    const provIcons = { gemini: '🔷', openai: '🟢', chatgpt: '🟢', claude: '🟠', grok: '⚡', deepseek: '🔵' };
+    for (const p of info.cloudProviders) {
+      const icon = provIcons[p.id] || '☁️';
+      const models = (p.models || []).join(',');
+      html += `<option value="${p.id}" data-has-key="${p.has_key ? '1' : ''}" data-models="${models}">${icon} ${p.name}${p.has_key ? ' ✅' : ''}</option>`;
+    }
+
+    $select.innerHTML = html;
+
+    // Auto-select best provider: first cloud provider with key, or ollama
+    const bestCloud = info.cloudProviders.find(p => p.has_key);
+    if (bestCloud) {
+      $select.value = bestCloud.id;
+    } else {
+      $select.value = 'ollama';
+    }
+    onAiProviderChange();
+  }
+
+  function onAiProviderChange() {
+    const provider = document.getElementById('ai-provider-select').value;
+    const $model = document.getElementById('ai-model-input');
+    const $apikeyGroup = document.getElementById('ai-apikey-group');
+    const $apikey = document.getElementById('ai-apikey-input');
+    const $select = document.getElementById('ai-provider-select');
+
+    const opt = $select.querySelector(`option[value="${provider}"]`);
+    const hasCloudKey = opt?.getAttribute('data-has-key') === '1';
+    const models = (opt?.getAttribute('data-models') || '').split(',').filter(Boolean);
+
+    // Set model from provider's configured models (first model) or keep current
+    if (models.length > 0) {
+      $model.value = models[0];
+      $model.placeholder = models.join(', ');
+    } else {
+      $model.value = '';
+      $model.placeholder = 'Model name';
+    }
+
+    // Show/hide API key field
+    if (provider === 'ollama' || hasCloudKey) {
+      $apikeyGroup.style.display = 'none';
+    } else {
+      $apikeyGroup.style.display = 'block';
+    }
+
+    // Clear manual key if auto-configured
+    if (hasCloudKey) $apikey.value = '';
+  }
+
+  async function submitAiGenerate() {
+    const prompt = document.getElementById('ai-prompt-input').value.trim();
+    if (!prompt) { toast('Please enter a prompt', 'error'); return; }
+
+    const $select = document.getElementById('ai-provider-select');
+    const provider = $select.value;
+    const model = document.getElementById('ai-model-input').value.trim();
+    let apiKey = (document.getElementById('ai-apikey-input') || {}).value || '';
+
+    // If no manual key provided, try to fetch from Cloud API Keys extension
+    const opt = $select.querySelector(`option[value="${provider}"]`);
+    const hasCloudKey = opt?.getAttribute('data-has-key') === '1';
+    if (!apiKey && hasCloudKey && provider !== 'ollama') {
+      try {
+        const resp = await fetch(`/api/v1/cloud-api/keys/${provider}/active`);
+        // The active endpoint returns masked key, we need the real key from the backend
+        // So we'll pass empty string and let the backend resolve it from cloud_api
+        apiKey = '__CLOUD_API__'; // Signal to backend to use cloud_api key
+      } catch (e) { /* ignore */ }
+    }
+
+    // Show loading
+    const $status = document.getElementById('ai-gen-status');
+    const $statusText = document.getElementById('ai-gen-status-text');
+    const $btn = document.getElementById('btn-ai-generate');
+    $status.style.display = 'block';
+    const $spinner = $status.querySelector('.ai-spinner');
+    if ($spinner) $spinner.style.display = 'block';
+    $statusText.textContent = provider === 'ollama'
+      ? 'AI đang xử lý (Local AI có thể mất 30-60s)...'
+      : '✨ AI đang phân tích và tạo workflow...';
+    $btn.disabled = true;
+
+    try {
+      const resp = await fetch('/api/v1/workflows/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, provider, model, api_key: apiKey }),
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        throw new Error(errData.detail || `Server error: ${resp.status}`);
+      }
+
+      const result = await resp.json();
+      const workflowData = result.workflow_data;
+
+      if (!workflowData || !workflowData.nodes || workflowData.nodes.length === 0) {
+        throw new Error('AI returned empty workflow');
+      }
+
+      // Close modal and load workflow
+      document.getElementById('ai-generate-modal').classList.remove('visible');
+      fromJSON(workflowData);
+      setTimeout(zoomFit, 200);
+      toast(`✨ Tạo thành công ${workflowData.nodes.length} nodes!`, 'success');
+
+    } catch (e) {
+      $statusText.textContent = '❌ Lỗi: ' + e.message;
+      if ($spinner) $spinner.style.display = 'none';
+      toast('AI Generation failed: ' + e.message, 'error');
+      console.error('[AI Generate]', e);
+    } finally {
+      $btn.disabled = false;
+    }
+  }
+
   // ── Boot ───────────────────────────────────────────────────────
   document.addEventListener('DOMContentLoaded', init);
 
@@ -1078,6 +1284,7 @@ const WF = (() => {
     runWorkflow, stopWorkflow, clearLogs,
     zoomIn, zoomOut, zoomFit, undo,
     toJSON, fromJSON, toast,
+    openAiGenerate, onAiProviderChange, submitAiGenerate,
     state, // expose for debugging
   };
 })();
