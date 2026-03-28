@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth Manager — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=3">
+    <link rel="stylesheet" href="/static/auth_manager.css?v=8">
+</head>
+<body>
+<div id="app" class="am-app">
+    <!-- Full-width vertical layout wrapper -->
+    <div class="am-page">
+        <!-- Top Bar -->
+        <header class="am-header">
+            <div class="am-header-left">
+                <a href="/dashboard" class="am-back-btn">← Dashboard</a>
+                <h1 class="am-title">🔐 Auth Manager</h1>
+            </div>
+            <div class="am-header-right">
+                <button class="btn-primary" onclick="openAddCredentialModal()">+ Add Credential</button>
+            </div>
+        </header>
+
+        <!-- Scrollable Content -->
+        <div class="am-content">
+            <!-- Provider Cards (horizontal row) -->
+            <section class="am-section">
+                <h2 class="am-section-title">OAuth Providers</h2>
+                <div id="providers-grid" class="am-providers-grid">
+                    <div class="am-loading">Loading providers...</div>
+                </div>
+            </section>
+
+            <!-- Credentials Table (full width) -->
+            <section class="am-section">
+                <div class="am-section-header">
+                    <h2 class="am-section-title">🔑 Credentials</h2>
+                    <select id="filter-provider" onchange="loadCredentials()">
+                        <option value="">All Providers</option>
+                        <option value="google">Google</option>
+                        <option value="facebook">Facebook</option>
+                        <option value="tiktok">TikTok</option>
+                    </select>
+                </div>
+                <div id="credentials-table-wrap" class="am-table-wrap">
+                    <table class="am-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Provider</th>
+                                <th>Name</th>
+                                <th>Client ID</th>
+                                <th>Token</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="credentials-tbody">
+                            <tr><td colspan="6" class="am-empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Authorized Tokens (full width) -->
+            <section class="am-section">
+                <h2 class="am-section-title">🎫 Authorized Tokens</h2>
+                <div id="tokens-table-wrap" class="am-table-wrap">
+                    <table class="am-table">
+                        <thead>
+                            <tr>
+                                <th>Credential</th>
+                                <th>Provider</th>
+                                <th>Email</th>
+                                <th>Browser Profile</th>
+                                <th>Scopes</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tokens-tbody">
+                            <tr><td colspan="7" class="am-empty">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+    </div>
+</div>
+
+<!-- Add/Edit Credential Modal -->
+<div id="modal-credential" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="credential-modal-title">Add Credential</h2>
+            <button class="btn-close" onclick="closeModal('modal-credential')">✕</button>
+        </div>
+
+        <!-- STEP 1: Basic Info & Services -->
+        <div id="cred-step-1">
+            <div class="form-group" style="margin-top:12px">
+                <label>Provider</label>
+                <select id="cred-provider" onchange="onProviderChange()">
+                    <option value="google">🔵 Google</option>
+                    <option value="facebook">📘 Facebook / Meta</option>
+                    <option value="tiktok">🎵 TikTok</option>
+                </select>
+            </div>
+    
+            <div class="form-group">
+                <label>Name (gợi nhớ)</label>
+                <input id="cred-name" placeholder="VD: My YouTube App">
+            </div>
+    
+            <!-- Service Selection -->
+            <div class="form-group">
+                <label>📦 Chọn dịch vụ sẽ sử dụng</label>
+                <small class="am-hint" style="margin-top:0;margin-bottom:8px">Chọn dịch vụ để hệ thống tổng hợp các quyền (scopes) cần thiết ở bước sau</small>
+                <div id="cred-services-list" class="am-services-grid"></div>
+            </div>
+
+            <div class="modal-actions" style="justify-content: flex-end;">
+                <button class="btn-secondary" onclick="closeModal('modal-credential')">Cancel</button>
+                <button class="btn-primary" onclick="goToCredStep(2)">Tiếp theo ➔</button>
+            </div>
+        </div>
+
+        <!-- STEP 2: API Credentials & Scopes Aggregation -->
+        <div id="cred-step-2" style="display: none;">
+            <div class="am-required-scopes-box">
+                <div class="am-scopes-box-header" style="margin-bottom: 12px; font-size: 1rem;">
+                    <i class="fas fa-server"></i> Thông số cấu hình App
+                </div>
+                
+                <!-- 1. Required APIs (Dynamic) -->
+                <div id="cred-setup-apis-container" style="display:none; margin-bottom:16px;">
+                    <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:4px">
+                        1. Kích hoạt APIs (API Library):
+                    </div>
+                    <div class="am-scopes-box-desc" style="margin-bottom:8px">
+                        ⚡ Quan trọng: Bắt buộc phải tìm và nhấn "Enable" các API sau trong Google Cloud API Library để tránh lỗi 403 Forbidden:
+                    </div>
+                    <div id="cred-required-apis" class="am-scopes-list"></div>
+                    <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
+                </div>
+
+                <!-- 2. Scopes -->
+                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:4px">
+                    2. OAuth Scopes yêu cầu:
+                </div>
+                <div class="am-scopes-box-desc">
+                    Vui lòng copy các scopes dưới đây và cấp quyền trên OAuth Consent Screen:
+                </div>
+                <div id="cred-required-scopes" class="am-scopes-list" style="margin-bottom:16px;"></div>
+
+                <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
+
+                <!-- 3. Redirect URI -->
+                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:6px">
+                    3. Authorized Redirect URI:
+                </div>
+                <div class="am-scope-row" style="margin-bottom:8px">
+                    <code class="am-scope-key" id="cred-setup-redirect-uri" style="user-select:all; cursor:pointer;" onclick="copyAmText(this.textContent)" title="Click to copy"></code>
+                    <span class="am-scope-desc" style="font-size:0.7rem">(Tại tab Credentials > OAuth Client ID)</span>
+                </div>
+            </div>
+    
+            <!-- Tabs: OAuth Client | Service Account -->
+            <div class="am-tabs" id="cred-tabs">
+                <button class="am-tab active" data-tab="oauth" onclick="switchCredTab('oauth')">OAuth Client</button>
+                <button class="am-tab" data-tab="json" onclick="switchCredTab('json')">Service Account JSON</button>
+            </div>
+    
+            <div id="cred-tab-oauth" class="am-tab-pane active">
+                <div class="form-group">
+                    <label>Client ID</label>
+                    <input id="cred-client-id" placeholder="xxx.apps.googleusercontent.com">
+                </div>
+                <div class="form-group">
+                    <label>Client Secret</label>
+                    <input id="cred-client-secret" type="password" placeholder="GOCSPX-xxx">
+                </div>
+            </div>
+    
+            <div id="cred-tab-json" class="am-tab-pane">
+                <div class="form-group">
+                    <label>Upload JSON File</label>
+                    <button class="btn-secondary" onclick="document.getElementById('cred-json-file').click()">📁 Choose File</button>
+                    <input type="file" id="cred-json-file" accept=".json" style="display:none" onchange="handleJsonUpload(event)">
+                    <span id="cred-json-filename" class="am-filename"></span>
+                </div>
+                <div class="form-group">
+                    <label>Service Account Email</label>
+                    <input id="cred-sa-email" placeholder="xxx@project.iam.gserviceaccount.com">
+                </div>
+            </div>
+    
+            <input type="hidden" id="cred-edit-id">
+    
+            <div class="modal-actions" style="justify-content: space-between;">
+                <button class="btn-back" onclick="goToCredStep(1)">⬅ Quay lại</button>
+                <div>
+                    <button class="btn-secondary" onclick="closeModal('modal-credential')">Cancel</button>
+                    <button class="btn-primary" onclick="saveCredential()">💾 Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Authorize Modal -->
+<div id="modal-authorize" class="modal hidden">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>🔓 Authorize Access</h2>
+            <button class="btn-close" onclick="closeModal('modal-authorize')">✕</button>
+        </div>
+
+        <div class="am-auth-info">
+            <p>Credential: <strong id="auth-cred-name"></strong></p>
+            <p>Provider: <strong id="auth-cred-provider"></strong></p>
+        </div>
+
+        <div class="form-group" style="margin-top:12px">
+            <label>📦 Chọn dịch vụ cần cấp quyền</label>
+            <div id="auth-services-list" class="am-services-grid"></div>
+        </div>
+
+        <details class="am-advanced-scopes">
+            <summary>⚙️ Scopes nâng cao (tuỳ chỉnh)</summary>
+            <div id="auth-scopes-list" class="am-scopes-grid"></div>
+        </details>
+
+        <div class="form-group">
+            <label>🌐 Browser Profile</label>
+            <select id="auth-browser-profile">
+                <option value="">Default Browser</option>
+            </select>
+            <small class="am-hint">Chọn profile Playwright để mở OAuth, hoặc dùng browser mặc định</small>
+        </div>
+
+        <input type="hidden" id="auth-cred-id">
+
+        <div class="am-redirect-info">
+            <strong>Redirect URI:</strong>
+            <code id="auth-redirect-uri"></code>
+            <small>Thêm URI này vào cấu hình OAuth trên Google Cloud / Facebook / TikTok</small>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal('modal-authorize')">Cancel</button>
+            <button class="btn-primary" onclick="startAuthorize()" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">
+                🚀 Authorize
+            </button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/auth_manager.js?v=10"></script>
+</body>
+</html>
