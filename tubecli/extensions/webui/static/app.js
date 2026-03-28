@@ -87,7 +87,7 @@ const EXT_REGISTRY = [
     { id:'cloud_api', icon:'☁️', name:T('dash.cloud_api_keys'), desc:T('ext.cloud_api_desc'), type:'extension' },
     { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:T('ext.ollama_desc'), type:'extension' },
     { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:T('ext.multi_agents_desc'), type:'extension' },
-    { id:'downloader', icon:'📥', name:'Video Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
+    { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
 ];
 
 async function loadExtensions() {
