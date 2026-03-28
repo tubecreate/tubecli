@@ -723,3 +723,36 @@ body {
   padding: 12px 20px;
   border-top: 1px solid var(--border);
 }
+
+/* ── AI Generate Button ─────────────────────────────────────── */
+.btn-ai {
+  background: linear-gradient(135deg, #a855f7, #6366f1);
+  color: white;
+  border: none;
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+}
+.btn-ai:hover {
+  filter: brightness(1.15);
+  box-shadow: 0 0 16px rgba(168, 85, 247, 0.4);
+}
+.btn-ai:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  filter: none;
+  box-shadow: none;
+}
+
+.ai-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--purple);
+  border-radius: 50%;
+  margin: 0 auto;
+  animation: ai-spin 0.8s linear infinite;
+}
+@keyframes ai-spin {
+  to { transform: rotate(360deg); }
+}

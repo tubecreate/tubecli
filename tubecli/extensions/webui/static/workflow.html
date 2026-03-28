@@ -27,6 +27,10 @@
 
     <button class="btn btn-success" onclick="WF.saveAsSkill()" title="Save workflow as a reusable Skill for Agents">💾 Save as Skill</button>
 
+    <div class="toolbar-sep"></div>
+
+    <button class="btn btn-ai" onclick="WF.openAiGenerate()" title="Generate workflow from prompt using AI">✨ AI Generate</button>
+
     <div class="toolbar-spacer"></div>
 
     <button class="btn btn-default" onclick="WF.undo()" title="Undo">↩️ Undo</button>
@@ -136,6 +140,53 @@
     <div class="modal-footer">
       <button class="btn btn-default" onclick="document.getElementById('save-skill-modal').classList.remove('visible')">Cancel</button>
       <button class="btn btn-success" onclick="WF.submitSaveSkill()">Save Skill</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI Generate Modal -->
+<div class="modal-overlay" id="ai-generate-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <span>✨ Tạo Workflow bằng AI</span>
+      <button class="btn btn-icon" onclick="document.getElementById('ai-generate-modal').classList.remove('visible')">✖</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-group">
+        <label class="field-label">Mô tả workflow bạn muốn tạo</label>
+        <textarea id="ai-prompt-input" class="field-textarea" rows="5" placeholder="Ví dụ: Tải 5 video trên douyin https://www.douyin.com/user/MS4wLj... lưu danh sách vào Google Sheet trả về link sheet"></textarea>
+      </div>
+      <div style="display:flex; gap:12px; align-items:flex-end">
+        <div class="field-group" style="flex:1">
+          <label class="field-label">AI Provider</label>
+          <select id="ai-provider-select" class="field-select" onchange="WF.onAiProviderChange()">
+            <option value="ollama">🤖 Ollama (Local)</option>
+            <option value="gemini">🔷 Gemini</option>
+            <option value="chatgpt">🟢 ChatGPT</option>
+            <option value="claude">🟠 Claude</option>
+            <option value="grok">⚡ Grok</option>
+          </select>
+        </div>
+        <div class="field-group" style="flex:1">
+          <label class="field-label">Model</label>
+          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name">
+        </div>
+      </div>
+      <div class="field-group" id="ai-apikey-group" style="display:none">
+        <label class="field-label">API Key</label>
+        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here">
+      </div>
+      <div id="ai-gen-status" style="display:none; padding:12px 0; text-align:center">
+        <div class="ai-spinner"></div>
+        <div style="margin-top:8px; color:var(--text-muted); font-size:13px" id="ai-gen-status-text">AI đang phân tích và tạo workflow...</div>
+      </div>
+      <div style="margin-top:8px">
+        <small style="color:var(--text-muted); font-size:11px">💡 Gợi ý: "Tải video từ YouTube channel, lưu danh sách vào Google Sheet" • "Gọi API lấy data, lọc JSON, ghi vào file"</small>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-default" onclick="document.getElementById('ai-generate-modal').classList.remove('visible')">Hủy</button>
+      <button class="btn btn-ai" id="btn-ai-generate" onclick="WF.submitAiGenerate()">✨ Tạo tự động</button>
     </div>
   </div>
 </div>

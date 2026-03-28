@@ -104,6 +104,12 @@ class SkillCreateRequest(BaseModel):
     workflow_data: Dict = {}
     skill_type: str = "Skill"
 
+class WorkflowGenerateRequest(BaseModel):
+    prompt: str
+    provider: str = "ollama"
+    model: str = ""
+    api_key: str = ""
+
 class WorkflowRunRequest(BaseModel):
     workflow_data: Dict
     input_text: str = ""
@@ -457,6 +463,22 @@ async def run_skill(skill_id: str, input_text: str = ""):
 
 
 # ── Workflows ────────────────────────────────────────────────────
+
+@app.post("/api/v1/workflows/generate")
+async def generate_workflow_with_ai(req: WorkflowGenerateRequest):
+    """Generate a workflow from a natural language prompt using AI."""
+    from tubecli.core.ai_workflow_builder import generate_workflow
+    try:
+        result = generate_workflow(
+            prompt=req.prompt,
+            provider=req.provider,
+            model=req.model,
+            api_key=req.api_key,
+        )
+        return {"status": "success", "workflow_data": result}
+    except Exception as e:
+        raise HTTPException(500, f"Workflow generation failed: {str(e)}")
+
 
 @app.post("/api/v1/workflows/run")
 async def run_workflow(req: WorkflowRunRequest):
