@@ -75,8 +75,8 @@ def list_available_nodes() -> list:
             try:
                 inst = cls.__new__(cls)
                 inst.__init__()
-                inputs = [p.id for p in inst.inputs]
-                outputs = [p.id for p in inst.outputs]
+                inputs = [p.name for p in inst.inputs]
+                outputs = [p.name for p in inst.outputs]
             except Exception:
                 inputs, outputs = [], []
             result.append({
