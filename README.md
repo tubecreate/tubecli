@@ -2,79 +2,99 @@
 
 A headless CLI system for installing, managing, and orchestrating **AI agents**, **skills**, and **workflows**. Designed so that AI agents can understand, install, and operate the entire system autonomously.
 
-## Features
+## 🌟 Key Features
 
-- 🤖 **Agent Manager** — Create and manage AI agents with personas, routines, and skills
-- ⚡ **Skill System** — Pre-built workflow templates that agents can execute
-- 🔄 **Workflow Engine** — DAG-based workflow executor with typed node connections
-- 🌐 **API Server** — FastAPI REST API for programmatic access
-- 📖 **AI-Readable Docs** — SKILL.md documentation for AI agents to self-operate
+The system has evolved into a full-fledged 10-subsystem architecture:
 
-## Quick Start
+- 🤖 **Agent Manager** — Create and manage AI agents with personas, routines, and skills.
+- ⚡ **Skill System** — Executable workflows marked with tags (Workflow, API, Markdown) featuring a Markdown Viewer and Real-time Execution Modal.
+- 🔄 **Workflow Engine & Builder** — DAG-based workflow executor. The WebUI features a modern node-based builder with compact nodes, contextual sliding property panels, and dynamic model selection (Ollama local / Cloud API).
+- 🎨 **Web Dashboard** — Comprehensive SPA (Single Page Application) at `localhost:5295/dashboard` to visually manage agents, workflows, skills, marketplace, settings, and monitor browsers natively.
+- 👥 **Teams Agents** — Orchestrate multiple agents using Organizational Charts. Assign roles via logical templates or drag-and-drop. Task Delegation routes work through the team based on sequential, parallel, or hierarchical strategies.
+- 🏢 **3D Studio (Teams 3D)** — Isometric procedural 3D visualization using Three.js. Supports multi-seat furniture (meeting tables, conference tables) with intelligent inward-facing algorithms, raycasting group manipulation, and 15+ built-in assets.
+- 🎬 **Story Engine & Player** — Generate interactive 3D stories from prompts via our Script Editor. Agents communicate via 3D speech bubbles inside an animated scene player.
+- 🔌 **Extension Manager** — Pluggable architecture supporting `browser`, `webui`, `market`, and `studio3d`. Enables hot-reloading CLI commands and API routes.
+- 🌐 **Browser Automation** — Orchestrate browser profiles, proxies, fingerprints. Built-in Auto-Login for Google with TOTP 2FA.
+- 🛒 **Marketplace** — Discover, install, and share community skills via an online registry.
 
+## 🚀 Quick Start & Installation
+
+### Prerequisites
+- Python 3.9+
+- Ollama (Optional, required for local AI execution)
+- Git
+
+### 1. Clone & Install
 ```bash
-# Install
+git clone https://github.com/tubecreate/tubecli.git
 cd tubecli
 pip install -e .
-
-# Initialize workspace
-tubecli init
-
-# Create an agent
-tubecli agent create "My Assistant" --description "General purpose AI agent"
-
-# List skills
-tubecli skill list
-
-# Run a skill
-tubecli skill run "AI Summarizer" --input "Your text here"
-
-# Start API server
-tubecli api start
 ```
 
-## CLI Commands
+### 2. Initialize Workspace
+Run the initialization command to setup the `data/` directory, extract default skills, and activate core extensions.
+```bash
+tubecli init --lang vi
+```
 
-| Command | Description |
-|---------|-------------|
-| `tubecli init` | Initialize workspace and install default skills |
-| `tubecli agent create` | Create a new agent |
-| `tubecli agent list` | List all agents |
-| `tubecli agent show <id>` | Show agent details |
-| `tubecli agent delete <id>` | Delete an agent |
-| `tubecli skill list` | List available skills |
-| `tubecli skill run <name>` | Execute a skill |
-| `tubecli workflow run <file>` | Run a workflow JSON file |
-| `tubecli api start` | Start the REST API server |
-| `tubecli api stop` | Stop the API server |
+### 3. Start the Web Dashboard
+After initialization, start the API server to access the GUI.
+```bash
+tubecli api start --port 5295
+```
+Open your browser and navigate to: **http://localhost:5295/dashboard**
 
-## Architecture
+## 💻 CLI Usage
+
+Manage the entire system directly from the terminal if you prefer a headless approach:
+
+### Agent Management
+```bash
+tubecli agent create "My Assistant" --description "General purpose AI agent"
+tubecli agent list
+tubecli agent show <id>
+tubecli agent delete <id>
+```
+
+### Skill Execution
+```bash
+tubecli skill list
+tubecli skill run "AI Summarizer" --input "Long text content..."
+```
+
+### API & Workflows
+```bash
+tubecli api start --port 5295
+tubecli api stop
+tubecli workflow run <path_to_workflow.json>
+```
+
+### Extensions & Market
+```bash
+tubecli extension list
+tubecli extension enable webui
+tubecli market search "seo"
+tubecli market install "seo-analyzer"
+```
+
+## 🧠 Architecture Overview
 
 ```
 tubecli/
 ├── tubecli/           # Main package
-│   ├── main.py        # CLI entry point (Click)
-│   ├── config.py      # Global configuration
-│   ├── core/          # Business logic (agents, skills, workflows)
 │   ├── api/           # REST API server (FastAPI)
 │   ├── cli/           # CLI command modules
-│   ├── nodes/         # Workflow node implementations
-│   └── skills/        # Built-in skill definitions
-├── .agents/           # AI-readable documentation
-├── data/              # Runtime data (gitignored)
+│   ├── core/          # Core Business logic
+│   ├── extensions/    # Extensions (Browser, WebUI, Market, Studio3D)
+│   ├── nodes/         # Workflow Node implementations
+│   └── skills/        # Built-in system skills
+├── .agents/           # AI-readable documentation (SKILL.md)
+├── data/              # Runtime DB & State (gitignored)
 └── tests/             # Test suite
 ```
 
-## API Server
+## 📖 AI-Readable Documentation
+The `.agents/` and skills folders contain documentation crafted explicitly for LLMs (`SKILL.md`). External AI agents (like Claude or GPT-4) can read these files to learn how to operate the TubeCLI system, write plugins, and debug workflows completely autonomously without human intervention.
 
-When running (`tubecli api start`), the following endpoints are available:
-
-- `GET /api/v1/health` — Health check
-- `GET/POST/PUT/DELETE /api/v1/agents` — Agent CRUD
-- `GET/POST/DELETE /api/v1/skills` — Skill CRUD
-- `POST /api/v1/workflows/run` — Execute workflow
-- `GET /api/v1/workflows/status/{id}` — Check execution status
-
-## License
-
-MIT
+## 📝 License
+MIT License - Made with 🤖 by TubeCreate Team
