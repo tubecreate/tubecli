@@ -92,7 +92,10 @@
 
         <div class="team-select-group">
             <label>Team đang chỉnh sửa</label>
-            <select id="team-select" class="input" onchange="onTeamSelect()"></select>
+            <div style="display:flex; gap:6px; align-items:center;">
+                <select id="team-select" class="input" onchange="onTeamSelect()" style="flex:1;"></select>
+                <button onclick="openQuickTeamModal()" title="Tạo team mới bằng AI" style="width:34px; height:34px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s;" onmouseover="this.style.background='var(--accent)';this.style.color='#fff';" onmouseout="this.style.background='transparent';this.style.color='var(--accent)';">+</button>
+            </div>
         </div>
 
         <div class="team-select-group">
@@ -193,6 +196,42 @@
   </div>
 </div>
 
+<!-- Quick Team Modal -->
+<div class="modal-overlay" id="quick-team-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10001; align-items:center; justify-content:center;">
+  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:520px; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--card-border); padding-bottom:12px;">
+      <h3 style="margin:0; font-size:16px;">⚡ Tạo Team nhanh bằng AI</h3>
+      <button onclick="closeQuickTeamModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Mô tả team bạn muốn tạo</label>
+      <textarea id="qt-description" rows="3" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" placeholder="VD: Team developer gồm 4 người: 1 leader, 2 dev frontend/backend, 1 tester"></textarea>
+    </div>
+    <div style="display:flex; gap:12px; margin-bottom:16px;">
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">AI Provider</label>
+        <select id="qt-provider" onchange="onQtProviderChange()" style="width:100%; padding:8px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); outline:none;">
+          <option value="gemini">🔷 Gemini</option>
+          <option value="ollama">🤖 Ollama</option>
+          <option value="chatgpt">🟢 ChatGPT</option>
+          <option value="claude">🟠 Claude</option>
+        </select>
+      </div>
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Model</label>
+        <input id="qt-model" type="text" value="gemini-2.5-flash" style="width:100%; padding:8px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); outline:none;">
+      </div>
+    </div>
+    <div id="qt-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent); font-size:13px;">
+      <span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Đang phân tích và tạo team...
+    </div>
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
+      <button onclick="closeQuickTeamModal()" class="tb-btn">Hủy</button>
+      <button id="btn-qt-create" onclick="submitQuickTeam()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">⚡ Tạo Team</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── State ──
 const API = '/api/v1';
@@ -259,6 +298,7 @@ const BUILTIN_ASSETS = [
     {id:"bar_counter",name:"Bar nước",category:"furniture",emoji:"🍸",mesh:"box",size:[2.4,0.06,0.6],color:"#3a2518",yOffset:1.05},
     {id:"coffee_machine",name:"Máy pha cà phê",category:"decoration",emoji:"☕",mesh:"box",size:[0.35,0.45,0.3],color:"#2c2c2c",yOffset:0.225},
     {id:"pool_table",name:"Bàn bida",category:"furniture",emoji:"🎱",mesh:"box",size:[2.4,0.04,1.3],color:"#006400",yOffset:0.82},
+    {id:"workstation",name:"Bàn làm việc (trọn bộ)",category:"furniture",emoji:"💼",mesh:"box",size:[1.6,1.3,1.8],color:"#f0ebe4",yOffset:0},
 ];
 
 async function loadAssets() {
@@ -296,7 +336,6 @@ async function loadScene(teamId) {
         if (scn.room_width) { roomW = scn.room_width; document.getElementById('room-width').value = roomW; document.getElementById('room-w-val').textContent = roomW; }
         if (scn.room_depth) { roomD = scn.room_depth; document.getElementById('room-depth').value = roomD; document.getElementById('room-d-val').textContent = roomD; }
         resizeRoom();
-        placedAssets = [];
         clearAllMeshes();
         (scn.assets || []).forEach(a => {
             addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, a.scale || 1, false, a.agent_id || '');
@@ -898,7 +937,51 @@ async function submitAiGenerate() {
         }
         
         clearAllMeshes(); // Clear old room
-        (layout.assets || []).forEach(a => {
+        
+        // ── Post-process: fix orientations with real math ──
+        const items = layout.assets || [];
+        const desks = items.filter(a => a.asset_id.startsWith('desk_'));
+        const chairs = items.filter(a => a.asset_id.startsWith('chair_'));
+        const monitors = items.filter(a => a.asset_id === 'monitor');
+        
+        // For each chair, find nearest desk and rotate chair to FACE it
+        chairs.forEach(chair => {
+            let minDist = Infinity, nearestDesk = null;
+            desks.forEach(d => {
+                const dist = Math.hypot(d.x - chair.x, d.z - chair.z);
+                if (dist < minDist) { minDist = dist; nearestDesk = d; }
+            });
+            if (nearestDesk && minDist < 3) {
+                // atan2 gives the angle FROM chair TO desk
+                // Chair model faces +Z at rotation=0, so we need angle - PI to make front face the desk
+                chair.rotation = Math.atan2(nearestDesk.x - chair.x, nearestDesk.z - chair.z);
+            }
+        });
+        
+        // For each monitor, find nearest desk, then find the chair for that desk
+        // Monitor should face AWAY from desk center (towards the person sitting)
+        monitors.forEach(mon => {
+            let minDist = Infinity, nearestDesk = null;
+            desks.forEach(d => {
+                const dist = Math.hypot(d.x - mon.x, d.z - mon.z);
+                if (dist < minDist) { minDist = dist; nearestDesk = d; }
+            });
+            if (nearestDesk && minDist < 3) {
+                // Find the chair that belongs to this desk
+                let nearestChair = null, minChairDist = Infinity;
+                chairs.forEach(c => {
+                    const dist = Math.hypot(c.x - nearestDesk.x, c.z - nearestDesk.z);
+                    if (dist < minChairDist) { minChairDist = dist; nearestChair = c; }
+                });
+                if (nearestChair) {
+                    // Monitor screen faces +Z at rotation=0
+                    // We want screen to face the chair (person)
+                    mon.rotation = Math.atan2(nearestChair.x - mon.x, nearestChair.z - mon.z);
+                }
+            }
+        });
+        
+        items.forEach(a => {
             addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, 1, false, a.agent_id || '');
         });
         updatePlacedList();
@@ -913,6 +996,64 @@ async function submitAiGenerate() {
         document.getElementById('btn-ai-generate').style.opacity = '1';
     }
 }
+
+// ── Quick Team (AI) ──
+function openQuickTeamModal() {
+    document.getElementById('quick-team-modal').style.display = 'flex';
+}
+function closeQuickTeamModal() {
+    document.getElementById('quick-team-modal').style.display = 'none';
+    document.getElementById('qt-status').style.display = 'none';
+    document.getElementById('btn-qt-create').disabled = false;
+    document.getElementById('btn-qt-create').style.opacity = '1';
+}
+function onQtProviderChange() {
+    const p = document.getElementById('qt-provider').value;
+    const m = document.getElementById('qt-model');
+    if (p === 'gemini') m.value = 'gemini-2.5-flash';
+    else if (p === 'ollama') m.value = 'qwen:latest';
+    else if (p === 'chatgpt') m.value = 'gpt-4o-mini';
+    else if (p === 'claude') m.value = 'claude-3-haiku-20240307';
+}
+async function submitQuickTeam() {
+    const desc = document.getElementById('qt-description').value.trim();
+    if (!desc) { toast('Vui lòng mô tả team!', 'error'); return; }
+
+    document.getElementById('btn-qt-create').disabled = true;
+    document.getElementById('btn-qt-create').style.opacity = '0.5';
+    document.getElementById('qt-status').style.display = 'block';
+
+    try {
+        const res = await fetch(`${API}/studio3d/quick-team`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                description: desc,
+                provider: document.getElementById('qt-provider').value,
+                model: document.getElementById('qt-model').value,
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Lỗi API');
+
+        // Refresh team list and auto-select new team
+        await loadTeams();
+        const newTeamId = data.team?.id;
+        if (newTeamId) {
+            document.getElementById('team-select').value = newTeamId;
+            onTeamSelect();
+        }
+
+        closeQuickTeamModal();
+        toast(`✅ Đã tạo team "${data.team?.name}" với ${data.agents_created} agents!`, 'success');
+    } catch (e) {
+        toast('Lỗi tạo team: ' + e.message, 'error');
+        document.getElementById('qt-status').style.display = 'none';
+        document.getElementById('btn-qt-create').disabled = false;
+        document.getElementById('btn-qt-create').style.opacity = '1';
+    }
+}
+
 function toast(msg, type = 'success') {
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
