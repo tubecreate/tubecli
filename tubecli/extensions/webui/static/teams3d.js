@@ -39,6 +39,11 @@ const STUDIO_ASSETS = [
     {id:"bar_counter",name:"Bar nước",category:"furniture",mesh:"box",size:[2.4,0.06,0.6],color:"#3a2518",yOffset:1.05},
     {id:"coffee_machine",name:"Máy pha cà phê",category:"decoration",mesh:"box",size:[0.35,0.45,0.3],color:"#2c2c2c",yOffset:0.225},
     {id:"pool_table",name:"Bàn bida",category:"furniture",mesh:"box",size:[2.4,0.04,1.3],color:"#006400",yOffset:0.82},
+    {id:"wall_partition_solid",name:"Vách ngăn 2m",category:"structure",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_glass",name:"Vách kính 2m",category:"structure",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_1m",name:"Vách ngăn 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_glass_1m",name:"Vách kính 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"workstation",name:"Bàn làm việc (trọn bộ)",category:"furniture",mesh:"box",size:[1.6,1.3,1.8],color:"#f0ebe4",yOffset:0},
 ];
 
 const CHAR_COLORS = [0xf43f5e, 0xa855f7, 0x22d3ee, 0x22c55e, 0xf59e0b, 0x3b82f6, 0xec4899, 0x14b8a6, 0xf97316, 0x8b5cf6, 0x06b6d4, 0x10b981];
@@ -347,9 +352,8 @@ async function loadStudioScene(teamId) {
 function renderStudioAssets(sceneAssets) {
     sceneAssets.forEach(item => {
         const def = STUDIO_ASSETS.find(a => a.id === item.asset_id);
-        if (!def) return;
 
-        // Try HQ composite builder from shared furniture3d.js
+        // Try HQ composite builder from shared furniture3d.js (works even without catalog entry)
         if (typeof createHQFurniture === 'function') {
             const hqGroup = createHQFurniture(item.asset_id, def);
             if (hqGroup) {
@@ -361,7 +365,8 @@ function renderStudioAssets(sceneAssets) {
             }
         }
 
-        // Fallback: simple mesh for unknown assets
+        // Fallback: simple mesh for catalog assets without HQ builder
+        if (!def) return; // Unknown asset with no builder — skip
         const color = new THREE.Color(def.color || '#888888');
         const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.1 });
         let geo;
@@ -399,7 +404,7 @@ function buildFurnitureAndCharacters(teamData, agentsList, theme) {
     const hasStudio = studioSceneData && studioSceneData.assets && studioSceneData.assets.length > 0;
     const studioDesks = hasStudio
         ? studioSceneData.assets
-            .filter(a => a.asset_id && (a.asset_id.startsWith('desk') || a.asset_id === 'table_round'))
+            .filter(a => a.asset_id && (a.asset_id.startsWith('desk') || a.asset_id === 'table_round' || a.asset_id === 'workstation'))
         : [];
 
     // Build a map of agent_id -> desk position from studio assignments

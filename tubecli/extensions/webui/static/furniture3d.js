@@ -299,6 +299,196 @@ function buildHQLowWall(g, def) {
     }
 }
 
+// ── Workstation (all-in-one: desk + chair + monitor + accessories) ──
+function buildHQWorkstation(g, def) {
+    const wood = _fm(def.color || '#f0ebe4');
+    const metal = _fm('#444444', { r: 0.3, m: 0.6 });
+    const accent = _fm('#333333', { r: 0.4, m: 0.3 });
+    const darkFab = _fm('#1a1e35');
+    const fabric = _fm('#2d3250');
+
+    // ═══ DESK ═══
+    // Table top
+    const top = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.85), wood);
+    top.position.y = 0.72; top.castShadow = true; top.receiveShadow = true; g.add(top);
+    // Edge trim (back edge — away from person)
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+    trim.position.set(0, 0.74, -0.42); g.add(trim);
+    // 4 Metal legs
+    [[-0.72, -0.36], [-0.72, 0.36], [0.72, -0.36], [0.72, 0.36]].forEach(([lx, lz]) => {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.72, 6), metal);
+        leg.position.set(lx, 0.36, lz); leg.castShadow = true; g.add(leg);
+        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), metal);
+        pad.position.set(lx, 0.01, lz); g.add(pad);
+    });
+    // Drawer unit (right side)
+    const drawer = _fm('#ddd5c8', { r: 0.6 });
+    const dBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.6), drawer);
+    dBox.position.set(0.5, 0.55, 0); dBox.castShadow = true; g.add(dBox);
+    for (let dy of [0.48, 0.6]) {
+        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.02), metal);
+        handle.position.set(0.5, dy, 0.31); g.add(handle);
+    }
+    // Cross support bar
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.03), metal);
+    bar.position.set(0, 0.15, 0); g.add(bar);
+
+    // ═══ MONITOR (on desk, screen faces +Z towards person) ═══
+    const black = _fm('#1a1a2e', { r: 0.2, m: 0.4 });
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.48, 0.03), black);
+    panel.position.set(0, 1.05, -0.2); panel.castShadow = true; g.add(panel);
+    // Screen glow (faces +Z)
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.38),
+        new THREE.MeshBasicMaterial({ color: 0x1a3a5a, transparent: true, opacity: 0.6 }));
+    scr.position.set(0, 1.05, -0.184); g.add(scr);
+    // Bezel
+    const bTop = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.015, 0.035), _fm('#111'));
+    bTop.position.set(0, 1.29, -0.2); g.add(bTop);
+    // Stand
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), _fm('#333', { m: 0.5 }));
+    neck.position.set(0, 0.89, -0.2); g.add(neck);
+    const standBase = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.15), _fm('#333', { m: 0.5 }));
+    standBase.position.set(0, 0.77, -0.18); g.add(standBase);
+
+    // ═══ KEYBOARD & MOUSE (on desk, in front of monitor) ═══
+    const kb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.015, 0.14), _fm('#2a2a2a'));
+    kb.position.set(0, 0.76, 0.1); g.add(kb);
+    const keys = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.1),
+        new THREE.MeshBasicMaterial({ color: 0x444444, transparent: true, opacity: 0.5 }));
+    keys.position.set(0, 0.77, 0.1); keys.rotation.x = -Math.PI / 2; g.add(keys);
+    const mouse = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.018, 0.08), _fm('#222'));
+    mouse.position.set(0.3, 0.77, 0.12); g.add(mouse);
+
+    // ═══ CHAIR (in front of desk at +Z, rotated 180° to face desk) ═══
+    const chairGroup = new THREE.Group();
+    // Seat
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), fabric);
+    seat.position.y = 0.46; seat.castShadow = true; chairGroup.add(seat);
+    // Backrest
+    const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.05), fabric);
+    back.position.set(0, 0.74, -0.22); chairGroup.add(back);
+    const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.06), darkFab);
+    topCurve.position.set(0, 0.99, -0.22); chairGroup.add(topCurve);
+    // Armrests
+    for (let side of [-0.26, 0.26]) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.3), metal);
+        arm.position.set(side, 0.56, -0.04); chairGroup.add(arm);
+    }
+    // Pillar
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), metal);
+    pillar.position.set(0, 0.25, 0); chairGroup.add(pillar);
+    // Star base with wheels
+    for (let i = 0; i < 5; i++) {
+        const angle = (i / 5) * Math.PI * 2;
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.035), metal);
+        spoke.position.set(Math.sin(angle) * 0.13, 0.06, Math.cos(angle) * 0.13);
+        spoke.rotation.y = -angle; chairGroup.add(spoke);
+        const wheel = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), _fm('#222'));
+        wheel.position.set(Math.sin(angle) * 0.26, 0.025, Math.cos(angle) * 0.26);
+        chairGroup.add(wheel);
+    }
+    // Position chair: in front of desk (+Z), rotated 180° to face desk
+    chairGroup.position.set(0, 0, 0.75);
+    chairGroup.rotation.y = Math.PI; // Face -Z (towards desk)
+    g.add(chairGroup);
+
+    // ═══ DESK ACCESSORIES (randomized — each desk looks different) ═══
+    const deskY = 0.76; // desk surface height
+
+    // Pool of possible accessories — randomly pick 3-5
+    const accessoryPool = ['pens', 'mug', 'plant', 'phone', 'headset', 'photo', 'bottle'];
+    const shuffled = accessoryPool.sort(() => Math.random() - 0.5);
+    const count = 3 + Math.floor(Math.random() * 3); // 3 to 5 items
+    const chosen = shuffled.slice(0, count);
+
+    // Mug color palette (random per desk)
+    const mugColors = [0xf5f5f5, 0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3, 0xf38181, 0xaa96da];
+    const mugColor = mugColors[Math.floor(Math.random() * mugColors.length)];
+
+    chosen.forEach(item => {
+        if (item === 'pens') {
+            // Pen holder (back-right corner)
+            const penHolder = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.08, 6), _fm('#2c3e50'));
+            penHolder.position.set(0.55, deskY + 0.04, -0.25); g.add(penHolder);
+            const penColors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x6c5ce7, 0x00b894];
+            const numPens = 2 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < numPens; i++) {
+                const dx = (i - 1) * 0.01;
+                const pen = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.12, 4),
+                    _fm(penColors[i % penColors.length]));
+                pen.position.set(0.55 + dx, deskY + 0.1, -0.25 + dx * 0.5); g.add(pen);
+            }
+        }
+        else if (item === 'mug') {
+            // Coffee/Tea mug (front-left)
+            const mc = _fm(mugColor);
+            const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.028, 0.07, 8), mc);
+            mug.position.set(-0.55, deskY + 0.035, 0.18); g.add(mug);
+            const mugHandle = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.005, 4, 8, Math.PI), mc);
+            mugHandle.position.set(-0.58, deskY + 0.035, 0.18); mugHandle.rotation.y = Math.PI / 2; g.add(mugHandle);
+            const coffee = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.005, 8), _fm('#3e2723'));
+            coffee.position.set(-0.55, deskY + 0.065, 0.18); g.add(coffee);
+        }
+        else if (item === 'plant') {
+            // Small plant (back-left corner) — random leaf color
+            const leafC = [0x27ae60, 0x2ecc71, 0x1abc9c, 0x16a085][Math.floor(Math.random() * 4)];
+            const miniPot = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.028, 0.045, 6), _fm('#c0704a', { r: 0.7 }));
+            miniPot.position.set(-0.6, deskY + 0.023, -0.3); g.add(miniPot);
+            const miniSoil = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.01, 6), _fm('#3e2723'));
+            miniSoil.position.set(-0.6, deskY + 0.045, -0.3); g.add(miniSoil);
+            [[0, 0.07, 0, 0.03], [0.015, 0.08, 0.01, 0.025], [-0.01, 0.075, -0.008, 0.022]].forEach(([x, y, z, r]) => {
+                const leaf = new THREE.Mesh(new THREE.SphereGeometry(r, 5, 4), _fm(leafC, { r: 0.8 }));
+                leaf.position.set(-0.6 + x, deskY + y, -0.3 + z); g.add(leaf);
+            });
+        }
+        else if (item === 'phone') {
+            // Phone (flat, front-right)
+            const phone = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.006, 0.08), _fm('#1a1a2e', { r: 0.1, m: 0.4 }));
+            phone.position.set(0.45, deskY + 0.003, 0.2); g.add(phone);
+            const phoneScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.032, 0.065),
+                new THREE.MeshBasicMaterial({ color: 0x0f3460, transparent: true, opacity: 0.5 }));
+            phoneScreen.position.set(0.45, deskY + 0.007, 0.2); phoneScreen.rotation.x = -Math.PI / 2; g.add(phoneScreen);
+        }
+        else if (item === 'headset') {
+            // Headset on stand (left side)
+            const hsMat = _fm('#333', { m: 0.4 });
+            const hsBase = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.01, 8), hsMat);
+            hsBase.position.set(-0.35, deskY + 0.005, -0.25); g.add(hsBase);
+            const hsPole = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.2, 6), hsMat);
+            hsPole.position.set(-0.35, deskY + 0.1, -0.25); g.add(hsPole);
+            const hsTop = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.008, 0.03, 6), hsMat);
+            hsTop.position.set(-0.35, deskY + 0.21, -0.25); g.add(hsTop);
+            const hsBand = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.008, 6, 12, Math.PI), _fm('#222'));
+            hsBand.position.set(-0.35, deskY + 0.2, -0.25); hsBand.rotation.x = Math.PI; g.add(hsBand);
+            for (let sx of [-0.06, 0.06]) {
+                const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.02, 8), _fm('#333'));
+                cup.position.set(-0.35 + sx, deskY + 0.14, -0.25); g.add(cup);
+            }
+        }
+        else if (item === 'photo') {
+            // Photo frame (back-center-right area)
+            const frameMat = _fm('#5c3a1e', { r: 0.7 });
+            const frame = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.015), frameMat);
+            frame.position.set(0.35, deskY + 0.06, -0.32); frame.rotation.x = -0.2; g.add(frame);
+            // Photo area
+            const photoColors = [0x87ceeb, 0xf0e68c, 0xdda0dd, 0x98fb98, 0xffa07a];
+            const photoC = photoColors[Math.floor(Math.random() * photoColors.length)];
+            const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.075, 0.055),
+                new THREE.MeshBasicMaterial({ color: photoC, transparent: true, opacity: 0.8 }));
+            photo.position.set(0.35, deskY + 0.06, -0.312); photo.rotation.x = -0.2; g.add(photo);
+        }
+        else if (item === 'bottle') {
+            // Water bottle (front-right area)
+            const bottleColors = [0x3498db, 0x2ecc71, 0xe74c3c, 0x9b59b6, 0x1abc9c];
+            const bc = bottleColors[Math.floor(Math.random() * bottleColors.length)];
+            const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.18, 8), _fm(bc, { r: 0.3, m: 0.2 }));
+            bottle.position.set(0.6, deskY + 0.09, 0.1); g.add(bottle);
+            const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.03, 8), _fm('#333'));
+            cap.position.set(0.6, deskY + 0.195, 0.1); g.add(cap);
+        }
+    });
+}
+
 // ── Lantern ──────────────────────────────────────────────
 function buildHQLantern(g, def) {
     const red = _fm(def.color || '#cc3333', { r: 0.6 });
@@ -933,6 +1123,7 @@ const HQ_BUILDERS = {
     wall_partition_glass: buildHQLowWall,
     wall_partition_1m: buildHQLowWall,
     wall_partition_glass_1m: buildHQLowWall,
+    workstation: buildHQWorkstation,
 };
 
 /**

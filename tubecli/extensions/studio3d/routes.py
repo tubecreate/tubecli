@@ -83,6 +83,9 @@ ASSET_CATALOG = [
      "mesh": "box", "size": [0.35, 0.45, 0.3], "color": "#2c2c2c", "yOffset": 0.225},
     {"id": "pool_table", "name": "Bàn bida", "category": "furniture", "emoji": "🎱",
      "mesh": "box", "size": [2.4, 0.04, 1.3], "color": "#006400", "yOffset": 0.82},
+    # ── Composite Workspace ──
+    {"id": "workstation", "name": "Bàn làm việc (trọn bộ)", "category": "furniture", "emoji": "💼",
+     "mesh": "box", "size": [1.6, 1.3, 1.8], "color": "#f0ebe4", "yOffset": 0},
 ]
 
 
@@ -204,3 +207,90 @@ async def generate_layout(req: GenerateLayoutRequest):
     except Exception as e:
         raise HTTPException(500, str(e))
 
+
+class QuickTeamRequest(BaseModel):
+    description: str
+    provider: str
+    model: str
+
+
+@router.post("/quick-team")
+async def quick_create_team(req: QuickTeamRequest):
+    """AI-powered one-click team creation from natural language description."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.extensions.multi_agents.extension import orchestrator
+    from tubecli.extensions.studio3d.ai_builder import generate_quick_team
+
+    try:
+        # Step 1: AI parses description into team structure
+        ai_result = generate_quick_team(req.description, req.provider, req.model)
+
+        team_name = ai_result.get("team_name", "New Team")
+        team_desc = ai_result.get("team_description", "")
+        template = ai_result.get("template", "dev_team")
+        agents_data = ai_result.get("agents", [])
+
+        # Step 2: Create agents
+        created_agents = []
+        lead_agent_id = ""
+        lead_role_id = None
+
+        for i, ag in enumerate(agents_data):
+            agent = agent_manager.create(
+                name=ag.get("name", f"Agent {i+1}"),
+                description=ag.get("description", ""),
+                system_prompt=ag.get("system_prompt", "You are a helpful assistant."),
+            )
+            created_agents.append(agent)
+            if ag.get("is_lead"):
+                lead_agent_id = agent.id
+                lead_role_id = f"role_{i}"
+
+        # Build nodes with correct parent/children structure
+        nodes = []
+        member_role_ids = []
+
+        for i, ag in enumerate(agents_data):
+            role_id = f"role_{i}"
+            is_lead = ag.get("is_lead", False)
+
+            if not is_lead:
+                member_role_ids.append(role_id)
+
+            nodes.append({
+                "role_id": role_id,
+                "role": ag.get("role", f"Member {i+1}"),
+                "emoji": ag.get("emoji", "🤖"),
+                "description": ag.get("description", ""),
+                "system_hint": ag.get("system_prompt", ""),
+                "agent_id": created_agents[i].id,
+                "parent": lead_role_id if not is_lead and lead_role_id else None,
+                "children": member_role_ids if is_lead else [],
+                "layer": 0 if is_lead else 1,
+            })
+
+        # Update lead node's children list (needs all member IDs)
+        if lead_role_id:
+            for nd in nodes:
+                if nd["role_id"] == lead_role_id:
+                    nd["children"] = [r for r in member_role_ids]
+
+        # Step 3: Create team with nodes
+        agent_ids = [a.id for a in created_agents]
+        team = orchestrator.create_team(
+            name=team_name,
+            agent_ids=agent_ids,
+            lead_agent_id=lead_agent_id,
+            strategy="sequential",
+            description=team_desc,
+            template=template,
+            nodes=nodes,
+        )
+
+        return {
+            "ok": True,
+            "team": team.to_dict(),
+            "agents_created": len(created_agents),
+        }
+    except Exception as e:
+        raise HTTPException(500, str(e))
