@@ -1,6 +1,35 @@
-# TubeCLI — Open Source AI Agent CLI System
+# ⚡ TubeCLI — Open Source AI Agent CLI System
+
+<p align="center">
+    <a href="https://github.com/tubecreate/tubecli">
+        <img src="https://img.shields.io/github/stars/tubecreate/tubecli?style=for-the-badge&color=2a2a2a&labelColor=1a1a1a" alt="Stars" />
+    </a>
+    <a href="https://github.com/tubecreate/tubecli">
+        <img src="https://img.shields.io/github/forks/tubecreate/tubecli?style=for-the-badge&color=1e7b85&labelColor=236f78" alt="Forks" />
+    </a>
+    <a href="https://github.com/tubecreate/tubecli/blob/main/LICENSE">
+        <img src="https://img.shields.io/badge/LICENSE-MIT-00897b?style=for-the-badge&labelColor=333333" alt="License" />
+    </a>
+</p>
+
+<p align="center">
+    <img src="https://img.shields.io/badge/PYTHON-3.9+-0078d4?style=for-the-badge&logo=python&logoColor=white&labelColor=333333" alt="Python" />
+    <img src="https://img.shields.io/badge/API-FASTAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white&labelColor=333333" alt="FastAPI" />
+    <img src="https://img.shields.io/badge/UI-VUE.JS-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white&labelColor=333333" alt="Vue.js" />
+    <img src="https://img.shields.io/badge/3D-THREE.JS-000000?style=for-the-badge&logo=three.js&logoColor=white&labelColor=333333" alt="Three.js" />
+</p>
+
+<p align="center">
+    <img src="https://img.shields.io/badge/LLM-LOCAL_OLLAMA-252525?style=for-the-badge&labelColor=1a1a1a" alt="Ollama" />
+    <img src="https://img.shields.io/badge/WORKFLOW-DAG_ENGINE-5c0099?style=for-the-badge&labelColor=1a1a1a" alt="Workflow" />
+    <img src="https://img.shields.io/badge/MULTI_AGENT-TEAMS_ORCHESTRATION-ff5100?style=for-the-badge&labelColor=1a1a1a" alt="Agents" />
+</p>
 
 A headless CLI system for installing, managing, and orchestrating **AI agents**, **skills**, and **workflows**. Designed so that AI agents can understand, install, and operate the entire system autonomously.
+
+![3D Studio UI](screenshots/studio3d.webp)
+<br>
+![Workflow Canvas UI](screenshots/workflow.png)
 
 ## 🌟 Key Features
 
