@@ -577,11 +577,153 @@ async function renderWorkflowsExt(el) {
 }
 
 // ── Skills Ext ──
+let _loadedSkills = []; // cache for modals
+
+function categorizeSkill(skill) {
+    const nodes = skill.workflow_data?.nodes || [];
+    const nodeTypes = nodes.map(n => n.type);
+    
+    if (skill.skill_type === 'Markdown' || nodes.length === 0) 
+        return { cat: 'markdown', label: '📝 Prompt / Khái niệm', color: '#ec4899', icon: '📝' };
+        
+    if (skill.skill_type === 'Workflow Skill' || nodes.some(n => n.type === 'google_sheets' || n.type === 'google_auth'))
+        return { cat: 'workflow', label: '🔧 Workflow Đầu-Cuối', color: '#a855f7', icon: '🔧' };
+        
+    if (nodeTypes.includes('browser_action'))
+        return { cat: 'browser', label: '🌐 Browser Automation', color: '#22d3ee', icon: '🌐' };
+        
+    if (nodeTypes.includes('api_request'))
+        return { cat: 'api', label: '⚡ API Integration', color: '#ef4444', icon: '⚡' };
+        
+    if (nodeTypes.includes('ai_node'))
+        return { cat: 'ai', label: '🧠 AI Chuyên biệt', color: '#22c55e', icon: '🧠' };
+        
+    return { cat: 'general', label: '⚡ General', color: '#f59e0b', icon: '⚡' };
+}
+
 async function renderSkillsExt(el) {
+    el.innerHTML = `<p class="text-muted">Đang tải cấu trúc Skills...</p>`;
     const data = await apiGet('/api/v1/skills');
     const skills = data?.skills || [];
-    if (skills.length === 0) { el.innerHTML = `<p class="text-muted">${T('skills.no_skills')}</p>`; return; }
-    el.innerHTML = '<div class="cards-grid">' + skills.map(s => `<div class="card"><div class="card-icon">⚡</div><h3>${esc(s.name)}</h3><p class="card-desc">${esc(s.description||'')}</p><div class="card-footer"><span class="tag">${esc(s.type||'Skill')}</span><button class="btn-sm" onclick="alert(T('skills.executed'))">${T('skills.run')}</button></div></div>`).join('') + '</div>';
+    _loadedSkills = skills; // cache
+    
+    if (skills.length === 0) { 
+        el.innerHTML = `<p class="text-muted">${T('skills.no_skills')}</p>`; 
+        return; 
+    }
+    
+    let html = '<div class="cards-grid">';
+    
+    skills.forEach(s => {
+        const cat = categorizeSkill(s);
+        
+        let actionsHtml = `<button class="btn-sm" onclick="showSkillMarkdown('${s.id}')" title="Xem JSON Schema & Context mà LLM nhận được">📄 Xem Markdown</button>`;
+        
+        if (cat.cat === 'workflow' || cat.cat === 'browser' || cat.cat === 'general' || cat.cat === 'api' || cat.cat === 'ai') {
+            actionsHtml += `<button class="btn-sm" onclick="window.open('/workflow?skill_id=${s.id}', '_blank')" title="Chỉnh sửa luồng chạy nghiệm của Skill này">🔧 Sửa Workflow</button>`;
+        }
+        
+        actionsHtml += `<button class="btn-sm" style="background:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent;" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')" title="Thực thi trực tiếp nhập liệu">▶ Chạy Test</button>`;
+
+        html += `
+        <div class="card" style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
+                <div class="card-icon" style="margin:0; width:40px; height:40px; border-radius:10px; font-size:1.2rem; background:rgba(0,0,0,0.2); box-shadow:0 4px 10px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;">${cat.icon}</div>
+                <span class="tag" style="background:${cat.color}20; color:${cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span>
+            </div>
+            <h3 style="margin-bottom:8px; font-size:1.05rem;">${esc(s.name)}</h3>
+            <p class="card-desc" style="flex:1; margin-bottom:16px;">${esc(s.description||'')}</p>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; background:var(--bg2); padding:6px 10px; border-radius:6px; font-family:'JetBrains Mono', monospace; word-break:break-all;">
+                <strong style="color:var(--text)">Input Schema:</strong> ${s.commands && s.commands.length > 0 ? "['" + esc(s.commands.join("', '")) + "']" : "Text Prompt"}
+            </div>
+            <div class="card-footer" style="padding-top:12px; border-top:1px solid var(--border); display:flex; gap:6px; flex-wrap:wrap;">
+                ${actionsHtml}
+            </div>
+        </div>`;
+    });
+    
+    html += '</div>';
+    el.innerHTML = html;
+}
+
+function showSkillMarkdown(skillId) {
+    const skill = _loadedSkills.find(s => s.id === skillId);
+    if (!skill) return;
+    
+    document.getElementById('skill-md-name').textContent = skill.name;
+    const cat = categorizeSkill(skill);
+    
+    const nodes = (skill.workflow_data?.nodes || []).map(n => 
+        `### Node: ${n.label || n.id} (type: ${n.type})\n\`\`\`json\n${JSON.stringify(n.config || {}, null, 2)}\n\`\`\``
+    ).join('\n\n');
+    
+    const connections = (skill.workflow_data?.connections || []).map(c => 
+        `- ${c.from_node_id}.${c.from_port_id} ➜ ${c.to_node_id}.${c.to_port_id}`
+    ).join('\n');
+    
+    let md = `# Schema / Tool Definition\n\n`;
+    md += `**Tool Name:** \`${skill.name.replace(/[^a-zA-Z0-9_-]/g, '_')}\`\n`;
+    md += `**Description:** ${skill.description}\n`;
+    md += `**Type:** ${cat.label}\n`;
+    md += `**Trigger Keywords:** ${(skill.commands || []).join(', ') || 'N/A'}\n\n`;
+    md += `--- \n\n## Cấu trúc logic (Internal Workflow)\n`;
+    if (nodes) {
+        md += `\n${nodes}\n\n### Chuyển giao dữ liệu (Connections)\n${connections}`;
+    } else {
+        md += `\n*Không có workflow định nghĩa (Skill tĩnh/Prompt-based).*`;
+    }
+    
+    document.getElementById('skill-md-content').textContent = md;
+    openModal('modal-skill-markdown');
+}
+
+function openRunSkillModal(skillId, skillName) {
+    document.getElementById('skill-run-name').textContent = skillName;
+    document.getElementById('skill-run-id').value = skillId;
+    document.getElementById('skill-run-input').value = '';
+    
+    document.getElementById('skill-run-result-container').style.display = 'none';
+    document.getElementById('btn-execute-skill').disabled = false;
+    document.getElementById('btn-execute-skill').textContent = '🚀 Thực thi';
+    
+    openModal('modal-skill-run');
+}
+
+async function executeSkillRun() {
+    const btn = document.getElementById('btn-execute-skill');
+    const skillId = document.getElementById('skill-run-id').value;
+    const inputVal = document.getElementById('skill-run-input').value.trim();
+    const resultBox = document.getElementById('skill-run-result');
+    const resultContainer = document.getElementById('skill-run-result-container');
+    
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang xử lý Workflow...';
+    resultContainer.style.display = 'block';
+    resultBox.innerHTML = '<span style="color:var(--cyan)">Đang gửi request cho API Server...</span>';
+    
+    try {
+        const res = await fetch(`${API}/api/v1/skills/${skillId}/run?input_text=${encodeURIComponent(inputVal)}`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            btn.textContent = '✅ Xong';
+            resultBox.textContent = JSON.stringify(data, null, 2);
+        } else {
+            throw new Error(data.detail || data.error || 'Server error');
+        }
+    } catch(err) {
+        btn.textContent = '❌ Lỗi';
+        resultBox.innerHTML = `<span style="color:var(--red)">Lỗi khi gọi skill:\n${err.message}</span>`;
+    }
+    
+    setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '🚀 Thực thi lại';
+    }, 2000);
 }
 
 // ── Market Ext ──

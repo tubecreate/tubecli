@@ -39,13 +39,34 @@ const WF = (() => {
 
     // Execution
     isRunning: false,
+    
+    // Skill editing
+    editingSkillId: null,
   };
 
   // ── DOM refs ───────────────────────────────────────────────────
   let $canvas, $wrapper, $svg, $paletteList, $panelBody, $panelTitle, $logBody, $logStatus;
 
+  let fetchedModels = []; // Dynamic models list
+
+  async function fetchAiModels() {
+    try {
+      const resp = await fetch('/api/v1/story/ai-models');
+      if (resp.ok) {
+        const data = await resp.json();
+        let list = [];
+        (data.ollama || []).forEach(m => list.push(m.name));
+        (data.cloud || []).forEach(p => {
+          (p.models || []).forEach(m => list.push(m.name));
+        });
+        list = [...new Set(list)];
+        if (list.length > 0) fetchedModels = list;
+      }
+    } catch(e) { console.error('Error fetching AI models:', e); }
+  }
+
   // ── Init ───────────────────────────────────────────────────────
-  function init() {
+  async function init() {
     $canvas = document.getElementById('canvas');
     $wrapper = document.getElementById('canvas-wrapper');
     $svg = document.getElementById('connections-svg');
@@ -57,8 +78,46 @@ const WF = (() => {
 
     setupCanvasEvents();
     setupKeyboard();
-    fetchNodeTypes();
+    await fetchNodeTypes();
+    await fetchAiModels(); // Fetch dropdown models
     updateCanvasTransform();
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const skillId = urlParams.get('skill_id');
+    if (skillId) {
+        state.editingSkillId = skillId;
+        await loadSkillForEditing(skillId);
+    }
+  }
+
+  async function loadSkillForEditing(id) {
+    try {
+      const resp = await fetch(`/api/v1/skills/${id}`);
+      let skill;
+      if (resp.ok) {
+         skill = await resp.json();
+      } else {
+         const lst = await fetch('/api/v1/skills').then(r=>r.json());
+         skill = (lst.skills||[]).find(x=>x.id===id);
+         if (!skill) throw new Error("Skill Not Found");
+      }
+      
+      if (skill) {
+        document.getElementById('skill-name-input').value = skill.name || '';
+        document.getElementById('skill-desc-input').value = skill.description || '';
+        document.getElementById('skill-trigger-input').value = (skill.commands || []).join(', ');
+        
+        if (skill.workflow_data && skill.workflow_data.nodes && skill.workflow_data.nodes.length > 0) {
+            fromJSON(skill.workflow_data);
+            setTimeout(() => toast(`Loaded skill: ${skill.name}`, 'success'), 500);
+        } else {
+            toast('Skill has no valid logic nodes', 'warning');
+        }
+      }
+    } catch(e) {
+        console.error("Error loading skill:", e);
+        toast('Failed to load skill for editing', 'error');
+    }
   }
 
   // ── Fetch node types from API ──────────────────────────────────
@@ -311,7 +370,7 @@ const WF = (() => {
       ],
       'ai_node': [
         { name: 'system_prompt', label: 'System Prompt', type: 'textarea', default: 'You are a helpful assistant.' },
-        { name: 'model', label: 'Model', type: 'text', default: 'qwen:latest' },
+        { name: 'model', label: 'Model', type: fetchedModels.length ? 'select' : 'text', default: fetchedModels[0] || 'qwen:latest', options: fetchedModels },
       ],
       'output': [
         { name: 'filename', label: 'Filename', type: 'text', default: 'output.txt' },
@@ -333,7 +392,7 @@ const WF = (() => {
         { name: 'url', label: 'URL', type: 'text', default: '' },
         { name: 'prompt', label: 'AI Prompt', type: 'textarea', default: '' },
         { name: 'headless', label: 'Headless', type: 'select', default: 'false', options: ['false', 'true'] },
-        { name: 'ai_model', label: 'AI Model', type: 'text', default: 'qwen:latest' },
+        { name: 'ai_model', label: 'AI Model', type: fetchedModels.length ? 'select' : 'text', default: fetchedModels[0] || 'qwen:latest', options: fetchedModels },
         { name: 'wait_seconds', label: 'Wait (seconds)', type: 'number', default: 10 },
       ],
       'json_parser': [
@@ -342,7 +401,7 @@ const WF = (() => {
       ],
       'model_agent': [
         { name: 'provider', label: 'Provider', type: 'select', default: 'ollama', options: ['ollama', 'gemini', 'chatgpt', 'claude', 'grok'] },
-        { name: 'model', label: 'Model', type: 'text', default: 'qwen:latest' },
+        { name: 'model', label: 'Model', type: fetchedModels.length ? 'select' : 'text', default: fetchedModels[0] || 'qwen:latest', options: fetchedModels },
         { name: 'api_key', label: 'API Key', type: 'text', default: '' },
         { name: 'system_prompt', label: 'System Prompt', type: 'textarea', default: 'You are a helpful assistant.' },
         { name: 'temperature', label: 'Temperature', type: 'number', default: 0.7 },
@@ -685,6 +744,7 @@ const WF = (() => {
     const node = state.nodes.find(n => n.id === nodeId);
     if (!node) { renderEmptyPanel(); return; }
 
+    document.getElementById('property-panel').classList.add('show-panel');
     const nt = state.nodeTypes.find(n => n.type === node.type);
     $panelTitle.textContent = `⚙️ ${nt ? nt.name : node.type}`;
 
@@ -707,7 +767,9 @@ const WF = (() => {
         html += `<textarea class="field-textarea" rows="4" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">${val}</textarea>`;
       } else if (f.type === 'select') {
         html += `<select class="field-select" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">`;
-        (f.options || []).forEach(opt => {
+        let opts = f.options || [];
+        if (val && !opts.includes(val)) opts = [val, ...opts]; // Ensure current active value is included
+        opts.forEach(opt => {
           html += `<option value="${opt}" ${opt === val ? 'selected' : ''}>${opt}</option>`;
         });
         html += '</select>';
@@ -723,6 +785,7 @@ const WF = (() => {
   }
 
   function renderEmptyPanel() {
+    document.getElementById('property-panel').classList.remove('show-panel');
     $panelTitle.textContent = '⚙️ Properties';
     $panelBody.innerHTML = '<div class="panel-empty"><div class="panel-empty-icon">🖱️</div><span>Click a node to edit</span></div>';
   }
@@ -1003,10 +1066,12 @@ const WF = (() => {
   function saveAsSkill() {
     if (state.nodes.length === 0) { toast('No nodes to save', 'error'); return; }
     
-    // Reset fields and show modal
-    document.getElementById('skill-name-input').value = 'My Workflow Skill';
-    document.getElementById('skill-trigger-input').value = '';
-    document.getElementById('skill-desc-input').value = '';
+    if (!state.editingSkillId) {
+        document.getElementById('skill-name-input').value = 'My Workflow Skill';
+        document.getElementById('skill-trigger-input').value = '';
+        document.getElementById('skill-desc-input').value = '';
+    }
+    
     document.getElementById('save-skill-modal').classList.add('visible');
     document.getElementById('skill-name-input').focus();
   }
@@ -1023,15 +1088,19 @@ const WF = (() => {
 
     const data = toJSON();
     try {
+      const payload = { name, description, trigger, workflow_data: data };
+      if (state.editingSkillId) payload.id = state.editingSkillId;
+      
       const resp = await fetch('/api/v1/workflows/save-as-skill', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, trigger, workflow_data: data }),
+        body: JSON.stringify(payload),
       });
       const result = await resp.json();
       if (result.status === 'created' || result.status === 'updated') {
         toast(`✅ ${result.message}`, 'success');
         document.getElementById('save-skill-modal').classList.remove('visible');
+        if (result.skill && result.skill.id) state.editingSkillId = result.skill.id;
       } else {
         toast('❌ Failed: ' + (result.detail || 'Unknown error'), 'error');
       }
