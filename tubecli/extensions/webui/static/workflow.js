@@ -360,7 +360,7 @@ const WF = (() => {
       'api_request': [
         { name: 'url', label: 'URL', type: 'text', default: '' },
         { name: 'method', label: 'Method', type: 'select', default: 'GET', options: ['GET','POST','PUT','DELETE'] },
-        { name: 'headers', label: 'Headers (JSON)', type: 'textarea', default: '{}' },
+        { name: 'headers', label: 'Headers (JSON)', type: 'textarea', default: '{\n  "Content-Type": "application/json"\n}' },
         { name: 'body', label: 'Body', type: 'textarea', default: '' },
       ],
       'python_code': [{ name: 'code', label: 'Python Code', type: 'textarea', default: '# Input available as `input_data`\nresult = input_data' }],
@@ -760,11 +760,12 @@ const WF = (() => {
     `;
 
     fields.forEach(f => {
-      const val = node.config[f.name] ?? f.default ?? '';
+      let val = node.config[f.name] ?? f.default ?? '';
       html += `<div class="field-group"><label class="field-label">${f.label}</label>`;
 
       if (f.type === 'textarea') {
-        html += `<textarea class="field-textarea" rows="4" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">${val}</textarea>`;
+        const displayVal = typeof val === 'object' ? JSON.stringify(val, null, 2) : val;
+        html += `<textarea class="field-textarea" rows="4" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">${displayVal}</textarea>`;
       } else if (f.type === 'select') {
         html += `<select class="field-select" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">`;
         let opts = f.options || [];
