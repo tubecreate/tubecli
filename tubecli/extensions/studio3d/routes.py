@@ -83,6 +83,15 @@ ASSET_CATALOG = [
      "mesh": "box", "size": [0.35, 0.45, 0.3], "color": "#2c2c2c", "yOffset": 0.225},
     {"id": "pool_table", "name": "Bàn bida", "category": "furniture", "emoji": "🎱",
      "mesh": "box", "size": [2.4, 0.04, 1.3], "color": "#006400", "yOffset": 0.82},
+    # ── Conference / Meeting Tables ──
+    {"id": "conference_table_rect", "name": "Bàn hội nghị dài", "category": "furniture", "emoji": "📐",
+     "mesh": "box", "size": [3.6, 0.76, 1.2], "color": "#5c3a1e", "yOffset": 0},
+    {"id": "conference_table_oval", "name": "Bàn tròn bầu hội nghị", "category": "furniture", "emoji": "⭕",
+     "mesh": "cylinder", "size": [1.8, 0.76, 1.2], "color": "#6b4226", "yOffset": 0},
+    {"id": "meeting_table_small", "name": "Bàn họp nhỏ (4 người)", "category": "furniture", "emoji": "💻",
+     "mesh": "box", "size": [2.4, 0.76, 1.2], "color": "#2c2c3a", "yOffset": 0},
+    {"id": "meeting_table_large", "name": "Bàn họp lớn (6 người)", "category": "furniture", "emoji": "🏢",
+     "mesh": "box", "size": [3.6, 0.76, 1.2], "color": "#2c2c3a", "yOffset": 0},
     # ── Composite Workspace ──
     {"id": "workstation", "name": "Bàn làm việc (trọn bộ)", "category": "furniture", "emoji": "💼",
      "mesh": "box", "size": [1.6, 1.3, 1.8], "color": "#f0ebe4", "yOffset": 0},

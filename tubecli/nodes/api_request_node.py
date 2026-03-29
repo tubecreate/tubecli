@@ -21,6 +21,12 @@ class ApiRequestNode(BaseNode):
         url = inputs.get("url") or self.config.get("url", "")
         method = self.config.get("method", "GET").upper()
         headers = self.config.get("headers", {})
+        if isinstance(headers, str) and headers.strip():
+            try:
+                headers = json.loads(headers)
+            except Exception:
+                headers = {}
+        
         body = inputs.get("body") or self.config.get("body")
         timeout = self.config.get("timeout", 30)
 

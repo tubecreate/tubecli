@@ -49,14 +49,23 @@
         .agent-assign-select:focus { border-color:#22d3ee; outline:none; }
 
         /* Agent picker popup */
-        .desk-agent-popup { position:fixed; z-index:9999; display:none; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:0; min-width:200px; box-shadow:0 8px 32px rgba(0,0,0,0.6); overflow:hidden; animation: popIn 0.15s ease; }
+        .desk-agent-popup { position:fixed; z-index:9999; display:none; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:0; min-width:240px; max-width:320px; box-shadow:0 8px 32px rgba(0,0,0,0.6); overflow:hidden; animation: popIn 0.15s ease; }
         .desk-agent-popup.open { display:block; }
-        .desk-agent-popup-header { padding:10px 14px; border-bottom:1px solid var(--card-border); font-size:13px; font-weight:700; color:var(--text); }
-        .desk-agent-popup-list { max-height:250px; overflow-y:auto; }
+        .desk-agent-popup-header { padding:10px 14px; border-bottom:1px solid var(--card-border); font-size:13px; font-weight:700; color:var(--text); display:flex; justify-content:space-between; align-items:center; }
+        .desk-agent-popup-header .capacity-badge { font-size:10px; font-weight:500; color:var(--text3); background:rgba(34,211,238,0.15); padding:2px 8px; border-radius:10px; }
+        .desk-agent-popup-list { max-height:300px; overflow-y:auto; padding:4px 0; }
         .desk-agent-opt { padding:8px 14px; cursor:pointer; font-size:12px; color:var(--text2); transition:all 0.15s; display:flex; align-items:center; gap:8px; }
-        .desk-agent-opt:hover { background:rgba(34,211,238,0.1); color:var(--text); }
+        .desk-agent-opt:hover:not(.disabled) { background:rgba(34,211,238,0.1); color:var(--text); }
         .desk-agent-opt.active { background:rgba(34,211,238,0.15); color:#22d3ee; font-weight:600; }
+        .desk-agent-opt.disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
+        .desk-agent-opt.full-disabled { opacity:0.5; cursor:not-allowed; }
         .desk-agent-opt .agent-dot { width:8px; height:8px; border-radius:50%; background:#22d3ee; flex-shrink:0; }
+        .desk-agent-opt .agent-dot.taken { background:#f43f5e; }
+        .desk-agent-opt label { display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; }
+        .desk-agent-opt label input[type=checkbox] { accent-color:#22d3ee; cursor:pointer; width:14px; height:14px; }
+        .desk-agent-opt .taken-badge { font-size:9px; color:#f43f5e; margin-left:auto; white-space:nowrap; }
+        .desk-agent-opt .release-btn { font-size:9px; color:#f59e0b; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:1px 6px; margin-left:auto; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
+        .desk-agent-opt .release-btn:hover { background:rgba(245,158,11,0.3); color:#fbbf24; }
         @keyframes popIn { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
 
         /* Toolbar buttons */
@@ -299,6 +308,10 @@ const BUILTIN_ASSETS = [
     {id:"bar_counter",name:"Bar nước",category:"furniture",emoji:"🍸",mesh:"box",size:[2.4,0.06,0.6],color:"#3a2518",yOffset:1.05},
     {id:"coffee_machine",name:"Máy pha cà phê",category:"decoration",emoji:"☕",mesh:"box",size:[0.35,0.45,0.3],color:"#2c2c2c",yOffset:0.225},
     {id:"pool_table",name:"Bàn bida",category:"furniture",emoji:"🎱",mesh:"box",size:[2.4,0.04,1.3],color:"#006400",yOffset:0.82},
+    {id:"conference_table_rect",name:"Bàn hội nghị dài",category:"furniture",emoji:"📐",mesh:"box",size:[3.6,0.76,1.2],color:"#5c3a1e",yOffset:0},
+    {id:"conference_table_oval",name:"Bàn tròn bầu hội nghị",category:"furniture",emoji:"⭕",mesh:"cylinder",size:[1.8,0.76,1.2],color:"#6b4226",yOffset:0},
+    {id:"meeting_table_small",name:"Bàn họp nhỏ (4 người)",category:"furniture",emoji:"💻",mesh:"box",size:[2.4,0.76,1.2],color:"#2c2c3a",yOffset:0},
+    {id:"meeting_table_large",name:"Bàn họp lớn (6 người)",category:"furniture",emoji:"🏢",mesh:"box",size:[3.6,0.76,1.2],color:"#2c2c3a",yOffset:0},
     {id:"workstation",name:"Bàn làm việc (trọn bộ)",category:"furniture",emoji:"💼",mesh:"box",size:[1.6,1.3,1.8],color:"#f0ebe4",yOffset:0},
 ];
 
@@ -339,7 +352,7 @@ async function loadScene(teamId) {
         resizeRoom();
         clearAllMeshes();
         (scn.assets || []).forEach(a => {
-            addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, a.scale || 1, false, a.agent_id || '');
+            addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, a.scale || 1, false, a.agent_id || '', a.agent_ids || []);
         });
         updatePlacedList();
     } catch (e) { console.error('Failed to load scene', e); }
@@ -354,7 +367,8 @@ async function saveScene() {
             room_depth: roomD,
             assets: placedAssets.map(p => ({
                 asset_id: p.asset_id, x: p.x, z: p.z, rotation: p.rotation, scale: p.scale,
-                agent_id: p.agent_id || ''
+                agent_id: p.agent_id || '',
+                agent_ids: p.agent_ids || []
             })),
         };
         await fetch(`${API}/studio3d/scenes/${currentTeamId}`, {
@@ -657,7 +671,7 @@ function initScene() {
         }
     });
 
-    // Double-click on desk → show agent picker (works regardless of tool)
+    // Double-click on desk/table → show agent picker (works regardless of tool)
     canvas.addEventListener('dblclick', (e) => {
         const rect = canvas.getBoundingClientRect();
         mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -666,7 +680,7 @@ function initScene() {
         const hits = raycaster.intersectObjects(_collectPlacedMeshes(), false);
         if (hits.length > 0) {
             const pa = _findPlacedFromHit(hits[0].object);
-            if (pa && pa.asset_id.startsWith('desk_')) {
+            if (pa && _isAssignableAsset(pa.asset_id)) {
                 showDeskAgentPopup(pa, e.clientX, e.clientY);
             }
         }
@@ -749,7 +763,7 @@ function removeGhost() {
 
 // ── Place / Remove ──
 let _placeCounter = 0;
-function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId) {
+function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId, agentIds) {
     const def = assets.find(a => a.id === assetId);
     if (!def) return;
 
@@ -764,7 +778,7 @@ function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId) {
     mesh.userData.placedId = id;
     scene.add(mesh);
 
-    placedAssets.push({ id, asset_id: assetId, x, z, rotation: rotation || 0, scale: scale || 1, mesh, agent_id: agentId || '' });
+    placedAssets.push({ id, asset_id: assetId, x, z, rotation: rotation || 0, scale: scale || 1, mesh, agent_id: agentId || '', agent_ids: agentIds || [] });
     updatePlacedList();
     if (showToast) toast(`📌 Đã đặt ${def.name}`, 'success');
 }
@@ -776,12 +790,54 @@ function removePlacedById(id) {
     updatePlacedList();
 }
 
-// ── Desk Agent Picker Popup ──
+// ── Asset capacity / assignability helpers ──
+const SEAT_CAPACITY = {
+    meeting_table_small: 4,
+    meeting_table_large: 6,
+    conference_table_rect: 8,
+    conference_table_oval: 8,
+    workstation: 1,
+};
+function _isMultiSeatAsset(assetId) {
+    return (SEAT_CAPACITY[assetId] || 0) > 1;
+}
+function _isAssignableAsset(assetId) {
+    return assetId.startsWith('desk_') || assetId === 'workstation' || _isMultiSeatAsset(assetId);
+}
+function _getMaxSeats(assetId) {
+    if (assetId.startsWith('desk_')) return 1;
+    return SEAT_CAPACITY[assetId] || 1;
+}
+// Collect all agent IDs already assigned across ALL placed assets (except the given excluded placed id)
+function _getAllAssignedAgentIds(excludePlacedId) {
+    const assigned = new Set();
+    placedAssets.forEach(p => {
+        if (p.id === excludePlacedId) return;
+        if (p.agent_id) assigned.add(p.agent_id);
+        if (p.agent_ids && p.agent_ids.length) p.agent_ids.forEach(id => assigned.add(id));
+    });
+    return assigned;
+}
+
+// ── Desk/Table Agent Picker Popup ──
 let _popupDeskId = null;
 async function showDeskAgentPopup(pa, clientX, clientY) {
     _popupDeskId = pa.id;
     const popup = document.getElementById('desk-agent-popup');
     const list = document.getElementById('desk-agent-popup-list');
+    const header = document.querySelector('.desk-agent-popup-header');
+
+    const isMulti = _isMultiSeatAsset(pa.asset_id);
+    const maxSeats = _getMaxSeats(pa.asset_id);
+    const currentIds = isMulti ? (pa.agent_ids || []) : (pa.agent_id ? [pa.agent_id] : []);
+    const assignedElsewhere = _getAllAssignedAgentIds(pa.id);
+
+    // Update header
+    if (isMulti) {
+        header.innerHTML = `🤖 Gán agents <span class="capacity-badge">${currentIds.length}/${maxSeats} ghế</span>`;
+    } else {
+        header.innerHTML = '🤖 Gán agent cho bàn này';
+    }
 
     // Get agents of the currently selected team
     let teamAgents = [];
@@ -791,25 +847,139 @@ async function showDeskAgentPopup(pa, clientX, clientY) {
             const teamData = await teamRes.json();
             const nodes = teamData.nodes || [];
             const agentIds = nodes.map(n => n.agent_id).filter(Boolean);
-            // Match with loaded agents
             teamAgents = studioAgents.filter(a => agentIds.includes(a.id));
         } catch (e) { teamAgents = studioAgents; }
     }
 
-    const opts = [`<div class="desk-agent-opt ${!pa.agent_id ? 'active' : ''}" onclick="pickDeskAgent('', '${pa.id}')">❌ Bỏ gán</div>`];
-    teamAgents.forEach(ag => {
-        const isActive = pa.agent_id === ag.id;
-        opts.push(`<div class="desk-agent-opt ${isActive ? 'active' : ''}" onclick="pickDeskAgent('${ag.id}', '${pa.id}')">
-            <span class="agent-dot"></span>${ag.name}
-        </div>`);
-    });
-    if (teamAgents.length === 0) {
-        opts.push(`<div class="desk-agent-opt" style="color:#64748b;cursor:default;">Chưa có agent nào trong team</div>`);
+    let html = '';
+    if (isMulti) {
+        // ── MULTI-SEAT: checkbox UI ──
+        const isFull = currentIds.length >= maxSeats;
+        html += `<div class="desk-agent-opt" onclick="clearAllTableAgents('${pa.id}')" style="border-bottom:1px solid var(--card-border);">❌ Bỏ gán tất cả</div>`;
+        teamAgents.forEach(ag => {
+            const isChecked = currentIds.includes(ag.id);
+            const isTaken = assignedElsewhere.has(ag.id);
+            let takenAt = '', takenPaId = '';
+            if (isTaken) {
+                const otherPa = placedAssets.find(p => p.id !== pa.id && ((p.agent_ids || []).includes(ag.id) || p.agent_id === ag.id));
+                if (otherPa) {
+                    const otherDef = assets.find(a => a.id === otherPa.asset_id);
+                    takenAt = otherDef?.name || otherPa.asset_id;
+                    takenPaId = otherPa.id;
+                }
+            }
+            const canCheck = isChecked || (!isFull && !isTaken);
+            const disabledClass = !canCheck && !isTaken ? 'full-disabled' : '';
+            const checkedAttr = isChecked ? 'checked' : '';
+            const disabledAttr = !canCheck ? 'disabled' : '';
+            html += `<div class="desk-agent-opt ${isChecked ? 'active' : ''} ${disabledClass}">
+                <label>
+                    <input type="checkbox" ${checkedAttr} ${disabledAttr}
+                        onchange="toggleTableAgent('${ag.id}', '${pa.id}', this.checked)">
+                    <span class="agent-dot ${isTaken ? 'taken' : ''}"></span>
+                    ${ag.name}
+                </label>
+                ${isTaken ? `<span class="taken-badge">📌 ${takenAt}</span><span class="release-btn" onclick="event.stopPropagation(); releaseAgentFromOther('${ag.id}', '${takenPaId}', '${pa.id}')">🔓 Huỷ gán</span>` : ''}
+            </div>`;
+        });
+    } else {
+        // ── SINGLE-SEAT: original radio-style UI ──
+        html += `<div class="desk-agent-opt ${!pa.agent_id ? 'active' : ''}" onclick="pickDeskAgent('', '${pa.id}')">❌ Bỏ gán</div>`;
+        teamAgents.forEach(ag => {
+            const isActive = pa.agent_id === ag.id;
+            const isTaken = assignedElsewhere.has(ag.id);
+            let takenAt = '', takenPaId = '';
+            if (isTaken) {
+                const otherPa = placedAssets.find(p => p.id !== pa.id && ((p.agent_ids || []).includes(ag.id) || p.agent_id === ag.id));
+                if (otherPa) {
+                    const otherDef = assets.find(a => a.id === otherPa.asset_id);
+                    takenAt = otherDef?.name || otherPa.asset_id;
+                    takenPaId = otherPa.id;
+                }
+            }
+            html += `<div class="desk-agent-opt ${isActive ? 'active' : ''}" onclick="${isTaken && !isActive ? '' : `pickDeskAgent('${ag.id}', '${pa.id}')`}">
+                <span class="agent-dot ${isTaken ? 'taken' : ''}"></span>${ag.name}
+                ${isTaken && !isActive ? `<span class="taken-badge">📌 ${takenAt}</span><span class="release-btn" onclick="event.stopPropagation(); releaseAgentFromOther('${ag.id}', '${takenPaId}', '${pa.id}')">🔓 Huỷ gán</span>` : ''}
+            </div>`;
+        });
     }
-    list.innerHTML = opts.join('');
-    popup.style.left = clientX + 'px';
-    popup.style.top = clientY + 'px';
+
+    if (teamAgents.length === 0) {
+        html += `<div class="desk-agent-opt" style="color:#64748b;cursor:default;">Chưa có agent nào trong team</div>`;
+    }
+    list.innerHTML = html;
+
+    // Position popup (keep within viewport)
+    const popW = 280, popH = 350;
+    let px = clientX, py = clientY;
+    if (px + popW > window.innerWidth) px = window.innerWidth - popW - 10;
+    if (py + popH > window.innerHeight) py = window.innerHeight - popH - 10;
+    popup.style.left = px + 'px';
+    popup.style.top = py + 'px';
     popup.classList.add('open');
+}
+
+// Toggle agent in multi-seat table
+function toggleTableAgent(agentId, placedId, checked) {
+    const pa = placedAssets.find(p => p.id === placedId);
+    if (!pa) return;
+    if (!pa.agent_ids) pa.agent_ids = [];
+    const maxSeats = _getMaxSeats(pa.asset_id);
+
+    if (checked) {
+        if (pa.agent_ids.length >= maxSeats) {
+            toast(`⚠️ Bàn này đã đủ ${maxSeats} người!`, 'error');
+            return;
+        }
+        if (!pa.agent_ids.includes(agentId)) {
+            pa.agent_ids.push(agentId);
+        }
+    } else {
+        pa.agent_ids = pa.agent_ids.filter(id => id !== agentId);
+    }
+    const agent = studioAgents.find(a => a.id === agentId);
+    toast(checked ? `🤖 Đã thêm ${agent?.name || agentId}` : `Đã bỏ ${agent?.name || agentId}`, 'success');
+    updatePlacedList();
+    // Re-render popup to update capacity badge and checkbox states
+    showDeskAgentPopup(pa, parseInt(document.getElementById('desk-agent-popup').style.left), parseInt(document.getElementById('desk-agent-popup').style.top));
+}
+
+// Clear all agents from a multi-seat table
+function clearAllTableAgents(placedId) {
+    const pa = placedAssets.find(p => p.id === placedId);
+    if (pa) {
+        pa.agent_ids = [];
+        toast('Đã bỏ gán tất cả agent', 'success');
+        updatePlacedList();
+    }
+    closeDeskAgentPopup();
+}
+
+// Release agent from another table/desk (unassign from its current location)
+function releaseAgentFromOther(agentId, otherPlacedId, currentPopupPlacedId) {
+    const otherPa = placedAssets.find(p => p.id === otherPlacedId);
+    if (!otherPa) return;
+    const agent = studioAgents.find(a => a.id === agentId);
+    const otherDef = assets.find(a => a.id === otherPa.asset_id);
+
+    // Remove from single-seat assignment
+    if (otherPa.agent_id === agentId) {
+        otherPa.agent_id = '';
+    }
+    // Remove from multi-seat assignment
+    if (otherPa.agent_ids && otherPa.agent_ids.includes(agentId)) {
+        otherPa.agent_ids = otherPa.agent_ids.filter(id => id !== agentId);
+    }
+
+    toast(`🔓 Đã huỷ gán ${agent?.name || agentId} khỏi ${otherDef?.name || otherPlacedId}`, 'success');
+    updatePlacedList();
+
+    // Re-render the current popup to show the now-available agent
+    const currentPa = placedAssets.find(p => p.id === currentPopupPlacedId);
+    if (currentPa) {
+        const popup = document.getElementById('desk-agent-popup');
+        showDeskAgentPopup(currentPa, parseInt(popup.style.left), parseInt(popup.style.top));
+    }
 }
 
 function pickDeskAgent(agentId, placedId) {
@@ -854,11 +1024,26 @@ function updatePlacedList() {
     list.innerHTML = placedAssets.map(p => {
         const def = assets.find(a => a.id === p.asset_id);
         const isDesk = p.asset_id.startsWith('desk_');
-        const agentOpts = isDesk ? `<select class="agent-assign-select" onchange="assignAgentToDesk('${p.id}', this.value)" title="Gán agent">
-            <option value="">-- Chưa gán --</option>
-            ${studioAgents.map(ag => `<option value="${ag.id}" ${p.agent_id === ag.id ? 'selected' : ''}>${ag.name}</option>`).join('')}
-        </select>` : '';
-        const agentBadge = isDesk && p.agent_id ? `<span style="font-size:10px;color:#22d3ee;">🤖</span>` : '';
+        const isMulti = _isMultiSeatAsset(p.asset_id);
+        const isAssignable = _isAssignableAsset(p.asset_id);
+
+        let agentOpts = '';
+        let agentBadge = '';
+
+        if (isMulti) {
+            // Multi-seat: show count badge
+            const count = (p.agent_ids || []).length;
+            const max = _getMaxSeats(p.asset_id);
+            agentBadge = count > 0 ? `<span style="font-size:9px;color:#22d3ee;background:rgba(34,211,238,0.15);padding:1px 5px;border-radius:8px;">${count}/${max}🤖</span>` : '';
+        } else if (isDesk || p.asset_id === 'workstation') {
+            // Single-seat: dropdown + badge
+            agentOpts = `<select class="agent-assign-select" onchange="assignAgentToDesk('${p.id}', this.value)" title="Gán agent">
+                <option value="">-- Chưa gán --</option>
+                ${studioAgents.map(ag => `<option value="${ag.id}" ${p.agent_id === ag.id ? 'selected' : ''}>${ag.name}</option>`).join('')}
+            </select>`;
+            agentBadge = p.agent_id ? `<span style="font-size:10px;color:#22d3ee;">🤖</span>` : '';
+        }
+
         return `<div class="placed-item">
             <span>${def?.emoji || '📦'} ${agentBadge}</span>
             <span class="pi-name">${def?.name || p.asset_id}</span>

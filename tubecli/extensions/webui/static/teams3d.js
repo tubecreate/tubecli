@@ -39,11 +39,15 @@ const STUDIO_ASSETS = [
     {id:"bar_counter",name:"Bar nước",category:"furniture",mesh:"box",size:[2.4,0.06,0.6],color:"#3a2518",yOffset:1.05},
     {id:"coffee_machine",name:"Máy pha cà phê",category:"decoration",mesh:"box",size:[0.35,0.45,0.3],color:"#2c2c2c",yOffset:0.225},
     {id:"pool_table",name:"Bàn bida",category:"furniture",mesh:"box",size:[2.4,0.04,1.3],color:"#006400",yOffset:0.82},
+    {id:"conference_table_rect",name:"Bàn hội nghị dài",category:"furniture",mesh:"box",size:[3.6,0.76,1.2],color:"#5c3a1e",yOffset:0},
+    {id:"conference_table_oval",name:"Bàn tròn bầu hội nghị",category:"furniture",mesh:"cylinder",size:[1.8,0.76,1.2],color:"#6b4226",yOffset:0},
+    {id:"meeting_table_small",name:"Bàn họp nhỏ (4 người)",category:"furniture",mesh:"box",size:[2.4,0.76,1.2],color:"#2c2c3a",yOffset:0},
+    {id:"meeting_table_large",name:"Bàn họp lớn (6 người)",category:"furniture",mesh:"box",size:[3.6,0.76,1.2],color:"#2c2c3a",yOffset:0},
+    {id:"workstation",name:"Bàn làm việc (trọn bộ)",category:"furniture",mesh:"box",size:[1.6,1.3,1.8],color:"#f0ebe4",yOffset:0},
     {id:"wall_partition_solid",name:"Vách ngăn 2m",category:"structure",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"wall_partition_glass",name:"Vách kính 2m",category:"structure",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"wall_partition_1m",name:"Vách ngăn 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"wall_partition_glass_1m",name:"Vách kính 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
-    {id:"workstation",name:"Bàn làm việc (trọn bộ)",category:"furniture",mesh:"box",size:[1.6,1.3,1.8],color:"#f0ebe4",yOffset:0},
 ];
 
 const CHAR_COLORS = [0xf43f5e, 0xa855f7, 0x22d3ee, 0x22c55e, 0xf59e0b, 0x3b82f6, 0xec4899, 0x14b8a6, 0xf97316, 0x8b5cf6, 0x06b6d4, 0x10b981];
@@ -387,6 +391,50 @@ function renderStudioAssets(sceneAssets) {
 }
 
 // ── Furniture & Characters (only assigned agents) ──
+// Seat offsets for multi-seat tables (relative to table center)
+// NOTE: buildRobloxCharacter adds +0.55 to z, so we subtract 0.55 when building the map
+const MULTI_SEAT_OFFSETS = {
+    meeting_table_small: [
+        // Alternating sides
+        { x: -0.55, z:  0.85, rot: Math.PI },   // side A (+z) faces -z (inward)
+        { x: -0.55, z: -0.85, rot: 0 },         // side B (-z) faces +z (inward)
+        { x:  0.55, z:  0.85, rot: Math.PI },   // side A 
+        { x:  0.55, z: -0.85, rot: 0 },         // side B
+    ],
+    meeting_table_large: [
+        // Alternating A-B-A-B-A-B
+        { x: -1.1,  z:  0.95, rot: Math.PI },   // side A left (+z) faces -z
+        { x: -1.1,  z: -0.95, rot: 0 },         // side B left (-z) faces +z
+        { x:  0.0,  z:  0.95, rot: Math.PI },   // side A center
+        { x:  0.0,  z: -0.95, rot: 0 },         // side B center
+        { x:  1.1,  z:  0.95, rot: Math.PI },   // side A right
+        { x:  1.1,  z: -0.95, rot: 0 },         // side B right
+    ],
+    conference_table_rect: [
+        // Alternating sides + head seats last
+        { x: -1.1,  z: -0.95, rot: 0 },         // side B left
+        { x: -1.1,  z:  0.95, rot: Math.PI },   // side A left
+        { x:  0.0,  z: -0.95, rot: 0 },         // side B center
+        { x:  0.0,  z:  0.95, rot: Math.PI },   // side A center
+        { x:  1.1,  z: -0.95, rot: 0 },         // side B right
+        { x:  1.1,  z:  0.95, rot: Math.PI },   // side A right
+        { x: -2.1,  z:  0, rot: Math.PI / 2 },  // head left (-x) faces +x
+        { x:  2.1,  z:  0, rot: -Math.PI / 2 }, // head right (+x) faces -x
+    ],
+    conference_table_oval: (() => {
+        const seats = [];
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            seats.push({ x: Math.sin(angle) * 1.3, z: Math.cos(angle) * 0.9, rot: angle + Math.PI }); // +PI to face inward
+        }
+        return seats;
+    })(),
+};
+
+function _isMultiSeatAssetId(assetId) {
+    return !!MULTI_SEAT_OFFSETS[assetId];
+}
+
 function buildFurnitureAndCharacters(teamData, agentsList, theme) {
     const nodes = teamData.nodes || [];
     const assignedNodes = nodes.filter(n => n.agent_id && n.agent_id.length > 0);
@@ -400,23 +448,53 @@ function buildFurnitureAndCharacters(teamData, agentsList, theme) {
         return;
     }
 
-    // Use studio desk positions if available, fall back to defaults
+    // Use studio scene data if available
     const hasStudio = studioSceneData && studioSceneData.assets && studioSceneData.assets.length > 0;
-    const studioDesks = hasStudio
-        ? studioSceneData.assets
-            .filter(a => a.asset_id && (a.asset_id.startsWith('desk') || a.asset_id === 'table_round' || a.asset_id === 'workstation'))
-        : [];
 
-    // Build a map of agent_id -> desk position from studio assignments
-    const agentDeskMap = {};
-    studioDesks.forEach(d => {
-        if (d.agent_id) agentDeskMap[d.agent_id] = { x: d.x, z: d.z };
-    });
-    const unassignedDesks = studioDesks.filter(d => !d.agent_id).map(d => ({ x: d.x, z: d.z }));
+    // Build agent-to-position map from ALL studio asset assignments
+    const agentDeskMap = {}; // agentId -> { x, z }
+
+    if (hasStudio) {
+        studioSceneData.assets.forEach(item => {
+            const tableRot = item.rotation || 0;
+
+            // Multi-seat tables: use agent_ids array + seat offsets
+            if (_isMultiSeatAssetId(item.asset_id) && item.agent_ids && item.agent_ids.length > 0) {
+                const seatOffsets = MULTI_SEAT_OFFSETS[item.asset_id];
+                item.agent_ids.forEach((agId, seatIdx) => {
+                    if (seatIdx < seatOffsets.length && agId) {
+                        const off = seatOffsets[seatIdx];
+                        // Rotate offset by table rotation
+                        const cos = Math.cos(tableRot), sin = Math.sin(tableRot);
+                        const rx = off.x * cos - off.z * sin;
+                        const rz = off.x * sin + off.z * cos;
+                        agentDeskMap[agId] = {
+                            x: (item.x || 0) + rx,
+                            z: (item.z || 0) + rz - 0.55,
+                            rot: (off.rot || 0) + tableRot,
+                        };
+                    }
+                });
+            }
+
+            // Single-seat desks/workstations: use agent_id
+            if (item.agent_id) {
+                agentDeskMap[item.agent_id] = { x: item.x, z: item.z };
+            }
+        });
+    }
+
+    // Collect unassigned desks (single-seat assets without agent_id)
+    const singleSeatAssetIds = ['desk_modern', 'desk_wood', 'table_round', 'workstation'];
+    const unassignedDesks = hasStudio
+        ? studioSceneData.assets
+            .filter(a => a.asset_id && singleSeatAssetIds.some(id => a.asset_id.startsWith(id.replace(/_.*/, '')) || a.asset_id === id) && !a.agent_id)
+            .map(d => ({ x: d.x, z: d.z }))
+        : [];
     let unassignedIdx = 0;
 
     assignedNodes.forEach((node, idx) => {
-        // Priority: assigned desk > unassigned studio desk > default position
+        // Priority: assigned position (desk or table seat) > unassigned studio desk > default grid
         let pos;
         if (agentDeskMap[node.agent_id]) {
             pos = agentDeskMap[node.agent_id];
@@ -504,6 +582,10 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
     const group = new THREE.Group();
     const homeY = theme.special === 'ancient' ? 0.25 : 0.0;
     group.position.set(pos.x, homeY, pos.z + 0.55);
+    // Apply facing rotation for multi-seat table positions
+    if (pos.rot !== undefined) {
+        group.rotation.y = pos.rot;
+    }
     officeGroup.add(group);
 
     const bodyColor = agent ? new THREE.Color(color) : new THREE.Color(0x555566);
@@ -577,6 +659,7 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
         limbs: { armL, armR, legL, legR, head, torso },
         homePos: { x: pos.x, z: pos.z + 0.55 },
         deskPos: { x: pos.x, z: pos.z },  // desk center for facing
+        homeRot: pos.rot,
         homeY,
         // State machine
         state: 'working',     // working, walking, returning, chatting, looking
@@ -618,9 +701,9 @@ function animate3d() {
                     ac.deskPos.x - ac.group.position.x,
                     ac.deskPos.z - ac.group.position.z
                 );
-                // If at home pos (very close), face default direction (towards desk = Math.PI)
+                // If at home pos (very close), face default direction
                 if (Math.abs(ac.homePos.x - ac.group.position.x) < 0.2 && Math.abs(ac.homePos.z - ac.group.position.z) < 0.2) {
-                    deskAngle = Math.PI; // face away from camera
+                    deskAngle = ac.homeRot !== undefined ? ac.homeRot : Math.PI;
                 }
                 ac.group.rotation.y = deskAngle;
 
