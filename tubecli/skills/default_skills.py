@@ -264,7 +264,72 @@ DEFAULT_SKILLS: List[Dict] = [
                 },
             ],
         },
-    }
+    },
+    {
+        "name": "👥 Quick Team Creator",
+        "description": "Tạo team AI tự động: mô tả team bằng ngôn ngữ tự nhiên → AI phân tích → tạo agents + cấu trúc team + sơ đồ tổ chức. VD: 'tạo team developer 4 người: 1 leader, 2 dev, 1 tester'",
+        "skill_type": "Skill",
+        "commands": [
+            "tạo team", "create team", "tạo nhóm", "tạo đội",
+            "build team", "new team", "thành lập team", "xây dựng team",
+            "tạo team mới", "lập team"
+        ],
+        "workflow_data": {
+            "name": "Quick Team Creator",
+            "nodes": [
+                {
+                    "id": "team_desc",
+                    "type": "text_input",
+                    "label": "📝 Mô tả Team",
+                    "config": {"text": ""},
+                },
+                {
+                    "id": "build_body",
+                    "type": "python_code",
+                    "label": "🐍 Build API Body",
+                    "config": {
+                        "code": "import json\nresult = json.dumps({'description': text_input, 'provider': 'gemini', 'model': 'gemini-2.5-flash'})"
+                    },
+                },
+                {
+                    "id": "create_api",
+                    "type": "api_request",
+                    "label": "⚡ Gọi API tạo Team",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/studio3d/quick-team",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "team_desc",
+                    "from_port_id": "content",
+                    "to_node_id": "build_body",
+                    "to_port_id": "text_input",
+                },
+                {
+                    "from_node_id": "build_body",
+                    "from_port_id": "result",
+                    "to_node_id": "create_api",
+                    "to_port_id": "body",
+                },
+                {
+                    "from_node_id": "create_api",
+                    "from_port_id": "response",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    },
 ]
 
 
@@ -284,6 +349,7 @@ def register_default_skills():
                     workflow_data=skill_def["workflow_data"],
                     skill_type=skill_def.get("skill_type", "Skill"),
                     description=skill_def.get("description", ""),
+                    commands=skill_def.get("commands", []),
                 )
                 added += 1
                 print(f"  ✅ Added skill: {name}")
