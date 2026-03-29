@@ -402,6 +402,59 @@
     </div>
 </div>
 
+<!-- Skill Markdown Viewer Modal -->
+<div id="modal-skill-markdown" class="modal hidden">
+    <div class="modal-content modal-lg" style="max-width:800px; max-height: 90vh; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h2>📄 Hướng dẫn & Cấu trúc (AI Perspective)</h2>
+            <button class="btn-close" onclick="closeModal('modal-skill-markdown')">✕</button>
+        </div>
+        <p style="color:var(--text-muted);margin:8px 0 12px;font-size:.9rem">
+            Đây là giao diện mô phỏng định dạng văn bản (schema/markdown) mà AI Agent sẽ đọc để hiểu <strong id="skill-md-name" style="color:var(--cyan)"></strong> thực hiện chức năng gì.
+        </p>
+        <div style="flex:1; overflow-y:auto; background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; padding:16px;">
+            <pre id="skill-md-content" style="white-space:pre-wrap; font-family:'JetBrains Mono',monospace; font-size:.85rem; line-height:1.5; color:var(--text);"></pre>
+        </div>
+        <div class="modal-actions" style="margin-top:16px;">
+            <button class="btn-secondary" onclick="closeModal('modal-skill-markdown')">Đóng</button>
+            <button class="btn-primary" onclick="navigator.clipboard.writeText(document.getElementById('skill-md-content').textContent).then(()=>alert('Đã copy!'))">📋 Copy Schema</button>
+        </div>
+    </div>
+</div>
+
+<!-- Run Skill Modal -->
+<div id="modal-skill-run" class="modal hidden">
+    <div class="modal-content" style="max-width:600px; display: flex; flex-direction: column;">
+        <div class="modal-header">
+            <h2>▶ Chạy Kiểm Thử Skill</h2>
+            <button class="btn-close" onclick="closeModal('modal-skill-run')">✕</button>
+        </div>
+        <p style="color:var(--text-muted);margin:8px 0 16px;font-size:.9rem">
+            Thực thi trực tiếp: <strong id="skill-run-name" style="color:var(--cyan)"></strong>
+        </p>
+        <input type="hidden" id="skill-run-id">
+        <div class="form-group">
+            <label>Tham số đầu vào (Input Prompt)</label>
+            <textarea id="skill-run-input" class="input" rows="3" placeholder="Ví dụ: mô tả team hoặc từ khóa tìm kiếm... Nếu workflow không yêu cầu input thì để trống." style="width:100%;resize:vertical;font-family:inherit;padding:12px;"></textarea>
+            <small style="color:var(--text-muted);font-size:.75rem">Nội dung này sẽ được pass vào input của system prompt (hoặc node đầu tiên nếu là workflow)</small>
+        </div>
+        
+        <div id="skill-run-result-container" style="display:none; margin-top:16px;">
+            <label style="font-weight:600;display:block;margin-bottom:8px">Kết quả (JSON Response):</label>
+            <div style="background:var(--bg-dark); border:1px solid var(--border); border-radius:8px; padding:12px; max-height:250px; overflow-y:auto;">
+                <pre id="skill-run-result" style="white-space:pre-wrap; font-family:'JetBrains Mono',monospace; font-size:.85rem; color:var(--text);"></pre>
+            </div>
+        </div>
+
+        <div class="modal-actions" style="margin-top:20px;">
+            <button class="btn-secondary" onclick="closeModal('modal-skill-run')">Đóng</button>
+            <button class="btn-primary" id="btn-execute-skill" onclick="executeSkillRun()" style="background:linear-gradient(135deg,#10b981,#22c55e);font-weight:700">
+                🚀 Thực thi
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Profile Settings Modal -->
 <div id="modal-settings" class="modal hidden">
     <div class="modal-content" style="max-width:560px">

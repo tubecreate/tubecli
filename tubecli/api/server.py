@@ -368,6 +368,7 @@ async def delete_skill(skill_id: str):
 
 
 class SaveAsSkillRequest(BaseModel):
+    id: Optional[str] = None
     name: str
     description: str = ""
     trigger: str = ""
@@ -385,12 +386,28 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
 
     commands = [req.trigger.strip()] if req.trigger and req.trigger.strip() else []
 
-    # Check if name already exists
-    existing = skill_manager.find_by_name(req.name)
-    if existing:
-        # Update existing skill with new workflow data
-        skill_manager.update(existing.id, workflow_data=req.workflow_data, description=req.description, commands=commands)
-        return {"status": "updated", "skill": existing.to_dict(), "message": f"Skill '{req.name}' updated"}
+    if req.id:
+        existing = skill_manager.get(req.id)
+        if existing:
+            skill_manager.update(
+                existing.id,
+                name=req.name,
+                workflow_data=req.workflow_data,
+                description=req.description,
+                commands=commands,
+            )
+            return {"status": "updated", "skill": existing.to_dict(), "message": f"Skill '{req.name}' updated"}
+
+    # Check if name already exists as fallback
+    existing_by_name = skill_manager.find_by_name(req.name)
+    if existing_by_name:
+        skill_manager.update(
+            existing_by_name.id,
+            workflow_data=req.workflow_data,
+            description=req.description,
+            commands=commands,
+        )
+        return {"status": "updated", "skill": existing_by_name.to_dict(), "message": f"Skill '{req.name}' updated (by name)"}
 
     skill = skill_manager.create(
         name=req.name,

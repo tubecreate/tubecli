@@ -51,9 +51,9 @@
   --sidebar-width: 260px;
   --panel-width: 300px;
   --toolbar-height: 50px;
-  --node-width: 200px;
-  --node-min-height: 60px;
-  --port-size: 12px;
+  --node-width: 160px;
+  --node-min-height: 48px;
+  --port-size: 11px;
   --radius: 10px;
   --radius-sm: 6px;
 }
@@ -97,6 +97,7 @@ body {
   font-size: 16px;
   font-weight: 700;
   background: linear-gradient(135deg, var(--accent), var(--purple));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   margin-right: 8px;
@@ -164,6 +165,7 @@ body {
   display: flex;
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 /* ── Node Palette (Left Sidebar) ─────────────────────────────── */
@@ -455,16 +457,25 @@ body {
 
 /* ── Property Panel (Right Sidebar) ──────────────────────────── */
 .property-panel {
+  position: absolute;
+  top: 0;
+  right: -320px;
   width: var(--panel-width);
+  height: 100%;
   background: var(--bg-surface);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
+  z-index: 200;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -4px 0 20px rgba(0,0,0,0.5);
 }
 
-.property-panel.collapsed { width: 0; border: none; }
+.property-panel.show-panel { 
+  right: 0; 
+}
 
 .panel-header {
   display: flex;
