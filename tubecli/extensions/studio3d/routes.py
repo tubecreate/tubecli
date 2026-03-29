@@ -212,6 +212,7 @@ class QuickTeamRequest(BaseModel):
     description: str
     provider: str
     model: str
+    skill_ids: List[str] = []
 
 
 @router.post("/quick-team")
@@ -236,11 +237,14 @@ async def quick_create_team(req: QuickTeamRequest):
         lead_role_id = None
 
         for i, ag in enumerate(agents_data):
-            agent = agent_manager.create(
+            create_kwargs = dict(
                 name=ag.get("name", f"Agent {i+1}"),
                 description=ag.get("description", ""),
                 system_prompt=ag.get("system_prompt", "You are a helpful assistant."),
             )
+            if req.skill_ids:
+                create_kwargs["allowed_skills"] = req.skill_ids
+            agent = agent_manager.create(**create_kwargs)
             created_agents.append(agent)
             if ag.get("is_lead"):
                 lead_agent_id = agent.id
