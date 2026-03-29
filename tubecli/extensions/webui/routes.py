@@ -84,6 +84,26 @@ async def auth_manager_page():
     return {"error": "Auth Manager page not found"}
 
 
+@router.get("/video-editor")
+async def video_editor_page():
+    """Serve the Video Editor page."""
+    from tubecli.config import DATA_DIR
+    editor_file = os.path.join(DATA_DIR, "extensions_external", "video_editor", "static", "editor.html")
+    if os.path.exists(editor_file):
+        return FileResponse(editor_file)
+    return {"error": "Video Editor page not found"}
+
+
+@router.get("/video-editor-static/{filename:path}")
+async def serve_video_editor_static(filename: str):
+    """Serve Video Editor static files (JS, CSS)."""
+    from tubecli.config import DATA_DIR
+    filepath = os.path.join(DATA_DIR, "extensions_external", "video_editor", "static", filename)
+    if os.path.exists(filepath):
+        return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""
@@ -91,3 +111,4 @@ async def serve_static(filename: str):
     if os.path.exists(filepath):
         return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
+
