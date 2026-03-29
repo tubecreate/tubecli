@@ -83,7 +83,7 @@
             display: flex; align-items: center; justify-content: space-between;
             height: 64px;
         }
-        nav .logo { font-weight: 800; font-size: 1.3rem; background: var(--gradient-main); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        nav .logo { font-weight: 800; font-size: 1.3rem; background: var(--gradient-main); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
         nav .nav-links { display: flex; gap: 28px; }
         nav .nav-links a {
             color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;
@@ -118,7 +118,7 @@
         .hero h1 {
             font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; line-height: 1.1;
             background: linear-gradient(135deg, #fff, #00d4ff, #a855f7);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
             margin-bottom: 20px;
         }
         .hero p { font-size: 1.15rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto 40px; }
@@ -370,6 +370,7 @@
                     <a href="#browser">🌐 Browser</a>
                     <a href="#teams">👥 Teams</a>
                     <a href="#studio3d">🏢 3D Studio</a>
+                    <a href="#story">🎬 Story Engine</a>
                     <a href="#workflow">🔄 Workflow</a>
                     <a href="#dashboard">🎨 Dashboard</a>
                     <a href="#market">🛒 Market</a>
@@ -387,9 +388,9 @@
 <!-- ═══ Hero ═══ -->
 <section class="hero">
     <div class="container">
-        <div class="badge"><span class="dot"></span> Open Source • v0.2.0</div>
+        <div class="badge"><span class="dot"></span> Open Source • v0.3.0</div>
         <h1>AI Agent CLI System</h1>
-        <p>Quản lý AI agents, skills, workflows, browser profiles và extensions từ command line. Hệ thống extension mở rộng với Web Dashboard, Marketplace, Browser Automation với Auto-Login và AI Session.</p>
+        <p>Hệ thống lõi mở rộng quản lý AI Agents, Workflow Builder, Teams 3D Studio, Story Engine và Browser Automation. Tự động hóa tác vụ với giao diện web thời gian thực.</p>
         <div class="hero-actions">
             <a href="#install" class="btn-primary">🚀 Bắt đầu</a>
             <a href="#architecture" class="btn-secondary">📖 Kiến trúc</a>
@@ -460,11 +461,17 @@
                 <h3>3D Studio</h3>
                 <p>Văn phòng 3D isometric (Three.js) với nhân vật Roblox-style. 15+ asset types (bàn, ghế, đèn...). Scene management cho từng team. Fullscreen mode.</p>
             </div>
-            <div class="arch-card full fade-in">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎬</div>
+                <h3>Story Engine</h3>
+                <p>Kể chuyện 3D với Script Editor tự động sinh hội thoại. Phát kịch bản trực quan qua 3D Story Player với bong bóng thoại (Speech Bubbles).</p>
+            </div>
+            <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">📖</div>
-                <h3>AI Documentation (.agents/skills/SKILL.md)</h3>
-                <p>Tài liệu viết dưới dạng SKILL.md để AI agents (Gemini, Claude, GPT) có thể đọc và tự vận hành toàn bộ hệ thống mà không cần hướng dẫn của người dùng.</p>
+                <h3>AI Documentation (.agents)</h3>
+                <p>Tài liệu SKILL.md để External AI (Gemini, GPT) đọc hiểu kiến trúc và tự vận hành, viết code plugin mở rộng cho hệ thống không cần con người.</p>
             </div>
         </div>
     </div>
@@ -591,6 +598,21 @@
             <div class="label" style="background: rgba(59,130,246,0.1); color: var(--accent-blue);">CÁCH THỨC</div>
             <h2>Workflow Engine</h2>
             <p>Luồng xử lý DAG: nodes kết nối qua ports, thực thi theo thứ tự topological</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💻</div>
+                <h3>Modern Node Builder</h3>
+                <p>Giao diện WebUI Workflow Builder thiết kế theo dạng compact node tiết kiệm không gian. Hỗ trợ hiển thị trạng thái thực thi (running, success, error) real-time trực tiếp trên node.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎛️</div>
+                <h3>Sliding Property Panel</h3>
+                <p>Chỉnh sửa tham số cấu hình của node một cách tiện lợi thông qua bảng điều khiển trượt từ bên phải (không che khuất sơ đồ). Thay đổi model AI linh hoạt (Ollama local / Cloud API) ngay trong Node AI.</p>
+            </div>
         </div>
 
         <div class="workflow-visual fade-in">
@@ -737,8 +759,24 @@
         <div class="section-header fade-in">
             <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">BUILT-IN</div>
             <h2>6 Skills Mặc Định</h2>
-            <p>Cài sẵn khi chạy <code style="background: var(--bg-card); padding: 2px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">tubecli init</code></p>
+            <p>Bắt đầu với các template quy trình chuẩn mực - hỗ trợ Markdown Viewer & Real-time Execution</p>
         </div>
+        
+        <div class="arch-grid" style="margin-bottom: 32px;">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🗂️</div>
+                <h3>Skill Classification</h3>
+                <p>Các Skill được gắn mác trực quan bằng badges: <span style="background: rgba(34,197,94,0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">Workflow</span> <span style="background: rgba(168,85,247,0.15); color: #a855f7; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">Markdown</span> <span style="background: rgba(0,212,255,0.15); color: #00d4ff; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">API</span> giúp dễ dàng phân loại công cụ tự động hóa, tài liệu học sâu của hệ thống, và các lệnh gọi hàm.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">⚡</div>
+                <h3>Visual Run & Inspect</h3>
+                <p>Modal <strong>Markdown Viewer</strong> cho phép xem nhanh source code / hướng dẫn của một Skill mà không cần mở file. Modal <strong>Run Skill</strong> giúp chạy và theo dõi Input/Output theo từng bước với real-time log stream.</p>
+            </div>
+        </div>
+
         <div class="skills-grid">
             <div class="skill-card fade-in">
                 <div class="skill-icon">🧠</div>
@@ -912,8 +950,8 @@
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">📊</div>
-                <h3>Org Chart</h3>
-                <p>Sơ đồ tổ chức phân cấp: mỗi role có emoji, layer, description. Drag-drop gán agent vào role. Hỗ trợ multi-layer hierarchy (CEO → Manager → Staff).</p>
+                <h3>Org Chart & Multi-seat</h3>
+                <p>Sơ đồ tổ chức phân cấp kéo thả. Hỗ trợ <strong>multi-seat assignment</strong>: 1 bàn họp lớn có thể gán cho nhiều agent cùng làm việc với thuật toán đối diện thông minh.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
@@ -994,8 +1032,8 @@
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
                 <div class="icon">🪑</div>
-                <h3>15+ Asset Types</h3>
-                <p>Đồ nội thất: bàn, ghế, sofa, tủ sách, bảng trắng, màn hình. Trang trí: chậu cây, đèn lồng, cột đỏ. Kết cấu: tường, sàn, cửa.</p>
+                <h3>Procedural Assets & Raycasting</h3>
+                <p>Hơn 15+ nhóm đồ nội thất được tạo bằng Procedural Composite Geometry (bàn, ghế, hòn non bộ...). Hỗ trợ Group Raycasting giúp nhấn và chọn kéo thả toàn bộ group dễ dàng.</p>
             </div>
             <div class="arch-card fade-in">
                 <div class="glow-line"></div>
@@ -1015,6 +1053,44 @@
                 <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Xóa scene</td></tr>
             </tbody>
         </table>
+    </div>
+</section>
+
+<!-- ═══ Story Engine ═══ -->
+<section id="story">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">STORY ENGINE</div>
+            <h2>AI Interactive Story Generation</h2>
+            <p>Hệ thống tự động hóa kể chuyện và diễn hoạt kịch bản 3D bằng Speech Bubbles</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">✍️</div>
+                <h3>AI Script Editor</h3>
+                <p>Tạo kịch bản tự động! Dựa trên prompt nội dung của bạn, AI sẽ tự phân vai, viết lời thoại chi tiết cho từng nhân vật (agent) trong team của bạn.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💬</div>
+                <h3>Speech Bubbles</h3>
+                <p>Nhân vật Agent trong không gian 3D giao tiếp thông qua hệ thống bóng thoại (speech bubbles) lơ lửng trên đầu, đồng bộ hóa thời gian đọc nội dung thực tế.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎬</div>
+                <h3>3D Story Player</h3>
+                <p>Phát lại kịch bản giống như một video trực quan tại 3D Office của từng Team. Nhân vật tự động quay mặt và nói chuyện sinh động.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💾</div>
+                <h3>Save & Export</h3>
+                <p>Lưu giữ kịch bản dưới định dạng chuỗi sự kiện. Dễ dàng export và chia sẻ đoạn hội thoại do AI sinh ra.</p>
+            </div>
+        </div>
     </div>
 </section>
 
@@ -1141,7 +1217,7 @@
 <!-- ═══ Footer ═══ -->
 <footer>
     <div class="container">
-        <p>⚡ <strong>TubeCLI</strong> v0.2.0 — Open Source AI Agent CLI System</p>
+        <p>⚡ <strong>TubeCLI</strong> v0.3.0 — Open Source AI Agent CLI System</p>
         <p style="margin-top: 8px;">
             <a href="https://github.com/tubecreate/tubecli">GitHub</a> &nbsp;·&nbsp;
             MIT License &nbsp;·&nbsp;
