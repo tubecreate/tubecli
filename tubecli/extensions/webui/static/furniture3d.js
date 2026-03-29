@@ -256,6 +256,49 @@ function buildHQWhiteboard(g, def) {
     });
 }
 
+// ── Partitions / Low Walls ───────────────────────────────
+function buildHQLowWall(g, def) {
+    const w = def.size[0] || 2.0;
+    const h = def.size[1] || 1.2;
+    const d = def.size[2] || 0.15;
+    const color = def.color || '#a0a5b5';
+    
+    // Main solid wall body
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _fm(color, { r: 0.9 }));
+    wall.position.y = h / 2;
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    g.add(wall);
+    
+    // Outer protective rim (slightly wider and darker)
+    const rimMat = _fm('#7f869a', { r: 0.6, m: 0.2 });
+    const rim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.04, d + 0.04), rimMat);
+    rim.position.y = h + 0.02;
+    g.add(rim);
+
+    // If it is a glass partition, add glass on top
+    if (def.id && def.id.includes('glass')) {
+        const gh = 0.4; // 40cm height for glass
+        const glassMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.3, roughness: 0.1 });
+        const glass = new THREE.Mesh(new THREE.BoxGeometry(w, gh, 0.03), glassMat);
+        glass.position.y = h + 0.04 + gh / 2;
+        g.add(glass);
+        
+        // Aluminum top frame for the glass
+        const alumMat = _fm('#cccccc', { r: 0.2, m: 0.8 });
+        const alumTop = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, 0.04), alumMat);
+        alumTop.position.y = h + 0.04 + gh + 0.01;
+        g.add(alumTop);
+        // Aluminum side frames
+        const alumSideL = new THREE.Mesh(new THREE.BoxGeometry(0.02, gh, 0.04), alumMat);
+        alumSideL.position.set(-w / 2 + 0.01, h + 0.04 + gh / 2, 0);
+        g.add(alumSideL);
+        const alumSideR = alumSideL.clone();
+        alumSideR.position.x = w / 2 - 0.01;
+        g.add(alumSideR);
+    }
+}
+
 // ── Lantern ──────────────────────────────────────────────
 function buildHQLantern(g, def) {
     const red = _fm(def.color || '#cc3333', { r: 0.6 });
@@ -886,6 +929,10 @@ const HQ_BUILDERS = {
     bar_counter: buildHQBarCounter,
     coffee_machine: buildHQCoffeeMachine,
     pool_table: buildHQPoolTable,
+    wall_partition_solid: buildHQLowWall,
+    wall_partition_glass: buildHQLowWall,
+    wall_partition_1m: buildHQLowWall,
+    wall_partition_glass_1m: buildHQLowWall,
 };
 
 /**

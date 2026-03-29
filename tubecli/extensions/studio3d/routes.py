@@ -56,6 +56,14 @@ ASSET_CATALOG = [
     # ── Structures ──
     {"id": "wall_segment", "name": "Tường", "category": "structure", "emoji": "🧱",
      "mesh": "box", "size": [2.0, 3.5, 0.15], "color": "#c8bca8", "yOffset": 1.75},
+    {"id": "wall_partition_solid", "name": "Vách ngăn 2m", "category": "structure", "emoji": "🚧",
+     "mesh": "box", "size": [2.0, 1.2, 0.15], "color": "#a0a5b5", "yOffset": 0.6},
+    {"id": "wall_partition_glass", "name": "Vách kính 2m", "category": "structure", "emoji": "🪟",
+     "mesh": "box", "size": [2.0, 1.2, 0.15], "color": "#a0a5b5", "yOffset": 0.6},
+    {"id": "wall_partition_1m", "name": "Vách ngăn 1m", "category": "structure", "emoji": "🚧",
+     "mesh": "box", "size": [1.0, 1.2, 0.15], "color": "#a0a5b5", "yOffset": 0.6},
+    {"id": "wall_partition_glass_1m", "name": "Vách kính 1m", "category": "structure", "emoji": "🪟",
+     "mesh": "box", "size": [1.0, 1.2, 0.15], "color": "#a0a5b5", "yOffset": 0.6},
     {"id": "floor_tile", "name": "Ô sàn", "category": "structure", "emoji": "⬜",
      "mesh": "box", "size": [2.0, 0.1, 2.0], "color": "#d4c8b0", "yOffset": 0.05},
     {"id": "door_frame", "name": "Cửa ra vào", "category": "structure", "emoji": "🚪",
@@ -152,3 +160,47 @@ async def delete_scene(team_id: str):
         del scenes[team_id]
         _save_scenes(scenes)
     return {"ok": True}
+
+
+class GenerateLayoutRequest(BaseModel):
+    team_id: str
+    prompt: str
+    room_width: float
+    room_depth: float
+    provider: str
+    model: str
+
+
+@router.post("/generate")
+async def generate_layout(req: GenerateLayoutRequest):
+    """Generate a 3D studio layout using AI."""
+    from tubecli.extensions.multi_agents.extension import orchestrator
+    from tubecli.core.agent import agent_manager
+    from tubecli.extensions.studio3d.ai_builder import generate_studio_json
+
+    team_obj = orchestrator.get_team(req.team_id)
+    if not team_obj:
+        raise HTTPException(404, "Team not found")
+
+    team = team_obj.to_dict()
+
+    # Get team agents
+    nodes = team.get("nodes", [])
+    agent_ids = [n.get("agent_id") for n in nodes if n.get("agent_id")]
+    
+    all_agents = agent_manager.get_all()
+    team_agents = [ag.to_dict() for ag in all_agents if ag.id in agent_ids]
+
+    try:
+        data = generate_studio_json(
+            prompt=req.prompt,
+            team_agents=team_agents,
+            room_width=req.room_width,
+            room_depth=req.room_depth,
+            provider=req.provider,
+            model=req.model
+        )
+        return {"ok": True, "result": data}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+

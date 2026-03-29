@@ -135,6 +135,7 @@
             <button class="tb-btn" id="tool-rotate" onclick="setTool('rotate')">🔄 Xoay</button>
             <button class="tb-btn" id="tool-delete" onclick="setTool('delete')">🗑️ Xóa</button>
             <div style="flex:1"></div>
+            <button class="tb-btn" onclick="openAIGenerateModal()" style="background:rgba(99,102,241,0.1); border-color:var(--accent); color:var(--text); margin-right:8px;">🪄 Tạo bằng AI</button>
             <button class="tb-btn" onclick="clearScene()">🧹 Xóa hết</button>
             <button class="tb-btn" onclick="saveScene()" style="background:var(--accent); color:#fff; border-color:var(--accent);">💾 Lưu</button>
         </div>
@@ -153,6 +154,43 @@
 <div id="desk-agent-popup" class="desk-agent-popup">
     <div class="desk-agent-popup-header">🤖 Gán agent cho bàn này</div>
     <div id="desk-agent-popup-list" class="desk-agent-popup-list"></div>
+</div>
+
+<!-- AI Generate Modal -->
+<div class="modal-overlay" id="ai-generate-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
+  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:500px; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--card-border); padding-bottom:12px;">
+      <h3 style="margin:0; font-size:16px;">✨ Tạo Phòng làm việc bằng AI</h3>
+      <button onclick="closeAIGenerateModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Nhập prompt mô tả phòng</label>
+      <textarea id="ai-prompt-input" rows="4" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" placeholder="Ví dụ: Tạo phòng làm việc hiện đại cho team này, xếp bàn thành hình chữ U, có nhiểu cây xanh và tủ sách..."></textarea>
+    </div>
+    <div style="display:flex; gap:12px; margin-bottom:16px;">
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">AI Provider</label>
+        <select id="ai-provider-select" onchange="onAiProviderChange()" style="width:100%; padding:8px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); outline:none;">
+          <option value="gemini">🔷 Gemini</option>
+          <option value="ollama">🤖 Ollama (Local)</option>
+          <option value="chatgpt">🟢 ChatGPT</option>
+          <option value="claude">🟠 Claude</option>
+        </select>
+      </div>
+      <div style="flex:1;">
+        <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Model</label>
+        <input id="ai-model-input" type="text" value="gemini-2.5-flash" style="width:100%; padding:8px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); outline:none;">
+      </div>
+    </div>
+    <div id="ai-gen-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent); font-size:13px;">
+      <span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Đang phân tích team và thiết kế 3D...
+    </div>
+    <style>@keyframes spin { 100% { transform:rotate(360deg); } }</style>
+    <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
+      <button onclick="closeAIGenerateModal()" class="tb-btn">Hủy</button>
+      <button id="btn-ai-generate" onclick="submitAiGenerate()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">🪄 Tạo tự động</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -208,6 +246,10 @@ const BUILTIN_ASSETS = [
     {id:"monitor",name:"Màn hình",category:"decoration",emoji:"🖥️",mesh:"box",size:[0.7,0.5,0.04],color:"#1a1a2e",yOffset:1.05},
     {id:"pillar_red",name:"Cột đỏ",category:"decoration",emoji:"🔴",mesh:"cylinder",size:[0.18,3.5,0.18],color:"#c9302c",yOffset:1.75},
     {id:"wall_segment",name:"Tường",category:"structure",emoji:"🧱",mesh:"box",size:[2.0,3.5,0.15],color:"#c8bca8",yOffset:1.75},
+    {id:"wall_partition_solid",name:"Vách ngăn 2m",category:"structure",emoji:"🚧",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_glass",name:"Vách kính 2m",category:"structure",emoji:"🪟",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_1m",name:"Vách ngăn 1m",category:"structure",emoji:"🚧",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"wall_partition_glass_1m",name:"Vách kính 1m",category:"structure",emoji:"🪟",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"floor_tile",name:"Ô sàn",category:"structure",emoji:"⬜",mesh:"box",size:[2.0,0.1,2.0],color:"#d4c8b0",yOffset:0.05},
     {id:"door_frame",name:"Cửa ra vào",category:"structure",emoji:"🚪",mesh:"box",size:[1.0,2.5,0.15],color:"#5c3a1e",yOffset:1.25},
     {id:"chair_classic",name:"Ghế cổ điển",category:"furniture",emoji:"🪑",mesh:"box",size:[0.44,0.04,0.44],color:"#5c3a1e",yOffset:0.45},
@@ -798,6 +840,79 @@ function assignAgentToDesk(placedId, agentId) {
 // ── Utils ──
 function setStatus(msg) { document.getElementById('status-text').textContent = msg; }
 
+// ── AI Auto-Build ──
+function openAIGenerateModal() {
+    if (!currentTeamId) {
+        toast('⚠️ Vui lòng chọn Team trước khi dùng AI!', 'error');
+        return;
+    }
+    document.getElementById('ai-generate-modal').style.display = 'flex';
+}
+
+function closeAIGenerateModal() {
+    document.getElementById('ai-generate-modal').style.display = 'none';
+    document.getElementById('ai-gen-status').style.display = 'none';
+    document.getElementById('btn-ai-generate').disabled = false;
+    document.getElementById('btn-ai-generate').style.opacity = '1';
+}
+
+function onAiProviderChange() {
+    const p = document.getElementById('ai-provider-select').value;
+    const m = document.getElementById('ai-model-input');
+    if (p === 'gemini') m.value = 'gemini-2.5-flash';
+    else if (p === 'ollama') m.value = 'qwen:latest';
+    else if (p === 'chatgpt') m.value = 'gpt-4o-mini';
+    else if (p === 'claude') m.value = 'claude-3-haiku-20240307';
+}
+
+async function submitAiGenerate() {
+    const prompt = document.getElementById('ai-prompt-input').value.trim();
+    if (!prompt) { toast('Bạn chưa nhập mô tả!', 'error'); return; }
+    
+    document.getElementById('btn-ai-generate').disabled = true;
+    document.getElementById('btn-ai-generate').style.opacity = '0.5';
+    document.getElementById('ai-gen-status').style.display = 'block';
+    
+    try {
+        const res = await fetch(`${API}/studio3d/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                team_id: currentTeamId,
+                prompt: prompt,
+                room_width: roomW,
+                room_depth: roomD,
+                provider: document.getElementById('ai-provider-select').value,
+                model: document.getElementById('ai-model-input').value
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Lỗi API');
+        
+        // Success
+        const layout = data.result;
+        if (layout.room_resize) {
+            document.getElementById('room-width').value = layout.room_resize.room_width || roomW;
+            document.getElementById('room-depth').value = layout.room_resize.room_depth || roomD;
+            resizeRoom();
+        }
+        
+        clearAllMeshes(); // Clear old room
+        (layout.assets || []).forEach(a => {
+            addPlacedAsset(a.asset_id, a.x, a.z, a.rotation || 0, 1, false, a.agent_id || '');
+        });
+        updatePlacedList();
+        
+        closeAIGenerateModal();
+        toast('✨ Đã thiết kế xong phòng bằng AI!', 'success');
+        saveScene(); // Auto-save after generate
+    } catch (e) {
+        toast('Lỗi tạo bằng AI: ' + e.message, 'error');
+        document.getElementById('ai-gen-status').style.display = 'none';
+        document.getElementById('btn-ai-generate').disabled = false;
+        document.getElementById('btn-ai-generate').style.opacity = '1';
+    }
+}
 function toast(msg, type = 'success') {
     const container = document.getElementById('toast-container');
     const el = document.createElement('div');
