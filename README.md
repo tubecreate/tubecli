@@ -27,9 +27,9 @@
 
 A headless CLI system for installing, managing, and orchestrating **AI agents**, **skills**, and **workflows**. Designed so that AI agents can understand, install, and operate the entire system autonomously.
 
-![3D Studio UI](screenshots/studio3d.webp)
+![3D Studio Office Builder](screenshots/studio3d_builder.png)
 <br>
-![Workflow Canvas UI](screenshots/workflow.png)
+![3D Studio Agent Teams](screenshots/studio3d_teams.png)
 
 ## 🌟 Key Features
 
