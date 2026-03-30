@@ -15,6 +15,9 @@ def load_language(lang: str):
     if lang == "vi":
         from tubecli.i18n import vi
         _TRANSLATIONS = dict(vi.MESSAGES)
+    elif lang == "zh":
+        from tubecli.i18n import zh
+        _TRANSLATIONS = dict(zh.MESSAGES)
     else:
         from tubecli.i18n import en
         _TRANSLATIONS = dict(en.MESSAGES)

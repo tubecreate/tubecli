@@ -27,7 +27,7 @@ PORT_SETTINGS_FILE = DATA_DIR / "api_port.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
 # ── Supported Languages ─────────────────────────────────────────
-SUPPORTED_LANGUAGES = ["vi", "en"]
+SUPPORTED_LANGUAGES = ["zh", "vi", "en"]
 DEFAULT_LANGUAGE = "en"
 
 
