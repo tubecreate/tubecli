@@ -427,6 +427,22 @@ const WF = (() => {
         { name: 'mode', label: 'Mode', type: 'select', default: 'append', options: ['append', 'combine', 'join'] },
         { name: 'join_key', label: 'Join Key (for join mode)', type: 'text', default: '' },
       ],
+      'video_processing': [
+        { name: 'operation', label: 'Operation', type: 'select', default: 'trim', options: [
+          'trim', 'trim_reencode',
+          'grayscale', 'sepia', 'blur', 'sharpen', 'negative', 'vintage', 'vignette',
+          'speed_2x', 'speed_05x', 'rotate_90', 'rotate_180', 'flip_h', 'flip_v',
+          'resize_720p', 'resize_1080p', 'resize_480p',
+          'extract_audio', 'remove_audio', 'add_audio',
+          'merge_concat', 'overlay_text', 'overlay_image',
+          'convert_mp4', 'convert_webm', 'convert_gif',
+          'export_high', 'export_medium', 'export_fast',
+          'fade_in_out', 'stabilize', 'reverse', 'thumbnail',
+          'custom',
+        ]},
+        { name: 'command', label: 'FFmpeg Command (auto-filled)', type: 'textarea', default: '-i {input} -ss {start_time} -to {end_time} -c copy -avoid_negative_ts make_zero {output}' },
+        { name: 'output_suffix', label: 'Output Suffix', type: 'text', default: '_processed' },
+      ],
     };
     return fields[type] || [];
   }

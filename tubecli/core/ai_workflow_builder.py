@@ -105,7 +105,7 @@ def build_system_prompt(available_nodes: list) -> str:
     prompt += "6. LANGUAGE: Node labels should match the user's language.\n"
     prompt += "7. UNIQUE IDs: Each node must have a unique `id` string.\n"
     prompt += "8. PREFER NATIVE NODES: Use built-in nodes over python_code when possible.\n"
-    prompt += "9. For loops/batches: connect a data source to `loop` node's `items` input, then use `current_item` output.\n"
+    prompt += "9. For loops/batches: connect a data source to `loop` node's `items` input, then use `current_item` output. The `items` port MUST receive a FLAT LIST (not a dict).\n"
     prompt += "10. GOOGLE SHEETS: ALWAYS use `google_auth` node + `google_sheets` node together (NOT python_code).\n"
     prompt += "    - Connect google_auth `credentials` port → google_sheets `credentials` port.\n"
     prompt += "    - Set google_sheets config: action='append'|'write'|'read', spreadsheet_id='auto' (creates new sheet), title='My Data'.\n"
@@ -113,6 +113,14 @@ def build_system_prompt(available_nodes: list) -> str:
     prompt += "11. DATA FORMAT: python_code result for Google Sheets must be a 2D array (list of lists). First row = headers.\n"
     prompt += "    Example: result = [['Title', 'URL', 'Views'], ['Video 1', 'https://...', '1000']]\n"
     prompt += "12. google_auth node auto-uses saved OAuth credentials (no config needed). Just add it to the workflow.\n"
+    prompt += "\n## VIDEO PROCESSING (MUST USE for video tasks)\n\n"
+    prompt += "For ANY video processing task, ALWAYS use the `video_processing` node (NOT python_code + run_command).\n"
+    prompt += "- Ports: input_file (FILE), input_files (TEXT, comma-separated), audio_file (TEXT), start_time (TEXT), end_time (TEXT), text (TEXT) → output_file (FILE), status (TEXT)\n"
+    prompt += "- Config `operation`: choose one of: trim, grayscale, sepia, blur, sharpen, negative, vintage, vignette, speed_2x, speed_05x, rotate_90, rotate_180, flip_h, flip_v, resize_720p, resize_1080p, resize_480p, extract_audio, remove_audio, add_audio, merge_concat, overlay_text, convert_mp4, convert_webm, convert_gif, export_high, export_medium, export_fast, fade_in_out, stabilize, reverse, thumbnail, custom\n"
+    prompt += "- Config `command`: auto-filled by operation. Can be customized for 'custom' operation.\n"
+    prompt += "- Config `output_suffix`: suffix added to output filename (default: '_processed').\n"
+    prompt += "- For batch video: use python_code to list files (result = [path1, path2, ...] as FLAT list), connect to loop `items`, connect loop `current_item` → video_processing `input_file`.\n"
+    prompt += "- Example: To flip all videos: text_input(folder) → python_code(list files) → loop → video_processing(operation='flip_h')\n"
 
     return prompt
 
@@ -397,6 +405,7 @@ def _build_port_defs() -> dict:
         "if_node":         {"inputs": ["data"],                                  "outputs": ["true_output", "false_output"]},
         "switch_node":     {"inputs": ["data"],                                  "outputs": ["output_0", "output_1", "output_2", "output_3"]},
         "merge_node":      {"inputs": ["input_1", "input_2"],                    "outputs": ["merged"]},
+        "video_processing": {"inputs": ["input_file", "input_files", "audio_file", "start_time", "end_time", "text"], "outputs": ["output_file", "status"]},
     }
 
 
