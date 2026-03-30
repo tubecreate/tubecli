@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>3D Story Engine — TubeCLI</title>
+<title data-i18n="story.title_doc">3D Story Engine — ZhiYing</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -335,18 +335,18 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <!-- ── Header ──────────────────────────────────────────── -->
     <header class="story-header">
-        <span class="story-logo">🎬 Story</span>
-        <input id="se-title" placeholder="Tên kịch bản...">
+        <span class="story-logo" data-i18n="story.app_title">🎬 Story</span>
+        <input id="se-title" data-i18n-placeholder="story.placeholder_name" placeholder="Tên kịch bản...">
 
         <!-- Team picker -->
         <select id="se-team-sel" class="speed-sel" style="width:160px;max-width:160px" onchange="doSelectTeam(this.value)">
-            <option value="">-- Chọn Team --</option>
+            <option value="" data-i18n="story.sel_team">-- Chọn Team --</option>
         </select>
 
         <!-- Playback -->
-        <button class="hbtn hbtn-play"  id="btn-play"  onclick="doPlay()">▶ Play</button>
-        <button class="hbtn hbtn-pause" id="btn-pause" onclick="doPause()" style="display:none">⏸ Pause</button>
-        <button class="hbtn hbtn-stop"  onclick="doStop()">■ Stop</button>
+        <button class="hbtn hbtn-play"  id="btn-play"  onclick="doPlay()" data-i18n="story.btn_play">▶ Play</button>
+        <button class="hbtn hbtn-pause" id="btn-pause" onclick="doPause()" style="display:none" data-i18n="story.btn_pause">⏸ Pause</button>
+        <button class="hbtn hbtn-stop"  onclick="doStop()" data-i18n="story.btn_stop">■ Stop</button>
         <select class="speed-sel" onchange="storyPlayer.setSpeed(parseFloat(this.value))">
             <option value="0.5">0.5×</option>
             <option value="1" selected>1×</option>
@@ -357,10 +357,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
         <!-- File operations -->
         <div class="btn-group">
-            <button class="hbtn hbtn-new"  onclick="doNew()">＋ Mới</button>
-            <button class="hbtn hbtn-load" onclick="doLoad()">📂 Tải</button>
-            <button class="hbtn hbtn-save" onclick="storyEditor.save()">💾 Lưu</button>
-            <button class="hbtn hbtn-ai"   id="btn-ai-gen" onclick="doAIGenerate()">🤖 AI Generate</button>
+            <button class="hbtn hbtn-new"  onclick="doNew()" data-i18n="story.btn_new">＋ Mới</button>
+            <button class="hbtn hbtn-load" onclick="doLoad()" data-i18n="story.btn_load">📂 Tải</button>
+            <button class="hbtn hbtn-save" onclick="storyEditor.save()" data-i18n="story.btn_save">💾 Lưu</button>
+            <button class="hbtn hbtn-ai"   id="btn-ai-gen" onclick="doAIGenerate()" data-i18n="story.btn_ai">🤖 AI Generate</button>
         </div>
     </header>
 
@@ -368,27 +368,27 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <aside class="story-sidebar">
         <!-- Current team info -->
         <div class="sidebar-section" id="se-team-info" style="display:none">
-            <div class="sidebar-title">🏛️ Team đang dùng</div>
+            <div class="sidebar-title" data-i18n="story.sidebar_team">🏛️ Team đang dùng</div>
             <div id="se-team-badge" style="font-size:13px;font-weight:600;color:var(--accent)"></div>
             <div id="se-team-agents-count" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
         </div>
 
         <!-- Actors -->
         <div class="sidebar-section">
-            <div class="sidebar-title">👤 Nhân vật (từ team)</div>
-            <div id="se-actors"><span style="color:var(--muted);font-size:12px">Chọn Team ở trên để load nhân vật</span></div>
+            <div class="sidebar-title" data-i18n="story.sidebar_actors">👤 Nhân vật (từ team)</div>
+            <div id="se-actors"><span style="color:var(--muted);font-size:12px" data-i18n="story.actors_empty">Chọn Team ở trên để load nhân vật</span></div>
         </div>
 
         <!-- Waypoints -->
         <div class="sidebar-section">
-            <div class="sidebar-title">📍 Vị trí</div>
+            <div class="sidebar-title" data-i18n="story.sidebar_waypoints">📍 Vị trí</div>
             <div id="se-waypoints"></div>
         </div>
 
         <!-- Saved scripts -->
         <div class="sidebar-section" style="flex:1">
-            <div class="sidebar-title">📁 Kịch bản đã lưu</div>
-            <div id="se-scripts-list"><span style="color:var(--muted);font-size:12px">Chưa có</span></div>
+            <div class="sidebar-title" data-i18n="story.sidebar_saved">📁 Kịch bản đã lưu</div>
+            <div id="se-scripts-list"><span style="color:var(--muted);font-size:12px" data-i18n="story.saved_empty">Chưa có</span></div>
         </div>
 
         <div id="se-status"></div>
@@ -403,10 +403,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     <!-- ── Timeline Editor ─────────────────────────────────── -->
     <section class="story-timeline">
         <div class="timeline-toolbar">
-            <span>⏱ Timeline</span>
-            <button class="se-btn-icon" id="btn-zoom-out" title="Thu nhỏ">−</button>
-            <button class="se-btn-icon" id="btn-zoom-in"  title="Phóng to">＋</button>
-            <span style="margin-left:auto;font-size:11px;color:var(--muted)">Click vào track để thêm event · Kéo event để đổi thời gian</span>
+            <span data-i18n="story.timeline_title">⏱ Timeline</span>
+            <button class="se-btn-icon" id="btn-zoom-out" data-i18n-title="story.zoom_out" title="Thu nhỏ">−</button>
+            <button class="se-btn-icon" id="btn-zoom-in"  data-i18n-title="story.zoom_in" title="Phóng to">＋</button>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted)" data-i18n="story.timeline_hint">Click vào track để thêm event · Kéo event để đổi thời gian</span>
         </div>
         <div style="position:relative;flex:1;overflow:auto;">
             <div id="se-playhead"></div>
@@ -421,10 +421,11 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="/static/furniture3d.js?v=20260327"></script>
 
-<!-- ── TubeCLI 3D office engine ────────────────────────── -->
+<!-- ── ZhiYing 3D office engine ────────────────────────── -->
 <script src="/static/teams3d.js"></script>
 
 <!-- ── Story Engine modules ─────────────────────────────── -->
+<script src="/static/i18n.js"></script>
 <script src="/static/story_bubbles.js"></script>
 <script src="/static/story_player.js"></script>
 <script src="/static/story_editor.js"></script>
@@ -440,6 +441,7 @@ let currentTeamData = null;
 let CHAR_COLOR_LIST = ['#f43f5e','#22d3ee','#a855f7','#22c55e','#f59e0b','#3b82f6','#ec4899','#14b8a6'];
 
 async function initStoryPage() {
+    await loadI18nFromApi();
     // Load teams + agents in parallel
     const [teamsRes, agentsRes] = await Promise.all([
         fetch('/api/v1/story/teams').then(r=>r.json()).catch(()=>({teams:[]})),
@@ -492,7 +494,7 @@ async function doSelectTeam(teamId) {
     const teamInfo = document.getElementById('se-team-info');
     if (badge) badge.textContent = `🏛️ ${team.name}`;
     const assignedCount = (team.nodes || []).filter(n => n.agent_id).length;
-    if (countEl) countEl.textContent = `${assignedCount} agent được gán · ${(team.nodes||[]).length} vai trò`;
+    if (countEl) countEl.textContent = `${assignedCount} ${T('story.agent_assigned')} · ${(team.nodes||[]).length} ${T('story.roles')}`;
     if (teamInfo) teamInfo.style.display = '';
 
     // Build actors from team nodes (only assigned agents)
@@ -525,7 +527,7 @@ async function doSelectTeam(teamId) {
     // Init/re-init 3D scene with this team's map and agents
     _init3DScene(team, allAgentsGlobal);
 
-    showToast(`🏛️ Đã load team: ${team.name} · ${actors.length} nhân vật`, 'success');
+    showToast(`${T('story.loaded_team', {name: team.name, count: actors.length})}`, 'success');
 }
 
 function _init3DScene(teamData, agents) {
@@ -566,7 +568,7 @@ const raycasterWP = new THREE.Raycaster();
 // ── Playback controls ─────────────────────────────────────
 function doPlay() {
     if (!storyPlayer.script) {
-        showToast('⚠️ Chưa có kịch bản. Tạo mới hoặc tải kịch bản!', 'error');
+        showToast(T('story.err_no_script'), 'error');
         return;
     }
     _tlAutoScroll = true; // Re-enable auto-scroll on Play
@@ -602,7 +604,7 @@ storyPlayer.onTimeUpdate = (cur, dur) => {
 storyPlayer.onFinish = () => {
     document.getElementById('btn-play').style.display = '';
     document.getElementById('btn-pause').style.display = 'none';
-    showToast('✅ Kịch bản kết thúc!', 'success');
+    showToast(T('story.script_finished'), 'success');
 };
 storyPlayer.onEventFired = (evt) => {
     const status = document.getElementById('se-status');
@@ -661,23 +663,23 @@ document.getElementById('se-timeline').addEventListener('click', (e) => {
 
 // ── New / Load / Save / AI ────────────────────────────────
 function doNew() {
-    if (!confirm('Tạo kịch bản mới? Dữ liệu chưa lưu sẽ mất.')) return;
+    if (!confirm(T('story.confirm_new'))) return;
     storyEditor.newScript();
     const titleEl = document.getElementById('se-title');
-    if (titleEl) titleEl.value = 'Kịch bản mới';
+    if (titleEl) titleEl.value = T('story.new_script_title');
 }
 
 async function doLoad() {
     const scripts = await storyEditor.loadList();
     const listHtml = scripts.length === 0
-        ? '<p style="color:var(--muted);font-size:13px">Chưa có kịch bản nào.</p>'
+        ? '<p style="color:var(--muted);font-size:13px">${T('story.no_saved_scripts')}</p>'
         : scripts.map(s => `
             <div class="script-item" onclick="storyEditor.loadScript('${s.id}'); closeModal();">
                 <div class="script-item-title">${s.title}</div>
-                <div class="script-item-meta">${s.actor_count} nhân vật · ${s.event_count} events</div>
+                <div class="script-item-meta">${s.actor_count} ${T('story.actors')} · ${s.event_count} ${T('story.events')}</div>
             </div>
         `).join('');
-    showModal('📂 Tải kịch bản', `<div id="load-script-list">${listHtml}</div>`, null);
+    showModal('📂 ' + T('story.modal_load_title'), `<div id="load-script-list">${listHtml}</div>`, null);
 }
 
 async function doAIGenerate() {
@@ -702,21 +704,21 @@ async function doAIGenerate() {
 
     const noModels = !ollamaOpts && !cloudOpts;
     const defaultOpt = noModels
-        ? '<option value="">Không tìm thấy model nào</option>'
+        ? '<option value="">${T('story.no_models')}</option>'
         : '';
 
-    showModal('🤖 AI Generate Kịch Bản', `
+    showModal('🤖 ' + T('story.modal_ai_title'), `
         <div class="se-form">
-            <label>🧠 Chọn AI Model:</label>
+            <label data-i18n="story.ai_model">🧠 Chọn AI Model:</label>
             <select id="ai-model-select" class="se-input" style="margin-bottom:10px;">
                 ${ollamaOpts ? '<optgroup label="🖥️ Ollama (Local)">' + ollamaOpts + '</optgroup>' : ''}
                 ${cloudOpts ? '<optgroup label="☁️ Cloud AI">' + cloudOpts + '</optgroup>' : ''}
                 ${defaultOpt}
             </select>
-            <label>Mô tả kịch bản:</label>
+            <label data-i18n="story.ai_desc">Mô tả kịch bản:</label>
             <textarea id="ai-prompt-area" class="se-input se-textarea" rows="4"
-                placeholder="VD: Buổi họp sáng thứ hai, team báo cáo công việc tuần, thảo luận kế hoạch..."></textarea>
-            <small style="color:var(--muted)">AI sẽ tạo timeline tự động dựa trên nhân vật và waypoints hiện tại.</small>
+                placeholder="VD: Buổi họp sáng thứ hai..."></textarea>
+            <small style="color:var(--muted)" data-i18n="story.ai_hint">AI sẽ tạo timeline tự động dựa trên nhân vật và waypoints hiện tại.</small>
         </div>
     `, () => {
         const prompt = document.getElementById('ai-prompt-area')?.value?.trim();
@@ -730,9 +732,9 @@ async function doAIGenerate() {
 }
 
 async function _runAIGenerate(prompt, provider, model) {
-    showToast('⏳ Đang tạo kịch bản bằng AI... (có thể mất 30-60 giây)', 'info');
+    showToast(T('story.ai_generating'), 'info');
     const btnAI = document.getElementById('btn-ai-gen');
-    if (btnAI) { btnAI.disabled = true; btnAI.textContent = '⏳ Đang tạo...'; }
+    if (btnAI) { btnAI.disabled = true; btnAI.textContent = T('story.ai_btn_generating'); }
 
     // Auto-inject agent desk waypoints from 3D scene
     const waypoints = [...(storyEditor.script.waypoints || [])];
@@ -786,14 +788,14 @@ async function _runAIGenerate(prompt, provider, model) {
 
             const note = data.note === 'demo_fallback' ? ' (demo fallback)' : '';
             const prov = data.provider ? ` · ${data.provider}/${data.model}` : '';
-            showToast(`✅ Đã tạo kịch bản AI${note}${prov} · ${(s.timeline||[]).length} events`, 'success');
+            showToast(T('story.ai_success', {note, prov, count: (s.timeline||[]).length}), 'success');
         } else {
-            showToast(`❌ Lỗi: ${data.error || 'Không thể tạo kịch bản'}`, 'error');
+            showToast(T('story.ai_error', {err: data.error || T('story.err_cannot_gen')}), 'error');
         }
     } catch(e) {
-        showToast(`❌ Lỗi kết nối: ${e.message}`, 'error');
+        showToast(T('story.err_conn', {msg: e.message}), 'error');
     } finally {
-        if (btnAI) { btnAI.disabled = false; btnAI.textContent = '🤖 AI Generate'; }
+        if (btnAI) { btnAI.disabled = false; btnAI.textContent = T('story.btn_ai'); }
     }
 }
 
@@ -810,7 +812,7 @@ async function refreshScriptsList() {
         listEl.innerHTML = scripts.slice(0, 8).map(s => `
             <div class="script-item" onclick="storyEditor.loadScript('${s.id}')">
                 <div class="script-item-title">${s.title}</div>
-                <div class="script-item-meta">${s.actor_count} nhân vật · ${s.event_count} events</div>
+                <div class="script-item-meta">${s.actor_count} ${T('story.actors')} · ${s.event_count} ${T('story.events')}</div>
             </div>
         `).join('');
     } catch(e) {}

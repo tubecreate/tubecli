@@ -1,0 +1,13 @@
+{
+    "browser.new_profile": "+ New Profile",
+    "browser.no_profiles": "No profiles yet.",
+    "browser.create_profile": "Create Profile",
+    "browser.create_fetch": "Create & Fetch Fingerprint",
+    "browser.creating": "Creating...",
+    "browser.delete_confirm": "Delete",
+    "browser.no_proxy": "No proxy",
+    "form.name": "Name",
+    "form.proxy": "Proxy",
+    "form.os": "OS",
+    "form.browser": "Browser"
+}

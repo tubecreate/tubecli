@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Studio — TubeCLI</title>
+    <title data-i18n="studio.title_doc">3D Studio — ZhiYing</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/teams.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/i18n.js"></script>
     <script src="/static/furniture3d.js?v=20260327"></script>
     <style>
         /* Studio-specific styles */
@@ -95,28 +97,28 @@
     <!-- Left: Asset Palette -->
     <div class="studio-sidebar">
         <div class="sidebar-header">
-            <h2>🎨 3D Studio</h2>
-            <a href="/teams" style="font-size:12px; color:var(--text3);">← Quay lại Teams</a>
+            <h2 data-i18n="studio.title_main">🎨 3D Studio</h2>
+            <a href="/teams" style="font-size:12px; color:var(--text3);" data-i18n="studio.back_teams">← Quay lại Teams</a>
         </div>
 
         <div class="team-select-group">
-            <label>Team đang chỉnh sửa</label>
+            <label data-i18n="studio.team_edit">Team đang chỉnh sửa</label>
             <div style="display:flex; gap:6px; align-items:center;">
                 <select id="team-select" class="input" onchange="onTeamSelect()" style="flex:1;"></select>
-                <button onclick="openQuickTeamModal()" title="Tạo team mới bằng AI" style="width:34px; height:34px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s;" onmouseover="this.style.background='var(--accent)';this.style.color='#fff';" onmouseout="this.style.background='transparent';this.style.color='var(--accent)';">+</button>
+                <button onclick="openQuickTeamModal()" data-i18n-title="studio.btn_new_ai" title="Tạo team mới bằng AI" style="width:34px; height:34px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s;" onmouseover="this.style.background='var(--accent)';this.style.color='#fff';" onmouseout="this.style.background='transparent';this.style.color='var(--accent)';">+</button>
             </div>
         </div>
 
         <div class="team-select-group">
-            <label>📐 Kích thước phòng</label>
+            <label data-i18n="studio.room_size">📐 Kích thước phòng</label>
             <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
-                <span style="font-size:11px;color:var(--text3);min-width:28px;">Rộng</span>
+                <span style="font-size:11px;color:var(--text3);min-width:28px;" data-i18n="studio.width">Rộng</span>
                 <input type="range" id="room-width" min="8" max="60" value="16" step="2"
                        oninput="resizeRoom()" style="flex:1;">
                 <span id="room-w-val" style="font-size:11px;min-width:24px;">16</span>
             </div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:4px;">
-                <span style="font-size:11px;color:var(--text3);min-width:28px;">Dài</span>
+                <span style="font-size:11px;color:var(--text3);min-width:28px;" data-i18n="studio.depth">Dài</span>
                 <input type="range" id="room-depth" min="8" max="60" value="12" step="2"
                        oninput="resizeRoom()" style="flex:1;">
                 <span id="room-d-val" style="font-size:11px;min-width:24px;">12</span>
@@ -124,16 +126,16 @@
         </div>
 
         <div class="asset-tabs">
-            <button class="asset-tab active" onclick="filterAssets('all', this)">Tất cả</button>
-            <button class="asset-tab" onclick="filterAssets('furniture', this)">🪑 Nội thất</button>
-            <button class="asset-tab" onclick="filterAssets('decoration', this)">🌿 Trang trí</button>
-            <button class="asset-tab" onclick="filterAssets('structure', this)">🧱 Kiến trúc</button>
+            <button class="asset-tab active" onclick="filterAssets('all', this)" data-i18n="studio.tab_all">Tất cả</button>
+            <button class="asset-tab" onclick="filterAssets('furniture', this)" data-i18n="studio.tab_furn">🪑 Nội thất</button>
+            <button class="asset-tab" onclick="filterAssets('decoration', this)" data-i18n="studio.tab_deco">🌿 Trang trí</button>
+            <button class="asset-tab" onclick="filterAssets('structure', this)" data-i18n="studio.tab_struct">🧱 Kiến trúc</button>
         </div>
 
         <div id="asset-list" class="asset-list"></div>
 
         <div class="placed-section">
-            <h4>📦 Đã đặt (<span id="placed-count">0</span>)</h4>
+            <h4>📦 <span data-i18n="studio.placed">Đã đặt</span> (<span id="placed-count">0</span>)</h4>
             <div id="placed-list"></div>
         </div>
     </div>
@@ -141,19 +143,19 @@
     <!-- Center: 3D Canvas -->
     <div class="studio-main">
         <div class="studio-toolbar">
-            <span class="tb-label">Công cụ:</span>
-            <button class="tb-btn active" id="tool-place" onclick="setTool('place')">📌 Đặt</button>
-            <button class="tb-btn" id="tool-move" onclick="setTool('move')">✋ Di chuyển</button>
-            <button class="tb-btn" id="tool-rotate" onclick="setTool('rotate')">🔄 Xoay</button>
-            <button class="tb-btn" id="tool-delete" onclick="setTool('delete')">🗑️ Xóa</button>
+            <span class="tb-label" data-i18n="studio.tools">Công cụ:</span>
+            <button class="tb-btn active" id="tool-place" onclick="setTool('place')" data-i18n="studio.tool_place">📌 Đặt</button>
+            <button class="tb-btn" id="tool-move" onclick="setTool('move')" data-i18n="studio.tool_move">✋ Di chuyển</button>
+            <button class="tb-btn" id="tool-rotate" onclick="setTool('rotate')" data-i18n="studio.tool_rotate">🔄 Xoay</button>
+            <button class="tb-btn" id="tool-delete" onclick="setTool('delete')" data-i18n="studio.tool_delete">🗑️ Xóa</button>
             <div style="flex:1"></div>
-            <button class="tb-btn" onclick="openAIGenerateModal()" style="background:rgba(99,102,241,0.1); border-color:var(--accent); color:var(--text); margin-right:8px;">🪄 Tạo bằng AI</button>
-            <button class="tb-btn" onclick="clearScene()">🧹 Xóa hết</button>
-            <button class="tb-btn" onclick="saveScene()" style="background:var(--accent); color:#fff; border-color:var(--accent);">💾 Lưu</button>
+            <button class="tb-btn" onclick="openAIGenerateModal()" style="background:rgba(99,102,241,0.1); border-color:var(--accent); color:var(--text); margin-right:8px;" data-i18n="studio.tool_ai">🪄 Tạo bằng AI</button>
+            <button class="tb-btn" onclick="clearScene()" data-i18n="studio.tool_clear">🧹 Xóa hết</button>
+            <button class="tb-btn" onclick="saveScene()" style="background:var(--accent); color:#fff; border-color:var(--accent);" data-i18n="studio.tool_save">💾 Lưu</button>
         </div>
         <div class="studio-canvas-wrap" id="studio-canvas"></div>
         <div class="status-bar">
-            <span id="status-text">Sẵn sàng — chọn vật phẩm bên trái rồi bấm vào sàn để đặt</span>
+            <span id="status-text" data-i18n="studio.status_ready">Sẵn sàng — chọn vật phẩm bên trái rồi bấm vào sàn để đặt</span>
             <span id="status-pos">x: 0, z: 0</span>
         </div>
     </div>
@@ -164,7 +166,7 @@
 
 <!-- Agent Picker Popup -->
 <div id="desk-agent-popup" class="desk-agent-popup">
-    <div class="desk-agent-popup-header">🤖 Gán agent cho bàn này</div>
+    <div class="desk-agent-popup-header" data-i18n="studio.assign_agent">🤖 Gán agent cho bàn này</div>
     <div id="desk-agent-popup-list" class="desk-agent-popup-list"></div>
 </div>
 
@@ -176,8 +178,8 @@
       <button onclick="closeAIGenerateModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
     </div>
     <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Nhập prompt mô tả phòng</label>
-      <textarea id="ai-prompt-input" rows="4" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" placeholder="Ví dụ: Tạo phòng làm việc hiện đại cho team này, xếp bàn thành hình chữ U, có nhiểu cây xanh và tủ sách..."></textarea>
+      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;" data-i18n="studio.ai_prompt_lbl">Nhập prompt mô tả phòng</label>
+      <textarea id="ai-prompt-input" rows="4" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" data-i18n-placeholder="studio.ai_room_prompt" placeholder="Ví dụ: Tạo phòng làm việc hiện đại..."></textarea>
     </div>
     <div style="display:flex; gap:12px; margin-bottom:16px;">
       <div style="flex:1;">
@@ -199,8 +201,8 @@
     </div>
     <style>@keyframes spin { 100% { transform:rotate(360deg); } }</style>
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
-      <button onclick="closeAIGenerateModal()" class="tb-btn">Hủy</button>
-      <button id="btn-ai-generate" onclick="submitAiGenerate()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">🪄 Tạo tự động</button>
+      <button onclick="closeAIGenerateModal()" class="tb-btn" data-i18n="studio.btn_cancel">Hủy</button>
+      <button id="btn-ai-generate" onclick="submitAiGenerate()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);" data-i18n="studio.btn_auto_create">🪄 Tạo tự động</button>
     </div>
   </div>
 </div>
@@ -213,8 +215,8 @@
       <button onclick="closeQuickTeamModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
     </div>
     <div style="margin-bottom:16px;">
-      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;">Mô tả team bạn muốn tạo</label>
-      <textarea id="qt-description" rows="3" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" placeholder="VD: Team developer gồm 4 người: 1 leader, 2 dev frontend/backend, 1 tester"></textarea>
+      <label style="display:block; font-size:12px; color:var(--text2); margin-bottom:8px;" data-i18n="studio.ai_team_lbl">Mô tả team bạn muốn tạo</label>
+      <textarea id="qt-description" rows="3" style="width:100%; padding:10px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); font-family:inherit; resize:vertical; outline:none;" data-i18n-placeholder="studio.ai_team_prompt" placeholder="VD: Team..."></textarea>
     </div>
     <div style="display:flex; gap:12px; margin-bottom:16px;">
       <div style="flex:1;">
@@ -236,8 +238,8 @@
       <span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Đang phân tích và tạo team...
     </div>
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
-      <button onclick="closeQuickTeamModal()" class="tb-btn">Hủy</button>
-      <button id="btn-qt-create" onclick="submitQuickTeam()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);">⚡ Tạo Team</button>
+      <button onclick="closeQuickTeamModal()" class="tb-btn" data-i18n="studio.btn_cancel">Hủy</button>
+      <button id="btn-qt-create" onclick="submitQuickTeam()" class="tb-btn" style="background:var(--accent); color:#fff; border-color:var(--accent);" data-i18n="studio.btn_team_create">⚡ Tạo Team</button>
     </div>
   </div>
 </div>
@@ -261,6 +263,7 @@ const GRID_SNAP = 0.5;
 
 // ── Init ──
 async function init() {
+    await loadI18nFromApi();
     await Promise.all([loadAssets(), loadTeams(), loadStudioAgents()]);
     renderAssetList();
     initScene();
@@ -336,7 +339,7 @@ async function loadTeams() {
         const data = await res.json();
         teams = data.teams || [];
         const sel = document.getElementById('team-select');
-        sel.innerHTML = '<option value="">-- Chọn team --</option>'
+        sel.innerHTML = '<option value="" data-i18n="studio.sel_team">-- Chọn team --</option>'
             + teams.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
     } catch (e) { console.error('Failed to load teams', e); }
 }
@@ -359,7 +362,7 @@ async function loadScene(teamId) {
 }
 
 async function saveScene() {
-    if (!currentTeamId) { toast('Chọn team trước khi lưu!', 'error'); return; }
+    if (!currentTeamId) { toast('⚠️ ' + T('studio.err_sel_team_save'), 'error'); return; }
     try {
         const body = {
             team_id: currentTeamId,
@@ -376,15 +379,15 @@ async function saveScene() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         });
-        toast('💾 Đã lưu thành công!', 'success');
-    } catch (e) { toast('Lỗi lưu: ' + e.message, 'error'); }
+        toast('💾 ' + T('studio.saved_success'), 'success');
+    } catch (e) { toast(T('studio.err_save') + ': ' + e.message, 'error'); }
 }
 
 function onTeamSelect() {
     currentTeamId = document.getElementById('team-select').value;
     if (currentTeamId) {
         loadScene(currentTeamId);
-        setStatus(`Đang chỉnh sửa: ${teams.find(t => t.id === currentTeamId)?.name || currentTeamId}`);
+        setStatus(`${T('studio.editing_team')}: ${teams.find(t => t.id === currentTeamId)?.name || currentTeamId}`);
     }
 }
 
@@ -394,11 +397,12 @@ function renderAssetList(filter = 'all') {
     const filtered = filter === 'all' ? assets : assets.filter(a => a.category === filter);
     list.innerHTML = filtered.map(a => `
         <div class="asset-item ${selectedAssetId === a.id ? 'selected' : ''}"
-             onclick="selectAsset('${a.id}')" title="${a.name}">
+             onclick="selectAsset('${a.id}')" title="${T('studio.item.' + a.id) || a.name}">
             <span class="emoji">${a.emoji}</span>
-            <span class="label">${a.name}</span>
+            <span class="label" data-i18n="studio.item.${a.id}">${a.name}</span>
         </div>
     `).join('');
+    if (typeof applyI18n === 'function') setTimeout(applyI18n, 10);
 }
 
 function filterAssets(cat, btn) {
@@ -434,12 +438,12 @@ function resizeRoom() {
         controls.maxDistance = Math.max(40, gridSize * 2);
     }
 
-    setStatus(`📐 Phòng: ${roomW} × ${roomD}`);
+    setStatus(`📐 ${T('studio.room_status')}: ${roomW} × ${roomD}`);
 }
 
 function selectAsset(id) {
     if (!currentTeamId) {
-        toast('⚠️ Vui lòng chọn Team trước khi đặt vật phẩm!', 'error');
+        toast('⚠️ ' + T('studio.err_sel_team_first'), 'error');
         // Red glow pulse on team selector
         const teamGroup = document.querySelector('.team-select-group');
         if (teamGroup) {
@@ -456,7 +460,7 @@ function selectAsset(id) {
     if (selectedAssetId) {
         createGhost(selectedAssetId);
         setTool('place');
-        setStatus(`Đã chọn: ${assets.find(a => a.id === id)?.name} — bấm vào sàn để đặt`);
+        setStatus(`${T('studio.selected')}: ${T('studio.item.' + id) || assets.find(a => a.id === id)?.name} — ${T('studio.click_to_place')}`);
     }
 }
 
@@ -659,11 +663,11 @@ function initScene() {
                     if (currentTool === 'rotate') {
                         pa.rotation = (pa.rotation || 0) + Math.PI / 2;
                         pa.mesh.rotation.y = pa.rotation;
-                        toast(`🔄 Đã xoay`, 'success');
+                        toast(`🔄 ${T('studio.rotated')}`, 'success');
                     } else if (currentTool === 'delete') {
                         scene.remove(pa.mesh);
                         placedAssets = placedAssets.filter(p => p.id !== pa.id);
-                        toast(`🗑️ Đã xóa`, 'success');
+                        toast(`🗑️ ${T('studio.deleted')}`, 'success');
                     }
                     updatePlacedList();
                 }
@@ -780,7 +784,7 @@ function addPlacedAsset(assetId, x, z, rotation, scale, showToast, agentId, agen
 
     placedAssets.push({ id, asset_id: assetId, x, z, rotation: rotation || 0, scale: scale || 1, mesh, agent_id: agentId || '', agent_ids: agentIds || [] });
     updatePlacedList();
-    if (showToast) toast(`📌 Đã đặt ${def.name}`, 'success');
+    if (showToast) toast(`📌 ${T('studio.placed_success', {name: def.name})}`, 'success');
 }
 
 function removePlacedById(id) {
@@ -1051,6 +1055,7 @@ function updatePlacedList() {
             <button onclick="removePlacedById('${p.id}')" title="Xóa">✕</button>
         </div>`;
     }).join('');
+    if (typeof applyI18n === 'function') setTimeout(applyI18n, 10);
 }
 
 function assignAgentToDesk(placedId, agentId) {

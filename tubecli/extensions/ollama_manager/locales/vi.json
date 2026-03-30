@@ -1,0 +1,17 @@
+{
+    "ollama.models": "📦 Mô hình",
+    "ollama.loaded": "🔥 Đã tải",
+    "ollama.not_running": "Ollama chưa chạy.",
+    "ollama.no_models": "Chưa có mô hình. Tải một mô hình bên dưới.",
+    "ollama.pull": "📥 Tải",
+    "ollama.enter_model": "Nhập tên mô hình.",
+    "ollama.pulling": "Đang tải \"{name}\"...",
+    "ollama.done": "Xong!",
+    "ollama.failed": "Thất bại: ",
+    "ollama.remove_confirm": "Xóa \"{name}\"?",
+    "ollama.model_col": "Mô hình",
+    "ollama.size_col": "Dung lượng",
+    "ollama.modified_col": "Cập nhật",
+    "ollama.status_col": "Trạng thái",
+    "ollama.actions_col": "Thao tác"
+}

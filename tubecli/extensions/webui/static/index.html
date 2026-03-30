@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TubeCLI Dashboard</title>
+    <title>ZhiYing Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
@@ -12,7 +12,7 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 16px;">
-            <div class="sidebar-logo" style="padding:0">⚡ TubeCLI</div>
+            <div class="sidebar-logo" style="padding:0">⚡ ZhiYing</div>
             <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">☰</button>
         </div>
         <nav class="sidebar-nav">
@@ -79,7 +79,7 @@
         <!-- ═══ Extension Detail Overlay ═══ -->
         <div id="ext-detail-overlay" class="ext-detail-overlay hidden">
             <div class="ext-detail-header">
-                <button class="btn-back" onclick="closeExtDetail()">← Back to Extensions</button>
+                <button class="btn-back" onclick="closeExtDetail()" data-i18n="ext.back">← Back to Extensions</button>
                 <h2 id="ext-detail-title">Extension</h2>
             </div>
             <div id="ext-detail-body" class="ext-detail-body"></div>
@@ -118,7 +118,7 @@
                 <div class="version-card" id="version-card">
                     <div class="version-info">
                         <div class="version-badge-row">
-                            <span class="version-badge" id="version-badge">⚡ TubeCLI v...</span>
+                            <span class="version-badge" id="version-badge">⚡ ZhiYing v...</span>
                             <span class="version-hash" id="version-hash"></span>
                             <span class="version-branch" id="version-branch"></span>
                         </div>
@@ -163,7 +163,7 @@
 <div id="modal-install-ext" class="modal hidden">
     <div class="modal-content">
         <div class="modal-header"><h2>📦 Install Extension from Git</h2><button class="btn-close" onclick="closeModal('modal-install-ext')">✕</button></div>
-        <div class="form-group" style="margin-top: 15px;"><label>Git Repository URL</label><input id="install-ext-url" placeholder="https://github.com/user/tubecli-extension-xxx.git"></div>
+        <div class="form-group" style="margin-top: 15px;"><label>Git Repository URL</label><input id="install-ext-url" placeholder="https://github.com/user/zhiying-extension-xxx.git"></div>
         <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-install-ext')">Cancel</button><button class="btn-primary" id="btn-install-ext" onclick="installExtension()">🚀 Install</button></div>
     </div>
 </div>
@@ -507,7 +507,7 @@
     </div>
 </div>
 
-<script src="/static/i18n.js?v=4"></script>
-<script src="/static/app.js?v=17"></script>
+<script src="/static/i18n.js?v=10"></script>
+<script src="/static/app.js?v=19"></script>
 </body>
 </html>

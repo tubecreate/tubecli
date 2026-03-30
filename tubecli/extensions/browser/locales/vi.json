@@ -1,0 +1,13 @@
+{
+    "browser.new_profile": "+ Hồ sơ mới",
+    "browser.no_profiles": "Chưa có hồ sơ nào.",
+    "browser.create_profile": "Tạo hồ sơ",
+    "browser.create_fetch": "Tạo & Lấy Fingerprint",
+    "browser.creating": "Đang tạo...",
+    "browser.delete_confirm": "Xóa",
+    "browser.no_proxy": "Không proxy",
+    "form.name": "Tên",
+    "form.proxy": "Proxy",
+    "form.os": "Hệ điều hành",
+    "form.browser": "Trình duyệt"
+}

@@ -1,0 +1,17 @@
+{
+    "multi.create_team": "+ Tạo nhóm",
+    "multi.teams": "👥 Nhóm",
+    "multi.no_teams": "Chưa có nhóm.",
+    "multi.delegation_log": "📋 Nhật ký phân công",
+    "multi.no_history": "Chưa có lịch sử.",
+    "multi.delete_confirm": "Xóa nhóm?",
+    "multi.team_name": "Tên nhóm:",
+    "multi.agent_ids": "ID Agents (phân cách bằng dấu phẩy):",
+    "multi.strategy": "Chiến lược (sequential/parallel/lead-delegate):",
+    "multi.created": "Đã tạo!",
+    "multi.team_col": "Nhóm",
+    "multi.strategy_col": "Chiến lược",
+    "multi.agents_col": "Agents",
+    "multi.time_col": "Thời gian",
+    "multi.task_col": "Nhiệm vụ"
+}
