@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZhiYing Dashboard</title>
+    <title>TubeCLI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
@@ -12,7 +12,7 @@
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 16px;">
-            <div class="sidebar-logo" style="padding:0">⚡ ZhiYing</div>
+            <div class="sidebar-logo" style="padding:0">⚡ TubeCLI</div>
             <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">☰</button>
         </div>
         <nav class="sidebar-nav">
@@ -118,7 +118,7 @@
                 <div class="version-card" id="version-card">
                     <div class="version-info">
                         <div class="version-badge-row">
-                            <span class="version-badge" id="version-badge">⚡ ZhiYing v...</span>
+                            <span class="version-badge" id="version-badge">⚡ TubeCLI v...</span>
                             <span class="version-hash" id="version-hash"></span>
                             <span class="version-branch" id="version-branch"></span>
                         </div>
@@ -147,6 +147,7 @@
                     <div class="form-group">
                         <label data-i18n="settings.language">🌐 Language</label>
                         <select id="set-lang" onchange="changeLanguage(this.value)">
+                            <option value="zh">中文</option>
                             <option value="en">English</option>
                             <option value="vi">Tiếng Việt</option>
                         </select>
