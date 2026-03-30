@@ -291,56 +291,82 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         import shutil
         os.makedirs(ext_dir, exist_ok=True)
 
-        # If item_data doesn't contain files, try downloading from server
+        # ── Step 1: Try to get files from item_data ──
+        # Sometimes item_data is double-encoded JSON string
+        def _unwrap_item_data(data):
+            """Recursively unwrap item_data if it's a JSON string."""
+            if isinstance(data, str):
+                try:
+                    data = json_lib.loads(data)
+                    return _unwrap_item_data(data)  # recurse in case of double-encoding
+                except (json_lib.JSONDecodeError, TypeError):
+                    pass
+            return data
+
+        item_data = _unwrap_item_data(item_data)
+
+        # ── Step 2: If no files, download from server ──
         if not (isinstance(item_data, dict) and "files" in item_data):
+            print(f"[Market] item_data has no 'files' key, trying download-data.php...")
             try:
                 dl = await market_service.download_item_data(public_id)
                 if dl.get("status") == "success" and dl.get("item_data"):
-                    raw = dl["item_data"]
-                    if isinstance(raw, str):
-                        server_data = json.loads(raw)
-                    else:
-                        server_data = raw
+                    server_data = _unwrap_item_data(dl["item_data"])
                     if isinstance(server_data, dict) and "files" in server_data:
                         item_data = server_data
+                        print(f"[Market] Downloaded {len(item_data['files'])} files from server")
+                    else:
+                        print(f"[Market] Server returned item_data but no 'files' key: {type(server_data)}")
+                else:
+                    print(f"[Market] download-data.php returned: {dl.get('status')}")
             except Exception as e:
                 print(f"[Market] Download item_data failed: {e}")
 
-        # If item_data contains files dict, write each file
+        # ── Step 3: Write files if available ──
         if isinstance(item_data, dict) and "files" in item_data:
             for file_info in item_data["files"]:
                 fpath = os.path.join(ext_dir, file_info["path"])
                 os.makedirs(os.path.dirname(fpath), exist_ok=True)
                 with open(fpath, "w", encoding="utf-8") as f:
                     f.write(file_info["content"])
+            print(f"[Market] Wrote {len(item_data['files'])} files to {ext_dir}")
         else:
-            # Fallback: try to find the extension locally and copy all files
+            # ── Step 4: Fallback — find extension source locally ──
             source_dir = None
 
             # Check extensions_external for a folder matching the extension name
-            for entry in os.listdir(str(EXTENSIONS_EXTERNAL_DIR)):
-                candidate = os.path.join(str(EXTENSIONS_EXTERNAL_DIR), entry)
-                if not os.path.isdir(candidate) or candidate == ext_dir:
-                    continue
-                manifest_file = os.path.join(candidate, "tubecli-extension.json")
-                if os.path.exists(manifest_file):
-                    try:
-                        with open(manifest_file, "r", encoding="utf-8") as f:
-                            m = json.load(f)
-                        if m.get("name", "").lower() == name:
-                            source_dir = candidate
-                            break
-                    except Exception:
+            if os.path.isdir(str(EXTENSIONS_EXTERNAL_DIR)):
+                for entry in os.listdir(str(EXTENSIONS_EXTERNAL_DIR)):
+                    candidate = os.path.join(str(EXTENSIONS_EXTERNAL_DIR), entry)
+                    if not os.path.isdir(candidate) or candidate == ext_dir:
                         continue
+                    manifest_file = os.path.join(candidate, "tubecli-extension.json")
+                    if os.path.exists(manifest_file):
+                        try:
+                            with open(manifest_file, "r", encoding="utf-8") as f:
+                                m = json.load(f)
+                            if m.get("name", "").lower().replace(" ", "_") == name:
+                                source_dir = candidate
+                                break
+                        except Exception:
+                            continue
 
             # Also check built-in extensions
             if not source_dir:
                 from tubecli.core.extension_manager import extension_manager
+                # Try exact match first, then partial
                 ext_obj = extension_manager.get(name)
+                if not ext_obj:
+                    # Try matching by checking all extensions
+                    for ext_name, ext in extension_manager._extensions.items():
+                        if name in ext_name.lower().replace(" ", "_"):
+                            ext_obj = ext
+                            break
                 if ext_obj and ext_obj.extension_dir and os.path.isdir(ext_obj.extension_dir):
                     source_dir = ext_obj.extension_dir
 
             if source_dir:
+                print(f"[Market] Copying from local source: {source_dir}")
                 # Copy all files from source extension
                 SKIP_DIRS = {"__pycache__", ".git", "node_modules"}
                 SKIP_EXTS = {".pyc", ".pyo"}
@@ -360,7 +386,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 raise HTTPException(
                     500,
                     "Could not install: extension source files not available. "
-                    "The marketplace server may not support file downloads yet."
+                    "Please re-upload the extension with full file contents from the seller's machine."
                 )
 
         # Install pip requirements: from requirements.txt first, then manifest.dependencies
@@ -401,15 +427,24 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             )
 
         # Register with ExtensionManager and auto-enable
-
         from tubecli.core.extension_manager import extension_manager
         extension_manager.discover_external_extensions()
-        # Auto-enable the newly installed extension (discover doesn't enable by default)
+
+        # Auto-enable: try by name, install_id, or partial match
         ext_obj = extension_manager.get(name)
+        if not ext_obj:
+            ext_obj = extension_manager.get(install_id)
+        if not ext_obj:
+            # Scan all discovered extensions for a match
+            for ext_name, ext in extension_manager._extensions.items():
+                if name in ext_name.lower().replace(" ", "_") or install_id in ext_name:
+                    ext_obj = ext
+                    break
         if ext_obj and not ext_obj.enabled:
             extension_manager.enable(ext_obj.name)
+            print(f"[Market] Auto-enabled extension: {ext_obj.name}")
 
-        return {"status": "success", "message": f"Extension '{name}' installed and enabled", "type": "extension"}
+        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled", "type": "extension"}
 
     elif category == "skill":
         # Save as skill JSON

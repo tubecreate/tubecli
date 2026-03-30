@@ -13,7 +13,8 @@ except ImportError:
     _HTTPX_AVAILABLE = False
 
 API_BASE = "https://api.tubecreate.com/api/market-cli"
-TIMEOUT = 8
+TIMEOUT = 15
+TIMEOUT_LONG = 60  # For upload/download large extensions
 
 
 class MarketService:
@@ -36,10 +37,11 @@ class MarketService:
                 return r.json()
             return await asyncio.to_thread(_sync)
 
-    async def _post(self, url: str, payload: dict, headers: dict = None) -> dict:
+    async def _post(self, url: str, payload: dict, headers: dict = None, timeout: int = None) -> dict:
         """Non-blocking POST using httpx or asyncio.to_thread."""
+        _timeout = timeout or TIMEOUT
         if _HTTPX_AVAILABLE:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            async with httpx.AsyncClient(timeout=_timeout) as client:
                 r = await client.post(url, json=payload, headers=headers)
                 r.raise_for_status()
                 return r.json()
@@ -47,7 +49,7 @@ class MarketService:
             import asyncio
             import requests as _req
             def _sync():
-                r = _req.post(url, json=payload, headers=headers, timeout=TIMEOUT)
+                r = _req.post(url, json=payload, headers=headers, timeout=_timeout)
                 r.raise_for_status()
                 return r.json()
             return await asyncio.to_thread(_sync)
@@ -110,11 +112,44 @@ class MarketService:
                    "tags": tags or [], "version": version}
         if thumbnail_url:
             payload["thumbnail_url"] = thumbnail_url
+
+        # Log payload size for debugging
+        import json as _json
+        payload_size = len(_json.dumps(payload))
+        print(f"[MarketCLI] Upload payload size: {payload_size / 1024:.1f} KB")
+
         try:
-            return await self._post(f"{self.api_base}/upload.php", payload=payload, headers=headers)
+            url = f"{self.api_base}/upload.php"
+            if _HTTPX_AVAILABLE:
+                async with httpx.AsyncClient(timeout=TIMEOUT_LONG) as client:
+                    r = await client.post(url, json=payload, headers=headers)
+                    if r.status_code >= 400:
+                        try:
+                            err_data = r.json()
+                            error_msg = err_data.get("error", r.text[:200])
+                        except Exception:
+                            error_msg = r.text[:200]
+                        print(f"[MarketCLI] Upload HTTP {r.status_code}: {error_msg}")
+                        return {"status": "error", "error": error_msg}
+                    return r.json()
+            else:
+                import asyncio
+                import requests as _req
+                def _sync():
+                    r = _req.post(url, json=payload, headers=headers, timeout=TIMEOUT_LONG)
+                    if r.status_code >= 400:
+                        try:
+                            err_data = r.json()
+                            error_msg = err_data.get("error", r.text[:200])
+                        except Exception:
+                            error_msg = r.text[:200]
+                        print(f"[MarketCLI] Upload HTTP {r.status_code}: {error_msg}")
+                        return {"status": "error", "error": error_msg}
+                    return r.json()
+                return await asyncio.to_thread(_sync)
         except Exception as e:
             print(f"[MarketCLI] Upload error: {e}")
-        return {"status": "error", "error": "Upload failed"}
+            return {"status": "error", "error": f"Upload failed: {str(e)}"}
 
     async def buy_item(self, token: str, item_id: str) -> Dict:
         """Purchase an item."""
@@ -124,17 +159,8 @@ class MarketService:
                                     headers={"Authorization": f"Bearer {token}"})
         except Exception as e:
             print(f"[MarketCLI] Buy error: {e}")
-        return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": str(e)}
 
-    async def delete_item(self, token: str, public_id: str) -> Dict:
-        """Delete a listing."""
-        try:
-            return await self._post(f"{self.api_base}/delete.php",
-                                    payload={"public_id": public_id},
-                                    headers={"Authorization": f"Bearer {token}"})
-        except Exception as e:
-            print(f"[MarketCLI] Delete error: {e}")
-        return {"status": "error", "message": str(e)}
 
     async def get_reviews(self, item_id: str) -> Dict:
         """Get reviews for an item."""
