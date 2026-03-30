@@ -194,6 +194,16 @@ class WorkflowEngine:
                                 ds_node = self.nodes.get(ds_id)
                                 if ds_node:
                                     ds_inputs = self._get_node_inputs(ds_id)
+                                    # Auto-inject loop context into downstream inputs
+                                    # so nodes always get current_item even if connections are imperfect
+                                    if "current_item" not in ds_inputs:
+                                        ds_inputs["current_item"] = current_str
+                                    # Also inject as common port names for broad compatibility
+                                    for key in ("input_file", "input", "text_input", "data", "trigger"):
+                                        if key not in ds_inputs:
+                                            ds_inputs[key] = current_str
+                                    ds_inputs["_loop_index"] = str(idx)
+                                    ds_inputs["_loop_total"] = str(len(items))
                                     try:
                                         result = await ds_node.execute(ds_inputs, context=self.context)
                                         self.node_outputs[ds_id] = result
