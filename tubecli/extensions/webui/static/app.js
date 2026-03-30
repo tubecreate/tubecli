@@ -773,8 +773,8 @@ async function renderCloudApiExt(el) {
         <h3>${esc(p.name)}</h3>
         <p class="card-desc" title="${esc(p.models.join(', '))}">${p.models.slice(0,3).join(', ')}${p.models.length>3?'...':''}</p>
         <div class="card-footer" style="justify-content:center;gap:8px">
-            <span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')}</span>
-            ${!p.has_key ? `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>` : `<button class="btn-sm" onclick="testApiKey('${esc(p.id)}')">${T('cloud_api.test')}</button>`}
+            <span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')} <span style="font-size:0.75rem;margin-left:4px">(${p.key_count || 0})</span></span>
+            <button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>
         </div>
         </div>`;
     });
@@ -1343,7 +1343,7 @@ function copyApiResponse() {
 
 // ═══ API Key Management ═══
 function showAddApiKey() { document.getElementById('modal-add-key').classList.remove('hidden'); }
-function prefillAddKey(provider) { document.getElementById('add-key-provider').value = provider; document.getElementById('add-key-value').value = ''; document.getElementById('add-key-label').value = 'default'; document.getElementById('modal-add-key').classList.remove('hidden'); }
+function prefillAddKey(provider) { document.getElementById('add-key-provider').value = provider; document.getElementById('add-key-value').value = ''; document.getElementById('add-key-label').value = `key_${Math.floor(Date.now() / 1000)}`; document.getElementById('modal-add-key').classList.remove('hidden'); }
 async function addApiKey() { const prov=document.getElementById('add-key-provider').value, key=document.getElementById('add-key-value').value.trim(), label=document.getElementById('add-key-label').value.trim()||'default'; if(!key) return alert('Key required.'); const r = await apiPost('/api/v1/cloud-api/keys',{provider:prov,api_key:key,label}); if(r&&r.status==='success') { closeModal('modal-add-key'); renderCloudApiExt(document.getElementById('ext-detail-body')); alert('Added!'); } else alert('Failed.'); }
 async function testApiKey(provider, label = 'default') { 
     alert(`Testing ${provider} [${label}]...`); 

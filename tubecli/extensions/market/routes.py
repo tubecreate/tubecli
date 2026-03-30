@@ -478,19 +478,26 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 
         # Hot-mount routes and nodes into running server (no restart needed)
         if ext_obj:
+            import sys as _sys
+
+            # IMPORTANT: add extension dir to sys.path BEFORE get_routes()
+            # so the extension's local imports (e.g. video_api, video_engine) resolve
+            ext_d = getattr(ext_obj, 'extension_dir', None)
+            if ext_d and ext_d not in _sys.path:
+                _sys.path.insert(0, ext_d)
+
             try:
                 from tubecli.api.server import app
-                router = ext_obj.get_routes()
-                if router:
-                    # Ensure extension dir is in sys.path for imports
-                    import sys as _sys
-                    ext_d = getattr(ext_obj, 'extension_dir', None)
-                    if ext_d and ext_d not in _sys.path:
-                        _sys.path.insert(0, ext_d)
-                    app.include_router(router)
-                    print(f"[Market] Hot-mounted routes for {ext_obj.name}")
+                ext_router = ext_obj.get_routes()
+                if ext_router:
+                    app.include_router(ext_router)
+                    print(f"[Market] Hot-mounted {len(ext_router.routes)} routes for {ext_obj.name}")
+                else:
+                    print(f"[Market] No routes returned by {ext_obj.name}")
             except Exception as e:
-                print(f"[Market] Could not hot-mount routes (restart needed): {e}")
+                print(f"[Market] Could not hot-mount routes (restart server to activate): {e}")
+                import traceback
+                traceback.print_exc()
 
             try:
                 nodes = ext_obj.get_nodes()
@@ -507,7 +514,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             except Exception as e:
                 print(f"[Market] on_install warning: {e}")
 
-        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled", "type": "extension", "restart_required": False}
+        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled. Refresh page to use.", "type": "extension", "restart_required": False}
 
     elif category == "skill":
         # Save as skill JSON
