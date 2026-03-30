@@ -184,9 +184,12 @@ class KeyManager:
 
     def test_key(self, provider: str, label: str = "default") -> dict:
         """Test if an API key is valid by making a lightweight API call."""
-        key = self.get_key(provider, label)
-        if not key:
+        self._load()
+        entry = self._keys.get(provider, {}).get(label)
+        if not entry or not entry.get("key"):
             return {"status": "error", "message": f"No key found for {provider}/{label}."}
+        
+        key = entry["key"]
 
         try:
             import requests
@@ -196,6 +199,9 @@ class KeyManager:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
                 resp = requests.get(url, timeout=10)
                 if resp.status_code == 200:
+                    entry["active"] = True
+                    entry["status_msg"] = ""
+                    self._save()
                     return {"status": "success", "message": f"Gemini key is valid. Models: {len(resp.json().get('models', []))}"}
                 return {"status": "error", "message": f"Gemini key invalid: {resp.status_code}"}
 
@@ -206,12 +212,18 @@ class KeyManager:
                     timeout=10,
                 )
                 if resp.status_code == 200:
+                    entry["active"] = True
+                    entry["status_msg"] = ""
+                    self._save()
                     return {"status": "success", "message": f"OpenAI key is valid."}
                 return {"status": "error", "message": f"OpenAI key error: {resp.status_code}"}
 
             elif provider == "claude":
                 # Claude doesn't have a simple list endpoint, use a minimal message
-                return {"status": "info", "message": "Claude key stored. Validation requires a message call."}
+                entry["active"] = True
+                entry["status_msg"] = ""
+                self._save()
+                return {"status": "info", "message": "Claude key stored and activated (Validation requires a message call)."}
 
             elif provider == "deepseek":
                 resp = requests.get(
@@ -220,11 +232,17 @@ class KeyManager:
                     timeout=10,
                 )
                 if resp.status_code == 200:
+                    entry["active"] = True
+                    entry["status_msg"] = ""
+                    self._save()
                     return {"status": "success", "message": f"DeepSeek key is valid."}
                 return {"status": "error", "message": f"DeepSeek key error: {resp.status_code}"}
 
             else:
-                return {"status": "info", "message": f"Key stored for {provider}. No auto-validation available."}
+                entry["active"] = True
+                entry["status_msg"] = ""
+                self._save()
+                return {"status": "info", "message": f"Key stored & activated for {provider}. No auto-validation available."}
 
         except Exception as e:
             return {"status": "error", "message": f"Test failed: {e}"}
