@@ -103,12 +103,29 @@ async function loadExtensions() {
         const extension = extensionMap[ext.id];
         const version = extension?.version || '-';
         const isEnabled = extension ? extension.enabled : true;
+        const isExternal = extension?.extension_type === 'external';
+        const displayType = isExternal ? 'external' : ext.type;
+        const tagClass = displayType === 'core' ? 'green' : 'blue';
+
+        let footerHtml = `<span class="tag ${tagClass}">${displayType}</span>`;
+        if (isExternal && extension) {
+            footerHtml += `
+                <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
+                    onclick="event.stopPropagation();toggleExternalExt('${esc(ext.id)}',${isEnabled})">
+                    ${isEnabled ? 'Disable' : 'Enable'}
+                </button>
+                <button class="btn-sm" style="background:var(--red)"
+                    onclick="event.stopPropagation();uninstallExternalExt('${esc(ext.id)}')">
+                    Uninstall
+                </button>`;
+        }
+
         return `<div class="card ext-card" onclick="openExtDetail('${ext.id}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
             <div class="card-icon">${ext.icon}</div>
             <h3>${esc(ext.name)}</h3>
-            <p class="card-meta">v${esc(version)} · ${esc(ext.type)}</p>
+            <p class="card-meta">v${esc(version)} · ${esc(displayType)}</p>
             <p class="card-desc">${esc(ext.desc)}</p>
-            <div class="card-footer" style="margin-top:10px"><span class="tag ${ext.type === 'extension' ? 'blue' : 'green'}">${ext.type}</span></div>
+            <div class="card-footer" style="margin-top:10px;gap:8px">${footerHtml}</div>
         </div>`;
     }).join('');
 
