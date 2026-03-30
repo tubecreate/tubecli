@@ -831,10 +831,18 @@ async function submitUpload(e) {
             loadItems();
             loadCategories();
         } else {
-            showToast(data.error || data.detail || 'Upload failed', 'error');
+            // Extract error message from various response formats
+            let errMsg = 'Upload failed';
+            if (typeof data.detail === 'string') errMsg = data.detail;
+            else if (typeof data.detail === 'object' && data.detail?.msg) errMsg = data.detail.msg;
+            else if (data.error) errMsg = data.error;
+            else if (data.message) errMsg = data.message;
+            console.error('[Market] Upload error:', data);
+            showToast(errMsg, 'error');
         }
     } catch (e) {
-        showToast('Network error', 'error');
+        console.error('[Market] Upload network error:', e);
+        showToast('Network error: ' + e.message, 'error');
     }
 
     btn.disabled = false;

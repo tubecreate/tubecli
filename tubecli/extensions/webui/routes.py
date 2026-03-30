@@ -91,7 +91,61 @@ async def video_editor_page():
     editor_file = os.path.join(DATA_DIR, "extensions_external", "video_editor", "static", "editor.html")
     if os.path.exists(editor_file):
         return FileResponse(editor_file)
-    return {"error": "Video Editor page not found"}
+    # Return a friendly install guide instead of raw JSON error
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Video Editor — Not Installed</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+                font-family: 'Segoe UI', system-ui, sans-serif;
+                background: #0a0a12; color: #e0e0e0;
+                display: flex; justify-content: center; align-items: center;
+                min-height: 100vh;
+            }
+            .card {
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+                border: 1px solid #2a2a4a; border-radius: 16px;
+                padding: 48px; max-width: 520px; text-align: center;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            }
+            .icon { font-size: 64px; margin-bottom: 16px; }
+            h1 { font-size: 24px; margin-bottom: 12px; color: #fff; }
+            p { color: #aaa; line-height: 1.6; margin-bottom: 24px; }
+            .steps { text-align: left; background: #0d1117; border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+            .steps li { margin-bottom: 10px; color: #c9d1d9; list-style: none; }
+            .steps li::before { content: "→ "; color: #58a6ff; font-weight: bold; }
+            .btn {
+                display: inline-block; padding: 12px 32px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: #fff; border-radius: 8px; text-decoration: none;
+                font-weight: 600; transition: transform 0.2s;
+            }
+            .btn:hover { transform: translateY(-2px); }
+            code { background: #161b22; padding: 2px 6px; border-radius: 4px; color: #58a6ff; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <div class="icon">🎬</div>
+            <h1>Video Editor Extension</h1>
+            <p>This extension is not installed yet. Install it from the Marketplace to get started.</p>
+            <ul class="steps">
+                <li>Open <strong>Dashboard</strong></li>
+                <li>Go to <strong>Extensions → Marketplace</strong></li>
+                <li>Search for <code>Video Editor</code></li>
+                <li>Click <strong>Install</strong></li>
+                <li>Restart TubeCLI and refresh this page</li>
+            </ul>
+            <a href="/dashboard" class="btn">← Back to Dashboard</a>
+        </div>
+    </body>
+    </html>
+    """, status_code=200)
 
 
 @router.get("/video-editor-static/{filename:path}")
