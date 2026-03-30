@@ -163,18 +163,50 @@ def _make_install_id(name: str, public_id: str) -> str:
 
 
 def _check_item_installed(public_id: str, name: str, category: str) -> dict:
-    """Check if an item is already installed locally using public_id."""
+    """Check if an item is already installed locally.
+    For extensions: scans all folders by NAME to prevent duplicates (regardless of public_id).
+    For other categories: checks by name__public_id.
+    """
     import os
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
 
     install_id = _make_install_id(name, public_id)
+    name_clean = name.replace(" ", "_").lower()
     installed = False
     install_path = ""
 
     if category == "extension":
+        # Check exact match first (name__public_id)
         ext_dir = str(EXTENSIONS_EXTERNAL_DIR / install_id)
-        installed = os.path.isdir(ext_dir)
-        install_path = ext_dir
+        if os.path.isdir(ext_dir):
+            installed = True
+            install_path = ext_dir
+        else:
+            # Scan ALL folders for same extension NAME (prevent duplicate installs)
+            ext_base = str(EXTENSIONS_EXTERNAL_DIR)
+            if os.path.isdir(ext_base):
+                for entry in os.listdir(ext_base):
+                    candidate = os.path.join(ext_base, entry)
+                    if not os.path.isdir(candidate):
+                        continue
+                    # Match by folder name prefix (e.g. video_editor__xxx)
+                    if entry == name_clean or entry.startswith(name_clean + "__"):
+                        installed = True
+                        install_path = candidate
+                        break
+                    # Also check manifest name
+                    manifest_file = os.path.join(candidate, "tubecli-extension.json")
+                    if os.path.exists(manifest_file):
+                        try:
+                            import json as _json
+                            with open(manifest_file, "r", encoding="utf-8") as f:
+                                m = _json.load(f)
+                            if m.get("name", "").replace(" ", "_").lower() == name_clean:
+                                installed = True
+                                install_path = candidate
+                                break
+                        except Exception:
+                            continue
     elif category == "skill":
         skill_path = os.path.join(str(DATA_DIR), "skills", f"{install_id}.json")
         installed = os.path.isfile(skill_path)

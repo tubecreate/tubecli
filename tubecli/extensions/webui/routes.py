@@ -84,13 +84,30 @@ async def auth_manager_page():
     return {"error": "Auth Manager page not found"}
 
 
+def _find_video_editor_dir():
+    """Find the Video Editor extension directory (handles both 'video_editor' and 'video_editor__xxx' folders)."""
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    # Check exact name first, then prefix match
+    exact = os.path.join(ext_base, "video_editor")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("video_editor__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
 @router.get("/video-editor")
 async def video_editor_page():
     """Serve the Video Editor page."""
-    from tubecli.config import DATA_DIR
-    editor_file = os.path.join(DATA_DIR, "extensions_external", "video_editor", "static", "editor.html")
-    if os.path.exists(editor_file):
-        return FileResponse(editor_file)
+    ve_dir = _find_video_editor_dir()
+    if ve_dir:
+        editor_file = os.path.join(ve_dir, "static", "editor.html")
+        if os.path.exists(editor_file):
+            return FileResponse(editor_file)
     # Return a friendly install guide instead of raw JSON error
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
@@ -151,10 +168,11 @@ async def video_editor_page():
 @router.get("/video-editor-static/{filename:path}")
 async def serve_video_editor_static(filename: str):
     """Serve Video Editor static files (JS, CSS)."""
-    from tubecli.config import DATA_DIR
-    filepath = os.path.join(DATA_DIR, "extensions_external", "video_editor", "static", filename)
-    if os.path.exists(filepath):
-        return FileResponse(filepath)
+    ve_dir = _find_video_editor_dir()
+    if ve_dir:
+        filepath = os.path.join(ve_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
 
 
