@@ -9,8 +9,8 @@ console = Console()
 
 
 @click.command("init")
-@click.option("--lang", type=click.Choice(["vi", "en"]), default=None,
-              help="Set UI language (vi=Vietnamese, en=English)")
+@click.option("--lang", type=click.Choice(["zh", "vi", "en"]), default=None,
+              help="Set UI language (zh=Chinese, vi=Vietnamese, en=English)")
 def init_cmd(lang):
     """Initialize TubeCLI workspace and install default skills."""
     from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES
@@ -20,7 +20,7 @@ def init_cmd(lang):
     if lang is None:
         # Interactive prompt if --lang not provided
         lang = click.prompt(
-            "🌐 Choose language / Chọn ngôn ngữ",
+            "🌐 Choose language / 选择语言 / Chọn ngôn ngữ",
             type=click.Choice(SUPPORTED_LANGUAGES),
             default=get_language(),
         )
