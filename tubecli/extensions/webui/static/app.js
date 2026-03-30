@@ -1,8 +1,8 @@
 /**
- * TubeCLI Dashboard — SPA Logic
+ * ZhiYing Dashboard — SPA Logic
  * Dashboard → Extensions → API Manager → Settings
  */
-const API = localStorage.getItem('tubecli_api') || 'http://localhost:5295';
+const API = localStorage.getItem('zhiying_api') || 'http://localhost:5295';
 
 // ═══ Tab Navigation ═══
 document.querySelectorAll('.nav-item').forEach(btn => {
@@ -79,14 +79,14 @@ async function loadDashboard() {
 // ═══ EXTENSIONS (All features as clickable cards) ═══
 // ═══════════════════════════════════════════════════════════
 const EXT_REGISTRY = [
-    { id:'agents', icon:'🤖', name:T('nav.dashboard'), desc:T('ext.agents_desc'), type:'core' },
-    { id:'browser', icon:'🌐', name:T('stat.profiles'), desc:T('ext.browser_desc'), type:'core' },
-    { id:'workflows', icon:'🔄', name:T('stat.workflows'), desc:T('ext.workflows_desc'), type:'core' },
-    { id:'skills', icon:'⚡', name:T('stat.skills'), desc:T('ext.skills_desc'), type:'core' },
-    { id:'market', icon:'🛍️', name:'Marketplace', desc:'Khám phá và cài đặt extension từ cộng đồng', type:'core' },
-    { id:'cloud_api', icon:'☁️', name:T('dash.cloud_api_keys'), desc:T('ext.cloud_api_desc'), type:'extension' },
-    { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:T('ext.ollama_desc'), type:'extension' },
-    { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:T('ext.multi_agents_desc'), type:'extension' },
+    { id:'agents', icon:'🤖', name:'nav.dashboard', desc:'ext.agents_desc', type:'core' },
+    { id:'browser', icon:'🌐', name:'stat.profiles', desc:'ext.browser_desc', type:'core' },
+    { id:'workflows', icon:'🔄', name:'stat.workflows', desc:'ext.workflows_desc', type:'core' },
+    { id:'skills', icon:'⚡', name:'stat.skills', desc:'ext.skills_desc', type:'core' },
+    { id:'market', icon:'🛍️', name:'Marketplace', desc:'ext.market_desc', type:'core' },
+    { id:'cloud_api', icon:'☁️', name:'dash.cloud_api_keys', desc:'ext.cloud_api_desc', type:'extension' },
+    { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:'ext.ollama_desc', type:'extension' },
+    { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:'ext.multi_agents_desc', type:'extension' },
     { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
     { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
 ];
@@ -122,9 +122,9 @@ async function loadExtensions() {
 
         return `<div class="card ext-card" onclick="openExtDetail('${ext.id}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
             <div class="card-icon">${ext.icon}</div>
-            <h3>${esc(ext.name)}</h3>
+            <h3>${esc(T(ext.name))}</h3>
             <p class="card-meta">v${esc(version)} · ${esc(displayType)}</p>
-            <p class="card-desc">${esc(ext.desc)}</p>
+            <p class="card-desc">${esc(T(ext.desc))}</p>
             <div class="card-footer" style="margin-top:10px;gap:8px">${footerHtml}</div>
         </div>`;
     }).join('');
@@ -1584,13 +1584,13 @@ async function executeProfileCommand() { const cmd = document.getElementById('cm
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
 // ═══ Settings ═══
-function saveSettings() { const api=document.getElementById('set-api').value.trim(); if(api){localStorage.setItem('tubecli_api',api);location.reload();} }
+function saveSettings() { const api=document.getElementById('set-api').value.trim(); if(api){localStorage.setItem('zhiying_api',api);location.reload();} }
 
 // ═══ Version & Update ═══
 async function loadVersionInfo() {
     const d = await apiGet('/api/v1/system/version');
     if (!d) return;
-    document.getElementById('version-badge').textContent = '⚡ TubeCLI v' + (d.version || '?');
+    document.getElementById('version-badge').textContent = '⚡ ZhiYing v' + (d.version || '?');
     document.getElementById('version-hash').textContent = d.git_hash ? ('#' + d.git_hash) : '';
     document.getElementById('version-branch').textContent = d.git_branch ? ('📌 ' + d.git_branch) : '';
     document.getElementById('update-status').textContent = '';
@@ -1630,7 +1630,7 @@ async function checkForUpdate() {
 async function performSystemUpdate() {
     const btn = document.getElementById('btn-system-update');
     const st = document.getElementById('update-status');
-    if (!confirm('Update TubeCLI to latest version? The API server will need to restart after update.')) return;
+    if (!confirm('Update ZhiYing to latest version? The API server will need to restart after update.')) return;
     btn.disabled = true; btn.textContent = '⏳ Updating...';
     st.textContent = 'Pulling latest code from GitHub...'; st.className = 'update-status';
     
@@ -1646,7 +1646,7 @@ async function performSystemUpdate() {
         // Show restart banner
         const card = document.getElementById('version-card');
         if (!document.getElementById('restart-banner')) {
-            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>tubecli api start</code></div>');
+            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>zhiying api start</code></div>');
         }
     } else {
         st.textContent = '❌ Update failed: ' + (d?.error || 'Unknown error');
@@ -1792,7 +1792,7 @@ async function loadVersionInfo() {
     try {
         const info = await apiGet('/api/v1/version');
         if (!info || info.error) return;
-        badge.textContent = '⚡ TubeCLI v' + (info.version || '?');
+        badge.textContent = '⚡ ZhiYing v' + (info.version || '?');
         if (hashEl && info.git_hash) hashEl.textContent = '#' + info.git_hash;
         if (branchEl && info.git_branch) branchEl.textContent = '🌿 ' + info.git_branch;
         // Auto-check update on startup (silent)
@@ -1871,7 +1871,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkConnection();
     loadDashboard();
     loadVersionInfo();
-    const s=localStorage.getItem('tubecli_api');
+    const s=localStorage.getItem('zhiying_api');
     if(s) document.getElementById('set-api').value=s;
     if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
 });

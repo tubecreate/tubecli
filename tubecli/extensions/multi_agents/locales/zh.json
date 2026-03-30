@@ -1,0 +1,17 @@
+{
+    "multi.create_team": "+ 创建团队",
+    "multi.teams": "👥 团队列表",
+    "multi.no_teams": "暂无团队。",
+    "multi.delegation_log": "📋 委派日志",
+    "multi.no_history": "暂无历史。",
+    "multi.delete_confirm": "确定删除该团队？",
+    "multi.team_name": "团队名称：",
+    "multi.agent_ids": "智能体 IDs (用逗号分隔)：",
+    "multi.strategy": "协作策略 (sequential/parallel/lead-delegate)：",
+    "multi.created": "创建成功！",
+    "multi.team_col": "团队名称",
+    "multi.strategy_col": "协作策略",
+    "multi.agents_col": "成员 (Agents)",
+    "multi.time_col": "时间",
+    "multi.task_col": "任务"
+}

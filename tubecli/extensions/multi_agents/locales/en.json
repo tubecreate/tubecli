@@ -1,0 +1,17 @@
+{
+    "multi.create_team": "+ Create Team",
+    "multi.teams": "👥 Teams",
+    "multi.no_teams": "No teams.",
+    "multi.delegation_log": "📋 Delegation Log",
+    "multi.no_history": "No history.",
+    "multi.delete_confirm": "Delete team?",
+    "multi.team_name": "Team name:",
+    "multi.agent_ids": "Agent IDs (comma-separated):",
+    "multi.strategy": "Strategy (sequential/parallel/lead-delegate):",
+    "multi.created": "Created!",
+    "multi.team_col": "Team",
+    "multi.strategy_col": "Strategy",
+    "multi.agents_col": "Agents",
+    "multi.time_col": "Time",
+    "multi.task_col": "Task"
+}

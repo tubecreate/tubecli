@@ -1,0 +1,13 @@
+{
+    "browser.new_profile": "+ 新建环境",
+    "browser.no_profiles": "暂无环境。",
+    "browser.create_profile": "创建环境",
+    "browser.create_fetch": "创建并获取指纹",
+    "browser.creating": "创建中...",
+    "browser.delete_confirm": "删除",
+    "browser.no_proxy": "无代理",
+    "form.name": "名称",
+    "form.proxy": "代理 (Proxy)",
+    "form.os": "操作系统",
+    "form.browser": "浏览器内核"
+}

@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TubeCLI &mdash; Extension Market</title>
+    <title>ZhiYing &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
     <link rel="stylesheet" href="/static/style.css?v=4">
     <link rel="stylesheet" href="/static/market.css?v=5">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="/static/i18n.js?v=3"></script>
+    <script src="/static/i18n.js?v=10"></script>
 </head>
 <body>
 <div id="app" style="display:block;">
@@ -19,7 +19,7 @@
         <!-- VSX-style Top Bar -->
         <div class="vsx-topbar">
             <div class="vsx-topbar-left">
-                <h1 class="vsx-title">&#x1F6CD;&#xFE0F; TubeCLI Marketplace</h1>
+                <h1 class="vsx-title" data-i18n="market.title">&#x1F6CD;&#xFE0F; ZhiYing Marketplace</h1>
             </div>
             <div class="vsx-topbar-right">
                 <div class="vsx-search-wrap">
@@ -251,7 +251,7 @@
     <div class="market-modal" style="max-width:420px;">
         <div style="padding:28px;position:relative;">
             <button class="modal-close" onclick="closeLoginModal()" style="position:absolute;top:14px;right:14px;">&#x2715;</button>
-            <h2 id="authTitle" style="font-size:1.3rem;font-weight:800;margin-bottom:6px;">&#x1F511; &#x0110;&#x0103;ng nh&#x1EAD;p</h2>
+            <h2 id="authTitle" style="font-size:1.3rem;font-weight:800;margin-bottom:6px;" data-i18n="auth.login">&#x1F511; Login</h2>
             <p id="authSubtitle" style="color:var(--text-muted,#6868a0);margin:0 0 20px;font-size:0.9rem;">&#x0110;&#x0103;ng nh&#x1EAD;p &#x0111;&#x1EC3; b&#xE1;n tr&#xEA;n Market</p>
             <div id="authErrorMsg" style="display:none;background:rgba(239,68,68,.15);color:#ef4444;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;"></div>
 
@@ -309,6 +309,6 @@
     </div>
 </div>
 
-<script src="/static/market.js?v=1.7"></script>
+<script src="/static/market.js?v=2.0"></script>
 </body>
 </html>

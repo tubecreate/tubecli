@@ -1,5 +1,5 @@
 """
-TubeCLI REST API Server
+ZhiYing REST API Server
 FastAPI-based REST API for agents, skills, and workflows.
 """
 from fastapi import FastAPI, HTTPException
@@ -9,8 +9,8 @@ from typing import Optional, List, Dict, Any
 import os
 
 app = FastAPI(
-    title="TubeCLI API",
-    description="REST API for TubeCLI — AI Agent management, skills, and workflows.",
+    title="ZhiYing API",
+    description="REST API for ZhiYing — AI Agent management, skills, and workflows.",
     version="0.1.0",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
@@ -123,8 +123,8 @@ class WorkflowSaveRequest(BaseModel):
 
 @app.get("/api/v1/health")
 async def health():
-    from tubecli.config import get_api_port
-    return {"status": "ok", "message": "TubeCLI API is running", "port": get_api_port()}
+    from zhiying.config import get_api_port
+    return {"status": "ok", "message": "ZhiYing API is running", "port": get_api_port()}
 
 
 # ── Version & Update ──────────────────────────────────────────────
@@ -132,7 +132,7 @@ async def health():
 @app.get("/api/v1/version")
 async def get_version_info():
     import subprocess
-    from tubecli import __version__, __build__
+    from zhiying import __version__, __build__
     info = {"version": __build__, "pip_version": __version__, "git_hash": None, "git_branch": None}
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -147,7 +147,7 @@ async def get_version_info():
 @app.post("/api/v1/version/update")
 async def perform_git_update():
     import subprocess
-    from tubecli import __build__
+    from zhiying import __build__
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         r = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=repo, timeout=30)
@@ -160,13 +160,13 @@ async def perform_git_update():
 
 @app.get("/api/v1/agents")
 async def list_agents():
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     agents = agent_manager.get_all()
     return {"agents": [a.to_dict() for a in agents], "count": len(agents)}
 
 @app.post("/api/v1/agents/generate")
 async def generate_agent_with_ai(req: AgentGenerateRequest):
-    from tubecli.core.ai_generator import generate_agent_json
+    from zhiying.core.ai_generator import generate_agent_json
     try:
         data = generate_agent_json(
             name=req.name,
@@ -181,7 +181,7 @@ async def generate_agent_with_ai(req: AgentGenerateRequest):
 
 @app.get("/api/v1/agents/{agent_id}")
 async def get_agent(agent_id: str):
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     agent = agent_manager.get(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
@@ -189,13 +189,13 @@ async def get_agent(agent_id: str):
 
 @app.post("/api/v1/agents")
 async def create_agent(req: AgentCreateRequest):
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     agent = agent_manager.create(**req.model_dump(exclude_none=True))
     return {"status": "created", "agent": agent.to_dict()}
 
 @app.put("/api/v1/agents/{agent_id}")
 async def update_agent(agent_id: str, req: AgentUpdateRequest):
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     agent = agent_manager.update(agent_id, **req.model_dump(exclude_none=True))
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
@@ -203,7 +203,7 @@ async def update_agent(agent_id: str, req: AgentUpdateRequest):
 
 @app.delete("/api/v1/agents/{agent_id}")
 async def delete_agent(agent_id: str):
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     if not agent_manager.delete(agent_id):
         raise HTTPException(404, f"Agent {agent_id} not found")
     return {"status": "deleted", "agent_id": agent_id}
@@ -219,9 +219,9 @@ class ChatRequest(BaseModel):
 async def agent_chat(agent_id: str, req: ChatRequest):
     """Chat with an agent. The brain dispatches skills automatically."""
     import datetime as _dt
-    from tubecli.core.agent import agent_manager
-    from tubecli.core.skill import skill_manager
-    from tubecli.core.brain import AgentBrain
+    from zhiying.core.agent import agent_manager
+    from zhiying.core.skill import skill_manager
+    from zhiying.core.brain import AgentBrain
 
     agent = agent_manager.get(agent_id)
     if not agent:
@@ -260,7 +260,7 @@ async def agent_chat(agent_id: str, req: ChatRequest):
             # Feature: Random Browser Profile Selection
             # If input mentions "random profile" or "ngẫu nhiên", and it's a browser skill
             if any(x in skill_input.lower() for x in ["ngẫu nhiên", "random profile", "mở profile"]):
-                from tubecli.core.config import config_manager
+                from zhiying.core.config import config_manager
                 profiles = config_manager.get_browser_profiles()
                 if profiles:
                     import random
@@ -278,10 +278,10 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                 reply = final_answer
                 skill_manager.update(skill_id, last_run=_dt.datetime.now().isoformat())
             except Exception as e:
-                from tubecli.i18n import t
+                from zhiying.i18n import t
                 reply = t("brain.skill_run_error", name=skill.name, error=str(e))
         else:
-            from tubecli.i18n import t
+            from zhiying.i18n import t
             reply = t("brain.skill_not_found", id=skill_id)
 
     elif action == "create_skill":
@@ -301,11 +301,11 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                 workflow_data={"sop": sop_text, "nodes": [{"type": "text", "data": {"text": sop_text}}]},
                 commands=[name.lower()]
             )
-            from tubecli.i18n import t
+            from zhiying.i18n import t
             reply = t("brain.skill_created", name=name, desc=desc)
             skill_used = f"Created Skill: {name}"
         except Exception as e:
-            from tubecli.i18n import t
+            from zhiying.i18n import t
             reply = t("brain.skill_create_error", error=str(e))
 
     # Save to history
@@ -330,7 +330,7 @@ async def agent_chat(agent_id: str, req: ChatRequest):
 @app.delete("/api/v1/agents/{agent_id}/chat")
 async def clear_chat_history(agent_id: str):
     """Clear an agent's chat history."""
-    from tubecli.core.agent import agent_manager
+    from zhiying.core.agent import agent_manager
     agent = agent_manager.get(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
@@ -341,13 +341,13 @@ async def clear_chat_history(agent_id: str):
 
 @app.get("/api/v1/skills")
 async def list_skills():
-    from tubecli.core.skill import skill_manager
+    from zhiying.core.skill import skill_manager
     skills = skill_manager.get_all()
     return {"skills": [s.to_dict() for s in skills], "count": len(skills)}
 
 @app.get("/api/v1/skills/{skill_id}")
 async def get_skill(skill_id: str):
-    from tubecli.core.skill import skill_manager
+    from zhiying.core.skill import skill_manager
     skill = skill_manager.get(skill_id)
     if not skill:
         raise HTTPException(404, f"Skill {skill_id} not found")
@@ -355,13 +355,13 @@ async def get_skill(skill_id: str):
 
 @app.post("/api/v1/skills")
 async def create_skill(req: SkillCreateRequest):
-    from tubecli.core.skill import skill_manager
+    from zhiying.core.skill import skill_manager
     skill = skill_manager.create(**req.model_dump())
     return {"status": "created", "skill": skill.to_dict()}
 
 @app.delete("/api/v1/skills/{skill_id}")
 async def delete_skill(skill_id: str):
-    from tubecli.core.skill import skill_manager
+    from zhiying.core.skill import skill_manager
     if not skill_manager.delete(skill_id):
         raise HTTPException(404, f"Skill {skill_id} not found")
     return {"status": "deleted", "skill_id": skill_id}
@@ -379,7 +379,7 @@ class SaveAsSkillRequest(BaseModel):
 @app.post("/api/v1/workflows/save-as-skill")
 async def save_workflow_as_skill(req: SaveAsSkillRequest):
     """Convert a workflow into a reusable Skill that Agents can execute."""
-    from tubecli.core.skill import skill_manager
+    from zhiying.core.skill import skill_manager
 
     if not req.name:
         raise HTTPException(400, "Skill name is required")
@@ -422,9 +422,9 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
 @app.post("/api/v1/skills/{skill_id}/run")
 async def run_skill(skill_id: str, input_text: str = ""):
     """Run a skill by executing its stored workflow. Returns error guidance for AI agents."""
-    from tubecli.core.skill import skill_manager
-    from tubecli.nodes.registry import create_node_from_dict
-    from tubecli.core.workflow_engine import WorkflowEngine
+    from zhiying.core.skill import skill_manager
+    from zhiying.nodes.registry import create_node_from_dict
+    from zhiying.core.workflow_engine import WorkflowEngine
 
     skill = skill_manager.get(skill_id)
     if not skill:
@@ -470,7 +470,7 @@ async def run_skill(skill_id: str, input_text: str = ""):
                     errors.append({"node": node_id, "error": node_result.get("status", "")})
 
     if errors or guidance:
-        from tubecli.i18n import t
+        from zhiying.i18n import t
         result["_skill_errors"] = errors
         result["_skill_guidance"] = guidance or [
             t("brain.workflow_error_guidance")
@@ -484,7 +484,7 @@ async def run_skill(skill_id: str, input_text: str = ""):
 @app.post("/api/v1/workflows/generate")
 async def generate_workflow_with_ai(req: WorkflowGenerateRequest):
     """Generate a workflow from a natural language prompt using AI."""
-    from tubecli.core.ai_workflow_builder import generate_workflow
+    from zhiying.core.ai_workflow_builder import generate_workflow
     try:
         result = generate_workflow(
             prompt=req.prompt,
@@ -500,8 +500,8 @@ async def generate_workflow_with_ai(req: WorkflowGenerateRequest):
 @app.post("/api/v1/workflows/run")
 async def run_workflow(req: WorkflowRunRequest):
     import asyncio
-    from tubecli.nodes.registry import create_node_from_dict
-    from tubecli.core.workflow_engine import WorkflowEngine
+    from zhiying.nodes.registry import create_node_from_dict
+    from zhiying.core.workflow_engine import WorkflowEngine
 
     nodes_data = req.workflow_data.get("nodes", [])
     connections = req.workflow_data.get("connections", [])
@@ -525,7 +525,7 @@ async def run_workflow(req: WorkflowRunRequest):
 async def list_workflows():
     """List all saved workflows."""
     import json
-    from tubecli.config import DATA_DIR
+    from zhiying.config import DATA_DIR
 
     wf_dir = os.path.join(DATA_DIR, "workflows")
     os.makedirs(wf_dir, exist_ok=True)
@@ -551,7 +551,7 @@ async def list_workflows():
 async def save_workflow(req: WorkflowSaveRequest):
     """Save a workflow to disk."""
     import json
-    from tubecli.config import DATA_DIR
+    from zhiying.config import DATA_DIR
 
     wf_dir = os.path.join(DATA_DIR, "workflows")
     os.makedirs(wf_dir, exist_ok=True)
@@ -571,7 +571,7 @@ async def save_workflow(req: WorkflowSaveRequest):
 async def get_workflow(name: str):
     """Get a saved workflow by name."""
     import json
-    from tubecli.config import DATA_DIR
+    from zhiying.config import DATA_DIR
 
     fpath = os.path.join(DATA_DIR, "workflows", name + ".json")
     if not os.path.exists(fpath):
@@ -585,7 +585,7 @@ async def get_workflow(name: str):
 @app.delete("/api/v1/workflows/{name}")
 async def delete_workflow(name: str):
     """Delete a saved workflow."""
-    from tubecli.config import DATA_DIR
+    from zhiying.config import DATA_DIR
 
     fpath = os.path.join(DATA_DIR, "workflows", name + ".json")
     if not os.path.exists(fpath):
@@ -599,7 +599,7 @@ async def delete_workflow(name: str):
 
 @app.get("/api/v1/nodes")
 async def list_nodes():
-    from tubecli.nodes.registry import list_available_nodes
+    from zhiying.nodes.registry import list_available_nodes
     return {"nodes": list_available_nodes()}
 
 
@@ -607,27 +607,27 @@ async def list_nodes():
 
 @app.get("/api/v1/extensions")
 async def list_extensions():
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     extensions = extension_manager.get_all()
     return {"extensions": [p.to_dict() for p in extensions], "count": len(extensions)}
 
 @app.post("/api/v1/extensions/{name}/enable")
 async def enable_extension(name: str):
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     if extension_manager.enable(name):
         return {"status": "enabled", "extension": name}
     raise HTTPException(404, f"Extension '{name}' not found")
 
 @app.post("/api/v1/extensions/{name}/disable")
 async def disable_extension(name: str):
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     if extension_manager.disable(name):
         return {"status": "disabled", "extension": name}
     raise HTTPException(404, f"Extension '{name}' not found")
 
 @app.put("/api/v1/extensions/{name}")
 async def update_extension(name: str, req: ExtensionUpdateRequest):
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     extension = extension_manager.get(name)
     if not extension:
          raise HTTPException(404, f"Extension '{name}' not found")
@@ -641,7 +641,7 @@ async def update_extension(name: str, req: ExtensionUpdateRequest):
 @app.get("/api/v1/extensions/{name}/info")
 async def extension_info(name: str):
     """Get detailed info about a extension including manifest and SKILL.md."""
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     extension = extension_manager.get(name)
     if not extension:
         raise HTTPException(404, f"Extension '{name}' not found")
@@ -658,7 +658,7 @@ async def extension_locale(name: str, lang: str):
     """Return locale strings for an extension.
     Looks for locales/{lang}.json, falls back to en.json, returns {} if none found.
     """
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     import re
     # Sanitize lang to prevent path traversal
     if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
@@ -686,7 +686,7 @@ class ExtensionInstallRequest(BaseModel):
 @app.post("/api/v1/extensions/install")
 async def install_extension(req: ExtensionInstallRequest):
     """Install a extension from a git repository URL."""
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     result = extension_manager.install_from_git(req.git_url)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
@@ -696,7 +696,7 @@ async def install_extension(req: ExtensionInstallRequest):
 @app.delete("/api/v1/extensions/{name}/uninstall")
 async def uninstall_extension(name: str):
     """Uninstall an external extension."""
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     result = extension_manager.uninstall(name)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
@@ -712,7 +712,7 @@ async def package_extension(name: str):
     import re
     import ast
     import json as json_lib
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
 
     ext = extension_manager.get(name)
     if not ext:
@@ -894,7 +894,7 @@ async def package_extension(name: str):
         detected_deps.append(pip_name)
 
     # 3. Merge with existing manifest.dependencies (don't lose manually declared ones)
-    read_manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+    read_manifest_path = os.path.join(ext_dir, "zhiying-extension.json")
     manifest = {}
     if os.path.exists(read_manifest_path):
         with open(read_manifest_path, "r", encoding="utf-8") as f:
@@ -931,7 +931,7 @@ async def package_extension(name: str):
 @app.get("/api/v1/extensions/skill-mds")
 async def get_extension_skill_mds():
     """Return all SKILL.md contents from enabled extensions for AI agents."""
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
     return {"skill_mds": extension_manager.get_all_skill_mds()}
 
 
@@ -941,8 +941,8 @@ async def get_extension_skill_mds():
 async def system_version():
     """Get current system version and git info."""
     import subprocess
-    from tubecli import __version__
-    from tubecli.config import BASE_DIR
+    from zhiying import __version__
+    from zhiying.config import BASE_DIR
 
     git_hash = ""
     git_branch = ""
@@ -979,8 +979,8 @@ async def system_version():
 async def system_check_update():
     """Check if a system update is available by comparing local vs remote git."""
     import subprocess
-    from tubecli import __version__
-    from tubecli.config import BASE_DIR
+    from zhiying import __version__
+    from zhiying.config import BASE_DIR
 
     project_root = str(BASE_DIR)
 
@@ -1038,8 +1038,8 @@ async def system_check_update():
 async def system_update():
     """Pull latest code from git and reinstall dependencies."""
     import subprocess, sys
-    from tubecli import __version__
-    from tubecli.config import BASE_DIR
+    from zhiying import __version__
+    from zhiying.config import BASE_DIR
 
     project_root = str(BASE_DIR)
     old_version = __version__
@@ -1061,7 +1061,7 @@ async def system_update():
 
         # Read new version from file (since module cache still has old value)
         new_version = old_version
-        init_file = os.path.join(project_root, "tubecli", "__init__.py")
+        init_file = os.path.join(project_root, "zhiying", "__init__.py")
         try:
             with open(init_file, "r") as f:
                 for line in f:
@@ -1088,7 +1088,7 @@ async def system_update():
 async def check_extension_update(name: str):
     """Check if an external extension has updates available."""
     import subprocess
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
 
     ext = extension_manager.get(name)
     if not ext:
@@ -1148,7 +1148,7 @@ async def check_extension_update(name: str):
 async def update_extension(name: str):
     """Pull latest code for an external extension."""
     import subprocess
-    from tubecli.core.extension_manager import extension_manager
+    from zhiying.core.extension_manager import extension_manager
 
     ext = extension_manager.get(name)
     if not ext:
@@ -1172,7 +1172,7 @@ async def update_extension(name: str):
         # Re-read manifest to get new version
         import json
         new_version = ext.version
-        manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
+        manifest_path = os.path.join(ext_dir, "zhiying-extension.json")
         if os.path.exists(manifest_path):
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
@@ -1192,6 +1192,62 @@ async def update_extension(name: str):
         raise HTTPException(500, f"Extension update failed: {e}")
 
 
+# ── Aggregated i18n (per-extension locales) ─────────────────────────
+
+@app.get("/api/v1/i18n/{lang}")
+async def get_aggregated_i18n(lang: str):
+    """Aggregate locale files from ALL extensions into a single flat dict.
+    Scans both built-in extensions and external extensions directories.
+    """
+    import re
+    import json
+    import os
+
+    # Sanitize lang
+    if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
+        lang = "zh"
+
+    merged = {}
+
+    def _load_locales_from_dir(base_dir):
+        """Scan a directory for subdirectories containing locales/."""
+        if not os.path.isdir(base_dir):
+            return
+        for entry in os.listdir(base_dir):
+            ext_dir = os.path.join(base_dir, entry)
+            if not os.path.isdir(ext_dir):
+                continue
+            locales_dir = os.path.join(ext_dir, "locales")
+            if not os.path.isdir(locales_dir):
+                continue
+            for try_lang in [lang, "en"]:
+                locale_path = os.path.join(locales_dir, f"{try_lang}.json")
+                if os.path.isfile(locale_path):
+                    try:
+                        with open(locale_path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        merged.update(data)
+                    except Exception:
+                        pass
+                    break
+
+    # 1. Built-in extensions: zhiying/extensions/*/locales/
+    builtin_ext_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extensions")
+    _load_locales_from_dir(builtin_ext_dir)
+
+    # 2. External extensions: data/extensions_external/*/locales/
+    from zhiying.config import EXTENSIONS_EXTERNAL_DIR
+    _load_locales_from_dir(str(EXTENSIONS_EXTERNAL_DIR))
+
+    merged["_DEBUG"] = {
+        "__file__": __file__,
+        "builtin_ext_dir": builtin_ext_dir,
+        "external_ext_dir": str(EXTENSIONS_EXTERNAL_DIR)
+    }
+
+    return merged
+
+
 # ── Language Settings ────────────────────────────────────────────────
 
 class LanguageUpdateRequest(BaseModel):
@@ -1201,7 +1257,7 @@ class LanguageUpdateRequest(BaseModel):
 @app.get("/api/v1/settings/language")
 async def get_language_setting():
     """Get current language setting."""
-    from tubecli.config import get_language, SUPPORTED_LANGUAGES
+    from zhiying.config import get_language, SUPPORTED_LANGUAGES
     return {
         "language": get_language(),
         "supported": SUPPORTED_LANGUAGES,
@@ -1211,8 +1267,8 @@ async def get_language_setting():
 @app.put("/api/v1/settings/language")
 async def set_language_setting(req: LanguageUpdateRequest):
     """Update language setting."""
-    from tubecli.config import set_language, SUPPORTED_LANGUAGES
-    from tubecli.i18n import load_language
+    from zhiying.config import set_language, SUPPORTED_LANGUAGES
+    from zhiying.i18n import load_language
     if req.language not in SUPPORTED_LANGUAGES:
         raise HTTPException(400, f"Unsupported language: {req.language}. Supported: {SUPPORTED_LANGUAGES}")
     set_language(req.language)
@@ -1221,6 +1277,6 @@ async def set_language_setting(req: LanguageUpdateRequest):
 
 
 # ── Register Extension Routes ───────────────────────────────────────
-from tubecli.core.extension_manager import extension_manager
+from zhiying.core.extension_manager import extension_manager
 extension_manager.discover_extensions()
 extension_manager.register_api_routes(app)
