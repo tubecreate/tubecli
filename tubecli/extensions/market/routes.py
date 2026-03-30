@@ -476,7 +476,38 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             extension_manager.enable(ext_obj.name)
             print(f"[Market] Auto-enabled extension: {ext_obj.name}")
 
-        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled", "type": "extension"}
+        # Hot-mount routes and nodes into running server (no restart needed)
+        if ext_obj:
+            try:
+                from tubecli.api.server import app
+                router = ext_obj.get_routes()
+                if router:
+                    # Ensure extension dir is in sys.path for imports
+                    import sys as _sys
+                    ext_d = getattr(ext_obj, 'extension_dir', None)
+                    if ext_d and ext_d not in _sys.path:
+                        _sys.path.insert(0, ext_d)
+                    app.include_router(router)
+                    print(f"[Market] Hot-mounted routes for {ext_obj.name}")
+            except Exception as e:
+                print(f"[Market] Could not hot-mount routes (restart needed): {e}")
+
+            try:
+                nodes = ext_obj.get_nodes()
+                if nodes:
+                    from tubecli.core.workflow_engine import WorkflowEngine
+                    WorkflowEngine.NODE_REGISTRY.update(nodes)
+                    print(f"[Market] Registered {len(nodes)} workflow nodes for {ext_obj.name}")
+            except Exception as e:
+                print(f"[Market] Could not register nodes: {e}")
+
+            # Trigger on_install to create workspace directories
+            try:
+                ext_obj.on_install()
+            except Exception as e:
+                print(f"[Market] on_install warning: {e}")
+
+        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled", "type": "extension", "restart_required": False}
 
     elif category == "skill":
         # Save as skill JSON
