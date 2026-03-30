@@ -29,6 +29,7 @@ class StoryPlayer {
         this.dispatchedEvents = new Set();
         this.isPlaying = false;
         this._lastTs = null;
+        this._waypointOccupants = {};
 
         // Build waypoint map
         this.waypointMap = {};
@@ -77,6 +78,7 @@ class StoryPlayer {
         this.pause();
         this.seek(0);
         this._returnAllToDesk();
+        this._waypointOccupants = {};
         if (typeof storyBubbles !== 'undefined') storyBubbles.clearAll();
     }
 
@@ -131,8 +133,13 @@ class StoryPlayer {
         switch (evt.action) {
             case 'walk_to': {
                 let target = evt.target;
+                const waypointId = (typeof target === 'string') ? target : null;
                 if (typeof target === 'string') target = this.waypointMap[target] || null;
-                if (ch && target) this._walkTo(ch, target.x, target.z);
+                if (ch && target) {
+                    // Apply offset so multiple characters don't stack
+                    const offset = this._getFormationOffset(waypointId || `${target.x}_${target.z}`, ch);
+                    this._walkTo(ch, target.x + offset.x, target.z + offset.z);
+                }
                 break;
             }
             case 'return_desk':
@@ -255,6 +262,46 @@ class StoryPlayer {
             }
         }
         return nearest;
+    }
+
+    /**
+     * Get a circular offset for a character going to a shared waypoint.
+     * First character goes to center, others spread in a circle around it.
+     * Radius grows slightly as more characters join.
+     */
+    _getFormationOffset(waypointKey, ch) {
+        if (!this._waypointOccupants) this._waypointOccupants = {};
+
+        if (!this._waypointOccupants[waypointKey]) {
+            this._waypointOccupants[waypointKey] = [];
+        }
+
+        const occupants = this._waypointOccupants[waypointKey];
+
+        // Remove this character from any previous waypoint
+        for (const key in this._waypointOccupants) {
+            this._waypointOccupants[key] = this._waypointOccupants[key].filter(c => c !== ch);
+            if (this._waypointOccupants[key].length === 0 && key !== waypointKey) {
+                delete this._waypointOccupants[key];
+            }
+        }
+
+        // Add to this waypoint
+        if (!occupants.includes(ch)) occupants.push(ch);
+
+        const idx = occupants.indexOf(ch);
+        const total = occupants.length;
+
+        // First character: no offset (center)
+        if (total <= 1) return { x: 0, z: 0 };
+
+        // Circle formation: spread around the center
+        const RADIUS = 0.6 + Math.floor(total / 6) * 0.4; // grow radius for large groups
+        const angle = (idx / total) * Math.PI * 2;
+        return {
+            x: Math.cos(angle) * RADIUS,
+            z: Math.sin(angle) * RADIUS,
+        };
     }
 }
 

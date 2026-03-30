@@ -442,6 +442,7 @@ const WF = (() => {
         ]},
         { name: 'command', label: 'FFmpeg Command (auto-filled)', type: 'textarea', default: '-i {input} -ss {start_time} -to {end_time} -c copy -avoid_negative_ts make_zero {output}' },
         { name: 'output_suffix', label: 'Output Suffix', type: 'text', default: '_processed' },
+        { name: 'output_dir', label: 'Output Directory (empty = default)', type: 'text', default: '' },
       ],
     };
     return fields[type] || [];
