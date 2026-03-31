@@ -166,21 +166,21 @@ async def api_list_tokens(provider: Optional[str] = None):
     return {"tokens": auth_manager.list_tokens(provider)}
 
 
-@router.post("/tokens/{cred_id}/refresh")
-async def api_refresh_token(cred_id: str):
+@router.post("/tokens/{token_id}/refresh")
+async def api_refresh_token(token_id: str):
     """Refresh an expired token."""
     from .extension import auth_manager
-    result = auth_manager.refresh_token(cred_id)
+    result = auth_manager.refresh_token(token_id)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
     return result
 
 
-@router.delete("/tokens/{cred_id}")
-async def api_revoke_token(cred_id: str):
+@router.delete("/tokens/{token_id}")
+async def api_revoke_token(token_id: str):
     """Revoke a token."""
     from .extension import auth_manager
-    result = auth_manager.revoke_token(cred_id)
+    result = auth_manager.revoke_token(token_id)
     if result["status"] == "error":
         raise HTTPException(404, result["message"])
     return result

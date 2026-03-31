@@ -236,17 +236,34 @@ class AuthManager:
     # ── Load / Save ──────────────────────────────────────────
 
     def _load(self):
-        try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, "r", encoding="utf-8") as f:
-                    self._data = json.load(f)
-                if "credentials" not in self._data:
-                    self._data["credentials"] = {}
-                if "tokens" not in self._data:
-                    self._data["tokens"] = {}
-        except Exception as e:
-            logger.error(f"Failed to load auth data: {e}")
-            self._data = {"credentials": {}, "tokens": {}}
+        """Load credentials from disk and auto-migrate legacy tokens."""
+        if not os.path.exists(self.data_file):
+            self._save()
+        with open(self.data_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            self._data["credentials"] = data.get("credentials", {})
+            self._data["tokens"] = data.get("tokens", {})
+
+        # AUTO-MIGRATE: If existing tokens use exactly cred_id as the key, migrate them!
+        migrated = False
+        new_tokens = {}
+        for token_key, token_val in list(self._data["tokens"].items()):
+            # If the token_key is exactly equal to a credential ID, it's legacy!
+            if token_key in self._data["credentials"]:
+                # Generate a unique key for it
+                new_token_id = f"{token_key}_{uuid.uuid4().hex[:8]}"
+                # Ensure it has credential_id inside the data
+                if "credential_id" not in token_val:
+                    token_val["credential_id"] = token_key
+                new_tokens[new_token_id] = token_val
+                migrated = True
+            else:
+                new_tokens[token_key] = token_val
+
+        if migrated:
+            self._data["tokens"] = new_tokens
+            self._save()
+            logger.info("Auto-migrated auth manager tokens to multi-token format.")
 
     def _save(self):
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
@@ -503,7 +520,9 @@ class AuthManager:
             expires_at = (datetime.now() + timedelta(seconds=int(expires_in))).isoformat()
 
             # Save token
-            self._data["tokens"][cred_id] = {
+            token_id = f"{cred_id}_{uuid.uuid4().hex[:8]}"
+            self._data["tokens"][token_id] = {
+                "credential_id": cred_id,
                 "access_token": token_data.get("access_token", ""),
                 "refresh_token": token_data.get("refresh_token", ""),
                 "token_type": token_data.get("token_type", "Bearer"),
@@ -522,6 +541,7 @@ class AuthManager:
                 "status": "success",
                 "message": f"Authorization successful! Email: {authorized_email or 'N/A'}",
                 "credential_id": cred_id,
+                "token_id": token_id,
                 "authorized_email": authorized_email,
                 "browser_profile": pending.get("browser_profile", ""),
             }
@@ -570,11 +590,15 @@ class AuthManager:
         """List all authorized tokens."""
         self._load()
         result = []
-        for cred_id, token in self._data["tokens"].items():
+        for token_id, token in self._data["tokens"].items():
+            cred_id = token.get("credential_id")
+            if not cred_id:
+                continue
             cred = self._data["credentials"].get(cred_id, {})
             if provider and cred.get("provider") != provider:
                 continue
             result.append({
+                "token_id": token_id,
                 "credential_id": cred_id,
                 "credential_name": cred.get("name", "Unknown"),
                 "provider": cred.get("provider", "unknown"),
@@ -583,17 +607,29 @@ class AuthManager:
                 "scopes": token.get("scopes", []),
                 "expires_at": token.get("expires_at", ""),
                 "authorized_at": token.get("authorized_at", ""),
-                "status": self._get_token_status(cred_id),
+                "status": self._get_token_status(token_id),
                 "has_refresh": bool(token.get("refresh_token")),
             })
         return result
 
-    def get_active_token(self, cred_id: str) -> Optional[str]:
+    def _resolve_token_id(self, identifier: str) -> Optional[str]:
+        """Resolve token_id. If a cred_id is passed, returns the first active token_id for it."""
+        if identifier in self._data["tokens"]:
+            return identifier
+        # Fallback: find first token belonging to this cred_id
+        for tid, t in self._data["tokens"].items():
+            if t.get("credential_id") == identifier:
+                return tid
+        return None
+
+    def get_active_token(self, identifier: str) -> Optional[str]:
         """Get a valid access token, auto-refreshing if needed."""
         self._load()
-        token = self._data["tokens"].get(cred_id)
-        if not token:
+        token_id = self._resolve_token_id(identifier)
+        if not token_id:
             return None
+            
+        token = self._data["tokens"].get(token_id)
 
         # Check if expired
         expires_at = token.get("expires_at", "")
@@ -602,10 +638,10 @@ class AuthManager:
                 exp_dt = datetime.fromisoformat(expires_at)
                 if datetime.now() > exp_dt:
                     # Try refresh
-                    refresh_result = self.refresh_token(cred_id)
+                    refresh_result = self.refresh_token(token_id)
                     if refresh_result.get("status") == "success":
                         self._load()
-                        token = self._data["tokens"].get(cred_id)
+                        token = self._data["tokens"].get(token_id)
                         return token.get("access_token") if token else None
                     return None
             except Exception:
@@ -613,22 +649,41 @@ class AuthManager:
 
         return token.get("access_token")
 
-    def get_token_data(self, cred_id: str) -> Optional[dict]:
+    def get_active_token_for_profile(self, cred_id: str, profile_name: str) -> Optional[str]:
+        """Get a valid access token for a specific browser profile."""
+        self._load()
+        target_token_id = None
+        for tid, t in self._data["tokens"].items():
+            if t.get("credential_id") == cred_id and t.get("browser_profile") == profile_name:
+                target_token_id = tid
+                break
+                
+        if target_token_id:
+            return self.get_active_token(target_token_id)
+        # Fallback to the first available if none match the profile exactly
+        return self.get_active_token(cred_id)
+
+    def get_token_data(self, identifier: str) -> Optional[dict]:
         """Get full token data (internal use by other extensions)."""
         self._load()
-        return self._data["tokens"].get(cred_id)
+        token_id = self._resolve_token_id(identifier)
+        if not token_id:
+            return None
+        return self._data["tokens"].get(token_id)
 
-    def refresh_token(self, cred_id: str) -> dict:
+    def refresh_token(self, identifier: str) -> dict:
         """Refresh an expired token."""
         self._load()
-        token = self._data["tokens"].get(cred_id)
-        if not token:
-            return {"status": "error", "message": f"No token for credential '{cred_id}'."}
+        token_id = self._resolve_token_id(identifier)
+        if not token_id:
+            return {"status": "error", "message": f"No token found for '{identifier}'."}
 
+        token = self._data["tokens"].get(token_id)
         refresh = token.get("refresh_token")
         if not refresh:
             return {"status": "error", "message": "No refresh token available. Re-authorize required."}
 
+        cred_id = token.get("credential_id")
         cred = self._data["credentials"].get(cred_id, {})
         provider = cred.get("provider")
         prov_config = PROVIDERS.get(provider, {})
@@ -676,13 +731,15 @@ class AuthManager:
         except Exception as e:
             return {"status": "error", "message": f"Refresh error: {str(e)}"}
 
-    def revoke_token(self, cred_id: str) -> dict:
+    def revoke_token(self, identifier: str) -> dict:
         """Revoke a token and remove from storage."""
         self._load()
-        token = self._data["tokens"].get(cred_id)
-        if not token:
-            return {"status": "error", "message": f"No token for credential '{cred_id}'."}
+        token_id = self._resolve_token_id(identifier)
+        if not token_id:
+            return {"status": "error", "message": f"No token found for '{identifier}'."}
 
+        token = self._data["tokens"].get(token_id)
+        cred_id = token.get("credential_id")
         cred = self._data["credentials"].get(cred_id, {})
         provider = cred.get("provider")
         prov_config = PROVIDERS.get(provider, {})
@@ -698,15 +755,15 @@ class AuthManager:
                 logger.warning(f"Provider revoke failed (non-critical): {e}")
 
         # Remove from local storage
-        del self._data["tokens"][cred_id]
+        del self._data["tokens"][token_id]
         self._save()
-        return {"status": "success", "message": f"Token for '{cred_id}' revoked."}
+        return {"status": "success", "message": f"Token revoked successfully."}
 
     # ── Helpers ──────────────────────────────────────────────
 
-    def _get_token_status(self, cred_id: str) -> str:
+    def _get_token_status(self, token_id: str) -> str:
         """Get token status: active, expired, none."""
-        token = self._data["tokens"].get(cred_id)
+        token = self._data["tokens"].get(token_id)
         if not token:
             return "none"
         expires_at = token.get("expires_at", "")
@@ -732,8 +789,8 @@ class AuthManager:
         for prov_id, prov_info in PROVIDERS.items():
             cred_count = sum(1 for c in self._data["credentials"].values() if c.get("provider") == prov_id)
             token_count = sum(
-                1 for cid, t in self._data["tokens"].items()
-                if self._data["credentials"].get(cid, {}).get("provider") == prov_id
+                1 for tid, t in self._data["tokens"].items()
+                if self._data["credentials"].get(t.get("credential_id", ""), {}).get("provider") == prov_id
             )
             result.append({
                 "id": prov_id,
