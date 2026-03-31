@@ -547,10 +547,14 @@
 }
 
 /* Modals — wider */
-#modal-credential .modal-content,
-#modal-authorize .modal-content {
+#modal-credential .modal-content {
     width: 900px;
     max-width: 90vw;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+#modal-authorize .modal-content {
+    max-width: 520px;
     max-height: 90vh;
     overflow-y: auto;
 }
@@ -581,4 +585,61 @@
 .am-advanced-scopes .am-scopes-grid {
     border: none;
     border-radius: 0;
+}
+
+/* ── Read-only Scope Chips (Authorize modal) ── */
+.am-scopes-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid var(--border, #2a2a4a);
+    border-radius: 8px;
+    background: var(--bg, #0a0a0f);
+}
+.am-scope-chip-readonly {
+    font-size: 0.76rem;
+    padding: 4px 10px;
+    border-radius: 16px;
+    background: rgba(6, 182, 212, 0.1);
+    color: #06b6d4;
+    border: 1px solid rgba(6, 182, 212, 0.2);
+    font-weight: 500;
+    white-space: nowrap;
+    user-select: none;
+}
+
+/* ── Auto Renew Box ── */
+.am-auto-renew-box {
+    margin: 16px 0;
+    padding: 14px 16px;
+    background: rgba(34, 197, 94, 0.06);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    border-radius: 10px;
+}
+.am-auto-renew-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.am-auto-renew-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+}
+.am-auto-renew-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #22c55e;
+}
+.am-auto-renew-desc {
+    font-size: 0.78rem;
+    color: var(--text-muted, #6868a0);
+    margin-top: 2px;
+}
+.am-auto-renew-status {
+    margin-left: auto;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #22c55e;
+    flex-shrink: 0;
 }

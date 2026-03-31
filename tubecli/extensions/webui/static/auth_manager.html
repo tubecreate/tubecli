@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auth Manager — TubeCLI</title>
+    <title>Auth Manager — ZhiYing</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=3">
     <link rel="stylesheet" href="/static/auth_manager.css?v=8">
@@ -209,29 +209,40 @@
     </div>
 </div>
 
-<!-- Authorize Modal -->
+<!-- Authorize Modal (Simplified — uses credential's saved scopes) -->
 <div id="modal-authorize" class="modal hidden">
-    <div class="modal-content">
+    <div class="modal-content" style="max-width:520px">
         <div class="modal-header">
             <h2>🔓 Authorize Access</h2>
             <button class="btn-close" onclick="closeModal('modal-authorize')">✕</button>
         </div>
 
+        <!-- Credential Info -->
         <div class="am-auth-info">
             <p>Credential: <strong id="auth-cred-name"></strong></p>
             <p>Provider: <strong id="auth-cred-provider"></strong></p>
         </div>
 
+        <!-- Scopes (read-only, from credential config) -->
         <div class="form-group" style="margin-top:12px">
-            <label>📦 Chọn dịch vụ cần cấp quyền</label>
-            <div id="auth-services-list" class="am-services-grid"></div>
+            <label>📦 Quyền sẽ được cấp <span style="color:#64748b;font-weight:400;font-size:0.8rem">(đã cấu hình khi tạo credential)</span></label>
+            <div id="auth-scopes-chips" class="am-scopes-chips"></div>
+            <small class="am-hint" style="margin-top:6px">💡 Muốn thay đổi scopes? Tạo credential mới với quyền khác.</small>
         </div>
 
-        <details class="am-advanced-scopes">
-            <summary>⚙️ Scopes nâng cao (tuỳ chỉnh)</summary>
-            <div id="auth-scopes-list" class="am-scopes-grid"></div>
-        </details>
+        <!-- Auto Renew -->
+        <div class="am-auto-renew-box">
+            <div class="am-auto-renew-header">
+                <span class="am-auto-renew-icon">🔄</span>
+                <div>
+                    <div class="am-auto-renew-title">Auto Renew Token</div>
+                    <div class="am-auto-renew-desc">Token sẽ tự động làm mới khi hết hạn, không cần cấp quyền lại</div>
+                </div>
+                <span class="am-auto-renew-status">✅ Enabled</span>
+            </div>
+        </div>
 
+        <!-- Browser Profile -->
         <div class="form-group">
             <label>🌐 Browser Profile</label>
             <select id="auth-browser-profile">

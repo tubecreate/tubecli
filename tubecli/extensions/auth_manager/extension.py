@@ -344,7 +344,7 @@ class AuthManager:
     # ── OAuth Flow ───────────────────────────────────────────
 
     def build_oauth_url(self, cred_id: str, scopes: List[str], browser_profile: str = "",
-                        callback_base: str = "http://localhost:5295") -> dict:
+                        callback_base: str = "http://localhost:2516") -> dict:
         """Build OAuth authorization URL and store pending state."""
         self._load()
         cred = self._data["credentials"].get(cred_id)
@@ -373,6 +373,16 @@ class AuthManager:
 
         # Build auth URL based on provider
         if provider == "google":
+            # Auto-inject OpenID scopes so we can fetch user email
+            openid_scopes = [
+                "openid",
+                "https://www.googleapis.com/auth/userinfo.email",
+                "https://www.googleapis.com/auth/userinfo.profile",
+            ]
+            for oid in openid_scopes:
+                if oid not in scope_values:
+                    scope_values.append(oid)
+
             params = {
                 "client_id": cred["client_id"],
                 "redirect_uri": redirect_uri,

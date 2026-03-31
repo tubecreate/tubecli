@@ -115,7 +115,7 @@ class BrowserProcessManager:
                     "instance_id": instance_id,
                     "status": "error",
                     "error": f"Browser launcher directory not found: {launcher_dir}. "
-                             f"Please place the browser-laucher folder next to the tubecli project.",
+                             f"Please place the browser-laucher folder next to the zhiying project.",
                     "debug": debug_info,
                 }
 
@@ -219,10 +219,10 @@ class BrowserProcessManager:
         if prompt:
             args.extend(["--prompt", prompt])
             args.extend(["--session", "--session-duration", "10"])
-        elif url:
-            args.extend(["--prompt", f'Go to "{url}"'])
         elif manual:
             args.append("--manual")
+        if url:
+            args.extend(["--url", url])
         if headless:
             args.append("--headless")
         args.extend(["--ai-model", ai_model])
