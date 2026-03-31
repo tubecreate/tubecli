@@ -89,6 +89,7 @@ const EXT_REGISTRY = [
     { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:'ext.multi_agents_desc', type:'extension' },
     { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
     { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
+    { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
 ];
 
 async function loadExtensions() {
@@ -531,6 +532,7 @@ function openExtDetail(id) {
     else if (id === 'multi_agents') renderFullPageExt(body, 'Multi-Agents', 'Quản lý đội nhóm agent và phân công nhiệm vụ tự động.', '/teams');
     else if (id === 'downloader') renderFullPageExt(body, 'Video Downloader', 'Tải video từ TikTok & Douyin. Hỗ trợ quét kênh, tải hàng loạt.', '/downloader');
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
+    else if (id === 'sheets_manager') renderFullPageExt(body, 'Google Sheets', 'Manage Google Spreadsheets.', '/sheets_manager');
 }
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
 

@@ -2,7 +2,7 @@
  * ZhiYing Dashboard — Internationalization (i18n)
  * Loads aggregated translations from all extension locales via API.
  */
-let _lang = 'zh';
+let _lang = 'en';
 let _translations = {};
 
 /**
@@ -49,7 +49,7 @@ async function loadI18nFromApi() {
             _lang = d.language;
         }
     } catch (e) {
-        _lang = localStorage.getItem('zhiying_lang') || 'zh';
+        _lang = localStorage.getItem('zhiying_lang') || 'en';
     }
 
     // 2. Fetch aggregated translations from all extensions

@@ -1,0 +1,16 @@
+{
+  "description" : "Origin Trials public key updates and disabled features list",
+  "manifest_version" : 3,
+  "minimum_chrome_version" : "88",
+  "name" : "Origin Trials Updates",
+  "origin-trials" : 
+  {
+    "disabled-features" : 
+    [
+      "CanvasTextNg",
+      "WebAssemblyCustomDescriptors"
+    ]
+  },
+  "update_url" : "https://clients2.google.com/service/update2/crx",
+  "version" : "1.0.0.20"
+}

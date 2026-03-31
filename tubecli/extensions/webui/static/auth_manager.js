@@ -449,7 +449,7 @@ async function deleteCredential(credId, name) {
     }
 }
 
-// ── Authorize Modal ─────────────────────────────────────────────
+// ── Authorize Modal (Simplified) ────────────────────────────────
 function openAuthorizeModal(credId) {
     const cred = credentialsData.find(c => c.id === credId);
     if (!cred) return;
@@ -462,54 +462,20 @@ function openAuthorizeModal(credId) {
     const redirectUri = `${window.location.origin}/api/v1/auth-manager/oauth/callback`;
     document.getElementById('auth-redirect-uri').textContent = redirectUri;
 
-    // Load services for this provider
+    // Show saved scopes as read-only chips
     const provider = providersData.find(p => p.id === cred.provider);
-    const services = provider?.services || {};
-    const scopes = provider?.scopes || {};
-
-    // Render Service Cards
-    const servicesContainer = document.getElementById('auth-services-list');
-    if (Object.keys(services).length > 0) {
-        servicesContainer.innerHTML = Object.entries(services).map(([svcId, svc]) => {
-            const scopesListHtml = (svc.scopes || []).map(s => {
-                const desc = scopes[s] || s;
-                return `
-                <div class="am-scope-row">
-                    <code class="am-scope-key">${s}</code>
-                    <span class="am-scope-desc">${desc}</span>
-                </div>`;
-            }).join('');
-
-            return `
-            <div class="am-service-card" data-service="${svcId}" onclick="toggleService('${svcId}')">
-                <div class="am-service-row">
-                    <input type="checkbox" class="am-service-check" data-service="${svcId}" 
-                        data-scopes="${(svc.scopes || []).join(',')}" onclick="event.stopPropagation()">
-                    <div class="am-service-info">
-                        <div class="am-service-label">${svc.label}</div>
-                        <div class="am-service-desc">${svc.description || ''}</div>
-                    </div>
-                </div>
-                <div class="am-service-scopes-detail">
-                    <div class="am-scopes-list">${scopesListHtml}</div>
-                </div>
-            </div>`;
+    const provScopes = provider?.scopes || {};
+    const chipsContainer = document.getElementById('auth-scopes-chips');
+    const savedScopes = cred.scopes || [];
+    
+    if (savedScopes.length > 0) {
+        chipsContainer.innerHTML = savedScopes.map(s => {
+            const label = provScopes[s] || s;
+            return `<span class="am-scope-chip-readonly">${label}</span>`;
         }).join('');
-        servicesContainer.parentElement.style.display = '';
     } else {
-        servicesContainer.innerHTML = '<div class="am-empty" style="padding:12px">No services defined</div>';
+        chipsContainer.innerHTML = '<span style="color:#ef4444;font-size:0.85rem">⚠️ Chưa cấu hình scopes. Chỉnh sửa credential để thêm quyền.</span>';
     }
-
-    // Render individual scopes (advanced)
-    const scopesContainer = document.getElementById('auth-scopes-list');
-    scopesContainer.innerHTML = Object.entries(scopes).map(
-        ([k, label]) => `
-        <div class="am-scope-item">
-            <input type="checkbox" id="scope-${k}" value="${k}" 
-                ${(cred.scopes || []).includes(k) ? 'checked' : ''} onchange="updateServiceStates()">
-            <label for="scope-${k}">${label}</label>
-        </div>`
-    ).join('') || '<div class="am-empty">No scopes</div>';
 
     // Load browser profiles
     const profileSelect = document.getElementById('auth-browser-profile');
@@ -522,60 +488,16 @@ function openAuthorizeModal(credId) {
     openModal('modal-authorize');
 }
 
-function toggleService(svcId) {
-    const card = document.querySelector(`.am-service-card[data-service="${svcId}"]`);
-    const check = card.querySelector('.am-service-check');
-    check.checked = !check.checked;
-    applyServiceScopes();
-}
-
-function applyServiceScopes() {
-    // Collect all scopes from selected services
-    const selectedScopes = new Set();
-    document.querySelectorAll('.am-service-check:checked').forEach(cb => {
-        const scopes = (cb.dataset.scopes || '').split(',').filter(Boolean);
-        scopes.forEach(s => selectedScopes.add(s));
-    });
-
-    // Update scope checkboxes
-    document.querySelectorAll('#auth-scopes-list input[type="checkbox"]').forEach(cb => {
-        cb.checked = selectedScopes.has(cb.value);
-    });
-
-    // Update service card visual state
-    document.querySelectorAll('.am-service-card').forEach(card => {
-        const check = card.querySelector('.am-service-check');
-        card.classList.toggle('selected', check.checked);
-    });
-}
-
-function updateServiceStates() {
-    // When individual scopes are toggled, update service card states
-    const checkedScopes = new Set();
-    document.querySelectorAll('#auth-scopes-list input[type="checkbox"]:checked').forEach(cb => {
-        checkedScopes.add(cb.value);
-    });
-
-    document.querySelectorAll('.am-service-check').forEach(cb => {
-        const requiredScopes = (cb.dataset.scopes || '').split(',').filter(Boolean);
-        const allChecked = requiredScopes.every(s => checkedScopes.has(s));
-        cb.checked = allChecked;
-        cb.closest('.am-service-card').classList.toggle('selected', allChecked);
-    });
-}
-
 async function startAuthorize() {
     const credId = document.getElementById('auth-cred-id').value;
     const profile = document.getElementById('auth-browser-profile').value;
+    const cred = credentialsData.find(c => c.id === credId);
 
-    // Get selected scopes
-    const scopes = [];
-    document.querySelectorAll('#auth-scopes-list input[type="checkbox"]:checked').forEach(cb => {
-        scopes.push(cb.value);
-    });
+    // Use credential's saved scopes directly
+    const scopes = cred?.scopes || [];
 
     if (!scopes.length) {
-        showToast('Please select at least one scope', 'error');
+        showToast('Credential chưa có scopes. Hãy chỉnh sửa credential và chọn dịch vụ trước.', 'error');
         return;
     }
 
@@ -586,8 +508,31 @@ async function startAuthorize() {
         });
 
         if (result.status === 'success') {
-            showToast('Browser opened! Complete authorization flow...', 'success');
             closeModal('modal-authorize');
+            const authUrl = result.auth_url;
+
+            if (profile) {
+                // Playwright profile was requested — check server-side launch result
+                const launch = result.browser_launch || {};
+                if (launch.status === 'error') {
+                    showToast(`❌ Không mở được profile "${profile}": ${launch.error}. Đang mở trình duyệt...`, 'error');
+                    // Fallback: open from client-side
+                    if (authUrl) window.open(authUrl, '_blank') || (window.location.href = authUrl);
+                } else {
+                    showToast(`⏳ Đã mở profile "${profile}". Vui lòng cấp quyền trên trang Google...`, 'success');
+                }
+            } else {
+                // No profile — open from client-side
+                if (authUrl) {
+                    const popup = window.open(authUrl, '_blank');
+                    if (!popup) {
+                        // Popup blocked — redirect
+                        window.location.href = authUrl;
+                        return;
+                    }
+                }
+                showToast('⏳ Đã mở trình duyệt. Vui lòng cấp quyền trên trang Google...', 'success');
+            }
 
             // Poll for token arrival
             pollForToken(credId);
@@ -600,21 +545,36 @@ async function startAuthorize() {
 }
 
 let _pollTimer = null;
+let _pollStartTime = null;
+
 function pollForToken(credId) {
     let attempts = 0;
-    const maxAttempts = 120; // 2 minutes
+    const maxAttempts = 180; // 3 minutes
     if (_pollTimer) clearInterval(_pollTimer);
+    _pollStartTime = new Date().toISOString();
 
     _pollTimer = setInterval(async () => {
         attempts++;
         if (attempts > maxAttempts) {
             clearInterval(_pollTimer);
             _pollTimer = null;
+            showToast('⏰ Authorization timeout. Please try again.', 'error');
             return;
         }
+        // Skip first 3 seconds to give browser time to open
+        if (attempts < 3) return;
+
         try {
             const data = await apiGet('/tokens');
-            const found = (data.tokens || []).find(t => t.credential_id === credId && t.status === 'active');
+            const found = (data.tokens || []).find(t => {
+                if (t.credential_id !== credId) return false;
+                if (t.status !== 'active') return false;
+                // Only match tokens authorized AFTER we started the flow
+                if (t.authorized_at && _pollStartTime) {
+                    return t.authorized_at > _pollStartTime;
+                }
+                return false;
+            });
             if (found) {
                 clearInterval(_pollTimer);
                 _pollTimer = null;

@@ -604,7 +604,8 @@ async function main() {
   const instanceId = args['instance-id'] || null; // Instance ID from BrowserProcessManager
   const proxyArg = args['proxy'] || ''; // CLI override
   const skipProxyCheck = args['skip-proxy-check'] || false;
-  const profilesDir = args['profiles-dir'] || './profiles'; // Custom profiles directory from TubeCLI
+  const profilesDir = args['profiles-dir'] || './profiles'; // Custom profiles directory from ZhiYing
+  const startUrlArg = args['url'] || ''; // URL to open directly (e.g. OAuth callback)
   global._profilesDir = profilesDir;
   let proxy = proxyArg;
 
@@ -1173,18 +1174,21 @@ async function main() {
       if (isManual) {
         console.log('>>> MANUAL MODE: Browser launched. Waiting for user to close window...');
         
-        // Navigate to profile start page (antidetect-style: shows profile name in URL bar)
-        const startUrl = `http://localhost:9000/profile-start/${encodeURIComponent(profileName)}?profile=${encodeURIComponent(profileName)}`;
-        try {
-            await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
-            console.log(`[Profile] Start page: ${startUrl}`);
-        } catch (e) {
-            // web_manager not running — fallback to google
-            console.warn('[Profile] web_manager not reachable, falling back to Google.');
+        // If --url was provided (e.g. OAuth), navigate directly to that URL
+        if (startUrlArg) {
+            console.log(`[Manual] Navigating to provided URL: ${startUrlArg}`);
             try {
-                if (page.url() === 'about:blank') await page.goto('https://www.google.com');
-            } catch (fallbackErr) {
-                console.warn('[Profile] Fallback navigation also failed: ' + fallbackErr.message);
+                await page.goto(startUrlArg, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            } catch (e) {
+                console.warn(`[Manual] Failed to navigate to URL: ${e.message}`);
+            }
+        } else {
+            // Navigate directly to Google
+            console.log('[Manual] Defaulting to Google...');
+            try {
+                await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+            } catch (e) {
+                console.warn('[Manual] Failed to navigate: ' + e.message);
             }
         }
 

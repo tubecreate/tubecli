@@ -100,6 +100,21 @@ def _find_video_editor_dir():
     return None
 
 
+def _find_sheets_manager_dir():
+    """Find the Sheets Manager extension directory (handles 'sheets_manager' and 'sheets_manager__xxx')."""
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "sheets_manager")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("sheets_manager__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
 @router.get("/video-editor")
 async def video_editor_page():
     """Serve the Video Editor page."""
@@ -171,6 +186,39 @@ async def serve_video_editor_static(filename: str):
     ve_dir = _find_video_editor_dir()
     if ve_dir:
         filepath = os.path.join(ve_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
+
+
+@router.get("/sheets-manager")
+@router.get("/sheets_manager")
+async def sheets_manager_page():
+    """Serve the Sheets Manager page."""
+    sm_dir = _find_sheets_manager_dir()
+    if sm_dir:
+        html_file = os.path.join(sm_dir, "static", "sheets_manager.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>Sheets Manager — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#00d4ff,#a855f7);color:#000;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">📊</div><h1>Sheets Manager</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/sheets-manager-static/{filename:path}")
+@router.get("/sheets_manager-static/{filename:path}")
+async def serve_sheets_manager_static(filename: str):
+    """Serve Sheets Manager static files (JS, CSS)."""
+    sm_dir = _find_sheets_manager_dir()
+    if sm_dir:
+        filepath = os.path.join(sm_dir, "static", filename)
         if os.path.exists(filepath):
             return FileResponse(filepath)
     return {"error": f"File {filename} not found"}

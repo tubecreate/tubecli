@@ -15,6 +15,7 @@
     "axios": "^1.13.4",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
+    "dedent": "^1.7.2",
     "express": "^4.19.2",
     "fs-extra": "^11.3.3",
     "minimist": "^1.2.8",

@@ -100,7 +100,7 @@ async def api_authorize(cred_id: str, req: AuthorizeRequest, request: Request):
 
     # Determine callback base URL from request
     scheme = request.url.scheme
-    host = request.headers.get("host", "localhost:5295")
+    host = request.headers.get("host", "localhost:2516")
     callback_base = f"{scheme}://{host}"
 
     result = auth_manager.build_oauth_url(
@@ -123,12 +123,13 @@ async def api_authorize(cred_id: str, req: AuthorizeRequest, request: Request):
                 manual=True,
             )
             result["browser_launch"] = launch_result
+            print(f"🌐 Browser profile '{req.browser_profile}' launch result: {launch_result}")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"❌ Failed to launch browser profile '{req.browser_profile}': {e}")
             result["browser_launch"] = {"status": "error", "error": str(e)}
-    else:
-        # Fallback: open in default browser
-        import webbrowser
-        webbrowser.open(result["auth_url"])
+    # No else — let the frontend handle opening via window.open() / redirect
 
     return result
 

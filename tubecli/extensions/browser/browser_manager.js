@@ -316,6 +316,7 @@ export class BrowserManager {
         // Default args
         const launchArgs = [
             '--start-maximized',
+            '--proxy-bypass-list=localhost,127.0.0.1,::1',
             ...args
         ];
 
@@ -341,35 +342,22 @@ export class BrowserManager {
                 return context;
             } catch (e) {
                 lastError = e;
-                if ((options.skipProxyCheck || e.message.toLowerCase().includes('http request error')) && (
-                    e.message.toLowerCase().includes('failed to get proxy ip') || 
-                    e.message.toLowerCase().includes('proxy') ||
-                    e.message.toLowerCase().includes('timeout') ||
-                    e.message.toLowerCase().includes('http request error') ||
-                    e.message.toLowerCase().includes('incorrect format')
-                )) {
-                    console.warn(`[Launch] Proxy/HTTP issue detected (${e.message}). Retrying while keeping proxy active...`);
-                    // DO NOT call this.applyProxy(null) here if skipProxyCheck is true!
-                    // We only disable if we want it to definitely fall back to home IP on failure.
-                    // If it's the 3rd attempt, maybe then we disable? 
-                    // No, let's keep it consistent with the user's intent.
-                    launchAttempt++;
-                    await new Promise(r => setTimeout(r, 2000));
-                    continue;
-                }
+                const errMsg = e.message.toLowerCase();
+                const isProxyError = errMsg.includes('failed to get proxy ip') || 
+                                     errMsg.includes('proxy') ||
+                                     errMsg.includes('timeout') ||
+                                     errMsg.includes('http request error') ||
+                                     errMsg.includes('incorrect format');
+                const isEngineFlake = errMsg.includes('browserautomationstudio') || 
+                                      errMsg.includes('referenceerror: can\'t find variable');
 
-                if (e.message.toLowerCase().includes('failed to get proxy ip') || 
-                    e.message.toLowerCase().includes('proxy') ||
-                    e.message.toLowerCase().includes('timeout') ||
-                    e.message.toLowerCase().includes('http request error') ||
-                    e.message.toLowerCase().includes('incorrect format')) {
-                    
-                    if (e.message.toLowerCase().includes('incorrect format')) {
+                if (isProxyError || isEngineFlake) {
+                    if (errMsg.includes('incorrect format')) {
                          if (!options.proxy) {
                              console.warn(`[Launch] 'Incorrect format' persisted with NO PROXY! This confirms FINGERPRINT is invalid.`);
                              throw new Error('FINGERPRINT_FATAL_ERROR');
                          }
-                         console.warn(`[Launch] 'Incorrect format' error detected. This likely means PROXY is invalid: ${proxy}`);
+                         console.warn(`[Launch] 'Incorrect format' error detected. This likely means PROXY is invalid.`);
                          console.warn(`[Launch] Disabling proxy for next attempt to verify...`);
                          this.applyProxy(null);
                          options.proxy = null;
@@ -377,11 +365,11 @@ export class BrowserManager {
                          continue;
                     }
 
-                    console.warn(`[Launch] Attempt ${launchAttempt} failed: ${e.message}. Retrying in 5 seconds...`);
+                    console.warn(`[Launch] Attempt ${launchAttempt} failed with recoverable error: ${e.message}. Retrying...`);
                     launchAttempt++;
-                    await new Promise(r => setTimeout(r, 5000));
+                    await new Promise(r => setTimeout(r, 3000));
                 } else {
-                    throw e; // Non-proxy error, fail immediately
+                    throw e; // Non-recoverable error, fail immediately
                 }
             }
         }
