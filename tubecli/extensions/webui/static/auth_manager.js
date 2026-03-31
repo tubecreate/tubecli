@@ -187,8 +187,8 @@ function renderTokens() {
             <td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis">${scopes}</td>
             <td>${statusBadge}</td>
             <td class="am-actions">
-                ${t.has_refresh ? `<button class="am-btn-sm" onclick="refreshToken('${t.credential_id}')">🔄 Refresh</button>` : ''}
-                <button class="am-btn-sm danger" onclick="revokeToken('${t.credential_id}')">❌ Revoke</button>
+                ${t.has_refresh ? `<button class="am-btn-sm" onclick="refreshToken('${t.token_id}')">🔄 Refresh</button>` : ''}
+                <button class="am-btn-sm danger" onclick="revokeToken('${t.token_id}')">❌ Revoke</button>
             </td>
         </tr>`;
     }).join('');
@@ -588,9 +588,9 @@ function pollForToken(credId) {
 }
 
 // ── Token Actions ───────────────────────────────────────────────
-async function refreshToken(credId) {
+async function refreshToken(tokenId) {
     try {
-        const result = await apiPost(`/tokens/${credId}/refresh`, {});
+        const result = await apiPost(`/tokens/${tokenId}/refresh`, {});
         if (result.status === 'success') {
             showToast('Token refreshed', 'success');
             loadTokens();
@@ -602,10 +602,10 @@ async function refreshToken(credId) {
     }
 }
 
-async function revokeToken(credId) {
+async function revokeToken(tokenId) {
     if (!confirm('Revoke this token? You will need to re-authorize.')) return;
     try {
-        const result = await apiDelete(`/tokens/${credId}`);
+        const result = await apiDelete(`/tokens/${tokenId}`);
         if (result.status === 'success') {
             showToast('Token revoked', 'success');
             loadTokens();

@@ -20,7 +20,7 @@ class GoogleAuthNode(BaseNode):
         scopes = [s.strip() for s in scopes_str.split(",")]
 
         # ── Strategy 1: Use Auth Manager extension (OAuth tokens) ──
-        auth_result = self._try_auth_manager(scopes)
+        auth_result = self._try_auth_manager(scopes, **kwargs)
         if auth_result:
             return auth_result
 
@@ -34,7 +34,7 @@ class GoogleAuthNode(BaseNode):
             "status": "Error: Không tìm thấy credentials. Vui lòng cấp quyền Google trong Auth Manager hoặc nhập Service Account JSON."
         }
 
-    def _try_auth_manager(self, scopes: list) -> Dict[str, Any] | None:
+    def _try_auth_manager(self, scopes: list, **kwargs) -> Dict[str, Any] | None:
         """Try to get credentials from auth_manager extension."""
         try:
             from tubecli.extensions.auth_manager.extension import auth_manager
@@ -59,13 +59,31 @@ class GoogleAuthNode(BaseNode):
                 return None
 
             cred_id = best_cred["id"]
-            access_token = auth_manager.get_active_token(cred_id)
+            
+            # Determine profile name from execution context
+            profile_name = "default"
+            agent_context = kwargs.get("agent_context", {})
+            if agent_context:
+                profile_name = agent_context.get("browser_profile", "") or agent_context.get("profile_name", "default")
+            
+            # Use profile-specific token to support Multi-Token
+            access_token = auth_manager.get_active_token_for_profile(cred_id, profile_name)
+            if not access_token:
+                # Fallback to general lookup just in case
+                access_token = auth_manager.get_active_token(cred_id)
+                
             if not access_token:
                 return None
 
             # Get full credential data for service account fallback info
-            full_cred = auth_manager.get_credential(cred_id)
-            token_data = auth_manager.get_token_data(cred_id)
+            # Re-resolve the correct token ID matching the profile
+            token_id = auth_manager._resolve_token_id(cred_id)
+            for t_id, t_data in auth_manager._data.get("tokens", {}).items():
+                if t_data.get("credential_id") == cred_id and t_data.get("browser_profile") == profile_name:
+                    token_id = t_id
+                    break
+
+            token_data = auth_manager.get_token_data(token_id)
 
             return {
                 "credentials": {
