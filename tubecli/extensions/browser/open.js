@@ -975,6 +975,37 @@ async function main() {
       // Ensure a page exists immediately
       page = context.pages()[0] || await context.newPage();
 
+      // --- LOCALHOST OAUTH BYPASS (Crucial for proxied profiles) ---
+      // Proxies will often fail to resolve localhost and drop with ERR_CONNECTION_RESET
+      try {
+          await context.route('**/api/v1/auth-manager/oauth/callback**', async route => {
+              const url = route.request().url();
+              console.log(`[OAuth Intercept] Intercepting local callback to bypass proxy: ${url}`);
+              try {
+                  const res = await axios.get(url, { timeout: 15000 });
+                  await route.fulfill({
+                      status: res.status,
+                      contentType: 'text/html; charset=utf-8',
+                      body: res.data
+                  });
+                  console.log(`[OAuth Intercept] Success!`);
+              } catch (axiosErr) {
+                  if (axiosErr.response) {
+                      await route.fulfill({
+                          status: axiosErr.response.status,
+                          contentType: 'text/html; charset=utf-8',
+                          body: axiosErr.response.data
+                      });
+                  } else {
+                      console.error(`[OAuth Intercept] Localhost call failed:`, axiosErr.message);
+                      await route.continue();
+                  }
+              }
+          });
+      } catch (e) {
+          console.warn(`[OAuth Intercept] Failed to register route: ${e.message}`);
+      }
+
       // --- COOKIE EXPORT ---
       if (exportCookies) {
           const cookies = await context.cookies();
