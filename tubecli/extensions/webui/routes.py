@@ -224,6 +224,52 @@ async def serve_sheets_manager_static(filename: str):
     return {"error": f"File {filename} not found"}
 
 
+def _find_livestream_dir():
+    """Find the Livestream extension directory (handles 'livestream' and 'livestream__xxx')."""
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "livestream")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("livestream__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
+@router.get("/livestream")
+async def livestream_page():
+    """Serve the Livestream Manager page."""
+    ls_dir = _find_livestream_dir()
+    if ls_dir:
+        html_file = os.path.join(ls_dir, "static", "livestream.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>Livestream Manager — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#ef4444,#f97316);color:#fff;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">📡</div><h1>Livestream Manager</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/livestream-static/{filename:path}")
+async def serve_livestream_static(filename: str):
+    """Serve Livestream Manager static files (JS, CSS)."""
+    ls_dir = _find_livestream_dir()
+    if ls_dir:
+        filepath = os.path.join(ls_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
+
+
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""
