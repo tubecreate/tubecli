@@ -13,6 +13,60 @@ from .story_api import story_router
 router.include_router(story_router)
 
 
+# ── Global Settings API ─────────────────────────────────────────────
+import json
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+def _settings_path():
+    """Return path to global_settings.json in the project data dir."""
+    try:
+        from tubecli.config import DATA_DIR
+        d = DATA_DIR
+    except Exception:
+        d = os.path.join(os.path.expanduser("~"), ".tubecli", "data")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "global_settings.json")
+
+_DEFAULT_SETTINGS = {
+    "default_model": "qwen:latest",
+    "api_port": "5295",
+    "api_base_url": "http://localhost:5295",
+    "language": "vi",
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+}
+
+@router.get("/api/v1/settings")
+async def get_global_settings():
+    p = _settings_path()
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            merged = {**_DEFAULT_SETTINGS, **saved}
+            return JSONResponse(merged)
+        except Exception:
+            pass
+    return JSONResponse(_DEFAULT_SETTINGS.copy())
+
+@router.put("/api/v1/settings")
+async def save_global_settings(request: Request):
+    body = await request.json()
+    p = _settings_path()
+    existing = _DEFAULT_SETTINGS.copy()
+    if os.path.exists(p):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                existing.update(json.load(f))
+        except Exception:
+            pass
+    existing.update(body)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+    return JSONResponse({"status": "success", "settings": existing})
+
+
 @router.get("/dashboard")
 async def dashboard():
     index = os.path.join(STATIC_DIR, "index.html")

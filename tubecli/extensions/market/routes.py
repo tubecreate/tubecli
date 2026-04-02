@@ -555,14 +555,14 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 @router.get("/items/{public_id}/reviews")
 async def get_reviews(public_id: str):
     """Get reviews for an item."""
-    return market_service.get_reviews(public_id)
+    return await market_service.get_reviews(public_id)
 
 
 @router.post("/items/{public_id}/reviews")
 async def post_review(public_id: str, req: ReviewRequest, authorization: Optional[str] = Header(None)):
     """Submit a review."""
     token = _get_token(authorization)
-    result = market_service.post_review(token=token, item_id=public_id, rating=req.rating, comment=req.comment)
+    result = await market_service.post_review(token=token, item_id=public_id, rating=req.rating, comment=req.comment)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Review failed"))
     return result
@@ -573,7 +573,7 @@ async def post_review(public_id: str, req: ReviewRequest, authorization: Optiona
 @router.get("/categories")
 async def get_categories():
     """Get categories with item counts and popular tags."""
-    return market_service.get_categories()
+    return await market_service.get_categories()
 
 
 # ── User Profile ──
@@ -582,7 +582,7 @@ async def get_categories():
 async def get_user_profile(authorization: Optional[str] = Header(None)):
     """Get user marketplace profile."""
     token = _get_token(authorization)
-    return market_service.get_user_profile(token)
+    return await market_service.get_user_profile(token)
 
 
 @router.post("/user")
@@ -605,7 +605,7 @@ async def update_user_profile(req: ProfileUpdateRequest, authorization: Optional
 async def link_google(req: GoogleLinkRequest, authorization: Optional[str] = Header(None)):
     """Link Google account to profile."""
     token = _get_token(authorization)
-    result = market_service.link_google(
+    result = await market_service.link_google(
         token=token, google_id=req.google_id, google_email=req.google_email,
         google_name=req.google_name, google_avatar=req.google_avatar,
     )

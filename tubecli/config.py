@@ -16,6 +16,11 @@ WORKFLOWS_DIR = DATA_DIR / "workflows"
 LOGS_DIR = DATA_DIR / "logs"
 EXTENSIONS_EXTERNAL_DIR = DATA_DIR / "extensions_external"
 
+# ── Memory ───────────────────────────────────────────────────────────
+MEMORY_DIR = DATA_DIR / "memory"
+AGENT_MEMORY_DIR = MEMORY_DIR / "agents"
+TEAM_MEMORY_DIR = MEMORY_DIR / "teams"
+
 # ── Defaults ─────────────────────────────────────────────────────────
 DEFAULT_API_PORT = 5295
 DEFAULT_AI_MODEL = "qwen:latest"
@@ -90,5 +95,6 @@ def set_language(lang: str) -> bool:
 
 def ensure_data_dirs():
     """Create all required data directories."""
-    for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, EXTENSIONS_EXTERNAL_DIR]:
+    for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, EXTENSIONS_EXTERNAL_DIR,
+              MEMORY_DIR, AGENT_MEMORY_DIR, TEAM_MEMORY_DIR]:
         d.mkdir(parents=True, exist_ok=True)

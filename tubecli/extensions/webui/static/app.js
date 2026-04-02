@@ -1585,8 +1585,237 @@ function setCommand(cmd) { document.getElementById('cmd-input').value = cmd; doc
 async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert('Vui lòng nhập lệnh!'); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ Đang chạy...'; const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 Chạy lệnh'; if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(document.getElementById('ext-detail-body')); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = 'Lỗi: ' + (r?.error || r?.detail || 'Unknown'); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
-// ═══ Settings ═══
-function saveSettings() { const api=document.getElementById('set-api').value.trim(); if(api){localStorage.setItem('zhiying_api',api);location.reload();} }
+// ═══ Global Settings ═══
+async function loadGlobalSettings() {
+    try {
+        const s = await apiGet('/api/v1/settings');
+        if (!s) return;
+        if (s.api_port && document.getElementById('set-port')) document.getElementById('set-port').value = s.api_port;
+        if (s.api_base_url && document.getElementById('set-api')) document.getElementById('set-api').value = s.api_base_url;
+        if (s.telegram_bot_token && document.getElementById('set-tg-token')) document.getElementById('set-tg-token').value = s.telegram_bot_token;
+        if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
+        await populateModelDropdown(s.default_model || 'qwen:latest');
+        loadCloudKeysInSettings();
+    } catch(e) { console.warn('[Settings] Failed to load:', e); }
+}
+
+async function populateModelDropdown(selectedModel) {
+    const sel = document.getElementById('set-model');
+    if (!sel) return;
+    let html = '';
+    let ollamaOnline = false;
+    try {
+        const ollama = await apiGet('/api/v1/ollama/models');
+        if (ollama && ollama.models && ollama.models.length > 0) {
+            ollamaOnline = true;
+            html += '<optgroup label="🖥️ Ollama (Local)">';
+            ollama.models.forEach(m => {
+                const name = m.name || m;
+                html += `<option value="${esc(name)}">${esc(name)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+    } catch(e) { console.warn('[Settings] Ollama models fetch failed'); }
+    if (!ollamaOnline) {
+        html += '<optgroup label="🖥️ Ollama (Local)">';
+        html += '<option disabled style="color:#888">⚠️ Ollama chưa mở — hãy khởi động Ollama trước</option>';
+        html += '</optgroup>';
+    }
+    try {
+        const cloud = await apiGet('/api/v1/cloud-api/providers');
+        if (cloud && cloud.providers) {
+            cloud.providers.forEach(p => {
+                if (!p.models || p.models.length === 0) return;
+                const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek' }[p.id] || p.id;
+                html += `<optgroup label="☁️ ${esc(label)}">`;
+                p.models.forEach(m => {
+                    html += `<option value="${esc(m)}">${esc(m)}</option>`;
+                });
+                html += '</optgroup>';
+            });
+        }
+    } catch(e) { console.warn('[Settings] Cloud API models fetch failed'); }
+    if (!html) {
+        html = '<option value="qwen:latest">qwen:latest</option>';
+    }
+    sel.innerHTML = html;
+    if (selectedModel) {
+        const exists = Array.from(sel.options).some(o => o.value === selectedModel);
+        if (exists) {
+            sel.value = selectedModel;
+        } else {
+            sel.insertAdjacentHTML('afterbegin', `<option value="${esc(selectedModel)}">${esc(selectedModel)}</option>`);
+            sel.value = selectedModel;
+        }
+    }
+}
+
+// Check if selected model needs an API key
+async function onModelSelectChange() {
+    const sel = document.getElementById('set-model');
+    const warn = document.getElementById('model-key-warning');
+    if (!sel || !warn) return;
+    const selectedOpt = sel.options[sel.selectedIndex];
+    if (!selectedOpt) { warn.style.display = 'none'; return; }
+    const optgroup = selectedOpt.closest('optgroup');
+    if (!optgroup || !optgroup.label.includes('☁️')) {
+        warn.style.display = 'none';
+        return;
+    }
+    const providerMap = { 'Gemini': 'gemini', 'OpenAI': 'openai', 'Claude': 'claude', 'Grok': 'grok', 'DeepSeek': 'deepseek' };
+    let provider = '';
+    for (const [name, id] of Object.entries(providerMap)) {
+        if (optgroup.label.includes(name)) { provider = id; break; }
+    }
+    if (!provider) { warn.style.display = 'none'; return; }
+    try {
+        const data = await apiGet('/api/v1/cloud-api/keys');
+        const providerKeys = data?.keys?.[provider];
+        if (providerKeys && Object.keys(providerKeys).length > 0) {
+            const hasActive = Object.values(providerKeys).some(k => k.active);
+            if (hasActive) {
+                warn.style.display = 'none';
+            } else {
+                warn.style.display = 'block';
+                warn.innerHTML = `⚠️ Tất cả API keys của <b>${provider}</b> đều hết hạn hoặc lỗi. Vui lòng thêm key mới ở phần <b>Cloud API Keys</b> bên dưới.`;
+            }
+        } else {
+            warn.style.display = 'block';
+            warn.innerHTML = `⚠️ Chưa có API key cho <b>${provider}</b>. Hãy thêm key ở phần <b>Cloud API Keys</b> bên dưới để sử dụng model này.`;
+        }
+    } catch(e) {
+        warn.style.display = 'none';
+    }
+}
+
+async function saveGlobalSettings() {
+    const payload = {
+        default_model: document.getElementById('set-model')?.value || 'qwen:latest',
+        api_port: document.getElementById('set-port')?.value || '5295',
+        api_base_url: document.getElementById('set-api')?.value || 'http://localhost:5295',
+        telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
+        telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
+    };
+    try {
+        const r = await apiPut('/api/v1/settings', payload);
+        if (r && r.status === 'success') {
+            if (payload.api_base_url) localStorage.setItem('zhiying_api', payload.api_base_url);
+            const toast = document.createElement('div');
+            toast.textContent = '✅ Cài đặt đã lưu thành công!';
+            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;padding:14px 28px;border-radius:10px;z-index:99999;font-weight:700;font-size:1rem;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        } else {
+            alert('❌ Lưu thất bại: ' + JSON.stringify(r));
+        }
+    } catch (e) {
+        alert('❌ Lỗi: ' + e.message);
+    }
+}
+
+async function testTelegramConnection() {
+    const token = document.getElementById('set-tg-token')?.value?.trim();
+    const chatId = document.getElementById('set-tg-chat')?.value?.trim();
+    const resultEl = document.getElementById('tg-test-result');
+    const btn = document.getElementById('btn-test-tg');
+    if (!token || !chatId) {
+        resultEl.innerHTML = '<span style="color:var(--red)">⚠️ Nhập Bot Token và Chat ID trước</span>';
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang gửi...';
+    resultEl.innerHTML = '';
+    try {
+        const url = `https://api.telegram.org/bot${token}/sendMessage`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                text: '✅ TubeCLI kết nối thành công!\n🤖 Bot đã sẵn sàng nhận thông báo.',
+                parse_mode: 'HTML'
+            })
+        });
+        const data = await res.json();
+        if (data.ok) {
+            resultEl.innerHTML = '<span style="color:var(--green)">✅ Gửi thành công! Kiểm tra Telegram của bạn.</span>';
+        } else {
+            resultEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi: ${esc(data.description || 'Unknown')}</span>`;
+        }
+    } catch(e) {
+        resultEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi kết nối: ${e.message}</span>`;
+    }
+    btn.disabled = false;
+    btn.textContent = '📡 Test kết nối';
+}
+
+// ═══ Cloud API Keys in Settings ═══
+async function loadCloudKeysInSettings() {
+    const container = document.getElementById('settings-cloud-keys-list');
+    if (!container) return;
+    try {
+        const data = await apiGet('/api/v1/cloud-api/keys');
+        if (!data || !data.keys || Object.keys(data.keys).length === 0) {
+            container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;font-style:italic">Chưa có API key nào. Thêm key bên dưới để sử dụng mô hình Cloud.</p>';
+            return;
+        }
+        const icons = { gemini: '✨', openai: '🤖', claude: '🧠', deepseek: '🔮', grok: '⚡' };
+        let html = '';
+        let totalKeys = 0;
+        for (const [provider, labelsObj] of Object.entries(data.keys)) {
+            if (!labelsObj || typeof labelsObj !== 'object') continue;
+            for (const [label, info] of Object.entries(labelsObj)) {
+                totalKeys++;
+                const maskedKey = info.masked_key || '••••••';
+                const isActive = info.active !== false;
+                const statusMsg = info.status_msg || '';
+                const statusColor = isActive ? 'var(--green)' : 'var(--red)';
+                const statusIcon = isActive ? '✅' : '⚠️';
+                html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;">
+                    <span style="font-size:1.1rem">${icons[provider] || '🔑'}</span>
+                    <span style="font-weight:600;color:var(--text);min-width:70px;text-transform:capitalize">${esc(provider)}</span>
+                    <code style="flex:1;font-size:.8rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:4px">${esc(maskedKey)}</code>
+                    <span class="tag" style="font-size:.7rem">${esc(label)}</span>
+                    <span style="font-size:.75rem;color:${statusColor}">${statusIcon} ${esc(statusMsg) || (isActive ? 'Active' : '')}</span>
+                    <button onclick="removeCloudKeyFromSettings('${esc(provider)}','${esc(label)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:2px 6px;" title="Xóa key">🗑️</button>
+                </div>`;
+            }
+        }
+        container.innerHTML = totalKeys > 0 ? html : '<p style="color:var(--text-muted);font-size:.85rem;font-style:italic">Chưa có API key nào.</p>';
+    } catch(e) {
+        console.warn('[Settings] Cloud keys load error:', e);
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;font-style:italic">Chưa có API key nào. Thêm key bên dưới để sử dụng mô hình Cloud.</p>';
+    }
+}
+
+async function addCloudKeyFromSettings() {
+    const prov = document.getElementById('settings-add-key-provider').value;
+    const key = document.getElementById('settings-add-key-value').value.trim();
+    if (!key) return alert('Vui lòng nhập API key!');
+    const label = 'key_' + Math.floor(Date.now() / 1000);
+    const r = await apiPost('/api/v1/cloud-api/keys', { provider: prov, api_key: key, label });
+    if (r && r.status === 'success') {
+        document.getElementById('settings-add-key-value').value = '';
+        loadCloudKeysInSettings();
+        const currentModel = document.getElementById('set-model')?.value || 'qwen:latest';
+        await populateModelDropdown(currentModel);
+        const toast = document.createElement('div');
+        toast.textContent = `✅ Đã thêm key ${prov}!`;
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff;padding:12px 24px;border-radius:10px;z-index:99999;font-weight:700;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2500);
+    } else {
+        alert('❌ Thêm key thất bại: ' + JSON.stringify(r));
+    }
+}
+
+async function removeCloudKeyFromSettings(provider, label) {
+    if (!confirm(`Xóa key "${label}" của ${provider}?`)) return;
+    await apiDelete('/api/v1/cloud-api/keys', { provider, label });
+    loadCloudKeysInSettings();
+    const currentModel = document.getElementById('set-model')?.value || 'qwen:latest';
+    await populateModelDropdown(currentModel);
+}
 
 // ═══ Version & Update ═══
 async function loadVersionInfo() {
@@ -1873,6 +2102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkConnection();
     loadDashboard();
     loadVersionInfo();
+    loadGlobalSettings();
     const s=localStorage.getItem('zhiying_api');
     if(s) document.getElementById('set-api').value=s;
     if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;

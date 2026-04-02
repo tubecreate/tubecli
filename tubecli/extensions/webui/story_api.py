@@ -28,14 +28,14 @@ def _script_path(script_id: str) -> str:
 # ── Models ──────────────────────────────────────────────────────────
 class StoryScript(BaseModel):
     title: str
-    scene_id: Optional[str] = "team_trieudionh"
+    scene_id: Optional[str] = ""
     actors: list[dict] = []
     waypoints: list[dict] = []
     timeline: list[dict] = []
 
 class AIGenerateRequest(BaseModel):
     prompt: str
-    scene_id: Optional[str] = "team_trieudionh"
+    scene_id: Optional[str] = ""
     actors: Optional[list[dict]] = []
     waypoints: Optional[list[dict]] = []
     provider: Optional[str] = "ollama"
@@ -695,7 +695,7 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
 
     return {
         "title": prompt[:60] if prompt else "Câu chuyện văn phòng",
-        "scene_id": "team_trieudionh",
+        "scene_id": "",
         "actors": actors[:4],
         "waypoints": all_waypoints,
         "timeline": timeline
@@ -704,38 +704,21 @@ def _generate_demo_script(prompt: str, actors: list, waypoints: list = None) -> 
 
 
 
-TEAMS_FILE = os.path.normpath(os.path.join(
-    os.path.dirname(__file__),
-    "..", "..", "..", "data", "agent_teams.json"
-))
-
-def _load_teams() -> list:
-    try:
-        with open(TEAMS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data.get("teams", [])
-    except Exception:
-        return []
-
-# ── Routes ──────────────────────────────────────────────────────────
-
 @story_router.get("/teams")
 async def list_teams():
-    """Return all agent teams (reads from agent_teams.json)."""
-    teams = _load_teams()
-    return {"teams": [
-        {"id": t["id"], "name": t["name"], "template": t.get("template", "dev_team"),
-         "nodes": t.get("nodes", []), "agent_ids": t.get("agent_ids", [])}
-        for t in teams
-    ]}
+    """Return all agent teams."""
+    from tubecli.extensions.multi_agents.extension import orchestrator
+    teams = orchestrator.get_all_teams()
+    return {"teams": [t.to_dict() for t in teams]}
 
 @story_router.get("/teams/{team_id}")
 async def get_team(team_id: str):
     """Return a single team by ID."""
-    for t in _load_teams():
-        if t["id"] == team_id:
-            return t
-    raise HTTPException(status_code=404, detail="Team not found")
+    from tubecli.extensions.multi_agents.extension import orchestrator
+    team = orchestrator.get_team(team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return team.to_dict()
 
 @story_router.get("/scripts")
 async def list_scripts():

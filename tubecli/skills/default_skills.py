@@ -330,6 +330,73 @@ DEFAULT_SKILLS: List[Dict] = [
             ],
         },
     },
+    {
+        "name": "📥 Video Downloader",
+        "description": "Tải video từ TikTok/Douyin bằng cách gọi Downloader API. AI tự tải và gửi file. Dùng: gửi link TikTok hoặc Douyin.",
+        "skill_type": "Skill",
+        "commands": [
+            "tải video", "download video", "tải về", "download",
+            "tải tiktok", "tải douyin", "download tiktok", "download douyin",
+            "lấy video", "get video", "tải file", "download file",
+        ],
+        "workflow_data": {
+            "name": "Video Downloader",
+            "nodes": [
+                {
+                    "id": "video_url",
+                    "type": "text_input",
+                    "label": "🔗 Video URL",
+                    "config": {"text": ""},
+                },
+                {
+                    "id": "parse_video",
+                    "type": "api_request",
+                    "label": "🔍 Parse Video Info",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/downloader/parse",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                    },
+                },
+                {
+                    "id": "download_video",
+                    "type": "api_request",
+                    "label": "📥 Download Video",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/downloader/download",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "video_url",
+                    "from_port_id": "content",
+                    "to_node_id": "parse_video",
+                    "to_port_id": "body",
+                },
+                {
+                    "from_node_id": "parse_video",
+                    "from_port_id": "response",
+                    "to_node_id": "download_video",
+                    "to_port_id": "body",
+                },
+                {
+                    "from_node_id": "download_video",
+                    "from_port_id": "response",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    },
 ]
 
 

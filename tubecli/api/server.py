@@ -25,6 +25,18 @@ app.add_middleware(
 )
 
 
+@app.on_event("startup")
+async def startup_event():
+    from tubecli.core.telegram_listener import telegram_listener
+    telegram_listener.start()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from tubecli.core.telegram_listener import telegram_listener
+    await telegram_listener.stop()
+
+
+
 # ── Pydantic Models ──────────────────────────────────────────────
 
 class AgentCreateRequest(BaseModel):
@@ -320,6 +332,18 @@ async def agent_chat(agent_id: str, req: ChatRequest):
 
     agent_manager.update(agent_id, history_log=history)
 
+    # ── Background Memory Update (non-blocking) ──
+    import asyncio
+    async def _bg_memory_update():
+        try:
+            from tubecli.core.brain import AgentBrain
+            AgentBrain.post_chat_memory_update(agent_id, agent_dict, history)
+            # If history was marked summarized, save it back
+            agent_manager.update(agent_id, history_log=history)
+        except Exception as e:
+            print(f"[Memory] Background update error: {e}")
+    asyncio.create_task(_bg_memory_update())
+
     return {
         "reply": reply,
         "skill_used": skill_used,
@@ -336,6 +360,100 @@ async def clear_chat_history(agent_id: str):
         raise HTTPException(404, f"Agent {agent_id} not found")
     agent_manager.update(agent_id, history_log=[])
     return {"status": "cleared", "agent_id": agent_id}
+
+
+# ── Agent Memory API ─────────────────────────────────────────────
+
+@app.get("/api/v1/agents/{agent_id}/memory")
+async def get_agent_memory(agent_id: str):
+    """Get full memory overview for an agent (sessions + knowledge)."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.memory import AgentMemory
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    return AgentMemory.get_full_memory(agent_id)
+
+
+@app.delete("/api/v1/agents/{agent_id}/memory")
+async def clear_agent_memory(agent_id: str):
+    """Clear all memory for an agent (sessions + knowledge)."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.memory import AgentMemory
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    AgentMemory.clear_all(agent_id)
+    return {"status": "cleared", "agent_id": agent_id}
+
+
+@app.get("/api/v1/agents/{agent_id}/memory/sessions")
+async def get_agent_sessions(agent_id: str):
+    """Get session summaries for an agent."""
+    from tubecli.core.memory import SessionMemory
+    sessions = SessionMemory.get_recent_sessions(agent_id, limit=20)
+    return {"agent_id": agent_id, "sessions": sessions, "count": len(sessions)}
+
+
+@app.get("/api/v1/agents/{agent_id}/memory/knowledge")
+async def get_agent_knowledge(agent_id: str):
+    """Get knowledge facts for an agent."""
+    from tubecli.core.memory import KnowledgeMemory
+    facts = KnowledgeMemory.get_knowledge(agent_id)
+    return {"agent_id": agent_id, "knowledge": facts, "count": len(facts)}
+
+
+class AddFactRequest(BaseModel):
+    fact: str
+    category: str = "technical"
+    importance: str = "medium"
+
+
+@app.post("/api/v1/agents/{agent_id}/memory/knowledge")
+async def add_agent_fact(agent_id: str, req: AddFactRequest):
+    """Manually add a knowledge fact for an agent."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.memory import KnowledgeMemory
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    KnowledgeMemory.add_fact(agent_id, req.fact, req.category, req.importance)
+    return {"status": "added", "agent_id": agent_id, "fact": req.fact}
+
+
+# ── Team Memory API ──────────────────────────────────────────────
+
+@app.get("/api/v1/teams/{team_id}/memory")
+async def get_team_memory(team_id: str):
+    """Get team shared memory (briefings + knowledge)."""
+    from tubecli.core.memory import TeamMemory
+    return {
+        "team_id": team_id,
+        "briefings": TeamMemory.get_briefings(team_id, limit=10),
+        "knowledge": TeamMemory.get_team_knowledge(team_id),
+    }
+
+
+class TeamBriefingRequest(BaseModel):
+    briefing: str
+    context: Dict = {}
+
+
+@app.post("/api/v1/teams/{team_id}/memory/briefing")
+async def add_team_briefing(team_id: str, req: TeamBriefingRequest):
+    """Add a task briefing for a team."""
+    from tubecli.core.memory import TeamMemory
+    TeamMemory.save_briefing(team_id, req.briefing, req.context)
+    return {"status": "added", "team_id": team_id}
+
+
+@app.delete("/api/v1/teams/{team_id}/memory")
+async def clear_team_memory(team_id: str):
+    """Clear all team memory."""
+    from tubecli.core.memory import TeamMemory
+    TeamMemory.clear(team_id)
+    return {"status": "cleared", "team_id": team_id}
+
 
 # ── Skills ───────────────────────────────────────────────────────
 
