@@ -93,6 +93,37 @@ def set_language(lang: str) -> bool:
         return False
 
 
+def get_setting(key: str, default_val=None):
+    """Get a generic setting from settings file."""
+    try:
+        if SETTINGS_FILE.exists():
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get(key, default_val)
+    except Exception:
+        pass
+    return default_val
+
+
+def set_setting(key: str, value) -> bool:
+    """Save a generic setting to settings file."""
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        settings = {}
+        if SETTINGS_FILE.exists():
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+            except Exception:
+                pass
+        settings[key] = value
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
 def ensure_data_dirs():
     """Create all required data directories."""
     for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, EXTENSIONS_EXTERNAL_DIR,

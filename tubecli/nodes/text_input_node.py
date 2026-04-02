@@ -14,6 +14,7 @@ class TextInputNode(BaseNode):
         self.add_output("lines", PortType.TEXT, "Text as line list")
 
     async def execute(self, inputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        text = self.config.get("text", "")
-        lines = [l.strip() for l in text.strip().split("\n") if l.strip()]
+        # Use config text first, fallback to inputs (for dynamic workflow injection)
+        text = self.config.get("text", "") or inputs.get("text", "") or inputs.get("content", "")
+        lines = [l.strip() for l in text.strip().split("\n") if l.strip()] if text.strip() else []
         return {"content": text, "lines": lines}

@@ -90,6 +90,7 @@ const EXT_REGISTRY = [
     { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
     { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
     { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
+    { id:'file_manager', icon:'📁', name:'File Manager', desc:'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp', type:'core' },
 ];
 
 async function loadExtensions() {
@@ -533,6 +534,7 @@ function openExtDetail(id) {
     else if (id === 'downloader') renderFullPageExt(body, 'Video Downloader', 'Tải video từ TikTok & Douyin. Hỗ trợ quét kênh, tải hàng loạt.', '/downloader');
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
     else if (id === 'sheets_manager') renderFullPageExt(body, 'Google Sheets', 'Manage Google Spreadsheets.', '/sheets_manager');
+    else if (id === 'file_manager') renderFullPageExt(body, 'File Manager', 'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp.', '/file-manager');
 }
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
 
@@ -1596,7 +1598,45 @@ async function loadGlobalSettings() {
         if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
         await populateModelDropdown(s.default_model || 'qwen:latest');
         loadCloudKeysInSettings();
+
+        // Load Default Browser Profile
+        try {
+            const bp = await apiGet('/api/v1/settings/default-profile');
+            await populateDefaultProfileDropdown(bp?.profile || 'default');
+        } catch(e) { console.warn('Failed to load default profile:', e); }
+
     } catch(e) { console.warn('[Settings] Failed to load:', e); }
+}
+
+async function populateDefaultProfileDropdown(selectedProfile) {
+    const sel = document.getElementById('set-default-profile');
+    if (!sel) return;
+    try {
+        const d = await apiGet('/api/v1/browser/profiles');
+        let html = '<option value="default">default (Mặc định AI)</option>';
+        if (d && d.profiles && d.profiles.length > 0) {
+            d.profiles.forEach(p => {
+                if (p.name !== 'default') {
+                    html += `<option value="${esc(p.name)}">${esc(p.name)}</option>`;
+                }
+            });
+        }
+        sel.innerHTML = html;
+        if (selectedProfile) {
+            sel.value = selectedProfile;
+        }
+    } catch (e) {
+        console.warn('Profiles fetch failed:', e);
+    }
+}
+
+async function changeDefaultProfile(val) {
+    try {
+        await apiPut('/api/v1/settings/default-profile', { profile: val });
+        console.log("Default profile saved.");
+    } catch (e) {
+        console.error("Failed to save default profile", e);
+    }
 }
 
 async function populateModelDropdown(selectedModel) {
@@ -1771,13 +1811,13 @@ async function loadCloudKeysInSettings() {
                 const statusMsg = info.status_msg || '';
                 const statusColor = isActive ? 'var(--green)' : 'var(--red)';
                 const statusIcon = isActive ? '✅' : '⚠️';
-                html += `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;">
-                    <span style="font-size:1.1rem">${icons[provider] || '🔑'}</span>
+                html += `<div style="display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;">
+                    <span style="font-size:1.1rem;display:flex;align-items:center;">${icons[provider] || '🔑'}</span>
                     <span style="font-weight:600;color:var(--text);min-width:70px;text-transform:capitalize">${esc(provider)}</span>
-                    <code style="flex:1;font-size:.8rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:4px">${esc(maskedKey)}</code>
-                    <span class="tag" style="font-size:.7rem">${esc(label)}</span>
-                    <span style="font-size:.75rem;color:${statusColor}">${statusIcon} ${esc(statusMsg) || (isActive ? 'Active' : '')}</span>
-                    <button onclick="removeCloudKeyFromSettings('${esc(provider)}','${esc(label)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:2px 6px;" title="Xóa key">🗑️</button>
+                    <code style="flex:1;min-width:100px;font-size:.8rem;color:var(--text-muted);background:var(--bg);padding:4px 8px;border-radius:4px;word-break:break-all">${esc(maskedKey)}</code>
+                    <span class="tag" style="font-size:.7rem;white-space:nowrap">${esc(label)}</span>
+                    <span style="font-size:.75rem;color:${statusColor};white-space:nowrap;display:flex;align-items:center;gap:4px;">${statusIcon} ${esc(statusMsg) || (isActive ? 'Active' : '')}</span>
+                    <button onclick="removeCloudKeyFromSettings('${esc(provider)}','${esc(label)}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:1rem;padding:2px 6px;margin-left:auto" title="Xóa key">🗑️</button>
                 </div>`;
             }
         }

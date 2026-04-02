@@ -34,6 +34,56 @@ class ModelAgentNode(BaseNode):
         temperature = float(self.config.get("temperature", 0.7))
         max_tokens = int(self.config.get("max_tokens", 2048))
 
+        # Auto-detect: read model + key from Global Settings
+        if provider == "auto" or (not api_key and provider != "ollama"):
+            import os
+            from tubecli.config import DATA_DIR
+
+            # Read default model from global_settings.json
+            gs_file = os.path.join(str(DATA_DIR), "global_settings.json")
+            if os.path.exists(gs_file):
+                try:
+                    with open(gs_file, "r", encoding="utf-8") as f:
+                        gs = json.load(f)
+                        auto_model = gs.get("default_model", "")
+                        if auto_model:
+                            model = auto_model
+                except Exception:
+                    pass
+
+            # Detect provider from model name
+            lower_model = model.lower()
+            if "deepseek" in lower_model:
+                provider = "deepseek"
+            elif "gemini" in lower_model:
+                provider = "gemini"
+            elif "gpt" in lower_model or "o1" in lower_model or "o3" in lower_model:
+                provider = "chatgpt"
+            elif "claude" in lower_model:
+                provider = "claude"
+            elif "grok" in lower_model:
+                provider = "grok"
+            else:
+                provider = "ollama"
+
+            # Read API key from cloud_api_keys.json
+            if provider != "ollama" and not api_key:
+                keys_file = os.path.join(str(DATA_DIR), "cloud_api_keys.json")
+                if os.path.exists(keys_file):
+                    try:
+                        with open(keys_file, "r", encoding="utf-8") as f:
+                            cloud_keys = json.load(f)
+                        if provider in cloud_keys:
+                            for label, info in cloud_keys[provider].items():
+                                if isinstance(info, dict) and info.get("active", True):
+                                    api_key = info.get("key", "") or info.get("api_key", "")
+                                    if api_key:
+                                        break
+                    except Exception:
+                        pass
+
+            print(f"  [ModelAgent] provider={provider} model={model} has_key={bool(api_key)}")
+
         # If agent_name is set, load its config
         if agent_name:
             agent_cfg = self._load_agent_config(agent_name)
@@ -65,6 +115,8 @@ class ModelAgentNode(BaseNode):
                 return self._call_claude(messages, api_key, model, temperature, max_tokens)
             elif provider == "grok":
                 return self._call_grok(messages, api_key, model, temperature, max_tokens)
+            elif provider == "deepseek":
+                return self._call_deepseek(messages, api_key, model, temperature, max_tokens)
             else:
                 return {"response": f"Unknown provider: {provider}", "usage": {}}
         except Exception as e:
@@ -172,3 +224,19 @@ class ModelAgentNode(BaseNode):
             usage = data.get("usage", {})
             return {"response": content, "usage": {**usage, "provider": "grok", "model": model}}
         return {"response": f"Grok error ({resp.status_code}): {resp.text[:200]}", "usage": {}}
+
+    def _call_deepseek(self, messages, api_key, model, temperature, max_tokens):
+        if not api_key:
+            return {"response": "Error: No api_key for Deepseek", "usage": {}}
+        resp = requests.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": model or "deepseek-chat", "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False},
+            timeout=180,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            usage = data.get("usage", {})
+            return {"response": content, "usage": {**usage, "provider": "deepseek", "model": model}}
+        return {"response": f"Deepseek error ({resp.status_code}): {resp.text[:200]}", "usage": {}}

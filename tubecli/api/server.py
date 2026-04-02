@@ -2,7 +2,7 @@
 ZhiYing REST API Server
 FastAPI-based REST API for agents, skills, and workflows.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -225,6 +225,240 @@ async def delete_agent(agent_id: str):
 
 class ChatRequest(BaseModel):
     message: str
+
+
+# ── AI Proxy Endpoint for Browser Extension ──
+@app.post("/api/v1/localai/chat/completions")
+async def localai_chat_completions(req: Request):
+    """
+    Proxy endpoint used by browser extension (ai_engine.js).
+    Routes to the correct AI provider based on Global Settings default_model.
+    """
+    import requests as _requests
+    from tubecli.config import get_setting
+
+    data = await req.json()
+    messages = data.get("messages", [])
+
+    # Read default model: try global_settings.json first, then settings.json
+    import os as _os, json as _json
+    from tubecli.config import DATA_DIR
+    model = ""
+    global_settings_file = _os.path.join(str(DATA_DIR), "global_settings.json")
+    if _os.path.exists(global_settings_file):
+        try:
+            with open(global_settings_file, "r", encoding="utf-8") as f:
+                gs = _json.load(f)
+                model = gs.get("default_model", "")
+        except Exception:
+            pass
+    if not model:
+        model = get_setting("default_model", "qwen:latest")
+    lower_model = model.lower()
+
+    # Determine provider from model name
+    provider = "ollama"
+    if "gemini" in lower_model:
+        provider = "gemini"
+    elif "gpt" in lower_model or "o1" in lower_model or "o3" in lower_model:
+        provider = "chatgpt"
+    elif "claude" in lower_model:
+        provider = "claude"
+    elif "deepseek" in lower_model:
+        provider = "deepseek"
+    elif "grok" in lower_model:
+        provider = "grok"
+
+    # Get first active API key for provider from cloud_api_keys.json
+    api_key = ""
+    cloud_keys_file = _os.path.join(str(DATA_DIR), "cloud_api_keys.json")
+    cloud_keys = {}
+    if _os.path.exists(cloud_keys_file):
+        try:
+            with open(cloud_keys_file, "r", encoding="utf-8") as f:
+                cloud_keys = _json.load(f)
+        except Exception:
+            pass
+    if provider in cloud_keys and isinstance(cloud_keys[provider], dict):
+        for label, info in cloud_keys[provider].items():
+            if isinstance(info, dict) and info.get("active", True):
+                api_key = info.get("key", "") or info.get("api_key", "")
+                if api_key:
+                    break
+
+    print(f"[AI Proxy] provider={provider} model={model} has_key={bool(api_key)}")
+
+    response_content = ""
+    try:
+        if provider == "deepseek":
+            if not api_key:
+                raise Exception("No API key for Deepseek")
+            resp = _requests.post(
+                "https://api.deepseek.com/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "messages": messages, "stream": False},
+                timeout=180,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+            else:
+                raise Exception(f"Deepseek {resp.status_code}: {resp.text[:300]}")
+
+        elif provider == "gemini":
+            if not api_key:
+                raise Exception("No API key for Gemini")
+            model_name = model if "gemini" in model else "gemini-2.0-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            contents = []
+            for msg in messages:
+                role = "user" if msg["role"] in ("user", "system") else "model"
+                contents.append({"role": role, "parts": [{"text": msg["content"]}]})
+            resp = _requests.post(url, json={"contents": contents}, timeout=120)
+            if resp.status_code == 200:
+                response_content = resp.json().get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+            else:
+                raise Exception(f"Gemini {resp.status_code}: {resp.text[:300]}")
+
+        elif provider == "chatgpt":
+            if not api_key:
+                raise Exception("No API key for OpenAI")
+            resp = _requests.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model or "gpt-4o-mini", "messages": messages, "temperature": 0.5},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json()["choices"][0]["message"]["content"]
+            else:
+                raise Exception(f"OpenAI {resp.status_code}: {resp.text[:300]}")
+
+        elif provider == "claude":
+            if not api_key:
+                raise Exception("No API key for Claude")
+            system_text = ""
+            chat_msgs = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_text = msg["content"]
+                else:
+                    chat_msgs.append(msg)
+            payload = {"model": model or "claude-sonnet-4-20250514", "max_tokens": 4096, "messages": chat_msgs}
+            if system_text:
+                payload["system"] = system_text
+            resp = _requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "Content-Type": "application/json", "anthropic-version": "2023-06-01"},
+                json=payload, timeout=120,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json().get("content", [{}])[0].get("text", "")
+            else:
+                raise Exception(f"Claude {resp.status_code}: {resp.text[:300]}")
+
+        elif provider == "grok":
+            if not api_key:
+                raise Exception("No API key for Grok")
+            resp = _requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model or "grok-3", "messages": messages, "temperature": 0.5},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json()["choices"][0]["message"]["content"]
+            else:
+                raise Exception(f"Grok {resp.status_code}: {resp.text[:300]}")
+
+        else:
+            # Ollama (local)
+            from tubecli.config import OLLAMA_BASE_URL
+            resp = _requests.post(
+                f"{OLLAMA_BASE_URL}/api/chat",
+                json={"model": model, "messages": messages, "stream": False},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json().get("message", {}).get("content", "")
+            else:
+                raise Exception(f"Ollama {resp.status_code}: {resp.text[:300]}")
+
+    except Exception as e:
+        print(f"[AI Proxy] Error: {e}")
+        response_content = f"Error: {e}"
+
+    # Return OpenAI-compatible JSON for ai_engine.js
+    return {
+        "id": "chatcmpl-proxy",
+        "object": "chat.completion",
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": response_content},
+                "finish_reason": "stop"
+            }
+        ]
+    }
+
+
+@app.post("/api/v1/localai/generate")
+async def localai_generate(req: Request):
+    """
+    Proxy endpoint for Ollama-style text generation (/api/generate).
+    Used by browser extension (ai_engine.js) as fallback.
+    Converts to chat/completions format internally.
+    """
+    data = await req.json()
+    prompt = data.get("prompt", "")
+    model = data.get("model", "")
+
+    if not model:
+        import os as _os, json as _json
+        from tubecli.config import DATA_DIR, get_setting
+        global_settings_file = _os.path.join(str(DATA_DIR), "global_settings.json")
+        if _os.path.exists(global_settings_file):
+            try:
+                with open(global_settings_file, "r", encoding="utf-8") as f:
+                    gs = _json.load(f)
+                    model = gs.get("default_model", "")
+            except Exception:
+                pass
+        if not model:
+            model = get_setting("default_model", "qwen:latest")
+
+    # Reuse the chat/completions logic by constructing a chat request
+    from starlette.requests import Request as _Request
+    from starlette.datastructures import Headers as _Headers
+    import json as _json
+
+    chat_body = _json.dumps({
+        "messages": [{"role": "user", "content": prompt}],
+        "model": model,
+    }).encode()
+
+    # Create a sub-request to reuse localai_chat_completions
+    scope = req.scope.copy()
+    scope["body"] = chat_body
+
+    class FakeRequest:
+        async def json(self_inner):
+            return {"messages": [{"role": "user", "content": prompt}], "model": model}
+
+    result = await localai_chat_completions(FakeRequest())
+
+    # Convert chat format to generate format
+    response_text = ""
+    if isinstance(result, dict):
+        choices = result.get("choices", [])
+        if choices:
+            response_text = choices[0].get("message", {}).get("content", "")
+
+    return {
+        "model": model,
+        "response": response_text,
+        "done": True,
+    }
 
 
 @app.post("/api/v1/agents/{agent_id}/chat")
@@ -1484,6 +1718,27 @@ async def set_language_setting(req: LanguageUpdateRequest):
     set_language(req.language)
     load_language(req.language)
     return {"status": "updated", "language": req.language}
+
+
+# ── Profile Settings ───────────────────────────────────────────────────
+
+class ProfileUpdateRequest(BaseModel):
+    profile: str
+
+
+@app.get("/api/v1/settings/default-profile")
+async def get_default_profile_setting():
+    """Get current default browser profile."""
+    from tubecli.config import get_setting
+    return {"profile": get_setting("default_browser_profile", "default")}
+
+
+@app.put("/api/v1/settings/default-profile")
+async def set_default_profile_setting(req: ProfileUpdateRequest):
+    """Update default browser profile."""
+    from tubecli.config import set_setting
+    set_setting("default_browser_profile", req.profile)
+    return {"status": "updated", "profile": req.profile}
 
 
 # ── Register Extension Routes ───────────────────────────────────────

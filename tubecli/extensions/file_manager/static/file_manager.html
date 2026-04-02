@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager — ZhiYing</title>
+    <link rel="stylesheet" href="/file-manager-static/file_manager.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="fm-header">
+        <div class="fm-header-left">
+            <a href="/dashboard" class="fm-back-btn" title="Dashboard">
+                <span class="material-icons-round">arrow_back</span>
+            </a>
+            <div class="fm-logo">
+                <span class="material-icons-round">folder_open</span>
+                <h1>File Manager</h1>
+            </div>
+        </div>
+        <div class="fm-header-center">
+            <div class="fm-breadcrumb" id="breadcrumb"></div>
+        </div>
+        <div class="fm-header-right">
+            <div class="fm-search-box">
+                <span class="material-icons-round">search</span>
+                <input type="text" id="searchInput" placeholder="Search files...">
+            </div>
+            <label class="fm-toggle" title="Show hidden files">
+                <input type="checkbox" id="showHidden">
+                <span class="material-icons-round">visibility</span>
+            </label>
+        </div>
+    </header>
+
+    <!-- Toolbar -->
+    <div class="fm-toolbar">
+        <div class="fm-toolbar-left">
+            <button class="fm-btn fm-btn-primary" onclick="FM.createFolder()" title="New Folder">
+                <span class="material-icons-round">create_new_folder</span>
+                <span class="fm-btn-text">New Folder</span>
+            </button>
+            <button class="fm-btn" onclick="FM.createFile()" title="New File">
+                <span class="material-icons-round">note_add</span>
+                <span class="fm-btn-text">New File</span>
+            </button>
+            <div class="fm-divider"></div>
+            <button class="fm-btn" onclick="FM.renameSelected()" title="Rename" id="btnRename" disabled>
+                <span class="material-icons-round">edit</span>
+            </button>
+            <button class="fm-btn fm-btn-danger" onclick="FM.deleteSelected()" title="Delete" id="btnDelete" disabled>
+                <span class="material-icons-round">delete</span>
+            </button>
+            <button class="fm-btn" onclick="FM.copySelected()" title="Copy" id="btnCopy" disabled>
+                <span class="material-icons-round">content_copy</span>
+            </button>
+            <button class="fm-btn" onclick="FM.pasteClipboard()" title="Paste" id="btnPaste" disabled>
+                <span class="material-icons-round">content_paste</span>
+            </button>
+        </div>
+        <div class="fm-toolbar-right">
+            <button class="fm-btn" onclick="FM.refresh()" title="Refresh">
+                <span class="material-icons-round">refresh</span>
+            </button>
+            <div class="fm-view-toggle">
+                <button class="fm-btn active" id="viewGrid" onclick="FM.setView('grid')">
+                    <span class="material-icons-round">grid_view</span>
+                </button>
+                <button class="fm-btn" id="viewList" onclick="FM.setView('list')">
+                    <span class="material-icons-round">view_list</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="fm-main">
+        <!-- Sidebar -->
+        <aside class="fm-sidebar" id="sidebar">
+            <div class="fm-sidebar-section">
+                <h3>Quick Access</h3>
+                <div id="quickAccess"></div>
+            </div>
+        </aside>
+
+        <!-- File Area -->
+        <main class="fm-content">
+            <div class="fm-file-grid" id="fileGrid"></div>
+            <div class="fm-empty" id="emptyState" style="display:none">
+                <span class="material-icons-round">folder_off</span>
+                <p>Empty folder</p>
+            </div>
+            <div class="fm-loading" id="loading" style="display:none">
+                <div class="fm-spinner"></div>
+                <p>Loading...</p>
+            </div>
+        </main>
+
+        <!-- Properties Panel -->
+        <aside class="fm-properties" id="propertiesPanel" style="display:none">
+            <div class="fm-prop-header">
+                <h3>Properties</h3>
+                <button class="fm-btn-icon" onclick="FM.closeProperties()">
+                    <span class="material-icons-round">close</span>
+                </button>
+            </div>
+            <div class="fm-prop-body" id="propertiesBody"></div>
+        </aside>
+    </div>
+
+    <!-- Status Bar -->
+    <footer class="fm-status">
+        <span id="statusInfo">Ready</span>
+        <span id="statusCount"></span>
+    </footer>
+
+    <!-- Context Menu -->
+    <div class="fm-context-menu" id="contextMenu" style="display:none">
+        <div class="fm-ctx-item" onclick="FM.openItem()">
+            <span class="material-icons-round">open_in_new</span> Open
+        </div>
+        <div class="fm-ctx-item" onclick="FM.renameSelected()">
+            <span class="material-icons-round">edit</span> Rename
+        </div>
+        <div class="fm-ctx-item" onclick="FM.copySelected()">
+            <span class="material-icons-round">content_copy</span> Copy
+        </div>
+        <div class="fm-ctx-item" onclick="FM.moveSelected()">
+            <span class="material-icons-round">drive_file_move</span> Move to...
+        </div>
+        <hr>
+        <div class="fm-ctx-item" onclick="FM.showProperties()">
+            <span class="material-icons-round">info</span> Properties
+        </div>
+        <hr>
+        <div class="fm-ctx-item fm-ctx-danger" onclick="FM.deleteSelected()">
+            <span class="material-icons-round">delete</span> Delete
+        </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div class="fm-modal-overlay" id="previewModal" style="display:none">
+        <div class="fm-modal">
+            <div class="fm-modal-header">
+                <h3 id="previewTitle">File Preview</h3>
+                <button class="fm-btn-icon" onclick="FM.closePreview()">
+                    <span class="material-icons-round">close</span>
+                </button>
+            </div>
+            <div class="fm-modal-body">
+                <pre id="previewContent"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="fm-toast-container" id="toastContainer"></div>
+
+    <script src="/file-manager-static/file_manager.js"></script>
+</body>
+</html>

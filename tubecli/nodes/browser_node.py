@@ -1,15 +1,16 @@
-"""Built-in node: Browser Action — uses TubeCLI browser profile system."""
+"""Built-in node: Browser Action — uses TubeCLI browser profile system.
+Auto-reads browser profile and AI model from Global Settings."""
 from typing import Dict, Any
 from tubecli.nodes.base_node import BaseNode, PortType
 import asyncio
-
-
 import os
+import json as _json
+
 
 class BrowserNode(BaseNode):
     node_type = "browser_action"
     display_name = "🌐 Browser Action"
-    description = "Launch browser with a profile and perform actions (navigate, AI prompt, screenshot)."
+    description = "Launch browser with a profile and perform actions (navigate, AI prompt, screenshot). Auto-reads profile and AI model from Settings."
     icon = "🌐"
     category = "Browser"
 
@@ -21,30 +22,81 @@ class BrowserNode(BaseNode):
         self.add_output("screenshot_path", PortType.TEXT, "Screenshot file path")
         self.add_output("status", PortType.TEXT, "Execution status")
 
-    async def execute(self, inputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    def _resolve_settings(self):
+        """Read browser profile and AI model from Global Settings, with fallbacks."""
+        from tubecli.config import get_setting, DATA_DIR
+
+        # 1. Browser profile: node config → settings.json → fallback
         profile_name = self.config.get("profile_name", "")
+        if not profile_name or profile_name == "default":
+            profile_name = get_setting("default_browser_profile", "")
+
+        # 2. AI model: node config → global_settings.json → default
+        ai_model = self.config.get("ai_model", "")
+        if not ai_model:
+            global_settings_file = os.path.join(str(DATA_DIR), "global_settings.json")
+            if os.path.exists(global_settings_file):
+                try:
+                    with open(global_settings_file, "r", encoding="utf-8") as f:
+                        gs = _json.load(f)
+                        ai_model = gs.get("default_model", "")
+                except Exception:
+                    pass
+            if not ai_model:
+                ai_model = "qwen:latest"
+
+        return profile_name, ai_model
+
+    async def execute(self, inputs: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         action = self.config.get("action", "navigate")
         url = inputs.get("url") or self.config.get("url", "")
-        prompt = inputs.get("prompt") or self.config.get("prompt", "")
         headless = self.config.get("headless", False)
-        ai_model = self.config.get("ai_model", "qwen:latest")
         wait_seconds = int(self.config.get("wait_seconds", 10))
 
-        if not profile_name:
-            return {"result": "", "screenshot_path": "", "status": "Error: No profile_name configured"}
+        # Merge user query with config prompt:
+        # - If config has a detailed prompt (instructions), prepend user query as context
+        # - If no config prompt, use input prompt directly
+        user_query = inputs.get("prompt", "")
+        config_prompt = self.config.get("prompt", "")
+        
+        if config_prompt and user_query and user_query != config_prompt:
+            # Config has step-by-step instructions, prepend user's actual query
+            if "{{input}}" in config_prompt:
+                prompt = config_prompt.replace("{{input}}", user_query)
+            else:
+                prompt = f'Search query: "{user_query}"\n\n{config_prompt}'
+        else:
+            prompt = user_query or config_prompt
+
+        # Auto-resolve profile + AI model from settings
+        profile_name, ai_model = self._resolve_settings()
 
         try:
-            # Dynamically loaded by extension_manager so they are in sys.path
             from process_manager import browser_process_manager
-            from profile_manager import get_profile
+            from profile_manager import get_profile, list_profiles
 
-            # Verify profile exists
-            profile = get_profile(profile_name)
+            # Verify profile, fallback to first available
+            profile = get_profile(profile_name) if profile_name else None
             if not profile:
-                return {"result": "", "screenshot_path": "", "status": f"Error: Profile '{profile_name}' not found"}
+                all_profiles = list_profiles()
+                if all_profiles:
+                    profile_name = all_profiles[0]["name"]
+                    profile = get_profile(profile_name)
+                else:
+                    return {
+                        "result": "", "screenshot_path": "",
+                        "status": "Error: No browser profiles available. Please create one in Settings.",
+                    }
+
+            if not profile:
+                return {
+                    "result": "", "screenshot_path": "",
+                    "status": f"Error: Profile '{profile_name}' not found",
+                }
+
+            print(f"  [BrowserNode] profile={profile_name} model={ai_model} action={action} headless={headless}")
 
             if action == "navigate":
-                # Launch browser, navigate to URL
                 result = browser_process_manager.spawn(
                     profile=profile_name,
                     prompt=f'Go to "{url}"' if url else "",
@@ -53,7 +105,6 @@ class BrowserNode(BaseNode):
                     ai_model=ai_model,
                     url=url,
                 )
-                # Wait for process
                 await asyncio.sleep(wait_seconds)
                 status_info = browser_process_manager.get_status(result.get("instance_id", ""))
                 return {
@@ -65,8 +116,7 @@ class BrowserNode(BaseNode):
             elif action == "run_prompt":
                 if not prompt:
                     return {"result": "", "screenshot_path": "", "status": "Error: No prompt for run_prompt action"}
-                
-                # Spawn browser
+
                 result = browser_process_manager.spawn(
                     profile=profile_name,
                     prompt=prompt,
@@ -75,29 +125,28 @@ class BrowserNode(BaseNode):
                     ai_model=ai_model,
                     url=url,
                 )
-                
+
                 instance_id = result.get("instance_id", "")
                 log_file = result.get("log_file", "")
-                
+
                 # Poll for completion (up to 3 minutes)
                 max_wait = 180
                 waited = 0
                 status_info = result
-                
+
                 while waited < max_wait:
-                    await asyncio.sleep(2)
-                    waited += 2
+                    await asyncio.sleep(3)
+                    waited += 3
                     status_info = browser_process_manager.get_status(instance_id) or {}
                     if status_info.get("status") in ["completed", "error", "terminated"]:
                         break
-                
+
                 # Extract summary from logs
                 final_result = "Action completed, but no summary was found in browser logs."
                 if log_file and os.path.exists(log_file):
                     try:
                         with open(log_file, "r", encoding="utf-8") as f:
                             lines = f.readlines()
-                            # Search from bottom for RESULT_SUMMARY
                             for line in reversed(lines):
                                 if "RESULT_SUMMARY:" in line:
                                     final_result = line.split("RESULT_SUMMARY:")[1].strip()

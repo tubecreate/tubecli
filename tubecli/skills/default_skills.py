@@ -179,12 +179,11 @@ DEFAULT_SKILLS: List[Dict] = [
         },
     },
     {
-        "name": "🌐 Google Search",
-        "description": "Tự động mở trình duyệt, tìm kiếm Google theo từ khóa và trích xuất kết quả bằng AI. Dùng: tubecli skill run 'Google Search' --input 'Tìm kiếm về AI'",
+        "name": "🔍 Google Search",
+        "description": "Tìm kiếm Google nhanh bằng HTTP + AI tóm tắt kết quả. Không cần mở browser. Dùng: tubecli skill run 'Google Search' --input 'từ khóa'",
         "skill_type": "Skill",
         "commands": [
-            "google search", "tìm kiếm google", "search google", "tìm video", "tìm google",
-            "tìm", "tra cứu", "search", "tìm kiếm", "tra"
+            "google search", "tìm kiếm google", "search google", "tìm google",
         ],
         "workflow_data": {
             "name": "Google Search",
@@ -192,24 +191,30 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "search_query",
                     "type": "text_input",
-                    "label": "🔍 Từ khóa",
-                    "config": {"text": "Tin tức AI mới nhất hôm nay"},
+                    "label": "🔍 Từ khóa tìm kiếm",
+                    "config": {"text": ""},
                 },
                 {
-                    "id": "browser_search",
-                    "type": "browser_action",
-                    "label": "🌐 Browser Agent",
+                    "id": "web_search",
+                    "type": "web_search",
+                    "label": "🔍 Google Search (HTTP)",
+                    "config": {},
+                },
+                {
+                    "id": "ai_summarize",
+                    "type": "model_agent",
+                    "label": "🤖 AI Tóm tắt",
                     "config": {
-                        "action": "run_prompt",
-                        "profile_name": "default",
-                        "prompt": "Go to Google, search for: {{input}}, and then summarize the top results you see.",
-                        "headless": False
+                        "provider": "auto",
+                        "system_prompt": "Bạn là trợ lý AI. Người dùng đã tìm kiếm Google, dưới đây là kết quả. Hãy tóm tắt ngắn gọn, rõ ràng bằng ngôn ngữ của người dùng. Nếu có thông tin thời tiết, tin tức, hoặc dữ liệu cụ thể, hãy trình bày rõ ràng. Trả lời tự nhiên, thân thiện.",
+                        "max_tokens": 1024,
+                        "temperature": 0.5,
                     },
                 },
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Output",
+                    "label": "📤 Kết quả",
                     "config": {"print": True},
                 },
             ],
@@ -217,12 +222,18 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "from_node_id": "search_query",
                     "from_port_id": "content",
-                    "to_node_id": "browser_search",
+                    "to_node_id": "web_search",
+                    "to_port_id": "query",
+                },
+                {
+                    "from_node_id": "web_search",
+                    "from_port_id": "results",
+                    "to_node_id": "ai_summarize",
                     "to_port_id": "prompt",
                 },
                 {
-                    "from_node_id": "browser_search",
-                    "from_port_id": "result",
+                    "from_node_id": "ai_summarize",
+                    "from_port_id": "response",
                     "to_node_id": "result_output",
                     "to_port_id": "data",
                 },
