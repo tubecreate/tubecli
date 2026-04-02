@@ -91,6 +91,7 @@ const EXT_REGISTRY = [
     { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
     { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
     { id:'file_manager', icon:'📁', name:'File Manager', desc:'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp', type:'core' },
+    { id:'calendar_manager', icon:'📅', name:'Calendar Manager', desc:'Quản lý Google Calendar — lập lịch, sự kiện lặp lại, nhắc nhở Telegram', type:'core' },
 ];
 
 async function loadExtensions() {
@@ -535,11 +536,282 @@ function openExtDetail(id) {
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
     else if (id === 'sheets_manager') renderFullPageExt(body, 'Google Sheets', 'Manage Google Spreadsheets.', '/sheets_manager');
     else if (id === 'file_manager') renderFullPageExt(body, 'File Manager', 'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp.', '/file-manager');
+    else if (id === 'calendar_manager') renderCalendarManagerExt(body);
 }
 function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
 
 function renderFullPageExt(el, name, desc, url) {
     el.innerHTML = `<div style="height:calc(100vh - 150px);overflow:hidden"><iframe src="${url}" style="width:100%;height:100%;border:none"></iframe></div>`;
+}
+
+// ── Calendar Manager Ext ──
+let _calCredId = '';
+
+async function renderCalendarManagerExt(el) {
+    el.innerHTML = `<p class="text-muted">Đang tải Calendar Manager...</p>`;
+
+    // Step 1: Load credentials
+    let creds = [];
+    try {
+        const credRes = await apiGet('/api/v1/calendar/credentials');
+        creds = credRes?.credentials || [];
+    } catch(e) {}
+
+    // If we have creds and no selection yet, use the first one
+    if (creds.length > 0 && !_calCredId) _calCredId = creds[0].id;
+
+    // Step 2: Load data with selected cred_id
+    let calendars = [], events = [], reminderSettings = {};
+    if (_calCredId) {
+        try {
+            const [calRes, evRes, remRes] = await Promise.all([
+                apiGet(`/api/v1/calendar/calendars?cred_id=${_calCredId}`).catch(() => ({calendars:[]})),
+                apiGet(`/api/v1/calendar/events?cred_id=${_calCredId}`).catch(() => ({events:[]})),
+                apiGet('/api/v1/calendar/reminders/settings').catch(() => ({})),
+            ]);
+            calendars = calRes?.calendars || [];
+            events = evRes?.events || [];
+            reminderSettings = remRes || {};
+        } catch(e) {}
+    }
+
+    const hasAuth = creds.length > 0;
+
+    let h = '';
+
+    // ── Account Selector (top-right, like Sheets Manager) ──
+    h += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:15px">
+        <div style="display:flex;align-items:center;gap:12px">
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--cyan)">${calendars.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Calendars</div></div>
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--green)">${events.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Events</div></div>
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--purple)">${reminderSettings.minutes_before || 15}m</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Reminder</div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px">
+            <div style="position:relative">
+                <select id="cal-cred-select" onchange="onCalCredChange()"
+                    style="appearance:none;padding:12px 36px 12px 16px;border:1px solid var(--border);border-radius:10px;background:var(--bg2);color:var(--text);font-size:.95rem;font-weight:500;min-width:220px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.1)">
+                    ${creds.length === 0
+                        ? '<option value="">⚠️ Chưa có tài khoản auth</option>'
+                        : creds.map(c => `<option value="${esc(c.id)}" ${c.id === _calCredId ? 'selected' : ''}>${esc(c.name)}${c.email ? ' (' + esc(c.email) + ')' : ''}</option>`).join('')
+                    }
+                </select>
+                <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-muted)">▼</div>
+            </div>
+            <button class="btn-sm" style="padding:12px;border-radius:10px;background:var(--bg3);border:1px solid var(--border);transition:all 0.2s" onclick="renderCalendarManagerExt(document.getElementById('ext-detail-body'))" title="Refresh" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg3)'">🔄</button>
+        </div>
+    </div>`;
+
+    if (!hasAuth) {
+        h += `<div style="background:linear-gradient(135deg,rgba(239,68,68,0.1),rgba(245,158,11,0.1));border:1px solid rgba(239,68,68,0.3);border-radius:16px;padding:32px;margin-bottom:24px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.1)">
+            <div style="font-size:56px;margin-bottom:16px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.2))">🔐</div>
+            <h3 style="color:var(--text);margin-bottom:12px;font-size:1.4rem">Chưa xác thực Google Calendar</h3>
+            <p style="color:var(--text-muted);margin-bottom:24px;font-size:1rem;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.5">Vào <strong>Auth Manager</strong> → Thêm Google OAuth credential với scope <code>calendar</code> → Authorize email của bạn để cấp quyền.</p>
+        </div>`;
+    }
+
+    // Wrap in a 2-column grid layout for modern UI
+    h += `<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(450px, 1fr));gap:24px;align-items:start">`;
+
+    // ── LEFT COLUMN (Events & Reminders) ──
+    h += `<div style="display:flex;flex-direction:column;gap:24px">`;
+
+    // ── Events List ──
+    h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px">
+            <h3 style="color:var(--cyan);margin:0;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">📋</span> Sự kiện sắp tới</h3>
+        </div>`;
+
+    if (events.length === 0) {
+        h += `<div style="text-align:center;padding:40px 20px;background:var(--bg);border-radius:12px;border:1px dashed var(--border)">
+            <div style="font-size:2rem;margin-bottom:12px;opacity:0.5">📭</div>
+            <p class="text-muted" style="margin:0">Không có sự kiện nào trong 7 ngày tới.</p>
+            </div>`;
+    } else {
+        h += `<div style="display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto;padding-right:8px" class="custom-scrollbar">`;
+        events.forEach(ev => {
+            let timeStr = ev.start || '';
+            try {
+                const dt = new Date(ev.start);
+                timeStr = dt.toLocaleString('vi-VN', {weekday:'short', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+            } catch(e) {}
+            const hasRecurrence = ev.recurrence && ev.recurrence.length > 0;
+            h += `<div style="display:flex;align-items:center;gap:16px;padding:16px;background:var(--bg2);border-radius:12px;border:1px solid var(--border);transition:transform 0.2s, box-shadow 0.2s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.transform='none';this.style.boxShadow='none'">
+                <div style="font-size:1.8rem;background:rgba(255,255,255,0.05);padding:10px;border-radius:12px">${hasRecurrence ? '🔄' : '📅'}</div>
+                <div style="flex:1;min-width:0">
+                    <div style="font-weight:600;font-size:1.05rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px">${esc(ev.summary || '(No title)')}</div>
+                    <div style="font-size:.85rem;color:var(--text-muted);display:flex;align-items:center;gap:6px">
+                        <span style="display:inline-block;padding:2px 8px;background:rgba(0,0,0,0.2);border-radius:4px">${esc(timeStr)}</span>
+                        ${ev.location ? `<span style="opacity:0.5">•</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="${esc(ev.location)}">📍 ${esc(ev.location)}</span>` : ''}
+                    </div>
+                </div>
+                <button class="btn-sm btn-danger" onclick="calDeleteEvent('${esc(ev.id)}')" style="width:36px;height:36px;padding:0;border-radius:50%;display:flex;align-items:center;justify-content:center;opacity:0.7;transition:opacity 0.2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">✕</button>
+            </div>`;
+        });
+        h += `</div>`;
+    }
+    h += `</div>`; // End Events
+
+    // ── Reminder Settings ──
+    h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+        <h3 style="color:var(--yellow);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">🔔</span> Cài đặt nhắc nhở Telegram</h3>
+        <div style="display:flex;gap:16px;align-items:flex-end;background:var(--bg2);padding:16px;border-radius:12px;border:1px solid var(--border)">
+            <div style="flex:1">
+                <label style="display:block;margin-bottom:8px;font-size:.85rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Nhắc trước (phút)</label>
+                <div style="position:relative">
+                    <input id="cal-reminder-min" type="number" value="${reminderSettings.minutes_before || 15}" min="1" max="1440"
+                        style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:1.1rem;font-weight:600">
+                    <span style="position:absolute;right:16px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none">phút</span>
+                </div>
+            </div>
+            <button class="btn-primary" onclick="calSaveReminder()" style="padding:12px 24px;border-radius:8px;font-weight:600;display:flex;align-items:center;gap:8px;height:47px"><span>💾</span> Lưu cài đặt</button>
+        </div>
+    </div>`;
+
+    h += `</div>`; // End Left Column
+
+
+    // ── RIGHT COLUMN (Forms) ──
+    h += `<div style="display:flex;flex-direction:column;gap:24px">`;
+
+    // ── Quick Add ──
+    h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05);position:relative;overflow:hidden">
+        <div style="position:absolute;top:-10px;right:-10px;font-size:100px;opacity:0.02;pointer-events:none transform:rotate(15deg)">⚡</div>
+        <h3 style="color:var(--cyan);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px;position:relative"><span style="font-size:1.4rem">⚡</span> Quick Add Event</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;position:relative">Sử dụng ngôn ngữ tự nhiên để thêm sự kiện siêu tốc.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;position:relative">
+            <input id="cal-quick-text" type="text" placeholder='Ví dụ: "Meeting chiều mai 2h", "Livestream tiktok mỗi 8h tối"'
+                style="width:100%;padding:14px 16px;border:1px solid rgba(6,182,212,0.3);border-radius:10px;background:var(--bg);color:var(--text);font-size:1rem;transition:all 0.2s"
+                onfocus="this.style.borderColor='var(--cyan)';this.style.boxShadow='0 0 0 2px rgba(6,182,212,0.1)'"
+                onblur="this.style.borderColor='rgba(6,182,212,0.3)';this.style.boxShadow='none'"
+                onkeydown="if(event.key==='Enter')calQuickAdd()">
+            <button class="btn-primary" onclick="calQuickAdd()" style="padding:14px;border-radius:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--cyan), #0284c7)"><span>✨</span> Thêm thông minh</button>
+        </div>
+        <div id="cal-quick-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
+    </div>`;
+
+    // ── Create Event Form ──
+    h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
+        <h3 style="color:var(--purple);margin-bottom:20px;font-size:1.2rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px"><span style="font-size:1.4rem">📝</span> Tạo sự kiện chi tiết</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div style="grid-column:span 2">
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Tên sự kiện *</label>
+                <input id="cal-summary" type="text" placeholder="Livestream tối, Meeting kế hoạch..."
+                    style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem">
+            </div>
+            <div>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Bắt đầu *</label>
+                <input id="cal-start" type="datetime-local" style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem"
+                       onfocus="this.showPicker && this.showPicker()">
+            </div>
+            <div>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Kết thúc</label>
+                <input id="cal-end" type="datetime-local" style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem"
+                       onfocus="this.showPicker && this.showPicker()">
+            </div>
+            <div style="grid-column:span 2">
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Mô tả chi tiết</label>
+                <textarea id="cal-desc" placeholder="Agenda buổi meeting, link zoom..." rows="3"
+                    style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;resize:vertical;font-family:inherit"></textarea>
+            </div>
+            <div>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Lặp lại (Recurring)</label>
+                <div style="position:relative">
+                    <select id="cal-recurrence" style="appearance:none;width:100%;padding:12px 36px 12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;cursor:pointer">
+                        <option value="">Không lặp lại</option>
+                        <option value="RRULE:FREQ=DAILY">🔄 Hằng ngày</option>
+                        <option value="RRULE:FREQ=WEEKLY">🔄 Hằng tuần</option>
+                        <option value="RRULE:FREQ=MONTHLY">🔄 Hằng tháng</option>
+                        <option value="RRULE:FREQ=DAILY;COUNT=30">🔄 Hằng ngày (30 ngày)</option>
+                        <option value="RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR">🔄 T2, T4, T6</option>
+                    </select>
+                    <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-muted);font-size:0.8rem">▼</div>
+                </div>
+            </div>
+            <div>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Địa điểm / Nền tảng</label>
+                <input id="cal-location" type="text" placeholder="Google Meet, Tiktok..."
+                    style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem">
+            </div>
+        </div>
+        <button class="btn-primary" onclick="calCreateEvent()" style="margin-top:24px;width:100%;padding:14px;font-weight:600;font-size:1.05rem;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--purple), #be185d)"><span>📅</span> Lưu sự kiện</button>
+        <div id="cal-create-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
+    </div>`;
+
+    h += `</div>`; // End Right Column
+
+    h += `</div>`; // End Grid Wrapper
+
+    el.innerHTML = h;
+}
+
+// Calendar Manager — credential change handler
+function onCalCredChange() {
+    _calCredId = document.getElementById('cal-cred-select')?.value || '';
+    renderCalendarManagerExt(document.getElementById('ext-detail-body'));
+}
+
+// Calendar Manager JS actions
+async function calQuickAdd() {
+    const text = document.getElementById('cal-quick-text')?.value?.trim();
+    if (!text) { alert('Nhập mô tả sự kiện!'); return; }
+    const res = document.getElementById('cal-quick-result');
+    res.style.display = 'block';
+    res.innerHTML = '<span style="color:var(--cyan)">⏳ Đang thêm...</span>';
+    const r = await apiPost('/api/v1/calendar/quick-add', {text, cred_id: _calCredId});
+    if (r?.status === 'success') {
+        res.innerHTML = `<span style="color:var(--green)">✅ ${esc(r.message || 'Đã thêm!')}</span>`;
+        document.getElementById('cal-quick-text').value = '';
+        setTimeout(() => renderCalendarManagerExt(document.getElementById('ext-detail-body')), 1500);
+    } else {
+        res.innerHTML = `<span style="color:var(--red)">❌ ${esc(r?.detail || r?.message || 'Lỗi')}</span>`;
+    }
+}
+
+async function calCreateEvent() {
+    const summary = document.getElementById('cal-summary')?.value?.trim();
+    const start = document.getElementById('cal-start')?.value;
+    const end = document.getElementById('cal-end')?.value;
+    const desc = document.getElementById('cal-desc')?.value?.trim();
+    const recurrence = document.getElementById('cal-recurrence')?.value;
+    const location = document.getElementById('cal-location')?.value?.trim();
+    if (!summary || !start) { alert('Cần nhập tên sự kiện và thời gian bắt đầu!'); return; }
+    const res = document.getElementById('cal-create-result');
+    res.style.display = 'block';
+    res.innerHTML = '<span style="color:var(--cyan)">⏳ Đang tạo...</span>';
+    const startISO = new Date(start).toISOString();
+    const endISO = end ? new Date(end).toISOString() : '';
+    const body = {
+        summary, start: startISO, end: endISO, description: desc, location,
+        recurrence: recurrence ? [recurrence] : [],
+        cred_id: _calCredId,
+    };
+    const r = await apiPost('/api/v1/calendar/events', body);
+    if (r?.status === 'success') {
+        res.innerHTML = `<span style="color:var(--green)">✅ ${esc(r.message || 'Đã tạo!')}</span>`;
+        setTimeout(() => renderCalendarManagerExt(document.getElementById('ext-detail-body')), 1500);
+    } else {
+        res.innerHTML = `<span style="color:var(--red)">❌ ${esc(r?.detail || r?.message || 'Lỗi')}</span>`;
+    }
+}
+
+async function calDeleteEvent(eventId) {
+    if (!confirm('Xóa sự kiện này?')) return;
+    const r = await apiDelete(`/api/v1/calendar/events/${encodeURIComponent(eventId)}?cred_id=${_calCredId}`);
+    if (r?.status === 'success') {
+        renderCalendarManagerExt(document.getElementById('ext-detail-body'));
+    } else {
+        alert('Lỗi: ' + (r?.detail || r?.message || '?'));
+    }
+}
+
+async function calSaveReminder() {
+    const min = parseInt(document.getElementById('cal-reminder-min')?.value) || 15;
+    const r = await apiPut('/api/v1/calendar/reminders/settings', {minutes_before: min, enabled: true});
+    if (r?.status === 'success') {
+        alert('✅ Đã lưu cài đặt nhắc nhở!');
+    } else {
+        alert('Lỗi: ' + (r?.message || '?'));
+    }
 }
 
 // ── Agents Ext ──
@@ -1605,6 +1877,11 @@ async function loadGlobalSettings() {
             await populateDefaultProfileDropdown(bp?.profile || 'default');
         } catch(e) { console.warn('Failed to load default profile:', e); }
 
+        // Load Default Calendar Email
+        try {
+            await populateDefaultCalendarDropdown(s.default_calendar_email || '');
+        } catch(e) { console.warn('Failed to load default calendar:', e); }
+
     } catch(e) { console.warn('[Settings] Failed to load:', e); }
 }
 
@@ -1637,6 +1914,40 @@ async function changeDefaultProfile(val) {
     } catch (e) {
         console.error("Failed to save default profile", e);
     }
+}
+
+async function populateDefaultCalendarDropdown(selectedEmail) {
+    const sel = document.getElementById('set-default-calendar');
+    if (!sel) return;
+    try {
+        const d = await apiGet('/api/v1/calendar/credentials');
+        let html = '<option value="">Chưa cấu hình / Bỏ trống</option>';
+        if (d && d.credentials && d.credentials.length > 0) {
+            d.credentials.forEach(c => {
+                if (c.email) {
+                    html += `<option value="${esc(c.email)}">${esc(c.email)} (${esc(c.name)})</option>`;
+                }
+            });
+        } else {
+            html = '<option value="">⚠️ Chưa có tài khoản Calendar trong Auth Manager</option>';
+        }
+        sel.innerHTML = html;
+        if (selectedEmail) {
+            const hasOption = Array.from(sel.options).some(opt => opt.value === selectedEmail);
+            if (!hasOption && selectedEmail !== '') {
+                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (⚠️ Đã lưu nhưng mất quyền truy cập)</option>`;
+            }
+            sel.value = selectedEmail;
+        }
+    } catch (e) {
+        console.warn('Calendar credentials fetch failed:', e);
+    }
+}
+
+async function changeDefaultCalendar(val) {
+    // This function is triggered on UI change. We rely on saveGlobalSettings() to actually persist it 
+    // to the global_settings.json together with other general settings.
+    console.log("Selected Default Calendar Email pending save:", val);
 }
 
 async function populateModelDropdown(selectedModel) {
@@ -1735,6 +2046,7 @@ async function saveGlobalSettings() {
         api_base_url: document.getElementById('set-api')?.value || 'http://localhost:5295',
         telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
         telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
+        default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
     };
     try {
         const r = await apiPut('/api/v1/settings', payload);

@@ -422,6 +422,16 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
 ```
 - Templates: dev_team, imperial_court, company, military
 
+**Lập lịch / Tạo sự kiện Google Calendar:**
+```json
+{"action": "schedule_event", "summary": "<Tên sự kiện>", "start": "<ISO datetime>", "end": "<ISO datetime>", "description": "<Mô tả>", "recurrence": "RRULE:FREQ=DAILY"}
+```
+- Dùng khi user muốn lập lịch, tạo lịch hẹn, đặt lịch livestream
+- recurrence là tùy chọn: RRULE:FREQ=DAILY (hằng ngày), RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR (hằng tuần), RRULE:FREQ=MONTHLY (hằng tháng)
+- Nếu user nói "hằng ngày" / "mỗi ngày" → thêm recurrence RRULE:FREQ=DAILY
+- Nếu user không nói giờ cụ thể, dùng giờ hợp lý (VD: livestream 20:00, meeting 09:00)
+- Timezone mặc định: Asia/Ho_Chi_Minh (+07:00)
+
 **Gọi API nội bộ trực tiếp:**
 ```json
 {"action": "run_api", "method": "POST", "endpoint": "/api/v1/...", "body": {...}}
@@ -434,9 +444,15 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
 - URL chứa "iesdouyin.com/" → download_video
 - URL chứa "vm.tiktok.com/" → download_video
 
+### QUY TẮC NHẬN DIỆN LẬP LỊCH:
+- User nói "lập lịch", "đặt lịch", "schedule", "tạo sự kiện", "nhắc nhở", "lên lịch livestream" → schedule_event
+- User nói "hằng ngày", "mỗi ngày", "daily" → thêm recurrence RRULE:FREQ=DAILY
+- User nói "hằng tuần", "mỗi tuần", "weekly" → thêm recurrence RRULE:FREQ=WEEKLY
+
 ### KHẢ NĂNG HỆ THỐNG (để biết khi tư vấn):
 - 🤖 Multi-Agent Teams, 🎬 3D Studio, 📥 Video Downloader (TikTok/Douyin)
 - 🌐 Browser Automation (headless), ⚡ Workflow Builder, 🛒 Market
+- 📅 Google Calendar (lập lịch, recurring events, nhắc nhở Telegram)
 """
         # Auto-inject SKILL.md from all enabled extensions
         try:
@@ -622,6 +638,10 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
             action_data = brain_result.get("action_data", {})
             reply = await self._exec_run_api(action_data)
 
+        elif action == "schedule_event":
+            action_data = brain_result.get("action_data", {})
+            reply = await self._exec_schedule_event(action_data)
+
         # Handle Extension Actions from AI response text (fallback for inline JSON)
         result = await self._handle_extension_action(reply, agent_dict)
 
@@ -693,6 +713,9 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
         elif action_type == "run_api":
             return await self._exec_run_api(action_data)
 
+        elif action_type == "schedule_event":
+            return await self._exec_schedule_event(action_data)
+
         else:
             # Unknown action — return original reply
             return reply
@@ -714,6 +737,72 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
                 except Exception:
                     continue
         return None
+
+    async def _exec_schedule_event(self, action_data: Dict) -> str:
+        """Execute schedule_event action — create Google Calendar event."""
+        summary = action_data.get("summary", "")
+        start = action_data.get("start", "")
+        end = action_data.get("end", "")
+        description = action_data.get("description", "")
+        location = action_data.get("location", "")
+        recurrence_str = action_data.get("recurrence", "")
+
+        if not summary:
+            return "❌ Thiếu tên sự kiện (summary)."
+        if not start:
+            return "❌ Thiếu thời gian bắt đầu (start)."
+
+        print(f"[TelegramListener] 📅 Creating calendar event: {summary}")
+
+        try:
+            from tubecli.extensions.calendar_manager.extension import calendar_manager
+
+            # Read default calendar email from global settings
+            email = ""
+            try:
+                if os.path.exists(SETTINGS_FILE):
+                    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        email = data.get("default_calendar_email", "")
+            except Exception:
+                pass
+
+            recurrence = [recurrence_str] if recurrence_str else []
+
+            result = calendar_manager.create_event(
+                email=email,
+                summary=summary,
+                start=start,
+                end=end,
+                description=description,
+                location=location,
+                recurrence=recurrence,
+            )
+
+            if result.get("status") == "success":
+                msg = f"✅ **Đã lập lịch thành công!**\n\n"
+                msg += f"📅 **{result.get('summary', summary)}**\n"
+                msg += f"🕐 {result.get('start', start)}\n"
+                if result.get("recurrence"):
+                    recurrence_display = result["recurrence"][0] if result["recurrence"] else ""
+                    if "DAILY" in recurrence_display:
+                        msg += "🔄 Lặp lại: Hằng ngày\n"
+                    elif "WEEKLY" in recurrence_display:
+                        msg += "🔄 Lặp lại: Hằng tuần\n"
+                    elif "MONTHLY" in recurrence_display:
+                        msg += "🔄 Lặp lại: Hằng tháng\n"
+                    else:
+                        msg += f"🔄 Lặp lại: {recurrence_display}\n"
+                if result.get("html_link"):
+                    msg += f"🔗 [Mở trong Calendar]({result['html_link']})"
+                return msg
+            else:
+                return f"❌ Lỗi tạo sự kiện: {result.get('message', 'Unknown error')}"
+
+        except ImportError:
+            return "❌ Calendar Manager extension chưa được cài đặt hoặc chưa bật."
+        except Exception as e:
+            return f"❌ Lỗi lập lịch: {str(e)[:300]}"
 
     async def _execute_download(self, url: str, agent_dict: Dict) -> dict:
         """Execute video download via Downloader extension API and return file info."""

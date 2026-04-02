@@ -13,6 +13,7 @@ from tubecli.nodes.ai_node import AiNode
 from tubecli.nodes.output_node import OutputNode
 from tubecli.nodes.google_auth_node import GoogleAuthNode
 from tubecli.nodes.google_sheets_node import GoogleSheetsNode
+from tubecli.nodes.google_calendar_node import GoogleCalendarNode
 from tubecli.nodes.browser_node import BrowserNode
 from tubecli.nodes.json_parser_node import JsonParserNode
 from tubecli.nodes.web_search_node import WebSearchNode
@@ -38,6 +39,7 @@ NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
     # New nodes
     "google_auth": GoogleAuthNode,
     "google_sheets": GoogleSheetsNode,
+    "google_calendar": GoogleCalendarNode,
     "browser_action": BrowserNode,
     "json_parser": JsonParserNode,
     "web_search": WebSearchNode,
@@ -72,7 +74,8 @@ def list_available_nodes() -> list:
     icons = {
         "text_input": "📝", "loop": "🔄", "python_code": "🐍",
         "api_request": "🌐", "run_command": "💻", "ai_node": "🧠", "output": "📤",
-        "google_auth": "🔐", "google_sheets": "📊", "browser_action": "🌐",
+        "google_auth": "🔐", "google_sheets": "📊", "google_calendar": "📅",
+        "browser_action": "🌐",
         "json_parser": "📋", "model_agent": "🤖", "custom": "⚙️",
         "if_node": "🔀", "switch_node": "🔃", "merge_node": "🔗",
     }
