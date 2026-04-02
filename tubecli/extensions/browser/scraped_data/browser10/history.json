@@ -251,6 +251,76 @@
       "ip": "113.189.54.159",
       "scrapedAt": "2026-04-02T06:02:33.006Z",
       "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết Tam Kỳ hôm nay - Google Search",
+      "url": "https://www.google.com/search?q=Th%E1%BB%9Di+ti%E1%BA%BFt+Tam+K%E1%BB%B3+h%C3%B4m+nay&sca_esv=8fbe2420859fd63f&sxsrf=ANbL-n7gDkIx1iKqbxU3DaWTHGecGKoaaQ%3A1775115003329&source=hp&ei=-xrOaZymEfjGvr0PsLKd6AE&iflsig=AFdpzrgAAAAAac4pC95zIfPmuCvXAXmZ1qWlzhAQUf44&ved=0ahUKEwjcj9PZ0s6TAxV4o68BHTBZBx0Q4dUDCB4&uact=5&oq=Th%E1%BB%9Di+ti%E1%BA%BFt+Tam+K%E1%BB%B3+h%C3%B4m+nay&gs_lp=Egdnd3Mtd2l6Ih9UaOG7nWkgdGnhur90IFRhbSBL4buzIGjDtG0gbmF5SABQAFgAcAB4AJABAJgBAKABAKoBALgBA8gBAJgCAKACAJgDAJIHAKAHALIHALgHAMIHAMgHAIAIAQ&sclient=gws-wiz&zx=1775115018436",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:30:34.640Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Google",
+      "url": "https://www.google.com/",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:30:42.937Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết Tam Kỳ hôm nay - Google Search",
+      "url": "https://www.google.com/search?q=Th%E1%BB%9Di+ti%E1%BA%BFt+Tam+K%E1%BB%B3+h%C3%B4m+nay&sca_esv=8fbe2420859fd63f&sxsrf=ANbL-n6VSL0MqQWLxULIcwkvEkPNA3xjOQ%3A1775115031062&source=hp&ei=FxvOaYJ18u3V7w-swb_wDA&iflsig=AFdpzrgAAAAAac4pJ0oiaEWUOsp9YcHr7Hy7dd9KGXNL&ved=0ahUKEwjC3O_m0s6TAxXydvUHHazgD84Q4dUDCB4&uact=5&oq=Th%E1%BB%9Di+ti%E1%BA%BFt+Tam+K%E1%BB%B3+h%C3%B4m+nay&gs_lp=Egdnd3Mtd2l6Ih9UaOG7nWkgdGnhur90IFRhbSBL4buzIGjDtG0gbmF5MgQQIxgnMggQABiABBjLATIIEAAYgAQYywEyCBAAGIAEGMsBMggQABiABBjLATIIEAAYgAQYywEyBhAAGBYYHjIGEAAYFhgeMgYQABgWGB4yBhAAGBYYHkiODVAcWNAMcAF4AJABAJgBiQKgAYEUqgEFMC4zLjm4AQPIAQD4AQGYAg2gArQUqAIJwgIHECMY6gIYJ5gDB_EFjv4LE-0fqiySBwUxLjMuOaAHojyyBwUwLjMuObgHrBTCBwYwLjEwLjPIBySACAE&sclient=gws-wiz",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:30:46.736Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết hàng giờ ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/hourly-weather-forecast/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:32:17.450Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Dự báo thời tiết ba ngày ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/weather-forecast/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:33:13.035Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết hiện tại ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/current-weather/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:35:01.389Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Dự báo thời tiết ba ngày ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/weather-forecast/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:36:09.877Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết hiện tại ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/current-weather/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:37:40.416Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Dự báo thời tiết ba ngày ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/weather-forecast/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:38:32.160Z",
+      "isScraped": false
+    },
+    {
+      "title": "[browser10] Thời tiết hiện tại ở Tam Kỳ, Đà Nẵng, Việt Nam | AccuWeather",
+      "url": "https://www.accuweather.com/vi/vn/tam-ky/355712/current-weather/355712",
+      "ip": "113.176.218.206",
+      "scrapedAt": "2026-04-02T07:39:50.752Z",
+      "isScraped": false
     }
   ]
 }

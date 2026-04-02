@@ -125,24 +125,52 @@ class FileService:
         return {"status": "created", "path": safe_path, "message": f"Đã tạo thư mục: {safe_path}"}
 
     def create_file(self, path: str, content: str = "") -> Dict[str, Any]:
-        """Create a file with optional content."""
+        """Create a file with optional content. Supports txt, docx, xlsx."""
         safe_path = self._validate_path(path)
         parent_dir = os.path.dirname(safe_path)
         os.makedirs(parent_dir, exist_ok=True)
 
-        mode = "w" if not os.path.exists(safe_path) else "w"
-        with open(safe_path, mode, encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "created",
-            "path": safe_path,
-            "size": len(content),
-            "message": f"Đã tạo file: {safe_path}",
-        }
+        ext = os.path.splitext(safe_path)[1].lower()
+        
+        try:
+            if ext == '.docx':
+                from docx import Document
+                doc = Document()
+                if content:
+                    doc.add_paragraph(content)
+                doc.save(safe_path)
+                size = os.path.getsize(safe_path)
+            elif ext == '.xlsx':
+                from openpyxl import Workbook
+                wb = Workbook()
+                ws = wb.active
+                if content:
+                    for row_idx, line in enumerate(content.split('\n'), 1):
+                        cells = line.split('\t') if '\t' in line else line.split(',')
+                        for col_idx, cell in enumerate(cells, 1):
+                            ws.cell(row=row_idx, column=col_idx, value=cell.strip())
+                wb.save(safe_path)
+                size = os.path.getsize(safe_path)
+            else:
+                mode = "w" if not os.path.exists(safe_path) else "w"
+                with open(safe_path, mode, encoding="utf-8") as f:
+                    f.write(content)
+                size = os.path.getsize(safe_path)
+                
+            return {
+                "status": "created",
+                "path": safe_path,
+                "size": size,
+                "extension": ext,
+                "message": f"Đã tạo file: {safe_path}",
+            }
+        except ImportError as e:
+            raise RuntimeError(f"Thiếu thư viện để xử lý file {ext}: {str(e)}")
+        except Exception as e:
+            raise RuntimeError(f"Lỗi tạo file {ext}: {str(e)}")
 
     def read_file(self, path: str, max_lines: int = 1000) -> Dict[str, Any]:
-        """Read text file content."""
+        """Read file content (supports txt, docx, xlsx) and metadata."""
         safe_path = self._validate_path(path)
         if not os.path.isfile(safe_path):
             raise FileNotFoundError(f"File không tồn tại: {path}")
@@ -151,23 +179,57 @@ class FileService:
         if size > MAX_FILE_SIZE_MB * 1024 * 1024:
             return {"error": f"File quá lớn ({self._human_size(size)}). Giới hạn: {MAX_FILE_SIZE_MB}MB"}
 
-        # Check if binary
+        ext = os.path.splitext(safe_path)[1].lower()
+        content = ""
+        lines = []
+
         try:
-            with open(safe_path, "r", encoding="utf-8") as f:
-                lines = []
-                for i, line in enumerate(f):
-                    if i >= max_lines:
-                        break
-                    lines.append(line)
-                content = "".join(lines)
+            if ext == '.docx':
+                from docx import Document
+                doc = Document(safe_path)
+                for i, p in enumerate(doc.paragraphs):
+                    if i >= max_lines: break
+                    if p.text.strip():
+                        lines.append(p.text)
+                content = "\n".join(lines)
+            elif ext == '.xlsx':
+                from openpyxl import load_workbook
+                wb = None
+                try:
+                    wb = load_workbook(safe_path, read_only=True, data_only=True)
+                    for ws in wb.worksheets:
+                        lines.append(f"--- Sheet: {ws.title} ---")
+                        for i, row in enumerate(ws.iter_rows(values_only=True)):
+                            if len(lines) >= max_lines: break
+                            row_data = [str(c) if c is not None else "" for c in row]
+                            if any(row_data):
+                                lines.append("\t".join(row_data))
+                        if len(lines) >= max_lines: break
+                    content = "\n".join(lines)
+                finally:
+                    if wb:
+                        wb.close()
+            else:
+                with open(safe_path, "r", encoding="utf-8") as f:
+                    for i, line in enumerate(f):
+                        if i >= max_lines:
+                            break
+                        lines.append(line.rstrip("\n"))
+                content = "\n".join(lines)
         except UnicodeDecodeError:
             return {
                 "path": safe_path,
                 "is_binary": True,
                 "size": size,
                 "size_human": self._human_size(size),
+                "extension": ext,
+                "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(safe_path))),
                 "message": "File nhị phân, không thể đọc dạng text.",
             }
+        except ImportError as e:
+            return {"error": f"Thiếu thư viện để đọc file {ext}: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Lỗi đọc file: {str(e)}"}
 
         return {
             "path": safe_path,
@@ -176,6 +238,9 @@ class FileService:
             "truncated": len(lines) >= max_lines,
             "size": size,
             "size_human": self._human_size(size),
+            "extension": ext,
+            "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getmtime(safe_path))),
+            "created": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(os.path.getctime(safe_path))),
         }
 
     def delete(self, path: str) -> Dict[str, Any]:

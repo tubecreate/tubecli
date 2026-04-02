@@ -35,6 +35,7 @@ _DEFAULT_SETTINGS = {
     "language": "vi",
     "telegram_bot_token": "",
     "telegram_chat_id": "",
+    "default_calendar_email": "",
 }
 
 @router.get("/api/v1/settings")

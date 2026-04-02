@@ -408,6 +408,67 @@ DEFAULT_SKILLS: List[Dict] = [
             ],
         },
     },
+    {
+        "name": "📅 Calendar Scheduler",
+        "description": "Lập lịch sự kiện Google Calendar — hỗ trợ recurring events cho livestream hằng ngày, meeting, reminder. Dùng: tubecli skill run 'Calendar Scheduler' --input 'Meeting tomorrow 10am'",
+        "skill_type": "Skill",
+        "commands": [
+            "lập lịch", "tạo lịch", "schedule", "create event",
+            "thêm sự kiện", "đặt lịch", "lịch hẹn", "lên lịch livestream",
+            "nhắc nhở", "reminder", "đặt hẹn", "lịch họp",
+        ],
+        "workflow_data": {
+            "name": "Calendar Scheduler",
+            "nodes": [
+                {
+                    "id": "event_input",
+                    "type": "text_input",
+                    "label": "📝 Event Description",
+                    "config": {"text": ""},
+                },
+                {
+                    "id": "google_auth",
+                    "type": "google_auth",
+                    "label": "🔐 Google Auth",
+                    "config": {
+                        "scopes": "https://www.googleapis.com/auth/calendar",
+                    },
+                },
+                {
+                    "id": "calendar_create",
+                    "type": "google_calendar",
+                    "label": "📅 Create Event",
+                    "config": {"action": "quick_add"},
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Result",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "google_auth",
+                    "from_port_id": "credentials",
+                    "to_node_id": "calendar_create",
+                    "to_port_id": "credentials",
+                },
+                {
+                    "from_node_id": "event_input",
+                    "from_port_id": "content",
+                    "to_node_id": "calendar_create",
+                    "to_port_id": "event_data",
+                },
+                {
+                    "from_node_id": "calendar_create",
+                    "from_port_id": "status",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    },
 ]
 
 

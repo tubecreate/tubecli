@@ -246,7 +246,7 @@ class AgentBrain:
                         "action": "file_action",
                     }
 
-            elif action_type in ("download_video", "create_team", "run_api"):
+            elif action_type in ("download_video", "create_team", "run_api", "schedule_event"):
                 # Pass extension actions through as raw reply for telegram_listener to handle
                 import json as _json
                 return {
@@ -667,7 +667,7 @@ Rules:
     def _extract_action(text: str) -> Optional[Dict]:
         """Extract any JSON action block from LLM response."""
         # Known action types
-        action_types = ["run_skill", "create_skill", "download_video", "create_team", "run_api"]
+        action_types = ["run_skill", "create_skill", "download_video", "create_team", "run_api", "schedule_event"]
         try:
             # Code block: ```json {...} ```
             code_block = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
