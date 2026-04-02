@@ -15,10 +15,10 @@ class AgentBrain:
 
     @staticmethod
     def match_skill_command(message: str, skills: List[Dict]) -> Optional[Dict]:
-        """Check if user message directly matches a skill's trigger commands.
-        Returns the matched skill dict or None.
+        """Check if user message directly matches a skill's explicit trigger commands.
+        Only matches exact commands or 'command + arguments' patterns.
+        For natural language intent → let the LLM Brain analyze it.
         """
-        # Clean the message: lowercase, strip, remove trailing punctuation like ? or !
         msg_clean = re.sub(r'[?!.,;]+$', '', message.strip().lower()).strip()
         
         for skill in skills:
@@ -27,69 +27,67 @@ class AgentBrain:
                 if not cmd:
                     continue
                 cmd_clean = cmd.strip().lower()
+                if len(cmd_clean) < 3:
+                    continue  # Skip too-short commands to avoid false matches
                 
-                # Fast path: exact match or starts with command 
-                # (e.g. cmd="tìm video", msg="tìm video roblox")
+                # Exact match or starts with command (e.g. cmd="tải video", msg="tải video tiktok")
                 if msg_clean == cmd_clean or msg_clean.startswith(cmd_clean + " "):
-                    return skill
-                
-                # Substring check for very specific commands (e.g. if cmd is "google search")
-                if len(cmd_clean) > 5 and cmd_clean in msg_clean:
                     return skill
         return None
 
     @staticmethod
     def build_system_prompt(agent_prompt: str, skills: List[Dict], memory_context: str = "",
                             message: str = "") -> str:
-        """Build a system prompt.
+        """Build a system prompt with full skill descriptions for intent-based routing.
 
-        Token optimization strategy:
+        Strategy:
         - Fast-path command match happens BEFORE this (no LLM call = 0 tokens)
-        - If LLM is needed: only inject TOP-5 most relevant skills (keyword match)
-        - Each skill is ONE compact line: ID | Name | commands
-        - Full description omitted (AI doesn't need it to dispatch)
+        - If LLM is needed: show TOP-8 relevant skills WITH descriptions
+        - LLM analyzes user INTENT and picks the right skill
         """
         skills_desc = ""
         if skills:
-            # Score each skill by keyword relevance to the current message
             msg_lower = (message or "").lower()
             scored = []
             for s in skills:
-                skill_id   = s.get("id") or getattr(s, "id", "unknown")
+                skill_id = s.get("id") or getattr(s, "id", "unknown")
                 skill_name = s.get("name") or getattr(s, "name", "")
                 skill_cmds = s.get("commands") or getattr(s, "commands", [])
                 skill_desc_text = s.get("description") or getattr(s, "description", "")
 
-                # Score: +3 for command match, +2 for name match, +1 for desc match
+                # Score by semantic relevance
                 score = 0
                 if msg_lower:
                     for cmd in skill_cmds:
                         if cmd.lower() in msg_lower:
                             score += 3
                             break
-                    if skill_name.lower() in msg_lower:
+                    name_lower = skill_name.lower()
+                    if any(w in msg_lower for w in name_lower.split() if len(w) > 2):
                         score += 2
-                    if any(w in msg_lower for w in skill_desc_text.lower().split() if len(w) > 4):
-                        score += 1
+                    desc_words = [w for w in skill_desc_text.lower().split() if len(w) > 3]
+                    matching_desc = sum(1 for w in desc_words if w in msg_lower)
+                    score += min(matching_desc, 3)  # cap at 3
 
-                scored.append((score, skill_id, skill_name, skill_cmds))
+                scored.append((score, skill_id, skill_name, skill_desc_text, skill_cmds))
 
-            # If there's a keyword match: show top 5 relevant. Else: show top 8 by name only.
-            if msg_lower and any(sc > 0 for sc, *_ in scored):
-                top = sorted(scored, key=lambda x: -x[0])[:5]
-            else:
-                top = scored[:8]
+            # Show top 8 skills, sorted by relevance
+            top = sorted(scored, key=lambda x: -x[0])[:8]
 
             lines = []
-            for score, sid, sname, scmds in top:
-                cmds_str = ", ".join(scmds[:4]) if scmds else "—"  # max 4 commands shown
-                lines.append(f"  {sid} | {sname} | triggers: {cmds_str}")
+            for score, sid, sname, sdesc, scmds in top:
+                # Include description so LLM understands what each skill DOES
+                desc_short = sdesc[:120] if sdesc else "No description"
+                lines.append(f"  - ID: {sid}\n    Name: {sname}\n    Does: {desc_short}")
 
             total = len(skills)
             shown = len(lines)
             skills_desc = (
-                f"\n\n### SKILLS ({shown} of {total} shown — use run_skill with the ID):\n"
+                f"\n\n### AVAILABLE SKILLS ({shown}/{total}) — Analyze user INTENT to pick the right one:\n"
                 + "\n".join(lines)
+                + "\n\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search skill."
+                + "\nIf user asks to download video from TikTok/Douyin → use download_video action."
+                + "\nIf no skill matches the intent → reply conversationally.\n"
             )
 
         # Memory context injection
@@ -101,17 +99,22 @@ class AgentBrain:
         # agent_prompt may contain {"action": "..."} JSON which breaks str.format().
         static_prompt = (
             "## SYSTEM - AUTONOMOUS EXECUTION MODE:\n"
-            "You are an autonomous AI agent. ACT directly, do NOT guide the user.\n\n"
+            "You are an autonomous AI agent. Analyze user INTENT and ACT directly.\n\n"
             "### ACTION FORMAT (output JSON to trigger system):\n"
+            '- Run a skill → {"action": "run_skill", "skill_id": "<ID>", "input": "<user query>"}\n'
             '- Video URL → {"action": "download_video", "url": "<URL>"}\n'
-            '- Run skill → {"action": "run_skill", "skill_id": "<ID>", "input": "<query>"}\n'
+            '- File ops → {"action": "file_action", "operation": "create_folder|create_file|delete|move|copy|list|read", "path": "~/Desktop/...", "content": "", "destination": ""}\n'
             '- Create team → {"action": "create_team", "template": "dev_team", "name": "<name>"}\n'
             '- API call → {"action": "run_api", "method": "POST", "endpoint": "/api/v1/..."}\n'
             '- Create skill → {"action": "create_skill", "name": "<n>", "description": "<d>", "instructions": ["..."]}\n\n'
-            "### RULES:\n"
-            "- NEVER say 'go to Dashboard' or 'I cannot do this'. Always output a JSON action.\n"
-            "- Video URLs (douyin.com, tiktok.com, iesdouyin.com) → ALWAYS download_video.\n"
-            "- Conversational reply ONLY when no action applies.\n\n"
+            "### INTENT ANALYSIS RULES:\n"
+            "1. Read the user message carefully to understand their INTENT.\n"
+            "2. If the intent matches a skill → output run_skill JSON with the skill ID and user's query.\n"
+            "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
+            "4. Video URLs (douyin.com, tiktok.com) → ALWAYS download_video.\n"
+            "5. File/folder create/delete/move/list → ALWAYS use file_action directly.\n"
+            "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
+            "7. Conversational reply ONLY when no action matches.\n\n"
             "### YOUR PERSONA:\n"
         )
         return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
@@ -189,6 +192,59 @@ class AgentBrain:
                     "skill_id": skill_id,
                     "skill_input": action_data.get("input", message),
                 }
+
+            elif action_type == "file_action":
+                # Execute file operation directly and return text result
+                try:
+                    from tubecli.extensions.file_manager.file_service import file_service
+                    op = action_data.get("operation", "")
+                    path = action_data.get("path", "")
+                    content = action_data.get("content", "")
+                    destination = action_data.get("destination", "")
+
+                    if op == "create_folder":
+                        r = file_service.create_folder(path)
+                        reply = f"✅ Đã tạo thư mục: {r.get('path', path)}"
+                    elif op == "create_file":
+                        r = file_service.create_file(path, content)
+                        reply = f"✅ Đã tạo file: {r.get('path', path)}"
+                    elif op == "delete":
+                        r = file_service.delete(path)
+                        reply = f"✅ Đã xóa: {path}"
+                    elif op == "move":
+                        r = file_service.move(path, destination)
+                        reply = f"✅ Đã di chuyển: {path} → {destination}"
+                    elif op == "copy":
+                        r = file_service.copy(path, destination)
+                        reply = f"✅ Đã sao chép: {path} → {destination}"
+                    elif op == "list":
+                        r = file_service.list_dir(path or "~/Desktop")
+                        items = r.get("items", [])
+                        lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
+                        for item in items[:20]:
+                            icon = "📁" if item.get("is_dir") else "📄"
+                            size = f" ({item.get('size_human', '')})" if not item.get("is_dir") else ""
+                            lines.append(f"  {icon} {item['name']}{size}")
+                        if len(items) > 20:
+                            lines.append(f"  ... và {len(items) - 20} mục khác")
+                        reply = "\n".join(lines)
+                    elif op == "read":
+                        r = file_service.read_file(path)
+                        file_content = r.get("content", "")
+                        reply = f"📄 Nội dung file {path}:\n\n{file_content[:2000]}"
+                    else:
+                        reply = f"❌ Operation không hợp lệ: {op}"
+
+                    return {
+                        "reply": reply,
+                        "action": "file_action",
+                        "action_data": action_data,
+                    }
+                except Exception as e:
+                    return {
+                        "reply": f"❌ Lỗi file: {str(e)}",
+                        "action": "file_action",
+                    }
 
             elif action_type in ("download_video", "create_team", "run_api"):
                 # Pass extension actions through as raw reply for telegram_listener to handle
@@ -318,17 +374,27 @@ Rules:
             
             tool_call = AgentBrain._extract_tool_call(raw_response)
             if not tool_call:
-                print(f"  [{step+1}] 🤖 LLM replied directly: {raw_response[:100]}...")
-                return raw_response
+                # Clean any leftover JSON from direct reply
+                clean_reply = AgentBrain._clean_json_from_text(raw_response)
+                print(f"  [{step+1}] 🤖 LLM replied directly: {clean_reply[:100]}...")
+                return clean_reply
                 
-            tool_name = tool_call.get("tool")
+            tool_name = tool_call.get("tool", "")
             tool_params = tool_call.get("params", {})
             
             print(f"  [{step+1}] 🛠️ Tool: {tool_name}")
             
-            if tool_name == "finish_workflow":
-                final_ans = tool_params.get("final_answer", raw_response)
-                return final_ans
+            # Handle finish — LLMs may use camelCase or snake_case
+            tool_name_normalized = tool_name.lower().replace("_", "")
+            if tool_name_normalized in ("finishworkflow", "finish", "done"):
+                final_ans = (
+                    tool_params.get("final_answer")
+                    or tool_params.get("finalAnswer")
+                    or tool_params.get("answer")
+                    or tool_params.get("result")
+                    or raw_response
+                )
+                return AgentBrain._clean_json_from_text(str(final_ans))
                 
             try:
                 node = create_node_from_dict({"type": tool_name, "config": tool_params.get("config", {})})
@@ -347,7 +413,10 @@ Rules:
 
     @staticmethod
     async def run_workflow_linear(message: str, agent: Dict, skill: Dict) -> str:
-        """Execute a simple linear workflow without LLM reasoning (High Reliability)."""
+        """Execute a simple linear workflow without LLM reasoning (High Reliability).
+        Optimized: skips redundant LLM summarization when workflow already has AI output."""
+        import asyncio
+        import time
         from tubecli.nodes.registry import create_node_from_dict
         
         wf_data = skill.get("workflow_data", {})
@@ -359,10 +428,13 @@ Rules:
 
         context = {"_initial_message": message}
         last_result = None
+        has_ai_node = any(n.get("type") in ("model_agent", "ai_node") for n in nodes)
+        ai_response_text = ""
         
         for n in nodes:
             node_type = n.get("type")
             node_id = n.get("id")
+            start_t = time.time()
             print(f"  [Linear] Node: {node_id} ({node_type})")
             
             # Resolve inputs from context
@@ -389,13 +461,46 @@ Rules:
             
             try:
                 node = create_node_from_dict(n)
-                result = await node.execute(node_inputs)
+                # Per-node timeout: 30s for AI nodes, 15s for search, 10s for others
+                if node_type in ("model_agent", "ai_node"):
+                    node_timeout = 45
+                elif node_type == "web_search":
+                    node_timeout = 20
+                else:
+                    node_timeout = 10
+                
+                result = await asyncio.wait_for(
+                    node.execute(node_inputs),
+                    timeout=node_timeout
+                )
                 context[node_id] = result
                 last_result = result
+                elapsed = time.time() - start_t
+                print(f"  [Linear] ✅ {node_id} done in {elapsed:.1f}s")
+                
+                # Capture AI response for direct return
+                if node_type in ("model_agent", "ai_node") and isinstance(result, dict):
+                    ai_text = result.get("response", "")
+                    if ai_text and len(ai_text) > 20:
+                        ai_response_text = ai_text
+                        
+            except asyncio.TimeoutError:
+                elapsed = time.time() - start_t
+                print(f"  [Linear] ⏰ {node_id} timed out after {elapsed:.1f}s")
+                # For search nodes, continue with empty results
+                if node_type == "web_search":
+                    context[node_id] = {"results": f"Tìm kiếm quá lâu cho: {message}", "status": "timeout"}
+                    continue
+                raise Exception(f"Node {node_id} timed out after {node_timeout}s")
             except Exception as e:
                 raise Exception(f"Error in node {node_id}: {e}")
 
-        # Format final result
+        # Return AI response directly if workflow already processed through AI
+        # This avoids a redundant LLM summarization call (saves 5-30s)
+        if ai_response_text:
+            return ai_response_text
+
+        # Format final result (only for non-AI workflows)
         if last_result:
             return AgentBrain.format_skill_result(agent, skill.get("name"), {"status": "completed", "outputs": context}, message)
         return "Workflow completed."
@@ -492,6 +597,73 @@ Rules:
         except Exception as e: return f"[Claude Error] {e}"
 
     @staticmethod
+    def _clean_json_from_text(text: str) -> str:
+        """Extract clean text from LLM responses that may contain JSON wrappers.
+        E.g., extracts the finalAnswer/final_answer from finish_workflow JSON."""
+        if not text:
+            return text
+        
+        def _extract_answer(data):
+            if not isinstance(data, dict):
+                return None
+            for key in ("finalAnswer", "final_answer", "answer"):
+                if key in data and data[key]:
+                    return str(data[key])
+            params = data.get("params", {})
+            if isinstance(params, dict):
+                for key in ("finalAnswer", "final_answer", "answer", "result"):
+                    if key in params and params[key]:
+                        return str(params[key])
+            return None
+        
+        stripped = text.strip()
+        
+        # 1. Try parsing entire text as JSON
+        if stripped.startswith("{"):
+            try:
+                data = json.loads(stripped)
+                answer = _extract_answer(data)
+                if answer:
+                    return answer
+            except Exception:
+                pass
+        
+        # 2. Try code blocks (greedy for nested {})
+        try:
+            code_block = re.search(r'```(?:json)?\s*(\{.+\})\s*```', text, re.DOTALL)
+            if code_block:
+                data = json.loads(code_block.group(1))
+                answer = _extract_answer(data)
+                if answer:
+                    return answer
+        except Exception:
+            pass
+        
+        # 3. Bracket-matching for nested JSON
+        start_idx = stripped.find("{")
+        if start_idx >= 0:
+            depth = 0
+            end_idx = start_idx
+            for i in range(start_idx, len(stripped)):
+                if stripped[i] == "{":
+                    depth += 1
+                elif stripped[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i + 1
+                        break
+            if end_idx > start_idx:
+                try:
+                    data = json.loads(stripped[start_idx:end_idx])
+                    answer = _extract_answer(data)
+                    if answer:
+                        return answer
+                except Exception:
+                    pass
+        
+        return text
+
+    @staticmethod
     def _extract_action(text: str) -> Optional[Dict]:
         """Extract any JSON action block from LLM response."""
         # Known action types
@@ -536,6 +708,29 @@ Rules:
             if isinstance(data, dict):
                 for k, v in data.items():
                     if not k.startswith("_"): output_summary += f"  {k}: {str(v)[:300]}\n"
+        
+        # If output is short enough and already readable, return directly (skip LLM call)
+        if output_summary and len(output_summary) < 2000:
+            # Check if the output looks like plain human text (not raw JSON/code)
+            text_lines = [l.strip() for l in output_summary.split("\n") if l.strip()]
+            looks_like_text = all(
+                not l.startswith("{") and not l.startswith("[") and not l.startswith("file_path:")
+                for l in text_lines[:3]
+            )
+            if looks_like_text and text_lines:
+                # Return the readable output directly
+                clean_parts = []
+                for line in text_lines:
+                    # Remove port prefixes like "response:" "results:" etc.
+                    for prefix in ["response: ", "results: ", "content: ", "data: "]:
+                        if line.startswith(prefix):
+                            line = line[len(prefix):]
+                            break
+                    if line and line not in ("provider: ollama", "provider: gemini", "provider: chatgpt"):
+                        clean_parts.append(line)
+                if clean_parts:
+                    return "\n".join(clean_parts)
+
         summarize_instruction = t("brain.summarize_prompt")
         prompt = f"User asked: {original_message}. Skill {skill_name} result: {status}. Outputs: {output_summary}. {summarize_instruction}"
         messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]

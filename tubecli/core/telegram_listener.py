@@ -116,29 +116,43 @@ class TelegramListener:
                 await asyncio.sleep(5)
 
     async def _process_and_reply(self, token: str, chat_id: int, text: str, context: Dict[str, Any]):
-        """Process message and send reply (handles file sending too)."""
+        """Process message and send reply (handles file sending too).
+        Shows 'thinking...' message while processing, then replaces with actual result."""
         typing_task = None
+        thinking_msg_id = None
         try:
-            # Start typing indicator loop — keeps showing "typing..." while AI processes
+            # Start typing indicator loop
             typing_task = asyncio.create_task(
                 self._typing_loop(token, chat_id)
             )
+
+            # Send "thinking..." message
+            thinking_msg_id = await self._send_thinking_message(token, chat_id)
 
             result = await self._process_message(text, context)
 
             # Cancel typing indicator
             typing_task.cancel()
 
+            # Delete "thinking..." message
+            if thinking_msg_id:
+                await self._delete_message(token, chat_id, thinking_msg_id)
+
             if isinstance(result, dict) and result.get("type") == "file":
                 await self._send_file(token, chat_id, result)
             else:
                 reply_text = result if isinstance(result, str) else str(result)
+                # Clean any JSON wrapper from the reply
+                reply_text = self._clean_reply_text(reply_text)
                 if reply_text:
                     await self._send_message(token, chat_id, reply_text)
 
         except Exception as e:
             if typing_task:
                 typing_task.cancel()
+            # Delete "thinking..." message on error too
+            if thinking_msg_id:
+                await self._delete_message(token, chat_id, thinking_msg_id)
             # Log full traceback to server console
             import traceback
             full_error = traceback.format_exc()
@@ -150,6 +164,140 @@ class TelegramListener:
                 token, chat_id,
                 f"⚠️ Lỗi xử lý: `{error_type}: {error_msg[:300]}`"
             )
+
+    async def _send_thinking_message(self, token: str, chat_id: int) -> Optional[int]:
+        """Send a 'thinking...' message and return its message_id for later deletion."""
+        send_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        try:
+            resp = await self.client.post(send_url, json={
+                "chat_id": chat_id,
+                "text": "🤔 Đang suy nghĩ..."
+            })
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data["result"]["message_id"]
+        except Exception:
+            pass
+        return None
+
+    async def _delete_message(self, token: str, chat_id: int, message_id: int):
+        """Delete a message by its ID."""
+        delete_url = f"https://api.telegram.org/bot{token}/deleteMessage"
+        try:
+            await self.client.post(delete_url, json={
+                "chat_id": chat_id,
+                "message_id": message_id
+            })
+        except Exception:
+            pass
+
+    def _clean_reply_text(self, text: str) -> str:
+        """Clean JSON wrappers from reply text to ensure human-readable output."""
+        if not text:
+            return text
+        
+        import json as _json
+        
+        # Helper: extract answer from a parsed JSON dict
+        def _extract_answer(data):
+            if not isinstance(data, dict):
+                return None
+            # Direct answer keys
+            for key in ("finalAnswer", "final_answer", "answer", "reply"):
+                if key in data and data[key]:
+                    return str(data[key])
+            # Message field
+            if "message" in data and isinstance(data["message"], str) and len(data["message"]) > 10:
+                return data["message"]
+            # Action JSON that wasn't handled — execute file_action inline
+            if data.get("action") == "file_action":
+                try:
+                    from tubecli.extensions.file_manager.file_service import file_service
+                    op = data.get("operation", "")
+                    path = data.get("path", "")
+                    if op == "create_folder":
+                        r = file_service.create_folder(path)
+                        return f"✅ Đã tạo thư mục: {r.get('path', path)}"
+                    elif op == "create_file":
+                        r = file_service.create_file(path, data.get("content", ""))
+                        return f"✅ Đã tạo file: {r.get('path', path)}"
+                    elif op == "delete":
+                        r = file_service.delete(path)
+                        return f"✅ Đã xóa: {path}"
+                    elif op == "list":
+                        r = file_service.list_dir(path or "~/Desktop")
+                        items = r.get("items", [])
+                        lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
+                        for item in items[:15]:
+                            icon = "📁" if item.get("is_dir") else "📄"
+                            lines.append(f"  {icon} {item['name']}")
+                        return "\n".join(lines)
+                    elif op == "read":
+                        r = file_service.read_file(path)
+                        return f"📄 {path}:\n{r.get('content', '')[:1500]}"
+                    elif op == "move":
+                        r = file_service.move(path, data.get("destination", ""))
+                        return f"✅ Đã di chuyển: {path}"
+                    elif op == "copy":
+                        r = file_service.copy(path, data.get("destination", ""))
+                        return f"✅ Đã sao chép: {path}"
+                except Exception as e:
+                    return f"❌ Lỗi: {str(e)}"
+            # Nested in params
+            params = data.get("params", {})
+            if isinstance(params, dict):
+                for key in ("finalAnswer", "final_answer", "answer", "result"):
+                    if key in params and params[key]:
+                        return str(params[key])
+            return None
+        
+        stripped = text.strip()
+        
+        # 1. Try parsing the entire text as JSON directly
+        if stripped.startswith("{"):
+            try:
+                data = _json.loads(stripped)
+                answer = _extract_answer(data)
+                if answer:
+                    return answer
+            except Exception:
+                pass
+        
+        # 2. Try extracting from ```json ... ``` code blocks (greedy match for nested {})
+        try:
+            code_match = re.search(r'```(?:json)?\s*(\{.+\})\s*```', text, re.DOTALL)
+            if code_match:
+                data = _json.loads(code_match.group(1))
+                answer = _extract_answer(data)
+                if answer:
+                    return answer
+        except Exception:
+            pass
+        
+        # 3. Try finding JSON-like block by bracket matching
+        start_idx = stripped.find("{")
+        if start_idx >= 0:
+            depth = 0
+            end_idx = start_idx
+            for i in range(start_idx, len(stripped)):
+                if stripped[i] == "{":
+                    depth += 1
+                elif stripped[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i + 1
+                        break
+            if end_idx > start_idx:
+                try:
+                    data = _json.loads(stripped[start_idx:end_idx])
+                    answer = _extract_answer(data)
+                    if answer:
+                        return answer
+                except Exception:
+                    pass
+        
+        return text
 
     async def _typing_loop(self, token: str, chat_id: int):
         """Keep sending 'typing' action every 4s while AI is processing."""
@@ -435,11 +583,11 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
                                 agent=agent_dict,
                                 skill=skill.to_dict()
                             ),
-                            timeout=60
+                            timeout=90
                         )
                         skill_manager.update(skill_id, last_run=datetime.datetime.now().isoformat())
                     except asyncio.TimeoutError:
-                        reply = f"⏰ Skill '{skill.name}' chạy quá 60s."
+                        reply = f"⏰ Skill '{skill.name}' chạy quá lâu (>90s). Hệ thống đang tiếp tục xử lý."
                     except Exception as e:
                         reply = f"⚠️ Skill '{skill.name}' gặp lỗi: {str(e)[:200]}"
 

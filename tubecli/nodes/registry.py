@@ -15,11 +15,13 @@ from tubecli.nodes.google_auth_node import GoogleAuthNode
 from tubecli.nodes.google_sheets_node import GoogleSheetsNode
 from tubecli.nodes.browser_node import BrowserNode
 from tubecli.nodes.json_parser_node import JsonParserNode
+from tubecli.nodes.web_search_node import WebSearchNode
 from tubecli.nodes.model_agent_node import ModelAgentNode
 from tubecli.nodes.custom_node import CustomNode
 from tubecli.nodes.if_node import IfNode
 from tubecli.nodes.switch_node import SwitchNode
 from tubecli.nodes.merge_node import MergeNode
+from tubecli.nodes.file_manager_node import FileManagerNode
 
 
 NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
@@ -38,11 +40,16 @@ NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
     "google_sheets": GoogleSheetsNode,
     "browser_action": BrowserNode,
     "json_parser": JsonParserNode,
+    "web_search": WebSearchNode,
     "model_agent": ModelAgentNode,
     "custom": CustomNode,
     "if_node": IfNode,
     "switch_node": SwitchNode,
     "merge_node": MergeNode,
+    "file_manager": FileManagerNode,
+    # LLM-generated aliases
+    "browser_search": WebSearchNode,  # LLMs often hallucinate this name
+    "search": WebSearchNode,          # Short alias
 }
 
 

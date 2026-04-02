@@ -145,7 +145,10 @@
                 <div class="settings-form">
                     <div class="form-group"><label data-i18n="settings.api_port">Cổng API</label><input id="set-port" value="5295"></div>
                     <div class="form-group">
-                        <label data-i18n="settings.ai_model">Mô hình AI mặc định</label>
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px;">
+                            <label data-i18n="settings.ai_model" style="margin:0;">Mô hình AI mặc định</label>
+                            <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;">🔑 Quản lý API Key</button>
+                        </div>
                         <select id="set-model" onchange="onModelSelectChange()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
                             <option value="qwen:latest">qwen:latest</option>
                         </select>
@@ -161,30 +164,17 @@
                             <option value="vi">Tiếng Việt</option>
                         </select>
                     </div>
+                    <div class="form-group">
+                        <label>🌐 Default Browser Profile</label>
+                        <select id="set-default-profile" onchange="changeDefaultProfile(this.value)" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
+                            <option value="default">default (Mặc định AI)</option>
+                        </select>
+                        <small style="color:var(--text-muted);font-size:.75rem">Trình duyệt nhận diện mà Workflow hoặc AI Agent sẽ dùng chạy ngầm.</small>
+                    </div>
                 </div>
             </div>
 
-            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
 
-            <!-- Cloud API Keys -->
-            <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--purple);">☁️ Cloud API Keys</h3>
-                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Quản lý API keys cho các mô hình Cloud AI. Keys sẽ được sử dụng khi chọn model cloud ở trên.</p>
-                <div id="settings-cloud-keys-list" style="display:flex;flex-direction:column;gap:12px;"></div>
-                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
-                    <select id="settings-add-key-provider" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
-                        <option value="gemini">✨ Gemini</option>
-                        <option value="openai">🤖 OpenAI</option>
-                        <option value="claude">🧠 Claude</option>
-                        <option value="deepseek">🔮 DeepSeek</option>
-                        <option value="grok">⚡ Grok</option>
-                    </select>
-                    <input type="password" id="settings-add-key-value" placeholder="Paste API key..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
-                    <button class="btn-primary" onclick="addCloudKeyFromSettings()" style="padding:8px 16px;font-size:.85rem;white-space:nowrap;">+ Thêm Key</button>
-                </div>
-            </div>
-
-            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
             <div class="settings-section">
                 <h3 style="margin-bottom:16px; color:var(--cyan);">✈️ Telegram (Toàn cục)</h3>
                 <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Cấu hình bot Telegram dùng chung cho thông báo hệ thống. Mỗi Agent có thể có cấu hình Telegram riêng trong tab Agent.</p>
@@ -569,7 +559,29 @@
     </div>
 </div>
 
-<script src="/static/i18n.js?v=10"></script>
-<script src="/static/app.js?v=19"></script>
+<div id="modal-cloud-keys" class="modal hidden">
+    <div class="modal-content" style="width:100%;max-width:650px">
+        <h3 style="margin-bottom:16px; color:var(--purple);">☁️ Quản lý Cloud API Keys</h3>
+        <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Quản lý API keys cho các mô hình Cloud AI. Keys sẽ được sử dụng khi chọn model cloud ở cài đặt hệ thống.</p>
+        <div id="settings-cloud-keys-list" style="display:flex;flex-direction:column;gap:12px;max-height: 400px;overflow-y: auto;"></div>
+        <div style="margin-top:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg-secondary);padding:12px;border-radius:8px;">
+            <select id="settings-add-key-provider" style="flex:1;min-width:120px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
+                <option value="gemini">✨ Gemini</option>
+                <option value="openai">🤖 OpenAI</option>
+                <option value="claude">🧠 Claude</option>
+                <option value="deepseek">🔮 DeepSeek</option>
+                <option value="grok">⚡ Grok</option>
+            </select>
+            <input type="password" id="settings-add-key-value" placeholder="Paste API key..." style="flex:2;min-width:150px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
+            <button class="btn-primary" onclick="addCloudKeyFromSettings()" style="flex:1;min-width:120px;padding:8px 16px;font-size:.85rem;white-space:nowrap;justify-content:center;">+ Thêm Key</button>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:20px;">
+            <button class="btn-secondary" onclick="closeModal('modal-cloud-keys')" style="padding: 10px 20px;">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<script src="/static/i18n.js?v=11"></script>
+<script src="/static/app.js?v=21"></script>
 </body>
 </html>

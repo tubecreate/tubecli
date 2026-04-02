@@ -138,6 +138,37 @@ async def auth_manager_page():
     return {"error": "Auth Manager page not found"}
 
 
+def _find_file_manager_dir():
+    """Find the File Manager extension static directory."""
+    fm_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "file_manager", "static")
+    if os.path.isdir(fm_dir):
+        return fm_dir
+    return None
+
+
+@router.get("/file-manager")
+async def file_manager_page():
+    """Serve the File Manager page."""
+    fm_dir = _find_file_manager_dir()
+    if fm_dir:
+        html_file = os.path.join(fm_dir, "file_manager.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    return {"error": "File Manager page not found"}
+
+
+@router.get("/file-manager-static/{filename:path}")
+async def serve_file_manager_static(filename: str):
+    """Serve File Manager static files (JS, CSS)."""
+    fm_dir = _find_file_manager_dir()
+    if fm_dir:
+        filepath = os.path.join(fm_dir, filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
+
+
+
 def _find_video_editor_dir():
     """Find the Video Editor extension directory (handles both 'video_editor' and 'video_editor__xxx' folders)."""
     from tubecli.config import DATA_DIR
