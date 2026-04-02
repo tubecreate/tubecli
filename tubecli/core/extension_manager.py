@@ -101,6 +101,19 @@ class Extension:
         """Return dict of {node_type: NodeClass} this extension provides."""
         return {}
 
+    def get_skills(self) -> List[Dict]:
+        """Return list of skill definitions this extension provides.
+        Each item should match the format used in default_skills.py:
+        {
+            "name": str,
+            "description": str,
+            "skill_type": str,
+            "commands": List[str],
+            "workflow_data": dict,
+        }
+        """
+        return []
+
     def get_skill_md(self) -> Optional[str]:
         """Return SKILL.md content for AI guidance."""
         if self.extension_dir:

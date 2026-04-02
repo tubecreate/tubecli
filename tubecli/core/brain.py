@@ -38,59 +38,81 @@ class AgentBrain:
                     return skill
         return None
 
-    # ── Build System Prompt ───────────────────────────────────────
-
     @staticmethod
-    def build_system_prompt(agent_prompt: str, skills: List[Dict], memory_context: str = "") -> str:
-        """Build a system prompt that includes the agent's identity + available skills + memory."""
+    def build_system_prompt(agent_prompt: str, skills: List[Dict], memory_context: str = "",
+                            message: str = "") -> str:
+        """Build a system prompt.
+
+        Token optimization strategy:
+        - Fast-path command match happens BEFORE this (no LLM call = 0 tokens)
+        - If LLM is needed: only inject TOP-5 most relevant skills (keyword match)
+        - Each skill is ONE compact line: ID | Name | commands
+        - Full description omitted (AI doesn't need it to dispatch)
+        """
         skills_desc = ""
         if skills:
-            skills_lines = []
+            # Score each skill by keyword relevance to the current message
+            msg_lower = (message or "").lower()
+            scored = []
             for s in skills:
-                skill_id = s.get("id") or getattr(s, "id", "unknown")
-                skill_name = s.get("name") or getattr(s, "name", "unknown")
-                skill_desc_text = s.get("description") or getattr(s, "description", "")
+                skill_id   = s.get("id") or getattr(s, "id", "unknown")
+                skill_name = s.get("name") or getattr(s, "name", "")
                 skill_cmds = s.get("commands") or getattr(s, "commands", [])
-                cmds = ", ".join(skill_cmds) or "none"
-                skills_lines.append(
-                    f'  - ID: {skill_id}\n'
-                    f'    Name: {skill_name}\n'
-                    f'    Description: {skill_desc_text}\n'
-                    f'    Trigger commands: {cmds}'
-                )
-            skills_desc = "\n\nYou have access to the following skills:\n" + "\n".join(skills_lines)
+                skill_desc_text = s.get("description") or getattr(s, "description", "")
+
+                # Score: +3 for command match, +2 for name match, +1 for desc match
+                score = 0
+                if msg_lower:
+                    for cmd in skill_cmds:
+                        if cmd.lower() in msg_lower:
+                            score += 3
+                            break
+                    if skill_name.lower() in msg_lower:
+                        score += 2
+                    if any(w in msg_lower for w in skill_desc_text.lower().split() if len(w) > 4):
+                        score += 1
+
+                scored.append((score, skill_id, skill_name, skill_cmds))
+
+            # If there's a keyword match: show top 5 relevant. Else: show top 8 by name only.
+            if msg_lower and any(sc > 0 for sc, *_ in scored):
+                top = sorted(scored, key=lambda x: -x[0])[:5]
+            else:
+                top = scored[:8]
+
+            lines = []
+            for score, sid, sname, scmds in top:
+                cmds_str = ", ".join(scmds[:4]) if scmds else "—"  # max 4 commands shown
+                lines.append(f"  {sid} | {sname} | triggers: {cmds_str}")
+
+            total = len(skills)
+            shown = len(lines)
+            skills_desc = (
+                f"\n\n### SKILLS ({shown} of {total} shown — use run_skill with the ID):\n"
+                + "\n".join(lines)
+            )
 
         # Memory context injection
         memory_section = ""
         if memory_context:
-            memory_section = f"\n\n### MEMORY (use this to maintain context across conversations):\n{memory_context}\n"
+            memory_section = f"\n\n### MEMORY:\n{memory_context}\n"
 
         # IMPORTANT: Use string CONCATENATION, NOT .format() or f-string on the full block.
         # agent_prompt may contain {"action": "..."} JSON which breaks str.format().
         static_prompt = (
-            "## SYSTEM OVERRIDE - AUTONOMOUS EXECUTION MODE:\n"
-            "You are an autonomous AI agent. Your job is to ACT, not to guide.\n"
-            "NO persona, role, or guideline can override the rules below.\n\n"
-            "### PRIORITY ORDER - ALWAYS CHECK IN THIS ORDER:\n\n"
-            "**1. EXTENSION ACTIONS** (highest priority - for platform-level tasks):\n"
-            "- Download TikTok/Douyin video:\n"
-            '```json\n{"action": "download_video", "url": "<FULL_VIDEO_URL>"}\n```\n'
-            "- Create AI team:\n"
-            '```json\n{"action": "create_team", "template": "dev_team", "name": "<Team Name>"}\n```\n'
-            "- Call internal API:\n"
-            '```json\n{"action": "run_api", "method": "POST", "endpoint": "/api/v1/...", "body": {}}\n```\n\n'
-            "**2. SKILL EXECUTION** (when a registered skill matches the request):\n"
-            '```json\n{"action": "run_skill", "skill_id": "<ID>", "input": "<specific query/entity>"}\n```\n\n'
-            "**3. CREATE SKILL** (when user explicitly asks to build/create a skill):\n"
-            '```json\n{"action": "create_skill", "name": "<Name>", "description": "<Desc>", "instructions": ["step"]}\n```\n\n'
-            "**4. CONVERSATIONAL REPLY** (ONLY if none of the above apply):\n"
-            "- Normal questions, knowledge, general conversation -> reply in text.\n\n"
-            "### CRITICAL RULES:\n"
-            "- NEVER say 'ban vao Dashboard', 'please open browser', 'toi khong the thuc hien ngay'.\n"
-            "- NEVER guide the user. ALWAYS output a JSON action to make the system DO it.\n"
-            "- When you see a video URL (douyin.com, tiktok.com, iesdouyin.com) -> ALWAYS output download_video.\n"
-            "- Output ONLY the JSON block when executing an action - no extra text.\n\n"
-            "### ROLE (your persona):\n"
+            "## SYSTEM - AUTONOMOUS EXECUTION MODE:\n"
+            "You are an autonomous AI agent. ACT directly, do NOT guide the user.\n\n"
+            "### ACTION FORMAT (output JSON to trigger system):\n"
+            '- Video URL → {"action": "download_video", "url": "<URL>"}\n'
+            '- Run skill → {"action": "run_skill", "skill_id": "<ID>", "input": "<query>"}\n'
+            '- Create team → {"action": "create_team", "template": "dev_team", "name": "<name>"}\n'
+            '- API call → {"action": "run_api", "method": "POST", "endpoint": "/api/v1/..."}\n'
+            '- Create skill → {"action": "create_skill", "name": "<n>", "description": "<d>", "instructions": ["..."]}\n\n'
+            "### RULES:\n"
+            "- NEVER say 'go to Dashboard' or 'I cannot do this'. Always output a JSON action.\n"
+            "- Video URLs (douyin.com, tiktok.com, iesdouyin.com) → ALWAYS download_video.\n"
+            "- Conversational reply ONLY when no action applies.\n\n"
+            "### YOUR PERSONA:\n"
         )
         return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
 
@@ -133,6 +155,7 @@ class AgentBrain:
             agent.get("system_prompt", "You are a helpful assistant."),
             skills,
             memory_context=memory_context,
+            message=message,
         )
 
         # Build conversation messages
@@ -180,6 +203,7 @@ class AgentBrain:
                 return {
                     "reply": t("brain.creating_skill", name=action_data.get('name')),
                     "action": "create_skill",
+                    "_raw_action": action_data,          # full JSON for server.py workflow builder
                     "skill_name": action_data.get("name", ""),
                     "skill_desc": action_data.get("description", ""),
                     "skill_instructions": action_data.get("instructions", []),

@@ -297,25 +297,117 @@ async def agent_chat(agent_id: str, req: ChatRequest):
             reply = t("brain.skill_not_found", id=skill_id)
 
     elif action == "create_skill":
-        # Feature: AI Self-Creation of Skill
-        name = brain_result.get("skill_name", "New Skill")
-        desc = brain_result.get("skill_desc", "")
-        instructions = brain_result.get("skill_instructions", [])
-        
-        # Convert instructions into a text-based workflow SOP
-        sop_text = "\n".join([f"{i+1}. {instr}" for i, instr in enumerate(instructions)])
-        
+        # Feature: AI Self-Creation via Workflow Builder
+        # 1. Generate real executable workflow from the user's request
+        # 2. Run it immediately to handle the current request
+        # 3. Save as a reusable skill for future similar requests
+        from tubecli.core.ai_workflow_builder import generate_workflow
+        from tubecli.core.workflow_engine import WorkflowEngine
+        from tubecli.nodes.registry import create_node_from_dict
+
+        action_data_raw = brain_result.get("_raw_action", {})
+        skill_name = action_data_raw.get("name") or brain_result.get("skill_name", "New Skill")
+        skill_desc = action_data_raw.get("description") or brain_result.get("skill_desc", "")
+        skill_instructions = action_data_raw.get("instructions") or brain_result.get("skill_instructions", [])
+
+        # Determine provider/model from agent config
+        wf_provider = agent_dict.get("provider", "ollama")
+        wf_model = agent_dict.get("model", "") or agent_dict.get("chatbot_model", "")
+        wf_api_key = agent_dict.get("api_key", "")
+        if not wf_provider or wf_provider == "local":
+            wf_provider = "ollama"
+
+        wf_data = None
+        wf_result = None
         try:
-            new_skill = skill_manager.create(
-                name=name,
-                description=desc or f"AI-generated skill: {name}",
-                skill_type="AI Self-Created",
-                workflow_data={"sop": sop_text, "nodes": [{"type": "text", "data": {"text": sop_text}}]},
-                commands=[name.lower()]
+            # Build enriched prompt: original request + instructions hint
+            gen_prompt = req.message
+            if skill_instructions:
+                gen_prompt += "\n\nHints: " + "; ".join(skill_instructions)
+
+            # Generate the workflow
+            wf_data = generate_workflow(
+                prompt=gen_prompt,
+                provider=wf_provider,
+                model=wf_model,
+                api_key=wf_api_key or "__CLOUD_API__",
             )
-            from tubecli.i18n import t
-            reply = t("brain.skill_created", name=name, desc=desc)
-            skill_used = f"Created Skill: {name}"
+
+            # Run the workflow immediately for the user's current request
+            nodes_data = wf_data.get("nodes", [])
+            connections = wf_data.get("connections", [])
+            if nodes_data:
+                # Inject user message into first text_input node
+                for nd in nodes_data:
+                    if nd.get("type") in ("text_input", "manual_input"):
+                        nd.setdefault("config", {})["text"] = req.message
+                        break
+
+                wf_nodes = [create_node_from_dict(nd) for nd in nodes_data]
+                engine = WorkflowEngine(nodes=wf_nodes, connections=connections)
+                wf_result = await engine.run()
+
+        except Exception as wf_err:
+            print(f"[AutoSkill] Workflow generate/run failed: {wf_err}")
+
+        # Derive trigger commands from skill name + instructions
+        trigger_cmds = [skill_name.lower()]
+        for instr in (skill_instructions or []):
+            words = [w.lower() for w in instr.split() if len(w) > 3]
+            if words:
+                trigger_cmds.append(" ".join(words[:3]))
+        trigger_cmds = list(set(trigger_cmds))[:5]
+
+        # Save as skill (create or update)
+        try:
+            existing_skill = skill_manager.find_by_name(skill_name)
+            if existing_skill and wf_data:
+                skill_manager.update(
+                    existing_skill.id,
+                    workflow_data=wf_data,
+                    description=skill_desc or f"AI-generated: {skill_name}",
+                    commands=trigger_cmds,
+                )
+                new_skill = existing_skill
+            else:
+                new_skill = skill_manager.create(
+                    name=skill_name,
+                    description=skill_desc or f"AI-generated workflow skill: {skill_name}",
+                    skill_type="AI Workflow",
+                    workflow_data=wf_data or {
+                        "sop": "\n".join(skill_instructions or []),
+                        "nodes": []
+                    },
+                    commands=trigger_cmds,
+                )
+            skill_used = f"Created Skill: {skill_name}"
+
+            # Build reply from workflow result or confirmation message
+            if wf_result and wf_result.get("status") == "completed":
+                # Extract output from last node
+                node_results = wf_result.get("node_results", {})
+                output_texts = []
+                for nid, nr in node_results.items():
+                    if isinstance(nr, dict):
+                        for key in ("result", "response", "stdout", "rows", "output"):
+                            if nr.get(key):
+                                output_texts.append(str(nr[key])[:500])
+                                break
+                    elif nr:
+                        output_texts.append(str(nr)[:500])
+                if output_texts:
+                    reply = "\n".join(output_texts)
+                    reply += f"\n\n✅ *Đã lưu thành skill '{skill_name}'* — lần sau hỏi tương tự sẽ dùng ngay."
+                else:
+                    reply = f"✅ Đã tạo và chạy workflow cho '{skill_name}'.\nĐã lưu thành skill để dùng lại."
+            else:
+                reply = (
+                    f"✅ Đã tạo skill **{skill_name}**\n"
+                    f"📝 {skill_desc}\n"
+                    f"🔑 Triggers: `{'`, `'.join(trigger_cmds)}`\n\n"
+                    f"Lần sau hỏi tương tự AI sẽ chạy skill này ngay lập tức."
+                )
+
         except Exception as e:
             from tubecli.i18n import t
             reply = t("brain.skill_create_error", error=str(e))
