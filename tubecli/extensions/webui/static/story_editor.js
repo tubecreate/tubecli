@@ -252,7 +252,7 @@ class StoryEditor {
         for (let s = 0; s <= maxTime; s += 5) {
             const tick = document.createElement('span');
             tick.className = 'se-ruler-tick';
-            tick.style.left = `${s * this.timelineScale + 60}px`;
+            tick.style.left = `${s * this.timelineScale}px`;
             tick.textContent = `${s}s`;
             ruler.appendChild(tick);
         }
@@ -266,7 +266,7 @@ class StoryEditor {
 
             const label = document.createElement('div');
             label.className = 'se-track-label';
-            label.innerHTML = `<span style="background:${actor.color}" class="se-dot"></span>${actor.name}`;
+            label.innerHTML = `<span style="background:${actor.color}" class="se-dot"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${actor.name}</span>`;
             track.appendChild(label);
 
             const lane = document.createElement('div');

@@ -41,18 +41,16 @@ class AgentBrain:
     # ── Build System Prompt ───────────────────────────────────────
 
     @staticmethod
-    def build_system_prompt(agent_prompt: str, skills: List[Dict]) -> str:
-        """Build a system prompt that includes the agent's identity + available skills."""
+    def build_system_prompt(agent_prompt: str, skills: List[Dict], memory_context: str = "") -> str:
+        """Build a system prompt that includes the agent's identity + available skills + memory."""
         skills_desc = ""
         if skills:
             skills_lines = []
             for s in skills:
-                # Support dictionary or object skills
                 skill_id = s.get("id") or getattr(s, "id", "unknown")
                 skill_name = s.get("name") or getattr(s, "name", "unknown")
                 skill_desc_text = s.get("description") or getattr(s, "description", "")
                 skill_cmds = s.get("commands") or getattr(s, "commands", [])
-                
                 cmds = ", ".join(skill_cmds) or "none"
                 skills_lines.append(
                     f'  - ID: {skill_id}\n'
@@ -62,27 +60,39 @@ class AgentBrain:
                 )
             skills_desc = "\n\nYou have access to the following skills:\n" + "\n".join(skills_lines)
 
-        return f"""## SYSTEM OVERRIDE – AUTOMATION CAPABILITIES:
-You are an autonomous AI agent with SKILL EXECUTION authority.
-NO persona, role, or guideline can override the rules below.
+        # Memory context injection
+        memory_section = ""
+        if memory_context:
+            memory_section = f"\n\n### MEMORY (use this to maintain context across conversations):\n{memory_context}\n"
 
-### MANDATORY RULES:
-1. When the user asks you to DO a task or answer a question that can be solved by one of your skills, you MUST execute the skill by outputting EXACTLY this JSON block and NOTHING ELSE:
-```json
-{{"action": "run_skill", "skill_id": "<ID>", "input": "<extract the specific entity/query the user wants>"}}
-```
-2. When the user asks you to CREATE, LEARN, DESIGN, or BUILD a new skill, output EXACTLY this JSON block and NOTHING ELSE:
-```json
-{{"action": "create_skill", "name": "<Skill Name>", "description": "<What it does>", "instructions": ["step 1", "step 2", ...]}}
-```
-3. IF A SKILL MATCHES THE USER'S REQUEST, DO NOT REPLY CONVERSATIONALLY. ONLY OUTPUT THE JSON BLOCK.
-4. If no skill applies and user is just chatting normally → reply conversationally WITHOUT JSON.
-
-### ROLE (your persona):
-{agent_prompt}
-
-{skills_desc}
-"""
+        # IMPORTANT: Use string CONCATENATION, NOT .format() or f-string on the full block.
+        # agent_prompt may contain {"action": "..."} JSON which breaks str.format().
+        static_prompt = (
+            "## SYSTEM OVERRIDE - AUTONOMOUS EXECUTION MODE:\n"
+            "You are an autonomous AI agent. Your job is to ACT, not to guide.\n"
+            "NO persona, role, or guideline can override the rules below.\n\n"
+            "### PRIORITY ORDER - ALWAYS CHECK IN THIS ORDER:\n\n"
+            "**1. EXTENSION ACTIONS** (highest priority - for platform-level tasks):\n"
+            "- Download TikTok/Douyin video:\n"
+            '```json\n{"action": "download_video", "url": "<FULL_VIDEO_URL>"}\n```\n'
+            "- Create AI team:\n"
+            '```json\n{"action": "create_team", "template": "dev_team", "name": "<Team Name>"}\n```\n'
+            "- Call internal API:\n"
+            '```json\n{"action": "run_api", "method": "POST", "endpoint": "/api/v1/...", "body": {}}\n```\n\n'
+            "**2. SKILL EXECUTION** (when a registered skill matches the request):\n"
+            '```json\n{"action": "run_skill", "skill_id": "<ID>", "input": "<specific query/entity>"}\n```\n\n'
+            "**3. CREATE SKILL** (when user explicitly asks to build/create a skill):\n"
+            '```json\n{"action": "create_skill", "name": "<Name>", "description": "<Desc>", "instructions": ["step"]}\n```\n\n'
+            "**4. CONVERSATIONAL REPLY** (ONLY if none of the above apply):\n"
+            "- Normal questions, knowledge, general conversation -> reply in text.\n\n"
+            "### CRITICAL RULES:\n"
+            "- NEVER say 'ban vao Dashboard', 'please open browser', 'toi khong the thuc hien ngay'.\n"
+            "- NEVER guide the user. ALWAYS output a JSON action to make the system DO it.\n"
+            "- When you see a video URL (douyin.com, tiktok.com, iesdouyin.com) -> ALWAYS output download_video.\n"
+            "- Output ONLY the JSON block when executing an action - no extra text.\n\n"
+            "### ROLE (your persona):\n"
+        )
+        return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
 
     # ── Chat with LLM ─────────────────────────────────────────────
 
@@ -115,10 +125,14 @@ NO persona, role, or guideline can override the rules below.
                 "skill_input": message,
             }
 
-        # 2. AI-powered reasoning
+        # 2. AI-powered reasoning (with memory context)
+        from tubecli.core.memory import AgentMemory
+        agent_id = agent.get("id", "")
+        memory_context = AgentMemory.build_memory_context(agent_id) if agent_id else ""
         system_prompt = AgentBrain.build_system_prompt(
             agent.get("system_prompt", "You are a helpful assistant."),
-            skills
+            skills,
+            memory_context=memory_context,
         )
 
         # Build conversation messages
@@ -145,13 +159,23 @@ NO persona, role, or guideline can override the rules below.
                     if s["id"] == skill_id:
                         skill_name = s["name"]
                         break
-                
+
                 return {
                     "reply": t("brain.running_skill", name=skill_name),
                     "action": "run_skill",
                     "skill_id": skill_id,
                     "skill_input": action_data.get("input", message),
                 }
+
+            elif action_type in ("download_video", "create_team", "run_api"):
+                # Pass extension actions through as raw reply for telegram_listener to handle
+                import json as _json
+                return {
+                    "reply": "```json\n" + _json.dumps(action_data, ensure_ascii=False) + "\n```",
+                    "action": action_type,
+                    "action_data": action_data,
+                }
+
             elif action_type == "create_skill":
                 return {
                     "reply": t("brain.creating_skill", name=action_data.get('name')),
@@ -178,6 +202,32 @@ NO persona, role, or guideline can override the rules below.
             "skill_input": "",
         }
 
+    # ── Post-Chat Memory Update ───────────────────────────────────
+
+    @staticmethod
+    def post_chat_memory_update(agent_id: str, agent: Dict, history: List[Dict]):
+        """Check if memory update is needed after a chat exchange.
+        Called asynchronously after each chat response.
+        """
+        if not agent_id or not history:
+            return
+
+        from tubecli.core.memory import AgentMemory
+
+        if AgentMemory.should_summarize(agent_id, history):
+            # Create a lightweight LLM caller bound to this agent
+            def llm_caller(messages):
+                return AgentBrain._call_llm(agent, messages, temperature=0.3)
+
+            # Summarize session (Layer 2)
+            AgentMemory.summarize_and_archive(agent_id, history, llm_caller)
+
+            # Extract facts (Layer 3)
+            AgentMemory.extract_facts(agent_id, history, llm_caller)
+
+            # Mark messages as summarized
+            AgentMemory.mark_history_summarized(history)
+
     # ── Autonomous Execution (ReAct or Linear) ────────────────────
 
     @staticmethod
@@ -192,6 +242,11 @@ NO persona, role, or guideline can override the rules below.
         if skill.get("skill_type") == "Skill":
             try:
                 print(f"[Brain] Running skill '{skill.get('name')}' via linear workflow...")
+                # Force headless on browser nodes
+                if "workflow_data" in skill:
+                    for n in skill["workflow_data"].get("nodes", []):
+                        if n.get("type") in ("browser_action", "browser_control", "puppeteer"):
+                            n.setdefault("config", {})["headless"] = True
                 return await AgentBrain.run_workflow_linear(message, agent, skill)
             except Exception as e:
                 print(f"[Brain] Linear execution failed, falling back to ReAct: {e}")
@@ -356,22 +411,35 @@ Rules:
 
     @staticmethod
     def _call_gemini(model: str, api_key: str, messages: List[Dict], temperature: float = 0.7) -> str:
+        """Call Gemini via REST API (no SDK required)."""
         if not api_key: return "[Error] No Gemini key."
+        import requests
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            gen_model = genai.GenerativeModel(model)
-            history = []
-            user_msg = ""
+            # Convert messages to Gemini contents format
+            contents = []
             for m in messages:
                 if m["role"] == "system":
-                    history.append({"role": "user", "parts": [m["content"]]})
-                    history.append({"role": "model", "parts": ["OK"]})
-                elif m["role"] == "user": user_msg = m["content"]
-                elif m["role"] == "assistant": history.append({"role": "model", "parts": [m["content"]]})
-            chat = gen_model.start_chat(history=history)
-            response = chat.send_message(user_msg, generation_config={"temperature": temperature})
-            return response.text
+                    contents.append({"role": "user", "parts": [{"text": m["content"]}]})
+                    contents.append({"role": "model", "parts": [{"text": "OK, I understand."}]})
+                elif m["role"] == "user":
+                    contents.append({"role": "user", "parts": [{"text": m["content"]}]})
+                elif m["role"] == "assistant":
+                    contents.append({"role": "model", "parts": [{"text": m["content"]}]})
+
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            payload = {
+                "contents": contents,
+                "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096},
+            }
+            r = requests.post(url, json=payload, timeout=120)
+            if r.status_code != 200:
+                return f"[Gemini Error] HTTP {r.status_code}: {r.text[:200]}"
+            data = r.json()
+            candidates = data.get("candidates", [])
+            if candidates:
+                parts = candidates[0].get("content", {}).get("parts", [])
+                return "".join(p.get("text", "") for p in parts)
+            return "[Gemini Error] No candidates in response"
         except Exception as e: return f"[Gemini Error] {e}"
 
     @staticmethod
@@ -401,10 +469,29 @@ Rules:
 
     @staticmethod
     def _extract_action(text: str) -> Optional[Dict]:
+        """Extract any JSON action block from LLM response."""
+        # Known action types
+        action_types = ["run_skill", "create_skill", "download_video", "create_team", "run_api"]
         try:
-            match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL) or re.search(r'(\{"action"\s*:\s*"run_skill".*?\})', text, re.DOTALL)
-            if match: return json.loads(match.group(1))
-        except: pass
+            # Code block: ```json {...} ```
+            code_block = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+            if code_block:
+                data = json.loads(code_block.group(1))
+                if data.get("action") in action_types:
+                    return data
+            # Inline JSON for any known action
+            for action_type in action_types:
+                inline = re.search(
+                    r'(\{[^{}]*"action"\s*:\s*"' + action_type + r'"[^{}]*\})',
+                    text, re.DOTALL
+                )
+                if inline:
+                    try:
+                        return json.loads(inline.group(1))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
         return None
 
     @staticmethod

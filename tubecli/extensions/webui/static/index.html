@@ -141,13 +141,20 @@
 
             <!-- General Settings -->
             <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--text2);" data-i18n="settings.general">⚙️ General</h3>
+                <h3 style="margin-bottom:16px; color:var(--text2);" data-i18n="settings.general">⚙️ Tổng quan</h3>
                 <div class="settings-form">
-                    <div class="form-group"><label data-i18n="settings.api_port">API Port</label><input id="set-port" value="5295"></div>
-                    <div class="form-group"><label data-i18n="settings.ai_model">AI Model</label><input id="set-model" value="qwen:latest"></div>
+                    <div class="form-group"><label data-i18n="settings.api_port">Cổng API</label><input id="set-port" value="5295"></div>
+                    <div class="form-group">
+                        <label data-i18n="settings.ai_model">Mô hình AI mặc định</label>
+                        <select id="set-model" onchange="onModelSelectChange()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
+                            <option value="qwen:latest">qwen:latest</option>
+                        </select>
+                        <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.85rem;color:#f59e0b;"></div>
+                        <small style="color:var(--text-muted);font-size:.75rem">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
+                    </div>
                     <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
                     <div class="form-group">
-                        <label data-i18n="settings.language">🌐 Language</label>
+                        <label data-i18n="settings.language">🌐 Ngôn ngữ</label>
                         <select id="set-lang" onchange="changeLanguage(this.value)">
                             <option value="zh">中文</option>
                             <option value="en">English</option>
@@ -155,6 +162,58 @@
                         </select>
                     </div>
                 </div>
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
+
+            <!-- Cloud API Keys -->
+            <div class="settings-section">
+                <h3 style="margin-bottom:16px; color:var(--purple);">☁️ Cloud API Keys</h3>
+                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Quản lý API keys cho các mô hình Cloud AI. Keys sẽ được sử dụng khi chọn model cloud ở trên.</p>
+                <div id="settings-cloud-keys-list" style="display:flex;flex-direction:column;gap:12px;"></div>
+                <div style="margin-top:12px;display:flex;gap:8px;align-items:center;">
+                    <select id="settings-add-key-provider" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
+                        <option value="gemini">✨ Gemini</option>
+                        <option value="openai">🤖 OpenAI</option>
+                        <option value="claude">🧠 Claude</option>
+                        <option value="deepseek">🔮 DeepSeek</option>
+                        <option value="grok">⚡ Grok</option>
+                    </select>
+                    <input type="password" id="settings-add-key-value" placeholder="Paste API key..." style="flex:1;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
+                    <button class="btn-primary" onclick="addCloudKeyFromSettings()" style="padding:8px 16px;font-size:.85rem;white-space:nowrap;">+ Thêm Key</button>
+                </div>
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
+            <div class="settings-section">
+                <h3 style="margin-bottom:16px; color:var(--cyan);">✈️ Telegram (Toàn cục)</h3>
+                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Cấu hình bot Telegram dùng chung cho thông báo hệ thống. Mỗi Agent có thể có cấu hình Telegram riêng trong tab Agent.</p>
+                <div class="settings-form">
+                    <div class="form-group">
+                        <label>🤖 Bot Token</label>
+                        <input type="password" id="set-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+                    </div>
+                    <div class="form-group">
+                        <label>💬 Chat ID</label>
+                        <input id="set-tg-chat" placeholder="-1001234567890 hoặc ID cá nhân">
+                        <small style="color:var(--text-muted);font-size:.75rem">Để lấy Chat ID, gửi tin nhắn đến bot rồi mở: https://api.telegram.org/bot{TOKEN}/getUpdates</small>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button class="btn-secondary" id="btn-test-tg" onclick="testTelegramConnection()" style="flex:1">
+                            📡 Test kết nối
+                        </button>
+                        <div id="tg-test-result" style="flex:2;display:flex;align-items:center;font-size:.85rem;color:var(--text-muted);padding-left:8px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
+
+            <!-- Save Button -->
+            <div style="display:flex;justify-content:flex-end;gap:12px;padding-top:8px">
+                <button class="btn-primary" onclick="saveGlobalSettings()" style="background:linear-gradient(135deg,#10b981,#06b6d4);font-weight:700;padding:12px 32px;font-size:1rem;">
+                    💾 Lưu Cài Đặt
+                </button>
             </div>
         </section>
     </main>

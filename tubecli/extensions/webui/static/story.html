@@ -186,7 +186,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     height: 20px;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
-    margin-left: 60px;
+    margin-left: 140px;
     flex-shrink: 0;
     min-width: 100%;
 }
@@ -206,7 +206,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     position: relative;
 }
 .se-track-label {
-    width: 60px;
+    width: 140px;
     flex-shrink: 0;
     font-size: 11px;
     font-weight: 600;
@@ -215,6 +215,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     align-items: center;
     gap: 5px;
     color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .se-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .se-track-lane {
@@ -254,7 +257,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     background: var(--accent);
     pointer-events: none;
     z-index: 10;
-    left: 60px;
+    left: 140px;
     box-shadow: 0 0 6px var(--accent);
 }
 
@@ -335,6 +338,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
     <!-- ── Header ──────────────────────────────────────────── -->
     <header class="story-header">
+        <a href="/dashboard" style="color:var(--muted);text-decoration:none;font-size:13px;font-weight:600;margin-right:6px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);transition:all 0.15s;" onmouseover="this.style.color='var(--accent)';this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">← Dashboard</a>
         <span class="story-logo" data-i18n="story.app_title">🎬 Story</span>
         <input id="se-title" data-i18n-placeholder="story.placeholder_name" placeholder="Tên kịch bản...">
 
@@ -373,6 +377,12 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
             <div id="se-team-agents-count" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
         </div>
 
+        <!-- Saved scripts -->
+        <div class="sidebar-section">
+            <div class="sidebar-title" data-i18n="story.sidebar_saved">📁 Kịch bản đã lưu</div>
+            <div id="se-scripts-list"><span style="color:var(--muted);font-size:12px" data-i18n="story.saved_empty">Chưa có</span></div>
+        </div>
+
         <!-- Actors -->
         <div class="sidebar-section">
             <div class="sidebar-title" data-i18n="story.sidebar_actors">👤 Nhân vật (từ team)</div>
@@ -380,15 +390,9 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
         </div>
 
         <!-- Waypoints -->
-        <div class="sidebar-section">
+        <div class="sidebar-section" style="flex:1">
             <div class="sidebar-title" data-i18n="story.sidebar_waypoints">📍 Vị trí</div>
             <div id="se-waypoints"></div>
-        </div>
-
-        <!-- Saved scripts -->
-        <div class="sidebar-section" style="flex:1">
-            <div class="sidebar-title" data-i18n="story.sidebar_saved">📁 Kịch bản đã lưu</div>
-            <div id="se-scripts-list"><span style="color:var(--muted);font-size:12px" data-i18n="story.saved_empty">Chưa có</span></div>
         </div>
 
         <div id="se-status"></div>
@@ -419,16 +423,16 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 <!-- ── Three.js & deps (same version as teams.html) ──── -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="/static/furniture3d.js?v=20260327"></script>
+<script src="/static/furniture3d.js?v=20260401"></script>
 
 <!-- ── ZhiYing 3D office engine ────────────────────────── -->
-<script src="/static/teams3d.js"></script>
+<script src="/static/teams3d.js?v=20260401"></script>
 
 <!-- ── Story Engine modules ─────────────────────────────── -->
-<script src="/static/i18n.js"></script>
-<script src="/static/story_bubbles.js"></script>
-<script src="/static/story_player.js"></script>
-<script src="/static/story_editor.js"></script>
+<script src="/static/i18n.js?v=20260401"></script>
+<script src="/static/story_bubbles.js?v=20260401"></script>
+<script src="/static/story_player.js?v=20260401"></script>
+<script src="/static/story_editor.js?v=20260401"></script>
 
 <script>
 // ══════════════════════════════════════════════════════════
@@ -521,11 +525,17 @@ async function doSelectTeam(teamId) {
 
     // Set title input
     const titleEl = document.getElementById('se-title');
-    if (titleEl && !titleEl.value) titleEl.value = `Kịch bản — ${team.name}`;
+    if (titleEl) {
+        if (!titleEl.value || titleEl.value.startsWith('Kịch bản —')) {
+            titleEl.value = `Kịch bản — ${team.name}`;
+        }
+    }
     storyEditor.script.title = titleEl?.value || `Kịch bản — ${team.name}`;
 
     // Init/re-init 3D scene with this team's map and agents
     _init3DScene(team, allAgentsGlobal);
+
+    refreshScriptsList();
 
     showToast(`${T('story.loaded_team', {name: team.name, count: actors.length})}`, 'success');
 }
@@ -566,6 +576,15 @@ function _init3DScene(teamData, agents) {
 const raycasterWP = new THREE.Raycaster();
 
 // ── Playback controls ─────────────────────────────────────
+function _toggleMarkers(visible) {
+    if (typeof scene3d !== 'undefined') {
+        scene3d.traverse(obj => {
+            if (obj.name && obj.name.startsWith('wp_')) obj.visible = visible;
+            if (obj.name === 'roleTag') obj.visible = visible;
+        });
+    }
+}
+
 function doPlay() {
     if (!storyPlayer.script) {
         showToast(T('story.err_no_script'), 'error');
@@ -576,6 +595,8 @@ function doPlay() {
     storyPlayer.script = storyEditor.script;
     storyPlayer._rebuildActorMap();
     storyPlayer.load(storyEditor.script);
+
+    _toggleMarkers(false);
 
     storyPlayer.play();
     document.getElementById('btn-play').style.display = 'none';
@@ -594,6 +615,7 @@ function doStop() {
     document.getElementById('btn-pause').style.display = 'none';
     updateTimeDisplay(0, storyPlayer.duration);
     updatePlayhead(0, storyPlayer.duration);
+    _toggleMarkers(true);
 }
 
 // ── Time display & playhead ───────────────────────────────
@@ -605,6 +627,7 @@ storyPlayer.onFinish = () => {
     document.getElementById('btn-play').style.display = '';
     document.getElementById('btn-pause').style.display = 'none';
     showToast(T('story.script_finished'), 'success');
+    _toggleMarkers(true);
 };
 storyPlayer.onEventFired = (evt) => {
     const status = document.getElementById('se-status');
@@ -626,7 +649,7 @@ function updatePlayhead(cur, dur) {
     const ph = document.getElementById('se-playhead');
     if (!ph || !dur) return;
     const scale = storyEditor.timelineScale;
-    const leftPx = 60 + cur * scale;
+    const leftPx = 140 + cur * scale;
     ph.style.left = `${leftPx}px`;
 
     // Auto-scroll timeline container to follow playhead
@@ -657,7 +680,7 @@ document.getElementById('se-timeline').addEventListener('click', (e) => {
     // Only scrub on ruler click
     if (!e.target.classList.contains('se-ruler') && !e.target.classList.contains('se-ruler-tick')) return;
     const rect = tl.getBoundingClientRect();
-    const timeClicked = (e.clientX - rect.left - 60) / storyEditor.timelineScale;
+    const timeClicked = (e.clientX - rect.left - 140) / storyEditor.timelineScale;
     storyPlayer.seek(Math.max(0, timeClicked));
 });
 
@@ -670,9 +693,11 @@ function doNew() {
 }
 
 async function doLoad() {
-    const scripts = await storyEditor.loadList();
+    let scripts = await storyEditor.loadList();
+    const curTeam = currentTeamData?.id || storyEditor.script.scene_id;
+    if (curTeam) scripts = scripts.filter(s => s.scene_id === curTeam || !s.scene_id);
     const listHtml = scripts.length === 0
-        ? '<p style="color:var(--muted);font-size:13px">${T('story.no_saved_scripts')}</p>'
+        ? `<p style="color:var(--muted);font-size:13px">${T('story.no_saved_scripts')}</p>`
         : scripts.map(s => `
             <div class="script-item" onclick="storyEditor.loadScript('${s.id}'); closeModal();">
                 <div class="script-item-title">${s.title}</div>
@@ -704,7 +729,7 @@ async function doAIGenerate() {
 
     const noModels = !ollamaOpts && !cloudOpts;
     const defaultOpt = noModels
-        ? '<option value="">${T('story.no_models')}</option>'
+        ? `<option value="">${T('story.no_models')}</option>`
         : '';
 
     showModal('🤖 ' + T('story.modal_ai_title'), `
@@ -802,7 +827,9 @@ async function _runAIGenerate(prompt, provider, model) {
 
 async function refreshScriptsList() {
     try {
-        const scripts = await storyEditor.loadList();
+        let scripts = await storyEditor.loadList();
+        const curTeam = currentTeamData?.id || storyEditor.script.scene_id;
+        if (curTeam) scripts = scripts.filter(s => s.scene_id === curTeam || !s.scene_id);
         const listEl = document.getElementById('se-scripts-list');
         if (!listEl) return;
         if (scripts.length === 0) {

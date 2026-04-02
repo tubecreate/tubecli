@@ -1,0 +1,45 @@
+# SKILL.md — Video Downloader Extension
+
+## Mô tả
+Extension **Downloader** cho phép tải video từ TikTok và Douyin (DouYin).
+
+## Khi nào dùng
+- User gửi link TikTok hoặc Douyin (bất kỳ format nào)
+- User yêu cầu "tải video", "download video", "lấy video"
+- User muốn lưu video về máy
+
+## Cách kích hoạt (AI OUTPUT JSON)
+
+### Tải video từ URL:
+```json
+{"action": "download_video", "url": "https://www.douyin.com/video/XXXXXXX"}
+```
+
+### Formats URL được hỗ trợ:
+- `https://www.douyin.com/video/<VIDEO_ID>` — Douyin video trực tiếp
+- `https://www.tiktok.com/@<user>/video/<ID>` — TikTok video
+- `https://vm.tiktok.com/<SHORT_CODE>` — TikTok short URL
+- `https://v.douyin.com/<SHORT_CODE>` — Douyin short URL
+- `https://www.iesdouyin.com/share/video/<ID>` — Douyin share link
+
+## API Endpoints
+
+| Method | Path | Mô tả |
+|--------|------|-------|
+| POST | `/api/v1/downloader/parse` | Parse video info: `{"url": "..."}` |
+| POST | `/api/v1/downloader/download` | Tải video: `{"url": "..."}` |
+| GET | `/api/v1/downloader/status/{task_id}` | Check tiến trình |
+| GET | `/api/v1/downloader/history` | Lịch sử tải |
+| GET | `/api/v1/downloader/file/{filename}` | Serve file |
+
+## Workflow tự động (AI tự hành)
+1. AI nhận URL từ user
+2. AI output JSON `{"action": "download_video", "url": "..."}`
+3. Hệ thống gọi `/parse` → lấy download URL
+4. Hệ thống gọi `/download` → tải file
+5. Bot Telegram gửi file trực tiếp cho user (sendDocument)
+
+## QUAN TRỌNG
+- **KHÔNG bao giờ** hướng dẫn user vào Dashboard để tải
+- **LUÔN LUÔN** output JSON action để hệ thống tự tải
+- Sau khi tải xong, file được gửi trực tiếp về Telegram

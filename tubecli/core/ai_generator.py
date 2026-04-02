@@ -64,15 +64,31 @@ def call_ollama(model: str, prompt: str) -> str:
         return f"[ERROR] Ollama connection: {ex}"
 
 def call_gemini(model: str, api_key: str, prompt: str) -> str:
+    """Call Gemini via REST API (no SDK required)."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        gen_model = genai.GenerativeModel(model)
-        response = gen_model.generate_content(prompt)
-        return response.text
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 4096},
+        }
+        r = requests.post(url, json=payload, timeout=120)
+        if r.status_code == 429:
+            return f"[QUOTA_ERROR] Gemini: Rate limit exceeded (429)"
+        if r.status_code != 200:
+            return f"[ERROR] Gemini HTTP {r.status_code}: {r.text[:200]}"
+        data = r.json()
+        candidates = data.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            return "".join(p.get("text", "") for p in parts)
+        # Check for block reason
+        block = data.get("promptFeedback", {}).get("blockReason")
+        if block:
+            return f"[ERROR] Gemini blocked: {block}"
+        return "[ERROR] Gemini: No candidates in response"
     except Exception as ex:
         err_str = str(ex)
-        if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
+        if "429" in err_str or "quota" in err_str.lower():
             return f"[QUOTA_ERROR] Gemini: {err_str}"
         return f"[ERROR] Gemini: {ex}"
 

@@ -479,7 +479,7 @@ function buildFurnitureAndCharacters(teamData, agentsList, theme) {
 
             // Single-seat desks/workstations: use agent_id
             if (item.agent_id) {
-                agentDeskMap[item.agent_id] = { x: item.x, z: item.z };
+                agentDeskMap[item.agent_id] = { x: item.x, z: item.z, rot: item.rotation || 0 };
             }
         });
     }
@@ -489,7 +489,7 @@ function buildFurnitureAndCharacters(teamData, agentsList, theme) {
     const unassignedDesks = hasStudio
         ? studioSceneData.assets
             .filter(a => a.asset_id && singleSeatAssetIds.some(id => a.asset_id.startsWith(id.replace(/_.*/, '')) || a.asset_id === id) && !a.agent_id)
-            .map(d => ({ x: d.x, z: d.z }))
+            .map(d => ({ x: d.x, z: d.z, rot: d.rotation || 0 }))
         : [];
     let unassignedIdx = 0;
 
