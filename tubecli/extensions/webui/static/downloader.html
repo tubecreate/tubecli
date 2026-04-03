@@ -323,6 +323,33 @@ function renderVideoCard(v, originalUrl) {
 
     const uid = 'vc_' + Math.random().toString(36).slice(2, 8);
 
+    let actionsHtml = '';
+    
+    if (v.type === 'live') {
+        const hlsMap = v.raw_data && v.raw_data.stream_url && v.raw_data.stream_url.hls_pull_url_map ? v.raw_data.stream_url.hls_pull_url_map : {};
+        const flvMap = v.raw_data && v.raw_data.stream_url && v.raw_data.stream_url.flv_pull_url_map ? v.raw_data.stream_url.flv_pull_url_map : {};
+        
+        let opts = '';
+        for (const [key, url] of Object.entries(hlsMap)) {
+            opts += `<option value="${escAttr(url)}" data-flv="${escAttr(flvMap[key] || '')}">${key}</option>`;
+        }
+        if (!opts && v.download_url) {
+            opts = `<option value="${escAttr(v.download_url)}">Mặc định</option>`;
+        }
+        
+        const selId = 'sel_' + uid;
+        actionsHtml = `
+            <select id="${selId}" style="background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px; font-size:12px; outline:none;">
+                ${opts}
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="playLive('${selId}', '${escAttr(v.title || 'Live')}', '${escAttr(v.cover_url || '')}')">▶️ Mở Player</button>
+            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}', 'hls')" title="Copy M3U8">📋 HLS</button>
+            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}', 'flv')" title="Copy FLV">📋 FLV</button>
+        `;
+    } else {
+        actionsHtml = `<button class="btn btn-sm btn-download" onclick="downloadVideo('${uid}', '${escAttr(originalUrl)}')">📥 Tải xuống</button>`;
+    }
+
     return `<div class="video-card" id="${uid}" data-url="${escAttr(originalUrl)}">
         <label class="card-checkbox">
             <input type="checkbox" class="video-cb" onchange="updateBatchBar()">
@@ -332,13 +359,13 @@ function renderVideoCard(v, originalUrl) {
             <div class="video-title">${badge} ${escHtml(v.title || 'Không có tiêu đề')}</div>
             <div class="video-meta">
                 <span>👤 ${escHtml(v.author || '?')}</span>
-                <span>⏱️ ${v.duration || '--'}</span>
+                ${v.type === 'live' ? '<span style="color:var(--red); font-weight:bold;">🔴 LIVE</span>' : `<span>⏱️ ${v.duration || '--'}</span>`}
                 <span>📐 ${v.width}×${v.height}</span>
                 ${v.play_count > 0 ? `<span>👁️ ${formatCount(v.play_count)}</span>` : ''}
                 ${v.like_count > 0 ? `<span>❤️ ${formatCount(v.like_count)}</span>` : ''}
             </div>
             <div class="video-actions">
-                <button class="btn btn-sm btn-download" onclick="downloadVideo('${uid}', '${escAttr(originalUrl)}')">📥 Tải xuống</button>
+                ${actionsHtml}
             </div>
             <div id="prog-${uid}" style="display:none;">
                 <div class="progress-bar"><div class="progress-fill" id="fill-${uid}" style="width:0%"></div></div>
@@ -438,6 +465,78 @@ function copyFileLink(encodedFilename) {
     const link = location.origin + `${API}/file/${encodedFilename}`;
     navigator.clipboard.writeText(link).then(() => toast('Đã copy link file!', 'success'));
 }
+
+function copyStream(selId, type) {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const url = type === 'flv' ? sel.options[sel.selectedIndex].getAttribute('data-flv') : sel.value;
+    if (!url) { toast('Không có link ' + type, 'error'); return; }
+    navigator.clipboard.writeText(url).then(() => toast(`Đã copy link ${type.toUpperCase()}`, 'success'));
+}
+
+// Live Player logic
+function playLive(selId, title, poster) {
+    const sel = document.getElementById(selId);
+    if (!sel || !sel.value) return toast('Không có link HLS', 'error');
+    const hlsUrl = sel.value;
+
+    let playerModal = document.getElementById('live-player-modal');
+    if (!playerModal) {
+        playerModal = document.createElement('div');
+        playerModal.id = 'live-player-modal';
+        playerModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
+        playerModal.innerHTML = `
+            <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; margin-bottom:10px;">
+                <h3 id="live-player-title" style="color:#fff; margin:0; font-size:16px;">Live Stream</h3>
+                <button style="background:var(--red); border:none; color:#fff; cursor:pointer; padding:4px 12px; border-radius:4px; font-weight:bold;" onclick="closeLivePlayer()">ĐÓNG</button>
+            </div>
+            <video id="live-video-el" controls autoplay style="width:100%; max-width:800px; max-height:80vh; background:#000; border-radius:8px;" poster=""></video>
+        `;
+        document.body.appendChild(playerModal);
+        
+        // Load hls.js if not loaded
+        if (!window.Hls) {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/hls.js@1';
+            document.head.appendChild(script);
+        }
+    }
+    
+    playerModal.style.display = 'flex';
+    document.getElementById('live-player-title').textContent = title || 'Live Stream';
+    
+    // Play with hls.js
+    const startPlay = () => {
+        const video = document.getElementById('live-video-el');
+        if (poster) video.poster = poster;
+        
+        if (window.hlsInstance) { window.hlsInstance.destroy(); }
+        
+        if (window.Hls && Hls.isSupported()) {
+            const hls = new Hls();
+            window.hlsInstance = hls;
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e=>console.log(e)));
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = hlsUrl;
+            video.addEventListener('loadedmetadata', () => video.play().catch(e=>console.log(e)));
+        } else {
+            toast('Trình duyệt không hỗ trợ HLS!', 'error');
+        }
+    };
+    
+    if (window.Hls) startPlay();
+    else setTimeout(startPlay, 1000); // wait for script load
+}
+
+window.closeLivePlayer = function() {
+    const pm = document.getElementById('live-player-modal');
+    if (pm) pm.style.display = 'none';
+    if (window.hlsInstance) window.hlsInstance.destroy();
+    const video = document.getElementById('live-video-el');
+    if (video) video.pause();
+};
 
 function clearAll() {
     document.getElementById('url-input').value = '';

@@ -14,6 +14,8 @@ DOUYIN_SHARE = re.compile(r"https://www\.iesdouyin\.com/share/(?:video|note|slid
 DOUYIN_SEARCH = re.compile(r"https://www\.douyin\.com/search/\S+?modal_id=(\d{19})")
 DOUYIN_SHORT = re.compile(r"https://v\.douyin\.com/\S+")
 DOUYIN_DISCOVER = re.compile(r"https://www\.douyin\.com/discover\S*?modal_id=(\d{19})")
+DOUYIN_LIVE = re.compile(r"https://live\.douyin\.com/(\d+)")
+DOUYIN_REFLOW = re.compile(r"https://webcast\.amemv\.com/douyin/webcast/reflow/(\d+)")
 
 # TikTok patterns
 TIKTOK_VIDEO = re.compile(r"https://(?:www\.)?tiktok\.com/@[^/]+/(?:video|photo)/(\d{19})")
@@ -37,7 +39,7 @@ class LinkParser:
     async def parse(url: str, proxy: str = None, cookie: str = None) -> Tuple[Optional[str], Optional[str]]:
         """
         Returns (platform, detail_id) or (None, None) if invalid.
-        platform: 'douyin' | 'tiktok'
+        platform: 'douyin' | 'tiktok' | 'douyin_live'
         """
         url = url.strip()
 
@@ -74,6 +76,12 @@ class LinkParser:
             m = pattern.search(url)
             if m:
                 return "douyin", m.group(1)
+
+        # Douyin Live
+        for pattern in [DOUYIN_LIVE, DOUYIN_REFLOW]:
+            m = pattern.search(url)
+            if m:
+                return "douyin_live", m.group(1)
 
         # TikTok
         m = TIKTOK_VIDEO.search(url)
@@ -113,9 +121,14 @@ class LinkParser:
             ) as client:
                 resp = await client.get(url)
 
-                # Check final URL and history for video IDs
+                # Check final URL and history for live IDs
                 all_urls = [str(resp.url)] + [r.headers.get('location', '') for r in resp.history]
                 combined_text = ' '.join(all_urls)
+
+                for u in all_urls:
+                    p, d = LinkParser._extract_from_url(u)
+                    if p == "douyin_live":
+                        return p, d
 
                 for pattern in [DOUYIN_VIDEO, DOUYIN_SHARE, BODY_VIDEO_ID]:
                     m = pattern.search(combined_text)
@@ -127,6 +140,29 @@ class LinkParser:
                 m = BODY_VIDEO_ID.search(body)
                 if m:
                     return 'douyin', m.group(1)
+
+                # Scan response body for web_rid (live stream)
+                web_rid_match = re.search(r'web_rid["\':=]+\s*["\']?(\d+)', body)
+                if web_rid_match:
+                    return 'douyin_live', web_rid_match.group(1)
+                room_id_match = re.search(r'room_id["\':=]+\s*["\']?(\d+)', body)
+                if room_id_match:
+                    return 'douyin_live', room_id_match.group(1)
+
+                # Fallback: check if it redirected to a user profile page with sec_uid
+                # Try to resolve web_rid directly from user's live page (faster than User API)
+                for u in all_urls:
+                    m = re.search(r'sec_uid=([^&]+)', u)
+                    if not m:
+                        m = re.search(r'share/user/([^/?]+)', u)
+                    if m:
+                        sec_uid = m.group(1)
+                        # Try scraping user page for live room_id
+                        web_rid = await LinkParser._get_web_rid_from_user(sec_uid, headers, proxy)
+                        if web_rid:
+                            return 'douyin_live', web_rid
+                        # Fallback: return sec_uid for User API resolution
+                        return 'douyin_user_live', sec_uid
 
                 # Search for aweme_id in JSON data embedded in page
                 aweme_match = re.search(r'aweme_id["\':=]+\s*["\']?(\d{19})', body)
@@ -142,6 +178,38 @@ class LinkParser:
             pass
 
         return None, None
+
+    @staticmethod
+    async def _get_web_rid_from_user(sec_uid: str, headers: dict, proxy: str = None) -> Optional[str]:
+        """Try to find web_rid (live room ID) from a user's Douyin page.
+        Scrapes douyin.com/user/{sec_uid} looking for room_id in JSON data.
+        """
+        try:
+            user_url = f"https://www.douyin.com/user/{sec_uid}"
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=10,
+                proxy=proxy,
+                headers=headers,
+                verify=False,
+            ) as client:
+                resp = await client.get(user_url)
+                body = resp.text[:50000]
+
+            # Look for room_id in JSON embedded in page
+            # Patterns: "room_id":"1234...", roomId:"1234...", web_rid:1234...
+            for pattern in [
+                r'"room_id"\s*:\s*"(\d{10,})"',
+                r'"roomId"\s*:\s*"(\d{10,})"',
+                r'"web_rid"\s*:\s*"(\d{10,})"',
+                r'room_id[=:]+["\']?(\d{10,})',
+            ]:
+                m = re.search(pattern, body)
+                if m:
+                    return m.group(1)
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     async def _resolve_tiktok_short(url: str, proxy: str = None) -> Tuple[Optional[str], Optional[str]]:

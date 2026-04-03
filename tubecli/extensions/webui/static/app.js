@@ -92,6 +92,7 @@ const EXT_REGISTRY = [
     { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
     { id:'file_manager', icon:'📁', name:'File Manager', desc:'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp', type:'core' },
     { id:'calendar_manager', icon:'📅', name:'Calendar Manager', desc:'Quản lý Google Calendar — lập lịch, sự kiện lặp lại, nhắc nhở Telegram', type:'core' },
+    { id:'web_crawler', icon:'🕸️', name:'Web Crawler', desc:'Trích xuất dữ liệu, titles, links từ website', type:'extension' },
 ];
 
 async function loadExtensions() {
@@ -519,6 +520,9 @@ function openExtDetail(id) {
     const overlay = document.getElementById('ext-detail-overlay');
     const title = document.getElementById('ext-detail-title');
     const body = document.getElementById('ext-detail-body');
+    const tabExt = document.getElementById('tab-extensions');
+    if (tabExt) tabExt.style.display = 'none';
+
     title.textContent = ext.icon + ' ' + ext.name;
     body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
     overlay.classList.remove('hidden');
@@ -537,11 +541,16 @@ function openExtDetail(id) {
     else if (id === 'sheets_manager') renderFullPageExt(body, 'Google Sheets', 'Manage Google Spreadsheets.', '/sheets_manager');
     else if (id === 'file_manager') renderFullPageExt(body, 'File Manager', 'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp.', '/file-manager');
     else if (id === 'calendar_manager') renderCalendarManagerExt(body);
+    else if (id === 'web_crawler') renderFullPageExt(body, 'Web Crawler', 'Trích xuất dữ liệu, titles, links từ website', '/web_crawler');
 }
-function closeExtDetail() { document.getElementById('ext-detail-overlay').classList.add('hidden'); }
+function closeExtDetail() { 
+    document.getElementById('ext-detail-overlay').classList.add('hidden'); 
+    const tabExt = document.getElementById('tab-extensions');
+    if (tabExt) tabExt.style.display = '';
+}
 
 function renderFullPageExt(el, name, desc, url) {
-    el.innerHTML = `<div style="height:calc(100vh - 150px);overflow:hidden"><iframe src="${url}" style="width:100%;height:100%;border:none"></iframe></div>`;
+    el.innerHTML = `<div style="height:calc(100vh - 120px); min-height:80vh; overflow:hidden; display:flex; flex-direction:column;"><iframe src="${url}" style="flex:1; width:100%; border:none"></iframe></div>`;
 }
 
 // ── Calendar Manager Ext ──
