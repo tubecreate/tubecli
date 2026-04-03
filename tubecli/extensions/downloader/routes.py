@@ -93,9 +93,14 @@ async def parse_link(req: ParseRequest):
             raise HTTPException(status_code=400, detail="Không thể phân tích link. Hãy nhập link đầy đủ (https://www.douyin.com/video/xxx) hoặc video ID.")
 
         # Get video info
-        cookie = settings.get(f"cookie_{platform}", "")
+        cookie_key = platform
+        if platform in ("douyin_live", "douyin_user_live"):
+            cookie_key = "douyin"
+        cookie = settings.get(f"cookie_{cookie_key}", "")
         info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
         if not info:
+            if platform in ("douyin_live", "douyin_user_live"):
+                raise HTTPException(status_code=404, detail="Không thể lấy thông tin live. Phòng live có thể đã kết thúc hoặc không tồn tại.")
             raise HTTPException(status_code=404, detail="Không thể lấy thông tin video. Cookie có thể đã hết hạn.")
 
         return {
@@ -121,7 +126,10 @@ async def parse_batch(req: ParseRequest):
     parsed = await LinkParser.parse_batch(req.url, proxy)
     results = []
     for item in parsed:
-        cookie = settings.get(f"cookie_{item['platform']}", "")
+        cookie_key = item["platform"]
+        if cookie_key in ("douyin_live", "douyin_user_live"):
+            cookie_key = "douyin"
+        cookie = settings.get(f"cookie_{cookie_key}", "")
         info = await APIClient.get_video_info(item["platform"], item["detail_id"], cookie, proxy)
         if info:
             results.append(info.to_dict())
@@ -193,7 +201,10 @@ async def start_download(req: DownloadRequest):
     if "douyin.com" in req.url or "tiktok.com" in req.url or "iesdouyin.com" in req.url:
         platform, detail_id = await LinkParser.parse(req.url, proxy)
         if platform and detail_id:
-            cookie = settings.get(f"cookie_{platform}", "")
+            cookie_key = platform
+            if platform in ("douyin_live", "douyin_user_live"):
+                cookie_key = "douyin"
+            cookie = settings.get(f"cookie_{cookie_key}", "")
             info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
             if info and info.download_url:
                 download_url = info.download_url

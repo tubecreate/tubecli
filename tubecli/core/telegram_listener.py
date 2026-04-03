@@ -645,7 +645,6 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
         # Handle Extension Actions from AI response text (fallback for inline JSON)
         result = await self._handle_extension_action(reply, agent_dict)
 
-
         # Save History
         reply_for_history = result if isinstance(result, str) else f"[File sent: {result.get('caption', '')}]"
         history.append({"role": "user", "content": text, "timestamp": datetime.datetime.now().isoformat()})
@@ -688,6 +687,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
 
     async def _handle_extension_action(self, reply: str, agent_dict: Dict):
         """Parse AI reply for JSON action blocks and execute extension logic.
+        Dynamically discovers handlers from installed extensions.
         Returns str or dict (for file sending).
         """
         if not isinstance(reply, str):
@@ -699,8 +699,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
             return reply
 
         action_type = action_data.get("action", "")
-        print(f"🔧 [TelegramListener] Extension action detected: {action_type}")
-
+        # ── Core built-in actions (always available) ──
         if action_type == "download_video":
             url = action_data.get("url", "")
             if not url:
@@ -716,26 +715,74 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
         elif action_type == "schedule_event":
             return await self._exec_schedule_event(action_data)
 
-        else:
-            # Unknown action — return original reply
-            return reply
+        # ── Dynamic extension actions (from installed extensions) ──
+        try:
+            from tubecli.core.extension_manager import extension_manager
+            ext_actions = extension_manager.get_all_telegram_actions()
+            
+            if action_type in ext_actions:
+                handler_info = ext_actions[action_type]
+                handler_fn = handler_info["handler"]
+                ext_name = handler_info["extension"]
+                context = {"agent": agent_dict}
+                result = await handler_fn(action_data, context)
+                return result
+        except Exception as e:
+            print(f"[TelegramListener] Extension action error: {e}")
+            import traceback
+            traceback.print_exc()
+
+        # Unknown action — return original reply
+        return reply
 
     def _extract_json_action(self, text: str) -> Optional[Dict]:
         """Extract the first valid JSON action block from text."""
-        # Try code block first: ```json {...} ```
-        patterns = [
-            r'```json\s*(\{.*?\})\s*```',
-            r'(\{"action"\s*:\s*"[^"]+"\s*.*?\})',
-        ]
-        for pattern in patterns:
-            matches = re.findall(pattern, text, re.DOTALL)
-            for raw in matches:
+        if not text or not isinstance(text, str):
+            return None
+
+        # 1. Try code block first: ```json {...} ```
+        code_match = re.search(r'```(?:json)?\s*(\{.+\})\s*```', text, re.DOTALL)
+        if code_match:
+            try:
+                data = json.loads(code_match.group(1))
+                if "action" in data:
+                    return data
+            except Exception:
+                pass
+
+        # 2. Try parsing entire text as JSON
+        stripped = text.strip()
+        if stripped.startswith("{"):
+            try:
+                data = json.loads(stripped)
+                if isinstance(data, dict) and "action" in data:
+                    return data
+            except Exception:
+                pass
+
+        # 3. Find JSON by bracket-depth matching
+        start_idx = text.find("{")
+        while start_idx >= 0:
+            depth = 0
+            end_idx = start_idx
+            for i in range(start_idx, len(text)):
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end_idx = i + 1
+                        break
+            if end_idx > start_idx:
                 try:
-                    data = json.loads(raw)
-                    if "action" in data:
+                    data = json.loads(text[start_idx:end_idx])
+                    if isinstance(data, dict) and "action" in data:
                         return data
                 except Exception:
-                    continue
+                    pass
+            # Try next occurrence
+            start_idx = text.find("{", start_idx + 1)
+
         return None
 
     async def _exec_schedule_event(self, action_data: Dict) -> str:

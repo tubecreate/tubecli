@@ -134,6 +134,13 @@ class Extension:
                 return static_dir
         return None
 
+    def get_telegram_actions(self) -> Dict[str, Any]:
+        """Return a dict of {action_name: async_handler_function} for Telegram Bot.
+        Each handler receives (action_data: dict, context: dict) and returns str or dict.
+        Override this in your extension to register Telegram-accessible actions.
+        """
+        return {}
+
     def get_manifest(self) -> dict:
         """Return extension manifest data."""
         return self._manifest or {
@@ -474,6 +481,23 @@ class ExtensionManager:
             except Exception:
                 pass
         return results
+
+    def get_all_telegram_actions(self) -> Dict[str, Any]:
+        """Collect all Telegram action handlers from enabled extensions.
+        Returns a dict of {action_name: handler_fn} merged from all extensions."""
+        actions = {}
+        for extension in self.get_enabled():
+            try:
+                ext_actions = extension.get_telegram_actions()
+                if ext_actions:
+                    for action_name, handler in ext_actions.items():
+                        actions[action_name] = {
+                            "handler": handler,
+                            "extension": extension.name,
+                        }
+            except Exception:
+                pass
+        return actions
 
     # ── Git Install / Uninstall ──────────────────────────────
 

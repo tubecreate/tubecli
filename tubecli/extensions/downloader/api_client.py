@@ -150,6 +150,16 @@ class APIClient:
     ) -> Optional[VideoInfo]:
         if platform == "douyin":
             return await APIClient._get_douyin_info(detail_id, cookie, proxy)
+        elif platform == "douyin_live":
+            return await APIClient._get_douyin_live_info(detail_id, cookie, proxy)
+        elif platform == "douyin_user_live":
+            user_info = await APIClient.get_user_info(detail_id, cookie, proxy)
+            if user_info:
+                # Use web_rid if available (required for web API), fallback to room_id
+                rid = user_info.get("web_rid") or user_info.get("room_id")
+                if rid:
+                    return await APIClient._get_douyin_live_info(str(rid), cookie, proxy)
+            return None
         elif platform == "tiktok":
             return await APIClient._get_tiktok_info(detail_id, cookie, proxy)
         return None
@@ -279,6 +289,87 @@ class APIClient:
 
         except Exception as e:
             logger.error(f"Douyin API error: {e}")
+            return None
+
+    @staticmethod
+    async def _get_douyin_live_info(
+        room_id: str,
+        cookie: str = "",
+        proxy: str = None,
+    ) -> Optional[VideoInfo]:
+        headers = {**DOUYIN_HEADERS}
+        if cookie:
+            headers["Cookie"] = cookie
+        headers["Referer"] = "https://live.douyin.com/"
+
+        # Webcast enter API
+        url = "https://live.douyin.com/webcast/room/web/enter/"
+        
+        signed_url = APIClient._build_douyin_signed_url(url, {
+            "web_rid": room_id,
+            "aid": "6383",
+            "device_platform": "web"
+        })
+        if not signed_url:
+            return None
+
+        try:
+            async with httpx.AsyncClient(
+                timeout=15,
+                proxy=proxy,
+                headers=headers,
+                verify=False,
+            ) as client:
+                resp = await client.get(signed_url)
+                if not resp.text:
+                    return None
+                data = resp.json()
+
+            if "data" not in data or "data" not in data.get("data", {}) or not data["data"]["data"]:
+                logger.warning(f"No live room data for {room_id}")
+                return None
+
+            room = data["data"]["data"][0]
+            owner = room.get("owner", {})
+            
+            info = VideoInfo()
+            info.id = str(room.get("id_str", room_id))
+            info.platform = "douyin_live"
+            info.title = room.get("title", "")[:200]
+            info.author = owner.get("nickname", "")
+            info.author_id = owner.get("sec_uid", "")
+            info.type = "live"
+            info.raw_data = room
+            
+            # Avatar
+            avatar = owner.get("avatar_large", {})
+            if avatar and avatar.get("url_list"):
+                info.cover_url = avatar["url_list"][0]
+
+            # Stream URLs
+            stream_url = room.get("stream_url", {})
+            hls = stream_url.get("hls_pull_url", "")
+            flv = stream_url.get("flv_pull_url", "")
+            
+            info.download_url = hls if hls else flv
+            
+            if not info.download_url:
+                hls_map = stream_url.get("hls_pull_url_map", {})
+                flv_map = stream_url.get("flv_pull_url_map", {})
+                for k, v in hls_map.items():
+                    info.download_url = v
+                    break
+                if not info.download_url:
+                    for k, v in flv_map.items():
+                        info.download_url = v
+                        break
+
+            # Viewer count
+            info.play_count = room.get("user_count", 0)
+            
+            return info
+        except Exception as e:
+            logger.error(f"Live API error: {e}")
             return None
 
     @staticmethod
@@ -427,6 +518,15 @@ class APIClient:
             if not user:
                 logger.warning(f"No user data for {sec_user_id}")
                 return None
+            web_rid = ""
+            room_data_str = user.get("room_data")
+            if room_data_str:
+                try:
+                    import json
+                    room_data = json.loads(room_data_str)
+                    web_rid = room_data.get("owner", {}).get("web_rid", "")
+                except Exception:
+                    pass
 
             return {
                 "sec_user_id": user.get("sec_uid", sec_user_id),
@@ -439,6 +539,8 @@ class APIClient:
                 "total_favorited": user.get("total_favorited", 0),
                 "uid": user.get("uid", ""),
                 "unique_id": user.get("unique_id", ""),
+                "room_id": user.get("room_id", 0),
+                "web_rid": web_rid,
             }
         except Exception as e:
             logger.error(f"User info API error: {e}")

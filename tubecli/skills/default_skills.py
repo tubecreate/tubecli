@@ -469,6 +469,53 @@ DEFAULT_SKILLS: List[Dict] = [
             ],
         },
     },
+    {
+        "name": "🔴 Livestream Restreamer",
+        "description": "Tạo phiên livestream (restream) từ link Douyin/TikTok lên YouTube. Dùng khi user yêu cầu: 'tạo phiên live', 'restream'. Cứ thấy douyin link kèm 'tạo live' thì dùng skill này KHÔNG dùng downloader.",
+        "skill_type": "Skill",
+        "commands": [
+            "tạo phiên live", "tạo phiên livestream", "restream", "phát live", "phát trực tiếp"
+        ],
+        "workflow_data": {
+            "name": "Livestream Restreamer",
+            "nodes": [
+                {
+                    "id": "input_cmd",
+                    "type": "text_input",
+                    "label": "📝 Đầu vào",
+                    "config": {"text": ""},
+                },
+                {
+                    "id": "exec_live",
+                    "type": "python_code",
+                    "label": "🐍 Run Live API",
+                    "config": {
+                        "code": "import requests, re, json\n# text_input contains the whole user command\nlink_match = re.search(r'https?://[^\\s]+', text_input)\nlink = link_match.group(0) if link_match else ''\nemail_match = re.search(r'[\\w\\.-]+@[\\w\\.-]+\\.\\w+', text_input)\nemail = email_match.group(0) if email_match else ''\n\npayload = {'title': 'Live Restream', 'input_source': link}\nif email:\n    payload['token_id'] = email\nelse:\n    payload['token_id'] = ''\n\ntry:\n    resp = requests.post('http://localhost:5295/api/v1/livestream/auto-live', json=payload, timeout=30)\n    if resp.status_code == 200:\n        r_data = resp.json()\n        if r_data.get('status') == 'success':\n            result = f\"✅ Tạo phiên Live thành công!\\n🔗 Link phát: {link}\\n📺 Stream Key: {r_data.get('broadcast', {}).get('stream_key')}\\nID phiên: {r_data.get('ffmpeg_session_id')}\"\n        else:\n            result = f\"❌ Lỗi tạo live: {r_data.get('message', 'Không rõ lỗi')}\"\n    else:\n        result = f\"❌ Lỗi hệ thống ({resp.status_code}): {resp.text}\"\nexcept Exception as e:\n    result = f\"❌ Exception: {str(e)}\"\n"
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "input_cmd",
+                    "from_port_id": "content",
+                    "to_node_id": "exec_live",
+                    "to_port_id": "text_input",
+                },
+                {
+                    "from_node_id": "exec_live",
+                    "from_port_id": "result",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    }
 ]
 
 
