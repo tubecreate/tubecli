@@ -59,6 +59,43 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Không thể tải extension cloud_api. Hãy đảm bảo nó đã được kích hoạt.[/red]",
     "panel.key_status_set": "[green]Đã cài[/green]",
     "panel.key_status_not_set": "[red]Chưa cài[/red]",
+    "panel.setup_wizard": "🧙 Chạy lại Trình hướng dẫn cài đặt",
+
+    # ── Setup Wizard ─────────────────────────────────────────
+    "wizard.welcome_title": "🚀 [bold white]Chào mừng đến TubeCLI![/bold white]",
+    "wizard.welcome_body": "Đây là lần đầu bạn khởi chạy TubeCLI.\nHãy thiết lập nhanh [bold]3 bước[/bold] để bắt đầu sử dụng:\n\n  [cyan]Bước 1:[/cyan] 🧠 Thiết lập AI Chat (API Key hoặc Ollama)\n  [cyan]Bước 2:[/cyan] 💬 Kết nối Telegram Bot\n  [cyan]Bước 3:[/cyan] ✅ Xem tổng kết",
+    "wizard.skip_all": "⏭️  Bỏ qua tất cả → vào Dashboard (tự thiết lập sau trong Settings)",
+    "wizard.start_setup": "▶️  Bắt đầu thiết lập",
+    "wizard.skipped_all": "[yellow]Đã bỏ qua thiết lập. Bạn có thể cấu hình bất cứ lúc nào từ Dashboard → Settings hoặc nhấn 7 trên menu.[/yellow]",
+    "wizard.skip_step": "⏭️  Bỏ qua bước này",
+    "wizard.step_skipped": "[yellow]Đã bỏ qua. Bạn có thể thiết lập sau.[/yellow]",
+
+    # Step 1: AI
+    "wizard.ai_title": "🧠 [bold white]Bước 1/3 — Thiết lập AI Chat[/bold white]",
+    "wizard.ai_body": "Chọn cách sử dụng AI cho chatbot:\n\n  [green]Gemini API[/green] — Miễn phí, nhanh, khuyên dùng cho người mới\n  [blue]OpenAI / Claude / DeepSeek[/blue] — Dùng key riêng, mạnh hơn\n  [yellow]Ollama[/yellow] — Chạy offline trên máy, cần GPU (tùy chọn nâng cao)",
+    "wizard.ai_gemini": "🌟 Gemini API (miễn phí, nhập API key)",
+    "wizard.ai_other": "🔑 OpenAI / Claude / DeepSeek (nhập API key)",
+    "wizard.ai_ollama": "💻 Ollama (chạy local, không cần key)",
+    "wizard.gemini_guide": "\n[cyan]📋 Hướng dẫn lấy Gemini API Key:[/cyan]\n  1. Truy cập [link]https://aistudio.google.com/apikey[/link]\n  2. Đăng nhập Google → bấm [bold]Create API Key[/bold]\n  3. Copy key và dán vào đây:\n",
+    "wizard.enter_api_key": "🔑 Dán API Key (hoặc Enter để bỏ qua)",
+    "wizard.key_saved": "đã lưu thành công!",
+    "wizard.ollama_ready": "[green]✅ Ollama đã cài đặt sẵn. Bạn có thể chọn model từ menu chính (mục 4).[/green]",
+    "wizard.ollama_not_ready": "[yellow]⚠️ Ollama chưa cài đặt. Chọn mục 4 trên menu chính sau để cài.[/yellow]",
+
+    # Step 2: Telegram
+    "wizard.telegram_title": "💬 [bold white]Bước 2/3 — Kết nối Telegram[/bold white]",
+    "wizard.telegram_body": "Kết nối Telegram để điều khiển TubeCLI bằng tin nhắn.\nBạn có thể chat ra lệnh, tải video, theo dõi trang web,\nquản lý lịch... tất cả qua Telegram!",
+    "wizard.telegram_start": "▶️  Bắt đầu kết nối Telegram",
+    "wizard.telegram_guide": "\n[cyan]📋 Hướng dẫn tạo Telegram Bot (1 phút):[/cyan]\n  1. Mở Telegram → tìm [bold]@BotFather[/bold]\n  2. Gửi lệnh [bold]/newbot[/bold]\n  3. Nhập tên bot (VD: \"My TubeCLI\")\n  4. Nhập username bot (VD: \"my_tubecli_bot\")\n  5. BotFather sẽ gửi cho bạn một [bold]Token[/bold] dạng: [dim]1234567890:ABCdefGHI...[/dim]\n  6. Copy token đó và dán vào đây:\n",
+    "wizard.telegram_enter_token": "🔑 Dán Bot Token",
+    "wizard.telegram_invalid_token": "[red]❌ Token không hợp lệ. Hãy kiểm tra lại token từ @BotFather.[/red]",
+    "wizard.telegram_connected": "Bot [bold]{name}[/bold] (@{username}) đã kết nối thành công!",
+    "wizard.telegram_next_step": "Mở Telegram → tìm [bold]@{username}[/bold] → gửi \"xin chào\" để test!",
+    "wizard.telegram_test_fail": "Không thể kết nối bot",
+
+    # Step 3: Summary
+    "wizard.summary_title": "✅ [bold white]Bước 3/3 — Thiết lập hoàn tất![/bold white]",
+    "wizard.summary_tip": "Mở Telegram → gửi \"xin chào\" cho @{username} để bắt đầu!",
 
     # ── agent_cmd ─────────────────────────────────────────────
     "agent.created": "\n✅ Agent đã tạo: [bold green]{name}[/bold green]",
