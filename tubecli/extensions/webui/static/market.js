@@ -4,6 +4,41 @@
 
 const API = '/api/v1/market';
 
+function cmpVersions(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const na = pa[i] || 0;
+        const nb = pb[i] || 0;
+        if (na > nb) return 1;
+        if (na < nb) return -1;
+    }
+    return 0;
+}
+
+function termLog(msg, color = '#00ff00') {
+    const term = document.getElementById('installTerminal');
+    if (!term) return;
+    term.style.display = 'block';
+    const div = document.createElement('div');
+    div.style.color = color;
+    div.style.marginBottom = '4px';
+    div.textContent = '> ' + msg;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+}
+
+function clearTerm() {
+    const term = document.getElementById('installTerminal');
+    if (term) {
+        term.innerHTML = '';
+        term.style.display = 'none';
+    }
+}
+
 // Language for this iframe context (fetched from API at init)
 let _marketLang = localStorage.getItem('zhiying_lang') || 'en';
 
@@ -22,6 +57,7 @@ const state = {
 
 let searchTimer = null;
 let categoriesData = null;
+let editingPublicId = null; // Track if we're editing an existing listing
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
@@ -340,12 +376,34 @@ async function openDetailModal(publicId) {
             </div>
             <div class="modal-description">${escapeHtml(displayDesc)}</div>
             ${tags.length ? `<div class="modal-tags">${tags.map(t => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+
+            ${(() => {
+                try {
+                    const itemDataObj = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : item.item_data;
+                    const auth = itemDataObj && itemDataObj.author_info;
+                    if (!auth) return '';
+                    return `
+                    <div style="margin:20px 0;padding:16px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;">
+                        <h4 style="margin:0 0 12px 0;font-size:0.95rem;color:var(--text);">💖 Tác giả & Hỗ trợ</h4>
+                        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:0.9rem;">
+                            ${auth.name ? `<div><strong style="color:var(--text2);">Tác giả:</strong> <span style="font-weight:600;">${escapeHtml(auth.name)}</span></div>` : ''}
+                            ${auth.contact ? `<div><a href="${escapeHtml(auth.contact)}" target="_blank" style="color:#3b82f6;text-decoration:none;font-weight:600;">💬 Liên hệ hỗ trợ</a></div>` : ''}
+                            ${auth.donate_qr ? `<div style="flex-basis:100%;margin-top:8px;">
+                                <strong style="color:var(--text2);display:block;margin-bottom:8px;">Donate ủng hộ tác giả:</strong>
+                                <a href="${escapeHtml(auth.donate_qr)}" target="_blank"><img src="${escapeHtml(auth.donate_qr)}" style="max-height:160px;border-radius:8px;border:1px solid var(--border);" alt="Donate QR"></a>
+                            </div>` : ''}
+                        </div>
+                    </div>`;
+                } catch(e) { return ''; }
+            })()}
+
             <div class="modal-action-row">
                 ${isFree ? '' : `<button class="btn-buy" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
                     🛒 ${T('detail.buy_for')} ${formatCredits(price)}
                 </button>`}
                 <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}" style="${isFree ? '' : 'display:none;'}">
-                    📦 ${T('detail.install')}
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                    ${T('detail.install')}
                 </button>
             </div>
             <div class="reviews-section">
@@ -371,10 +429,11 @@ async function openDetailModal(publicId) {
             if (checkData.installed) {
                 const installBtn = document.getElementById('installBtn_' + publicId);
                 if (installBtn) {
-                    installBtn.innerHTML = '✅ ' + T('detail.installed');
+                    installBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> ${T('detail.installed')}`;
                     installBtn.disabled = true;
                     installBtn.style.display = '';
                     installBtn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                    installBtn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
                 }
                 // Hide buy button if item is already installed
                 const buyBtn = document.getElementById('buyBtn_' + publicId);
@@ -386,9 +445,30 @@ async function openDetailModal(publicId) {
                     const unBtn = document.createElement('button');
                     unBtn.id = 'uninstallBtn_' + publicId;
                     unBtn.className = 'btn-uninstall';
-                    unBtn.innerHTML = '🗑️ ' + T('detail.uninstall');
+                    unBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg> ${T('detail.uninstall')}`;
                     unBtn.onclick = () => uninstallItem(publicId, item.title, item.category);
                     actionRow.appendChild(unBtn);
+                }
+                
+                // Add Update button for extensions
+                if (item.category === 'extension' && actionRow && !document.getElementById('updateBtn_' + publicId)) {
+                    let hasUpdate = false;
+                    try {
+                        if (checkData.local_version && cmpVersions(item.version, checkData.local_version) > 0) {
+                            hasUpdate = true;
+                        }
+                    } catch(e) {}
+                    
+                    const upBtn = document.createElement('button');
+                    upBtn.id = 'updateBtn_' + publicId;
+                    upBtn.className = 'btn-update';
+                    const rotateSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>`;
+                    upBtn.innerHTML = hasUpdate
+                        ? `${rotateSvg} Update ${checkData.local_version} → ${item.version}`
+                        : `${rotateSvg} Update`;
+                    if (hasUpdate) upBtn.style.boxShadow = '0 0 18px rgba(245,158,11,0.55)';
+                    upBtn.onclick = () => updateLocalItem(publicId, item.title, item.category);
+                    actionRow.appendChild(upBtn);
                 }
             }
         } catch (e) {
@@ -447,13 +527,32 @@ async function buyItem(publicId) {
 }
 
 // ── Install Item ──
-async function installItem(publicId, itemName, category) {
+async function installItem(publicId, itemName, category, forceUpdate = false) {
     const btn = document.getElementById('installBtn_' + publicId);
-    if (!btn) return;
+    let originalText = '';
+    if (btn) {
+        originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Installing...';
+    }
 
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Installing...';
+    clearTerm();
+    termLog(`Initializing installation for ${itemName}...`, '#88aaff');
+
+    const steps = [
+        "Fetching remote payload from Market API...",
+        "Resolving installation paths...",
+        "Extracting content into local file system...",
+        "Resolving Python (PIP) dependencies if any...",
+        "Resolving Node.js (NPM) dependencies if any (This may take a while)..."
+    ];
+    let stepIdx = 0;
+    const termInterval = setInterval(() => {
+        if (stepIdx < steps.length) {
+            termLog(steps[stepIdx], '#aaaaaa');
+            stepIdx++;
+        }
+    }, 1500);
 
     try {
         // First get the item detail to access item_data
@@ -461,9 +560,13 @@ async function installItem(publicId, itemName, category) {
         const detailData = await detailRes.json();
 
         if (detailData.status !== 'success' || !detailData.item) {
+            clearInterval(termInterval);
+            termLog("Failed to fetch item data from Market API.", '#ff4444');
             showToast('Failed to get item data', 'error');
-            btn.disabled = false;
-            btn.innerHTML = originalText;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
             return;
         }
 
@@ -480,27 +583,47 @@ async function installItem(publicId, itemName, category) {
                 item_data: item.item_data || JSON.stringify(item),
                 item_name: itemName,
                 category: category,
+                force_update: forceUpdate
             }),
         });
+        
+        clearInterval(termInterval);
+        termLog("Finalizing installation...", '#aaaaaa');
+        
         const data = await res.json();
 
         if (data.status === 'success') {
-            btn.innerHTML = '✅ Installed';
-            btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+            termLog("🎉 Installation Complete!", '#00ff00');
+            if (btn) {
+                btn.innerHTML = '✅ Installed';
+                btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+            }
             showToast(data.message || 'Installed successfully!', 'success');
         } else if (res.status === 409 || data.detail?.already_installed) {
-            btn.innerHTML = '✅ Installed';
-            btn.disabled = true;
+            termLog("Item is already installed.", '#ffaa00');
+            if (btn) {
+                btn.innerHTML = '✅ Installed';
+                btn.disabled = true;
+            }
             showToast(data.detail?.message || 'This item is already installed', 'error');
         } else {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
+            termLog("❌ Installation Failed: " + (data.detail || data.message || 'Unknown error'), '#ff4444');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
             showToast(data.detail || data.message || 'Install failed', 'error');
+            throw new Error(data.detail || data.message || 'Install failed');
         }
     } catch (e) {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-        showToast('Network error', 'error');
+        clearInterval(termInterval);
+        termLog("❌ Network / Execution Error: " + e.message, '#ff4444');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+        showToast('Install error: ' + e.message, 'error');
+        throw e;
     }
 }
 
@@ -548,6 +671,58 @@ async function uninstallItem(publicId, itemName, category) {
     }
 }
 
+// ── Update Item ──
+async function updateLocalItem(publicId, itemName, category = "extension") {
+    const upBtn = document.getElementById('updateBtn_' + publicId);
+    if (!upBtn) return;
+    
+    const originalText = upBtn.innerHTML;
+    upBtn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Updating...';
+    upBtn.disabled = true;
+
+    clearTerm();
+    termLog(`Checking updates for ${itemName}...`, '#88aaff');
+
+    const updateInterval = setInterval(() => {
+        termLog("Executing Git Pull and dependency updates...", '#aaaaaa');
+    }, 2000);
+
+    try {
+        const res = await fetch(`${API}/items/${encodeURIComponent(itemName)}/update-local`, {
+            method: 'POST',
+        });
+        
+        clearInterval(updateInterval);
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            termLog("✅ Extension hot-reloaded successfully!", '#00ff00');
+            showToast(data.message || `"${itemName}" updated`, 'success');
+            setTimeout(() => {
+                upBtn.innerHTML = '✅ Updated';
+                upBtn.style.boxShadow = 'none';
+            }, 1000);
+        } else if (res.status === 400 && (data.detail === "Currently only extensions installed via Git can be updated." || 
+                                         data.message === "Currently only extensions installed via Git can be updated.")) {
+            // ZIP Fallback Update Overwrite
+            termLog("Extension was not installed via Git. Triggering Market ZIP Fallback Force Update...", '#ffaa00');
+            showToast('Fetching latest ZIP update from Market...', 'info');
+            await installItem(publicId, itemName, category, true);
+            upBtn.innerHTML = '✅ Updated';
+            upBtn.style.boxShadow = 'none';
+        } else {
+            termLog("❌ Update Failed: " + (data.detail || data.message || 'Unknown'), '#ff4444');
+            throw new Error(data.message || data.detail || 'Update failed');
+        }
+    } catch (e) {
+        clearInterval(updateInterval);
+        termLog("❌ Error: " + e.message, '#ff4444');
+        showToast(e.message || 'Update error', 'error');
+        upBtn.innerHTML = originalText;
+        upBtn.disabled = false;
+    }
+}
+
 // ── Upload Wizard ──
 let uploadState = {
     category: 'skill',
@@ -574,6 +749,7 @@ function openUploadModal() {
 
 function closeUploadModal() {
     document.getElementById('uploadModal').classList.remove('active');
+    editingPublicId = null; // Clear edit mode
 }
 
 function goToUploadStep(step) {
@@ -777,15 +953,38 @@ async function submitUpload(e) {
         price: parseFloat(document.getElementById('uploadPrice').value) || 0,
         visibility: document.getElementById('uploadVisibility').value,
         version: document.getElementById('uploadVersion').value || '1.0.0',
+        thumbnail_url: document.getElementById('uploadAvatar') ? document.getElementById('uploadAvatar').value.trim() : undefined,
         tags: tags,
         description: document.getElementById('uploadDesc').value,
         item_data: (() => {
             // For extensions: merge user-declared dependencies into item_data
             let raw = document.getElementById('uploadData').value;
             const category = document.getElementById('uploadCategory').value;
-            if (category === 'extension') {
-                try {
-                    const parsed = JSON.parse(raw);
+            const gitUrl = document.getElementById('uploadGitUrl') ? document.getElementById('uploadGitUrl').value : undefined;
+            const authorName = document.getElementById('uploadAuthorName') ? document.getElementById('uploadAuthorName').value.trim() : '';
+            const authorContact = document.getElementById('uploadAuthorContact') ? document.getElementById('uploadAuthorContact').value.trim() : '';
+            const authorDonate = document.getElementById('uploadAuthorDonate') ? document.getElementById('uploadAuthorDonate').value.trim() : '';
+            
+            try {
+                const parsed = JSON.parse(raw);
+                
+                // Inject git_url straight into the item_data JSON so PHP API doesn't lose it
+                if (gitUrl) {
+                    parsed.git_url = gitUrl;
+                    if (parsed.manifest) parsed.manifest.git_url = gitUrl;
+                }
+
+                // Inject author_info
+                if (authorName || authorContact || authorDonate) {
+                    parsed.author_info = {
+                        name: authorName,
+                        contact: authorContact,
+                        donate_qr: authorDonate
+                    };
+                    if (parsed.manifest) parsed.manifest.author_info = parsed.author_info;
+                }
+                
+                if (category === 'extension') {
                     const depsInput = document.getElementById('uploadDeps')?.value || '';
                     const deps = depsInput.split(',').map(d => d.trim()).filter(Boolean);
                     if (deps.length > 0) {
@@ -795,17 +994,23 @@ async function submitUpload(e) {
                             parsed.dependencies = deps;
                         }
                     }
-                    raw = JSON.stringify(parsed);
-                } catch(e) {}
-            }
+                }
+                raw = JSON.stringify(parsed);
+            } catch(e) {}
             return raw;
         })(),
+        git_url: document.getElementById('uploadGitUrl') ? document.getElementById('uploadGitUrl').value : undefined,
     };
 
     try {
         const token = getAuthToken();
-        const res = await fetch(`${API}/items`, {
-            method: 'POST',
+        const isEdit = !!editingPublicId;
+        const url = isEdit ? `${API}/items/${editingPublicId}` : `${API}/items`;
+        const method = isEdit ? 'PUT' : 'POST';
+        btn.innerHTML = isEdit ? '⏳ Saving changes...' : '⏳ Publishing...';
+        
+        const res = await fetch(url, {
+            method,
             headers: {
                 'Content-Type': 'application/json',
                 ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -815,27 +1020,27 @@ async function submitUpload(e) {
         const data = await res.json();
 
         if (data.status === 'success' || data.public_id) {
-            showToast('Item published to Market!', 'success');
+            showToast(isEdit ? 'Listing updated successfully!' : 'Item published to Market!', 'success');
             closeUploadModal();
             loadItems();
             loadCategories();
         } else {
             // Extract error message from various response formats
-            let errMsg = 'Upload failed';
+            let errMsg = isEdit ? 'Update failed' : 'Upload failed';
             if (typeof data.detail === 'string') errMsg = data.detail;
             else if (typeof data.detail === 'object' && data.detail?.msg) errMsg = data.detail.msg;
             else if (data.error) errMsg = data.error;
             else if (data.message) errMsg = data.message;
-            console.error('[Market] Upload error:', data);
+            console.error('[Market] Submit error:', data);
             showToast(errMsg, 'error');
         }
     } catch (e) {
-        console.error('[Market] Upload network error:', e);
+        console.error('[Market] Submit network error:', e);
         showToast('Network error: ' + e.message, 'error');
     }
 
     btn.disabled = false;
-    btn.innerHTML = '📤 Publish to Market';
+    btn.innerHTML = editingPublicId ? '💾 Save Changes' : '📤 Publish to Market';
 }
 
 // ── Helpers ──
@@ -1219,11 +1424,14 @@ function renderMyListings(items) {
                     </div>
                 </div>
                 <div class="my-listing-actions">
+                    <button class="btn-edit-listing" data-action="edit" data-id="${item.public_id}" title="Edit Info">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    </button>
                     <button class="btn-view-listing" data-action="view" data-id="${item.public_id}" title="View">
-                        👁️
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"></path><circle cx="12" cy="12" r="3"></circle></svg>
                     </button>
                     <button class="btn-delete-listing" data-action="delete" data-id="${item.public_id}" data-title="${escapeHtml(item.title)}" title="Delete">
-                        🗑️
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
                 </div>
             </div>
@@ -1239,11 +1447,102 @@ function renderMyListings(items) {
         if (action === 'view') {
             closeMyListingsModal();
             setTimeout(() => openDetailModal(id), 200);
+        } else if (action === 'edit') {
+            editListing(id);
         } else if (action === 'delete') {
             const title = btn.getAttribute('data-title');
             confirmDeleteListing(id, title);
         }
     };
+}
+
+async function editListing(publicId) {
+    closeMyListingsModal();
+    editingPublicId = publicId; // ← Mark as edit mode
+    
+    // Use uploadModal but jump to step 2
+    const modal = document.getElementById('uploadModal');
+    if (!modal) return;
+    modal.classList.add('active');
+    
+    // Update submit button to show "Save Changes"
+    const submitBtn = document.getElementById('uploadSubmitBtn');
+    if (submitBtn) submitBtn.innerHTML = '💾 Save Changes';
+
+    // Jump straight to step 2 bypassing local selection
+    const step1 = document.getElementById('uploadStep1');
+    const step2 = document.getElementById('uploadStep2');
+    const steps = document.querySelectorAll('#uploadSteps .upload-step');
+    if(step1) step1.style.display = 'none';
+    if(step2) step2.style.display = 'block';
+    if(steps.length > 1) {
+        steps[0].className = 'upload-step done';
+        steps[1].className = 'upload-step active';
+    }
+
+    // Set a loading preview
+    document.getElementById('selectedItemPreview').innerHTML = '<div class="market-spinner" style="margin:20px auto;"></div>';
+
+    try {
+        const res = await fetch(`${API}/items/${publicId}`);
+        const data = await res.json();
+        
+        if (data.status === 'success' && data.item) {
+            const item = data.item;
+            // Setup preview visually
+            const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
+            const icon = categoryIcons[item.category] || '📦';
+            document.getElementById('selectedItemPreview').innerHTML = `
+                <span class="preview-icon">${icon}</span>
+                <div class="preview-info">
+                    <div class="preview-name">${escapeHtml(item.title)}</div>
+                    <div class="preview-type">${escapeHtml(item.category)}</div>
+                    <div style="font-size:0.75rem;color:var(--orange);margin-top:5px;font-weight:bold;">
+                        ✏️ Editing Market Listing
+                    </div>
+                </div>
+            `;
+
+            // Prefill standard form
+            uploadState.selectedItem = null; // We are not uploading a local extension
+            document.getElementById('uploadCategory').value = item.category || 'extension';
+            document.getElementById('uploadDisplayName').value = item.title;
+            document.getElementById('uploadTitle').value = item.title;
+            document.getElementById('uploadPrice').value = item.price || 0;
+            document.getElementById('uploadVisibility').value = item.visibility || 'PUBLIC';
+            document.getElementById('uploadVersion').value = item.version || '1.0.0';
+            const uploadBtn = document.getElementById('uploadAvatar');
+            if (uploadBtn) uploadBtn.value = item.thumbnail_url || item.thumbnail || '';
+            document.getElementById('uploadTags').value = (item.tags || []).join(', ');
+            document.getElementById('uploadDesc').value = item.description || '';
+            
+            // Set underlying data so if they just press Save, it uploads the old JSON unmodified in its core
+            document.getElementById('uploadData').value = typeof item.item_data === 'string' ? item.item_data : JSON.stringify(item.item_data);
+
+            // Depopulate specific meta fields for UI rendering
+            try {
+                const parsed = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : item.item_data;
+                const gitUrlField = document.getElementById('uploadGitUrl');
+                if(gitUrlField) gitUrlField.value = parsed.git_url || '';
+
+                if (parsed.author_info) {
+                    const aName = document.getElementById('uploadAuthorName');
+                    const aContact = document.getElementById('uploadAuthorContact');
+                    const aDonate = document.getElementById('uploadAuthorDonate');
+                    if(aName) aName.value = parsed.author_info.name || '';
+                    if(aContact) aContact.value = parsed.author_info.contact || '';
+                    if(aDonate) aDonate.value = parsed.author_info.donate_qr || '';
+                }
+            } catch(e) {}
+            
+        } else {
+            showToast('Item not found', 'error');
+            closeUploadModal();
+        }
+    } catch(e) {
+        showToast('Network error while loading item', 'error');
+        closeUploadModal();
+    }
 }
 // ── Custom Confirm Dialog ──
 function customConfirm(title, message) {
@@ -1325,6 +1624,12 @@ document.getElementById('loginModal').addEventListener('click', (e) => {
 document.getElementById('myListingsModal').addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeMyListingsModal();
 });
+const gitInstallModal = document.getElementById('gitInstallModal');
+if(gitInstallModal) {
+    gitInstallModal.addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeGitInstallModal();
+    });
+}
 
 // Close modals on Escape
 document.addEventListener('keydown', (e) => {
@@ -1333,6 +1638,7 @@ document.addEventListener('keydown', (e) => {
         closeUploadModal();
         closeLoginModal();
         closeMyListingsModal();
+        closeGitInstallModal();
     }
 });
 
@@ -1340,6 +1646,51 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('authPassword').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') handleMarketAuth();
 });
+
+// ── Git Install Modal ──
+function openGitInstallModal() {
+    document.getElementById('gitInstallUrl').value = '';
+    document.getElementById('gitInstallModal').classList.add('active');
+}
+
+function closeGitInstallModal() {
+    document.getElementById('gitInstallModal').classList.remove('active');
+}
+
+async function submitGitInstall() {
+    const url = document.getElementById('gitInstallUrl').value.trim();
+    if (!url) {
+        showToast('Please enter a Git URL', 'error');
+        return;
+    }
+    
+    const btn = document.getElementById('gitInstallBtn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Installing...';
+    
+    try {
+        const res = await fetch(`${API}/items/install-git`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ git_url: url })
+        });
+        const data = await res.json();
+        
+        if (data.status === 'success') {
+            showToast(data.message || 'Installed successfully via Git!', 'success');
+            closeGitInstallModal();
+            loadItems(); // refresh UI
+        } else {
+            showToast(data.message || data.detail || 'Git Install failed', 'error');
+        }
+    } catch (e) {
+        showToast('Network error', 'error');
+    }
+    
+    btn.disabled = false;
+    btn.innerHTML = originalText;
+}
 
 // Init auth UI on load
 updateMarketAuthUI();

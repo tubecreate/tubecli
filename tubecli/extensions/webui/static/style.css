@@ -43,8 +43,9 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 /* ─── Content ─── */
 .content { flex: 1; overflow-y: auto; padding: 28px 32px; }
+.content.no-padding { padding: 0; overflow: hidden; }
 .tab-panel { display: none; }
-.tab-panel.active { display: block; }
+.tab-panel.active { display: block; height: 100%; }
 .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
 .panel-header h1 { font-size: 1.5rem; font-weight: 700; }
 .panel-header h2 { font-size: 1.2rem; font-weight: 700; }
@@ -293,3 +294,8 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .ext-chip { padding: 7px 16px; border: 1px solid var(--border); border-radius: 20px; font-size: 0.82rem; font-weight: 500; background: var(--bg3); color: var(--text2); cursor: pointer; transition: all 0.2s; white-space: nowrap; }
 .ext-chip:hover { border-color: var(--cyan); color: var(--text); background: rgba(0,212,255,0.08); }
 .ext-chip.active { border-color: var(--cyan); background: rgba(0,212,255,0.12); color: var(--cyan); font-weight: 600; }
+
+/* ─── Extension Iframe Containers ─── */
+.iframe-container { height: 100vh; width: 100%; overflow: hidden; }
+.iframe-container .ext-iframe { width: 100%; height: 100%; border: none; background: var(--bg); display: block; }
+.sidebar-nav { overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }

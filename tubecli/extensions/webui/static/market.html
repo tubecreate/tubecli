@@ -6,7 +6,7 @@
     <title>ZhiYing &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
     <link rel="stylesheet" href="/static/style.css?v=4">
-    <link rel="stylesheet" href="/static/market.css?v=5">
+    <link rel="stylesheet" href="/static/market.css?v=8">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="/static/i18n.js?v=10"></script>
 </head>
@@ -112,6 +112,9 @@
         <div class="modal-body" id="modalBody">
             <!-- Populated dynamically -->
         </div>
+        <!-- Simulated Terminal for Install/Update -->
+        <div id="installTerminal" style="display:none;background:#0a0a0f;border:1px solid #2a2a4a;border-radius:8px;padding:12px;margin:20px;margin-top:0;font-family:monospace;font-size:0.85rem;color:#00ff00;max-height:150px;overflow-y:auto;">
+        </div>
     </div>
 </div>
 
@@ -190,6 +193,14 @@
                             <input type="text" id="uploadVersion" value="1.0.0" placeholder="1.0.0">
                         </div>
                     </div>
+                    <div class="form-group" style="margin-top: 12px;">
+                        <label>Avatar / Thumbnail URL (Optional)</label>
+                        <input type="text" id="uploadAvatar" placeholder="https://i.imgur.com/your-logo.png">
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="sell.git_url">Git URL (Backup / Fallback)</label>
+                        <input type="text" id="uploadGitUrl" placeholder="https://github.com/user/repo.git">
+                    </div>
                     <div class="form-group">
                         <label data-i18n="sell.tags">Tags (comma separated)</label>
                         <input type="text" id="uploadTags" placeholder="automation, youtube, ai">
@@ -203,6 +214,26 @@
                         <label data-i18n="sell.description">Description</label>
                         <textarea id="uploadDesc" data-i18n-placeholder="sell.desc_placeholder" placeholder="Describe what this item does..." rows="3"></textarea>
                     </div>
+                    
+                    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+                        <h4 style="margin-bottom:12px;font-size:0.95rem;color:var(--text);">💖 Author & Support (Optional)</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Author Name</label>
+                                <input type="text" id="uploadAuthorName" placeholder="Your Name or Alias">
+                            </div>
+                            <div class="form-group">
+                                <label>Contact Link</label>
+                                <input type="text" id="uploadAuthorContact" placeholder="Facebook / Telegram link">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Donate Image Link (QR Code or BuyMeACoffee)</label>
+                            <input type="text" id="uploadAuthorDonate" placeholder="https://i.imgur.com/your-qr.png / https://buymeacoffee.com/you">
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:4px;">Direct link to an image, it will be displayed in the author section of the item.</div>
+                        </div>
+                    </div>
+
                     <div style="display:flex;gap:12px;justify-content:space-between;margin-top:12px;">
                         <button type="button" class="btn-secondary" onclick="goToUploadStep(1)">&#x2190; <span data-i18n="sell.back">Back</span></button>
                         <button type="submit" class="btn-upload" id="uploadSubmitBtn">&#x1F4E4; <span data-i18n="sell.publish">Publish to Market</span></button>
@@ -296,6 +327,25 @@
     </div>
 </div>
 
+<!-- Git Install Modal -->
+<div class="market-modal-overlay" id="gitInstallModal">
+    <div class="market-modal" style="width:400px;">
+        <div style="padding:28px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <h2 style="font-size:1.3rem;font-weight:800;">&#x1F517; Install from Git</h2>
+                <button class="modal-close" onclick="closeGitInstallModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
+                <label>Git Repository URL</label>
+                <input type="text" id="gitInstallUrl" placeholder="https://github.com/user/repo" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);">
+            </div>
+            <button class="btn-buy" id="gitInstallBtn" onclick="submitGitInstall()" style="width:100%;padding:12px;display:flex;justify-content:center;">
+                &#x1F4E4; Install
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Custom Confirm Alert -->
 <div class="market-modal-overlay" id="confirmModal" style="z-index:3000; display:none; align-items:center; justify-content:center;">
     <div class="market-modal" style="width:400px; padding:28px; text-align:center;">
@@ -309,6 +359,6 @@
     </div>
 </div>
 
-<script src="/static/market.js?v=2.0"></script>
+<script src="/static/market.js?v=2.5"></script>
 </body>
 </html>

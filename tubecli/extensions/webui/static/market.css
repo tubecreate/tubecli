@@ -79,7 +79,7 @@
 
 .card-body { padding: 16px; }
 .card-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.card-desc { font-size: 0.8rem; color: var(--text2, #9898b8); margin-bottom: 12px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; min-height: 2.8em; }
+.card-desc { font-size: 0.8rem; color: var(--text2, #9898b8); margin-bottom: 12px; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; min-height: 2.8em; }
 
 .card-meta { display: flex; align-items: center; justify-content: space-between; }
 .card-price { font-weight: 800; font-size: 0.95rem; }
@@ -99,6 +99,36 @@
 
 .market-modal { background: var(--bg2, #12121a); border: 1px solid var(--border, #2a2a4a); border-radius: 16px; width: 720px; max-width: 92vw; max-height: 85vh; overflow-y: auto; box-shadow: 0 30px 80px rgba(0,0,0,0.5); transform: scale(0.95) translateY(10px); transition: transform 0.3s; }
 .market-modal-overlay.active .market-modal { transform: scale(1) translateY(0); }
+
+/* ─── Custom Scrollbars ─── */
+.market-modal,
+#myListingsContent,
+.upload-items-list,
+.modal-body {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(168,85,247,0.35) transparent;
+}
+.market-modal::-webkit-scrollbar,
+#myListingsContent::-webkit-scrollbar,
+.upload-items-list::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar { width: 5px; }
+.market-modal::-webkit-scrollbar-track,
+#myListingsContent::-webkit-scrollbar-track,
+.upload-items-list::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track { background: transparent; }
+.market-modal::-webkit-scrollbar-thumb,
+#myListingsContent::-webkit-scrollbar-thumb,
+.upload-items-list::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #a855f7, #6366f1);
+    border-radius: 10px;
+}
+.market-modal::-webkit-scrollbar-thumb:hover,
+#myListingsContent::-webkit-scrollbar-thumb:hover,
+.upload-items-list::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #c084fc, #818cf8);
+}
 
 .modal-hero { height: 180px; background: linear-gradient(135deg, #0a0a20, #1a1a3a); display: flex; align-items: center; justify-content: center; position: relative; }
 .modal-hero .hero-icon { font-size: 4rem; opacity: 0.3; }
@@ -120,14 +150,47 @@
 .modal-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 24px; }
 .modal-tag { padding: 4px 14px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; background: rgba(168,85,247,0.12); color: #a855f7; }
 
-.modal-action-row { display: flex; gap: 12px; margin-bottom: 28px; }
-.btn-buy { padding: 12px 32px; border: none; border-radius: 12px; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #00d4ff, #3b82f6); color: #fff; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
-.btn-buy:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,212,255,0.3); }
-.btn-buy.free { background: linear-gradient(135deg, #22c55e, #10b981); }
-.btn-buy:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-.btn-install { padding: 12px 32px; border: none; border-radius: 12px; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #a855f7, #6366f1); color: #fff; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
-.btn-install:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(168,85,247,0.35); }
-.btn-install:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+.modal-action-row { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; align-items: center; }
+
+/* ─── Action Buttons (Detail Modal) — Unified pill style ─── */
+.btn-buy, .btn-install, .btn-uninstall, .btn-update {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 10px 22px;
+    border-radius: 10px;
+    font-size: 0.88rem; font-weight: 700;
+    cursor: pointer; border: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+    letter-spacing: 0.01em;
+}
+
+/* Install / Buy — violet→indigo gradient */
+.btn-install {
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(139,92,246,0.25);
+}
+.btn-install:hover {
+    background: linear-gradient(135deg, #a78bfa, #818cf8);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(139,92,246,0.4);
+}
+.btn-install:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Buy — cyan→blue */
+.btn-buy {
+    background: linear-gradient(135deg, #0ea5e9, #3b82f6);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(14,165,233,0.25);
+}
+.btn-buy:hover {
+    background: linear-gradient(135deg, #38bdf8, #60a5fa);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(14,165,233,0.4);
+}
+.btn-buy.free { background: linear-gradient(135deg, #22c55e, #10b981); box-shadow: 0 2px 12px rgba(34,197,94,0.25); }
+.btn-buy.free:hover { background: linear-gradient(135deg, #4ade80, #34d399); box-shadow: 0 6px 20px rgba(34,197,94,0.4); }
+.btn-buy:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* Reviews Section */
 .reviews-section { border-top: 1px solid var(--border, #2a2a4a); padding-top: 24px; }
@@ -236,14 +299,63 @@
 .my-listing-meta { font-size: 0.78rem; color: var(--text-muted, #6868a0); margin-top: 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .my-listing-category { text-transform: uppercase; font-weight: 700; color: #00d4ff; letter-spacing: 0.5px; font-size: 0.7rem; }
 .my-listing-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.btn-view-listing, .btn-delete-listing { width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--border, #2a2a4a); background: transparent; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-.btn-view-listing:hover { border-color: #00d4ff; background: rgba(0,212,255,0.08); }
-.btn-delete-listing:hover { border-color: #ef4444; background: rgba(239,68,68,0.12); }
+.btn-view-listing, .btn-delete-listing, .btn-edit-listing {
+    width: 36px; height: 36px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.05);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s ease;
+}
+.btn-edit-listing { color: #a78bfa; }
+.btn-edit-listing:hover {
+    background: rgba(167,139,250,0.15);
+    border-color: #a78bfa;
+    color: #c4b5fd;
+    transform: translateY(-2px);
+}
+.btn-view-listing { color: #60a5fa; }
+.btn-view-listing:hover {
+    background: rgba(96,165,250,0.15);
+    border-color: #60a5fa;
+    color: #93c5fd;
+    transform: translateY(-2px);
+}
+.btn-delete-listing { color: #f87171; }
+.btn-delete-listing:hover {
+    background: rgba(248,113,113,0.15);
+    border-color: #f87171;
+    color: #fca5a5;
+    transform: translateY(-2px);
+}
 
-/* ─── Uninstall Button (Detail Modal) ─── */
-.btn-uninstall { padding: 12px 32px; border: 2px solid rgba(239,68,68,0.4); border-radius: 12px; font-size: 0.95rem; font-weight: 700; background: transparent; color: #ef4444; cursor: pointer; transition: all 0.3s; display: flex; align-items: center; gap: 8px; }
-.btn-uninstall:hover { background: rgba(239,68,68,0.12); border-color: #ef4444; transform: translateY(-2px); box-shadow: 0 6px 24px rgba(239,68,68,0.2); }
-.btn-uninstall:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+/* ─── Uninstall + Update Buttons (Detail Modal) ─── */
+.btn-uninstall {
+    background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.35);
+    color: #f87171;
+    box-shadow: none;
+}
+.btn-uninstall:hover {
+    background: rgba(239,68,68,0.18);
+    border-color: #ef4444;
+    color: #fca5a5;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(239,68,68,0.2);
+}
+.btn-uninstall:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
+
+.btn-update {
+    background: linear-gradient(135deg, #f59e0b, #f97316);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(245,158,11,0.25);
+}
+.btn-update:hover {
+    background: linear-gradient(135deg, #fbbf24, #fb923c);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(245,158,11,0.4);
+}
+.btn-update:disabled { opacity: 0.45; cursor: not-allowed; transform: none; box-shadow: none; }
 
 /* ─── Responsive ─── */
 @media (max-width: 900px) {
@@ -490,7 +602,7 @@
     color: var(--text-muted, #6868a0);
 }
 .vsx-card-rating { color: #f59e0b; }
-.vsx-card-downloads { }
+
 .vsx-card-price {
     font-size: 0.75rem;
     font-weight: 700;
