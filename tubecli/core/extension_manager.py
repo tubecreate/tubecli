@@ -467,7 +467,8 @@ class ExtensionManager:
     # ── SKILL.md Collection ──────────────────────────────────
 
     def get_all_skill_mds(self) -> List[dict]:
-        """Collect all SKILL.md content from enabled extensions for AI agents."""
+        """Collect all SKILL.md content from enabled extensions for AI agents.
+        Also collects extra skill MDs from extensions that provide them."""
         results = []
         for extension in self.get_enabled():
             try:
@@ -480,6 +481,16 @@ class ExtensionManager:
                     })
             except Exception:
                 pass
+
+            # Collect extra skill MDs (e.g., SKILL_WATCHER.md)
+            try:
+                if hasattr(extension, "get_extra_skill_mds"):
+                    extras = extension.get_extra_skill_mds()
+                    if extras:
+                        results.extend(extras)
+            except Exception:
+                pass
+
         return results
 
     def get_all_telegram_actions(self) -> Dict[str, Any]:
