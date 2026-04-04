@@ -22,6 +22,10 @@ class UploadRequest(BaseModel):
     tags: list = []
     version: str = "1.0.0"
     thumbnail_url: Optional[str] = None
+    git_url: Optional[str] = None
+
+class GitInstallRequest(BaseModel):
+    git_url: str
 
 
 class BuyRequest(BaseModel):
@@ -122,7 +126,35 @@ async def upload_item(req: UploadRequest, authorization: Optional[str] = Header(
         token=token, title=req.title, description=req.description,
         category=req.category, price=req.price, item_data=req.item_data,
         visibility=req.visibility, tags=req.tags, version=req.version,
-        thumbnail_url=req.thumbnail_url,
+        thumbnail_url=req.thumbnail_url, git_url=req.git_url,
+    )
+    if result.get("error"):
+        raise HTTPException(400, result["error"])
+    return result
+
+
+class UpdateItemRequest(BaseModel):
+    title: str
+    description: str = ""
+    category: str
+    price: float = 0
+    item_data: str
+    visibility: str = "PUBLIC"
+    tags: list = []
+    version: str = "1.0.0"
+    thumbnail_url: Optional[str] = None
+    git_url: Optional[str] = None
+
+
+@router.put("/items/{public_id}")
+async def update_item(public_id: str, req: UpdateItemRequest, authorization: Optional[str] = Header(None)):
+    """Update an existing item listing on the marketplace."""
+    token = _get_token(authorization)
+    result = await market_service.update_item(
+        token=token, public_id=public_id, title=req.title, description=req.description,
+        category=req.category, price=req.price, item_data=req.item_data,
+        visibility=req.visibility, tags=req.tags, version=req.version,
+        thumbnail_url=req.thumbnail_url, git_url=req.git_url,
     )
     if result.get("error"):
         raise HTTPException(400, result["error"])
@@ -174,6 +206,7 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
     name_clean = name.replace(" ", "_").lower()
     installed = False
     install_path = ""
+    local_version = "0.0.0"
 
     if category == "extension":
         # Check exact match first (name__public_id)
@@ -220,7 +253,18 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
         installed = os.path.isfile(wf_path)
         install_path = wf_path
 
-    return {"installed": installed, "path": install_path, "install_id": install_id}
+    if installed and category == "extension" and install_path:
+        manifest_file = os.path.join(install_path, "tubecli-extension.json")
+        if os.path.exists(manifest_file):
+            try:
+                import json as _json
+                with open(manifest_file, "r", encoding="utf-8") as f:
+                    m = _json.load(f)
+                local_version = m.get("version", "0.0.0")
+            except:
+                pass
+
+    return {"installed": installed, "path": install_path, "install_id": install_id, "local_version": local_version}
 
 
 @router.get("/items/{public_id}/check-installed")
@@ -280,6 +324,25 @@ class MarketInstallRequest(BaseModel):
     item_data: str   # JSON of the extension package data
     item_name: str   # extension name
     category: str    # extension, node, skill, model3d
+    force_update: bool = False
+
+@router.post("/items/{item_name}/update-local")
+async def update_local_extension(item_name: str):
+    """Trigger local Git update for an installed extension."""
+    from tubecli.core.extension_manager import extension_manager
+    result = extension_manager.update_extension(item_name)
+    if result.get("status") == "error":
+        raise HTTPException(400, result.get("message", "Update failed"))
+    return result
+
+@router.post("/items/install-git")
+async def install_git_extension(req: GitInstallRequest):
+    """Fallback to install from Git."""
+    from tubecli.core.extension_manager import extension_manager
+    result = extension_manager.install_from_git(req.git_url)
+    if result.get("status") == "error":
+        raise HTTPException(400, result.get("message", "Git install failed"))
+    return result
 
 
 @router.post("/items/{public_id}/install")
@@ -306,7 +369,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 
     # Check for duplicate installation by public_id
     check = _check_item_installed(public_id, req.item_name, category)
-    if check["installed"]:
+    if check["installed"] and not req.force_update:
         raise HTTPException(
             409,
             detail={
@@ -363,9 +426,28 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                     f.write(file_info["content"])
             print(f"[Market] Wrote {len(item_data['files'])} files to {ext_dir}")
         else:
-            # ── Step 4: Fallback — find extension source locally ──
+            # ── Fallback 1: git_url backup ──
             source_dir = None
-
+            git_url = item_data.get("git_url") if isinstance(item_data, dict) else None
+            # Extract git_url from meta tags if API included it there or in top level
+            if not git_url and isinstance(item_data, dict) and item_data.get("tags"):
+                for tag in item_data.get("tags", []):
+                    if isinstance(tag, str) and tag.startswith("git_url:"):
+                        git_url = tag.replace("git_url:", "")
+                        break
+                        
+            if git_url:
+                print(f"[Market] Fallback to Git Install: {git_url}")
+                from tubecli.core.extension_manager import extension_manager
+                # Xóa thư mục rỗng chuẩn bị nãy giờ vì git clone cần trống
+                shutil.rmtree(ext_dir, ignore_errors=True)
+                git_res = extension_manager.install_from_git(git_url)
+                if git_res.get("status") == "success":
+                    return {"status": "success", "message": git_res.get("message"), "type": "extension", "restart_required": False}
+                else:
+                    raise HTTPException(500, f"Git fallback install failed: {git_res.get('message')}")
+            
+            # ── Fallback 2: Local source ──
             # Check extensions_external for a folder matching the extension name
             if os.path.isdir(str(EXTENSIONS_EXTERNAL_DIR)):
                 for entry in os.listdir(str(EXTENSIONS_EXTERNAL_DIR)):

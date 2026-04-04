@@ -21,6 +21,20 @@
             <button class="nav-item" data-tab="extensions"><span class="nav-icon">🧩</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span></button>
             <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
             <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
+
+            <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
+            <button class="nav-item ext-conditional" data-ext="web_crawler" data-tab="ext-web-crawler" style="display:none"><span class="nav-icon">🕸️</span> <span class="nav-text">Web Crawler</span></button>
+            <button class="nav-item ext-conditional" data-ext="sheets_manager" data-tab="ext-sheets" style="display:none"><span class="nav-icon">📊</span> <span class="nav-text">Sheets</span></button>
+            <button class="nav-item ext-conditional" data-ext="calendar_manager" data-tab="ext-calendar" style="display:none"><span class="nav-icon">📅</span> <span class="nav-text">Calendar</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_downloader" data-tab="ext-downloader" style="display:none"><span class="nav-icon">📥</span> <span class="nav-text">Douyin Download</span></button>
+            <button class="nav-item ext-conditional" data-ext="livestream" data-tab="ext-livestream" style="display:none"><span class="nav-icon">📡</span> <span class="nav-text">Livestream</span></button>
+            <button class="nav-item ext-conditional" data-ext="multi_agents" data-tab="ext-teams" style="display:none"><span class="nav-icon">👥</span> <span class="nav-text">Teams AI</span></button>
+            <button class="nav-item" data-tab="ext-story"><span class="nav-icon">🎬</span> <span class="nav-text">Story Engine</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-editor" style="display:none"><span class="nav-icon">📼</span> <span class="nav-text">Video Editor</span></button>
+            <button class="nav-item" data-tab="ext-studio"><span class="nav-icon">🎨</span> <span class="nav-text">3D Studio</span></button>
+            <button class="nav-item" data-tab="ext-file-manager"><span class="nav-icon">📁</span> <span class="nav-text">Files</span></button>
+            <!-- Dynamic API-only overlays will pop in naturally -->
+
         </nav>
         <div class="sidebar-footer" id="sidebar-footer">
             <span class="status-dot"></span> <span data-i18n="sidebar.connected">API Connected</span>
@@ -54,18 +68,53 @@
 
             <h3 style="margin: 28px 0 16px; color: var(--text2);" data-i18n="dash.quick_actions">📌 Quick Actions</h3>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="btn-primary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('agents'), 200)" data-i18n="dash.manage_agents">🤖 Manage Agents</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('browser'), 200)" data-i18n="dash.browser_profiles">🌐 Browser Profiles</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('workflows'), 200)" data-i18n="dash.workflow_builder">🔄 Workflow Builder</button>
-                <button class="btn-secondary" onclick="document.querySelector('.nav-item[data-tab=extensions]').click(); setTimeout(()=>openExtDetail('cloud_api'), 200)" data-i18n="dash.cloud_api_keys">☁️ Cloud API Keys</button>
-                <button class="btn-secondary" onclick="window.location.href='/teams'">🏛️ Teams AI</button>
-                <button class="btn-secondary" onclick="window.location.href='/studio'">🎨 3D Studio</button>
-                <button class="btn-secondary" onclick="window.location.href='/story'">🎬 Story Engine</button>
+                <button class="btn-primary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('agents'), 200)" data-i18n="dash.manage_agents">🤖 Manage Agents</button>
+                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('browser'), 200)" data-i18n="dash.browser_profiles">🌐 Browser Profiles</button>
+                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('workflows'), 200)" data-i18n="dash.workflow_builder">🔄 Workflow Builder</button>
+                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('cloud_api'), 200)" data-i18n="dash.cloud_api_keys">☁️ Cloud API Keys</button>
+                <button class="btn-secondary ext-conditional" data-ext="multi_agents" onclick="navigateTo('ext-teams')" style="display:none">🏛️ Teams AI</button>
+                <button class="btn-secondary" onclick="navigateTo('ext-story')">🎬 Story Engine</button>
+                <button class="btn-secondary ext-conditional" data-ext="video_editor" onclick="navigateTo('ext-video-editor')" style="display:none">📼 Video Editor</button>
+                <button class="btn-secondary" onclick="navigateTo('ext-studio')">🎨 3D Studio</button>
                 <button class="btn-secondary" onclick="window.location.href='/auth-manager'">🔐 Auth Manager</button>
-                <button class="btn-secondary" onclick="window.location.href='/sheets-manager'">📊 Sheets Manager</button>
-                <button class="btn-secondary" onclick="window.location.href='/livestream'" style="background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(249,115,22,0.1));border-color:rgba(239,68,68,0.3)">📡 Livestream</button>
-                <button class="btn-secondary" onclick="window.location.href='/downloader'">📥 Douyin Downloader</button>
+                <button class="btn-secondary ext-conditional" data-ext="sheets_manager" onclick="navigateTo('ext-sheets')" style="display:none">📊 Sheets Manager</button>
+                <button class="btn-secondary ext-conditional" data-ext="livestream" onclick="navigateTo('ext-livestream')" style="background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(249,115,22,0.1));border-color:rgba(239,68,68,0.3);display:none;">📡 Livestream</button>
+                <button class="btn-secondary ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-downloader')" style="display:none">📥 Douyin Download</button>
+                <button class="btn-secondary ext-conditional" data-ext="web_crawler" onclick="navigateTo('ext-web-crawler')" style="display:none">🕸️ Web Crawler</button>
             </div>
+        </section>
+
+        <!-- ═══ EXTENSION IFRAME PANELS ═══ -->
+        <section class="tab-panel" id="tab-ext-web-crawler">
+            <div class="iframe-container"><iframe data-src="/web_crawler" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-sheets">
+            <div class="iframe-container"><iframe data-src="/sheets_manager" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-calendar">
+            <div class="panel-header"><h1>📅 Calendar Manager</h1></div>
+            <div id="calendar-ext-body"></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-downloader">
+            <div class="iframe-container"><iframe data-src="/downloader" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-livestream">
+            <div class="iframe-container"><iframe data-src="/livestream" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-teams">
+            <div class="iframe-container"><iframe data-src="/teams" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-story">
+            <div class="iframe-container"><iframe data-src="/story" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-video-editor">
+            <div class="iframe-container"><iframe data-src="/video-editor" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-studio">
+            <div class="iframe-container"><iframe data-src="/studio" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-file-manager">
+            <div class="iframe-container"><iframe data-src="/file-manager" class="ext-iframe"></iframe></div>
         </section>
 
         <!-- ═══ EXTENSIONS TAB ═══ -->

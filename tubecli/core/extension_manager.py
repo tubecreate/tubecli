@@ -621,6 +621,86 @@ class ExtensionManager:
             "message": f"Extension '{extension.name}' v{extension.version} installed and enabled.",
         }
 
+    def update_extension(self, name: str) -> dict:
+        """Update an external extension from Git and reinstall dependencies."""
+        extension = self._extensions.get(name)
+        if not extension:
+            return {"status": "error", "message": f"Extension '{name}' not found."}
+
+        if extension.extension_type != "external":
+            return {"status": "error", "message": f"Cannot update system extension '{name}'."}
+
+        target_dir = extension.extension_dir
+        if not target_dir or not os.path.exists(target_dir):
+            return {"status": "error", "message": "Extension directory not found."}
+
+        # Update via Git if .git is present
+        git_dir = os.path.join(target_dir, ".git")
+        if os.path.exists(git_dir):
+            try:
+                logger.info(f"Updating extension '{name}' via git pull...")
+                result = subprocess.run(
+                    ["git", "pull"],
+                    cwd=target_dir, capture_output=True, text=True, timeout=120
+                )
+                if result.returncode != 0:
+                    return {"status": "error", "message": f"Git pull failed: {result.stderr}"}
+            except Exception as e:
+                return {"status": "error", "message": f"Git pull error: {e}"}
+        else:
+            return {"status": "error", "message": "Currently only extensions installed via Git can be updated."}
+
+        # Install Python dependencies if requirements.txt exists
+        req_file = os.path.join(target_dir, "requirements.txt")
+        if os.path.exists(req_file):
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"],
+                    capture_output=True, timeout=120,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to install extension python dependencies during update: {e}")
+
+        # Install Node.js dependencies if package.json exists
+        pkg_file = os.path.join(target_dir, "package.json")
+        if os.path.exists(pkg_file):
+            try:
+                print(f"📦 Updating Node.js dependencies for {name}...")
+                subprocess.run(
+                    ["npm", "install", "--no-audit", "--no-fund"],
+                    cwd=target_dir, capture_output=True, timeout=180, shell=True
+                )
+            except Exception as e:
+                logger.warning(f"Failed to update node dependencies: {e}")
+
+        # Reload extension
+        manifest_file = os.path.join(target_dir, "tubecli-extension.json")
+        if not os.path.exists(manifest_file):
+            return {"status": "error", "message": "manifest not found after update"}
+
+        try:
+            with open(manifest_file, "r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            
+            was_enabled = extension.enabled
+            self.disable(name)
+            
+            reloaded_ext = self._load_external_extension(target_dir, manifest)
+            if not reloaded_ext:
+                return {"status": "error", "message": "Failed to reload extension module."}
+                
+            self.register(reloaded_ext)
+            if was_enabled:
+                self.enable(name)
+                
+            return {
+                "status": "success",
+                "extension": reloaded_ext.to_dict(),
+                "message": f"Extension '{name}' updated successfully to v{reloaded_ext.version}.",
+            }
+        except Exception as e:
+            return {"status": "error", "message": f"Error reloading extension: {e}"}
+
     def uninstall(self, name: str) -> dict:
         """Remove an external extension.
 

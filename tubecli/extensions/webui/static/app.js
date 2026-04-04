@@ -4,21 +4,81 @@
  */
 const API = localStorage.getItem('zhiying_api') || 'http://localhost:5295';
 
-// ═══ Tab Navigation ═══
+// ═══ Hash Router ═══
+const ROUTE_TAB_MAP = {
+    'dashboard': 'dashboard',
+    'extensions': 'extensions',
+    'api-manager': 'api-manager',
+    'settings': 'settings',
+    'ext-web-crawler': 'ext-web-crawler',
+    'ext-sheets': 'ext-sheets',
+    'ext-calendar': 'ext-calendar',
+    'ext-downloader': 'ext-downloader',
+    'ext-livestream': 'ext-livestream',
+    'ext-teams': 'ext-teams',
+    'ext-story': 'ext-story',
+    'ext-video-editor': 'ext-video-editor',
+    'ext-studio': 'ext-studio',
+    'ext-file-manager': 'ext-file-manager',
+};
+
+function navigateTo(tab) {
+    window.location.hash = '#/' + tab;
+}
+
+function handleRoute() {
+    const hash = window.location.hash.replace('#/', '') || 'dashboard';
+    const tab = ROUTE_TAB_MAP[hash] || (hash.startsWith('ext-') ? hash : 'dashboard');
+    activateTab(tab);
+}
+
+function activateTab(tab) {
+    // Update sidebar active state
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    const navBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+    if (navBtn) navBtn.classList.add('active');
+
+    // Toggle padding on content area for full-screen iframes (skip native calendar)
+    const contentArea = document.querySelector('.content');
+    if (contentArea) {
+        if (tab.startsWith('ext-') && tab !== 'ext-calendar') contentArea.classList.add('no-padding');
+        else contentArea.classList.remove('no-padding');
+    }
+
+    // Switch tab panels
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('tab-' + tab);
+    if (panel) panel.classList.add('active');
+
+    // Close extension detail overlay if switching main tabs
+    closeExtDetail();
+
+    // Lazy-load iframes: only set src when first activated
+    if (tab.startsWith('ext-')) {
+        const iframe = panel?.querySelector('iframe.ext-iframe[data-src]');
+        if (iframe && (!iframe.getAttribute('src') || iframe.getAttribute('src') === '')) {
+            iframe.src = iframe.getAttribute('data-src');
+        }
+    }
+
+    // Tab-specific loading
+    if (tab === 'dashboard') loadDashboard();
+    else if (tab === 'extensions') loadExtensions();
+    else if (tab === 'api-manager') loadApiManagerPage();
+    else if (tab === 'ext-calendar') {
+        renderCalendarManagerExt(document.getElementById('calendar-ext-body'));
+    }
+}
+
+// Sidebar click → navigate via hash
 document.querySelectorAll('.nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-        btn.classList.add('active');
-        const el = document.getElementById('tab-' + btn.dataset.tab);
-        if (el) el.classList.add('active');
-        closeExtDetail(); // always close overlay when switching tabs
-        const tab = btn.dataset.tab;
-        if (tab === 'dashboard') loadDashboard();
-        else if (tab === 'extensions') loadExtensions();
-        else if (tab === 'api-manager') loadApiManagerPage();
+        navigateTo(btn.dataset.tab);
     });
 });
+
+// Listen for hash changes (back/forward)
+window.addEventListener('hashchange', handleRoute);
 
 // Agent Modal Tabs
 document.querySelectorAll('.agent-tab-btn').forEach(btn => {
@@ -94,6 +154,82 @@ const EXT_REGISTRY = [
     { id:'calendar_manager', icon:'📅', name:'Calendar Manager', desc:'Quản lý Google Calendar — lập lịch, sự kiện lặp lại, nhắc nhở Telegram', type:'core' },
     { id:'web_crawler', icon:'🕸️', name:'Web Crawler', desc:'Trích xuất dữ liệu, titles, links từ website', type:'extension' },
 ];
+
+async function loadDynamicExtensionsToSidebar() {
+    const extensionData = await apiGet('/api/v1/extensions');
+    const extensions = extensionData?.extensions || [];
+    const sidebarNav = document.querySelector('.sidebar-nav');
+    
+    extensions.forEach(ext => {
+        const hardcodedExtensions = [
+            'web_crawler', 'sheets_manager', 'calendar_manager', 
+            'multi_agents', 'livestream', 'files', 'video_editor'
+        ];
+        
+        // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
+        if (ext.enabled) {
+            document.querySelectorAll(`.ext-conditional[data-ext="${ext.name}"]`).forEach(el => {
+                el.style.display = '';
+            });
+        }
+        
+        // Skip if already in EXT_REGISTRY, hardcoded in Sidebar, or disabled
+        const inRegistry = EXT_REGISTRY.some(e => e.id === ext.name);
+        const isHardcoded = hardcodedExtensions.includes(ext.name);
+        
+        if (!inRegistry && !isHardcoded && ext.extension_type === 'external' && ext.enabled) {
+            const icon = ext.icon || '📦';
+            const name = ext.name;
+            const tabId = 'ext-' + name;
+            
+            // Add to sidebar IMMEDIATELY to prevent visual pop-in delay
+            const btn = document.createElement('button');
+            btn.className = 'nav-item';
+            btn.innerHTML = `<span class="nav-icon">${icon}</span> <span class="nav-text">${esc(name)}</span>`;
+            
+            // Initial routing logic based on pre-fetched has_ui info
+            if (ext.has_ui) {
+                btn.dataset.tab = tabId;
+                btn.addEventListener('click', () => navigateTo(tabId));
+            } else {
+                btn.addEventListener('click', () => openExternalExtDetail(name));
+            }
+            sidebarNav.appendChild(btn);
+
+            // Fetch info asynchronously to construct the iframe
+            if (ext.has_ui !== false) {
+                apiGet(`/api/v1/extensions/${encodeURIComponent(ext.name)}/info`).then(info => {
+                    const manifest = info?.manifest || {};
+                    const src = manifest.page_url;
+                    
+                    if (src) {
+                        // Ensure click routing applies
+                        btn.dataset.tab = tabId;
+                        btn.onclick = () => navigateTo(tabId);
+                        
+                        // Append tab panel if missing
+                        if (!document.getElementById('tab-' + tabId)) {
+                            const panel = document.createElement('section');
+                            panel.className = 'tab-panel';
+                            panel.id = 'tab-' + tabId;
+                            panel.innerHTML = `<div class="iframe-container"><iframe data-src="${src}" class="ext-iframe"></iframe></div>`;
+                            document.querySelector('.content').appendChild(panel);
+                        }
+                        
+                        // If it happens to be the currently active hash route, show it immediately
+                        if (window.location.hash === '#/' + tabId) {
+                            activateTab(tabId);
+                        }
+                    } else {
+                        // Fallback in case has_ui was somehow true but no page_url exists
+                        btn.removeAttribute('data-tab');
+                        btn.onclick = () => openExternalExtDetail(name);
+                    }
+                });
+            }
+        }
+    });
+}
 
 async function loadExtensions() {
     const extensionData = await apiGet('/api/v1/extensions');
@@ -512,8 +648,19 @@ async function pollYtdlTask(uid, taskId) {
 
 // ═══ Extension Detail Overlay ═══
 function openExtDetail(id) {
-    // Redirect to dedicated pages (only studio3d has no overlay)
-    if (id === 'studio3d') { window.location.href = '/studio'; return; }
+    // Extensions with dedicated sidebar tabs → navigate via hash route
+    const hashRoutes = {
+        'web_crawler': 'ext-web-crawler',
+        'sheets_manager': 'ext-sheets',
+        'calendar_manager': 'ext-calendar',
+        'downloader': 'ext-downloader',
+        'multi_agents': 'ext-teams',
+        'story_engine': 'ext-story',
+        'video_editor': 'ext-video-editor',
+        'file_manager': 'ext-file-manager',
+        'studio3d': 'ext-studio',
+    };
+    if (hashRoutes[id]) { navigateTo(hashRoutes[id]); return; }
 
     const ext = EXT_REGISTRY.find(e => e.id === id);
     if (!ext) return;
@@ -535,13 +682,7 @@ function openExtDetail(id) {
     else if (id === 'market') renderFullPageExt(body, 'Marketplace', 'Khám phá và cài đặt extension từ cộng đồng', `/market?v=${Date.now()}`);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
-    else if (id === 'multi_agents') renderFullPageExt(body, 'Multi-Agents', 'Quản lý đội nhóm agent và phân công nhiệm vụ tự động.', '/teams');
-    else if (id === 'downloader') renderFullPageExt(body, 'Video Downloader', 'Tải video từ TikTok & Douyin. Hỗ trợ quét kênh, tải hàng loạt.', '/downloader');
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
-    else if (id === 'sheets_manager') renderFullPageExt(body, 'Google Sheets', 'Manage Google Spreadsheets.', '/sheets_manager');
-    else if (id === 'file_manager') renderFullPageExt(body, 'File Manager', 'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp.', '/file-manager');
-    else if (id === 'calendar_manager') renderCalendarManagerExt(body);
-    else if (id === 'web_crawler') renderFullPageExt(body, 'Web Crawler', 'Trích xuất dữ liệu, titles, links từ website', '/web_crawler');
 }
 function closeExtDetail() { 
     document.getElementById('ext-detail-overlay').classList.add('hidden'); 
@@ -2461,10 +2602,12 @@ async function performSystemUpdate() {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
     checkConnection();
-    loadDashboard();
     loadVersionInfo();
     loadGlobalSettings();
+    loadDynamicExtensionsToSidebar();
     const s=localStorage.getItem('zhiying_api');
     if(s) document.getElementById('set-api').value=s;
     if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
+    // Route based on current URL hash
+    handleRoute();
 });

@@ -2,8 +2,10 @@
 Market CLI Service — HTTP client for PHP Market API.
 Mirrors the pattern from python-video-studio marketplace_service.py.
 """
+import os
 import json
 from typing import List, Dict, Any, Optional
+from tubecli.config import DATA_DIR
 
 try:
     import httpx
@@ -80,9 +82,35 @@ class MarketService:
         if user_id: params["user_id"] = user_id
 
         try:
-            return await self._get(url, params=params)
+            result = await self._get(url, params=params)
+            # Dùng params stringify để tạo tên file cache tránh trùng lặp
+            import hashlib
+            param_str = json.dumps(params, sort_keys=True)
+            cache_hash = hashlib.md5(param_str.encode()).hexdigest()
+            cache_file = os.path.join(str(DATA_DIR), f"market_cache_{cache_hash}.json")
+            
+            if result and result.get("status") == "success":
+                try:
+                    with open(cache_file, "w", encoding="utf-8") as f:
+                        json.dump(result, f, ensure_ascii=False)
+                except Exception as e:
+                    print(f"[MarketCLI] Save cache warning: {e}")
+            return result
         except Exception as e:
-            print(f"[MarketCLI] List error: {e}")
+            print(f"[MarketCLI] List error ({e}). Trying to load from cache...")
+            import hashlib
+            param_str = json.dumps(params, sort_keys=True)
+            cache_hash = hashlib.md5(param_str.encode()).hexdigest()
+            cache_file = os.path.join(str(DATA_DIR), f"market_cache_{cache_hash}.json")
+            
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cached_result = json.load(f)
+                        cached_result["_is_cached"] = True
+                        return cached_result
+                except Exception as ce:
+                    print(f"[MarketCLI] Cache read error: {ce}")
 
         return {"status": "error", "data": [], "pagination": {}}
 
@@ -104,7 +132,7 @@ class MarketService:
 
     async def upload_item(self, token: str, title: str, description: str, category: str,
                           price: float, item_data: str, visibility: str = "PUBLIC",
-                          tags: list = None, version: str = "1.0.0", thumbnail_url: str = None) -> Dict:
+                          tags: list = None, version: str = "1.0.0", thumbnail_url: str = None, git_url: str = None) -> Dict:
         """Upload a new item to marketplace."""
         headers = {"Authorization": f"Bearer {token}"}
         payload = {"title": title, "description": description, "category": category,
@@ -112,6 +140,8 @@ class MarketService:
                    "tags": tags or [], "version": version}
         if thumbnail_url:
             payload["thumbnail_url"] = thumbnail_url
+        if git_url:
+            payload["git_url"] = git_url
 
         # Log payload size for debugging
         import json as _json
@@ -150,6 +180,54 @@ class MarketService:
         except Exception as e:
             print(f"[MarketCLI] Upload error: {e}")
             return {"status": "error", "error": f"Upload failed: {str(e)}"}
+
+    async def update_item(self, token: str, public_id: str, title: str, description: str,
+                          category: str, price: float, item_data: str, visibility: str = "PUBLIC",
+                          tags: list = None, version: str = "1.0.0",
+                          thumbnail_url: str = None, git_url: str = None) -> Dict:
+        """Update an existing marketplace item."""
+        headers = {"Authorization": f"Bearer {token}"}
+        payload = {
+            "public_id": public_id,
+            "title": title, "description": description, "category": category,
+            "price": price, "item_data": item_data, "visibility": visibility,
+            "tags": tags or [], "version": version
+        }
+        if thumbnail_url:
+            payload["thumbnail_url"] = thumbnail_url
+        if git_url:
+            payload["git_url"] = git_url
+        try:
+            url = f"{self.api_base}/update.php"
+            if _HTTPX_AVAILABLE:
+                async with httpx.AsyncClient(timeout=TIMEOUT_LONG) as client:
+                    r = await client.post(url, json=payload, headers=headers)
+                    if r.status_code >= 400:
+                        try:
+                            err_data = r.json()
+                            error_msg = err_data.get("error", r.text[:200])
+                        except Exception:
+                            error_msg = r.text[:200]
+                        print(f"[MarketCLI] Update HTTP {r.status_code}: {error_msg}")
+                        return {"status": "error", "error": error_msg}
+                    return r.json()
+            else:
+                import asyncio
+                import requests as _req
+                def _sync():
+                    r = _req.post(url, json=payload, headers=headers, timeout=TIMEOUT_LONG)
+                    if r.status_code >= 400:
+                        try:
+                            err_data = r.json()
+                            error_msg = err_data.get("error", r.text[:200])
+                        except Exception:
+                            error_msg = r.text[:200]
+                        return {"status": "error", "error": error_msg}
+                    return r.json()
+                return await asyncio.to_thread(_sync)
+        except Exception as e:
+            print(f"[MarketCLI] Update error: {e}")
+            return {"status": "error", "error": f"Update failed: {str(e)}"}
 
     async def buy_item(self, token: str, item_id: str) -> Dict:
         """Purchase an item."""
