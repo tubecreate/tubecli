@@ -30,6 +30,20 @@ async def startup_event():
     from tubecli.core.telegram_listener import telegram_listener
     telegram_listener.start()
 
+    # Start PageWatcher scheduler (if web_crawler extension has watches)
+    try:
+        import sys
+        from tubecli.config import EXTENSIONS_EXTERNAL_DIR
+        wc_dir = os.path.join(str(EXTENSIONS_EXTERNAL_DIR), "web_crawler")
+        if os.path.isdir(wc_dir) and wc_dir not in sys.path:
+            sys.path.insert(0, wc_dir)
+        from watcher import page_watcher
+        if page_watcher.list_watches():
+            page_watcher.start_scheduler()
+            print("[Startup] PageWatcher scheduler started")
+    except Exception as e:
+        print(f"[Startup] PageWatcher not available: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
     from tubecli.core.telegram_listener import telegram_listener

@@ -129,6 +129,10 @@ class TelegramListener:
             # Send "thinking..." message
             thinking_msg_id = await self._send_thinking_message(token, chat_id)
 
+            # Enrich context with telegram info for extension handlers
+            context["token"] = token
+            context["chat_id"] = chat_id
+
             result = await self._process_message(text, context)
 
             # Cancel typing indicator
@@ -643,7 +647,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
             reply = await self._exec_schedule_event(action_data)
 
         # Handle Extension Actions from AI response text (fallback for inline JSON)
-        result = await self._handle_extension_action(reply, agent_dict)
+        result = await self._handle_extension_action(reply, agent_dict, context)
 
         # Save History
         reply_for_history = result if isinstance(result, str) else f"[File sent: {result.get('caption', '')}]"
@@ -685,7 +689,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
                 return url
         return None
 
-    async def _handle_extension_action(self, reply: str, agent_dict: Dict):
+    async def _handle_extension_action(self, reply: str, agent_dict: Dict, context: Dict = None):
         """Parse AI reply for JSON action blocks and execute extension logic.
         Dynamically discovers handlers from installed extensions.
         Returns str or dict (for file sending).
@@ -724,8 +728,12 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
                 handler_info = ext_actions[action_type]
                 handler_fn = handler_info["handler"]
                 ext_name = handler_info["extension"]
-                context = {"agent": agent_dict}
-                result = await handler_fn(action_data, context)
+                # Pass telegram context (token, chat_id) to extension handlers
+                ext_context = {"agent": agent_dict}
+                if context:
+                    ext_context["token"] = context.get("token", "")
+                    ext_context["chat_id"] = context.get("chat_id")
+                result = await handler_fn(action_data, ext_context)
                 return result
         except Exception as e:
             print(f"[TelegramListener] Extension action error: {e}")
