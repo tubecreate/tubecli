@@ -1,9 +1,15 @@
 """
 tubecli init — Initialize workspace, create data dirs, install default skills.
 Supports --lang option for multi-language setup.
+Includes first-run Setup Wizard for guided onboarding.
 """
 import click
+import re
+import json
+import os
 from rich.console import Console
+from rich.panel import Panel
+from rich.text import Text
 
 console = Console()
 
@@ -69,8 +75,13 @@ def init_cmd(lang):
         console.print(t("init.ollama_installed"))
 
     console.print(t("init.workspace_ready"))
-    
-    # 6. Launch Interactive Menu
+
+    # 6. Check if first run → launch Setup Wizard
+    from tubecli.config import get_setting
+    if not get_setting("setup_completed"):
+        _run_setup_wizard()
+
+    # 7. Launch Interactive Menu
     _run_control_panel()
 
 
@@ -93,6 +104,271 @@ def _kill_server_on_port(port: int):
     except Exception:
         pass
 
+
+# ═══════════════════════════════════════════════════════════════
+#  SETUP WIZARD — First-run guided onboarding
+# ═══════════════════════════════════════════════════════════════
+
+def _run_setup_wizard():
+    """3-step setup wizard for first-time users."""
+    from tubecli.i18n import t
+    from tubecli.config import set_setting
+
+    # Welcome banner
+    console.print()
+    console.print(Panel(
+        t("wizard.welcome_body"),
+        title=t("wizard.welcome_title"),
+        border_style="bright_cyan",
+        padding=(1, 2),
+    ))
+
+    # Option to skip entirely
+    console.print(f"\n  [bold yellow]0.[/bold yellow] {t('wizard.skip_all')}")
+    console.print(f"  [bold yellow]1.[/bold yellow] {t('wizard.start_setup')}\n")
+    choice = click.prompt(t("panel.select"), type=str, default="1")
+    if choice == "0":
+        set_setting("setup_completed", True)
+        console.print(t("wizard.skipped_all"))
+        return
+
+    # ── Step 1: AI Chat Setup ────────────────────────────────
+    _wizard_step_ai(t)
+
+    # ── Step 2: Telegram Setup ───────────────────────────────
+    _wizard_step_telegram(t)
+
+    # ── Step 3: Summary ──────────────────────────────────────
+    _wizard_step_summary(t)
+
+    set_setting("setup_completed", True)
+
+
+def _wizard_step_ai(t):
+    """Step 1: Configure AI provider (API key or Ollama)."""
+    console.print()
+    console.print(Panel(
+        t("wizard.ai_body"),
+        title=t("wizard.ai_title"),
+        border_style="green",
+        padding=(1, 2),
+    ))
+
+    console.print(f"  [bold yellow]1.[/bold yellow] {t('wizard.ai_gemini')}")
+    console.print(f"  [bold yellow]2.[/bold yellow] {t('wizard.ai_other')}")
+    console.print(f"  [bold yellow]3.[/bold yellow] {t('wizard.ai_ollama')}")
+    console.print(f"  [bold yellow]0.[/bold yellow] {t('wizard.skip_step')}\n")
+
+    choice = click.prompt(t("panel.select"), type=str, default="1")
+
+    if choice == "0":
+        console.print(t("wizard.step_skipped"))
+        return
+
+    if choice == "1":
+        # Gemini setup
+        console.print(t("wizard.gemini_guide"))
+        key = click.prompt(t("wizard.enter_api_key"), default="", show_default=False)
+        if key.strip():
+            _save_api_key("gemini", key.strip())
+        else:
+            console.print(t("wizard.step_skipped"))
+
+    elif choice == "2":
+        # Other providers submenu
+        providers = [
+            ("openai", "OpenAI"),
+            ("claude", "Anthropic Claude"),
+            ("deepseek", "DeepSeek"),
+        ]
+        for i, (pid, pname) in enumerate(providers, 1):
+            console.print(f"  [bold yellow]{i}.[/bold yellow] {pname}")
+        console.print(f"  [bold yellow]0.[/bold yellow] {t('wizard.skip_step')}\n")
+
+        sub = click.prompt(t("panel.select"), type=str, default="0")
+        try:
+            idx = int(sub) - 1
+            if 0 <= idx < len(providers):
+                pid, pname = providers[idx]
+                key = click.prompt(f"{t('wizard.enter_api_key')} ({pname})", default="", show_default=False)
+                if key.strip():
+                    _save_api_key(pid, key.strip())
+                else:
+                    console.print(t("wizard.step_skipped"))
+            else:
+                console.print(t("wizard.step_skipped"))
+        except ValueError:
+            console.print(t("wizard.step_skipped"))
+
+    elif choice == "3":
+        # Ollama guide
+        from tubecli.core.ollama_utils import is_ollama_installed
+        if is_ollama_installed():
+            console.print(t("wizard.ollama_ready"))
+        else:
+            console.print(t("wizard.ollama_not_ready"))
+
+
+def _save_api_key(provider_id: str, key: str):
+    """Save an API key via the cloud_api extension's key_manager."""
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        result = key_manager.add_key(provider_id, key)
+        if result.get("status") == "success":
+            console.print(f"[green]✅ {provider_id.upper()} API Key {_t_safe('wizard.key_saved')}[/green]")
+        else:
+            console.print(f"[red]❌ {result.get('message', 'Error')}[/red]")
+    except Exception as e:
+        console.print(f"[red]❌ {e}[/red]")
+
+
+def _t_safe(key):
+    """Try to translate, fallback to key."""
+    try:
+        from tubecli.i18n import t
+        return t(key)
+    except Exception:
+        return key
+
+
+def _wizard_step_telegram(t):
+    """Step 2: Connect Telegram bot."""
+    console.print()
+    console.print(Panel(
+        t("wizard.telegram_body"),
+        title=t("wizard.telegram_title"),
+        border_style="blue",
+        padding=(1, 2),
+    ))
+
+    console.print(f"  [bold yellow]1.[/bold yellow] {t('wizard.telegram_start')}")
+    console.print(f"  [bold yellow]0.[/bold yellow] {t('wizard.skip_step')}\n")
+
+    choice = click.prompt(t("panel.select"), type=str, default="1")
+
+    if choice == "0":
+        console.print(t("wizard.step_skipped"))
+        return
+
+    # Guide
+    console.print(t("wizard.telegram_guide"))
+
+    token = click.prompt(t("wizard.telegram_enter_token"), default="", show_default=False)
+    if not token.strip():
+        console.print(t("wizard.step_skipped"))
+        return
+
+    token = token.strip()
+
+    # Validate token format
+    if not re.match(r'^\d+:[A-Za-z0-9_-]+$', token):
+        console.print(t("wizard.telegram_invalid_token"))
+        return
+
+    # Test the token
+    try:
+        import requests
+        resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=10)
+        if resp.status_code == 200 and resp.json().get("ok"):
+            bot_info = resp.json()["result"]
+            bot_name = bot_info.get("first_name", "Bot")
+            bot_username = bot_info.get("username", "")
+            console.print(f"[green]✅ {t('wizard.telegram_connected', name=bot_name, username=bot_username)}[/green]")
+
+            # Save to global_settings.json
+            _save_telegram_token(token)
+
+            console.print(f"\n  💡 {t('wizard.telegram_next_step', username=bot_username)}")
+        else:
+            console.print(t("wizard.telegram_invalid_token"))
+    except Exception as e:
+        console.print(f"[red]❌ {t('wizard.telegram_test_fail')}: {e}[/red]")
+
+
+def _save_telegram_token(token: str):
+    """Save telegram bot token to global_settings.json."""
+    from tubecli.config import DATA_DIR
+    settings_path = DATA_DIR / "global_settings.json"
+
+    settings = {}
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                settings = json.load(f)
+        except Exception:
+            pass
+
+    settings["telegram_bot_token"] = token
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(settings, f, indent=2, ensure_ascii=False)
+
+
+def _wizard_step_summary(t):
+    """Step 3: Show setup summary."""
+    from tubecli.config import DATA_DIR, get_api_port
+
+    # Check AI status
+    ai_status = "❌"
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        for prov in ["gemini", "openai", "claude", "deepseek"]:
+            if key_manager.get_active_key(prov):
+                ai_status = f"✅ {prov.upper()}"
+                break
+    except Exception:
+        pass
+    # Check Ollama
+    if ai_status == "❌":
+        try:
+            from tubecli.core.ollama_utils import is_ollama_installed
+            if is_ollama_installed():
+                ai_status = "✅ Ollama"
+        except Exception:
+            pass
+
+    # Check Telegram status
+    tg_status = "❌"
+    tg_username = ""
+    settings_path = DATA_DIR / "global_settings.json"
+    if settings_path.exists():
+        try:
+            with open(settings_path, "r", encoding="utf-8") as f:
+                gs = json.load(f)
+            token = gs.get("telegram_bot_token", "")
+            if token:
+                import requests
+                resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+                if resp.status_code == 200 and resp.json().get("ok"):
+                    tg_username = resp.json()["result"].get("username", "")
+                    tg_status = f"✅ @{tg_username}"
+        except Exception:
+            tg_status = "✅ (configured)"
+
+    port = get_api_port()
+
+    summary = (
+        f"  🧠 AI Chat: {ai_status}\n"
+        f"  💬 Telegram: {tg_status}\n"
+        f"  🖥️  Dashboard: [cyan]http://localhost:{port}/dashboard[/cyan]\n"
+    )
+
+    console.print()
+    console.print(Panel(
+        summary,
+        title=t("wizard.summary_title"),
+        border_style="bright_green",
+        padding=(1, 2),
+    ))
+
+    if tg_username:
+        console.print(f"  💡 {t('wizard.summary_tip', username=tg_username)}")
+    console.print()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  CONTROL PANEL — Main interactive menu
+# ═══════════════════════════════════════════════════════════════
 
 def _run_control_panel():
     """Interactive control panel menu displayed after initialization."""
@@ -130,6 +406,7 @@ def _run_control_panel():
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]4.[/bold yellow] {t('panel.install_model')}             [bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]5.[/bold yellow] {t('panel.browser_profile')}                [bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]6.[/bold yellow] {t('panel.docs')}                    [bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]7.[/bold yellow] {t('panel.setup_wizard')}         [bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]0.[/bold yellow] {t('panel.exit')}                                   [bold cyan]║[/bold cyan]")
         console.print("[bold cyan]╚══════════════════════════════════════════════╝[/bold cyan]")
         
@@ -245,6 +522,9 @@ def _run_control_panel():
                     console.print(f"Open this file in your browser: {docs_path}")
             else:
                 console.print(t("panel.docs_not_found"))
+
+        elif choice == "7":
+            _run_setup_wizard()
                 
         else:
             console.print(t("panel.invalid_selection"))

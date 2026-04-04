@@ -59,6 +59,43 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Cloud_API 内核拓展调用失败！确保您已经放行它！[/red]",
     "panel.key_status_set": "[green]激活[/green]",
     "panel.key_status_not_set": "[red]空置[/red]",
+    "panel.setup_wizard": "🧙 重新运行安装向导",
+
+    # ── Setup Wizard ─────────────────────────────────────────
+    "wizard.welcome_title": "🚀 [bold white]欢迎使用 ZhiYing![/bold white]",
+    "wizard.welcome_body": "这是您首次启动 ZhiYing。\n让我们通过 [bold]3 个简单步骤[/bold] 完成初始配置：\n\n  [cyan]步骤 1:[/cyan] 🧠 设置 AI 对话 (API Key 或 Ollama)\n  [cyan]步骤 2:[/cyan] 💬 连接 Telegram Bot\n  [cyan]步骤 3:[/cyan] ✅ 查看总结",
+    "wizard.skip_all": "⏭️  全部跳过 → 直接进入控制面板 (稍后在 Settings 中自行配置)",
+    "wizard.start_setup": "▶️  开始设置",
+    "wizard.skipped_all": "[yellow]已跳过设置。您可以随时从控制面板 → Settings 或输入 7 重新配置。[/yellow]",
+    "wizard.skip_step": "⏭️  跳过此步骤",
+    "wizard.step_skipped": "[yellow]已跳过。您可以稍后设置。[/yellow]",
+
+    # Step 1: AI
+    "wizard.ai_title": "🧠 [bold white]步骤 1/3 — 设置 AI 对话[/bold white]",
+    "wizard.ai_body": "选择 AI 对话的驱动方式：\n\n  [green]Gemini API[/green] — 免费、快速，推荐新手使用\n  [blue]OpenAI / Claude / DeepSeek[/blue] — 使用个人 API Key\n  [yellow]Ollama[/yellow] — 离线本地运行 (需要 GPU)",
+    "wizard.ai_gemini": "🌟 Gemini API (免费，输入 API Key)",
+    "wizard.ai_other": "🔑 OpenAI / Claude / DeepSeek (输入 API Key)",
+    "wizard.ai_ollama": "💻 Ollama (本地离线，无需 Key)",
+    "wizard.gemini_guide": "\n[cyan]📋 获取 Gemini API Key 指南：[/cyan]\n  1. 访问 [link]https://aistudio.google.com/apikey[/link]\n  2. 使用 Google 账号登录 → 点击 [bold]Create API Key[/bold]\n  3. 复制 Key 并粘贴到这里：\n",
+    "wizard.enter_api_key": "🔑 粘贴 API Key (或按 Enter 跳过)",
+    "wizard.key_saved": "保存成功！",
+    "wizard.ollama_ready": "[green]✅ Ollama 已安装就绪。您可以在主菜单 (选项 4) 中选择模型。[/green]",
+    "wizard.ollama_not_ready": "[yellow]⚠️ Ollama 尚未安装。稍后可从主菜单选项 4 进行安装。[/yellow]",
+
+    # Step 2: Telegram
+    "wizard.telegram_title": "💬 [bold white]步骤 2/3 — 连接 Telegram[/bold white]",
+    "wizard.telegram_body": "连接 Telegram 以通过消息控制 ZhiYing。\n您可以通过聊天发送指令、下载视频、监控网页、\n管理日历... 全部在 Telegram 中完成！",
+    "wizard.telegram_start": "▶️  开始连接 Telegram",
+    "wizard.telegram_guide": "\n[cyan]📋 创建 Telegram Bot 指南 (1分钟)：[/cyan]\n  1. 打开 Telegram → 搜索 [bold]@BotFather[/bold]\n  2. 发送命令 [bold]/newbot[/bold]\n  3. 输入 Bot 名称 (如 \"My ZhiYing\")\n  4. 输入 Bot 用户名 (如 \"my_zhiying_bot\")\n  5. BotFather 会发送一个 [bold]Token[/bold]，格式如: [dim]1234567890:ABCdefGHI...[/dim]\n  6. 复制该 Token 并粘贴到这里：\n",
+    "wizard.telegram_enter_token": "🔑 粘贴 Bot Token",
+    "wizard.telegram_invalid_token": "[red]❌ Token 无效。请检查从 @BotFather 获取的 Token。[/red]",
+    "wizard.telegram_connected": "Bot [bold]{name}[/bold] (@{username}) 连接成功！",
+    "wizard.telegram_next_step": "打开 Telegram → 找到 [bold]@{username}[/bold] → 发送 \"你好\" 测试！",
+    "wizard.telegram_test_fail": "无法连接到 Bot",
+
+    # Step 3: Summary
+    "wizard.summary_title": "✅ [bold white]步骤 3/3 — 设置完成！[/bold white]",
+    "wizard.summary_tip": "打开 Telegram → 向 @{username} 发送 \"你好\" 开始使用！",
 
     # ── agent_cmd ─────────────────────────────────────────────
     "agent.created": "\n✅ Agent 孵化成功，命名: [bold green]{name}[/bold green]",

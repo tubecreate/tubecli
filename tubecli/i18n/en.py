@@ -59,6 +59,43 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Could not load cloud_api extension. Please ensure it is enabled.[/red]",
     "panel.key_status_set": "[green]Set[/green]",
     "panel.key_status_not_set": "[red]Not set[/red]",
+    "panel.setup_wizard": "🧙 Run Setup Wizard Again",
+
+    # ── Setup Wizard ─────────────────────────────────────────
+    "wizard.welcome_title": "🚀 [bold white]Welcome to TubeCLI![/bold white]",
+    "wizard.welcome_body": "This is your first time running TubeCLI.\nLet's set up [bold]3 quick steps[/bold] to get started:\n\n  [cyan]Step 1:[/cyan] 🧠 Set up AI Chat (API Key or Ollama)\n  [cyan]Step 2:[/cyan] 💬 Connect Telegram Bot\n  [cyan]Step 3:[/cyan] ✅ View Summary",
+    "wizard.skip_all": "⏭️  Skip all → go to Dashboard (configure later in Settings)",
+    "wizard.start_setup": "▶️  Start Setup",
+    "wizard.skipped_all": "[yellow]Setup skipped. You can configure anytime from Dashboard → Settings or press 7 in menu.[/yellow]",
+    "wizard.skip_step": "⏭️  Skip this step",
+    "wizard.step_skipped": "[yellow]Skipped. You can set this up later.[/yellow]",
+
+    # Step 1: AI
+    "wizard.ai_title": "🧠 [bold white]Step 1/3 — Set up AI Chat[/bold white]",
+    "wizard.ai_body": "Choose how to power your AI chatbot:\n\n  [green]Gemini API[/green] — Free, fast, recommended for beginners\n  [blue]OpenAI / Claude / DeepSeek[/blue] — Use your own API key\n  [yellow]Ollama[/yellow] — Run offline on your machine (needs GPU)",
+    "wizard.ai_gemini": "🌟 Gemini API (free, enter API key)",
+    "wizard.ai_other": "🔑 OpenAI / Claude / DeepSeek (enter API key)",
+    "wizard.ai_ollama": "💻 Ollama (local, no key needed)",
+    "wizard.gemini_guide": "\n[cyan]📋 How to get Gemini API Key:[/cyan]\n  1. Go to [link]https://aistudio.google.com/apikey[/link]\n  2. Sign in with Google → click [bold]Create API Key[/bold]\n  3. Copy the key and paste it here:\n",
+    "wizard.enter_api_key": "🔑 Paste API Key (or press Enter to skip)",
+    "wizard.key_saved": "saved successfully!",
+    "wizard.ollama_ready": "[green]✅ Ollama is already installed. You can select a model from main menu (option 4).[/green]",
+    "wizard.ollama_not_ready": "[yellow]⚠️ Ollama is not installed. Choose option 4 from main menu later.[/yellow]",
+
+    # Step 2: Telegram
+    "wizard.telegram_title": "💬 [bold white]Step 2/3 — Connect Telegram[/bold white]",
+    "wizard.telegram_body": "Connect Telegram to control TubeCLI via messages.\nYou can chat commands, download videos, monitor pages,\nmanage calendar... all through Telegram!",
+    "wizard.telegram_start": "▶️  Start Telegram Setup",
+    "wizard.telegram_guide": "\n[cyan]📋 How to create a Telegram Bot (1 minute):[/cyan]\n  1. Open Telegram → search for [bold]@BotFather[/bold]\n  2. Send the command [bold]/newbot[/bold]\n  3. Enter a name (e.g. \"My TubeCLI\")\n  4. Enter a username (e.g. \"my_tubecli_bot\")\n  5. BotFather will send you a [bold]Token[/bold] like: [dim]1234567890:ABCdefGHI...[/dim]\n  6. Copy that token and paste it here:\n",
+    "wizard.telegram_enter_token": "🔑 Paste Bot Token",
+    "wizard.telegram_invalid_token": "[red]❌ Invalid token. Please check the token from @BotFather.[/red]",
+    "wizard.telegram_connected": "Bot [bold]{name}[/bold] (@{username}) connected successfully!",
+    "wizard.telegram_next_step": "Open Telegram → find [bold]@{username}[/bold] → send \"hello\" to test!",
+    "wizard.telegram_test_fail": "Could not connect to bot",
+
+    # Step 3: Summary
+    "wizard.summary_title": "✅ [bold white]Step 3/3 — Setup Complete![/bold white]",
+    "wizard.summary_tip": "Open Telegram → send \"hello\" to @{username} to get started!",
 
     # ── agent_cmd ─────────────────────────────────────────────
     "agent.created": "\n✅ Agent created: [bold green]{name}[/bold green]",

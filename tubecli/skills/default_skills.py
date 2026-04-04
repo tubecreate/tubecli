@@ -6,177 +6,16 @@ from typing import List, Dict
 
 DEFAULT_SKILLS: List[Dict] = [
     {
-        "name": "🧠 AI Summarizer",
-        "description": "Input text → AI tóm tắt → output. Dùng: tubecli skill run 'AI Summarizer' --input 'text'",
-        "skill_type": "Skill",
-        "workflow_data": {
-            "name": "AI Summarizer",
-            "nodes": [
-                {
-                    "id": "input_text",
-                    "type": "text_input",
-                    "label": "📝 Input",
-                    "config": {"text": ""},
-                },
-                {
-                    "id": "ai_summarize",
-                    "type": "ai_node",
-                    "label": "🧠 AI Summarizer",
-                    "config": {
-                        "model": "qwen:latest",
-                        "system_prompt": "Summarize the following text concisely.",
-                    },
-                },
-                {
-                    "id": "result_output",
-                    "type": "output",
-                    "label": "📤 Output",
-                    "config": {"print": True},
-                },
-            ],
-            "connections": [
-                {
-                    "from_node_id": "input_text",
-                    "from_port_id": "content",
-                    "to_node_id": "ai_summarize",
-                    "to_port_id": "prompt",
-                },
-                {
-                    "from_node_id": "ai_summarize",
-                    "from_port_id": "response",
-                    "to_node_id": "result_output",
-                    "to_port_id": "data",
-                },
-            ],
-        },
-    },
-    {
-        "name": "📋 Data Collector",
-        "description": "API request → parse JSON → save to file. Dùng: tubecli skill run 'Data Collector'",
-        "skill_type": "Skill",
-        "workflow_data": {
-            "name": "Data Collector",
-            "nodes": [
-                {
-                    "id": "api_fetch",
-                    "type": "api_request",
-                    "label": "🌐 Fetch API",
-                    "config": {"url": "", "method": "GET"},
-                },
-                {
-                    "id": "save_output",
-                    "type": "output",
-                    "label": "📤 Save",
-                    "config": {"print": True},
-                },
-            ],
-            "connections": [
-                {
-                    "from_node_id": "api_fetch",
-                    "from_port_id": "response",
-                    "to_node_id": "save_output",
-                    "to_port_id": "data",
-                },
-            ],
-        },
-    },
-    {
-        "name": "📊 Report Generator",
-        "description": "Collect data → AI format → save report. Dùng: tubecli skill run 'Report Generator'",
-        "skill_type": "Skill",
-        "workflow_data": {
-            "name": "Report Generator",
-            "nodes": [
-                {
-                    "id": "data_input",
-                    "type": "text_input",
-                    "label": "📝 Data Input",
-                    "config": {"text": ""},
-                },
-                {
-                    "id": "ai_format",
-                    "type": "ai_node",
-                    "label": "🧠 AI Formatter",
-                    "config": {
-                        "system_prompt": "Format the following data into a structured report.",
-                    },
-                },
-                {
-                    "id": "report_output",
-                    "type": "output",
-                    "label": "📤 Report",
-                    "config": {"print": True},
-                },
-            ],
-            "connections": [
-                {
-                    "from_node_id": "data_input",
-                    "from_port_id": "content",
-                    "to_node_id": "ai_format",
-                    "to_port_id": "prompt",
-                },
-                {
-                    "from_node_id": "ai_format",
-                    "from_port_id": "response",
-                    "to_node_id": "report_output",
-                    "to_port_id": "data",
-                },
-            ],
-        },
-    },
-    {
-        "name": "🔄 Batch Command Runner",
-        "description": "Loop through commands → execute → log results. Dùng: tubecli skill run 'Batch Command Runner'",
-        "skill_type": "Skill",
-        "workflow_data": {
-            "name": "Batch Command Runner",
-            "nodes": [
-                {
-                    "id": "cmd_list",
-                    "type": "text_input",
-                    "label": "📝 Commands",
-                    "config": {"text": "echo Hello\necho World"},
-                },
-                {
-                    "id": "loop_cmds",
-                    "type": "loop",
-                    "label": "🔄 Loop",
-                    "config": {},
-                },
-                {
-                    "id": "exec_cmd",
-                    "type": "run_command",
-                    "label": "💻 Execute",
-                    "config": {},
-                },
-                {
-                    "id": "batch_output",
-                    "type": "output",
-                    "label": "📤 Results",
-                    "config": {"print": True},
-                },
-            ],
-            "connections": [
-                {
-                    "from_node_id": "cmd_list",
-                    "from_port_id": "lines",
-                    "to_node_id": "loop_cmds",
-                    "to_port_id": "items",
-                },
-                {
-                    "from_node_id": "loop_cmds",
-                    "from_port_id": "current_item",
-                    "to_node_id": "exec_cmd",
-                    "to_port_id": "command",
-                },
-                {
-                    "from_node_id": "exec_cmd",
-                    "from_port_id": "stdout",
-                    "to_node_id": "batch_output",
-                    "to_port_id": "data",
-                },
-            ],
-        },
+        "name": "📊 Google Sheets",
+        "description": "Quản lý Google Sheets toàn diện: Tạo Sheet mới, Đọc dữ liệu, Ghi/Append dữ liệu, Đồng bộ metadata. Dùng: tubecli skill run \"Google Sheets\"",
+        "skill_type": "API Integration",
+        "commands": [
+            "create sheet", "tạo sheet", "new spreadsheet",
+            "read sheet", "đọc sheet", "read google sheet",
+            "write sheet", "ghi sheet", "append sheet",
+            "sync sheet", "đồng bộ sheet", "sync data to sheet",
+        ],
+        "workflow_data": {"nodes": [], "connections": []},
     },
     {
         "name": "🔍 Google Search",
@@ -244,7 +83,8 @@ DEFAULT_SKILLS: List[Dict] = [
         "name": "📧 Gmail Login",
         "description": "Mở trình duyệt và yêu cầu AI tự động truy cập Gmail để đăng nhập hoặc kiểm tra hòm thư.",
         "skill_type": "Skill",
-        "commands": ["gmail login", "đăng nhập gmail", "check mail", "vào gmail", "login gmail"],
+        "commands": ["gmail login", "đăng nhập gmail", "check mail", "vào gmail", "login gmail",
+                     "mở gmail", "vào mail", "check gmail", "đăng nhập mail"],
         "workflow_data": {
             "name": "Gmail Login",
             "nodes": [
@@ -342,16 +182,15 @@ DEFAULT_SKILLS: List[Dict] = [
         },
     },
     {
-        "name": "📥 Video Downloader",
-        "description": "Tải video từ TikTok/Douyin bằng cách gọi Downloader API. AI tự tải và gửi file. Dùng: gửi link TikTok hoặc Douyin.",
+        "name": "📥 Douyin/TikTok Downloader",
+        "description": "Tải video chuyên biệt từ TikTok/Douyin không logo bằng Douyin Downloader API. AI tự tải và gửi file. Dùng: gửi link TikTok hoặc Douyin.",
         "skill_type": "Skill",
         "commands": [
-            "tải video", "download video", "tải về", "download",
-            "tải tiktok", "tải douyin", "download tiktok", "download douyin",
-            "lấy video", "get video", "tải file", "download file",
+            "tải video tiktok", "download tiktok", "tải tiktok", 
+            "tải douyin", "download douyin", "tải video douyin",
         ],
         "workflow_data": {
-            "name": "Video Downloader",
+            "name": "Douyin/TikTok Downloader",
             "nodes": [
                 {
                     "id": "video_url",
@@ -375,6 +214,72 @@ DEFAULT_SKILLS: List[Dict] = [
                     "label": "📥 Download Video",
                     "config": {
                         "url": "http://localhost:5295/api/v1/downloader/download",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                    },
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True},
+                },
+            ],
+            "connections": [
+                {
+                    "from_node_id": "video_url",
+                    "from_port_id": "content",
+                    "to_node_id": "parse_video",
+                    "to_port_id": "body",
+                },
+                {
+                    "from_node_id": "parse_video",
+                    "from_port_id": "response",
+                    "to_node_id": "download_video",
+                    "to_port_id": "body",
+                },
+                {
+                    "from_node_id": "download_video",
+                    "from_port_id": "response",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data",
+                },
+            ],
+        },
+    },
+    {
+        "name": "🌍 Universal Video Downloader",
+        "description": "Tải video đa nền tảng (YouTube, Facebook, Twitter/X...) sử dụng yt-dlp. AI tự động tải và gửi file. Dùng: gửi link kèm dòng lệnh 'tải youtube' hoặc 'tải video'.",
+        "skill_type": "Skill",
+        "commands": [
+            "tải youtube", "download youtube", "tải video", "download video",
+            "tải facebook", "tải twitter", "tải đa nền tảng", "tải video youtube"
+        ],
+        "workflow_data": {
+            "name": "Universal Video Downloader",
+            "nodes": [
+                {
+                    "id": "video_url",
+                    "type": "text_input",
+                    "label": "🔗 Video URL",
+                    "config": {"text": ""},
+                },
+                {
+                    "id": "parse_video",
+                    "type": "api_request",
+                    "label": "🔍 Lấy thông tin video",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/ytdl/info",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"},
+                    },
+                },
+                {
+                    "id": "download_video",
+                    "type": "api_request",
+                    "label": "📥 Tải xuống (yt-dlp)",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/ytdl/download",
                         "method": "POST",
                         "headers": {"Content-Type": "application/json"},
                     },
@@ -515,6 +420,53 @@ DEFAULT_SKILLS: List[Dict] = [
                 },
             ],
         },
+    },
+    {
+        "name": "🕷️ Web Crawler & Watcher",
+        "description": "Cào dữ liệu từ một trang web, lấy nội dung bài viết, tiêu đề, ảnh. Hoặc thiết lập theo dõi trang liên tục. Dùng: nhập URL cần cào.",
+        "skill_type": "Extension",
+        "commands": ["cào dữ liệu", "scrape", "đọc web", "crawl", "theo dõi trang", "watch page"],
+        "workflow_data": {
+            "name": "Web Crawler",
+            "nodes": [
+                {
+                    "id": "input_cmd",
+                    "type": "text_input",
+                    "label": "📝 Lệnh (URL hoặc Yêu cầu)",
+                    "config": {"text": ""}
+                },
+                {
+                    "id": "web_scrape",
+                    "type": "api_request",
+                    "label": "🕸️ Scrape URL",
+                    "config": {
+                        "url": "http://localhost:5295/api/v1/web_crawler/scrape",
+                        "method": "POST",
+                        "headers": {"Content-Type": "application/json"}
+                    }
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True}
+                }
+            ],
+            "connections": [
+                {
+                    "from_node_id": "input_cmd",
+                    "from_port_id": "content",
+                    "to_node_id": "web_scrape",
+                    "to_port_id": "body"
+                },
+                {
+                    "from_node_id": "web_scrape",
+                    "from_port_id": "response",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data"
+                }
+            ]
+        }
     }
 ]
 
