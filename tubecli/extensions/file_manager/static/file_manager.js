@@ -28,6 +28,15 @@ const FM = {
     // ── Init ─────────────────────────────────────────────────
 
     async init() {
+        // Detect picker mode
+        const urlParams = new URLSearchParams(window.location.search);
+        this.pickerMode = urlParams.get('mode') === 'picker';
+        this.pickerFilter = urlParams.get('filter') || '';  // 'video', 'image', 'all'
+
+        if (this.pickerMode) {
+            this._initPickerUI();
+        }
+
         // Load roots
         try {
             const data = await this.api('GET', '/roots');
@@ -49,6 +58,22 @@ const FM = {
         );
         document.getElementById('showHidden').addEventListener('change', () => this.refresh());
     },
+
+    _initPickerUI() {
+        // Show the picker banner that's already in the HTML
+        const banner = document.getElementById('pickerBanner');
+        if (banner) banner.style.display = 'flex';
+    },
+
+    confirmPick() {
+        if (!this.selectedItem) return;
+        const path = this.selectedItem;
+        if (window.opener) {
+            window.opener.postMessage({ type: 'file-picker-select', path: path }, '*');
+        }
+        window.close();
+    },
+
 
     // ── Navigation ───────────────────────────────────────────
 
@@ -125,7 +150,21 @@ const FM = {
         loading.style.display = 'none';
         grid.className = `fm-file-grid ${this.viewMode === 'list' ? 'list-view' : ''}`;
 
-        if (items.length === 0) {
+        // Apply filter in picker mode
+        let filtered = items;
+        if (this.pickerMode && this.pickerFilter) {
+            const videoExts = ['.mp4', '.mkv', '.mov', '.avi', '.webm', '.flv', '.wmv', '.m4v', '.ts', '.mpg', '.mpeg'];
+            const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff'];
+            filtered = items.filter(item => {
+                if (item.is_dir) return true;  // Always show folders
+                const ext = (item.extension || '').toLowerCase();
+                if (this.pickerFilter === 'video') return videoExts.includes(ext);
+                if (this.pickerFilter === 'image') return imageExts.includes(ext);
+                return true;
+            });
+        }
+
+        if (filtered.length === 0) {
             grid.innerHTML = '';
             empty.style.display = 'flex';
             return;
@@ -133,7 +172,7 @@ const FM = {
         empty.style.display = 'none';
 
         // Sort: folders first, then files
-        const sorted = [...items].sort((a, b) => {
+        const sorted = [...filtered].sort((a, b) => {
             if (a.is_dir && !b.is_dir) return -1;
             if (!a.is_dir && b.is_dir) return 1;
             return a.name.localeCompare(b.name);
@@ -201,14 +240,34 @@ const FM = {
         el.classList.add('selected');
         this.selectedItem = path;
         this.updateToolbarButtons();
+
+        // Picker mode: enable select button for files only
+        if (this.pickerMode) {
+            const cardIcon = el.querySelector('.fm-file-icon');
+            const isFolder = cardIcon && cardIcon.classList.contains('folder');
+            const btn = document.getElementById('btnPickerSelect');
+            if (btn) {
+                if (isFolder) {
+                    btn.style.opacity = '0.4';
+                    btn.style.pointerEvents = 'none';
+                } else {
+                    btn.style.opacity = '1';
+                    btn.style.pointerEvents = 'auto';
+                }
+            }
+        }
     },
 
     updateToolbarButtons() {
         const has = !!this.selectedItem;
-        document.getElementById('btnRename').disabled = !has;
-        document.getElementById('btnDelete').disabled = !has;
-        document.getElementById('btnCopy').disabled = !has;
-        document.getElementById('btnPaste').disabled = !this.clipboard;
+        const btnRename = document.getElementById('btnRename');
+        const btnDelete = document.getElementById('btnDelete');
+        const btnCopy = document.getElementById('btnCopy');
+        const btnPaste = document.getElementById('btnPaste');
+        if (btnRename) btnRename.disabled = !has;
+        if (btnDelete) btnDelete.disabled = !has;
+        if (btnCopy) btnCopy.disabled = !has;
+        if (btnPaste) btnPaste.disabled = !this.clipboard;
     },
 
     // ── File Operations ──────────────────────────────────────
@@ -303,6 +362,10 @@ const FM = {
         const realIsDir = isDir !== undefined ? isDir : (item && item.is_dir);
         if (realIsDir) {
             this.navigate(path.replace(/\\\\/g, '\\'));
+        } else if (this.pickerMode) {
+            // In picker mode, double-click immediately selects the file
+            this.selectedItem = path.replace(/\\\\/g, '\\');
+            this.confirmPick();
         } else {
             this.previewFile(path.replace(/\\\\/g, '\\'));
         }
