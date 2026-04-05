@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Tracker — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --bg2: #111827;
+            --bg3: #1e293b;
+            --border: #1e3a5f;
+            --text: #e2e8f0;
+            --text2: #94a3b8;
+            --accent: #06b6d4;
+            --accent2: #8b5cf6;
+            --green: #10b981;
+            --red: #ef4444;
+            --orange: #f59e0b;
+            --radius: 12px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 700; }
+        .header h1 span { color: var(--accent); }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), var(--accent2));
+            color: #fff;
+        }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+        .btn-danger { background: var(--red); color: #fff; }
+        .btn-danger:hover { opacity: 0.85; }
+        .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text2); }
+        .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-success { background: var(--green); color: #fff; }
+
+        /* Stats */
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-value { font-size: 1.8rem; font-weight: 800; color: var(--accent); }
+        .stat-label { font-size: 0.75rem; color: var(--text2); margin-top: 4px; }
+
+        /* Table */
+        .table-container {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            background: var(--bg3);
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text2);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        td {
+            padding: 14px 16px;
+            border-top: 1px solid rgba(255,255,255,0.04);
+            font-size: 0.85rem;
+            vertical-align: middle;
+        }
+        tr:hover td { background: rgba(6,182,212,0.03); }
+
+        .platform-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .platform-douyin { background: rgba(0,0,0,0.3); border: 1px solid #ff0050; color: #ff6b8a; }
+        .platform-youtube { background: rgba(255,0,0,0.1); border: 1px solid #c00; color: #ff4444; }
+        .platform-tiktok { background: rgba(0,0,0,0.3); border: 1px solid #69c9d0; color: #69c9d0; }
+        .platform-website { background: rgba(59,130,246,0.1); border: 1px solid #3b82f6; color: #60a5fa; }
+
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-active { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-paused { background: var(--orange); }
+
+        .url-text {
+            max-width: 280px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--accent);
+        }
+        .url-text a { color: inherit; text-decoration: none; }
+        .url-text a:hover { text-decoration: underline; }
+
+        .actions-cell { display: flex; gap: 6px; }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text2);
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+        .empty-state p { margin-bottom: 16px; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        .modal {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 28px;
+            width: 480px;
+            max-width: 95vw;
+        }
+        .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.8rem; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-family: inherit;
+            font-size: 0.875rem;
+            outline: none;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            border-color: var(--accent);
+        }
+        .form-group textarea { resize: vertical; min-height: 60px; }
+        .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .table-container { animation: fadeIn 0.3s ease; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📡 <span>Content Tracker</span></h1>
+        <button class="btn btn-primary" onclick="openAddModal()">+ Thêm Tracker</button>
+    </div>
+
+    <div class="stats-bar" id="stats-bar">
+        <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Tổng Tracker</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-active" style="color:var(--green)">0</div><div class="stat-label">Đang chạy</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-paused" style="color:var(--orange)">0</div><div class="stat-label">Tạm dừng</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-platforms" style="color:var(--accent2)">0</div><div class="stat-label">Nền tảng</div></div>
+    </div>
+
+    <div class="table-container">
+        <table id="tracker-table">
+            <thead>
+                <tr>
+                    <th>Nền tảng</th>
+                    <th>URL nguồn</th>
+                    <th>Chu kỳ</th>
+                    <th>Trạng thái</th>
+                    <th>Kiểm tra gần nhất</th>
+                    <th>Lần tới</th>
+                    <th>Thao tác</th>
+                </tr>
+            </thead>
+            <tbody id="tracker-body"></tbody>
+        </table>
+        <div class="empty-state" id="empty-state" style="display:none">
+            <div class="icon">📡</div>
+            <p>Chưa có Tracker nào. Hãy thêm mới để bắt đầu theo dõi nội dung!</p>
+            <button class="btn btn-primary" onclick="openAddModal()">+ Thêm Tracker đầu tiên</button>
+        </div>
+    </div>
+
+    <!-- Add Modal -->
+    <div class="modal-overlay" id="add-modal">
+        <div class="modal">
+            <h2>📡 Thêm Tracker Mới</h2>
+            <div class="form-group">
+                <label>URL kênh / nguồn</label>
+                <input type="text" id="f-url" placeholder="https://www.douyin.com/user/... hoặc YouTube channel URL">
+            </div>
+            <div class="form-group">
+                <label>Nền tảng</label>
+                <select id="f-platform">
+                    <option value="">Tự nhận diện từ URL</option>
+                    <option value="douyin">Douyin</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="website">Website</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Chu kỳ kiểm tra (phút)</label>
+                <input type="number" id="f-interval" value="180" min="5" step="5">
+            </div>
+            <div class="form-group">
+                <label>Team AI xử lý (tuỳ chọn)</label>
+                <input type="text" id="f-team" placeholder="ID team hoặc để trống">
+            </div>
+            <div class="form-group">
+                <label>Ghi chú / Hướng dẫn</label>
+                <textarea id="f-instruction" placeholder="VD: Tải video mới và upload lên YouTube kênh XYZ"></textarea>
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
+                <button class="btn btn-primary" id="btn-submit" onclick="submitAdd()">Thêm Tracker</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api/v1/universal_tracker';
+
+        async function loadTrackers() {
+            try {
+                const res = await fetch(`${API}/trackers`);
+                const data = await res.json();
+                renderTrackers(data.trackers || []);
+            } catch (e) {
+                console.error('Load error:', e);
+            }
+        }
+
+        function renderTrackers(trackers) {
+            const tbody = document.getElementById('tracker-body');
+            const empty = document.getElementById('empty-state');
+
+            // Stats
+            document.getElementById('stat-total').textContent = trackers.length;
+            document.getElementById('stat-active').textContent = trackers.filter(t => t.status === 'active').length;
+            document.getElementById('stat-paused').textContent = trackers.filter(t => t.status === 'paused').length;
+            const platforms = new Set(trackers.map(t => t.platform));
+            document.getElementById('stat-platforms').textContent = platforms.size;
+
+            if (!trackers.length) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+
+            tbody.innerHTML = trackers.map(t => {
+                const pClass = `platform-${t.platform}`;
+                const statusClass = t.status === 'active' ? 'status-active' : 'status-paused';
+                const statusText = t.status === 'active' ? 'Đang chạy' : 'Tạm dừng';
+                const hours = (t.interval_minutes / 60);
+                const intervalText = hours >= 1 ? `${hours.toFixed(0)}h` : `${t.interval_minutes}m`;
+                const lastCheck = t.last_checked_at ? timeAgo(t.last_checked_at) : '—';
+                const nextCheck = t.next_check_at ? timeAgo(t.next_check_at) : '—';
+                const toggleLabel = t.status === 'active' ? 'Dừng' : 'Tiếp tục';
+                const toggleStatus = t.status === 'active' ? 'paused' : 'active';
+
+                return `<tr>
+                    <td><span class="platform-badge ${pClass}">${t.platform}</span></td>
+                    <td class="url-text"><a href="${t.url}" target="_blank" title="${t.url}">${t.url}</a></td>
+                    <td>${intervalText}</td>
+                    <td><span class="status-dot ${statusClass}"></span>${statusText}</td>
+                    <td style="color:var(--text2);font-size:0.8rem">${lastCheck}</td>
+                    <td style="color:var(--text2);font-size:0.8rem">${nextCheck}</td>
+                    <td>
+                        <div class="actions-cell">
+                            <button class="btn btn-sm btn-ghost" onclick="forceCheck('${t.id}')" title="Kiểm tra ngay">⚡</button>
+                            <button class="btn btn-sm btn-ghost" onclick="toggleTracker('${t.id}','${toggleStatus}')" title="${toggleLabel}">${t.status === 'active' ? '⏸' : '▶'}</button>
+                            <button class="btn btn-sm btn-danger" onclick="removeTracker('${t.id}')" title="Xoá">✕</button>
+                        </div>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function timeAgo(isoStr) {
+            if (!isoStr) return '—';
+            const d = new Date(isoStr);
+            const now = new Date();
+            const diffMs = now - d;
+            if (diffMs < 0) {
+                // Future time
+                const mins = Math.round(Math.abs(diffMs) / 60000);
+                if (mins < 60) return `trong ${mins}m`;
+                return `trong ${(mins/60).toFixed(1)}h`;
+            }
+            const mins = Math.round(diffMs / 60000);
+            if (mins < 1) return 'vừa xong';
+            if (mins < 60) return `${mins}m trước`;
+            const hrs = Math.round(mins / 60);
+            if (hrs < 24) return `${hrs}h trước`;
+            return `${Math.round(hrs/24)}d trước`;
+        }
+
+        function openAddModal() { document.getElementById('add-modal').classList.add('show'); }
+        function closeModal() { document.getElementById('add-modal').classList.remove('show'); }
+
+        async function submitAdd() {
+            const url = document.getElementById('f-url').value.trim();
+            if (!url) return alert('Vui lòng nhập URL!');
+
+            const body = {
+                url,
+                platform: document.getElementById('f-platform').value,
+                interval_minutes: parseInt(document.getElementById('f-interval').value) || 180,
+                target_team_id: document.getElementById('f-team').value.trim(),
+                instruction: document.getElementById('f-instruction').value.trim(),
+            };
+
+            try {
+                const res = await fetch(`${API}/trackers`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+                if (res.ok) {
+                    closeModal();
+                    document.getElementById('f-url').value = '';
+                    document.getElementById('f-instruction').value = '';
+                    loadTrackers();
+                } else {
+                    const err = await res.json();
+                    alert('Lỗi: ' + (err.detail || err.message));
+                }
+            } catch (e) { alert('Lỗi kết nối: ' + e.message); }
+        }
+
+        async function removeTracker(id) {
+            if (!confirm('Xác nhận xoá tracker này?')) return;
+            await fetch(`${API}/trackers/${id}`, { method: 'DELETE' });
+            loadTrackers();
+        }
+
+        async function toggleTracker(id, newStatus) {
+            await fetch(`${API}/trackers/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus}) });
+            loadTrackers();
+        }
+
+        async function forceCheck(id) {
+            const btn = event.target;
+            btn.textContent = '⏳';
+            btn.disabled = true;
+            try {
+                await fetch(`${API}/trackers/${id}/check`, { method: 'POST' });
+            } catch(e) {}
+            btn.textContent = '⚡';
+            btn.disabled = false;
+            loadTrackers();
+        }
+
+        // Auto-refresh every 30s
+        loadTrackers();
+        setInterval(loadTrackers, 30000);
+    </script>
+</body>
+</html>

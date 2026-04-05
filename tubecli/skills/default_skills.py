@@ -203,7 +203,7 @@ DEFAULT_SKILLS: List[Dict] = [
                     "type": "api_request",
                     "label": "🔍 Parse Video Info",
                     "config": {
-                        "url": "http://localhost:5295/api/v1/downloader/parse",
+                        "url": "http://localhost:5295/api/v1/douyin_downloader/parse",
                         "method": "POST",
                         "headers": {"Content-Type": "application/json"},
                     },
@@ -213,7 +213,7 @@ DEFAULT_SKILLS: List[Dict] = [
                     "type": "api_request",
                     "label": "📥 Download Video",
                     "config": {
-                        "url": "http://localhost:5295/api/v1/downloader/download",
+                        "url": "http://localhost:5295/api/v1/douyin_downloader/download",
                         "method": "POST",
                         "headers": {"Content-Type": "application/json"},
                     },

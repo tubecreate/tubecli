@@ -5,38 +5,26 @@ description: Manage OAuth credentials & tokens for Google, Facebook, TikTok
 
 # Auth Manager Extension
 
-This core extension manages OAuth credentials and authorization tokens for
-multiple providers (Google, Facebook, TikTok). Other extensions can use it
-to get valid access tokens for API calls.
+Kỹ năng này chịu trách nhiệm sinh ra đường dẫn (URL) cấp quyền (Google, Facebook, TikTok) để người dùng có thể nhấp vào và cấp quyền ứng dụng, ví dụ: Quản lý đăng video lên YouTube, Fanpage, TikTok.
 
-## Usage from Other Extensions
+## Khi nào dùng
+- Người dùng yêu cầu "gửi tôi link cấp quyền"
+- Người dùng muốn "cấp quyền quản lý kênh youtube mới"
+- Người dùng yêu cầu "cấp quyền facebook/tiktok", "cấp quyền ứng dụng"
 
-```python
-from tubecli.extensions.auth_manager.extension import auth_manager
+## Cách kích hoạt (AI OUTPUT JSON)
 
-# List credentials
-credentials = auth_manager.list_credentials(provider="google")
+Nếu người dùng yêu cầu link cấp quyền, hãy phân tích nền tảng (provider) và trả về JSON sau:
 
-# Get active access token (auto-refreshes if expired)
-token = auth_manager.get_active_token("cred_abc123")
-
-# Get full token data
-token_data = auth_manager.get_token_data("cred_abc123")
+```json
+{
+  "action": "generate_auth_link",
+  "provider": "google",
+  "scopes": ["youtube", "youtube_upload"]
+}
 ```
 
-## API Endpoints
+Các giá trị `provider` hỗ trợ: `google`, `facebook`, `tiktok`.
+Nếu không biết scopes, có thể để trống rỗng `[]`, hệ thống sẽ tự dùng scope mặc định phổ biến nhất.
 
-- `GET /api/v1/auth-manager/providers` — List providers
-- `GET /api/v1/auth-manager/credentials` — List credentials
-- `POST /api/v1/auth-manager/credentials` — Add credential
-- `POST /api/v1/auth-manager/credentials/{id}/authorize` — Start OAuth
-- `GET /api/v1/auth-manager/tokens` — List tokens
-- `GET /api/v1/auth-manager/tokens/{id}/active` — Get active token
-
-## CLI Commands
-
-- `tubecli auth providers` — List providers
-- `tubecli auth list` — List credentials
-- `tubecli auth add <provider>` — Add credential
-- `tubecli auth authorize <id> -s <scope>` — Start OAuth
-- `tubecli auth tokens` — List tokens
+> **Lưu ý:** Sau khi bot phản hồi JSON, hệ thống sẽ trả về 1 đường link cho người dùng bấm vào cấp quyền.

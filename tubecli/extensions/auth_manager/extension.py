@@ -826,3 +826,46 @@ class AuthManagerExtension(Extension):
     def get_routes(self):
         from tubecli.extensions.auth_manager.routes import router
         return router
+
+    def get_telegram_actions(self):
+        return {
+            "generate_auth_link": self._action_generate_auth_link
+        }
+
+    async def _action_generate_auth_link(self, action_data: dict, context: dict) -> str:
+        provider = action_data.get("provider", "google").lower()
+        scopes = action_data.get("scopes", [])
+        
+        credentials = auth_manager.list_credentials(provider)
+        if not credentials:
+            return f"❌ Chưa có credential ứng dụng nào cho '{provider}'. Vui lòng tạo credential trên giao diện Dashboard (Cài Đặt) trước."
+            
+        cred_id = action_data.get("credential_id")
+        if not cred_id:
+            cred_id = credentials[0]["id"]
+            
+        if not scopes:
+            if provider == "google":
+                scopes = ["youtube", "youtube_upload", "youtube_readonly"]
+            elif provider == "facebook":
+                scopes = ["pages_manage", "instagram"]
+            elif provider == "tiktok":
+                scopes = ["video_list", "video_upload"]
+                
+        base_url = os.environ.get("TUBECLI_BASE_URL", "http://localhost:5295")
+        
+        result = auth_manager.build_oauth_url(
+            cred_id=cred_id,
+            scopes=scopes,
+            browser_profile="",
+            callback_base=base_url
+        )
+        
+        if result["status"] == "error":
+            return f"❌ Lỗi tạo link cấp quyền: {result['message']}"
+            
+        link = result["auth_url"]
+        msg = f"🔗 **Link Cấp Quyền {provider.capitalize()}:**\n\n"
+        msg += f"👉 [Bấm Vào Đây Để Cấp Quyền]({link})\n\n"
+        msg += f"Sau khi ấn vào link và chọn Tài khoản, hệ thống sẽ tự động lưu lại phiên đăng nhập."
+        return msg

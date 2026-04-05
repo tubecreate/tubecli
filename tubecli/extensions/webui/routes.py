@@ -139,6 +139,15 @@ async def auth_manager_page():
     return {"error": "Auth Manager page not found"}
 
 
+@router.get("/tracker")
+async def tracker_page():
+    """Serve the Content Tracker management page."""
+    tracker_file = os.path.join(STATIC_DIR, "tracker.html")
+    if os.path.exists(tracker_file):
+        return FileResponse(tracker_file)
+    return {"error": "Tracker page not found"}
+
+
 def _find_file_manager_dir():
     """Find the File Manager extension static directory."""
     fm_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "file_manager", "static")
