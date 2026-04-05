@@ -16,10 +16,7 @@ class UniversalTrackerExtension(Extension):
     extension_type = "system"
 
     def on_enable(self):
-        try:
-            universal_tracker_engine.start()
-        except Exception as e:
-            logger.warning(f"Could not start tracker engine: {e}")
+        logger.info("Universal Tracker extension enabled")
 
     def on_disable(self):
         universal_tracker_engine.stop()
