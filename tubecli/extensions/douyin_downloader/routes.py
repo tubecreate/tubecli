@@ -11,7 +11,7 @@ from typing import Optional
 
 logger = logging.getLogger("downloader.routes")
 
-router = APIRouter(prefix="/api/v1/downloader", tags=["Downloader"])
+router = APIRouter(prefix="/api/v1/douyin_downloader", tags=["Downloader"])
 
 # Lazy-initialized
 _downloader = None
@@ -21,7 +21,7 @@ _settings = None
 def _get_downloader():
     global _downloader
     if _downloader is None:
-        from tubecli.extensions.downloader.file_downloader import FileDownloader
+        from tubecli.extensions.douyin_downloader.file_downloader import FileDownloader
         data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
         dl_dir = os.path.join(data_dir, "downloads")
         _downloader = FileDownloader(dl_dir)
@@ -77,8 +77,8 @@ class SettingsUpdate(BaseModel):
 async def parse_link(req: ParseRequest):
     """Parse a TikTok/Douyin link and return video info."""
     try:
-        from tubecli.extensions.downloader.link_parser import LinkParser
-        from tubecli.extensions.downloader.api_client import APIClient
+        from tubecli.extensions.douyin_downloader.link_parser import LinkParser
+        from tubecli.extensions.douyin_downloader.api_client import APIClient
     except ImportError as e:
         raise HTTPException(status_code=500, detail=f"Thiếu thư viện: {e}. Chạy: pip install gmssl httpx")
 
@@ -117,8 +117,8 @@ async def parse_link(req: ParseRequest):
 @router.post("/parse-batch")
 async def parse_batch(req: ParseRequest):
     """Parse multiple links from text."""
-    from tubecli.extensions.downloader.link_parser import LinkParser
-    from tubecli.extensions.downloader.api_client import APIClient
+    from tubecli.extensions.douyin_downloader.link_parser import LinkParser
+    from tubecli.extensions.douyin_downloader.api_client import APIClient
 
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
@@ -141,7 +141,7 @@ async def parse_batch(req: ParseRequest):
 async def parse_user(req: ParseRequest):
     """Parse a Douyin user profile link and get all their videos."""
     import re
-    from tubecli.extensions.downloader.api_client import APIClient
+    from tubecli.extensions.douyin_downloader.api_client import APIClient
 
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
@@ -186,8 +186,8 @@ async def parse_user(req: ParseRequest):
 @router.post("/download")
 async def start_download(req: DownloadRequest):
     """Start downloading a video."""
-    from tubecli.extensions.downloader.link_parser import LinkParser
-    from tubecli.extensions.downloader.api_client import APIClient
+    from tubecli.extensions.douyin_downloader.link_parser import LinkParser
+    from tubecli.extensions.douyin_downloader.api_client import APIClient
 
     settings = _get_settings()
     proxy = req.proxy or settings.get("proxy") or None
@@ -208,7 +208,7 @@ async def start_download(req: DownloadRequest):
             info = await APIClient.get_video_info(platform, detail_id, cookie, proxy)
             if info and info.download_url:
                 download_url = info.download_url
-                from tubecli.extensions.downloader.file_downloader import sanitize_filename
+                from tubecli.extensions.douyin_downloader.file_downloader import sanitize_filename
                 filename = sanitize_filename(f"{info.author}_{info.title}") + ".mp4"
 
     task_id = str(uuid.uuid4())[:8]

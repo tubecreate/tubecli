@@ -26,11 +26,11 @@ Extension **Downloader** cho phép tải video từ TikTok và Douyin (DouYin).
 
 | Method | Path | Mô tả |
 |--------|------|-------|
-| POST | `/api/v1/downloader/parse` | Parse video info: `{"url": "..."}` |
-| POST | `/api/v1/downloader/download` | Tải video: `{"url": "..."}` |
-| GET | `/api/v1/downloader/status/{task_id}` | Check tiến trình |
-| GET | `/api/v1/downloader/history` | Lịch sử tải |
-| GET | `/api/v1/downloader/file/{filename}` | Serve file |
+| POST | `/api/v1/douyin_downloader/parse` | Parse video info: `{"url": "..."}` |
+| POST | `/api/v1/douyin_downloader/download` | Tải video: `{"url": "..."}` |
+| GET | `/api/v1/douyin_downloader/status/{task_id}` | Check tiến trình |
+| GET | `/api/v1/douyin_downloader/history` | Lịch sử tải |
+| GET | `/api/v1/douyin_downloader/file/{filename}` | Serve file |
 
 ## Workflow tự động (AI tự hành)
 1. AI nhận URL từ user

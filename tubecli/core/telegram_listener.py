@@ -150,7 +150,11 @@ class TelegramListener:
                 reply_text = self._clean_reply_text(reply_text)
                 if reply_text:
                     await self._send_message(token, chat_id, reply_text)
-
+                else:
+                    print(f"[TelegramListener] ⚠️ Empty reply after clean! Original result type={type(result).__name__}, len={len(str(result))}")
+                    # Send fallback if result was not empty but got cleaned to nothing
+                    if result and str(result).strip():
+                        await self._send_message(token, chat_id, str(result)[:4000])
         except Exception as e:
             if typing_task:
                 typing_task.cancel()
@@ -323,21 +327,33 @@ class TelegramListener:
     async def _send_message(self, token: str, chat_id: int, text: str):
         """Send text message via Telegram."""
         send_url = f"https://api.telegram.org/bot{token}/sendMessage"
+        
+        # Truncate if too long for Telegram (4096 char limit)
+        if len(text) > 4000:
+            text = text[:4000] + "\n\n... (đã cắt bớt)"
+        
         try:
-            await self.client.post(send_url, json={
+            resp = await self.client.post(send_url, json={
                 "chat_id": chat_id,
                 "text": text,
                 "parse_mode": "Markdown"
             })
-        except Exception:
-            # Retry without markdown if fails
-            try:
-                await self.client.post(send_url, json={
-                    "chat_id": chat_id,
-                    "text": text
-                })
-            except Exception as e2:
-                print(f"[TelegramListener] Send message error: {e2}")
+            if resp.status_code == 200 and resp.json().get("ok"):
+                return
+            print(f"[TelegramListener] Markdown send failed: {resp.status_code} - {resp.text[:200]}")
+        except Exception as e:
+            print(f"[TelegramListener] Markdown send exception: {e}")
+        
+        # Retry without markdown if fails
+        try:
+            resp2 = await self.client.post(send_url, json={
+                "chat_id": chat_id,
+                "text": text
+            })
+            if resp2.status_code != 200 or not resp2.json().get("ok"):
+                print(f"[TelegramListener] Plain send also failed: {resp2.status_code} - {resp2.text[:200]}")
+        except Exception as e2:
+            print(f"[TelegramListener] Send message error: {e2}")
 
     async def _send_file(self, token: str, chat_id: int, file_info: Dict):
         """Send a file via Telegram sendDocument or sendVideo."""
@@ -488,6 +504,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
     async def _process_message(self, text: str, context: Dict[str, Any]):
         """Route message to Brain and return reply (str or file dict)."""
         from tubecli.core.skill import skill_manager
+        from tubecli.core.brain import AgentBrain
 
         agent_id = context.get("agent_id")
 
@@ -797,15 +814,20 @@ Nhiệm vụ:
         """Fast-path: extract video URL directly from message text."""
         video_patterns = [
             r'https?://(?:www\.)?douyin\.com/video/\S+',
-            r'https?://(?:www\.)?tiktok\.com/\S+',
+            r'https?://(?:www\.)?tiktok\.com/@[^/]+/video/\S+',
             r'https?://vm\.tiktok\.com/\S+',
-            r'https?://(?:www\.)?iesdouyin\.com/\S+',
+            r'https?://(?:www\.)?iesdouyin\.com/share/video/\S+',
+            r'https?://(?:www\.)?iesdouyin\.com/share/note/\S+',
+            r'https?://(?:www\.)?iesdouyin\.com/share/slides/\S+',
             r'https?://v\.douyin\.com/\S+',
         ]
         for pattern in video_patterns:
             m = re.search(pattern, text)
             if m:
                 url = m.group(0).rstrip('.,;?!')
+                # Do not intercept user profile URLs as single video fast-path
+                if "/user/" in url:
+                    continue
                 return url
         return None
 
@@ -987,7 +1009,7 @@ Nhiệm vụ:
             async with httpx.AsyncClient(timeout=30) as client:
                 # Step 1: Parse video info
                 parse_resp = await client.post(
-                    f"{TUBECLI_BASE_URL}/api/v1/downloader/parse",
+                    f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/parse",
                     json={"url": url}
                 )
 
@@ -1020,7 +1042,7 @@ Nhiệm vụ:
         try:
             async with httpx.AsyncClient(timeout=120) as client:
                 dl_resp = await client.post(
-                    f"{TUBECLI_BASE_URL}/api/v1/downloader/download",
+                    f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/download",
                     json={"url": url}
                 )
 
@@ -1059,7 +1081,7 @@ Nhiệm vụ:
             "duration": duration,
             "original_title": title,
             "original_author": author,
-            "download_url": f"{TUBECLI_BASE_URL}/api/v1/downloader/file/{filename}"
+            "download_url": f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{filename}"
         }
 
     async def _wait_for_download(self, task_id: str, filename: str, max_wait: int = 120) -> str:
@@ -1071,7 +1093,7 @@ Nhiệm vụ:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.get(
-                        f"{TUBECLI_BASE_URL}/api/v1/downloader/status/{task_id}"
+                        f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/status/{task_id}"
                     )
                     if resp.status_code == 200:
                         task_data = resp.json().get("data", {})

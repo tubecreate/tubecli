@@ -1,0 +1,14 @@
+{
+  "name": "universal_tracker",
+  "version": "1.0.0",
+  "description": "Cross-platform background monitor that tracks Douyin, YouTube, Website for new content and dispatches multi-agent workflows.",
+  "author": "TubeCreate",
+  "type": "system",
+  "icon": "radar",
+  "entry": "extension.py",
+  "extension_class": "UniversalTrackerExtension",
+  "dependencies": ["yt-dlp", "httpx", "feedparser", "beautifulsoup4"],
+  "scripts": {
+    "start": "extension.py"
+  }
+}

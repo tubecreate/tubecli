@@ -20,7 +20,7 @@ DEFAULT_SETTINGS = {
 
 
 class DownloaderExtension(Extension):
-    name = "downloader"
+    name = "douyin_downloader"
     description = "Download video từ TikTok & Douyin"
     version = "0.1.0"
     enabled_by_default = True
@@ -51,5 +51,5 @@ class DownloaderExtension(Extension):
             json.dump(self.settings, f, indent=2, ensure_ascii=False)
 
     def get_routes(self):
-        from tubecli.extensions.downloader.routes import router
+        from tubecli.extensions.douyin_downloader.routes import router
         return router

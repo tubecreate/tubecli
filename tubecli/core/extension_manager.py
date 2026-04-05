@@ -186,10 +186,11 @@ class ExtensionManager:
         "tubecli.extensions.multi_agents",
         "tubecli.extensions.browser",
         "tubecli.extensions.studio3d",
-        "tubecli.extensions.downloader",
+        "tubecli.extensions.douyin_downloader",
         "tubecli.extensions.auth_manager",
         "tubecli.extensions.calendar_manager",
         "tubecli.extensions.file_manager",
+        "tubecli.extensions.universal_tracker",
     ]
 
     # Essential external extensions to auto-install if missing
