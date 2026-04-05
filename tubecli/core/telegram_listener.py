@@ -505,6 +505,7 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
         """Route message to Brain and return reply (str or file dict)."""
         from tubecli.core.skill import skill_manager
         from tubecli.core.brain import AgentBrain
+        import re
 
         agent_id = context.get("agent_id")
 
@@ -666,7 +667,41 @@ Nhiệm vụ:
                     return dl_result # Trả về lỗi tải
             else:
                 print(f"[TelegramListener] 🎯 Fast-path: detected video URL: {video_url}")
-                return await self._execute_download(video_url, agent_dict)
+                dl_result = await self._execute_download(video_url, agent_dict)
+                
+                # Check if the user's message has additional instructions beyond the URL
+                # Strip URL and common share text noise to see if there's real intent
+                stripped = text
+                stripped = re.sub(r'https?://\S+', '', stripped)
+                # Remove common Douyin/TikTok share noise
+                stripped = re.sub(r'\d+\.\d+\s*复制打开抖音.*?(?=\s*$|\s*tải|\s*download|\s*giúp)', '', stripped, flags=re.IGNORECASE|re.DOTALL)
+                stripped = re.sub(r'[#@]\S+', '', stripped)  # Remove hashtags/mentions
+                stripped = re.sub(r'pdn:/\s*\S+', '', stripped)  # Remove pdn:/ tokens
+                stripped = stripped.strip()
+                
+                has_extra_intent = len(stripped) > 5  # More than just noise
+                
+                if has_extra_intent and isinstance(dl_result, dict) and dl_result.get("file_path"):
+                    # User has additional instructions → download first, then let AI handle
+                    print(f"[TelegramListener] 🧠 Extra intent detected: '{stripped}' → delegating to AI Brain")
+                    try:
+                        await self._send_file(context.get("token", ""), context.get("chat_id", 0), dl_result)
+                    except Exception as e:
+                        print(f"Lỗi gửi file: {e}")
+                    
+                    # Enrich the message with download context for the AI
+                    file_path = dl_result["file_path"]
+                    enriched_text = (
+                        f"{text}\n\n"
+                        f"[Hệ thống đã tải video thành công. File path: {file_path}]\n"
+                        f"Hãy phân tích yêu cầu còn lại của người dùng và thực hiện hành động phù hợp. "
+                        f"Nếu không rõ ý định, hãy HỎI LẠI người dùng để làm rõ."
+                    )
+                    # Fall through to AI Brain processing below (don't return)
+                    text = enriched_text
+                else:
+                    # Bare URL or download failed → just return the download result
+                    return dl_result
 
         # Inject autonomous system prompt
         ext_capabilities = self._build_extension_capabilities()

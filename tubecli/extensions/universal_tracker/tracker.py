@@ -149,6 +149,36 @@ class UniversalTracker:
 
     async def _fetch_latest_video(self, platform: str, url: str) -> dict:
         """Fetches the latest item using native API if possible, fallback to yt-dlp."""
+        if platform == "sheets_bg_replace":
+            try:
+                # Expecting a public Google Sheets CSV URL, e.g.
+                # https://docs.google.com/spreadsheets/d/1_abc.../export?format=csv
+                # We fetch the CSV, read the last row that contains a youtube link
+                import aiohttp
+                import csv
+                import io
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            text = await resp.text()
+                            reader = csv.reader(io.StringIO(text))
+                            rows = list(reader)
+                            # Assuming row format: YoutubeURL, BackgroundPath
+                            if len(rows) > 1: # Ignore header maybe
+                                last_row = rows[-1]
+                                out_url = last_row[0]
+                                bg_path = last_row[1] if len(last_row) > 1 else ""
+                                return {
+                                    "id": str(uuid.uuid4())[:8],
+                                    "title": "Sheet Video",
+                                    "url": out_url,
+                                    "original_url": out_url,
+                                    "background": bg_path
+                                }
+            except Exception as e:
+                logger.error(f"Google Sheets fetch failed: {e}")
+            return {}
+
         if platform == "douyin" or "douyin" in url:
             try:
                 from tubecli.extensions.douyin_downloader.api_client import APIClient
@@ -192,6 +222,28 @@ class UniversalTracker:
         return {}
 
     async def _dispatch_event(self, job: TrackerJob, video_info: dict):
+        if job.platform == "sheets_bg_replace":
+            try:
+                import sys
+                ve_dir = "c:/tubecreate-vue/tubecli/data/extensions_external/video_editor"
+                if ve_dir not in sys.path:
+                    sys.path.insert(0, ve_dir)
+                try:
+                    from job_engine import global_job_engine
+                    bg_path = video_info.get("background")
+                    if not bg_path: bg_path = "c:/tubecreate-vue/tubecli/data/extensions_external/video_editor/data/backgrounds/church_bg.jpg"
+                    new_job = global_job_engine.create_job(
+                        source_url=video_info["url"],
+                        background={"type": "image", "path": bg_path},
+                        settings={"trim_no_person": True}
+                    )
+                    logger.info(f"Created Video Background Replace Job: {new_job.id}")
+                except Exception as e:
+                    logger.error(f"Failed to create job in job_engine: {e}")
+            except Exception as e:
+                logger.error(f"Failed to trigger sheets bg replace: {e}")
+            return
+            
         if not job.target_team_id:
             logger.info("No target_team_id provided, skipping dispatch.")
             return

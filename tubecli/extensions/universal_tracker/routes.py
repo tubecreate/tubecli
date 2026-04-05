@@ -9,6 +9,16 @@ from tubecli.extensions.universal_tracker.tracker import universal_tracker_engin
 
 router = APIRouter(prefix="/api/v1/universal_tracker", tags=["Universal Tracker"])
 
+@router.on_event("startup")
+async def start_tracker_engine():
+    import logging
+    logger = logging.getLogger("UniversalTracker")
+    try:
+        from tubecli.extensions.universal_tracker.tracker import universal_tracker_engine
+        universal_tracker_engine.start()
+        logger.info("Universal Tracker engine background loop started.")
+    except Exception as e:
+        logger.error(f"Failed to start Universal Tracker: {e}")
 
 class AddTrackerRequest(BaseModel):
     platform: str = ""

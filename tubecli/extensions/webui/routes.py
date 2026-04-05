@@ -286,6 +286,25 @@ async def serve_video_editor_static(filename: str):
     return {"error": f"File {filename} not found"}
 
 
+@router.get("/video/processing")
+async def video_processing_page():
+    """Serve the Video Processing Queue page."""
+    ve_dir = _find_video_editor_dir()
+    if ve_dir:
+        processing_file = os.path.join(ve_dir, "static", "processing.html")
+        if os.path.exists(processing_file):
+            return FileResponse(processing_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><title>Video Processing — Not Found</title></head>
+    <body style="background:#0a0a12;color:white;font-family:sans-serif;display:flex;justify-content:center;align-items:center;height:100vh;">
+        <h1>Video Processing UI Not Found</h1>
+    </body>
+    </html>
+    """, status_code=200)
+
 @router.get("/sheets-manager")
 @router.get("/sheets_manager")
 async def sheets_manager_page():
