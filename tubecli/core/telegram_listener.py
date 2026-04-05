@@ -528,8 +528,128 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
         # === Fast-path: detect video URL directly in message ===
         video_url = self._extract_video_url(text)
         if video_url:
-            print(f"[TelegramListener] 🎯 Fast-path: detected video URL: {video_url}")
-            return await self._execute_download(video_url, agent_dict)
+            text_lower = text.lower()
+            upload_keywords = ["upload", "đăng", "lên kênh", "đăng mmo"]
+            has_upload = any(k in text_lower for k in upload_keywords)
+            
+            if has_upload:
+                print(f"[TelegramListener] 🎯 Fast-path: Sequenced Match (Download -> Upload)")
+                await self._send_message(context.get("token", ""), context.get("chat_id", 0), "⏳ Đã nhận diện yêu cầu Tải + Upload. Đang tiến hành...")
+                
+                # 1. Tải Video
+                dl_result = await self._execute_download(video_url, agent_dict)
+                
+                if isinstance(dl_result, dict) and dl_result.get("file_path"):
+                    # Gửi file cho user xem trước nếu được
+                    try:
+                        await self._send_file(context.get("token", ""), context.get("chat_id", 0), dl_result)
+                    except Exception as e:
+                         print(f"Lỗi gửi file (FastPath): {e}")
+
+                    video_path = dl_result["file_path"]
+                    duration = dl_result.get("duration", 0)
+                    original_title = dl_result.get("original_title", "Video Mới")
+                    original_author = dl_result.get("original_author", "Unknown")
+                    import json as _json
+                    
+                    # 2. Tối ưu tiêu đề bằng AI trước khi Upload
+                    await self._send_message(context.get("token", ""), context.get("chat_id", 0), "✨ Đang nhờ AI để tối ưu Tiêu đề & Hashtag chuẩn SEO...")
+                    prompt = f"""Bạn là chuyên gia viết tiêu đề YouTube Shorts viral.
+Video gốc: "{original_title}" (Tác giả: {original_author}).
+Yêu cầu của người dùng: "{text}"
+
+Nhiệm vụ:
+1. Nếu trong yêu cầu của người dùng CÓ RÕ RÀNG chỉ định tiêu đề (VD: 'với tiêu đề là XYZ'), BẮT BUỘC dùng nội dung XYZ đó.
+2. Nếu không, hãy sáng tạo một tiêu đề siêu thu hút dựa trên video gốc, thêm vài Emoji, và nối thêm 3-5 Hashtag thịnh hành (ưu tiên #Shorts nếu < 60s).
+3. TRẢ VỀ DUY NHẤT VÀ TRỰC TIẾP DÒNG TIÊU ĐỀ KÈM HASHTAG ĐÓ. Không giải thích, không ngoặc kép, không có chữ 'Tiêu đề:'.
+"""                 
+                    ai_title = original_title
+                    try:
+                        from tubecli.core.brain import AgentBrain
+                        ai_resp = AgentBrain._call_llm(agent_dict, [{"role": "user", "content": prompt}], temperature=0.7)
+                        if ai_resp and "[Error]" not in ai_resp:
+                            ai_title = ai_resp.strip().strip('"').strip("'")
+                    except Exception as e:
+                        print(f"[TelegramListener] Lỗi LLM tạo Title: {e}")
+
+                    # 3. Tự động mồi lệnh Upload cho Extension (Không cần qua AI phân tích hành động nữa)
+                    print(f"[TelegramListener] 🎯 Fast-path: Proceeding to Upload {video_path} (Duration: {duration}) - Title: {ai_title}")
+                    fake_ai_action = {
+                        "action": "upload_video",
+                        "file_path": video_path,
+                        "provider": "youtube",
+                        "privacy": "public",  # Mặc định public như yêu cầu
+                        "title": ai_title
+                    }
+                    reply_payload = "```json\n" + _json.dumps(fake_ai_action) + "\n```"
+                    
+                    upload_result = await self._handle_extension_action(reply_payload, agent_dict, context)
+                    
+                    # Logic kiểm tra trạng thái Upload dựa theo độ dài Video
+                    
+                    duration_sec = 0
+                    if isinstance(duration, int):
+                        duration_sec = duration
+                    elif isinstance(duration, str):
+                        try:
+                            parts = duration.split(":")
+                            if len(parts) == 3:
+                                duration_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+                            elif len(parts) == 2:
+                                duration_sec = int(parts[0]) * 60 + int(parts[1])
+                            else:
+                                duration_sec = float(parts[0].replace('s', ''))
+                        except Exception:
+                            duration_sec = 0
+                            
+                    import re
+                    task_id_match = re.search(r'Task ID:\s*`([^`]+)`', upload_result)
+                    
+                    if task_id_match:
+                        task_id = task_id_match.group(1)
+                        if duration_sec > 0 and duration_sec < 60:
+                            # Video ngắn: block và chờ kết quả để báo cáo liền
+                            await self._send_message(context.get("token", ""), context.get("chat_id", 0), "⏳ Video ngắn (<60s). Đang chờ YouTube xử lý để lấy link...")
+                            final_link = None
+                            for _ in range(30): # Chờ tối đa 5 phút
+                                await asyncio.sleep(10)
+                                st_payload = "```json\n" + _json.dumps({"action": "video_status", "task_id": task_id}) + "\n```"
+                                st_result = await self._handle_extension_action(st_payload, agent_dict, context)
+                                if "✅" in st_result and "done" in st_result.lower():
+                                     final_link = st_result
+                                     break
+                                elif "❌" in st_result or "error" in st_result.lower() or "lỗi" in st_result.lower():
+                                     final_link = st_result
+                                     break
+                            
+                            if final_link:
+                                return f"🎉 **Đăng YouTube thành công!**\n\n{final_link}"
+                            else:
+                                return upload_result + "\n\n⚠️ Đợi quá lâu, hệ thống sẽ chạy ngầm tiếp."
+                        else:
+                            # Video dài (>60s): Không block, setup background task để báo cáo sau
+                            async def _background_poll():
+                                await asyncio.sleep(60) # Khởi động sau 1 phút
+                                for _ in range(60): # Kiểm tra tối đa 10 phút (mỗi 10s)
+                                    st_payload = "```json\n" + _json.dumps({"action": "video_status", "task_id": task_id}) + "\n```"
+                                    st_result = await self._handle_extension_action(st_payload, agent_dict, context)
+                                    if "✅" in st_result and "done" in st_result.lower():
+                                        await self._send_message(context.get("token", ""), context.get("chat_id", 0), f"🎉 **Thông báo Background**: Video dài của bạn đã được duyệt lên YouTube!\n\n{st_result}")
+                                        break
+                                    elif "❌" in st_result or "error" in st_result.lower() or "lỗi" in st_result.lower():
+                                        await self._send_message(context.get("token", ""), context.get("chat_id", 0), f"⚠️ **Thông báo Background**: Lỗi upload YouTube!\n\n{st_result}")
+                                        break
+                                    await asyncio.sleep(10)
+                            
+                            asyncio.create_task(_background_poll())
+                            return upload_result + "\n\n*(Video dài, đã lên lịch theo dõi. Bot sẽ ping bạn khi YouTube duyệt xong!)*"
+
+                    return upload_result
+                else:
+                    return dl_result # Trả về lỗi tải
+            else:
+                print(f"[TelegramListener] 🎯 Fast-path: detected video URL: {video_url}")
+                return await self._execute_download(video_url, agent_dict)
 
         # Inject autonomous system prompt
         ext_capabilities = self._build_extension_capabilities()
@@ -936,6 +1056,9 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
             "filename": filename,
             "caption": caption,
             "file_type": "video",
+            "duration": duration,
+            "original_title": title,
+            "original_author": author,
             "download_url": f"{TUBECLI_BASE_URL}/api/v1/downloader/file/{filename}"
         }
 

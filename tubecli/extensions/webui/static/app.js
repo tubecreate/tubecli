@@ -20,6 +20,7 @@ const ROUTE_TAB_MAP = {
     'ext-video-editor': 'ext-video-editor',
     'ext-studio': 'ext-studio',
     'ext-file-manager': 'ext-file-manager',
+    'ext-video-manager': 'ext-video-manager',
 };
 
 function navigateTo(tab) {
@@ -57,7 +58,8 @@ function activateTab(tab) {
     if (tab.startsWith('ext-')) {
         const iframe = panel?.querySelector('iframe.ext-iframe[data-src]');
         if (iframe && (!iframe.getAttribute('src') || iframe.getAttribute('src') === '')) {
-            iframe.src = iframe.getAttribute('data-src');
+            const rawSrc = iframe.getAttribute('data-src');
+            iframe.src = rawSrc + (rawSrc.includes('?') ? '&' : '?') + 't=' + Date.now();
         }
     }
 
@@ -163,7 +165,7 @@ async function loadDynamicExtensionsToSidebar() {
     extensions.forEach(ext => {
         const hardcodedExtensions = [
             'web_crawler', 'sheets_manager', 'calendar_manager', 
-            'multi_agents', 'livestream', 'files', 'video_editor'
+            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager'
         ];
         
         // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
@@ -659,6 +661,7 @@ function openExtDetail(id) {
         'video_editor': 'ext-video-editor',
         'file_manager': 'ext-file-manager',
         'studio3d': 'ext-studio',
+        'video_manager': 'ext-video-manager',
     };
     if (hashRoutes[id]) { navigateTo(hashRoutes[id]); return; }
 
