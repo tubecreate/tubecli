@@ -102,8 +102,19 @@ class CalendarManager:
                 access_token = auth_manager.get_active_token(best_token_id)
                 if access_token:
                     from google.oauth2.credentials import Credentials as OAuthCredentials
-                    return OAuthCredentials(token=access_token), best_token_id
-
+                    token_data = auth_manager.get_token_data(best_token_id)
+                    cred_data = auth_manager.get_credential(token_data.get("credential_id")) if token_data else {}
+                    
+                    if token_data and cred_data and token_data.get("refresh_token"):
+                        return OAuthCredentials(
+                            token=access_token,
+                            refresh_token=token_data.get("refresh_token"),
+                            client_id=cred_data.get("client_id"),
+                            client_secret=cred_data.get("client_secret"),
+                            token_uri="https://oauth2.googleapis.com/token"
+                        ), best_token_id
+                    else:
+                        return OAuthCredentials(token=access_token), best_token_id
         except ImportError:
             logger.warning("Auth Manager or google-auth not available")
         except Exception as e:
