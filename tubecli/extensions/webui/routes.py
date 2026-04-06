@@ -180,12 +180,15 @@ async def serve_file_manager_static(filename: str):
 
 
 def _find_video_editor_dir():
-    """Find the Video Editor extension directory (handles both 'video_editor' and 'video_editor__xxx' folders)."""
+    """Find the Video Editor extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get_extension("video_editor")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
     from tubecli.config import DATA_DIR
     ext_base = os.path.join(DATA_DIR, "extensions_external")
     if not os.path.isdir(ext_base):
         return None
-    # Check exact name first, then prefix match
     exact = os.path.join(ext_base, "video_editor")
     if os.path.isdir(exact):
         return exact
@@ -196,7 +199,11 @@ def _find_video_editor_dir():
 
 
 def _find_sheets_manager_dir():
-    """Find the Sheets Manager extension directory (handles 'sheets_manager' and 'sheets_manager__xxx')."""
+    """Find the Sheets Manager extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get_extension("sheets_manager")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
     from tubecli.config import DATA_DIR
     ext_base = os.path.join(DATA_DIR, "extensions_external")
     if not os.path.isdir(ext_base):
@@ -339,7 +346,11 @@ async def serve_sheets_manager_static(filename: str):
 
 
 def _find_livestream_dir():
-    """Find the Livestream extension directory (handles 'livestream' and 'livestream__xxx')."""
+    """Find the Livestream extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get_extension("livestream")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
     from tubecli.config import DATA_DIR
     ext_base = os.path.join(DATA_DIR, "extensions_external")
     if not os.path.isdir(ext_base):
@@ -395,6 +406,10 @@ async def serve_static(filename: str):
 
 def _find_web_crawler_dir():
     """Find the Web Crawler extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get_extension("web_crawler")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
     from tubecli.config import DATA_DIR
     ext_base = os.path.join(DATA_DIR, "extensions_external")
     if not os.path.isdir(ext_base):
@@ -443,6 +458,10 @@ async def serve_web_crawler_static(filename: str):
 
 def _find_video_manager_dir():
     """Find the Video Manager extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get_extension("video_manager")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
     from tubecli.config import DATA_DIR
     ext_base = os.path.join(DATA_DIR, "extensions_external")
     if not os.path.isdir(ext_base):
