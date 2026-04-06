@@ -41,6 +41,9 @@ class Agent:
         messenger_page_id: str = "",
         messenger_php_url: str = "",
         direct_trigger_skill_id: str = "",
+        # Team Delegation (Phase 2)
+        role: str = "general",  # "orchestrator" | "specialist" | "general"
+        specialties: List[str] = None,  # ["video", "calendar", "search", ...]
         # Smart Agent fields (Tab 5: Behavior)
         persona: Dict = None,
         routine: Dict = None,
@@ -82,6 +85,8 @@ class Agent:
         self.messenger_page_id = messenger_page_id
         self.messenger_php_url = messenger_php_url
         self.direct_trigger_skill_id = direct_trigger_skill_id
+        self.role = role
+        self.specialties = specialties or []
 
         # Smart Agent
         self.persona = persona or {}
@@ -124,6 +129,8 @@ class Agent:
             "messenger_page_id": self.messenger_page_id,
             "messenger_php_url": self.messenger_php_url,
             "direct_trigger_skill_id": self.direct_trigger_skill_id,
+            "role": getattr(self, "role", "general"),
+            "specialties": getattr(self, "specialties", []),
             "persona": self.persona,
             "routine": self.routine,
             "thinking_map": self.thinking_map,

@@ -204,6 +204,14 @@ export class BrowserManager {
             }
         }
 
+        // Check if bypass marker exists
+        const skipFingerprintPath = path.join(profilePath, 'skip_fingerprint.txt');
+        if (await fs.pathExists(skipFingerprintPath)) {
+            console.warn(`\n[Launch] 🛡️ BYPASS DETECTED: skipping fingerprint application to force Free Mode!\n`);
+            try { plugin.setServiceKey(''); } catch(ex){}
+            fingerprint = null;
+        }
+
         // Apply fingerprint with retry logic
         if (fingerprint) {
              let fpAttempts = 0;
@@ -350,8 +358,19 @@ export class BrowserManager {
                                      errMsg.includes('incorrect format');
                 const isEngineFlake = errMsg.includes('browserautomationstudio') || 
                                       errMsg.includes('referenceerror: can\'t find variable');
+                const isKeyError    = errMsg.includes('key expired') || errMsg.includes('invalid key');
 
-                if (isProxyError || isEngineFlake) {
+                if (isProxyError || isEngineFlake || isKeyError) {
+                    if (isKeyError) {
+                         console.warn(`[Launch] 🛡️ Bablosoft key is expired! Marking profile for FREE mode bypass...`);
+                         try { 
+                             const fs = await import('fs-extra');
+                             await fs.writeFile(path.join(profilePath, 'skip_fingerprint.txt'), 'true');
+                         } catch(ex){}
+                         
+                         throw new Error('Key expired! I have installed a Bypass hook. Please click OPEN BROWSER again to launch in Free Mode (no antidetect).');
+                    }
+
                     if (errMsg.includes('incorrect format')) {
                          if (!options.proxy) {
                              console.warn(`[Launch] 'Incorrect format' persisted with NO PROXY! This confirms FINGERPRINT is invalid.`);

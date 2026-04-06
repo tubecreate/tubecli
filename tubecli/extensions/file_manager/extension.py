@@ -37,7 +37,8 @@ class FileManagerExtension(Extension):
                     "tạo folder", "tạo thư mục", "create folder",
                     "tạo file", "create file",
                     "xóa file", "delete file",
-                    "liệt kê file", "list files",
+                    "liệt kê file", "list files", "duyệt file", "xem thư mục", "browse files",
+                    "tìm file", "search file", "lọc", "filter file", "tìm kiếm",
                     "quản lý file", "file manager",
                 ],
                 "workflow_data": {

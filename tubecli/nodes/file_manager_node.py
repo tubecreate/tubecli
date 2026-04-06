@@ -103,10 +103,46 @@ class FileManagerNode(BaseNode):
             action = "copy"
         elif any(k in cmd_lower for k in ["đọc", "read", "cat ", "xem nội dung", "open file"]):
             action = "read"
-        elif any(k in cmd_lower for k in ["tìm", "search", "find"]):
+        elif any(k in cmd_lower for k in ["tìm", "search", "find", "lọc", "filter"]):
             action = "search"
-        elif any(k in cmd_lower for k in ["liệt kê", "list", "ls ", "xem folder", "xem thư mục"]):
+        elif any(k in cmd_lower for k in ["liệt kê", "list", "ls ", "xem folder", "xem thư mục", "duyệt file", "mở thư mục", "browse"]):
             action = "list"
+
+        # Extract search/filter pattern into `content` parameter
+        if action in ("list", "search"):
+            import re
+            m_ext = re.search(r'(?:đuôi|ext|extension|định dạng)\s*\.?([a-zA-Z0-9_]+)', cmd_lower)
+            if m_ext:
+                content = f"*.{m_ext.group(1)}"
+                action = "search"
+            else:
+                m_wild = re.search(r'([*a-zA-Z0-9_-]*\.[a-zA-Z0-9]{2,5})', cmd_lower)
+                if m_wild:
+                    ext = m_wild.group(1)
+                    if not ext.startswith("*"):
+                        content = f"*{ext}" if ext.startswith(".") else f"*{ext}*"
+                    else:
+                        content = ext
+                    action = "search"
+                else:
+                    m_type = re.search(r'(?:file|danh sách)\s+(video|ảnh|hình|nhạc|âm thanh|tài liệu|word|excel|pdf)', cmd_lower)
+                    if m_type:
+                        t = m_type.group(1)
+                        if t == "video": content = "*.mp4|*.mkv|*.mov|*.avi|*.webm"
+                        elif t in ("ảnh", "hình"): content = "*.jpg|*.png|*.jpeg|*.webp|*.gif"
+                        elif t in ("nhạc", "âm thanh"): content = "*.mp3|*.wav|*.flac|*.aac"
+                        elif t in ("tài liệu", "pdf"): content = "*.pdf"
+                        elif t == "word": content = "*.docx|*.doc"
+                        elif t == "excel": content = "*.xlsx|*.csv|*.xls"
+                        action = "search"
+                    else:
+                        m_name = re.search(r'(?:tìm|search|find|lọc|filter|liệt kê|list|danh sách)(?:\s+file|\s+thư mục|\s+folder)?\s*(?:có\s+)?(?:tên\s+|chữ\s+|là\s+)?([^ởtạitrên]+)', cmd_lower)
+                        if m_name:
+                            name = m_name.group(1).strip()
+                            # Avoid matching generic paths as names
+                            if name and name not in ("file", "các", "những", "danh sách", "thư mục") and "\\" not in name and "/" not in name and "desktop" not in name and "download" not in name:
+                                content = f"*{name}*"
+                                action = "search"
 
         # Extract path from command if not explicitly provided
         if not path:
