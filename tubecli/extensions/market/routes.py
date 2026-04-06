@@ -342,6 +342,39 @@ async def install_git_extension(req: GitInstallRequest):
     result = extension_manager.install_from_git(req.git_url)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Git install failed"))
+    
+    # Hot mount if extension was returned
+    manifest = result.get("extension")
+    if manifest and isinstance(manifest, dict):
+        ext_obj = extension_manager.get(manifest.get("name"))
+        if ext_obj:
+            import sys as _sys
+            ext_d = getattr(ext_obj, 'extension_dir', None)
+            if ext_d and ext_d not in _sys.path:
+                _sys.path.insert(0, ext_d)
+            try:
+                from tubecli.api.server import app
+                ext_router = ext_obj.get_routes()
+                if ext_router:
+                    app.include_router(ext_router)
+                    print(f"[Market/Git] Hot-mounted routes for {ext_obj.name}")
+            except Exception as e:
+                print(f"[Market/Git] Could not hot-mount routes (restart server to activate): {e}")
+
+            try:
+                nodes = ext_obj.get_nodes()
+                if nodes:
+                    from tubecli.core.workflow_engine import WorkflowEngine
+                    WorkflowEngine.NODE_REGISTRY.update(nodes)
+                    print(f"[Market/Git] Registered workflow nodes for {ext_obj.name}")
+            except Exception:
+                pass
+                
+            try:
+                ext_obj.on_install()
+            except Exception:
+                pass
+
     return result
 
 
