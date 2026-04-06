@@ -1,0 +1,389 @@
+"""
+Intent Router — Tier 1: Zero-token intent classification.
+Classifies user messages by keyword/regex BEFORE calling LLM.
+Inspired by claw-code-main's PortRuntime.route_prompt() scoring system.
+"""
+import re
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Any
+
+
+@dataclass
+class IntentResult:
+    """Result of intent classification."""
+    intent_type: str          # greeting, video_download, calendar, etc.
+    confidence: float         # 0.0 - 1.0
+    matched_skills: List[str] = field(default_factory=list)  # skill IDs to inject
+    extracted_data: Dict[str, Any] = field(default_factory=dict)  # url, params, etc.
+    target_agent_id: Optional[str] = None  # for team delegation
+    skip_llm: bool = False    # True = no LLM call needed at all
+
+
+# ── Intent Patterns ──────────────────────────────────────────────
+
+GREETING_PATTERNS = [
+    r"^(xin\s+)?ch[àa]o",
+    r"^h[ie]llo",
+    r"^hi\b",
+    r"^hey\b",
+    r"^/start$",
+    r"^bạn\s+(là|tên|ơi)",
+    r"^(tôi|mình)\s+l[àa]\s+",
+    r"^good\s+(morning|afternoon|evening)",
+    r"^chào\s+buổi",
+]
+
+CALENDAR_PATTERNS = [
+    r"lập\s+lịch",
+    r"đặt\s+lịch",
+    r"tạo\s+sự\s+kiện",
+    r"schedule",
+    r"nhắc\s+nhở",
+    r"lên\s+lịch",
+    r"hẹn\s+giờ",
+    r"reminder",
+]
+
+FILE_OPS_PATTERNS = [
+    r"tạo\s+(thư\s+mục|folder|file)",
+    r"xóa\s+(thư\s+mục|folder|file)",
+    r"di\s+chuyển\s+file",
+    r"liệt\s+kê\s+file",
+    r"đọc\s+file",
+    r"sao\s+chép\s+file",
+    r"create\s+(folder|file|dir)",
+    r"delete\s+(folder|file)",
+    r"move\s+file",
+    r"list\s+(files|dir)",
+]
+
+SEARCH_PATTERNS = [
+    r"tìm\s+kiếm",
+    r"google",
+    r"search",
+    r"tra\s+cứu",
+    r"tìm\s+giúp",
+    r"xu\s+hướng",
+    r"trending",
+    r"tin\s+tức",
+    r"thời\s+tiết",
+    r"weather",
+]
+
+TEAM_PATTERNS = [
+    r"tạo\s+team",
+    r"create\s+team",
+    r"tạo\s+nhóm",
+    r"lập\s+đội",
+]
+
+BROWSER_PATTERNS = [
+    r"(list|danh\s*sách)\s*(browser|trình\s*duyệt|profile)",
+    r"(mở|open|launch)\s*(browser|trình\s*duyệt|profile)",
+    r"(tạo|create|thêm|add)\s*(browser|trình\s*duyệt|profile)",
+    r"(đóng|close|stop|tắt|kill)\s*(browser|trình\s*duyệt|profile)",
+    r"(xóa|delete|remove)\s*(browser|trình\s*duyệt|profile)",
+    r"browser\s*(profile|status|list|mở|đóng|tạo|xóa)",
+    r"trình\s*duyệt\s*(profile|status|list|mở|đóng|tạo|xóa)",
+    r"^(mở|open|launch)\s+\d+$",  # "mở 39" — open by index
+    r"^(đóng|close|stop|tắt)\s+\d+$",  # "đóng 5"
+]
+
+VIDEO_URL_PATTERNS = [
+    r'https?://(?:www\.)?douyin\.com/video/\S+',
+    r'https?://(?:www\.)?tiktok\.com/@[^/]+/video/\S+',
+    r'https?://vm\.tiktok\.com/\S+',
+    r'https?://(?:www\.)?iesdouyin\.com/share/(?:video|note|slides)/\S+',
+    r'https?://v\.douyin\.com/\S+',
+]
+
+UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
+TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
+LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
+
+
+class IntentRouter:
+    """Tier 1: Zero-token intent classification using keyword/regex matching."""
+
+    def classify(self, message: str, agent: Dict = None, skills: List[Dict] = None) -> IntentResult:
+        """
+        Classify intent WITHOUT calling LLM.
+        Returns IntentResult with type, confidence, and relevant data.
+        
+        Routing priority:
+        1. Video URL detection (fast-path, skip LLM entirely)
+        2. Exact skill command match (skip LLM)
+        3. Greeting detection (quick_reply, minimal LLM)
+        4. Calendar / File / Search / Team (targeted skill, small LLM)
+        5. Fallback → general_chat or complex_action (full LLM with filtered skills)
+        """
+        text = message.strip()
+        text_lower = text.lower()
+
+        # ── 1. Video URL Detection ───────────────────────────────
+        video_url = self._extract_video_url(text, text_lower)
+        if video_url:
+            # Check for tracker/live bypass
+            if any(k in text_lower for k in TRACKER_KEYWORDS):
+                return IntentResult(
+                    intent_type="tracker_action",
+                    confidence=0.95,
+                    extracted_data={"url": video_url},
+                )
+            if any(k in text_lower for k in LIVE_KEYWORDS):
+                return IntentResult(
+                    intent_type="live_action",
+                    confidence=0.95,
+                    extracted_data={"url": video_url},
+                )
+            # Check for upload intent
+            if any(k in text_lower for k in UPLOAD_KEYWORDS):
+                return IntentResult(
+                    intent_type="video_upload",
+                    confidence=0.95,
+                    extracted_data={"url": video_url},
+                    skip_llm=False,  # Need LLM for title optimization
+                )
+            return IntentResult(
+                intent_type="video_download",
+                confidence=0.99,
+                extracted_data={"url": video_url},
+                skip_llm=True,
+            )
+
+        # ── 2. Exact Skill Command Match ─────────────────────────
+        if skills:
+            matched_skill = self._match_skill_command(text_lower, skills)
+            if matched_skill:
+                return IntentResult(
+                    intent_type="skill_command",
+                    confidence=0.99,
+                    matched_skills=[matched_skill["id"]],
+                    extracted_data={"skill": matched_skill},
+                    skip_llm=True,
+                )
+
+        # ── 3. Greeting Detection ────────────────────────────────
+        if self._matches_any(text_lower, GREETING_PATTERNS):
+            return IntentResult(
+                intent_type="greeting",
+                confidence=0.90,
+                skip_llm=False,  # Use quick_reply with cloud LLM
+            )
+
+        # ── 4. Calendar ──────────────────────────────────────────
+        if self._matches_any(text_lower, CALENDAR_PATTERNS):
+            calendar_skills = self._find_skills_by_category(skills, ["calendar", "lịch", "schedule"])
+            return IntentResult(
+                intent_type="calendar",
+                confidence=0.85,
+                matched_skills=[s["id"] for s in calendar_skills[:1]],
+            )
+
+        # ── 5. File Operations ───────────────────────────────────
+        if self._matches_any(text_lower, FILE_OPS_PATTERNS):
+            return IntentResult(
+                intent_type="file_ops",
+                confidence=0.90,
+            )
+
+        # ── 6. Search ────────────────────────────────────────────
+        if self._matches_any(text_lower, SEARCH_PATTERNS):
+            search_skills = self._find_skills_by_category(skills, ["search", "tìm kiếm", "tra cứu"])
+            return IntentResult(
+                intent_type="search",
+                confidence=0.80,
+                matched_skills=[s["id"] for s in search_skills[:1]],
+            )
+
+        # ── 7. Team Creation ─────────────────────────────────────
+        if self._matches_any(text_lower, TEAM_PATTERNS):
+            return IntentResult(
+                intent_type="team_create",
+                confidence=0.90,
+            )
+
+        # ── 7b. Browser Management ───────────────────────────────
+        if self._matches_any(text_lower, BROWSER_PATTERNS):
+            # Determine sub-action from keywords
+            sub_action = "list"
+            if any(re.search(p, text_lower) for p in [r"(mở|open|launch)", r"browser\s*mở"]):
+                sub_action = "launch"
+            elif any(re.search(p, text_lower) for p in [r"(tạo|create|thêm|add)", r"browser\s*tạo"]):
+                sub_action = "create"
+            elif any(re.search(p, text_lower) for p in [r"(đóng|close|stop|tắt|kill)", r"browser\s*đóng"]):
+                sub_action = "stop"
+            elif any(re.search(p, text_lower) for p in [r"(xóa|delete|remove)", r"browser\s*xóa"]):
+                sub_action = "delete"
+            
+            # 1. Match numeric shorthands first ("mở 39", "đóng 5")
+            num_match = re.search(r"^(mở|open|launch|đóng|close|stop|tắt|xóa|delete)\s+(\d+)$", text_lower)
+            if num_match:
+                candidate = num_match.group(2)
+                if candidate:
+                    profile_name = candidate
+            else:
+                # 2. Extract profile name by stripping known keywords
+                skip_words = {"browser", "profile", "profiles", "trình", "duyệt", "list", "danh", "sách", 
+                              "status", "mở", "đóng", "tạo", "xóa", "mới", "new", "open", "close", 
+                              "launch", "stop", "create", "delete", "remove", "add", "thêm", "tắt", "kill"}
+                words = text_lower.split()
+                remaining = [w for w in words if w not in skip_words]
+                if remaining:
+                    profile_name = remaining[-1]  # Take last non-keyword word as profile name
+            
+            return IntentResult(
+                intent_type="browser_action",
+                confidence=0.95,
+                extracted_data={"sub_action": sub_action, "profile_name": profile_name},
+                skip_llm=True,
+            )
+        if agent:
+            team_result = self._try_team_delegation(text_lower, agent, skills)
+            if team_result:
+                return team_result
+
+        # ── 9. Fallback: Check if short/casual vs complex ────────
+        word_count = len(text.split())
+        has_question_mark = "?" in text or "？" in text
+        
+        if word_count <= 10 and not has_question_mark and not self._has_action_keywords(text_lower):
+            return IntentResult(
+                intent_type="general_chat",
+                confidence=0.50,
+            )
+
+        # ── 10. Complex action → LLM with top 3 skills ──────────
+        if skills:
+            top_skills = self._score_skills(text_lower, skills, limit=3)
+            return IntentResult(
+                intent_type="complex_action",
+                confidence=0.40,
+                matched_skills=[s["id"] for s in top_skills],
+            )
+
+        return IntentResult(
+            intent_type="general_chat",
+            confidence=0.30,
+        )
+
+    # ── Helpers ───────────────────────────────────────────────────
+
+    def _extract_video_url(self, text: str, text_lower: str) -> Optional[str]:
+        """Extract video URL from message, respecting bypass keywords."""
+        for pattern in VIDEO_URL_PATTERNS:
+            m = re.search(pattern, text)
+            if m:
+                url = m.group(0).rstrip('.,;?!')
+                if "/user/" in url:
+                    continue
+                return url
+        return None
+
+    def _match_skill_command(self, msg_lower: str, skills: List[Dict]) -> Optional[Dict]:
+        """Check for exact skill command match."""
+        msg_clean = re.sub(r'[?!.,;]+$', '', msg_lower).strip()
+        for skill in skills:
+            commands = skill.get("commands", [])
+            for cmd in commands:
+                if not cmd or len(cmd.strip()) < 3:
+                    continue
+                cmd_clean = cmd.strip().lower()
+                if msg_clean == cmd_clean or msg_clean.startswith(cmd_clean + " "):
+                    return skill
+        return None
+
+    def _matches_any(self, text: str, patterns: List[str]) -> bool:
+        """Check if text matches any regex pattern."""
+        return any(re.search(p, text) for p in patterns)
+
+    def _has_action_keywords(self, text_lower: str) -> bool:
+        """Check if text contains action-oriented keywords."""
+        action_words = [
+            "giúp", "làm", "tạo", "xóa", "tải", "gửi", "mở",
+            "chạy", "cài", "thêm", "sửa", "cập nhật", "help",
+            "create", "delete", "download", "send", "run", "install",
+        ]
+        return any(w in text_lower for w in action_words)
+
+    def _find_skills_by_category(self, skills: List[Dict], keywords: List[str]) -> List[Dict]:
+        """Find skills matching category keywords."""
+        if not skills:
+            return []
+        results = []
+        for s in skills:
+            name = (s.get("name", "") or "").lower()
+            desc = (s.get("description", "") or "").lower()
+            cmds = " ".join(s.get("commands", []) or []).lower()
+            haystack = f"{name} {desc} {cmds}"
+            if any(k in haystack for k in keywords):
+                results.append(s)
+        return results
+
+    def _score_skills(self, text_lower: str, skills: List[Dict], limit: int = 3) -> List[Dict]:
+        """Score and return top N relevant skills (claw-code RoutedMatch pattern)."""
+        scored = []
+        tokens = set(w for w in text_lower.split() if len(w) > 2)
+        
+        for s in skills:
+            score = 0
+            name = (s.get("name", "") or "").lower()
+            desc = (s.get("description", "") or "").lower()
+            cmds = s.get("commands", []) or []
+            
+            # Command match: highest score
+            for cmd in cmds:
+                if cmd and cmd.lower() in text_lower:
+                    score += 5
+                    break
+            
+            # Name word match
+            for w in name.split():
+                if len(w) > 2 and w in tokens:
+                    score += 3
+            
+            # Description word match
+            for w in desc.split():
+                if len(w) > 3 and w in tokens:
+                    score += 1
+            
+            if score > 0:
+                scored.append((score, s))
+        
+        scored.sort(key=lambda x: -x[0])
+        return [s for _, s in scored[:limit]]
+
+    def _try_team_delegation(self, text_lower: str, agent: Dict, skills: List[Dict]) -> Optional[IntentResult]:
+        """Phase 2: Try to delegate to a specialist agent in a team."""
+        from tubecli.core.agent import agent_manager
+        
+        all_agents = agent_manager.get_all()
+        if len(all_agents) <= 1:
+            return None  # No team exists
+        
+        # Find specialist agents by their specialties
+        for ag in all_agents:
+            specialties = getattr(ag, "specialties", []) or []
+            role = getattr(ag, "role", "general") or "general"
+            if role != "specialist" or not specialties:
+                continue
+            
+            # Check if message matches this specialist's domain
+            for specialty in specialties:
+                if specialty.lower() in text_lower:
+                    relevant_skills = []
+                    if ag.allowed_skills:
+                        relevant_skills = [s for s in (skills or []) if s.get("id") in ag.allowed_skills]
+                    
+                    return IntentResult(
+                        intent_type="team_delegate",
+                        confidence=0.80,
+                        matched_skills=[s["id"] for s in relevant_skills[:3]],
+                        target_agent_id=ag.id,
+                    )
+        
+        return None
+
+
+# Global singleton
+intent_router = IntentRouter()

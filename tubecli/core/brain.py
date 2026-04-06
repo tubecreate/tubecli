@@ -120,7 +120,155 @@ class AgentBrain:
         )
         return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
 
-    # ── Chat with LLM ─────────────────────────────────────────────
+    # ── Quick Reply (Minimal Token) ───────────────────────────────
+
+    @staticmethod
+    def quick_reply(
+        message: str,
+        agent: Dict,
+        history: List[Dict] = None,
+    ) -> str:
+        """Lightweight chat for greetings/casual conversation.
+        NO skill injection, NO extension docs = ~500 tokens instead of ~15000.
+        Uses cloud AI for fast response.
+        """
+        from tubecli.core.memory import AgentMemory
+        agent_id = agent.get("id", "")
+        
+        # Minimal memory: only facts, no full session history
+        memory_section = ""
+        try:
+            facts = AgentMemory.get_facts(agent_id) if agent_id else []
+            if facts:
+                fact_lines = [f"- {f.get('fact', '')}" for f in facts[:5]]
+                memory_section = "\n### KNOWLEDGE:\n" + "\n".join(fact_lines)
+        except Exception:
+            pass
+        
+        persona = agent.get("system_prompt", "You are a friendly assistant.")
+        system_prompt = (
+            f"### YOUR PERSONA:\n{persona}\n"
+            f"{memory_section}\n\n"
+            "Respond naturally and conversationally. Keep it brief and friendly. "
+            "Use Vietnamese if the user writes in Vietnamese."
+        )
+        
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Only last 5 messages for quick context
+        if history:
+            for h in history[-5:]:
+                messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+        
+        messages.append({"role": "user", "content": message})
+        
+        return AgentBrain._call_llm(agent, messages, temperature=0.7)
+
+    # ── Chat with Targeted Skills (Intent-Aware) ──────────────────
+
+    @staticmethod
+    def chat_targeted(
+        message: str,
+        agent: Dict,
+        skills: List[Dict],
+        history: List[Dict] = None,
+        intent_hint: str = "",
+    ) -> Dict[str, Any]:
+        """Process a chat message with PRE-FILTERED skills only.
+        Called by the IntentRouter after selecting relevant skills.
+        Uses intent_hint to further reduce system prompt size.
+        
+        Returns same format as chat().
+        """
+        from tubecli.i18n import t
+        from tubecli.core.memory import AgentMemory
+
+        agent_id = agent.get("id", "")
+        memory_context = AgentMemory.build_memory_context(agent_id) if agent_id else ""
+        
+        # Build optimized system prompt based on intent
+        system_prompt = AgentBrain.build_system_prompt(
+            agent.get("system_prompt", "You are a helpful assistant."),
+            skills,  # Already filtered to 2-3 skills max
+            memory_context=memory_context,
+            message=message,
+        )
+
+        messages = [{"role": "system", "content": system_prompt}]
+        if history:
+            for h in history[-10:]:
+                messages.append({"role": h.get("role", "user"), "content": h.get("content", "")})
+        messages.append({"role": "user", "content": message})
+
+        raw_response = AgentBrain._call_llm(agent, messages)
+        
+        action_data = AgentBrain._extract_action(raw_response)
+        if action_data:
+            action_type = action_data.get("action")
+            if action_type == "run_skill":
+                skill_id = action_data.get("skill_id", "")
+                skill_name = "Skill"
+                for s in skills:
+                    if s["id"] == skill_id:
+                        skill_name = s["name"]
+                        break
+                return {
+                    "reply": t("brain.running_skill", name=skill_name),
+                    "action": "run_skill",
+                    "skill_id": skill_id,
+                    "skill_input": action_data.get("input", message),
+                }
+            elif action_type == "file_action":
+                try:
+                    from tubecli.extensions.file_manager.file_service import file_service
+                    op = action_data.get("operation", "")
+                    path = action_data.get("path", "")
+                    content = action_data.get("content", "")
+                    destination = action_data.get("destination", "")
+
+                    if op == "create_folder":
+                        r = file_service.create_folder(path)
+                        reply = f"✅ Đã tạo thư mục: {r.get('path', path)}"
+                    elif op == "create_file":
+                        r = file_service.create_file(path, content)
+                        reply = f"✅ Đã tạo file: {r.get('path', path)}"
+                    elif op == "delete":
+                        file_service.delete(path)
+                        reply = f"✅ Đã xóa: {path}"
+                    elif op == "list":
+                        r = file_service.list_dir(path or "~/Desktop")
+                        items = r.get("items", [])
+                        lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
+                        for item in items[:20]:
+                            icon = "📁" if item.get("is_dir") else "📄"
+                            lines.append(f"  {icon} {item['name']}")
+                        reply = "\n".join(lines)
+                    elif op == "read":
+                        r = file_service.read_file(path)
+                        reply = f"📄 {path}:\n{r.get('content', '')[:2000]}"
+                    elif op == "move":
+                        file_service.move(path, destination)
+                        reply = f"✅ Đã di chuyển: {path} → {destination}"
+                    elif op == "copy":
+                        file_service.copy(path, destination)
+                        reply = f"✅ Đã sao chép: {path} → {destination}"
+                    else:
+                        reply = f"❌ Operation không hợp lệ: {op}"
+
+                    return {"reply": reply, "action": "file_action", "action_data": action_data}
+                except Exception as e:
+                    return {"reply": f"❌ Lỗi file: {str(e)}", "action": "file_action"}
+            else:
+                import json as _json
+                return {
+                    "reply": "```json\n" + _json.dumps(action_data, ensure_ascii=False) + "\n```",
+                    "action": action_type,
+                    "action_data": action_data,
+                }
+
+        return {"reply": raw_response, "action": None, "skill_id": None, "skill_input": ""}
+
+    # ── Chat with LLM (Legacy, full skill list) ───────────────────
 
     @staticmethod
     def chat(

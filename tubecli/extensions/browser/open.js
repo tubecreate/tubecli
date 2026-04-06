@@ -1224,26 +1224,36 @@ async function main() {
         }
 
         // Wait until the browser context is closed by the user
-        // Using a Promise-based approach instead of polling pages().length
         await new Promise((resolve) => {
+          let hasInitialized = false;
+          // 10 second grace period to prevent immediate exit on slow CDP/networking
+          setTimeout(() => { hasInitialized = true; }, 10000);
+
           context.on('close', () => {
-            console.log('Browser closed by user.');
-            resolve();
+            if (hasInitialized) {
+              console.log('Browser context closed event received.');
+              resolve();
+            }
           });
-          // Fallback: also poll in case 'close' event is missed
+          
           const pollInterval = setInterval(() => {
+            if (!hasInitialized) return;
             try {
-              if (context.pages().length === 0) {
+              const browser = context.browser();
+              if (browser && !browser.isConnected()) {
+                clearInterval(pollInterval);
+                console.log('Browser CDP disconnected.');
+                resolve();
+              } else if (context.pages().length === 0) {
                 clearInterval(pollInterval);
                 console.log('All browser tabs closed by user.');
                 resolve();
               }
             } catch (e) {
-              // Context already destroyed
               clearInterval(pollInterval);
               resolve();
             }
-          }, 2000);
+          }, 3000);
         });
         return process.exit(0);
       }

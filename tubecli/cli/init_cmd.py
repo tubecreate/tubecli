@@ -55,6 +55,14 @@ def init_cmd(lang):
         )
         console.print(t("init.created_agent", name="Personal Assistant"))
 
+    # 3b. Create built-in specialist agents for team delegation
+    from tubecli.core.specialists import register_builtin_specialists
+    created_specialists = register_builtin_specialists()
+    if created_specialists:
+        console.print(f"  [green]✅ Created {len(created_specialists)} specialist agents:[/green]")
+        for name in created_specialists:
+            console.print(f"    • {name}")
+
     # 4. Enable default extensions
     console.print(t("init.enabling_extensions"))
     from tubecli.core.extension_manager import extension_manager
@@ -270,7 +278,7 @@ def _auto_set_agent_model(provider_id: str, key: str):
     """Auto-update all agents to use the cloud model when a key is saved."""
     # Map provider → default cloud model
     model_map = {
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-1.5-flash",
         "openai": "gpt-4o-mini",
         "claude": "claude-sonnet-4-20250514",
         "deepseek": "deepseek-chat",

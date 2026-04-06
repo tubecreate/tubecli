@@ -311,18 +311,26 @@ class FileService:
         return info
 
     def search(self, path: str, pattern: str = "*", recursive: bool = True) -> Dict[str, Any]:
-        """Search files matching pattern."""
+        """Search files matching pattern (supports mutiple patterns separated by |)."""
         safe_path = self._validate_path(path)
         if not os.path.isdir(safe_path):
             raise FileNotFoundError(f"Thư mục không tồn tại: {path}")
 
-        search_pattern = os.path.join(safe_path, "**", pattern) if recursive else os.path.join(safe_path, pattern)
         matches = []
-        for match in glob.iglob(search_pattern, recursive=recursive):
-            try:
-                matches.append(self._file_info(match))
-            except (PermissionError, OSError):
-                continue
+        patterns = pattern.split("|") if "|" in pattern else [pattern]
+        
+        seen_paths = set()
+        for p in patterns:
+            search_pattern = os.path.join(safe_path, "**", p.strip()) if recursive else os.path.join(safe_path, p.strip())
+            for match in glob.iglob(search_pattern, recursive=recursive):
+                if match in seen_paths: continue
+                seen_paths.add(match)
+                try:
+                    matches.append(self._file_info(match))
+                except (PermissionError, OSError):
+                    continue
+                if len(matches) >= 200:
+                    break
             if len(matches) >= 200:
                 break
 
