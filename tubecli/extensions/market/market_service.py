@@ -158,9 +158,14 @@ class MarketService:
                             err_data = r.json()
                             error_msg = err_data.get("error", r.text[:200])
                         except Exception:
-                            error_msg = r.text[:200]
+                            error_msg = f"Server error (HTTP {r.status_code}). Server có thể đang bảo trì."
                         print(f"[MarketCLI] Upload HTTP {r.status_code}: {error_msg}")
                         return {"status": "error", "error": error_msg}
+                    # Guard: server returned 200 but might be HTML (Cloudflare)
+                    content_type = r.headers.get("content-type", "")
+                    if "text/html" in content_type:
+                        print(f"[MarketCLI] Upload got HTML response (likely Cloudflare): {r.text[:200]}")
+                        return {"status": "error", "error": "Market server không phản hồi. Vui lòng thử lại sau."}
                     return r.json()
             else:
                 import asyncio

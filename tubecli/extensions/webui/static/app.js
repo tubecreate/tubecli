@@ -1403,7 +1403,7 @@ async function deleteTeam(id) { if(!confirm('Delete team?')) return; await apiDe
 
 // ═══ Install Extension ═══
 function showInstallExtension() { document.getElementById('modal-install-ext').classList.remove('hidden'); }
-async function installExtension() { const u = document.getElementById('install-ext-url').value.trim(); if(!u) return alert('URL required.'); const btn = document.getElementById('btn-install-ext'); btn.disabled=true; btn.textContent='⏳ Installing...'; const r = await apiPost('/api/v1/extensions/install',{git_url:u}); btn.disabled=false; btn.textContent='🚀 Install'; if(r&&r.status==='success') { closeModal('modal-install-ext'); loadExtensions(); alert('Installed!'); } else alert('Failed: '+(r?.message||'?')); }
+async function installExtension() { const u = document.getElementById('install-ext-url').value.trim(); if(!u) return alert('URL required.'); const btn = document.getElementById('btn-install-ext'); btn.disabled=true; btn.textContent='⏳ Installing...'; const r = await apiPost('/api/v1/market/items/install-git',{git_url:u}); btn.disabled=false; btn.textContent='🚀 Install'; if(r&&r.status==='success') { closeModal('modal-install-ext'); loadExtensions(); alert('Installed!'); } else alert('Failed: '+(r?.message||'?')); }
 
 // ═══════════════════════════════════════════════════════════
 // ═══ API MANAGER PAGE ═══

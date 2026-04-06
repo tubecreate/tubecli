@@ -37,6 +37,7 @@ class UniversalTrackerExtension(Extension):
             "add_tracker": self._action_add_tracker,
             "list_trackers": self._action_list_trackers,
             "remove_tracker": self._action_remove_tracker,
+            "trigger_tracker": self._action_trigger_tracker,
         }
 
     async def _action_add_tracker(self, action_data: dict, context: dict) -> str:
@@ -121,3 +122,19 @@ class UniversalTrackerExtension(Extension):
             return f"✅ Đã xoá thành công Tracker {tracker_id}."
         else:
             return f"❌ Không tìm thấy Tracker ID '{tracker_id}'."
+
+    async def _action_trigger_tracker(self, action_data: dict, context: dict) -> str:
+        """Force-trigger a tracker to immediately fetch and process the latest video."""
+        tracker_id = action_data.get("tracker_id", "")
+        if not tracker_id:
+            # Default to the most recently added tracker
+            jobs = universal_tracker_engine.list_trackers()
+            if not jobs:
+                return "❌ Không có tracker nào để kích hoạt."
+            tracker_id = jobs[-1]["id"]
+
+        result = await universal_tracker_engine.force_check_job(tracker_id)
+        if result["success"]:
+            return f"🚀 {result['message']}"
+        else:
+            return f"❌ {result['message']}"

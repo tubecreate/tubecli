@@ -85,8 +85,9 @@ class AgentBrain:
             skills_desc = (
                 f"\n\n### AVAILABLE SKILLS ({shown}/{total}) — Analyze user INTENT to pick the right one:\n"
                 + "\n".join(lines)
-                + "\n\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search skill."
-                + "\nIf user asks to download video from TikTok/Douyin → use download_video action."
+                + "\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search skill."
+                + "\nIf user sends a DIRECT video link (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → use download_video action."
+                + "\nIf user sends a SHORT link (v.douyin.com/xxx) with intent like 'mới nhất', 'theo dõi', 'post lên kênh' → this is a USER PROFILE link, use the appropriate skill (add_tracker, trigger_tracker) instead of download_video."
                 + "\nIf no skill matches the intent → reply conversationally.\n"
             )
 
@@ -111,10 +112,10 @@ class AgentBrain:
             "1. Read the user message carefully to understand their INTENT.\n"
             "2. If the intent matches a skill → output run_skill JSON with the skill ID and user's query.\n"
             "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
-            "4. Video URLs (douyin.com, tiktok.com) → ALWAYS download_video.\n"
+            "4. DIRECT Video URLs (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
             "5. File/folder create/delete/move/list → ALWAYS use file_action directly.\n"
             "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
-            "7. Conversational reply ONLY when no action matches.\n\n"
+            "7. **CRITICAL**: For greetings (hi, hello, xin chào, etc.), casual chat, or questions WITHOUT a clear actionable intent → reply conversationally in plain text. Do NOT output any JSON action block. Only output JSON when the user EXPLICITLY requests an action.\n\n"
             "### YOUR PERSONA:\n"
         )
         return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
@@ -263,6 +264,15 @@ class AgentBrain:
                     "skill_name": action_data.get("name", ""),
                     "skill_desc": action_data.get("description", ""),
                     "skill_instructions": action_data.get("instructions", []),
+                }
+
+            else:
+                # Unknown action type — pass through for extension handler (e.g. trigger_tracker, add_tracker)
+                import json as _json
+                return {
+                    "reply": "```json\n" + _json.dumps(action_data, ensure_ascii=False) + "\n```",
+                    "action": action_type,
+                    "action_data": action_data,
                 }
 
         # Fallback keyword matching for creation
@@ -512,7 +522,11 @@ Rules:
         model = agent.get("model") or agent.get("browser_ai_model") or "qwen:latest"
         cloud_keys = agent.get("cloud_api_keys", {})
         
-        if any(k in model.lower() for k in ["gemini", "gemma"]):
+        # Ollama models use colon notation (e.g. gemma3:1b, qwen:latest)
+        # Cloud models DON'T (e.g. gemini-2.0-flash, gpt-4o)
+        is_ollama_format = ":" in model  # gemma3:1b, qwen:latest, etc.
+        
+        if not is_ollama_format and any(k in model.lower() for k in ["gemini", "gemma"]):
             return AgentBrain._call_gemini(model, cloud_keys.get("gemini", ""), messages, temperature=temperature)
         elif any(k in model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
             return AgentBrain._call_openai(model, cloud_keys.get("openai", ""), messages, temperature=temperature)
@@ -666,17 +680,17 @@ Rules:
     @staticmethod
     def _extract_action(text: str) -> Optional[Dict]:
         """Extract any JSON action block from LLM response."""
-        # Known action types
-        action_types = ["run_skill", "create_skill", "download_video", "create_team", "run_api", "schedule_event"]
+        # Known action types (built-in)
+        known_action_types = ["run_skill", "create_skill", "download_video", "create_team", "run_api", "schedule_event"]
         try:
             # Code block: ```json {...} ```
             code_block = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
             if code_block:
                 data = json.loads(code_block.group(1))
-                if data.get("action") in action_types:
+                if data.get("action"):
                     return data
             # Inline JSON for any known action
-            for action_type in action_types:
+            for action_type in known_action_types:
                 inline = re.search(
                     r'(\{[^{}]*"action"\s*:\s*"' + action_type + r'"[^{}]*\})',
                     text, re.DOTALL
@@ -686,6 +700,18 @@ Rules:
                         return json.loads(inline.group(1))
                     except Exception:
                         pass
+            # Fallback: try to find ANY inline JSON with an "action" key (extension actions)
+            inline_any = re.search(
+                r'(\{[^{}]*"action"\s*:\s*"[a-z_]+"[^{}]*\})',
+                text, re.DOTALL
+            )
+            if inline_any:
+                try:
+                    data = json.loads(inline_any.group(1))
+                    if data.get("action"):
+                        return data
+                except Exception:
+                    pass
         except Exception:
             pass
         return None

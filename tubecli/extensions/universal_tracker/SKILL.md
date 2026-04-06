@@ -47,3 +47,18 @@ Dùng khi người dùng yêu cầu "theo dõi kênh Douyin ABC mỗi x giờ, r
   "tracker_id": "abc123xyz"
 }
 ```
+
+## 📥 Hành động: Kích hoạt lấy video NGAY (trigger_tracker)
+Dùng khi người dùng yêu cầu "post video mới nhất", "lấy video mới nhất", "tải bài mới nhất lên kênh".
+
+> **⚡ QUY TẮC PHÂN BIỆT QUAN TRỌNG:**
+> - User nói "**theo dõi**", "**monitor**", "**mỗi X giờ**" → `add_tracker` (tạo cấu hình mới)
+> - User nói "**mới nhất**", "**post lên kênh**", "**tải bài mới**", "**lấy video mới**" → `trigger_tracker` (kích hoạt NGAY)
+> - Nếu đã có tracker cho URL này, LUÔN dùng `trigger_tracker`. KHÔNG tạo thêm tracker trùng lặp!
+
+```json
+{
+  "action": "trigger_tracker",
+  "tracker_id": "" // (Tùy chọn) ID tracker, nếu bỏ trống sẽ dùng tracker gần nhất
+}
+```
