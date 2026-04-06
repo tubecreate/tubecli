@@ -202,9 +202,50 @@ def _wizard_step_ai(t):
 
     elif choice == "3":
         # Ollama guide
-        from tubecli.core.ollama_utils import is_ollama_installed
+        from tubecli.core.ollama_utils import is_ollama_installed, get_installed_models
         if is_ollama_installed():
-            console.print(t("wizard.ollama_ready"))
+            models = get_installed_models()
+            if models:
+                console.print("\n[bold cyan]  Mô hình Ollama đã cài đặt:[/bold cyan]")
+                for i, m in enumerate(models, 1):
+                    console.print(f"  [bold yellow]{i}.[/bold yellow] {m}")
+                console.print(f"  [bold yellow]0.[/bold yellow] {t('wizard.skip_step')}\n")
+                
+                sel = click.prompt(t("panel.select"), type=str, default="1")
+                if sel == "0":
+                    console.print(t("wizard.step_skipped"))
+                else:
+                    try:
+                        idx = int(sel) - 1
+                        if 0 <= idx < len(models):
+                            selected_model = models[idx]
+                            # Update global config
+                            try:
+                                from tubecli.extensions.webui.routes import _DEFAULT_SETTINGS, _settings_path
+                                import json, os
+                                p = _settings_path()
+                                existing = _DEFAULT_SETTINGS.copy()
+                                if os.path.exists(p):
+                                    with open(p, "r", encoding="utf-8") as f:
+                                        existing.update(json.load(f))
+                                existing["default_model"] = selected_model
+                                with open(p, "w", encoding="utf-8") as f:
+                                    json.dump(existing, f, indent=2, ensure_ascii=False)
+                                    
+                                from tubecli.core.agent import agent_manager
+                                for agent in agent_manager.get_all():
+                                    agent_manager.update(agent.id, model=selected_model)
+                                    
+                                console.print(f"[green]✅ Đã tự động đặt AI mặc định: [bold]{selected_model}[/bold] cho tất cả agents.[/green]")
+                            except Exception as e:
+                                console.print(f"[red]❌ Lỗi khi lưu cấu hình: {e}[/red]")
+                        else:
+                            console.print(t("panel.invalid_selection"))
+                    except ValueError:
+                        console.print(t("wizard.step_skipped"))
+            else:
+                console.print("[yellow]Ollama đã được cài đặt nhưng chưa có mô hình nào.[/yellow]")
+                console.print(t("wizard.ollama_ready"))
         else:
             console.print(t("wizard.ollama_not_ready"))
 

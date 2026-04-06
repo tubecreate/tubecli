@@ -65,6 +65,17 @@ async def save_global_settings(request: Request):
     existing.update(body)
     with open(p, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    # Auto-update all agents when global default model changes
+    if "default_model" in body:
+        new_model = body["default_model"]
+        try:
+            from tubecli.core.agent import agent_manager
+            for agent in agent_manager.get_all():
+                agent_manager.update(agent.id, model=new_model)
+        except Exception:
+            pass
+
     return JSONResponse({"status": "success", "settings": existing})
 
 
@@ -182,7 +193,7 @@ async def serve_file_manager_static(filename: str):
 def _find_video_editor_dir():
     """Find the Video Editor extension directory."""
     from tubecli.core.extension_manager import extension_manager
-    ext = extension_manager.get_extension("video_editor")
+    ext = extension_manager.get("video_editor")
     if ext and ext.extension_dir:
         return ext.extension_dir
     from tubecli.config import DATA_DIR
@@ -201,7 +212,7 @@ def _find_video_editor_dir():
 def _find_sheets_manager_dir():
     """Find the Sheets Manager extension directory."""
     from tubecli.core.extension_manager import extension_manager
-    ext = extension_manager.get_extension("sheets_manager")
+    ext = extension_manager.get("sheets_manager")
     if ext and ext.extension_dir:
         return ext.extension_dir
     from tubecli.config import DATA_DIR
@@ -348,7 +359,7 @@ async def serve_sheets_manager_static(filename: str):
 def _find_livestream_dir():
     """Find the Livestream extension directory."""
     from tubecli.core.extension_manager import extension_manager
-    ext = extension_manager.get_extension("livestream")
+    ext = extension_manager.get("livestream")
     if ext and ext.extension_dir:
         return ext.extension_dir
     from tubecli.config import DATA_DIR
@@ -407,7 +418,7 @@ async def serve_static(filename: str):
 def _find_web_crawler_dir():
     """Find the Web Crawler extension directory."""
     from tubecli.core.extension_manager import extension_manager
-    ext = extension_manager.get_extension("web_crawler")
+    ext = extension_manager.get("web_crawler")
     if ext and ext.extension_dir:
         return ext.extension_dir
     from tubecli.config import DATA_DIR
@@ -459,7 +470,7 @@ async def serve_web_crawler_static(filename: str):
 def _find_video_manager_dir():
     """Find the Video Manager extension directory."""
     from tubecli.core.extension_manager import extension_manager
-    ext = extension_manager.get_extension("video_manager")
+    ext = extension_manager.get("video_manager")
     if ext and ext.extension_dir:
         return ext.extension_dir
     from tubecli.config import DATA_DIR
