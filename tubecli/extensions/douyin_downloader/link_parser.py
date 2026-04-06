@@ -53,9 +53,12 @@ class LinkParser:
             return platform, detail_id
 
         # Resolve short URLs
-        if DOUYIN_SHORT.match(url):
+        m_douyin = DOUYIN_SHORT.search(url)
+        if m_douyin:
             return await LinkParser._resolve_douyin_short(url, proxy, cookie)
-        elif TIKTOK_SHORT.match(url):
+            
+        m_tiktok = TIKTOK_SHORT.search(url)
+        if m_tiktok:
             return await LinkParser._resolve_tiktok_short(url, proxy)
 
         # Last resort: find any 19-digit number
@@ -157,12 +160,26 @@ class LinkParser:
                         m = re.search(r'share/user/([^/?]+)', u)
                     if m:
                         sec_uid = m.group(1)
+                        # Detect intent from full text (which is passed in the "url" param)
+                        text_lower = url.lower()
+                        is_profile_intent = "theo dõi" in text_lower or "ta的更多作品" in text_lower or "profile" in text_lower
+                        is_live_intent = "live" in text_lower or "直播" in text_lower or "tạo phiên live" in text_lower
+                        
+                        if is_profile_intent and not is_live_intent:
+                            # User definitively wants to follow the profile ("trang chủ")
+                            return 'douyin_user', sec_uid
+                            
                         # Try scraping user page for live room_id
                         web_rid = await LinkParser._get_web_rid_from_user(sec_uid, headers, proxy)
                         if web_rid:
                             return 'douyin_live', web_rid
-                        # Fallback: return sec_uid for User API resolution
-                        return 'douyin_user_live', sec_uid
+                            
+                        if is_live_intent:
+                            # They explicitly asked for live, but we couldn't find one
+                            return 'douyin_user_live', sec_uid
+                            
+                        # If no clear live intent, default to returning the profile instead of failing
+                        return 'douyin_user', sec_uid
 
                 # Search for aweme_id in JSON data embedded in page
                 aweme_match = re.search(r'aweme_id["\':=]+\s*["\']?(\d{19})', body)

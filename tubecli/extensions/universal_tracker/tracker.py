@@ -147,6 +147,30 @@ class UniversalTracker:
         job.next_check_at = (datetime.now() + timedelta(minutes=job.interval_minutes)).isoformat()
         self._save()
 
+    async def force_check_job(self, job_id: str) -> dict:
+        """Force fetch and dispatch the latest video ignoring snapshot rules."""
+        if job_id not in self._jobs:
+            return {"success": False, "message": "Tracker ID không tồn tại."}
+
+        job = self._jobs[job_id]
+        logger.info(f"[UniversalTracker] Force polling {job.platform} : {job.url}")
+
+        try:
+            video_info = await self._fetch_latest_video(job.platform, job.url)
+            if video_info and "id" in video_info:
+                vid_id = video_info["id"]
+                job.last_item_id = vid_id
+                self._save()
+
+                await self._dispatch_event(job, video_info)
+                return {
+                    "success": True,
+                    "message": f"Đã phát hiện video '{video_info.get('title')}' và giao cho team xử lý!"
+                }
+            return {"success": False, "message": "Không tìm thấy video nào."}
+        except Exception as e:
+            return {"success": False, "message": f"Lỗi khi lấy video: {str(e)}"}
+
     async def _fetch_latest_video(self, platform: str, url: str) -> dict:
         """Fetches the latest item using native API if possible, fallback to yt-dlp."""
         if platform == "sheets_bg_replace":

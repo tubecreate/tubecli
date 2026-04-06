@@ -210,16 +210,48 @@ def _wizard_step_ai(t):
 
 
 def _save_api_key(provider_id: str, key: str):
-    """Save an API key via the cloud_api extension's key_manager."""
+    """Save an API key via the cloud_api extension's key_manager.
+    Also auto-sets the default AI model on all agents."""
     try:
         from tubecli.extensions.cloud_api.extension import key_manager
         result = key_manager.add_key(provider_id, key)
         if result.get("status") == "success":
             console.print(f"[green]✅ {provider_id.upper()} API Key {_t_safe('wizard.key_saved')}[/green]")
+            # Auto-set model on all agents
+            _auto_set_agent_model(provider_id, key)
         else:
             console.print(f"[red]❌ {result.get('message', 'Error')}[/red]")
     except Exception as e:
         console.print(f"[red]❌ {e}[/red]")
+
+
+def _auto_set_agent_model(provider_id: str, key: str):
+    """Auto-update all agents to use the cloud model when a key is saved."""
+    # Map provider → default cloud model
+    model_map = {
+        "gemini": "gemini-2.0-flash",
+        "openai": "gpt-4o-mini",
+        "claude": "claude-sonnet-4-20250514",
+        "deepseek": "deepseek-chat",
+    }
+    model = model_map.get(provider_id)
+    if not model:
+        return
+
+    try:
+        from tubecli.core.agent import agent_manager
+        for agent in agent_manager.get_all():
+            # Update model
+            cloud_keys = agent.cloud_api_keys or {}
+            cloud_keys[provider_id] = key
+            agent_manager.update(
+                agent.id,
+                model=model,
+                cloud_api_keys=cloud_keys,
+            )
+        console.print(f"[green]  🧠 Đã tự động đặt AI mặc định: [bold]{model}[/bold] cho tất cả agents.[/green]")
+    except Exception as e:
+        console.print(f"[yellow]  ⚠️ Không thể tự động cập nhật agent model: {e}[/yellow]")
 
 
 def _t_safe(key):
@@ -468,6 +500,7 @@ def _run_control_panel():
                                 result = key_manager.add_key(prov_id, new_key.strip())
                                 if result.get("status") == "success":
                                     console.print(t("panel.key_saved", name=prov_name))
+                                    _auto_set_agent_model(prov_id, new_key.strip())
                                 else:
                                     console.print(t("panel.key_failed", msg=result.get('message')))
                             else:

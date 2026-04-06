@@ -93,6 +93,16 @@ async def parse_link(req: ParseRequest):
             raise HTTPException(status_code=400, detail="Không thể phân tích link. Hãy nhập link đầy đủ (https://www.douyin.com/video/xxx) hoặc video ID.")
 
         # Get video info
+        if platform == 'douyin_user':
+            cookie = settings.get("cookie_douyin", "")
+            user_info = await APIClient.get_user_info(detail_id, cookie, proxy)
+            if not user_info:
+                raise HTTPException(status_code=404, detail="Không thể lấy thông tin trang cá nhân. Cookie có thể đã hết hạn.")
+            return {
+                "success": True,
+                "data": {"type": "user", **user_info},
+            }
+
         cookie_key = platform
         if platform in ("douyin_live", "douyin_user_live"):
             cookie_key = "douyin"

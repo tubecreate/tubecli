@@ -459,10 +459,12 @@ Chủ nhân giao tiếp qua Telegram. **NHIỆM VỤ CỦA BẠN LÀ TỰ THỰC
 - Dùng khi cần gọi bất kỳ API endpoint nào của hệ thống
 
 ### QUY TẮC NHẬN DIỆN URL VIDEO:
-- URL chứa "douyin.com/video/" → download_video
-- URL chứa "tiktok.com/" → download_video  
-- URL chứa "iesdouyin.com/" → download_video
-- URL chứa "vm.tiktok.com/" → download_video
+- URL chứa "douyin.com/video/" → download_video (link video trực tiếp)
+- URL chứa "tiktok.com/@.../video/" → download_video (link video trực tiếp)
+- URL chứa "iesdouyin.com/share/video/" → download_video (link video trực tiếp)
+- URL chứa "vm.tiktok.com/" → download_video (link video trực tiếp)
+- URL chứa "v.douyin.com/" (link rút gọn) MÀ user nói "mới nhất", "lên kênh", "theo dõi", "post" → ĐÂY LÀ LINK KÊNH USER, KHÔNG PHẢI VIDEO. Dùng skill phù hợp (add_tracker / trigger_tracker) thay vì download_video.
+- URL chứa "v.douyin.com/" (link rút gọn) MÀ user CHỈ gửi link, không nói gì thêm → download_video
 
 ### QUY TẮC NHẬN DIỆN LẬP LỊCH:
 - User nói "lập lịch", "đặt lịch", "schedule", "tạo sự kiện", "nhắc nhở", "lên lịch livestream" → schedule_event
@@ -590,15 +592,45 @@ Nhiệm vụ:
                     except Exception as e:
                         print(f"[TelegramListener] Lỗi LLM tạo Title: {e}")
 
-                    # 3. Tự động mồi lệnh Upload cho Extension (Không cần qua AI phân tích hành động nữa)
-                    print(f"[TelegramListener] 🎯 Fast-path: Proceeding to Upload {video_path} (Duration: {duration}) - Title: {ai_title}")
+                    # 3. Resolve target YouTube channel from user message
+                    target_email = ""
+                    try:
+                        import re as _re
+                        channel_match = _re.search(r'(?:kênh|channel)\s+(?:youtube\s+)?(.+?)(?:\s+giúp|\s+video|\s*$)', text_lower)
+                        if channel_match:
+                            target_name = channel_match.group(1).strip()
+                            import httpx
+                            async with httpx.AsyncClient(timeout=10) as client:
+                                resp = await client.get(f"http://localhost:5295/api/v1/video_manager/accounts?provider=youtube")
+                                if resp.status_code == 200:
+                                    acct_data = resp.json()
+                                    accounts = acct_data.get("accounts", [])
+                                    for acct in accounts:
+                                        em = acct.get("email", "")
+                                        ch_resp = await client.get(f"http://localhost:5295/api/v1/video_manager/channels?provider=youtube&email={em}")
+                                        if ch_resp.status_code == 200:
+                                            for ch in ch_resp.json().get("channels", []):
+                                                ch_title = (ch.get("title", "") or "").lower()
+                                                if target_name in ch_title or ch_title in target_name:
+                                                    target_email = em
+                                                    print(f"[TelegramListener] 🎯 Resolved channel '{target_name}' → {em}")
+                                                    break
+                                        if target_email:
+                                            break
+                    except Exception as e:
+                        print(f"[TelegramListener] Channel resolve error: {e}")
+
+                    # 4. Tự động mồi lệnh Upload cho Extension
+                    print(f"[TelegramListener] 🎯 Fast-path: Proceeding to Upload {video_path} (Duration: {duration}) - Title: {ai_title} - Email: {target_email or 'default'}")
                     fake_ai_action = {
                         "action": "upload_video",
                         "file_path": video_path,
                         "provider": "youtube",
-                        "privacy": "public",  # Mặc định public như yêu cầu
+                        "privacy": "public",
                         "title": ai_title
                     }
+                    if target_email:
+                        fake_ai_action["email"] = target_email
                     reply_payload = "```json\n" + _json.dumps(fake_ai_action) + "\n```"
                     
                     upload_result = await self._handle_extension_action(reply_payload, agent_dict, context)
@@ -803,6 +835,16 @@ Nhiệm vụ:
             action_data = brain_result.get("action_data", {})
             url = action_data.get("url", "")
             if url:
+                # Safety: If it's a short link + user intent is "mới nhất" / "lên kênh" etc → re-route to extension
+                text_lower = text.lower()
+                is_short_link = "v.douyin.com/" in url
+                profile_keywords = ["mới nhất", "lên kênh", "theo dõi", "post", "upload", "đăng", "tracker", "kích hoạt"]
+                if is_short_link and any(k in text_lower for k in profile_keywords):
+                    # This is a user profile link — pass entire message to extension action handler
+                    import json as _json
+                    trigger_json = _json.dumps({"action": "trigger_tracker"})
+                    fake_reply = "```json\n" + trigger_json + "\n```"
+                    return await self._handle_extension_action(fake_reply, agent_dict, context)
                 return await self._execute_download(url, agent_dict)
             reply = "❌ AI muốn tải video nhưng không tìm thấy URL."
 
@@ -817,6 +859,15 @@ Nhiệm vụ:
         elif action == "schedule_event":
             action_data = brain_result.get("action_data", {})
             reply = await self._exec_schedule_event(action_data)
+
+        # Safety: If AI chose add_tracker but user intent is "mới nhất" → swap to trigger_tracker
+        if action == "add_tracker":
+            text_lower = text.lower()
+            trigger_keywords = ["mới nhất", "video mới nhất", "bài mới nhất", "post lên kênh", "lấy video mới"]
+            if any(k in text_lower for k in trigger_keywords):
+                import json as _json
+                reply = "```json\n" + _json.dumps({"action": "trigger_tracker"}) + "\n```"
+                print(f"[TelegramListener] 🔀 Re-routed add_tracker → trigger_tracker (intent: mới nhất)")
 
         # Handle Extension Actions from AI response text (fallback for inline JSON)
         result = await self._handle_extension_action(reply, agent_dict, context)
@@ -847,6 +898,12 @@ Nhiệm vụ:
 
     def _extract_video_url(self, text: str) -> Optional[str]:
         """Fast-path: extract video URL directly from message text."""
+        # Bypass fast-path for requests that indicate "follow", "live", or querying/fetching like "mới nhất" so AI can handle them via skills
+        text_lower = text.lower()
+        bypass_keywords = ["theo dõi", "tạo phiên live", "live", "直播", "ta的更多作品", "phát live", "restream", "mới nhất", "bài mới nhất", "video mới nhất", "tracker", "kích hoạt"]
+        if any(k in text_lower for k in bypass_keywords):
+            return None
+
         video_patterns = [
             r'https?://(?:www\.)?douyin\.com/video/\S+',
             r'https?://(?:www\.)?tiktok\.com/@[^/]+/video/\S+',
@@ -1058,6 +1115,12 @@ Nhiệm vụ:
 
                 parse_data = parse_resp.json()
                 video_info = parse_data.get("data", {})
+                
+                # Check if it was actually a user profile
+                if video_info.get("type") == "user":
+                    user_name = video_info.get("nickname", "Unknown")
+                    return f"❌ Link này trỏ tới trang cá nhân Douyin của '{user_name}'. Hãy thêm các từ khóa như 'theo dõi' để tôi lên lịch cập nhật, hoặc gửi link một video cụ thể để tải."
+
                 title = video_info.get("title", "video")[:50]
                 author = video_info.get("author", "unknown")
                 platform = video_info.get("platform", "")

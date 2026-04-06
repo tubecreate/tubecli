@@ -4,9 +4,10 @@
 Extension **Downloader** cho phép tải video từ TikTok và Douyin (DouYin).
 
 ## Khi nào dùng
-- User gửi link TikTok hoặc Douyin (bất kỳ format nào)
-- User yêu cầu "tải video", "download video", "lấy video"
-- User muốn lưu video về máy
+- User gửi link TikTok hoặc Douyin kèm yêu cầu tải
+- User yêu cầu "tải video", "download video", "lấy video" VÀ CÓ KÈM URL
+
+> ⛔ **KHÔNG DÙNG** khi: tin nhắn không chứa URL video, tin nhắn chỉ là chào hỏi/chat thường.
 
 ## Cách kích hoạt (AI OUTPUT JSON)
 
