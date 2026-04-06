@@ -51,8 +51,8 @@ class CalendarManager:
 
     def _get_credentials(self, cred_id: str = "", email: str = ""):
         """Get Google OAuth credentials from Auth Manager.
-        If cred_id not provided, try to find one with calendar scope.
-        If email is provided, prefer that credential.
+        Returns a tuple of (OAuthCredentials, resolved_token_id).
+        Note: We return resolved_token_id so caller knows the exact token.
         """
         try:
             from tubecli.extensions.auth_manager.extension import auth_manager
@@ -60,48 +60,49 @@ class CalendarManager:
             if not email:
                 email = self._get_default_calendar_email()
 
+            # If an explicit identifier is provided, try to use it directly
             if cred_id:
+                # cred_id might actually be a token_id here if we pass it around
                 access_token = auth_manager.get_active_token(cred_id)
                 if access_token:
                     from google.oauth2.credentials import Credentials as OAuthCredentials
                     return OAuthCredentials(token=access_token), cred_id
                 return None, cred_id
 
-            # Find credential with calendar scope or matching email
-            google_creds = auth_manager.list_credentials(provider="google")
             tokens = auth_manager.list_tokens(provider="google")
+            best_token_id = None
 
-            best_cred_id = None
-
-            # If email specified, find matching token
+            # 1. Find a token matching email AND having calendar scope
             if email:
                 for t in tokens:
                     if t.get("authorized_email", "").lower() == email.lower():
-                        best_cred_id = t.get("credential_id")
-                        break
-
-            # Fallback: find any Google credential with active token
-            if not best_cred_id:
-                for cred in google_creds:
-                    if cred.get("has_token") and cred.get("token_status") in ("active", "expired"):
-                        # Check if it has calendar scope
-                        scopes = cred.get("scopes", [])
+                        # Check scopes
+                        scopes = t.get("scopes", [])
+                        # "calendar" scope is required for creation, or "calendar.readonly" for listing
                         if any("calendar" in s for s in scopes):
-                            best_cred_id = cred["id"]
+                            best_token_id = t.get("token_id")
                             break
 
-            # Wider fallback: any Google credential with active token
-            if not best_cred_id:
-                for cred in google_creds:
-                    if cred.get("has_token") and cred.get("token_status") in ("active", "expired"):
-                        best_cred_id = cred["id"]
+            # 2. Fallback: Any token that has calendar scope (regardless of email)
+            if not best_token_id:
+                for t in tokens:
+                    scopes = t.get("scopes", [])
+                    if any("calendar" in s for s in scopes):
+                        best_token_id = t.get("token_id")
+                        break
+            
+            # 3. Last resort fallback: matching email (if user manually crafted scopes or we failed scope check)
+            if not best_token_id and email:
+                for t in tokens:
+                    if t.get("authorized_email", "").lower() == email.lower():
+                        best_token_id = t.get("token_id")
                         break
 
-            if best_cred_id:
-                access_token = auth_manager.get_active_token(best_cred_id)
+            if best_token_id:
+                access_token = auth_manager.get_active_token(best_token_id)
                 if access_token:
                     from google.oauth2.credentials import Credentials as OAuthCredentials
-                    return OAuthCredentials(token=access_token), best_cred_id
+                    return OAuthCredentials(token=access_token), best_token_id
 
         except ImportError:
             logger.warning("Auth Manager or google-auth not available")
