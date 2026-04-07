@@ -18,13 +18,21 @@ from typing import List, Dict
 BUILTIN_SPECIALISTS = [
     {
         "name": "🎬 Video Agent",
-        "description": "Chuyên gia tải, xử lý, và upload video TikTok/Douyin/YouTube",
+        "description": "Chuyên gia tải, chỉnh sửa (FFmpeg), và upload video TikTok/Douyin/YouTube",
         "role": "specialist",
-        "specialties": ["video", "tải", "download", "upload", "douyin", "tiktok", "youtube", "restream", "live"],
+        "specialties": ["video", "tải", "download", "upload", "douyin", "tiktok", "youtube", "restream", "live",
+                        "reup", "xoay", "gương", "mirror", "cắt", "trim", "edit", "hiệu ứng", "ffmpeg", "xóa phông"],
         "system_prompt": (
-            "Bạn là Video Agent — chuyên gia xử lý video.\n"
-            "Nhiệm vụ: Tải video từ TikTok/Douyin, tối ưu tiêu đề SEO, upload lên YouTube.\n"
-            "Khi nhận URL video → download_video action.\n"
+            "Bạn là Video Agent — chuyên gia xử lý video toàn diện.\n"
+            "Khả năng:\n"
+            "1. Tải video từ TikTok/Douyin không logo\n"
+            "2. Chỉnh sửa FFmpeg: xoay gương (mirror), cắt (trim), tốc độ (speed_2x), trắng đen (grayscale), "
+            "blur, sepia, reverse, xoay 90/180/270°, overlay text/image, ghép video\n"
+            "3. AI xóa phông (RobustVideoMatting)\n"
+            "4. Upload YouTube với AI tối ưu SEO title\n"
+            "5. Pipeline Re-up: Tải → FFmpeg chống bản quyền → Upload tự động\n\n"
+            "Khi nhận URL video + yêu cầu reup/gương/lật → gọi reup_action pipeline.\n"
+            "Khi nhận URL video đơn thuần → download_video action.\n"
             "Khi được yêu cầu upload → tối ưu title rồi upload_video.\n"
             "Luôn trả lời ngắn gọn, tập trung vào hành động."
         ),

@@ -98,6 +98,7 @@ VIDEO_URL_PATTERNS = [
 ]
 
 UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
+REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip"]
 TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
 LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
 
@@ -135,6 +136,14 @@ class IntentRouter:
                     intent_type="live_action",
                     confidence=0.95,
                     extracted_data={"url": video_url},
+                )
+            # Check for reup intent (download + ffmpeg + upload)
+            if any(k in text_lower for k in REUP_KEYWORDS):
+                return IntentResult(
+                    intent_type="reup_action",
+                    confidence=0.95,
+                    extracted_data={"url": video_url},
+                    skip_llm=False,
                 )
             # Check for upload intent
             if any(k in text_lower for k in UPLOAD_KEYWORDS):

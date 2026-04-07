@@ -675,15 +675,113 @@ Rules:
         is_ollama_format = ":" in model  # gemma3:1b, qwen:latest, etc.
         
         if not is_ollama_format and any(k in model.lower() for k in ["gemini", "gemma"]):
-            return AgentBrain._call_gemini(model, cloud_keys.get("gemini", ""), messages, temperature=temperature)
+            result = AgentBrain._call_gemini(model, cloud_keys.get("gemini", ""), messages, temperature=temperature)
         elif any(k in model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
-            return AgentBrain._call_openai(model, cloud_keys.get("openai", ""), messages, temperature=temperature)
+            result = AgentBrain._call_openai(model, cloud_keys.get("openai", ""), messages, temperature=temperature)
         elif "claude" in model.lower():
-            return AgentBrain._call_claude(model, cloud_keys.get("claude", ""), messages)
+            result = AgentBrain._call_claude(model, cloud_keys.get("claude", ""), messages)
         elif "deepseek" in model.lower():
-            return AgentBrain._call_openai(model, cloud_keys.get("deepseek", ""), messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+            result = AgentBrain._call_openai(model, cloud_keys.get("deepseek", ""), messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
         else:
             return AgentBrain._call_ollama(model, messages, temperature=temperature)
+        
+        # ── Auto-Failover on Quota/Rate Limit Errors ──
+        if any(err_tag in result for err_tag in ["429", "quota", "rate limit", "Too Many Requests", "exceeded"]):
+            print(f"[Brain] ⚠️ Provider quota error detected: {result[:100]}")
+            result = AgentBrain._failover_llm(model, cloud_keys, messages, temperature, result)
+        
+        return result
+
+    @staticmethod
+    def _failover_llm(failed_model: str, cloud_keys: Dict, messages: List[Dict], temperature: float, original_error: str) -> str:
+        """Auto-failover: try other keys/providers, then local Ollama."""
+        
+        # Step 1: Report the failed key to KeyManager
+        try:
+            from tubecli.extensions.cloud_api.extension import key_manager, PROVIDERS
+            
+            # Detect which provider failed
+            failed_provider = None
+            if any(k in failed_model.lower() for k in ["gemini", "gemma"]):
+                failed_provider = "gemini"
+            elif any(k in failed_model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
+                failed_provider = "openai"
+            elif "claude" in failed_model.lower():
+                failed_provider = "claude"
+            elif "deepseek" in failed_model.lower():
+                failed_provider = "deepseek"
+            
+            if failed_provider and cloud_keys.get(failed_provider):
+                key_manager.report_key_error(failed_provider, cloud_keys[failed_provider], "Auto-disabled: Quota exceeded")
+                print(f"[Brain] 🔄 Disabled key for {failed_provider}, searching for alternatives...")
+            
+            # Step 2: Try another key from the SAME provider
+            if failed_provider:
+                new_key = key_manager.get_active_key(failed_provider)
+                if new_key and new_key != cloud_keys.get(failed_provider):
+                    print(f"[Brain] 🔑 Trying backup key for {failed_provider}...")
+                    if failed_provider == "gemini":
+                        result = AgentBrain._call_gemini(failed_model, new_key, messages, temperature=temperature)
+                    elif failed_provider == "openai":
+                        result = AgentBrain._call_openai(failed_model, new_key, messages, temperature=temperature)
+                    elif failed_provider == "claude":
+                        result = AgentBrain._call_claude(failed_model, new_key, messages)
+                    elif failed_provider == "deepseek":
+                        result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                    else:
+                        result = None
+                    if result and not any(e in result for e in ["429", "quota", "rate limit", "exceeded"]):
+                        print(f"[Brain] ✅ Backup key for {failed_provider} works!")
+                        return result
+            
+            # Step 3: Try a DIFFERENT cloud provider
+            fallback_order = ["gemini", "deepseek", "openai", "claude"]
+            for provider in fallback_order:
+                if provider == failed_provider:
+                    continue
+                alt_key = key_manager.get_active_key(provider)
+                if alt_key:
+                    prov_models = PROVIDERS.get(provider, {}).get("models", [])
+                    alt_model = prov_models[0] if prov_models else None
+                    if not alt_model:
+                        continue
+                    
+                    print(f"[Brain] 🔄 Failover: trying {provider}/{alt_model}...")
+                    if provider == "gemini":
+                        result = AgentBrain._call_gemini(alt_model, alt_key, messages, temperature=temperature)
+                    elif provider == "openai":
+                        result = AgentBrain._call_openai(alt_model, alt_key, messages, temperature=temperature)
+                    elif provider == "claude":
+                        result = AgentBrain._call_claude(alt_model, alt_key, messages)
+                    elif provider == "deepseek":
+                        result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                    else:
+                        continue
+                    
+                    if result and not any(e in result for e in ["429", "quota", "rate limit", "exceeded", "[Error]"]):
+                        print(f"[Brain] ✅ Failover to {provider}/{alt_model} succeeded!")
+                        return f"⚠️ *[Auto-Failover: {failed_provider} → {provider}]*\n\n{result}"
+        
+        except Exception as e:
+            print(f"[Brain] Failover error: {e}")
+        
+        # Step 4: Final fallback — local Ollama
+        print("[Brain] 🏠 All cloud providers failed. Falling back to local Ollama...")
+        ollama_result = AgentBrain._call_ollama("qwen:latest", messages, temperature=temperature)
+        
+        if "[Ollama Error]" in ollama_result:
+            # No local model available either
+            return (
+                f"⚠️ **Tất cả AI Cloud đều hết quota!**\n"
+                f"- {failed_model}: {original_error[:150]}\n"
+                f"- Ollama local: {ollama_result}\n\n"
+                f"💡 Giải pháp:\n"
+                f"1. Thêm key mới: `tubecli cloud add <provider> <key>`\n"
+                f"2. Cài Ollama: `ollama pull qwen:latest`\n"
+                f"3. Chờ quota reset (thường ~1 phút)"
+            )
+        
+        return f"⚠️ *[Auto-Failover: Cloud → Ollama local]*\n\n{ollama_result}"
 
     @staticmethod
     def _call_ollama(model: str, messages: List[Dict], temperature: float = 0.7) -> str:
