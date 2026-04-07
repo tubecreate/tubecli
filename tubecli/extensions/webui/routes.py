@@ -518,3 +518,54 @@ async def serve_video_manager_static(filename: str):
             return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
 
+
+def _find_subtitle_extractor_dir():
+    """Find the Subtitle Extractor extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get("subtitle_extractor")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "subtitle_extractor")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("subtitle_extractor__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
+@router.get("/subtitle-extractor")
+@router.get("/subtitle_extractor")
+async def subtitle_extractor_page():
+    """Serve the Subtitle Extractor page."""
+    se_dir = _find_subtitle_extractor_dir()
+    if se_dir:
+        html_file = os.path.join(se_dir, "static", "subtitle.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>Subtitle Extractor — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">📝</div><h1>Subtitle Extractor</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/subtitle-extractor-static/{filename:path}")
+@router.get("/subtitle_extractor-static/{filename:path}")
+async def serve_subtitle_extractor_static(filename: str):
+    """Serve Subtitle Extractor static files."""
+    se_dir = _find_subtitle_extractor_dir()
+    if se_dir:
+        filepath = os.path.join(se_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
