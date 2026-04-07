@@ -151,6 +151,8 @@ const EXT_REGISTRY = [
     { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:'ext.multi_agents_desc', type:'extension' },
     { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
     { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
+    { id:'video_manager', icon:'📹', name:'Video Manager', desc:'Manage your videos and YouTube channels locally', type:'extension' },
+    { id:'subtitle_extractor', icon:'📝', name:'Subtitle Extractor', desc:'Extract subtitles via Whisper Ai or Gemini', type:'extension' },
     { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
     { id:'file_manager', icon:'📁', name:'File Manager', desc:'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp', type:'core' },
     { id:'calendar_manager', icon:'📅', name:'Calendar Manager', desc:'Quản lý Google Calendar — lập lịch, sự kiện lặp lại, nhắc nhở Telegram', type:'core' },
@@ -165,7 +167,7 @@ async function loadDynamicExtensionsToSidebar() {
     extensions.forEach(ext => {
         const hardcodedExtensions = [
             'web_crawler', 'sheets_manager', 'calendar_manager', 
-            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager'
+            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager', 'subtitle_extractor'
         ];
         
         // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
@@ -662,6 +664,7 @@ function openExtDetail(id) {
         'file_manager': 'ext-file-manager',
         'studio3d': 'ext-studio',
         'video_manager': 'ext-video-manager',
+        'subtitle_extractor': 'ext-subtitle-extractor',
     };
     if (hashRoutes[id]) { navigateTo(hashRoutes[id]); return; }
 

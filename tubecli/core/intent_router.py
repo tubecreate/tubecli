@@ -101,6 +101,7 @@ UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
 REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip"]
 TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
 LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
+SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
 
 
 class IntentRouter:
