@@ -146,6 +146,21 @@ class IntentRouter:
                     extracted_data={"url": video_url},
                     skip_llm=False,
                 )
+            # Check for subtitle pipeline (download + subtitle + optional burn/upload)
+            if any(k in text_lower for k in SUBTITLE_KEYWORDS):
+                has_upload = any(k in text_lower for k in UPLOAD_KEYWORDS)
+                has_burn = any(k in text_lower for k in ["burn", "ghi sub", "ghi phụ đề", "thêm sub", "thêm phụ đề", "ghép sub"])
+                return IntentResult(
+                    intent_type="subtitle_pipeline",
+                    confidence=0.96,
+                    extracted_data={
+                        "url": video_url,
+                        "needs_burn": has_burn or has_upload,  # burn if uploading
+                        "needs_upload": has_upload,
+                        "original_message": text,
+                    },
+                    skip_llm=False,
+                )
             # Check for upload intent
             if any(k in text_lower for k in UPLOAD_KEYWORDS):
                 return IntentResult(
@@ -248,6 +263,17 @@ class IntentRouter:
                 extracted_data={"sub_action": sub_action, "profile_name": profile_name},
                 skip_llm=True,
             )
+        # ── 7c. Subtitle Extraction ──────────────────────────────
+        if any(k in text_lower for k in SUBTITLE_KEYWORDS):
+            sub_skills = self._find_skills_by_category(skills, ["subtitle", "phụ đề", "sub", "caption"])
+            return IntentResult(
+                intent_type="subtitle_action",
+                confidence=0.90,
+                matched_skills=[s["id"] for s in sub_skills[:1]],
+                extracted_data={"original_message": text},
+            )
+
+        # ── 8. Team Delegation ───────────────────────────────────
         if agent:
             team_result = self._try_team_delegation(text_lower, agent, skills)
             if team_result:

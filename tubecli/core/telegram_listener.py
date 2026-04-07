@@ -297,6 +297,20 @@ class TelegramListener:
             self._save_history(agent_id, agent_dict, text, result, history)
             return result
 
+        # ── Fast-path: Subtitle Pipeline (URL + subtitle + optional upload) ──
+        if intent.intent_type == "subtitle_pipeline":
+            context["_agent_badge"] = "📝 Subtitle Pipeline"
+            result = await self._handle_subtitle_pipeline(intent.extracted_data, text, agent_dict, context)
+            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor")
+            return result
+
+        # ── Fast-path: Subtitle Extraction ──
+        if intent.intent_type == "subtitle_action":
+            context["_agent_badge"] = "📝 Subtitle Extractor"
+            result = await self._handle_subtitle_action(text, agent_dict, context)
+            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor")
+            return result
+
         # ═══════════════════════════════════════════════════════════
         #  TIER 2: Smart Dispatch (minimal tokens)
         # ═══════════════════════════════════════════════════════════
@@ -584,6 +598,408 @@ class TelegramListener:
 
         except Exception as e:
             return f"❌ Lỗi xử lý browser: {str(e)[:200]}"
+
+    async def _handle_subtitle_pipeline(self, data: dict, text: str, agent_dict: dict, context: dict) -> str:
+        """Full pipeline: Download → Extract Subtitle → Burn → Upload.
+        
+        Steps:
+        1. Download video from URL (Douyin/TikTok/etc)
+        2. Extract subtitle using Whisper
+        3. Optionally burn subtitle into video
+        4. Optionally upload to YouTube channel
+        """
+        import re, asyncio, os
+        
+        url = data.get("url", "")
+        needs_burn = data.get("needs_burn", False)
+        needs_upload = data.get("needs_upload", False)
+        original_msg = data.get("original_message", text)
+        
+        token = context.get("token", "")
+        chat_id = context.get("chat_id", 0)
+        
+        # ── Load Session Preferences ──
+        from tubecli.config import DATA_DIR
+        import json
+        prefs_file = DATA_DIR / "telegram_prefs.json"
+        
+        user_prefs = {}
+        if prefs_file.exists():
+            try:
+                with open(prefs_file, "r", encoding="utf-8") as f:
+                    user_prefs = json.load(f)
+            except Exception:
+                pass
+                
+        chat_prefs = user_prefs.get(str(chat_id), {
+            "default_privacy": "public",
+            "upload_delay": 180,
+            "default_translate": None
+        })
+
+        # Update prefs from current message
+        if "mặc định là public" in text.lower() or "public" in text.lower():
+            chat_prefs["default_privacy"] = "public"
+        elif "mặc định là private" in text.lower() or "private" in text.lower():
+            chat_prefs["default_privacy"] = "private"
+            
+        if "3 phút" in text.lower() or "180s" in text.lower():
+            chat_prefs["upload_delay"] = 180
+
+        # Detect translation
+        translate_to = chat_prefs.get("default_translate")
+        trans_match = re.search(r'(?:dịch|translate)\s+(?:sang\s+)?(?:tiếng\s+)?(\w+)', text.lower())
+        if trans_match:
+            lang_map = {
+                'anh': 'English', 'english': 'English',
+                'việt': 'Vietnamese', 'vietnamese': 'Vietnamese',
+                'trung': 'Chinese', 'nhật': 'Japanese', 'hàn': 'Korean',
+            }
+            translate_to = lang_map.get(trans_match.group(1).lower(), trans_match.group(1))
+            if "mặc định" in text.lower():
+                chat_prefs["default_translate"] = translate_to
+                
+        # Save updated prefs
+        user_prefs[str(chat_id)] = chat_prefs
+        try:
+            with open(prefs_file, "w", encoding="utf-8") as f:
+                json.dump(user_prefs, f, ensure_ascii=False)
+        except Exception:
+            pass
+        
+        # Detect target channel
+        channel_match = re.search(r'kênh\s*(\d+|[a-zA-Z]\w*)', text.lower())
+        channel_id = channel_match.group(1) if channel_match else None
+        
+        steps = ["📥 Tải video", "📝 Tách phụ đề"]
+        if needs_burn:
+            steps.append("🔥 Ghi sub vào video")
+        if needs_upload:
+            steps.append("📤 Upload lên YouTube")
+        
+        await self._send_message(token, chat_id,
+            f"🚀 **Subtitle Pipeline** ({len(steps)} bước)\n" +
+            "\n".join(f"  {i+1}. {s}" for i, s in enumerate(steps)) +
+            f"\n\n⏳ Bước 1/{len(steps)}: Đang tải video..."
+        )
+        
+        try:
+            # ── Step 1: Download ──
+            dl_result = await execute_download(url, agent_dict)
+            
+            if not isinstance(dl_result, dict) or not dl_result.get("file_path"):
+                return f"❌ Tải video thất bại.\n{str(dl_result)[:300]}"
+            
+            file_path = dl_result["file_path"]
+            file_name = os.path.basename(file_path)
+            
+            await self._send_message(token, chat_id,
+                f"✅ Bước 1: Đã tải `{file_name}`\n⏳ Bước 2/{len(steps)}: Đang tách phụ đề (Whisper)..."
+            )
+            
+            # ── Step 2: Extract subtitle ──
+            body = {"file_path": file_path, "engine": "whisper", "language": None, "translate_to": translate_to}
+            resp = await self.client.post(
+                f"{TUBECLI_BASE_URL}/api/v1/subtitle/extract",
+                json=body, timeout=30,
+            )
+            if resp.status_code != 200:
+                return f"❌ Lỗi API tách sub: HTTP {resp.status_code}"
+            
+            task_data = resp.json()
+            task_id = task_data.get("task_id")
+            if not task_id:
+                return "❌ Không nhận được task_id."
+            
+            # Poll for extraction result
+            subs = []
+            for poll_i in range(120):  # max 4 minutes
+                await asyncio.sleep(2)
+                sr = await self.client.get(f"{TUBECLI_BASE_URL}/api/v1/subtitle/status/{task_id}", timeout=10)
+                if sr.status_code != 200:
+                    continue
+                sd = sr.json()
+                if sd.get("status") == "success" and sd.get("result"):
+                    subs = sd["result"].get("subtitles", [])
+                    break
+                elif sd.get("status") == "error":
+                    return f"❌ Tách sub thất bại: {sd.get('result', {}).get('message', 'Unknown')}"
+            
+            if not subs:
+                return "❌ Timeout: Tách subtitle mất quá lâu."
+            
+            # Save SRT file
+            srt_path = file_path.rsplit(".", 1)[0] + ".srt"
+            srt_lines = []
+            for i, s in enumerate(subs, 1):
+                start = self._fmt_srt_time(s.get("start", 0))
+                end = self._fmt_srt_time(s.get("end", 0))
+                srt_lines.append(f"{i}\n{start} --> {end}\n{s.get('text', '')}\n")
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(srt_lines))
+            
+            step_num = 2
+            translated_note = f" (dịch → {translate_to})" if translate_to else ""
+            await self._send_message(token, chat_id,
+                f"✅ Bước 2: Tách được {len(subs)} dòng phụ đề{translated_note}\n"
+                + (f"⏳ Bước 3/{len(steps)}: Đang ghi sub vào video..." if needs_burn else "")
+            )
+            
+            # ── Step 3: Burn subtitle (optional) ──
+            output_video = file_path
+            if needs_burn:
+                step_num = 3
+                burn_resp = await self.client.post(
+                    f"{TUBECLI_BASE_URL}/api/v1/subtitle/burn",
+                    json={"video_path": file_path, "srt_path": srt_path},
+                    timeout=30,
+                )
+                if burn_resp.status_code == 200:
+                    burn_data = burn_resp.json()
+                    burn_task = burn_data.get("task_id")
+                    if burn_task:
+                        for _ in range(60):
+                            await asyncio.sleep(3)
+                            br = await self.client.get(f"{TUBECLI_BASE_URL}/api/v1/subtitle/status/{burn_task}", timeout=10)
+                            if br.status_code != 200:
+                                continue
+                            bd = br.json()
+                            if bd.get("status") == "success":
+                                output_video = bd.get("result", {}).get("output", file_path)
+                                break
+                            elif bd.get("status") == "error":
+                                await self._send_message(token, chat_id, f"⚠️ Burn thất bại, tiếp tục với video gốc.")
+                                break
+                
+                await self._send_message(token, chat_id,
+                    f"✅ Bước 3: Đã ghi phụ đề vào video\n"
+                    + (f"⏳ Bước 4/{len(steps)}: Đang upload lên YouTube kênh {channel_id}..." if needs_upload else "")
+                )
+            
+            # ── Step 4: Upload (optional) ──
+            if needs_upload:
+                step_num += 1
+                # Trigger upload with preferences
+                upload_json = {
+                    "action": "upload_video",
+                    "file_path": output_video,
+                    "privacy": chat_prefs.get("default_privacy", "public"),
+                    "delay": chat_prefs.get("upload_delay", 180)
+                }
+                if channel_id:
+                    upload_json["channel_index"] = channel_id
+                
+                fake_reply = "```json\n" + json.dumps(upload_json, ensure_ascii=False) + "\n```"
+                upload_result = await handle_extension_action(fake_reply, agent_dict, context)
+                
+                return (
+                    f"✅ **Pipeline hoàn tất!**\n\n"
+                    f"📥 Video: `{file_name}`\n"
+                    f"📝 Subtitle: {len(subs)} dòng{translated_note}\n"
+                    f"🔥 Burn: {'✅' if needs_burn else '⏭️ Bỏ qua'}\n"
+                    f"📤 Upload: {str(upload_result)[:200]}"
+                )
+            
+            # No upload — return subtitle result
+            return (
+                f"✅ **Pipeline hoàn tất!**\n\n"
+                f"📥 Video: `{file_name}`\n"
+                f"📝 Subtitle: {len(subs)} dòng{translated_note}\n"
+                f"📁 SRT: `{os.path.basename(srt_path)}`\n"
+                f"🔥 Burn: {'✅ ' + os.path.basename(output_video) if needs_burn else '⏭️ Bỏ qua'}\n\n"
+                f"📝 Preview:\n"
+                + "\n".join(f"  {s['start']:.1f}s → {s['end']:.1f}s: {s['text'][:60]}" for s in subs[:5])
+                + (f"\n  ... +{len(subs) - 5} dòng nữa" if len(subs) > 5 else "")
+            )
+        
+        except Exception as e:
+            return f"❌ Pipeline lỗi: {str(e)[:400]}"
+
+    async def _handle_subtitle_action(self, text: str, agent_dict: dict, context: dict) -> str:
+        """Handle subtitle extraction requests via chatbot.
+        
+        Supports:
+        - 'tách sub file /path/to/video.mp4'
+        - 'tách sub https://youtube.com/watch?v=xxx'
+        - 'tách sub video.mp4 dịch sang tiếng Anh'
+        - Pipeline: 'tải video <url> tách sub upload lên kênh'
+        """
+        import re
+        text_lower = text.lower()
+        
+        # Extract YouTube URL
+        yt_match = re.search(r'(https?://(?:www\.)?(?:youtube\.com|youtu\.be)/\S+)', text)
+        # Extract video URL (Douyin/TikTok)
+        video_match = re.search(r'(https?://\S+)', text)
+        # Extract file path
+        path_match = re.search(r'([A-Za-z]:\\[^\s]+\.\w+|/\S+\.\w+)', text)
+        
+        # Detect translation target
+        translate_to = None
+        trans_match = re.search(r'dịch\s+(?:sang\s+)?(?:tiếng\s+)?(\w+)', text_lower)
+        if trans_match:
+            lang_map = {
+                'anh': 'English', 'english': 'English', 'en': 'English',
+                'việt': 'Vietnamese', 'vietnamese': 'Vietnamese', 'vi': 'Vietnamese',
+                'trung': 'Chinese', 'chinese': 'Chinese', 'zh': 'Chinese',
+                'nhật': 'Japanese', 'japanese': 'Japanese', 'ja': 'Japanese',
+                'hàn': 'Korean', 'korean': 'Korean', 'ko': 'Korean',
+                'pháp': 'French', 'french': 'French', 'fr': 'French',
+                'tây ban nha': 'Spanish', 'spanish': 'Spanish',
+            }
+            translate_to = lang_map.get(trans_match.group(1).lower(), trans_match.group(1))
+        
+        # Detect engine preference
+        engine = "whisper"
+        if "gemini" in text_lower:
+            engine = "gemini"
+        elif "youtube" in text_lower and "cc" in text_lower:
+            engine = "youtube"
+        
+        try:
+            # ── Case 1: YouTube URL → use youtube engine or whisper ──
+            if yt_match:
+                url = yt_match.group(1)
+                if engine == "whisper":
+                    engine = "youtube"  # Default to CC for YouTube URLs
+                
+                if engine == "youtube":
+                    resp = await self.client.post(
+                        f"{TUBECLI_BASE_URL}/api/v1/subtitle/extract/youtube",
+                        json={"url": url, "languages": None},
+                        timeout=60,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if data.get("success"):
+                            subs = data.get("subtitles", [])
+                            return self._format_subtitle_result(subs, engine, url=url, translate_to=translate_to)
+                        return f"❌ Không lấy được sub: {data.get('message', 'Unknown')}"
+                    return f"❌ Lỗi API: HTTP {resp.status_code}"
+            
+            # ── Case 2: Video URL (Douyin/TikTok) → download first, then extract ──
+            if video_match and not path_match:
+                url = video_match.group(1)
+                # Check if this is a downloadable video URL
+                if any(d in url for d in ['douyin', 'tiktok', 'iesdouyin']):
+                    from tubecli.core.telegram_actions import execute_download
+                    dl_result = await execute_download(url, agent_dict)
+                    if isinstance(dl_result, dict) and dl_result.get("file_path"):
+                        file_path = dl_result["file_path"]
+                    elif isinstance(dl_result, str) and "file_path" in str(dl_result):
+                        fp_match = re.search(r'file_path["\s:]+([^\s"]+)', str(dl_result))
+                        file_path = fp_match.group(1) if fp_match else None
+                    else:
+                        return f"⚠️ Đã tải video nhưng không lấy được đường dẫn file.\n{str(dl_result)[:300]}"
+                    
+                    if file_path:
+                        return await self._extract_and_format(file_path, engine, translate_to=translate_to)
+            
+            # ── Case 3: Local file path ──
+            if path_match:
+                file_path = path_match.group(1)
+                return await self._extract_and_format(file_path, engine, translate_to=translate_to)
+            
+            # ── Case 4: No URL/path found → guide user ──
+            return (
+                "📝 **Subtitle Extractor**\n\n"
+                "Sử dụng:\n"
+                "• `tách sub https://youtube.com/watch?v=xxx`\n"
+                "• `tách sub C:\\video.mp4`\n"
+                "• `tách sub video.mp4 dịch sang tiếng Anh`\n"
+                "• Hoặc mở **Dashboard → Subtitle Extractor** để dùng giao diện UI"
+            )
+            
+        except Exception as e:
+            return f"❌ Lỗi tách subtitle: {str(e)[:300]}"
+
+    async def _extract_and_format(self, file_path: str, engine: str, translate_to: str = None) -> str:
+        """Call subtitle extraction API and poll for result."""
+        import asyncio
+        
+        body = {"file_path": file_path, "engine": engine, "language": None, "translate_to": translate_to}
+        resp = await self.client.post(
+            f"{TUBECLI_BASE_URL}/api/v1/subtitle/extract",
+            json=body,
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            return f"❌ Lỗi API extract: HTTP {resp.status_code}"
+        
+        data = resp.json()
+        task_id = data.get("task_id")
+        if not task_id:
+            return "❌ Không nhận được task_id từ API."
+        
+        # Poll for result
+        for _ in range(90):  # max 3 minutes
+            await asyncio.sleep(2)
+            status_resp = await self.client.get(
+                f"{TUBECLI_BASE_URL}/api/v1/subtitle/status/{task_id}",
+                timeout=10,
+            )
+            if status_resp.status_code != 200:
+                continue
+            status_data = status_resp.json()
+            
+            if status_data.get("status") == "success" and status_data.get("result"):
+                result = status_data["result"]
+                subs = result.get("subtitles", [])
+                lang = result.get("language", "?")
+                
+                # Save SRT
+                srt_path = file_path.rsplit(".", 1)[0] + ".srt"
+                srt_lines = []
+                for i, s in enumerate(subs, 1):
+                    start = self._fmt_srt_time(s.get("start", 0))
+                    end = self._fmt_srt_time(s.get("end", 0))
+                    srt_lines.append(f"{i}\n{start} --> {end}\n{s.get('text', '')}\n")
+                
+                import os
+                with open(srt_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(srt_lines))
+                
+                translated_note = f"\n🌐 Dịch sang: {result.get('translated_to', translate_to)}" if translate_to else ""
+                return (
+                    f"✅ **Tách phụ đề thành công!**\n\n"
+                    f"🎯 Engine: {engine.upper()}\n"
+                    f"🌐 Ngôn ngữ gốc: {lang}{translated_note}\n"
+                    f"📊 {len(subs)} dòng phụ đề\n"
+                    f"📁 File: `{os.path.basename(srt_path)}`\n\n"
+                    f"📝 Preview:\n"
+                    + "\n".join(f"  {s['start']:.1f}s → {s['end']:.1f}s: {s['text'][:60]}" for s in subs[:5])
+                    + (f"\n  ... +{len(subs) - 5} dòng nữa" if len(subs) > 5 else "")
+                )
+            
+            elif status_data.get("status") == "error":
+                msg = status_data.get("result", {}).get("message", "Unknown error")
+                return f"❌ Tách subtitle thất bại: {msg}"
+        
+        return "⏰ Timeout: Quá trình tách subtitle mất quá lâu (>3 phút)."
+
+    @staticmethod
+    def _fmt_srt_time(seconds: float) -> str:
+        if seconds < 0: seconds = 0
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        ms = int((seconds % 1) * 1000)
+        return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+
+    @staticmethod
+    def _format_subtitle_result(subs: list, engine: str, url: str = "", translate_to: str = None) -> str:
+        count = len(subs)
+        if count == 0:
+            return "⚠️ Không tìm thấy phụ đề nào."
+        return (
+            f"✅ **Tách phụ đề thành công!**\n\n"
+            f"🎯 Engine: {engine.upper()}\n"
+            f"📊 {count} dòng phụ đề\n"
+            + (f"🔗 URL: {url}\n" if url else "")
+            + f"\n📝 Preview:\n"
+            + "\n".join(f"  {s.get('start', 0):.1f}s → {s.get('end', 0):.1f}s: {s.get('text', '')[:60]}" for s in subs[:5])
+            + (f"\n  ... +{count - 5} dòng nữa" if count > 5 else "")
+        )
 
     def _build_extension_capabilities(self) -> str:
         """Build system prompt for extension actions (only for complex intents)."""
