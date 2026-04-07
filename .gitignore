@@ -19,3 +19,12 @@ node_modules/
 test_fingerprint*.json
 test_*.py
 open_head.js
+
+# Large binaries / AI models
+*.mp4
+*.avi
+*.mkv
+*.pt
+*.pth
+*.onnx
+*.bin

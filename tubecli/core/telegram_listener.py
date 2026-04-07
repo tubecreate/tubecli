@@ -19,7 +19,7 @@ from tubecli.core.brain import AgentBrain
 from tubecli.core.intent_router import intent_router, IntentResult
 from tubecli.core.skill_selector import skill_selector
 from tubecli.core.telegram_actions import (
-    execute_download, execute_upload_sequence,
+    execute_download, execute_upload_sequence, execute_reup_sequence,
     handle_extension_action, clean_reply_text,
     exec_schedule_event, exec_create_team, exec_run_api,
 )
@@ -236,6 +236,19 @@ class TelegramListener:
             context["_agent_badge"] = "🎬 Video Agent đang xử lý upload..."
             url = intent.extracted_data.get("url", "")
             result = await execute_upload_sequence(
+                url, text, agent_dict,
+                self._send_message, self._send_file,
+                lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                context,
+            )
+            self._save_history(agent_id, agent_dict, text, result, history)
+            return result
+
+        # ── Fast-path: Re-up Pipeline (Download → FFmpeg → Upload) ──
+        if intent.intent_type == "reup_action":
+            context["_agent_badge"] = "♻️ Re-up Agent đang xử lý pipeline..."
+            url = intent.extracted_data.get("url", "")
+            result = await execute_reup_sequence(
                 url, text, agent_dict,
                 self._send_message, self._send_file,
                 lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),

@@ -458,6 +458,299 @@ async def _poll_long_video_bg(task_id, handle_ext_fn, send_msg_fn, agent_dict, c
 
 
 # ═══════════════════════════════════════════════════════════════
+#  REUP SEQUENCE (Download → FFmpeg Effects → Upload)
+# ═══════════════════════════════════════════════════════════════
+
+async def execute_reup_sequence(
+    video_url: str,
+    user_text: str,
+    agent_dict: Dict,
+    send_message_fn,
+    send_file_fn,
+    handle_extension_fn,
+    context: Dict,
+) -> str:
+    """Full Re-up Pipeline: Download → FFmpeg (mirror/trim/effects) → Upload YouTube.
+    Extends execute_upload_sequence with an FFmpeg processing step in between.
+    """
+    token = context.get("token", "")
+    chat_id = context.get("chat_id", 0)
+
+    # ── Step 1: Parse user request for effects ──
+    text_lower = user_text.lower()
+    effects = []
+    if any(k in text_lower for k in ["gương", "mirror", "lật", "flip", "hflip"]):
+        effects.append("mirror")
+    if any(k in text_lower for k in ["trắng đen", "grayscale", "đen trắng", "bw"]):
+        effects.append("grayscale")
+    if any(k in text_lower for k in ["tốc độ 2", "speed 2", "nhanh 2", "2x"]):
+        effects.append("speed_2x")
+    if any(k in text_lower for k in ["xoay 90", "rotate 90"]):
+        effects.append("rotate_90")
+    if any(k in text_lower for k in ["xoay 180", "rotate 180"]):
+        effects.append("rotate_180")
+    if any(k in text_lower for k in ["blur", "mờ"]):
+        effects.append("blur")
+    if any(k in text_lower for k in ["sepia", "vintage", "cổ điển"]):
+        effects.append("sepia")
+    if any(k in text_lower for k in ["ngược", "reverse", "đảo ngược"]):
+        effects.append("reverse")
+    
+    # Parse crop percentage (e.g., "crop 5%", "crop 10")
+    crop_percent = 0
+    crop_match = re.search(r'crop\s*(\d+)\s*%?', text_lower)
+    if crop_match:
+        crop_percent = int(crop_match.group(1))
+        if crop_percent > 50:  # Sanity check
+            crop_percent = 5
+    
+    # Parse background removal
+    remove_bg = any(k in text_lower for k in ["tách nền", "xóa phông", "remove bg", "remove background", "green screen", "màn xanh"])
+    # Parse background replacement color/image
+    bg_replace = None
+    bg_match = re.search(r'(?:nền|background)\s+(trắng|\u0111en|xanh|\u0111ỏ|#[0-9a-fA-F]{6})', text_lower)
+    if bg_match:
+        bg_colors = {"trắng": "#FFFFFF", "đen": "#000000", "xanh": "#00FF00", "đỏ": "#FF0000"}
+        bg_replace = bg_colors.get(bg_match.group(1), bg_match.group(1))
+    
+    # Default to mirror if no explicit effect mentioned (common reup action)
+    if not effects and crop_percent == 0 and not remove_bg:
+        effects.append("mirror")
+
+    # Parse trim times
+    trim_start = None
+    trim_end = None
+    trim_match = re.search(r'cắt\s+(\d+)\s*[s giây]?\s*(?:đầu|cuối)?', text_lower)
+    if not trim_match:
+        trim_match = re.search(r'trim\s+(\d+)', text_lower)
+    
+    crop_str = f" + Crop {crop_percent}%" if crop_percent > 0 else ""
+    bg_str = " + Tách nền" if remove_bg else ""
+    effects_str = ", ".join(effects) + crop_str + bg_str
+    trim_str = f" + Cắt {trim_start}-{trim_end}s" if trim_start else ""
+    await send_message_fn(
+        token, chat_id,
+        f"♻️ **Re-up Pipeline Bắt đầu**\n"
+        f"📥 Bước 1/3: Tải video...\n"
+        f"🎬 Bước 2/3: FFmpeg ({effects_str}{trim_str})\n"
+        f"📤 Bước 3/3: Upload YouTube"
+    )
+
+    # ── Step 2: Download ──
+    from tubecli.core.fork_agent import fork_download_and_title
+    fork_result = await fork_download_and_title(video_url, user_text, agent_dict)
+
+    dl_subtask = fork_result.get("download")
+    dl_result = dl_subtask.result if dl_subtask and dl_subtask.status.value == "completed" else None
+
+    if not dl_result or not isinstance(dl_result, dict) or not dl_result.get("file_path"):
+        error = dl_result if isinstance(dl_result, str) else "❌ Tải video thất bại."
+        if dl_subtask and dl_subtask.error:
+            error = f"❌ Lỗi tải: {dl_subtask.error}"
+        return error
+
+    video_path = dl_result["file_path"]
+    original_title = dl_result.get("original_title", "Video Mới")
+    duration = dl_result.get("duration", 0)
+
+    dl_speed = f"{dl_subtask.duration_ms}ms" if dl_subtask else "?"
+    await send_message_fn(token, chat_id, f"✅ Tải xong ({dl_speed}). 🎬 Đang xử lý FFmpeg: {effects_str}...")
+
+    # ── Step 3: FFmpeg Processing ──
+    import time
+    ffmpeg_start = time.time()
+    processed_path = video_path
+    
+    try:
+        import importlib.util
+        import sys
+        
+        # Load video_engine using the canonical config path
+        from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
+        ve_dir = str(EXTENSIONS_EXTERNAL_DIR / "video_editor")
+        engine_path = os.path.join(ve_dir, "video_engine.py")
+        
+        if os.path.exists(engine_path):
+            spec = importlib.util.spec_from_file_location("ve_engine_reup", engine_path)
+            engine = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(engine)
+            
+            output_dir = os.path.join(str(DATA_DIR), "video_editor", "exports")
+            os.makedirs(output_dir, exist_ok=True)
+            
+            current_input = video_path
+            
+            # Apply trim first (if requested)
+            if trim_start is not None and trim_end is not None:
+                base = os.path.splitext(os.path.basename(current_input))[0]
+                trim_output = os.path.join(output_dir, f"{base}_trim.mp4")
+                result = await engine.trim(current_input, str(trim_start), str(trim_end), trim_output)
+                if result.get("status") == "success":
+                    current_input = result.get("output", trim_output)
+                    print(f"[Reup] ✅ Trim done: {current_input}")
+                else:
+                    print(f"[Reup] ⚠️ Trim failed, continuing with original")
+            
+            # Apply effects sequentially
+            for effect in effects:
+                base = os.path.splitext(os.path.basename(current_input))[0]
+                effect_output = os.path.join(output_dir, f"{base}_{effect}.mp4")
+                result = await engine.apply_effect(current_input, effect, effect_output)
+                if result.get("status") == "success":
+                    current_input = result.get("output", effect_output)
+                    print(f"[Reup] ✅ Effect '{effect}' done: {current_input}")
+                else:
+                    print(f"[Reup] ⚠️ Effect '{effect}' failed, continuing with previous")
+            
+            # Apply crop (if requested)
+            if crop_percent > 0:
+                base = os.path.splitext(os.path.basename(current_input))[0]
+                crop_output = os.path.join(output_dir, f"{base}_crop{crop_percent}.mp4")
+                
+                keep_ratio = (100 - 2 * crop_percent) / 100
+                keep_res = any(k in text_lower for k in ["giữ độ phân giải", "giữ resolution", "keep res", "same res"])
+                
+                if keep_res:
+                    crop_filter = (
+                        f"-vf \"crop=iw*{keep_ratio}:ih*{keep_ratio}:iw*{crop_percent/100}:ih*{crop_percent/100},"
+                        f"scale=iw/{keep_ratio}:ih/{keep_ratio}:flags=lanczos\""
+                    )
+                else:
+                    crop_filter = (
+                        f"-vf \"crop=iw*{keep_ratio}:ih*{keep_ratio}:iw*{crop_percent/100}:ih*{crop_percent/100}\""
+                    )
+                
+                codec, _ = engine.detect_gpu_encoder()
+                ffmpeg_cmd = f'-y -i "{current_input}" {crop_filter} -c:v {codec} -c:a copy "{crop_output}"'
+                result = await engine.run_custom_ffmpeg(ffmpeg_cmd)
+                
+                if result.get("status") == "success" and os.path.exists(crop_output):
+                    current_input = crop_output
+                    print(f"[Reup] ✅ Crop {crop_percent}% done: {current_input}")
+                else:
+                    print(f"[Reup] ⚠️ Crop failed: {result.get('stderr', '')[:200]}")
+            
+            # Apply background removal (AI-powered, runs last)
+            if remove_bg:
+                await send_message_fn(token, chat_id, "🧠 Đang tách nền AI (RobustVideoMatting)... Có thể mất 1-5phút.")
+                try:
+                    matting_path = os.path.join(ve_dir, "video_matting.py")
+                    matting_spec = importlib.util.spec_from_file_location("ve_matting_reup", matting_path)
+                    matting_mod = importlib.util.module_from_spec(matting_spec)
+                    matting_spec.loader.exec_module(matting_mod)
+                    
+                    base = os.path.splitext(os.path.basename(current_input))[0]
+                    green_output = os.path.join(output_dir, f"{base}_greenscreen.mp4")
+                    
+                    # Step A: Remove background (outputs green screen)
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(None, matting_mod.remove_background, current_input, green_output)
+                    
+                    if os.path.exists(green_output):
+                        current_input = green_output
+                        print(f"[Reup] ✅ Background removed: {current_input}")
+                        
+                        # Step B: Composite onto custom background (if specified)
+                        if bg_replace:
+                            final_output = os.path.join(output_dir, f"{base}_composed.mp4")
+                            comp_result = await matting_mod.composite_background(
+                                green_output, bg_replace, final_output
+                            )
+                            if comp_result.get("status") == "success":
+                                current_input = final_output
+                                print(f"[Reup] ✅ Background replaced with {bg_replace}: {current_input}")
+                    else:
+                        print(f"[Reup] ⚠️ Background removal produced no output")
+                        
+                except Exception as e:
+                    print(f"[Reup] ⚠️ Background removal failed: {e}")
+                    await send_message_fn(token, chat_id, f"⚠️ Tách nền lỗi: {str(e)[:150]}. Tiếp tục với video hiện tại...")
+            
+            processed_path = current_input
+        else:
+            await send_message_fn(token, chat_id, "⚠️ Video Editor extension chưa cài đặt. Bỏ qua bước FFmpeg...")
+
+    except Exception as e:
+        print(f"[Reup] ❌ FFmpeg error: {e}")
+        await send_message_fn(token, chat_id, f"⚠️ FFmpeg lỗi: {str(e)[:200]}. Upload video gốc...")
+
+    ffmpeg_elapsed = int((time.time() - ffmpeg_start) * 1000)
+    
+    if processed_path != video_path:
+        file_size = os.path.getsize(processed_path) if os.path.exists(processed_path) else 0
+        size_mb = file_size / (1024 * 1024)
+        await send_message_fn(
+            token, chat_id,
+            f"✅ FFmpeg xong ({ffmpeg_elapsed}ms): {effects_str}\n"
+            f"📁 Output: {os.path.basename(processed_path)} ({size_mb:.1f}MB)\n"
+            f"📤 Đang upload YouTube..."
+        )
+
+    # ── Step 4: Get AI title ──
+    title_subtask = fork_result.get("ai_title")
+    ai_title = title_subtask.result if title_subtask and title_subtask.status.value == "completed" and title_subtask.result else original_title
+
+    # ── Step 5: Resolve channel + Upload ──
+    target_email = ""
+    try:
+        channel_match = re.search(r'(?:kênh|channel)\s+(?:youtube\s+)?(.+?)(?:\s+giúp|\s+video|\s*$)', text_lower)
+        if channel_match:
+            target_name = channel_match.group(1).strip()
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/accounts?provider=youtube")
+                if resp.status_code == 200:
+                    accounts = resp.json().get("accounts", [])
+                    for acct in accounts:
+                        em = acct.get("email", "")
+                        ch_resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/channels?provider=youtube&email={em}")
+                        if ch_resp.status_code == 200:
+                            for ch in ch_resp.json().get("channels", []):
+                                ch_title = (ch.get("title", "") or "").lower()
+                                if target_name in ch_title or ch_title in target_name:
+                                    target_email = em
+                                    break
+                        if target_email:
+                            break
+    except Exception as e:
+        print(f"[Reup] Channel resolve error: {e}")
+
+    fake_ai_action = {
+        "action": "upload_video",
+        "file_path": processed_path,
+        "provider": "youtube",
+        "privacy": "public",
+        "title": ai_title
+    }
+    if target_email:
+        fake_ai_action["email"] = target_email
+
+    reply_payload = "```json\n" + json.dumps(fake_ai_action) + "\n```"
+    upload_result = await handle_extension_fn(reply_payload, agent_dict, context)
+
+    # Poll upload status
+    duration_sec = _parse_duration(duration)
+    task_id_match = re.search(r'Task ID:\s*`([^`]+)`', upload_result)
+
+    total_msg = (
+        f"♻️ **Re-up Pipeline Hoàn tất!**\n"
+        f"📥 Download: {dl_speed}\n"
+        f"🎬 FFmpeg ({effects_str}): {ffmpeg_elapsed}ms\n"
+    )
+
+    if task_id_match:
+        task_id = task_id_match.group(1)
+        if 0 < duration_sec < 60:
+            result = await _poll_short_video(task_id, upload_result, handle_extension_fn, send_message_fn, agent_dict, context)
+            return total_msg + result
+        else:
+            asyncio.create_task(_poll_long_video_bg(task_id, handle_extension_fn, send_message_fn, agent_dict, context))
+            return total_msg + upload_result + "\n\n*(Video dài, bot sẽ ping khi YouTube duyệt xong!)*"
+
+    return total_msg + upload_result
+
+
+# ═══════════════════════════════════════════════════════════════
 #  EXTENSION ACTION HANDLER
 # ═══════════════════════════════════════════════════════════════
 
