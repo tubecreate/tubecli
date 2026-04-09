@@ -214,6 +214,10 @@ function openAddCredentialModal() {
     document.getElementById('cred-client-id').value = '';
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = '';
+    const manualIdInput = document.getElementById('cred-manual-id');
+    if (manualIdInput) manualIdInput.value = '';
+    const manualTokenInput = document.getElementById('cred-manual-token');
+    if (manualTokenInput) manualTokenInput.value = '';
     document.getElementById('cred-json-filename').textContent = '';
     _jsonContent = '';
     onProviderChange();
@@ -242,11 +246,20 @@ function editCredential(credId) {
 function onProviderChange() {
     const providerKey = document.getElementById('cred-provider').value;
     const jsonTab = document.querySelector('.am-tab[data-tab="json"]');
-    // Only Google supports service account JSON
+    const manualTab = document.querySelector('.am-tab[data-tab="manual"]');
+    
+    // Manage Tabs visibility
     if (providerKey === 'google') {
         jsonTab.style.display = '';
+        if (manualTab) manualTab.style.display = 'none';
+        switchCredTab('oauth');
+    } else if (providerKey === 'facebook') {
+        jsonTab.style.display = 'none';
+        if (manualTab) manualTab.style.display = '';
+        switchCredTab('manual');
     } else {
         jsonTab.style.display = 'none';
+        if (manualTab) manualTab.style.display = 'none';
         switchCredTab('oauth');
     }
 
@@ -373,8 +386,11 @@ function copyAmText(text) {
 
 function switchCredTab(tab) {
     document.querySelectorAll('.am-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-    document.getElementById('cred-tab-oauth').classList.toggle('active', tab === 'oauth');
-    document.getElementById('cred-tab-json').classList.toggle('active', tab === 'json');
+    document.querySelectorAll('.am-tab-pane').forEach(p => p.classList.remove('active'));
+    
+    if (tab === 'oauth') document.getElementById('cred-tab-oauth').classList.add('active');
+    else if (tab === 'json') document.getElementById('cred-tab-json').classList.add('active');
+    else if (tab === 'manual') document.getElementById('cred-tab-manual').classList.add('active');
 }
 
 function handleJsonUpload(e) {
@@ -396,8 +412,79 @@ function handleJsonUpload(e) {
 
 async function saveCredential() {
     const editId = document.getElementById('cred-edit-id').value;
+    const provider = document.getElementById('cred-provider').value;
+    
+    // Check if the manual tab is currently active
+    const manualTabPane = document.getElementById('cred-tab-manual');
+    const isManualTabActive = manualTabPane && manualTabPane.classList.contains('active');
+    
+    if (isManualTabActive && provider === 'facebook') {
+        const manualId = document.getElementById('cred-manual-id').value.trim();
+        const manualToken = document.getElementById('cred-manual-token').value.trim();
+        const manualName = document.getElementById('cred-name').value.trim();
+        
+        if (!manualName || !manualId || !manualToken) {
+            showToast('Please fill all manual setup fields', 'error');
+            return;
+        }
+        
+        if (editId) {
+            showToast('Editing manual tokens is not supported via this form yet. Add a new one instead.', 'error');
+            return;
+        }
+        
+        let finalManualId = manualId;
+        // Auto-extract ID/Username if user pastes a full Facebook link
+        if (finalManualId.includes('facebook.com')) {
+            try {
+                // Ensure it has protocol for URL parser
+                const urlStr = finalManualId.startsWith('http') ? finalManualId : 'https://' + finalManualId;
+                const url = new URL(urlStr);
+                if (url.searchParams.has('id')) {
+                    finalManualId = url.searchParams.get('id');
+                } else {
+                    const parts = url.pathname.split('/').filter(Boolean);
+                    if (parts.length > 0) {
+                        if (parts[0] === 'pages' || parts[0] === 'groups') {
+                            finalManualId = parts[1] || parts[0];
+                        } else if (parts[0] !== 'profile.php') {
+                            finalManualId = parts[0];
+                        }
+                    }
+                }
+                // Update UI visually so user knows it was parsed
+                document.getElementById('cred-manual-id').value = finalManualId;
+            } catch (e) {
+                console.log('FB URL parse skipped:', e);
+            }
+        }
+
+        try {
+            const body = {
+                provider: provider,
+                name: manualName,
+                identifier: finalManualId,
+                access_token: manualToken
+            };
+            const result = await apiPost('/credentials/manual', body);
+            
+            if (result.status === 'success') {
+                showToast(result.message || 'Saved successfully', 'success');
+                closeModal('modal-credential');
+                loadCredentials();
+                loadTokens();
+                loadProviders();
+            } else {
+                showToast(result.message || result.detail || 'Error', 'error');
+            }
+        } catch (e) {
+            showToast(`Error: ${e.message}`, 'error');
+        }
+        return; // Exit early
+    }
+
     const body = {
-        provider: document.getElementById('cred-provider').value,
+        provider: provider,
         name: document.getElementById('cred-name').value.trim(),
         client_id: document.getElementById('cred-client-id').value.trim(),
         client_secret: document.getElementById('cred-client-secret').value.trim(),
@@ -488,7 +575,7 @@ function openAuthorizeModal(credId) {
     openModal('modal-authorize');
 }
 
-async function startAuthorize() {
+async function startAuthorize(action = 'open') {
     const credId = document.getElementById('auth-cred-id').value;
     const profile = document.getElementById('auth-browser-profile').value;
     const cred = credentialsData.find(c => c.id === credId);
@@ -504,12 +591,20 @@ async function startAuthorize() {
     try {
         const result = await apiPost(`/credentials/${credId}/authorize`, {
             scopes,
-            browser_profile: profile,
+            // Don't spawn playwright if user just wants to copy URL
+            browser_profile: action === 'copy' ? '' : profile,
         });
 
         if (result.status === 'success') {
             closeModal('modal-authorize');
             const authUrl = result.auth_url;
+
+            if (action === 'copy') {
+                copyAmText(authUrl);
+                // The copyAmText function already shows a toast, but we can override or add context
+                pollForToken(credId, action, authUrl); 
+                return;
+            }
 
             if (profile) {
                 // Playwright profile was requested — check server-side launch result
@@ -535,7 +630,7 @@ async function startAuthorize() {
             }
 
             // Poll for token arrival
-            pollForToken(credId);
+            pollForToken(credId, 'open', authUrl);
         } else {
             showToast(result.message || result.detail || 'Error', 'error');
         }
@@ -547,21 +642,51 @@ async function startAuthorize() {
 let _pollTimer = null;
 let _pollStartTime = null;
 
-function pollForToken(credId) {
+function cancelPolling() {
+    if (_pollTimer) clearInterval(_pollTimer);
+    _pollTimer = null;
+    closeModal('modal-auth-waiting');
+    showToast('Đã dừng chờ cấp quyền.', 'info');
+}
+
+function pollForToken(credId, action = 'open', authUrl = '') {
     let attempts = 0;
     const maxAttempts = 180; // 3 minutes
     if (_pollTimer) clearInterval(_pollTimer);
-    _pollStartTime = new Date().toISOString();
+    
+    // Pass to global so html onclick can use it
+    window._currentAuthUrl = authUrl;
+
+    // Capture all existing tokens' authorized_at times before we poll
+    const prevTokens = typeof tokensData !== 'undefined' ? tokensData.filter(t => t.credential_id === credId) : [];
+    const prevAuthTimes = prevTokens.map(t => t.authorized_at).filter(Boolean);
+
+    // Update UI text based on action
+    const msgEl = document.getElementById('am-waiting-message');
+    const copyBtn = document.getElementById('am-waiting-copy-btn');
+    if (msgEl) {
+        if (action === 'copy') {
+            msgEl.innerHTML = `Vui lòng dán (paste) đường link vừa copy vào trình duyệt của bạn và hoàn tất thủ tục đăng nhập.<br>Hệ thống sẽ tự nhận dạng sau khi hoàn thành...`;
+        } else {
+            msgEl.innerHTML = `Vui lòng đợi trình duyệt tự động mở và hoàn tất màn hình cấp quyền.<br>Cửa sổ này sẽ tự nhận dạng và đóng lại khi quá trình hoàn tất.`;
+        }
+    }
+    if (copyBtn) {
+        if (action === 'copy') copyBtn.classList.remove('hidden');
+        else copyBtn.classList.add('hidden');
+    }
+
+    openModal('modal-auth-waiting');
 
     _pollTimer = setInterval(async () => {
         attempts++;
         if (attempts > maxAttempts) {
             clearInterval(_pollTimer);
             _pollTimer = null;
-            showToast('⏰ Authorization timeout. Please try again.', 'error');
+            closeModal('modal-auth-waiting');
+            showToast('⏰ Đã quá thời gian chờ (Timeout).', 'error');
             return;
         }
-        // Skip first 3 seconds to give browser time to open
         if (attempts < 3) return;
 
         try {
@@ -569,15 +694,17 @@ function pollForToken(credId) {
             const found = (data.tokens || []).find(t => {
                 if (t.credential_id !== credId) return false;
                 if (t.status !== 'active') return false;
-                // Only match tokens authorized AFTER we started the flow
-                if (t.authorized_at && _pollStartTime) {
-                    return t.authorized_at > _pollStartTime;
+                
+                if (prevAuthTimes.length === 0) {
+                    return true; 
+                } else {
+                    return t.authorized_at && !prevAuthTimes.includes(t.authorized_at);
                 }
-                return false;
             });
             if (found) {
                 clearInterval(_pollTimer);
                 _pollTimer = null;
+                closeModal('modal-auth-waiting');
                 showToast(`✅ Authorized! Email: ${found.authorized_email || 'N/A'}`, 'success');
                 loadCredentials();
                 loadTokens();
