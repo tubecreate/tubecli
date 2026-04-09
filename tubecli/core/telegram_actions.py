@@ -554,6 +554,19 @@ async def execute_reup_sequence(
     bg_str = " + Tách nền" if remove_bg else ""
     effects_str = ", ".join(effects) + crop_str + bg_str
     trim_str = f" + Cắt {trim_start}-{trim_end}s" if trim_start else ""
+    
+    # ── Create pipeline tracker task ──
+    from tubecli.core.pipeline_tracker import pipeline_tracker
+    pt_task = pipeline_tracker.create_task(
+        pipeline_type="reup_pipeline",
+        chat_id=chat_id,
+        url=video_url,
+        original_message=user_text[:200],
+        step_names=[("download", "📥 Tải video"), ("ffmpeg", f"🎬 FFmpeg ({effects_str})"), ("upload", "📤 Upload YouTube")],
+    )
+    pt_id = pt_task.task_id
+    
+    pipeline_tracker.start_step(pt_id, "download", "Đang tải...")
     await send_message_fn(
         token, chat_id,
         f"♻️ **Re-up Pipeline Bắt đầu**\n"
@@ -573,6 +586,8 @@ async def execute_reup_sequence(
         error = dl_result if isinstance(dl_result, str) else "❌ Tải video thất bại."
         if dl_subtask and dl_subtask.error:
             error = f"❌ Lỗi tải: {dl_subtask.error}"
+        pipeline_tracker.fail_step(pt_id, "download", str(error)[:200])
+        pipeline_tracker.fail_task(pt_id, "Tải video thất bại")
         return error
 
     video_path = dl_result["file_path"]
@@ -580,6 +595,10 @@ async def execute_reup_sequence(
     duration = dl_result.get("duration", 0)
 
     dl_speed = f"{dl_subtask.duration_ms}ms" if dl_subtask else "?"
+    pipeline_tracker.complete_step(pt_id, "download", f"{os.path.basename(video_path)} ({dl_speed})")
+    pt_task.video_filename = os.path.basename(video_path)
+    
+    pipeline_tracker.start_step(pt_id, "ffmpeg", effects_str)
     await send_message_fn(token, chat_id, f"✅ Tải xong ({dl_speed}). 🎬 Đang xử lý FFmpeg: {effects_str}...")
 
     # ── Step 3: FFmpeg Processing ──
@@ -706,12 +725,15 @@ async def execute_reup_sequence(
     if processed_path != video_path:
         file_size = os.path.getsize(processed_path) if os.path.exists(processed_path) else 0
         size_mb = file_size / (1024 * 1024)
+        pipeline_tracker.complete_step(pt_id, "ffmpeg", f"{os.path.basename(processed_path)} ({size_mb:.1f}MB) {ffmpeg_elapsed}ms")
         await send_message_fn(
             token, chat_id,
             f"✅ FFmpeg xong ({ffmpeg_elapsed}ms): {effects_str}\n"
             f"📁 Output: {os.path.basename(processed_path)} ({size_mb:.1f}MB)\n"
             f"📤 Đang upload YouTube..."
         )
+    else:
+        pipeline_tracker.complete_step(pt_id, "ffmpeg", f"No change ({ffmpeg_elapsed}ms)")
 
     # ── Step 4: Get AI title ──
     title_subtask = fork_result.get("ai_title")
@@ -751,12 +773,16 @@ async def execute_reup_sequence(
     if target_email:
         fake_ai_action["email"] = target_email
 
+    pipeline_tracker.start_step(pt_id, "upload", "YouTube")
     reply_payload = "```json\n" + json.dumps(fake_ai_action) + "\n```"
     upload_result = await handle_extension_fn(reply_payload, agent_dict, context)
 
     # Poll upload status
     duration_sec = _parse_duration(duration)
     task_id_match = re.search(r'Task ID:\s*`([^`]+)`', upload_result)
+
+    # File paths for preview
+    video_serve_url = f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{os.path.basename(processed_path)}"
 
     total_msg = (
         f"♻️ **Re-up Pipeline Hoàn tất!**\n"
@@ -768,12 +794,23 @@ async def execute_reup_sequence(
         task_id = task_id_match.group(1)
         if 0 < duration_sec < 60:
             result = await _poll_short_video(task_id, upload_result, handle_extension_fn, send_message_fn, agent_dict, context)
-            return total_msg + result
+            # Check if upload succeeded
+            if '✅' in result or 'done' in result.lower():
+                pipeline_tracker.complete_step(pt_id, "upload", result[:100])
+                pipeline_tracker.complete_task(pt_id, total_msg + result, os.path.basename(processed_path))
+            else:
+                pipeline_tracker.fail_step(pt_id, "upload", result[:200])
+                pipeline_tracker.fail_task(pt_id, f"Upload: {result[:200]}")
+            return total_msg + result + f"\n\n📁 File: `{processed_path}`\n▶️ Xem: {video_serve_url}"
         else:
+            pipeline_tracker.complete_step(pt_id, "upload", f"Queued (long video) Task: {task_id[:12]}")
+            pipeline_tracker.complete_task(pt_id, total_msg + "Video dài, đang chờ YouTube xử lý", os.path.basename(processed_path))
             asyncio.create_task(_poll_long_video_bg(task_id, handle_extension_fn, send_message_fn, agent_dict, context))
-            return total_msg + upload_result + "\n\n*(Video dài, bot sẽ ping khi YouTube duyệt xong!)*"
+            return total_msg + upload_result + f"\n\n📁 File: `{processed_path}`\n▶️ Xem: {video_serve_url}\n\n*(Video dài, bot sẽ ping khi YouTube duyệt xong!)*"
 
-    return total_msg + upload_result
+    pipeline_tracker.complete_step(pt_id, "upload", upload_result[:100])
+    pipeline_tracker.complete_task(pt_id, total_msg + upload_result, os.path.basename(processed_path))
+    return total_msg + upload_result + f"\n\n📁 File: `{processed_path}`\n▶️ Xem: {video_serve_url}"
 
 
 # ═══════════════════════════════════════════════════════════════
