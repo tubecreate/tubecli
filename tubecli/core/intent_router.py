@@ -104,6 +104,10 @@ LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"
 SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
 TTS_KEYWORDS = ["lồng tiếng", "voiceover", "voice over", "tts", "đọc text", "text to speech", "narrate", "giọng đọc"]
 
+LIST_CHANNELS_PATTERNS = [
+    r"(list|danh\s*sách|xem).*?(kênh|youtube|facebook|fanpage|page|tiktok)"
+]
+
 
 class IntentRouter:
     """Tier 1: Zero-token intent classification using keyword/regex matching."""
@@ -229,6 +233,26 @@ class IntentRouter:
             return IntentResult(
                 intent_type="team_create",
                 confidence=0.90,
+            )
+
+        # ── 7a. List Channels / Pages ────────────────────────────
+        if self._matches_any(text_lower, LIST_CHANNELS_PATTERNS):
+            provider = "youtube"
+            if "facebook" in text_lower or "fanpage" in text_lower or "page" in text_lower:
+                provider = "facebook"
+            elif "tiktok" in text_lower:
+                provider = "tiktok"
+
+            return IntentResult(
+                intent_type="list_channels_action",
+                confidence=0.95,
+                extracted_data={
+                    "action_data": {
+                        "action": "list_channels",
+                        "provider": provider
+                    }
+                },
+                skip_llm=True,
             )
 
         # ── 7b. Browser Management ───────────────────────────────

@@ -3,7 +3,7 @@ Universal Tracker — REST API routes for managing tracker jobs.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 from tubecli.extensions.universal_tracker.tracker import universal_tracker_engine
 
@@ -23,9 +23,12 @@ async def start_tracker_engine():
 class AddTrackerRequest(BaseModel):
     platform: str = ""
     url: str
-    interval_minutes: int = 60
+    interval_minutes: int = 180
     target_team_id: str = ""
     instruction: str = ""
+    pipeline_config: Optional[Dict[str, Any]] = None
+    notify_chat_id: int = 0
+    notify_token: str = ""
 
 
 class UpdateTrackerRequest(BaseModel):
@@ -33,6 +36,9 @@ class UpdateTrackerRequest(BaseModel):
     instruction: Optional[str] = None
     status: Optional[str] = None
     target_team_id: Optional[str] = None
+    pipeline_config: Optional[Dict[str, Any]] = None
+    notify_chat_id: Optional[int] = None
+    notify_token: Optional[str] = None
 
 
 @router.get("/trackers")
@@ -61,6 +67,9 @@ async def add_tracker(req: AddTrackerRequest):
         interval_minutes=req.interval_minutes,
         target_team_id=req.target_team_id,
         instruction=req.instruction,
+        pipeline_config=req.pipeline_config or {},
+        notify_chat_id=req.notify_chat_id,
+        notify_token=req.notify_token,
     )
     return {"success": True, "tracker": job.to_dict()}
 
@@ -87,6 +96,12 @@ async def update_tracker(tracker_id: str, req: UpdateTrackerRequest):
         job.status = req.status
     if req.target_team_id is not None:
         job.target_team_id = req.target_team_id
+    if req.pipeline_config is not None:
+        job.pipeline_config = req.pipeline_config
+    if req.notify_chat_id is not None:
+        job.notify_chat_id = req.notify_chat_id
+    if req.notify_token is not None:
+        job.notify_token = req.notify_token
 
     engine._save()
     return {"success": True, "tracker": job.to_dict()}
@@ -99,8 +114,5 @@ async def force_check(tracker_id: str):
         raise HTTPException(status_code=404, detail=f"Tracker '{tracker_id}' not found")
 
     job = engine._jobs[tracker_id]
-    try:
-        await engine._check_job(job)
-        return {"success": True, "message": f"Force check completed for {tracker_id}", "tracker": job.to_dict()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await engine.force_check_job(tracker_id)
+    return {"success": result["success"], "message": result["message"], "tracker": job.to_dict()}

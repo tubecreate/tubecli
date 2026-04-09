@@ -303,10 +303,10 @@ class AuthManager:
         return {"status": "success", "credential_id": cred_id, "message": f"Credential '{name}' added for {provider}."}
 
     def add_manual_token(self, provider: str, name: str, identifier: str, access_token: str) -> dict:
-        """Add a manual long-lived token (e.g. Facebook Page Access Token) bypassing OAuth flow."""
+        """Add a manual token. For Facebook, auto-exchanges to long-lived/page token if possible."""
         if provider not in PROVIDERS:
             return {"status": "error", "message": f"Unknown provider: {provider}."}
-            
+
         # 1. Create a credential container
         cred_id = f"cred_{uuid.uuid4().hex[:8]}"
         scopes = PROVIDERS[provider].get("services", {}).get("fanpage_manage", {}).get("scopes", ["pages_manage"])
@@ -321,31 +321,117 @@ class AuthManager:
             "extra": {},
             "created_at": datetime.now().isoformat(),
         }
-        
-        # 2. Inject the authorized token immediately
+
+        # 2. For Facebook: try to exchange token to long-lived version
+        final_token = access_token
+        token_note = ""
+        expires_days = 60  # default assumption
+
+        if provider == "facebook":
+            exchanged = self._fb_exchange_token(access_token, cred_id)
+            if exchanged:
+                final_token = exchanged["token"]
+                token_note = exchanged.get("note", "")
+                expires_days = exchanged.get("expires_days", 60)
+
+        # 3. Inject the authorized token
         token_id = f"{cred_id}_{uuid.uuid4().hex[:8]}"
         self._data["tokens"][token_id] = {
             "credential_id": cred_id,
-            "access_token": access_token,
+            "access_token": final_token,
             "refresh_token": "",
             "token_type": "Bearer",
-            # Assuming a long-lived token (usually 60 days for FB)
-            "expires_at": (datetime.now() + timedelta(days=60)).isoformat(),
-            "expires_in": 5184000,
+            "expires_at": (datetime.now() + timedelta(days=expires_days)).isoformat(),
+            "expires_in": expires_days * 86400,
             "scopes": scopes,
-            "scope_values": scopes,  # Simplified
+            "scope_values": scopes,
             "authorized_email": f"ID: {identifier}",
             "browser_profile": "Manual",
             "authorized_at": datetime.now().isoformat(),
-            "raw_response": {"manual": True}
+            "raw_response": {"manual": True, "note": token_note}
         }
-        
+
         self._save()
+        msg = f"Manual token added successfully for {provider}."
+        if token_note:
+            msg += f" ({token_note})"
         return {
-            "status": "success", 
-            "credential_id": cred_id, 
+            "status": "success",
+            "credential_id": cred_id,
             "token_id": token_id,
-            "message": f"Manual token added successfully for {provider}."
+            "message": msg
+        }
+
+    def _fb_exchange_token(self, short_token: str, cred_id: str) -> Optional[dict]:
+        """Exchange a Facebook short-lived token to long-lived, then get never-expiring page token."""
+        import requests as req
+
+        # Look for an existing Facebook credential with real app_id + app_secret
+        app_id, app_secret = None, None
+        for cid, cred in self._data["credentials"].items():
+            if cred.get("provider") == "facebook" and cred.get("client_id") and cred.get("client_secret", "***") != "***":
+                app_id = cred["client_id"]
+                app_secret = cred["client_secret"]
+                break
+
+        if not app_id or not app_secret:
+            logger.info("[FB Exchange] No App ID/Secret found — using token as-is (short-lived).")
+            return None
+
+        # Step 1: Exchange short-lived → long-lived user token
+        try:
+            resp = req.get(
+                "https://graph.facebook.com/v19.0/oauth/access_token",
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "fb_exchange_token": short_token,
+                },
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.warning(f"[FB Exchange] Failed to exchange token: {resp.text[:200]}")
+                return None
+
+            data = resp.json()
+            long_lived_token = data.get("access_token", short_token)
+            expires_in = data.get("expires_in", 5184000)  # ~60 days
+            logger.info(f"[FB Exchange] Got long-lived token (expires in {expires_in}s)")
+        except Exception as e:
+            logger.warning(f"[FB Exchange] Exchange request failed: {e}")
+            return None
+
+        # Step 2: Use long-lived token to get never-expiring Page Access Token
+        try:
+            pages_resp = req.get(
+                "https://graph.facebook.com/v19.0/me/accounts",
+                params={
+                    "access_token": long_lived_token,
+                    "fields": "id,name,access_token",
+                },
+                timeout=15,
+            )
+            if pages_resp.status_code == 200:
+                pages = pages_resp.json().get("data", [])
+                if pages:
+                    # Use the first page token (never expires!)
+                    page_token = pages[0].get("access_token", long_lived_token)
+                    page_name = pages[0].get("name", "Unknown")
+                    logger.info(f"[FB Exchange] Got permanent page token for '{page_name}'")
+                    return {
+                        "token": page_token,
+                        "note": f"Token vĩnh viễn cho page '{page_name}'",
+                        "expires_days": 36500,  # ~100 years = never expires
+                    }
+        except Exception as e:
+            logger.warning(f"[FB Exchange] /me/accounts failed: {e}")
+
+        # Step 3: Fallback — return long-lived user token (~60 days)
+        return {
+            "token": long_lived_token,
+            "note": "Long-lived token (~60 ngày)",
+            "expires_days": int(expires_in / 86400),
         }
 
 
@@ -359,6 +445,8 @@ class AuthManager:
         for key in ["name", "client_id", "client_secret", "credentials_json",
                      "service_account_email", "scopes", "extra"]:
             if key in kwargs and kwargs[key] is not None:
+                if key in ["client_id", "client_secret"] and isinstance(kwargs[key], str) and kwargs[key].startswith("***"):
+                    continue
                 cred[key] = kwargs[key]
 
         cred["updated_at"] = datetime.now().isoformat()
@@ -559,6 +647,35 @@ class AuthManager:
                 error_msg = token_data.get("error_description") or token_data.get("error", str(token_data))
                 return {"status": "error", "message": f"Token exchange failed: {error_msg}"}
 
+            # Facebook: auto-exchange short-lived → long-lived token
+            fb_exchange_note = ""
+            if provider == "facebook":
+                short_token = token_data.get("access_token", "")
+                if short_token and cred.get("client_id") and cred.get("client_secret"):
+                    try:
+                        ll_resp = req_lib.get(
+                            "https://graph.facebook.com/v19.0/oauth/access_token",
+                            params={
+                                "grant_type": "fb_exchange_token",
+                                "client_id": cred["client_id"],
+                                "client_secret": cred["client_secret"],
+                                "fb_exchange_token": short_token,
+                            },
+                            timeout=15,
+                        )
+                        if ll_resp.status_code == 200:
+                            ll_data = ll_resp.json()
+                            long_lived_token = ll_data.get("access_token", short_token)
+                            ll_expires = ll_data.get("expires_in", 5184000)
+                            token_data["access_token"] = long_lived_token
+                            token_data["expires_in"] = ll_expires
+                            fb_exchange_note = f"Long-lived token (~{ll_expires // 86400} ngày)"
+                            logger.info(f"[FB OAuth] Exchanged to long-lived token (expires in {ll_expires}s)")
+                        else:
+                            logger.warning(f"[FB OAuth] Long-lived exchange failed: {ll_resp.text[:200]}")
+                    except Exception as e:
+                        logger.warning(f"[FB OAuth] Long-lived exchange error: {e}")
+
             # Get user email if possible
             authorized_email = self._fetch_user_email(provider, token_data)
 
@@ -580,7 +697,7 @@ class AuthManager:
                 "authorized_email": authorized_email,
                 "browser_profile": pending.get("browser_profile", ""),
                 "authorized_at": datetime.now().isoformat(),
-                "raw_response": token_data,
+                "raw_response": {**token_data, "fb_exchange_note": fb_exchange_note} if fb_exchange_note else token_data,
             }
             self._save()
 
