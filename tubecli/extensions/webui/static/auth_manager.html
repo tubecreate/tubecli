@@ -166,10 +166,11 @@
                 </div>
             </div>
     
-            <!-- Tabs: OAuth Client | Service Account -->
+            <!-- Tabs: OAuth Client | Service Account | Manual Setup -->
             <div class="am-tabs" id="cred-tabs">
-                <button class="am-tab active" data-tab="oauth" onclick="switchCredTab('oauth')">OAuth Client</button>
-                <button class="am-tab" data-tab="json" onclick="switchCredTab('json')">Service Account JSON</button>
+                <button class="am-tab active" data-tab="oauth" id="tab-btn-oauth" onclick="switchCredTab('oauth')">OAuth Client</button>
+                <button class="am-tab" data-tab="json" id="tab-btn-json" onclick="switchCredTab('json')">Service Account JSON</button>
+                <button class="am-tab" data-tab="manual" id="tab-btn-manual" onclick="switchCredTab('manual')">Manual Setup</button>
             </div>
     
             <div id="cred-tab-oauth" class="am-tab-pane active">
@@ -193,6 +194,21 @@
                 <div class="form-group">
                     <label>Service Account Email</label>
                     <input id="cred-sa-email" placeholder="xxx@project.iam.gserviceaccount.com">
+                </div>
+            </div>
+
+            <div id="cred-tab-manual" class="am-tab-pane">
+                <div class="form-group">
+                    <label>Target ID (Ví dụ: Facebook Page ID)</label>
+                    <input id="cred-manual-id" placeholder="Nhập ID của Fanpage / Kênh">
+                </div>
+                <div class="form-group">
+                    <label>Long-lived Access Token</label>
+                    <input id="cred-manual-token" type="password" placeholder="EAAQ... (Nhập Token lấy thủ công)">
+                </div>
+                <div style="background:rgba(6,182,212,0.1); border-left:3px solid var(--cyan); padding:10px; border-radius:4px; font-size:0.8rem; line-height:1.4;">
+                    <strong>Dành cho Tool Nội bộ:</strong><br>
+                    Không cần setup App. Lấy Token từ Trình khám phá Graph API và dán vào đây để cấp quyền sử dụng hệ thống tự động hóa ngay lập tức.
                 </div>
             </div>
     
@@ -242,28 +258,58 @@
             </div>
         </div>
 
-        <!-- Browser Profile -->
-        <div class="form-group">
-            <label>🌐 Browser Profile</label>
-            <select id="auth-browser-profile">
-                <option value="">Default Browser</option>
-            </select>
-            <small class="am-hint">Chọn profile Playwright để mở OAuth, hoặc dùng browser mặc định</small>
-        </div>
-
-        <input type="hidden" id="auth-cred-id">
-
         <div class="am-redirect-info">
             <strong>Redirect URI:</strong>
             <code id="auth-redirect-uri"></code>
             <small>Thêm URI này vào cấu hình OAuth trên Google Cloud / Facebook / TikTok</small>
         </div>
 
-        <div class="modal-actions">
+        <div style="border-top:1px dotted rgba(255,255,255,0.1); margin: 16px 0;"></div>
+
+        <!-- Browser Profile -->
+        <div class="form-group">
+            <label>🌐 Tự động mở trình duyệt (Tùy chọn)</label>
+            <select id="auth-browser-profile">
+                <option value="">Default Browser</option>
+            </select>
+            <small class="am-hint">Để trống nếu bạn muốn tự mở bằng trình duyệt có sẵn</small>
+        </div>
+
+        <input type="hidden" id="auth-cred-id">
+
+        <div class="modal-actions" style="justify-content: flex-end; gap: 8px;">
             <button class="btn-secondary" onclick="closeModal('modal-authorize')">Cancel</button>
-            <button class="btn-primary" onclick="startAuthorize()" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">
+            <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:#1e293b; color:#cbd5e1; white-space: nowrap;" title="Copy URL để tự dán vào trình duyệt đang mở">📋 Copy Link</button>
+            <button class="btn-primary" onclick="startAuthorize('open')" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4); white-space: nowrap;">
                 🚀 Authorize
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Auth Waiting Dialog -->
+<div id="modal-auth-waiting" class="modal hidden">
+    <div class="modal-content" style="max-width:520px; text-align:center;">
+        <div class="am-waiting-icon" style="font-size:3rem; margin-bottom:16px;">
+            <i class="fas fa-circle-notch fa-spin" style="color:var(--cyan)"></i>
+            <span style="font-size:2rem; margin-left:10px;">⏳</span>
+        </div>
+        <h2 style="margin-bottom:8px">Đang chờ xác thực...</h2>
+        <p id="am-waiting-message" style="color:var(--text2); margin-bottom:16px; font-size:0.95rem;">
+            Vui lòng hoàn tất màn hình cấp quyền trên trình duyệt. Cửa sổ này sẽ tự đóng khi quá trình hoàn tất.
+        </p>
+        
+        <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:16px; text-align:left; font-size:0.85rem; margin-bottom:24px;">
+            <strong style="color:#f59e0b; display:block; margin-bottom:8px;">⚠️ Hướng dẫn xử lý lỗi thường gặp (Google):</strong>
+            <ul style="margin:0; padding-left:20px; color:var(--text2); line-height:1.5;">
+                <li style="margin-bottom:6px">Báo lỗi <strong>Access blocked: Authorization Error</strong>:<br>Vào Google Cloud $\rightarrow$ mục <em>OAuth consent screen</em> $\rightarrow$ cuộn xuống phần <strong>Test users</strong> và THÊM email bạn đang dùng vào.</li>
+                <li>Cảnh báo đỏ <strong>Google hasn’t verified this app</strong>:<br>Hãy nhấn dòng chữ nhỏ <strong>"Advanced" (Nâng cao)</strong> ở dưới cùng, sau đó bấm <strong>"Go to ... (unsafe)"</strong> để tiếp tục.</li>
+            </ul>
+        </div>
+
+        <div class="modal-actions" style="justify-content:center; gap:8px;">
+            <button class="btn-secondary" onclick="cancelPolling()">Bỏ qua / Hủy chờ</button>
+            <button id="am-waiting-copy-btn" class="btn-secondary hidden" style="background:#1e293b; color:#cbd5e1; border-color:transparent;" onclick="copyAmText(window._currentAuthUrl)">📋 Copy lại Link</button>
         </div>
     </div>
 </div>

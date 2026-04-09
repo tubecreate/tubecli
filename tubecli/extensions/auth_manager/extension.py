@@ -302,6 +302,53 @@ class AuthManager:
         self._save()
         return {"status": "success", "credential_id": cred_id, "message": f"Credential '{name}' added for {provider}."}
 
+    def add_manual_token(self, provider: str, name: str, identifier: str, access_token: str) -> dict:
+        """Add a manual long-lived token (e.g. Facebook Page Access Token) bypassing OAuth flow."""
+        if provider not in PROVIDERS:
+            return {"status": "error", "message": f"Unknown provider: {provider}."}
+            
+        # 1. Create a credential container
+        cred_id = f"cred_{uuid.uuid4().hex[:8]}"
+        scopes = PROVIDERS[provider].get("services", {}).get("fanpage_manage", {}).get("scopes", ["pages_manage"])
+        self._data["credentials"][cred_id] = {
+            "provider": provider,
+            "name": name,
+            "client_id": identifier,  # Store Page ID or generic identifier here
+            "client_secret": "***",
+            "credentials_json": None,
+            "service_account_email": None,
+            "scopes": scopes,
+            "extra": {},
+            "created_at": datetime.now().isoformat(),
+        }
+        
+        # 2. Inject the authorized token immediately
+        token_id = f"{cred_id}_{uuid.uuid4().hex[:8]}"
+        self._data["tokens"][token_id] = {
+            "credential_id": cred_id,
+            "access_token": access_token,
+            "refresh_token": "",
+            "token_type": "Bearer",
+            # Assuming a long-lived token (usually 60 days for FB)
+            "expires_at": (datetime.now() + timedelta(days=60)).isoformat(),
+            "expires_in": 5184000,
+            "scopes": scopes,
+            "scope_values": scopes,  # Simplified
+            "authorized_email": f"ID: {identifier}",
+            "browser_profile": "Manual",
+            "authorized_at": datetime.now().isoformat(),
+            "raw_response": {"manual": True}
+        }
+        
+        self._save()
+        return {
+            "status": "success", 
+            "credential_id": cred_id, 
+            "token_id": token_id,
+            "message": f"Manual token added successfully for {provider}."
+        }
+
+
     def update_credential(self, cred_id: str, **kwargs) -> dict:
         """Update an existing credential."""
         self._load()

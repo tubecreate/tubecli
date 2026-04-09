@@ -20,6 +20,13 @@ class AddCredentialRequest(BaseModel):
     scopes: List[str] = []
 
 
+class AddManualTokenRequest(BaseModel):
+    provider: str
+    name: str
+    identifier: str
+    access_token: str
+
+
 class UpdateCredentialRequest(BaseModel):
     name: Optional[str] = None
     client_id: Optional[str] = None
@@ -67,6 +74,21 @@ async def api_add_credential(req: AddCredentialRequest):
     )
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
+    return result
+
+
+@router.post("/credentials/manual")
+async def api_add_manual_token(req: AddManualTokenRequest):
+    """Add a manual long-lived token directly (e.g. FB Page Token)."""
+    from .extension import auth_manager
+    result = auth_manager.add_manual_token(
+        provider=req.provider,
+        name=req.name,
+        identifier=req.identifier,
+        access_token=req.access_token,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(400, result.get("message", "Error"))
     return result
 
 
