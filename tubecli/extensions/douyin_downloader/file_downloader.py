@@ -18,10 +18,18 @@ DOWNLOAD_HEADERS = {
 download_tasks = {}
 
 
-def sanitize_filename(name: str, max_len: int = 80) -> str:
-    """Remove invalid characters from filename."""
+def sanitize_filename(name: str, max_len: int = 60) -> str:
+    """Remove invalid characters from filename, safe for Windows paths."""
+    # Strip hashtags and everything after them (e.g. #民间手艺 #手工)
+    name = re.sub(r'#\S*', '', name)
+    # Remove emoji and other non-BMP characters
+    name = re.sub(r'[\U00010000-\U0010ffff]', '', name)
+    # Remove filesystem-illegal characters
     name = re.sub(r'[\\/:*?"<>|\n\r\t]', '', name)
+    # Collapse multiple spaces/dots
+    name = re.sub(r'[\s]+', ' ', name)
     name = name.strip('. ')
+    # Truncate to max_len
     return name[:max_len] if name else "video"
 
 

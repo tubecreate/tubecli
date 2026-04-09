@@ -241,29 +241,36 @@ async def execute_download(url: str, agent_dict: Dict) -> dict:
     print(f"[Actions] ⏳ Waiting for download task: {task_id}")
     file_path = await _wait_for_download(task_id, filename)
 
+    if not file_path or not os.path.exists(file_path):
+        return f"❌ Tải video thất bại: không tìm thấy file sau khi tải. Filename: {filename}"
+
+    # Update filename to match actual file on disk
+    actual_filename = os.path.basename(file_path)
+
     caption = (
         f"✅ *{title}*\n"
         f"👤 {author}{'  |  ⏱️ ' + str(duration) + 's' if duration else ''}\n"
         f"🌐 {platform.upper() if platform else 'Video'}\n"
-        f"📁 `{filename}`"
+        f"📁 `{actual_filename}`"
     )
 
     return {
         "type": "file",
         "file_path": file_path,
-        "filename": filename,
+        "filename": actual_filename,
         "caption": caption,
         "file_type": "video",
         "duration": duration,
         "original_title": title,
         "original_author": author,
-        "download_url": f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{filename}"
+        "download_url": f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{actual_filename}"
     }
 
 
 async def _wait_for_download(task_id: str, filename: str, max_wait: int = 120) -> str:
     """Poll download status until complete. Returns local file path."""
     data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
+    dl_dir = os.path.join(data_dir, "downloads")
 
     for _ in range(max_wait // 3):
         await asyncio.sleep(3)
@@ -279,19 +286,38 @@ async def _wait_for_download(task_id: str, filename: str, max_wait: int = 120) -
                     print(f"[Actions] Download progress: {progress:.1f}% ({status})")
 
                     if status in ("completed", "done"):
+                        # Priority 1: save_path from task (absolute)
                         save_path = task_data.get("save_path", "")
                         if save_path and os.path.exists(save_path):
                             return save_path
-                        local_path = os.path.join(data_dir, "downloads", filename)
+                        # Priority 2: filename from task status (may differ after sanitize)
+                        task_filename = task_data.get("filename", "")
+                        if task_filename:
+                            resolved = os.path.join(dl_dir, task_filename)
+                            if os.path.exists(resolved):
+                                return resolved
+                        # Priority 3: original filename param
+                        local_path = os.path.join(dl_dir, filename)
                         if os.path.exists(local_path):
                             return local_path
+                        # Priority 4: glob most recent file in downloads dir
+                        import glob
+                        candidates = sorted(
+                            glob.glob(os.path.join(dl_dir, "*.mp4")),
+                            key=os.path.getmtime, reverse=True
+                        )
+                        if candidates:
+                            print(f"[Actions] Fallback: using most recent file {candidates[0]}")
+                            return candidates[0]
                         return ""
                     elif status in ("error", "failed"):
+                        err_msg = task_data.get("error", "Unknown error")
+                        print(f"[Actions] ❌ Download failed: {err_msg}")
                         return ""
         except Exception:
             pass
 
-    local_path = os.path.join(data_dir, "downloads", filename)
+    local_path = os.path.join(dl_dir, filename)
     return local_path if os.path.exists(local_path) else ""
 
 

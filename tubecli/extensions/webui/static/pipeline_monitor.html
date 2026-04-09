@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Monitor — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg: #0a0a0f; --bg2: #12121a; --bg3: #1a1a2e; --bg-hover: #222240;
+            --border: #2a2a4a; --text: #e8e8f0; --text2: #9898b8; --text-muted: #6868a0;
+            --cyan: #00d4ff; --purple: #a855f7; --green: #22c55e; --orange: #f59e0b;
+            --red: #ef4444; --blue: #3b82f6; --pink: #ec4899;
+            --radius: 12px;
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        /* ── Header ── */
+        .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
+        .header-left { display: flex; align-items: center; gap: 14px; }
+        .header-logo { font-size: 1.3rem; font-weight: 800; background: linear-gradient(135deg, var(--cyan), var(--purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .header-title { font-size: 1rem; color: var(--text2); font-weight: 500; }
+        .header-actions { display: flex; gap: 10px; align-items: center; }
+        .btn { padding: 8px 18px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+        .btn-primary { background: linear-gradient(135deg, var(--cyan), var(--purple)); color: #000; border: none; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,255,0.3); }
+        .btn-secondary { background: var(--bg3); color: var(--text); }
+        .btn-secondary:hover { border-color: var(--cyan); }
+        .btn-back { background: none; color: var(--text2); border: none; font-size: 0.9rem; cursor: pointer; }
+        .btn-back:hover { color: var(--cyan); }
+
+        /* ── Stats Bar ── */
+        .stats-bar { display: flex; gap: 16px; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-wrap: wrap; }
+        .stat-pill { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 12px 20px; min-width: 140px; transition: all 0.2s; }
+        .stat-pill:hover { border-color: var(--cyan); transform: translateY(-1px); }
+        .stat-pill .stat-num { font-size: 1.6rem; font-weight: 800; background: linear-gradient(135deg, var(--cyan), var(--purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .stat-pill .stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
+        .stat-pill.running .stat-num { background: linear-gradient(135deg, var(--orange), var(--pink)); -webkit-background-clip: text; background-clip: text; }
+        .stat-pill.error .stat-num { background: linear-gradient(135deg, var(--red), var(--pink)); -webkit-background-clip: text; background-clip: text; }
+        .stat-pill.success .stat-num { background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip: text; background-clip: text; }
+
+        /* ── Filters ── */
+        .filters { display: flex; gap: 8px; padding: 16px 32px; align-items: center; }
+        .filter-btn { padding: 6px 16px; border: 1px solid var(--border); border-radius: 20px; background: none; color: var(--text2); font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+        .filter-btn:hover { border-color: var(--cyan); color: var(--text); }
+        .filter-btn.active { background: rgba(0,212,255,0.1); border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
+        .auto-refresh { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 0.82rem; color: var(--text-muted); }
+        .auto-refresh input { accent-color: var(--cyan); }
+
+        /* ── Main Content ── */
+        .main { padding: 0 32px 32px; }
+
+        /* ── Pipeline Card ── */
+        .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+        .pipeline-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: all 0.25s; cursor: pointer; }
+        .pipeline-card:hover { border-color: var(--cyan); box-shadow: 0 4px 24px rgba(0,212,255,0.06); }
+        .pipeline-card.expanded { border-color: var(--purple); }
+
+        .pc-header { display: flex; align-items: center; gap: 14px; padding: 16px 20px; }
+        .pc-status-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+        .pc-status-icon.running { background: rgba(245,158,11,0.15); animation: pulseGlow 2s infinite; }
+        .pc-status-icon.success { background: rgba(34,197,94,0.15); }
+        .pc-status-icon.error { background: rgba(239,68,68,0.15); }
+        @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.3); } 50% { box-shadow: 0 0 12px 3px rgba(245,158,11,0.15); } }
+
+        .pc-info { flex: 1; min-width: 0; }
+        .pc-title { font-size: 0.92rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .pc-meta { display: flex; gap: 16px; margin-top: 4px; font-size: 0.78rem; color: var(--text-muted); flex-wrap: wrap; }
+        .pc-meta span { display: flex; align-items: center; gap: 4px; }
+
+        .pc-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
+        .pc-badge.running { background: rgba(245,158,11,0.15); color: var(--orange); }
+        .pc-badge.success { background: rgba(34,197,94,0.15); color: var(--green); }
+        .pc-badge.error { background: rgba(239,68,68,0.15); color: var(--red); }
+
+        .pc-arrow { font-size: 0.8rem; color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; }
+        .pipeline-card.expanded .pc-arrow { transform: rotate(90deg); }
+
+        /* ── Steps Timeline ── */
+        .pc-body { display: none; border-top: 1px solid var(--border); padding: 20px; background: rgba(10,10,15,0.5); }
+        .pipeline-card.expanded .pc-body { display: block; animation: fadeIn 0.25s; }
+
+        .steps-timeline { position: relative; padding-left: 28px; }
+        .steps-timeline::before { content: ''; position: absolute; left: 11px; top: 8px; bottom: 8px; width: 2px; background: var(--border); }
+
+        .step-item { position: relative; padding: 10px 0 10px 20px; }
+        .step-dot { position: absolute; left: -21px; top: 14px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); background: var(--bg3); z-index: 1; }
+        .step-item.success .step-dot { border-color: var(--green); background: var(--green); box-shadow: 0 0 8px rgba(34,197,94,0.3); }
+        .step-item.running .step-dot { border-color: var(--orange); background: var(--orange); animation: pulse 1.5s infinite; }
+        .step-item.error .step-dot { border-color: var(--red); background: var(--red); box-shadow: 0 0 8px rgba(239,68,68,0.3); }
+        .step-item.pending .step-dot { border-color: var(--border); background: var(--bg3); }
+        .step-item.skipped .step-dot { border-color: var(--text-muted); background: var(--text-muted); }
+
+        @keyframes pulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } }
+
+        .step-header { display: flex; align-items: center; gap: 10px; }
+        .step-label { font-size: 0.88rem; font-weight: 600; }
+        .step-duration { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+        .step-message { font-size: 0.8rem; color: var(--text2); margin-top: 4px; font-family: 'JetBrains Mono', monospace; word-break: break-all; }
+        .step-message.error { color: var(--red); }
+
+        /* ── Summary ── */
+        .pc-summary { margin-top: 16px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; color: var(--text2); white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; line-height: 1.6; }
+        .pc-summary.error { border-color: rgba(239,68,68,0.3); color: var(--red); }
+
+        /* ── Empty State ── */
+        .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; text-align: center; }
+        .empty-icon { font-size: 3rem; margin-bottom: 16px; opacity: 0.5; }
+        .empty-title { font-size: 1.1rem; font-weight: 600; color: var(--text2); margin-bottom: 8px; }
+        .empty-desc { font-size: 0.88rem; color: var(--text-muted); max-width: 400px; line-height: 1.5; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .header, .stats-bar, .filters, .main { padding-left: 16px; padding-right: 16px; }
+            .stat-pill { min-width: 100px; padding: 10px 14px; }
+            .pc-meta { gap: 8px; }
+        }
+
+        /* ── Video Preview Button ── */
+        .btn-preview { padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; background: linear-gradient(135deg, var(--green), #10b981); color: #fff; text-decoration: none; flex-shrink: 0; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-preview:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(34,197,94,0.3); }
+        .pc-summary a { color: var(--cyan); text-decoration: underline; }
+        .pc-summary a:hover { color: var(--purple); }
+    </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+    <div class="header-left">
+        <a href="/dashboard" class="btn-back">← Dashboard</a>
+        <div class="header-logo">⚡ Pipeline Monitor</div>
+        <div class="header-title">Telegram Pipeline Tracker</div>
+    </div>
+    <div class="header-actions">
+        <button class="btn btn-secondary" onclick="loadPipelines()" id="btn-refresh">🔄 Refresh</button>
+    </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-bar" id="stats-bar">
+    <div class="stat-pill">
+        <div><div class="stat-num" id="stat-total">-</div><div class="stat-label">Tổng cộng</div></div>
+    </div>
+    <div class="stat-pill running">
+        <div><div class="stat-num" id="stat-running">-</div><div class="stat-label">Đang chạy</div></div>
+    </div>
+    <div class="stat-pill success">
+        <div><div class="stat-num" id="stat-success">-</div><div class="stat-label">Thành công</div></div>
+    </div>
+    <div class="stat-pill error">
+        <div><div class="stat-num" id="stat-error">-</div><div class="stat-label">Lỗi</div></div>
+    </div>
+</div>
+
+<!-- Filters -->
+<div class="filters">
+    <button class="filter-btn active" data-filter="" onclick="setFilter(this, '')">Tất cả</button>
+    <button class="filter-btn" data-filter="running" onclick="setFilter(this, 'running')">🔄 Đang chạy</button>
+    <button class="filter-btn" data-filter="success" onclick="setFilter(this, 'success')">✅ Thành công</button>
+    <button class="filter-btn" data-filter="error" onclick="setFilter(this, 'error')">❌ Lỗi</button>
+    <div class="auto-refresh">
+        <input type="checkbox" id="auto-refresh" checked>
+        <label for="auto-refresh">Auto-refresh (5s)</label>
+    </div>
+</div>
+
+<!-- Pipeline List -->
+<div class="main">
+    <div class="pipeline-list" id="pipeline-list">
+        <div class="empty-state" id="empty-state">
+            <div class="empty-icon">📡</div>
+            <div class="empty-title">Chưa có pipeline nào</div>
+            <div class="empty-desc">Gửi lệnh qua Telegram để bắt đầu pipeline (tải video, tách sub, lồng tiếng, upload...)</div>
+        </div>
+    </div>
+</div>
+
+<script>
+const API = '/api/v1/pipelines';
+let currentFilter = '';
+let refreshInterval = null;
+let expandedTasks = new Set();
+
+async function loadPipelines() {
+    try {
+        const url = currentFilter ? `${API}?status=${currentFilter}` : API;
+        const resp = await fetch(url);
+        const data = await resp.json();
+        
+        // Update stats
+        const stats = data.stats || {};
+        document.getElementById('stat-total').textContent = stats.total || 0;
+        document.getElementById('stat-running').textContent = stats.running || 0;
+        document.getElementById('stat-success').textContent = stats.success || 0;
+        document.getElementById('stat-error').textContent = stats.error || 0;
+        
+        renderPipelines(data.tasks || []);
+    } catch (err) {
+        console.error('Failed to load pipelines:', err);
+    }
+}
+
+function renderPipelines(tasks) {
+    const list = document.getElementById('pipeline-list');
+    const empty = document.getElementById('empty-state');
+    
+    if (!tasks.length) {
+        list.innerHTML = '';
+        list.appendChild(empty);
+        empty.style.display = 'flex';
+        return;
+    }
+    
+    empty.style.display = 'none';
+    
+    const html = tasks.map(task => {
+        const isExpanded = expandedTasks.has(task.task_id);
+        const statusIcon = { running: '⏳', success: '✅', error: '❌' }[task.status] || '⏳';
+        const statusClass = task.status;
+        
+        const timeAgo = formatTimeAgo(task.created_at);
+        const duration = task.duration ? formatDuration(task.duration) : '';
+        
+        const stepsHtml = (task.steps || []).map(step => {
+            const stepStatusClass = step.status;
+            const stepDuration = step.duration ? `${step.duration}s` : '';
+            const msgClass = step.status === 'error' ? 'error' : '';
+            return `
+                <div class="step-item ${stepStatusClass}">
+                    <div class="step-dot"></div>
+                    <div class="step-header">
+                        <span class="step-label">${step.label}</span>
+                        <span class="step-duration">${stepDuration}</span>
+                    </div>
+                    ${step.message ? `<div class="step-message ${msgClass}">${escapeHtml(step.message)}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+        
+        const summaryHtml = task.error_message 
+            ? `<div class="pc-summary error">${escapeHtml(task.error_message)}</div>`
+            : (task.result_summary ? `<div class="pc-summary">${linkify(escapeHtml(task.result_summary))}</div>` : '');
+        
+        // Video preview button
+        const previewBtn = task.video_filename && task.status === 'success'
+            ? `<a class="btn-preview" href="/api/v1/douyin_downloader/file/${encodeURIComponent(task.video_filename)}" target="_blank" onclick="event.stopPropagation()">▶️ Xem video</a>`
+            : '';
+        
+        return `
+            <div class="pipeline-card ${isExpanded ? 'expanded' : ''}" onclick="toggleCard('${task.task_id}')">
+                <div class="pc-header">
+                    <div class="pc-status-icon ${statusClass}">${statusIcon}</div>
+                    <div class="pc-info">
+                        <div class="pc-title">${escapeHtml(task.original_message || task.url || 'Pipeline')}</div>
+                        <div class="pc-meta">
+                            <span>🆔 ${task.task_id}</span>
+                            <span>🕐 ${timeAgo}</span>
+                            ${duration ? `<span>⏱️ ${duration}</span>` : ''}
+                            ${task.video_filename ? `<span>📁 ${escapeHtml(task.video_filename)}</span>` : ''}
+                            <span>💬 Chat ${task.chat_id}</span>
+                        </div>
+                    </div>
+                    ${previewBtn}
+                    <span class="pc-badge ${statusClass}">${task.status}</span>
+                    <span class="pc-arrow">▶</span>
+                </div>
+                <div class="pc-body">
+                    <div class="steps-timeline">${stepsHtml}</div>
+                    ${summaryHtml}
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    list.innerHTML = html;
+}
+
+function toggleCard(taskId) {
+    if (expandedTasks.has(taskId)) {
+        expandedTasks.delete(taskId);
+    } else {
+        expandedTasks.add(taskId);
+    }
+    // Re-render with current data (triggers from next refresh or immediate re-render)
+    const cards = document.querySelectorAll('.pipeline-card');
+    cards.forEach(card => {
+        const id = card.querySelector('.pc-meta span')?.textContent?.replace('🆔 ', '');
+        if (id === taskId) {
+            card.classList.toggle('expanded');
+        }
+    });
+}
+
+function setFilter(btn, filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadPipelines();
+}
+
+function formatTimeAgo(ts) {
+    if (!ts) return '';
+    const diff = Math.floor(Date.now() / 1000 - ts);
+    if (diff < 60) return `${diff}s trước`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m trước`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h trước`;
+    return `${Math.floor(diff / 86400)}d trước`;
+}
+
+function formatDuration(sec) {
+    if (sec < 60) return `${sec.toFixed(1)}s`;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${m}m ${s}s`;
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function linkify(text) {
+    // Convert http(s):// URLs to clickable links
+    return text.replace(/(https?:\/\/[^\s<"&]+)/g, '<a href="$1" target="_blank" onclick="event.stopPropagation()">$1</a>');
+}
+
+// ── Init ──
+loadPipelines();
+
+// Auto-refresh
+function startAutoRefresh() {
+    if (refreshInterval) clearInterval(refreshInterval);
+    refreshInterval = setInterval(() => {
+        if (document.getElementById('auto-refresh').checked) {
+            loadPipelines();
+        }
+    }, 5000);
+}
+startAutoRefresh();
+
+document.getElementById('auto-refresh').addEventListener('change', (e) => {
+    if (e.target.checked) startAutoRefresh();
+    else if (refreshInterval) clearInterval(refreshInterval);
+});
+</script>
+
+</body>
+</html>

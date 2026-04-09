@@ -102,6 +102,7 @@ REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống
 TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
 LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
 SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
+TTS_KEYWORDS = ["lồng tiếng", "voiceover", "voice over", "tts", "đọc text", "text to speech", "narrate", "giọng đọc"]
 
 
 class IntentRouter:
@@ -146,16 +147,18 @@ class IntentRouter:
                     extracted_data={"url": video_url},
                     skip_llm=False,
                 )
-            # Check for subtitle pipeline (download + subtitle + optional burn/upload)
+            # Check for subtitle pipeline (download + subtitle + optional burn/tts/upload)
             if any(k in text_lower for k in SUBTITLE_KEYWORDS):
                 has_upload = any(k in text_lower for k in UPLOAD_KEYWORDS)
                 has_burn = any(k in text_lower for k in ["burn", "ghi sub", "ghi phụ đề", "thêm sub", "thêm phụ đề", "ghép sub"])
+                has_tts = any(k in text_lower for k in TTS_KEYWORDS)
                 return IntentResult(
                     intent_type="subtitle_pipeline",
                     confidence=0.96,
                     extracted_data={
                         "url": video_url,
-                        "needs_burn": has_burn or has_upload,  # burn if uploading
+                        "needs_burn": has_burn,  # only burn if explicitly requested
+                        "needs_tts": has_tts,
                         "needs_upload": has_upload,
                         "original_message": text,
                     },

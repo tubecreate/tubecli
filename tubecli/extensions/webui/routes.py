@@ -79,12 +79,44 @@ async def save_global_settings(request: Request):
     return JSONResponse({"status": "success", "settings": existing})
 
 
+# ── Pipeline Monitor API ─────────────────────────────────────────
+from tubecli.core.pipeline_tracker import pipeline_tracker
+
+@router.get("/api/v1/pipelines")
+async def list_pipelines(limit: int = 20, status: str = None):
+    """List recent pipeline tasks."""
+    tasks = pipeline_tracker.list_tasks(limit=limit, status=status)
+    stats = pipeline_tracker.get_stats()
+    return JSONResponse({"tasks": tasks, "stats": stats})
+
+@router.get("/api/v1/pipelines/stats")
+async def pipeline_stats():
+    """Get pipeline task statistics."""
+    return JSONResponse(pipeline_tracker.get_stats())
+
+@router.get("/api/v1/pipelines/{task_id}")
+async def get_pipeline(task_id: str):
+    """Get a single pipeline task detail."""
+    task = pipeline_tracker.get_task(task_id)
+    if not task:
+        return JSONResponse({"error": "Task not found"}, status_code=404)
+    return JSONResponse(task)
+
+
 @router.get("/dashboard")
 async def dashboard():
     index = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index):
         return FileResponse(index)
     return {"error": "Dashboard not found"}
+
+@router.get("/pipeline-monitor")
+async def pipeline_monitor_page():
+    """Serve the Pipeline Monitor page."""
+    page = os.path.join(STATIC_DIR, "pipeline_monitor.html")
+    if os.path.exists(page):
+        return FileResponse(page)
+    return {"error": "Pipeline Monitor page not found"}
 
 
 @router.get("/workflow")
@@ -566,6 +598,58 @@ async def serve_subtitle_extractor_static(filename: str):
     se_dir = _find_subtitle_extractor_dir()
     if se_dir:
         filepath = os.path.join(se_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}
+
+
+def _find_tts_vibevoice_dir():
+    """Find the TTS VibeVoice extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get("tts_vibevoice")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "tts_vibevoice")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("tts_vibevoice__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
+@router.get("/tts-vibevoice")
+@router.get("/tts_vibevoice")
+async def tts_vibevoice_page():
+    """Serve the TTS VibeVoice page."""
+    tts_dir = _find_tts_vibevoice_dir()
+    if tts_dir:
+        html_file = os.path.join(tts_dir, "static", "tts.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>TTS VibeVoice — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">🔊</div><h1>TTS VibeVoice</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/tts-vibevoice-static/{filename:path}")
+@router.get("/tts_vibevoice-static/{filename:path}")
+async def serve_tts_vibevoice_static(filename: str):
+    """Serve TTS VibeVoice static files (JS, CSS, i18n)."""
+    tts_dir = _find_tts_vibevoice_dir()
+    if tts_dir:
+        filepath = os.path.join(tts_dir, "static", filename)
         if os.path.exists(filepath):
             return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
