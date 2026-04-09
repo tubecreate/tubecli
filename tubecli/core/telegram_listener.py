@@ -277,10 +277,18 @@ class TelegramListener:
                     except Exception as e:
                         return f"⚠️ Skill lỗi: {str(e)[:200]}"
 
-        # ── Tracker / Live Action ──
-        if intent.intent_type in ("tracker_action", "live_action"):
-            action_type = "trigger_tracker" if intent.intent_type == "tracker_action" else "create_livestream"
-            fake_json = "```json\n" + json.dumps({"action": action_type}) + "\n```"
+        # ── Tracker / Live / List Action Bypass ──
+        if intent.intent_type in ("tracker_action", "live_action", "list_channels_action"):
+            if intent.intent_type == "tracker_action":
+                action_type = "trigger_tracker"
+                payload = {"action": action_type}
+            elif intent.intent_type == "live_action":
+                action_type = "create_livestream"
+                payload = {"action": action_type}
+            elif intent.intent_type == "list_channels_action":
+                payload = intent.extracted_data.get("action_data", {"action": "list_channels"})
+            
+            fake_json = "```json\n" + json.dumps(payload) + "\n```"
             result = await handle_extension_action(fake_json, agent_dict, context)
             self._save_history(agent_id, agent_dict, text, result, history)
             return result
@@ -1401,7 +1409,10 @@ class TelegramListener:
             return
         self.running = True
         self._sync_task = asyncio.create_task(self._sync_loop())
-        print("🤖 [TelegramListener] Background service started (2-Tier Intent Routing)")
+        try:
+            print("[TelegramListener] Background service started (2-Tier Intent Routing)")
+        except UnicodeEncodeError:
+            print("[TelegramListener] Background service started")
 
     async def stop(self):
         self.running = False

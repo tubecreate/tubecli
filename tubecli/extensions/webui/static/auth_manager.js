@@ -237,13 +237,24 @@ function editCredential(credId) {
     document.getElementById('cred-client-id').value = ''; // masked
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = cred.service_account_email || '';
+    
+    if (cred.provider === 'facebook') {
+        // Recover manual ID (it might be masked, but better than nothing)
+        const rawId = cred.client_id || '';
+        document.getElementById('cred-manual-id').value = rawId.replace('***', '');
+        document.getElementById('cred-manual-token').value = '********'; // Dummy token placeholder
+    } else {
+        document.getElementById('cred-manual-id').value = '';
+        document.getElementById('cred-manual-token').value = '';
+    }
+
     _jsonContent = '';
-    onProviderChange();
+    onProviderChange(cred.scopes || []);
     goToCredStep(1);
     openModal('modal-credential');
 }
 
-function onProviderChange() {
+function onProviderChange(selectedScopes = []) {
     const providerKey = document.getElementById('cred-provider').value;
     const jsonTab = document.querySelector('.am-tab[data-tab="json"]');
     const manualTab = document.querySelector('.am-tab[data-tab="manual"]');
@@ -254,9 +265,10 @@ function onProviderChange() {
         if (manualTab) manualTab.style.display = 'none';
         switchCredTab('oauth');
     } else if (providerKey === 'facebook') {
+        // Facebook: show both OAuth (for FB App users) and Manual (for token paste)
         jsonTab.style.display = 'none';
         if (manualTab) manualTab.style.display = '';
-        switchCredTab('manual');
+        switchCredTab('manual'); // Default to manual — simpler for most users
     } else {
         jsonTab.style.display = 'none';
         if (manualTab) manualTab.style.display = 'none';
@@ -264,10 +276,10 @@ function onProviderChange() {
     }
 
     // Render service cards for this provider
-    renderCredServiceCards(providerKey);
+    renderCredServiceCards(providerKey, selectedScopes);
 }
 
-function renderCredServiceCards(providerKey) {
+function renderCredServiceCards(providerKey, selectedScopes = []) {
     const container = document.getElementById('cred-services-list');
     const provider = providersData.find(p => p.id === providerKey);
     const services = provider?.services || {};
@@ -279,11 +291,18 @@ function renderCredServiceCards(providerKey) {
     }
 
     container.innerHTML = Object.entries(services).map(([svcId, svc]) => {
+        const svcScopes = svc.scopes || [];
+        // A service is considered checked if at least one of its scopes is in selectedScopes
+        const isChecked = svcScopes.length > 0 && svcScopes.some(s => selectedScopes.includes(s));
+        const checkedAttr = isChecked ? 'checked' : '';
+        const selectedClass = isChecked ? 'selected' : '';
+        
         return `
-        <div class="am-service-card wizard-card" data-service="${svcId}" onclick="toggleCredService(this)">
+        <div class="am-service-card wizard-card ${selectedClass}" data-service="${svcId}" onclick="toggleCredService(this)">
             <div class="am-service-row">
                 <input type="checkbox" class="am-service-check" 
-                    data-scopes="${(svc.scopes || []).join(',')}" 
+                    data-scopes="${svcScopes.join(',')}" 
+                    ${checkedAttr}
                     onclick="event.stopPropagation()">
                 <div class="am-service-info">
                     <div class="am-service-label">${svc.label}</div>
@@ -311,6 +330,33 @@ function goToCredStep(step) {
         
         const redirectUri = `${window.location.origin}/api/v1/auth-manager/oauth/callback`;
         document.getElementById('cred-setup-redirect-uri').textContent = redirectUri;
+        
+        // Provider-specific labels for OAuth Client tab
+        const clientIdInput = document.getElementById('cred-client-id');
+        const clientSecretInput = document.getElementById('cred-client-secret');
+        const clientIdLabel = clientIdInput.closest('.form-group').querySelector('label');
+        const clientSecretLabel = clientSecretInput.closest('.form-group').querySelector('label');
+        const redirectUriDesc = document.querySelector('#cred-setup-redirect-uri + .am-scope-desc');
+        
+        if (providerKey === 'facebook') {
+            clientIdLabel.textContent = 'App ID';
+            clientIdInput.placeholder = '123456789012345';
+            clientSecretLabel.textContent = 'App Secret';
+            clientSecretInput.placeholder = 'abc123def456...';
+            if (redirectUriDesc) redirectUriDesc.textContent = '(Facebook App > Settings > Valid OAuth Redirect URIs)';
+        } else if (providerKey === 'tiktok') {
+            clientIdLabel.textContent = 'Client Key';
+            clientIdInput.placeholder = 'awXXXXXXXXXX';
+            clientSecretLabel.textContent = 'Client Secret';
+            clientSecretInput.placeholder = 'xxxxxxxxxxxxx';
+            if (redirectUriDesc) redirectUriDesc.textContent = '(TikTok Developer Portal > Configuration)';
+        } else {
+            clientIdLabel.textContent = 'Client ID';
+            clientIdInput.placeholder = 'xxx.apps.googleusercontent.com';
+            clientSecretLabel.textContent = 'Client Secret';
+            clientSecretInput.placeholder = 'GOCSPX-xxx';
+            if (redirectUriDesc) redirectUriDesc.textContent = '(T\u1ea1i tab Credentials > OAuth Client ID)';
+        }
         
         const scopesContainer = document.getElementById('cred-required-scopes');
         if (scopes.length === 0) {
@@ -423,13 +469,8 @@ async function saveCredential() {
         const manualToken = document.getElementById('cred-manual-token').value.trim();
         const manualName = document.getElementById('cred-name').value.trim();
         
-        if (!manualName || !manualId || !manualToken) {
-            showToast('Please fill all manual setup fields', 'error');
-            return;
-        }
-        
-        if (editId) {
-            showToast('Editing manual tokens is not supported via this form yet. Add a new one instead.', 'error');
+        if (!manualName || !manualToken) {
+            showToast('Vui lòng điền Name và Token!', 'error');
             return;
         }
         
@@ -437,7 +478,6 @@ async function saveCredential() {
         // Auto-extract ID/Username if user pastes a full Facebook link
         if (finalManualId.includes('facebook.com')) {
             try {
-                // Ensure it has protocol for URL parser
                 const urlStr = finalManualId.startsWith('http') ? finalManualId : 'https://' + finalManualId;
                 const url = new URL(urlStr);
                 if (url.searchParams.has('id')) {
@@ -452,7 +492,6 @@ async function saveCredential() {
                         }
                     }
                 }
-                // Update UI visually so user knows it was parsed
                 document.getElementById('cred-manual-id').value = finalManualId;
             } catch (e) {
                 console.log('FB URL parse skipped:', e);
@@ -460,23 +499,44 @@ async function saveCredential() {
         }
 
         try {
-            const body = {
-                provider: provider,
-                name: manualName,
-                identifier: finalManualId,
-                access_token: manualToken
-            };
-            const result = await apiPost('/credentials/manual', body);
-            
-            if (result.status === 'success') {
-                showToast(result.message || 'Saved successfully', 'success');
-                closeModal('modal-credential');
-                loadCredentials();
-                loadTokens();
-                loadProviders();
+            if (editId) {
+                // Editing an existing manual credential. We update Name, Identifier (as client_id) and Scopes.
+                // Modifying the actual token is not supported here directly, but they can update scopes.
+                const putBody = {
+                    name: manualName,
+                    client_id: finalManualId,
+                    scopes: getSelectedCredScopes()
+                };
+                const result = await apiPut(`/credentials/${editId}`, putBody);
+                if (result.status === 'success') {
+                    showToast('Cập nhật thành công!', 'success');
+                    closeModal('modal-credential');
+                    loadCredentials();
+                    loadTokens();
+                    loadProviders();
+                } else {
+                    showToast(result.message || result.detail || 'Error', 'error');
+                }
             } else {
-                showToast(result.message || result.detail || 'Error', 'error');
-            }
+                // Creating new
+                const body = {
+                    provider: provider,
+                    name: manualName,
+                    identifier: finalManualId,
+                    access_token: manualToken
+                };
+                const result = await apiPost('/credentials/manual', body);
+                
+                if (result.status === 'success') {
+                    showToast(result.message || 'Saved successfully', 'success');
+                    closeModal('modal-credential');
+                    loadCredentials();
+                    loadTokens();
+                    loadProviders();
+                } else {
+                    showToast(result.message || result.detail || 'Error', 'error');
+                }
+            } // End of else (editId)
         } catch (e) {
             showToast(`Error: ${e.message}`, 'error');
         }

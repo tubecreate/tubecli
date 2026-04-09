@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Content Tracker — TubeCLI</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg: #0a0e17;
@@ -77,31 +77,38 @@
         .stat-value { font-size: 1.8rem; font-weight: 800; color: var(--accent); }
         .stat-label { font-size: 0.75rem; color: var(--text2); margin-top: 4px; }
 
-        /* Table */
-        .table-container {
+        /* Cards Grid */
+        .tracker-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .tracker-card {
             background: var(--bg2);
             border: 1px solid var(--border);
             border-radius: var(--radius);
             overflow: hidden;
+            transition: border-color 0.2s;
         }
-        table { width: 100%; border-collapse: collapse; }
-        th {
-            background: var(--bg3);
-            padding: 12px 16px;
-            text-align: left;
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: var(--text2);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+        .tracker-card:hover { border-color: var(--accent); }
+        .tracker-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
         }
-        td {
-            padding: 14px 16px;
+        .tracker-card-header-left { display: flex; align-items: center; gap: 10px; }
+        .tracker-card-body { padding: 12px 16px; }
+        .tracker-card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 16px;
+            background: rgba(0,0,0,0.15);
             border-top: 1px solid rgba(255,255,255,0.04);
-            font-size: 0.85rem;
-            vertical-align: middle;
         }
-        tr:hover td { background: rgba(6,182,212,0.03); }
 
         .platform-badge {
             display: inline-block;
@@ -121,14 +128,33 @@
         .status-paused { background: var(--orange); }
 
         .url-text {
-            max-width: 280px;
+            max-width: 100%;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             color: var(--accent);
+            font-size: 0.8rem;
         }
         .url-text a { color: inherit; text-decoration: none; }
         .url-text a:hover { text-decoration: underline; }
+
+        .info-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 0.8rem; color: var(--text2); }
+        .info-row .label { min-width: 80px; color: var(--text2); }
+        .info-row .value { color: var(--text); }
+
+        .pipeline-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .pipeline-tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            font-weight: 600;
+            background: rgba(6,182,212,0.15);
+            color: var(--accent);
+            border: 1px solid rgba(6,182,212,0.3);
+        }
+        .pipeline-tag.upload { background: rgba(139,92,246,0.15); color: var(--accent2); border-color: rgba(139,92,246,0.3); }
+        .pipeline-tag.error { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
 
         .actions-cell { display: flex; gap: 6px; }
 
@@ -149,39 +175,143 @@
             backdrop-filter: blur(4px);
             z-index: 1000;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
+            padding-top: 60px;
+            overflow-y: auto;
         }
         .modal-overlay.show { display: flex; }
         .modal {
             background: var(--bg2);
             border: 1px solid var(--border);
             border-radius: 16px;
-            padding: 28px;
-            width: 480px;
+            padding: 0;
+            width: 560px;
             max-width: 95vw;
+            margin-bottom: 40px;
         }
-        .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 0.8rem; color: var(--text2); margin-bottom: 6px; font-weight: 500; }
+        .modal-header {
+            padding: 20px 24px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .modal-header h2 { font-size: 1.1rem; margin: 0; }
+        .modal-header .close-btn { background: none; border: none; color: var(--text2); cursor: pointer; font-size: 1.2rem; }
+
+        /* Tabs */
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+        }
+        .tab-btn {
+            padding: 12px 16px;
+            border: none;
+            background: transparent;
+            color: var(--text2);
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover { color: var(--text); }
+        .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .tab-panel { display: none; padding: 20px 24px; }
+        .tab-panel.active { display: block; }
+
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 0.78rem; color: var(--text2); margin-bottom: 5px; font-weight: 500; }
         .form-group input, .form-group select, .form-group textarea {
             width: 100%;
-            padding: 10px 14px;
+            padding: 9px 12px;
             background: var(--bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             color: var(--text);
             font-family: inherit;
-            font-size: 0.875rem;
+            font-size: 0.85rem;
             outline: none;
         }
         .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             border-color: var(--accent);
         }
-        .form-group textarea { resize: vertical; min-height: 60px; }
-        .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+        .form-group textarea { resize: vertical; min-height: 50px; }
+
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+        /* Toggle Switch */
+        .toggle-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+        }
+        .toggle-row .label { font-size: 0.82rem; }
+        .toggle-row .sublabel { font-size: 0.7rem; color: var(--text2); }
+        .toggle {
+            position: relative;
+            width: 40px;
+            height: 22px;
+        }
+        .toggle input { display: none; }
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--bg3);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .toggle-slider::before {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--text2);
+            top: 3px;
+            left: 3px;
+            transition: all 0.2s;
+        }
+        .toggle input:checked + .toggle-slider { background: var(--accent); }
+        .toggle input:checked + .toggle-slider::before { transform: translateX(18px); background: #fff; }
+
+        /* Checkbox Pills */
+        .checkbox-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+        .checkbox-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text2);
+            transition: all 0.2s;
+        }
+        .checkbox-pill input { display: none; }
+        .checkbox-pill.checked {
+            background: rgba(6,182,212,0.15);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .form-actions { display: flex; gap: 10px; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--border); }
+
+        .processed-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 10px;
+            font-size: 0.7rem; font-weight: 700; background: rgba(16,185,129,0.15);
+            color: var(--green); border: 1px solid rgba(16,185,129,0.3);
+        }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .table-container { animation: fadeIn 0.3s ease; }
+        .tracker-grid { animation: fadeIn 0.3s ease; }
     </style>
 </head>
 <body>
@@ -194,71 +324,305 @@
         <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Tổng Tracker</div></div>
         <div class="stat-card"><div class="stat-value" id="stat-active" style="color:var(--green)">0</div><div class="stat-label">Đang chạy</div></div>
         <div class="stat-card"><div class="stat-value" id="stat-paused" style="color:var(--orange)">0</div><div class="stat-label">Tạm dừng</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-platforms" style="color:var(--accent2)">0</div><div class="stat-label">Nền tảng</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-processed" style="color:var(--accent2)">0</div><div class="stat-label">Đã xử lý</div></div>
     </div>
 
-    <div class="table-container">
-        <table id="tracker-table">
-            <thead>
-                <tr>
-                    <th>Nền tảng</th>
-                    <th>URL nguồn</th>
-                    <th>Chu kỳ</th>
-                    <th>Trạng thái</th>
-                    <th>Kiểm tra gần nhất</th>
-                    <th>Lần tới</th>
-                    <th>Thao tác</th>
-                </tr>
-            </thead>
-            <tbody id="tracker-body"></tbody>
-        </table>
-        <div class="empty-state" id="empty-state" style="display:none">
-            <div class="icon">📡</div>
-            <p>Chưa có Tracker nào. Hãy thêm mới để bắt đầu theo dõi nội dung!</p>
-            <button class="btn btn-primary" onclick="openAddModal()">+ Thêm Tracker đầu tiên</button>
-        </div>
+    <div class="tracker-grid" id="tracker-grid"></div>
+    <div class="empty-state" id="empty-state" style="display:none">
+        <div class="icon">📡</div>
+        <p>Chưa có Tracker nào. Hãy thêm mới để bắt đầu theo dõi nội dung!</p>
+        <button class="btn btn-primary" onclick="openAddModal()">+ Thêm Tracker đầu tiên</button>
     </div>
 
-    <!-- Add Modal -->
-    <div class="modal-overlay" id="add-modal">
+    <!-- Add/Edit Modal -->
+    <div class="modal-overlay" id="tracker-modal">
         <div class="modal">
-            <h2>📡 Thêm Tracker Mới</h2>
-            <div class="form-group">
-                <label>URL kênh / nguồn</label>
-                <input type="text" id="f-url" placeholder="https://www.douyin.com/user/... hoặc YouTube channel URL">
+            <div class="modal-header">
+                <h2 id="modal-title">📡 Thêm Tracker Mới</h2>
+                <button class="close-btn" onclick="closeModal()">✕</button>
             </div>
-            <div class="form-group">
-                <label>Nền tảng</label>
-                <select id="f-platform">
-                    <option value="">Tự nhận diện từ URL</option>
-                    <option value="douyin">Douyin</option>
-                    <option value="youtube">YouTube</option>
-                    <option value="tiktok">TikTok</option>
-                    <option value="website">Website</option>
-                </select>
+
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="switchTab('source', this)">📡 Nguồn</button>
+                <button class="tab-btn" onclick="switchTab('process', this)">🎬 Xử lý</button>
+                <button class="tab-btn" onclick="switchTab('upload', this)">📤 Upload</button>
             </div>
-            <div class="form-group">
-                <label>Chu kỳ kiểm tra (phút)</label>
-                <input type="number" id="f-interval" value="180" min="5" step="5">
+
+            <!-- Tab 1: Source -->
+            <div class="tab-panel active" id="tab-source">
+                <div class="form-group">
+                    <label>URL kênh / nguồn</label>
+                    <input type="text" id="f-url" placeholder="https://www.douyin.com/user/... hoặc YouTube channel URL">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nền tảng</label>
+                        <select id="f-platform">
+                            <option value="">Tự nhận diện</option>
+                            <option value="douyin">Douyin</option>
+                            <option value="youtube">YouTube</option>
+                            <option value="tiktok">TikTok</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Chu kỳ kiểm tra (phút)</label>
+                        <input type="number" id="f-interval" value="180" min="5" step="5">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Ghi chú / Hướng dẫn</label>
+                    <textarea id="f-instruction" placeholder="VD: Tải video mới và upload lên YouTube kênh XYZ"></textarea>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Team AI xử lý (tuỳ chọn)</label>
-                <input type="text" id="f-team" placeholder="ID team hoặc để trống">
+
+            <!-- Tab 2: Processing -->
+            <div class="tab-panel" id="tab-process">
+                <div class="form-group">
+                    <label>Hiệu ứng video (chọn nhiều)</label>
+                    <div class="checkbox-pills" id="effects-pills">
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="mirror"> 🪞 Xoay gương
+                        </label>
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="speed_1.05"> ⚡ Tăng tốc 1.05x
+                        </label>
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="grayscale"> 🎨 Grayscale
+                        </label>
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="brightness"> 🔆 Tăng sáng
+                        </label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Crop %</label>
+                        <input type="number" id="f-crop" value="0" min="0" max="20" step="1">
+                    </div>
+                    <div></div>
+                </div>
+
+                <hr style="border-color:var(--border);margin:12px 0">
+
+                <div class="toggle-row">
+                    <div>
+                        <div class="label">📝 Tách phụ đề (Whisper)</div>
+                        <div class="sublabel">Trích xuất subtitle từ video gốc</div>
+                    </div>
+                    <label class="toggle">
+                        <input type="checkbox" id="f-subtitle" onchange="toggleSubOptions()">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+
+                <div id="sub-options" style="display:none;padding-left:12px;border-left:2px solid var(--border);margin:8px 0 8px 4px">
+                    <div class="form-group">
+                        <label>Dịch sang ngôn ngữ</label>
+                        <select id="f-translate">
+                            <option value="">Không dịch</option>
+                            <option value="vi" selected>Tiếng Việt</option>
+                            <option value="en">English</option>
+                            <option value="ja">日本語</option>
+                            <option value="ko">한국어</option>
+                        </select>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div>
+                            <div class="label">🎙️ Lồng tiếng (TTS)</div>
+                            <div class="sublabel">Tạo giọng đọc từ phụ đề</div>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" id="f-tts" onchange="toggleTtsVoice()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+
+                    <div id="tts-voice-wrap" style="display:none">
+                        <div class="form-group">
+                            <label>Giọng TTS</label>
+                            <select id="f-tts-voice">
+                                <option value="vi-VN-HoaiMyNeural">🇻🇳 Hoài My (Nữ)</option>
+                                <option value="vi-VN-NamMinhNeural">🇻🇳 Nam Minh (Nam)</option>
+                                <option value="en-US-JennyNeural">🇺🇸 Jenny (Nữ)</option>
+                                <option value="en-US-GuyNeural">🇺🇸 Guy (Nam)</option>
+                                <option value="ja-JP-NanamiNeural">🇯🇵 Nanami (Nữ)</option>
+                                <option value="ko-KR-SunHiNeural">🇰🇷 Sun-Hi (Nữ)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="toggle-row">
+                        <div>
+                            <div class="label">🔥 Burn sub vào video</div>
+                            <div class="sublabel">Chèn phụ đề vào khung hình</div>
+                        </div>
+                        <label class="toggle">
+                            <input type="checkbox" id="f-burn-sub">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
             </div>
-            <div class="form-group">
-                <label>Ghi chú / Hướng dẫn</label>
-                <textarea id="f-instruction" placeholder="VD: Tải video mới và upload lên YouTube kênh XYZ"></textarea>
+
+            <!-- Tab 3: Upload Targets -->
+            <div class="tab-panel" id="tab-upload">
+                <div class="form-group">
+                    <label>Upload đích (chọn nền tảng)</label>
+                    <div class="checkbox-pills">
+                        <label class="checkbox-pill checked" onclick="togglePill(this)">
+                            <input type="checkbox" value="youtube" checked> 📺 YouTube
+                        </label>
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="facebook"> 📘 Facebook
+                        </label>
+                        <label class="checkbox-pill" onclick="togglePill(this)">
+                            <input type="checkbox" value="tiktok" disabled> 🎵 TikTok (sắp có)
+                        </label>
+                    </div>
+                </div>
+
+                <div id="yt-settings">
+                    <div class="form-group">
+                        <label>YouTube — Tài khoản đã cấp quyền</label>
+                        <select id="f-yt-email">
+                            <option value="">⏳ Đang tải...</option>
+                        </select>
+                        <div style="font-size:0.7rem;color:var(--text2);margin-top:4px">
+                            Chưa có? <a href="/static/auth_manager.html" target="_blank" style="color:var(--accent)">Cấp quyền tại Auth Manager →</a>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Quyền riêng tư</label>
+                            <select id="f-yt-privacy">
+                                <option value="public">Public</option>
+                                <option value="private">Private</option>
+                                <option value="unlisted">Unlisted</option>
+                            </select>
+                        </div>
+                        <div></div>
+                    </div>
+                </div>
+
+                <div id="fb-settings" style="display:none">
+                    <div class="form-group">
+                        <label>Facebook — Page đã cấp quyền</label>
+                        <select id="f-fb-email">
+                            <option value="">⏳ Đang tải...</option>
+                        </select>
+                        <div style="font-size:0.7rem;color:var(--text2);margin-top:4px">
+                            Chưa có? <a href="/static/auth_manager.html" target="_blank" style="color:var(--accent)">Thêm Page Token tại Auth Manager →</a>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Quyền riêng tư</label>
+                            <select id="f-fb-privacy">
+                                <option value="public">Public (EVERYONE)</option>
+                                <option value="private">Private (SELF)</option>
+                            </select>
+                        </div>
+                        <div></div>
+                    </div>
+                </div>
             </div>
+
             <div class="form-actions">
                 <button class="btn btn-ghost" onclick="closeModal()">Huỷ</button>
-                <button class="btn btn-primary" id="btn-submit" onclick="submitAdd()">Thêm Tracker</button>
+                <button class="btn btn-primary" id="btn-submit" onclick="submitTracker()">Thêm Tracker</button>
             </div>
         </div>
     </div>
 
     <script>
         const API = '/api/v1/universal_tracker';
+        const VM_API = '/api/v1/video_manager';
+        let editingId = null;
+        let _ytAccounts = null; // cached
+        let _fbAccounts = null;
 
+        // ── Fetch authorized accounts ──
+        async function fetchAccounts(provider) {
+            try {
+                const res = await fetch(`${VM_API}/accounts?provider=${provider}`);
+                const data = await res.json();
+                return data.accounts || [];
+            } catch (e) {
+                console.warn('fetchAccounts error:', provider, e);
+                return [];
+            }
+        }
+
+        async function populateAccountDropdowns() {
+            // YouTube
+            const ytSel = document.getElementById('f-yt-email');
+            if (!_ytAccounts) _ytAccounts = await fetchAccounts('youtube');
+            const ytVal = ytSel.value;
+            ytSel.innerHTML = '';
+            if (_ytAccounts.length === 0) {
+                ytSel.innerHTML = '<option value="">⚠️ Chưa cấp quyền YouTube</option>';
+            } else {
+                _ytAccounts.forEach(a => {
+                    const opt = document.createElement('option');
+                    opt.value = a.email;
+                    const statusIcon = a.status === 'active' ? '🟢' : '🟡';
+                    opt.textContent = `${statusIcon} ${a.email}`;
+                    ytSel.appendChild(opt);
+                });
+            }
+            if (ytVal) ytSel.value = ytVal;
+
+            // Facebook
+            const fbSel = document.getElementById('f-fb-email');
+            if (!_fbAccounts) _fbAccounts = await fetchAccounts('facebook');
+            const fbVal = fbSel.value;
+            fbSel.innerHTML = '';
+            if (_fbAccounts.length === 0) {
+                fbSel.innerHTML = '<option value="">⚠️ Chưa cấp quyền Facebook</option>';
+            } else {
+                _fbAccounts.forEach(a => {
+                    const opt = document.createElement('option');
+                    opt.value = a.email;
+                    const statusIcon = a.status === 'active' ? '🟢' : '🟡';
+                    const label = a.credential_name || a.email;
+                    opt.textContent = `${statusIcon} ${label} (${a.email})`;
+                    fbSel.appendChild(opt);
+                });
+            }
+            if (fbVal) fbSel.value = fbVal;
+        }
+
+        // ── Tab switching ──
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+            // Auto-fetch accounts when switching to upload tab
+            if (name === 'upload') populateAccountDropdowns();
+        }
+
+        // ── Toggle helpers ──
+        function togglePill(el) {
+            const cb = el.querySelector('input[type=checkbox]');
+            if (cb.disabled) return;
+            cb.checked = !cb.checked;
+            el.classList.toggle('checked', cb.checked);
+            // Show/hide platform settings
+            const yt = document.querySelector('#tab-upload .checkbox-pill input[value=youtube]');
+            const fb = document.querySelector('#tab-upload .checkbox-pill input[value=facebook]');
+            if (yt) document.getElementById('yt-settings').style.display = yt.checked ? 'block' : 'none';
+            if (fb) document.getElementById('fb-settings').style.display = fb.checked ? 'block' : 'none';
+        }
+        function toggleSubOptions() {
+            document.getElementById('sub-options').style.display = document.getElementById('f-subtitle').checked ? 'block' : 'none';
+        }
+        function toggleTtsVoice() {
+            document.getElementById('tts-voice-wrap').style.display = document.getElementById('f-tts').checked ? 'block' : 'none';
+        }
+
+        // ── Load & Render ──
         async function loadTrackers() {
             try {
                 const res = await fetch(`${API}/trackers`);
@@ -270,24 +634,23 @@
         }
 
         function renderTrackers(trackers) {
-            const tbody = document.getElementById('tracker-body');
+            const grid = document.getElementById('tracker-grid');
             const empty = document.getElementById('empty-state');
 
             // Stats
             document.getElementById('stat-total').textContent = trackers.length;
             document.getElementById('stat-active').textContent = trackers.filter(t => t.status === 'active').length;
             document.getElementById('stat-paused').textContent = trackers.filter(t => t.status === 'paused').length;
-            const platforms = new Set(trackers.map(t => t.platform));
-            document.getElementById('stat-platforms').textContent = platforms.size;
+            document.getElementById('stat-processed').textContent = trackers.reduce((s, t) => s + (t.processed_count || 0), 0);
 
             if (!trackers.length) {
-                tbody.innerHTML = '';
+                grid.innerHTML = '';
                 empty.style.display = 'block';
                 return;
             }
             empty.style.display = 'none';
 
-            tbody.innerHTML = trackers.map(t => {
+            grid.innerHTML = trackers.map(t => {
                 const pClass = `platform-${t.platform}`;
                 const statusClass = t.status === 'active' ? 'status-active' : 'status-paused';
                 const statusText = t.status === 'active' ? 'Đang chạy' : 'Tạm dừng';
@@ -295,24 +658,51 @@
                 const intervalText = hours >= 1 ? `${hours.toFixed(0)}h` : `${t.interval_minutes}m`;
                 const lastCheck = t.last_checked_at ? timeAgo(t.last_checked_at) : '—';
                 const nextCheck = t.next_check_at ? timeAgo(t.next_check_at) : '—';
+                const config = t.pipeline_config || {};
                 const toggleLabel = t.status === 'active' ? 'Dừng' : 'Tiếp tục';
                 const toggleStatus = t.status === 'active' ? 'paused' : 'active';
 
-                return `<tr>
-                    <td><span class="platform-badge ${pClass}">${t.platform}</span></td>
-                    <td class="url-text"><a href="${t.url}" target="_blank" title="${t.url}">${t.url}</a></td>
-                    <td>${intervalText}</td>
-                    <td><span class="status-dot ${statusClass}"></span>${statusText}</td>
-                    <td style="color:var(--text2);font-size:0.8rem">${lastCheck}</td>
-                    <td style="color:var(--text2);font-size:0.8rem">${nextCheck}</td>
-                    <td>
+                // Pipeline tags
+                let tags = '';
+                if (config.effects && config.effects.length) tags += config.effects.map(e => `<span class="pipeline-tag">🎬 ${e}</span>`).join('');
+                if (config.crop_percent > 0) tags += `<span class="pipeline-tag">✂️ Crop ${config.crop_percent}%</span>`;
+                if (config.subtitle) tags += '<span class="pipeline-tag">📝 Sub</span>';
+                if (config.tts) tags += '<span class="pipeline-tag">🎙️ TTS</span>';
+                if (config.burn_sub) tags += '<span class="pipeline-tag">🔥 Burn</span>';
+                const targets = config.upload_targets || [];
+                targets.forEach(tgt => { tags += `<span class="pipeline-tag upload">📤 ${(tgt.platform||'youtube').toUpperCase()}</span>`; });
+                if (!targets.length) tags += '<span class="pipeline-tag upload">📤 YOUTUBE</span>';
+                if (t.last_error) tags += `<span class="pipeline-tag error" title="${t.last_error}">⚠️ Lỗi</span>`;
+
+                return `<div class="tracker-card">
+                    <div class="tracker-card-header">
+                        <div class="tracker-card-header-left">
+                            <span class="platform-badge ${pClass}">${t.platform}</span>
+                            <span class="status-dot ${statusClass}"></span>
+                            <span style="font-size:0.8rem;color:var(--text2)">${statusText}</span>
+                        </div>
                         <div class="actions-cell">
                             <button class="btn btn-sm btn-ghost" onclick="forceCheck('${t.id}')" title="Kiểm tra ngay">⚡</button>
-                            <button class="btn btn-sm btn-ghost" onclick="toggleTracker('${t.id}','${toggleStatus}')" title="${toggleLabel}">${t.status === 'active' ? '⏸' : '▶'}</button>
-                            <button class="btn btn-sm btn-danger" onclick="removeTracker('${t.id}')" title="Xoá">✕</button>
+                            <button class="btn btn-sm btn-ghost" onclick="editTracker('${t.id}')" title="Chỉnh sửa">✏️</button>
+                            <button class="btn btn-sm btn-ghost" onclick="toggleTracker('${t.id}','${toggleStatus}')">${t.status === 'active' ? '⏸' : '▶'}</button>
+                            <button class="btn btn-sm btn-danger" onclick="removeTracker('${t.id}')">✕</button>
                         </div>
-                    </td>
-                </tr>`;
+                    </div>
+                    <div class="tracker-card-body">
+                        <div class="url-text"><a href="${t.url}" target="_blank" title="${t.url}">${t.url}</a></div>
+                        <div class="info-row" style="margin-top:8px">
+                            <span class="label">⏱️ Chu kỳ:</span><span class="value">${intervalText}</span>
+                            <span class="label" style="margin-left:12px">📊 Đã xử lý:</span>
+                            <span class="processed-badge">${t.processed_count || 0}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="label">🕐 Kiểm tra:</span><span class="value">${lastCheck}</span>
+                            <span class="label" style="margin-left:12px">⏭️ Tới:</span><span class="value">${nextCheck}</span>
+                        </div>
+                        ${t.instruction ? `<div class="info-row"><span class="label">📝 Ghi chú:</span><span class="value" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px">${t.instruction}</span></div>` : ''}
+                        <div class="pipeline-tags">${tags || '<span style="font-size:0.7rem;color:var(--text2)">Chưa cấu hình pipeline</span>'}</div>
+                    </div>
+                </div>`;
             }).join('');
         }
 
@@ -322,7 +712,6 @@
             const now = new Date();
             const diffMs = now - d;
             if (diffMs < 0) {
-                // Future time
                 const mins = Math.round(Math.abs(diffMs) / 60000);
                 if (mins < 60) return `trong ${mins}m`;
                 return `trong ${(mins/60).toFixed(1)}h`;
@@ -335,33 +724,185 @@
             return `${Math.round(hrs/24)}d trước`;
         }
 
-        function openAddModal() { document.getElementById('add-modal').classList.add('show'); }
-        function closeModal() { document.getElementById('add-modal').classList.remove('show'); }
+        // ── Add/Edit Modal ──
+        function openAddModal() {
+            editingId = null;
+            _ytAccounts = null; _fbAccounts = null; // clear cache
+            document.getElementById('modal-title').textContent = '📡 Thêm Tracker Mới';
+            document.getElementById('btn-submit').textContent = 'Thêm Tracker';
+            resetForm();
+            document.getElementById('tracker-modal').classList.add('show');
+            populateAccountDropdowns(); // pre-fetch
+        }
 
-        async function submitAdd() {
-            const url = document.getElementById('f-url').value.trim();
-            if (!url) return alert('Vui lòng nhập URL!');
+        function editTracker(id) {
+            _ytAccounts = null; _fbAccounts = null; // clear cache
+            fetch(`${API}/trackers`).then(r => r.json()).then(async (data) => {
+                const t = (data.trackers || []).find(j => j.id === id);
+                if (!t) return;
+                editingId = id;
+                document.getElementById('modal-title').textContent = '✏️ Chỉnh sửa Tracker';
+                document.getElementById('btn-submit').textContent = 'Cập nhật';
+                await populateAccountDropdowns(); // fetch before filling
+                fillForm(t);
+                document.getElementById('tracker-modal').classList.add('show');
+            });
+        }
 
-            const body = {
-                url,
-                platform: document.getElementById('f-platform').value,
-                interval_minutes: parseInt(document.getElementById('f-interval').value) || 180,
-                target_team_id: document.getElementById('f-team').value.trim(),
-                instruction: document.getElementById('f-instruction').value.trim(),
-            };
+        function closeModal() {
+            document.getElementById('tracker-modal').classList.remove('show');
+        }
 
-            try {
-                const res = await fetch(`${API}/trackers`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
-                if (res.ok) {
-                    closeModal();
-                    document.getElementById('f-url').value = '';
-                    document.getElementById('f-instruction').value = '';
-                    loadTrackers();
-                } else {
-                    const err = await res.json();
-                    alert('Lỗi: ' + (err.detail || err.message));
+        function resetForm() {
+            document.getElementById('f-url').value = '';
+            document.getElementById('f-platform').value = '';
+            document.getElementById('f-interval').value = '180';
+            document.getElementById('f-instruction').value = '';
+            document.getElementById('f-crop').value = '0';
+            document.getElementById('f-subtitle').checked = false;
+            document.getElementById('f-tts').checked = false;
+            document.getElementById('f-burn-sub').checked = false;
+            document.getElementById('f-translate').value = 'vi';
+            document.getElementById('f-tts-voice').value = 'vi-VN-HoaiMyNeural';
+            document.getElementById('f-yt-email').value = '';
+            document.getElementById('f-yt-privacy').value = 'public';
+            document.getElementById('f-fb-email').value = '';
+            document.getElementById('f-fb-privacy').value = 'public';
+            // Reset pills
+            document.querySelectorAll('.checkbox-pill').forEach(p => {
+                p.classList.remove('checked');
+                p.querySelector('input').checked = false;
+            });
+            // Default YouTube checked
+            const ytPill = document.querySelector('#tab-upload .checkbox-pill input[value=youtube]');
+            if (ytPill) { ytPill.checked = true; ytPill.closest('.checkbox-pill').classList.add('checked'); }
+            document.getElementById('yt-settings').style.display = 'block';
+            document.getElementById('fb-settings').style.display = 'none';
+            toggleSubOptions();
+            toggleTtsVoice();
+            // Reset tabs
+            document.querySelectorAll('.tab-btn')[0].click();
+        }
+
+        function fillForm(t) {
+            document.getElementById('f-url').value = t.url || '';
+            document.getElementById('f-platform').value = t.platform || '';
+            document.getElementById('f-interval').value = t.interval_minutes || 180;
+            document.getElementById('f-instruction').value = t.instruction || '';
+
+            const config = t.pipeline_config || {};
+            document.getElementById('f-crop').value = config.crop_percent || 0;
+            document.getElementById('f-subtitle').checked = !!config.subtitle;
+            document.getElementById('f-tts').checked = !!config.tts;
+            document.getElementById('f-burn-sub').checked = !!config.burn_sub;
+            document.getElementById('f-translate').value = config.translate_to || 'vi';
+            document.getElementById('f-tts-voice').value = config.tts_voice || 'vi-VN-HoaiMyNeural';
+
+            // Effects
+            const effects = config.effects || [];
+            document.querySelectorAll('#effects-pills .checkbox-pill').forEach(p => {
+                const v = p.querySelector('input').value;
+                const on = effects.includes(v);
+                p.querySelector('input').checked = on;
+                p.classList.toggle('checked', on);
+            });
+
+            // Upload targets
+            const targets = config.upload_targets || [];
+            const targetPlatforms = targets.map(t => t.platform);
+            document.querySelectorAll('#tab-upload .checkbox-pill').forEach(p => {
+                const v = p.querySelector('input').value;
+                const on = targetPlatforms.includes(v) || (targets.length === 0 && v === 'youtube');
+                p.querySelector('input').checked = on;
+                p.classList.toggle('checked', on);
+            });
+
+            const ytTarget = targets.find(t => t.platform === 'youtube') || {};
+            document.getElementById('f-yt-email').value = ytTarget.email || '';
+            document.getElementById('f-yt-privacy').value = ytTarget.privacy || 'public';
+            const fbTarget = targets.find(t => t.platform === 'facebook') || {};
+            document.getElementById('f-fb-email').value = fbTarget.email || '';
+            document.getElementById('f-fb-privacy').value = fbTarget.privacy || 'public';
+
+            document.getElementById('yt-settings').style.display = targetPlatforms.includes('youtube') || !targets.length ? 'block' : 'none';
+            document.getElementById('fb-settings').style.display = targetPlatforms.includes('facebook') ? 'block' : 'none';
+
+            toggleSubOptions();
+            toggleTtsVoice();
+            document.querySelectorAll('.tab-btn')[0].click();
+        }
+
+        function buildPipelineConfig() {
+            const effects = [];
+            document.querySelectorAll('#effects-pills .checkbox-pill input:checked').forEach(cb => effects.push(cb.value));
+
+            const upload_targets = [];
+            document.querySelectorAll('#tab-upload .checkbox-pill input:checked').forEach(cb => {
+                const platform = cb.value;
+                if (platform === 'youtube') {
+                    upload_targets.push({
+                        platform: 'youtube',
+                        email: document.getElementById('f-yt-email').value.trim(),
+                        privacy: document.getElementById('f-yt-privacy').value,
+                    });
+                } else if (platform === 'facebook') {
+                    upload_targets.push({
+                        platform: 'facebook',
+                        email: document.getElementById('f-fb-email').value.trim(),
+                        privacy: document.getElementById('f-fb-privacy').value,
+                    });
                 }
-            } catch (e) { alert('Lỗi kết nối: ' + e.message); }
+            });
+
+            return {
+                effects,
+                crop_percent: parseInt(document.getElementById('f-crop').value) || 0,
+                subtitle: document.getElementById('f-subtitle').checked,
+                translate_to: document.getElementById('f-translate').value,
+                tts: document.getElementById('f-tts').checked,
+                tts_voice: document.getElementById('f-tts-voice').value,
+                burn_sub: document.getElementById('f-burn-sub').checked,
+                upload_targets,
+            };
+        }
+
+        async function submitTracker() {
+            const url = document.getElementById('f-url').value.trim();
+            if (!url && !editingId) return alert('Vui lòng nhập URL!');
+
+            const pipeline_config = buildPipelineConfig();
+
+            if (editingId) {
+                // Update
+                const body = {
+                    interval_minutes: parseInt(document.getElementById('f-interval').value) || 180,
+                    instruction: document.getElementById('f-instruction').value.trim(),
+                    pipeline_config,
+                };
+                try {
+                    const res = await fetch(`${API}/trackers/${editingId}`, {
+                        method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+                    });
+                    if (res.ok) { closeModal(); loadTrackers(); }
+                    else { const err = await res.json(); alert('Lỗi: ' + (err.detail || err.message)); }
+                } catch (e) { alert('Lỗi: ' + e.message); }
+            } else {
+                // Add
+                const body = {
+                    url,
+                    platform: document.getElementById('f-platform').value,
+                    interval_minutes: parseInt(document.getElementById('f-interval').value) || 180,
+                    instruction: document.getElementById('f-instruction').value.trim(),
+                    pipeline_config,
+                };
+                try {
+                    const res = await fetch(`${API}/trackers`, {
+                        method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
+                    });
+                    if (res.ok) { closeModal(); loadTrackers(); }
+                    else { const err = await res.json(); alert('Lỗi: ' + (err.detail || err.message)); }
+                } catch (e) { alert('Lỗi: ' + e.message); }
+            }
         }
 
         async function removeTracker(id) {
@@ -371,7 +912,9 @@
         }
 
         async function toggleTracker(id, newStatus) {
-            await fetch(`${API}/trackers/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus}) });
+            await fetch(`${API}/trackers/${id}`, {
+                method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status: newStatus})
+            });
             loadTrackers();
         }
 
@@ -380,8 +923,10 @@
             btn.textContent = '⏳';
             btn.disabled = true;
             try {
-                await fetch(`${API}/trackers/${id}/check`, { method: 'POST' });
-            } catch(e) {}
+                const res = await fetch(`${API}/trackers/${id}/check`, { method: 'POST' });
+                const data = await res.json();
+                if (data.message) alert(data.message);
+            } catch(e) { alert('Error: ' + e.message); }
             btn.textContent = '⚡';
             btn.disabled = false;
             loadTrackers();
