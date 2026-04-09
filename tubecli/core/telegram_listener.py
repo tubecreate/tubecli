@@ -600,18 +600,21 @@ class TelegramListener:
             return f"❌ Lỗi xử lý browser: {str(e)[:200]}"
 
     async def _handle_subtitle_pipeline(self, data: dict, text: str, agent_dict: dict, context: dict) -> str:
-        """Full pipeline: Download → Extract Subtitle → Burn → Upload.
+        """Full pipeline: Download → Extract Subtitle → [TTS] → [Burn] → [Upload].
         
         Steps:
         1. Download video from URL (Douyin/TikTok/etc)
-        2. Extract subtitle using Whisper
-        3. Optionally burn subtitle into video
-        4. Optionally upload to YouTube channel
+        2. Extract subtitle using Whisper (+ translate)
+        3. Optionally generate voice-over from SRT (TTS)
+        4. Optionally merge TTS audio into video
+        5. Optionally burn subtitle into video
+        6. Optionally upload to YouTube channel
         """
         import re, asyncio, os
         
         url = data.get("url", "")
         needs_burn = data.get("needs_burn", False)
+        needs_tts = data.get("needs_tts", False)
         needs_upload = data.get("needs_upload", False)
         original_msg = data.get("original_message", text)
         
@@ -634,7 +637,8 @@ class TelegramListener:
         chat_prefs = user_prefs.get(str(chat_id), {
             "default_privacy": "public",
             "upload_delay": 180,
-            "default_translate": None
+            "default_translate": None,
+            "default_tts_voice": "vi-VN-HoaiMyNeural",
         })
 
         # Update prefs from current message
@@ -645,6 +649,17 @@ class TelegramListener:
             
         if "3 phút" in text.lower() or "180s" in text.lower():
             chat_prefs["upload_delay"] = 180
+
+        # Detect TTS voice
+        tts_voice = chat_prefs.get("default_tts_voice", "vi-VN-HoaiMyNeural")
+        voice_match = re.search(r'giọng\s+(\w+)', text.lower())
+        if voice_match:
+            voice_name = voice_match.group(1)
+            voice_map = {
+                "nam": "vi-VN-NamMinhNeural", "nữ": "vi-VN-HoaiMyNeural",
+                "male": "vi-VN-NamMinhNeural", "female": "vi-VN-HoaiMyNeural",
+            }
+            tts_voice = voice_map.get(voice_name, tts_voice)
 
         # Detect translation
         translate_to = chat_prefs.get("default_translate")
@@ -671,30 +686,59 @@ class TelegramListener:
         channel_match = re.search(r'kênh\s*(\d+|[a-zA-Z]\w*)', text.lower())
         channel_id = channel_match.group(1) if channel_match else None
         
+        # ── Build dynamic step list ──
+        step_defs = [("download", "📥 Tải video"), ("extract", "📝 Tách phụ đề")]
         steps = ["📥 Tải video", "📝 Tách phụ đề"]
+        if needs_tts:
+            step_defs.append(("tts", "🎙️ Lồng tiếng (TTS)"))
+            steps.append("🎙️ Lồng tiếng (TTS)")
         if needs_burn:
+            step_defs.append(("burn", "🔥 Ghi sub vào video"))
             steps.append("🔥 Ghi sub vào video")
         if needs_upload:
+            step_defs.append(("upload", "📤 Upload lên YouTube"))
             steps.append("📤 Upload lên YouTube")
         
+        total_steps = len(steps)
+        cur_step = 0
+        
+        # ── Create pipeline tracker task ──
+        from tubecli.core.pipeline_tracker import pipeline_tracker
+        pt_task = pipeline_tracker.create_task(
+            pipeline_type="subtitle_pipeline",
+            chat_id=chat_id,
+            url=url,
+            original_message=original_msg[:200],
+            step_names=step_defs,
+        )
+        pt_id = pt_task.task_id
+        
         await self._send_message(token, chat_id,
-            f"🚀 **Subtitle Pipeline** ({len(steps)} bước)\n" +
+            f"🚀 **Subtitle Pipeline** ({total_steps} bước)\n" +
             "\n".join(f"  {i+1}. {s}" for i, s in enumerate(steps)) +
-            f"\n\n⏳ Bước 1/{len(steps)}: Đang tải video..."
+            f"\n\n⏳ Bước 1/{total_steps}: Đang tải video..."
         )
         
         try:
             # ── Step 1: Download ──
+            cur_step = 1
+            pipeline_tracker.start_step(pt_id, "download", "Đang tải...")
             dl_result = await execute_download(url, agent_dict)
             
             if not isinstance(dl_result, dict) or not dl_result.get("file_path"):
+                pipeline_tracker.fail_step(pt_id, "download", str(dl_result)[:200])
+                pipeline_tracker.fail_task(pt_id, "Tải video thất bại")
                 return f"❌ Tải video thất bại.\n{str(dl_result)[:300]}"
             
             file_path = dl_result["file_path"]
             file_name = os.path.basename(file_path)
+            pipeline_tracker.complete_step(pt_id, "download", file_name)
+            pt_task.video_filename = file_name
             
+            cur_step = 2
+            pipeline_tracker.start_step(pt_id, "extract", "Whisper đang xử lý...")
             await self._send_message(token, chat_id,
-                f"✅ Bước 1: Đã tải `{file_name}`\n⏳ Bước 2/{len(steps)}: Đang tách phụ đề (Whisper)..."
+                f"✅ Bước 1: Đã tải `{file_name}`\n⏳ Bước {cur_step}/{total_steps}: Đang tách phụ đề (Whisper)..."
             )
             
             # ── Step 2: Extract subtitle ──
@@ -723,9 +767,13 @@ class TelegramListener:
                     subs = sd["result"].get("subtitles", [])
                     break
                 elif sd.get("status") == "error":
+                    pipeline_tracker.fail_step(pt_id, "extract", sd.get('result', {}).get('message', 'Unknown'))
+                    pipeline_tracker.fail_task(pt_id, "Tách sub thất bại")
                     return f"❌ Tách sub thất bại: {sd.get('result', {}).get('message', 'Unknown')}"
             
             if not subs:
+                pipeline_tracker.fail_step(pt_id, "extract", "Timeout")
+                pipeline_tracker.fail_task(pt_id, "Tách subtitle timeout")
                 return "❌ Timeout: Tách subtitle mất quá lâu."
             
             # Save SRT file
@@ -735,23 +783,112 @@ class TelegramListener:
                 start = self._fmt_srt_time(s.get("start", 0))
                 end = self._fmt_srt_time(s.get("end", 0))
                 srt_lines.append(f"{i}\n{start} --> {end}\n{s.get('text', '')}\n")
+            srt_content = "\n".join(srt_lines)
             with open(srt_path, "w", encoding="utf-8") as f:
-                f.write("\n".join(srt_lines))
+                f.write(srt_content)
             
-            step_num = 2
             translated_note = f" (dịch → {translate_to})" if translate_to else ""
-            await self._send_message(token, chat_id,
-                f"✅ Bước 2: Tách được {len(subs)} dòng phụ đề{translated_note}\n"
-                + (f"⏳ Bước 3/{len(steps)}: Đang ghi sub vào video..." if needs_burn else "")
-            )
+            pipeline_tracker.complete_step(pt_id, "extract", f"{len(subs)} dòng{translated_note}")
             
-            # ── Step 3: Burn subtitle (optional) ──
+            # ── Step 3 (optional): TTS — generate voice track from SRT ──
             output_video = file_path
+            tts_audio_path = None
+            
+            if needs_tts:
+                cur_step += 1
+                pipeline_tracker.start_step(pt_id, "tts", f"Voice: {tts_voice}")
+                await self._send_message(token, chat_id,
+                    f"✅ Bước {cur_step-1}: Tách được {len(subs)} dòng{translated_note}\n"
+                    f"⏳ Bước {cur_step}/{total_steps}: Đang lồng tiếng ({tts_voice})..."
+                )
+                
+                # Call SRT synthesis API
+                tts_resp = await self.client.post(
+                    f"{TUBECLI_BASE_URL}/api/v1/tts/synthesize-srt",
+                    json={
+                        "srt_content": srt_content,
+                        "voice": tts_voice,
+                        "engine": "edge",
+                        "speed_adjust": True,
+                    },
+                    timeout=30,
+                )
+                
+                if tts_resp.status_code == 200:
+                    tts_data = tts_resp.json()
+                    tts_task_id = tts_data.get("task_id")
+                    
+                    if tts_task_id:
+                        # Poll for TTS result
+                        for _ in range(90):  # max 3 minutes
+                            await asyncio.sleep(2)
+                            tr = await self.client.get(
+                                f"{TUBECLI_BASE_URL}/api/v1/tts/status/{tts_task_id}", timeout=10
+                            )
+                            if tr.status_code != 200:
+                                continue
+                            td = tr.json()
+                            if td.get("status") == "success" and td.get("result"):
+                                tts_audio_path = td["result"].get("output", "")
+                                break
+                            elif td.get("status") == "error":
+                                await self._send_message(token, chat_id,
+                                    f"⚠️ TTS thất bại: {td.get('result', {}).get('message', '')[:200]}\nTiếp tục pipeline..."
+                                )
+                                break
+                    
+                    # Merge TTS audio into video
+                    if tts_audio_path and os.path.exists(tts_audio_path):
+                        merged_path = file_path.rsplit(".", 1)[0] + "_dubbed.mp4"
+                        merge_cmd = [
+                            "ffmpeg", "-y",
+                            "-i", file_path,
+                            "-i", tts_audio_path,
+                            "-filter_complex",
+                            "[0:a]volume=0.15[orig];[1:a]volume=1.0[tts];[orig][tts]amix=inputs=2:duration=first[aout]",
+                            "-map", "0:v", "-map", "[aout]",
+                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                            merged_path,
+                        ]
+                        
+                        proc = await asyncio.create_subprocess_exec(
+                            *merge_cmd,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+                        
+                        if proc.returncode == 0 and os.path.exists(merged_path):
+                            output_video = merged_path
+                            pipeline_tracker.complete_step(pt_id, "tts", f"Merged: {os.path.basename(merged_path)}")
+                            await self._send_message(token, chat_id,
+                                f"✅ Bước {cur_step}: Đã lồng tiếng thành công!"
+                            )
+                        else:
+                            err_msg = stderr.decode()[-200:] if stderr else "Unknown"
+                            pipeline_tracker.fail_step(pt_id, "tts", f"Merge failed: {err_msg[:100]}")
+                            await self._send_message(token, chat_id,
+                                f"⚠️ Merge audio thất bại, tiếp tục với video gốc.\n{err_msg[:100]}"
+                            )
+                else:
+                    await self._send_message(token, chat_id,
+                        f"⚠️ TTS API lỗi HTTP {tts_resp.status_code}, bỏ qua lồng tiếng."
+                    )
+            else:
+                await self._send_message(token, chat_id,
+                    f"✅ Bước {cur_step}: Tách được {len(subs)} dòng phụ đề{translated_note}"
+                )
+            
+            # ── Step N: Burn subtitle (optional) ──
             if needs_burn:
-                step_num = 3
+                cur_step += 1
+                pipeline_tracker.start_step(pt_id, "burn", "FFmpeg processing...")
+                await self._send_message(token, chat_id,
+                    f"⏳ Bước {cur_step}/{total_steps}: Đang ghi sub vào video..."
+                )
                 burn_resp = await self.client.post(
                     f"{TUBECLI_BASE_URL}/api/v1/subtitle/burn",
-                    json={"video_path": file_path, "srt_path": srt_path},
+                    json={"video_path": output_video, "srt_path": srt_path},
                     timeout=30,
                 )
                 if burn_resp.status_code == 200:
@@ -765,20 +902,24 @@ class TelegramListener:
                                 continue
                             bd = br.json()
                             if bd.get("status") == "success":
-                                output_video = bd.get("result", {}).get("output", file_path)
+                                output_video = bd.get("result", {}).get("output", output_video)
                                 break
                             elif bd.get("status") == "error":
-                                await self._send_message(token, chat_id, f"⚠️ Burn thất bại, tiếp tục với video gốc.")
+                                await self._send_message(token, chat_id, f"⚠️ Burn thất bại, tiếp tục với video hiện tại.")
                                 break
                 
+                pipeline_tracker.complete_step(pt_id, "burn", os.path.basename(output_video))
                 await self._send_message(token, chat_id,
-                    f"✅ Bước 3: Đã ghi phụ đề vào video\n"
-                    + (f"⏳ Bước 4/{len(steps)}: Đang upload lên YouTube kênh {channel_id}..." if needs_upload else "")
+                    f"✅ Bước {cur_step}: Đã ghi phụ đề vào video"
                 )
             
-            # ── Step 4: Upload (optional) ──
+            # ── Step N: Upload (optional) ──
             if needs_upload:
-                step_num += 1
+                cur_step += 1
+                pipeline_tracker.start_step(pt_id, "upload", f"Channel: {channel_id}")
+                await self._send_message(token, chat_id,
+                    f"⏳ Bước {cur_step}/{total_steps}: Đang upload lên YouTube kênh {channel_id}..."
+                )
                 # Trigger upload with preferences
                 upload_json = {
                     "action": "upload_video",
@@ -792,28 +933,102 @@ class TelegramListener:
                 fake_reply = "```json\n" + json.dumps(upload_json, ensure_ascii=False) + "\n```"
                 upload_result = await handle_extension_action(fake_reply, agent_dict, context)
                 
-                return (
-                    f"✅ **Pipeline hoàn tất!**\n\n"
+                # Extract task_id from upload result and poll for actual completion
+                upload_task_id = ""
+                upload_status = "queued"
+                upload_video_url = ""
+                upload_video_id = ""
+                
+                import re as _re
+                tid_match = _re.search(r'Task ID[:\s]*`?([a-f0-9\-]+)`?', str(upload_result))
+                if tid_match:
+                    upload_task_id = tid_match.group(1)
+                    
+                    await self._send_message(token, chat_id,
+                        f"📤 Video đang upload... Task ID: `{upload_task_id[:12]}`"
+                    )
+                    
+                    # Poll upload status (max 5 minutes)
+                    for poll_i in range(60):
+                        await asyncio.sleep(5)
+                        try:
+                            sr = await self.client.get(
+                                f"{TUBECLI_BASE_URL}/api/v1/video_manager/upload/tasks/{upload_task_id}",
+                                timeout=10
+                            )
+                            if sr.status_code == 200:
+                                sdata = sr.json()
+                                task_info = sdata.get("task", {})
+                                upload_status = task_info.get("status", "unknown")
+                                pct = task_info.get("progress_pct", 0)
+                                
+                                pipeline_tracker.update_step_message(pt_id, "upload", f"{upload_status} ({pct}%)")
+                                
+                                if upload_status == "done":
+                                    upload_video_id = task_info.get("video_id", "")
+                                    upload_video_url = task_info.get("video_url", "")
+                                    pipeline_tracker.complete_step(pt_id, "upload", f"✅ {upload_video_url or upload_video_id}")
+                                    await self._send_message(token, chat_id,
+                                        f"✅ Upload thành công!\n🎬 Video ID: `{upload_video_id}`\n🔗 {upload_video_url}"
+                                    )
+                                    break
+                                elif upload_status in ("error", "cancelled"):
+                                    err = task_info.get("error_message", "Unknown error")
+                                    pipeline_tracker.fail_step(pt_id, "upload", err[:200])
+                                    await self._send_message(token, chat_id, f"❌ Upload thất bại: {err[:200]}")
+                                    break
+                        except Exception:
+                            pass
+                    else:
+                        # Timeout after 5 minutes
+                        pipeline_tracker.update_step_message(pt_id, "upload", f"Timeout - status: {upload_status}")
+                
+                # Build final result
+                upload_ok = upload_status == "done"
+                upload_msg = f"✅ {upload_video_url}" if upload_ok else f"⏳ {upload_status} (Task: {upload_task_id[:12]})"
+                
+                # File paths for preview
+                video_serve_url = f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{os.path.basename(output_video)}"
+                
+                summary = (
+                    f"{'✅' if upload_ok else '⚠️'} **Pipeline {'hoàn tất' if upload_ok else 'hoàn tất (upload chưa xong)'}!**\n\n"
                     f"📥 Video: `{file_name}`\n"
                     f"📝 Subtitle: {len(subs)} dòng{translated_note}\n"
+                    f"🎙️ TTS: {'✅ ' + tts_voice if needs_tts and tts_audio_path else '⏭️ Bỏ qua'}\n"
                     f"🔥 Burn: {'✅' if needs_burn else '⏭️ Bỏ qua'}\n"
-                    f"📤 Upload: {str(upload_result)[:200]}"
+                    f"📤 Upload: {upload_msg}\n\n"
+                    f"📁 File: `{output_video}`\n"
+                    f"▶️ Xem: {video_serve_url}"
                 )
+                
+                if upload_ok:
+                    pipeline_tracker.complete_task(pt_id, summary, file_name)
+                else:
+                    pipeline_tracker.fail_task(pt_id, f"Upload status: {upload_status}")
+                return summary
             
             # No upload — return subtitle result
-            return (
+            video_serve_url = f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/file/{os.path.basename(output_video)}"
+            summary = (
                 f"✅ **Pipeline hoàn tất!**\n\n"
                 f"📥 Video: `{file_name}`\n"
                 f"📝 Subtitle: {len(subs)} dòng{translated_note}\n"
+                f"🎙️ TTS: {'✅ ' + tts_voice if needs_tts and tts_audio_path else '⏭️ Bỏ qua'}\n"
                 f"📁 SRT: `{os.path.basename(srt_path)}`\n"
                 f"🔥 Burn: {'✅ ' + os.path.basename(output_video) if needs_burn else '⏭️ Bỏ qua'}\n\n"
+                f"📁 File: `{output_video}`\n"
+                f"▶️ Xem: {video_serve_url}\n\n"
                 f"📝 Preview:\n"
                 + "\n".join(f"  {s['start']:.1f}s → {s['end']:.1f}s: {s['text'][:60]}" for s in subs[:5])
                 + (f"\n  ... +{len(subs) - 5} dòng nữa" if len(subs) > 5 else "")
             )
+            pipeline_tracker.complete_task(pt_id, summary, file_name)
+            return summary
         
         except Exception as e:
+            pipeline_tracker.fail_task(pt_id, str(e)[:400])
             return f"❌ Pipeline lỗi: {str(e)[:400]}"
+
 
     async def _handle_subtitle_action(self, text: str, agent_dict: dict, context: dict) -> str:
         """Handle subtitle extraction requests via chatbot.
