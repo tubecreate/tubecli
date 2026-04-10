@@ -81,6 +81,14 @@ PROVIDERS = {
                 "label": "Google Calendar (Read Only)",
                 "value": "https://www.googleapis.com/auth/calendar.readonly",
             },
+            "indexing": {
+                "label": "Google Indexing API",
+                "value": "https://www.googleapis.com/auth/indexing",
+            },
+            "business_manage": {
+                "label": "Google Business Profile",
+                "value": "https://www.googleapis.com/auth/business.manage",
+            },
         },
         "services": {
             "youtube_manage": {
@@ -124,6 +132,18 @@ PROVIDERS = {
                 "description": "Tạo, sửa, xóa sự kiện lịch",
                 "icon": "📅",
                 "scopes": ["calendar"],
+            },
+            "indexing_service": {
+                "label": "🔍 Google Indexing API",
+                "description": "Ping Indexing (Ép Google crawl nhanh)",
+                "icon": "🔍",
+                "scopes": ["indexing"],
+            },
+            "maps_business": {
+                "label": "🗺️ Google Maps (Business Profile)",
+                "description": "Quản lý địa điểm kinh doanh",
+                "icon": "🗺️",
+                "scopes": ["business_manage"],
             },
         },
         "credentials_type": ["oauth_client", "service_account"],
@@ -789,6 +809,13 @@ class AuthManager:
     def get_active_token(self, identifier: str) -> Optional[str]:
         """Get a valid access token, auto-refreshing if needed."""
         self._load()
+        
+        # Check if identifier is actually a credential ID of type service_account
+        cred = self._data["credentials"].get(identifier)
+        if cred and (cred.get("credentials_type") == "service_account" or cred.get("credentials_json")):
+            return self._generate_service_account_token(cred)
+
+            
         token_id = self._resolve_token_id(identifier)
         if not token_id:
             return None
@@ -812,6 +839,48 @@ class AuthManager:
                 pass
 
         return token.get("access_token")
+
+    def _generate_service_account_token(self, cred: dict) -> Optional[str]:
+        import json
+        from google.oauth2 import service_account
+        from google.auth.transport.requests import Request
+        
+        try:
+            cred_json_str = cred.get("credentials_json")
+            if not cred_json_str:
+                return None
+            info = json.loads(cred_json_str)
+            scopes = cred.get("scopes", [])
+            
+            real_scopes = []
+            for s in scopes:
+                if s.startswith("http"):
+                    real_scopes.append(s)
+                else:
+                    provider_info = PROVIDERS.get("google", {})
+                    scope_def = provider_info.get("scopes", {}).get(s)
+                    if scope_def:
+                        real_scopes.append(scope_def["value"])
+                    else:
+                        real_scopes.append(s)
+            
+            if not real_scopes:
+                # Fallback scopes if empty (Indexing + Drive + Sheets)
+                real_scopes = [
+                    "https://www.googleapis.com/auth/indexing",
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/spreadsheets"
+                ]
+
+            credentials = service_account.Credentials.from_service_account_info(
+                info, scopes=real_scopes
+            )
+            request = Request()
+            credentials.refresh(request)
+            return credentials.token
+        except Exception as e:
+            logger.error(f"Failed to generate service account token: {e}")
+            return None
 
     def get_active_token_for_profile(self, cred_id: str, profile_name: str) -> Optional[str]:
         """Get a valid access token for a specific browser profile."""

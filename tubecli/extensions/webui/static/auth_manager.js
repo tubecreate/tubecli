@@ -289,10 +289,8 @@ function renderCredServiceCards(providerKey, selectedScopes = []) {
         container.innerHTML = '<div class="am-empty" style="padding:12px">No services defined</div>';
         return;
     }
-
-    container.innerHTML = Object.entries(services).map(([svcId, svc]) => {
+    let html = Object.entries(services).map(([svcId, svc]) => {
         const svcScopes = svc.scopes || [];
-        // A service is considered checked if at least one of its scopes is in selectedScopes
         const isChecked = svcScopes.length > 0 && svcScopes.some(s => selectedScopes.includes(s));
         const checkedAttr = isChecked ? 'checked' : '';
         const selectedClass = isChecked ? 'selected' : '';
@@ -311,7 +309,43 @@ function renderCredServiceCards(providerKey, selectedScopes = []) {
             </div>
         </div>`;
     }).join('');
+
+    // Extra Custom Scope box
+    const customScopesList = selectedScopes.filter(s => {
+        // Find if s is in predefined services
+        for (let sv of Object.values(services)) {
+            if (sv.scopes && sv.scopes.includes(s)) return false;
+        }
+        return true;
+    });
+    const hasCustom = customScopesList.length > 0;
+    
+    html += `
+    <div class="am-service-card wizard-card ${hasCustom ? 'selected' : ''}" style="margin-top:12px" onclick="toggleCustomScopeCard(this)">
+        <div class="am-service-row">
+            <input type="checkbox" class="am-service-check am-custom-check" ${hasCustom ? 'checked' : ''} onclick="event.stopPropagation()">
+            <div class="am-service-info">
+                <div class="am-service-label">➕ Thêm Scope Tùy Chỉnh</div>
+                <div class="am-service-desc">Tuỳ biến nhập thêm các URL API Scope khác</div>
+            </div>
+        </div>
+        <div class="am-custom-body" style="display:${hasCustom ? 'block' : 'none'}; padding-top:12px">
+            <input type="text" id="am-custom-scopes-input" class="am-input" 
+                value="${customScopesList.join(', ')}"
+                placeholder="https://www.googleapis.com/auth/analytics.readonly, ..." 
+                onclick="event.stopPropagation()">
+        </div>
+    </div>`;
+    
+    container.innerHTML = html;
 }
+
+window.toggleCustomScopeCard = function(card) {
+    const check = card.querySelector('.am-service-check');
+    check.checked = !check.checked;
+    card.classList.toggle('selected', check.checked);
+    card.querySelector('.am-custom-body').style.display = check.checked ? 'block' : 'none';
+};
 
 function goToCredStep(step) {
     if (step === 1) {
@@ -417,8 +451,19 @@ function getSelectedCredScopes() {
     // Collect unique scopes from all selected services in the cred modal
     const scopes = new Set();
     document.querySelectorAll('#cred-services-list .am-service-check:checked').forEach(cb => {
-        (cb.dataset.scopes || '').split(',').filter(Boolean).forEach(s => scopes.add(s));
+        if (!cb.classList.contains('am-custom-check')) {
+            (cb.dataset.scopes || '').split(',').filter(Boolean).forEach(s => scopes.add(s));
+        }
     });
+    
+    // Add custom scopes if expanded
+    const customInput = document.getElementById('am-custom-scopes-input');
+    if (customInput && customInput.value.trim()) {
+        const customCheck = customInput.closest('.am-service-card').querySelector('.am-custom-check');
+        if (customCheck && customCheck.checked) {
+            customInput.value.split(',').map(s => s.trim()).filter(Boolean).forEach(s => scopes.add(s));
+        }
+    }
     return [...scopes];
 }
 
