@@ -375,44 +375,95 @@ async def execute_upload_sequence(
     print(f"[Actions] {speed_msg}")
     await send_message_fn(token, chat_id, f"✨ AI Title: *{ai_title}*\n{speed_msg}")
 
-    # Resolve target YouTube channel
+    # Resolve upload provider from context (default: youtube)
+    provider = context.get("upload_provider", "youtube")
+    provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(provider, "YouTube")
+
+    # ── Smart Channel Resolution (via channel_cache) ──
     target_email = ""
+    target_id = ""
+    resolved_channel_title = ""
     try:
+        from tubecli.core.channel_cache import channel_cache
         text_lower = user_text.lower()
-        channel_match = re.search(r'(?:kênh|channel)\s+(?:youtube\s+)?(.+?)(?:\s+giúp|\s+video|\s*$)', text_lower)
-        if channel_match:
-            target_name = channel_match.group(1).strip()
+        
+        # Try resolving from cache first (supports "kênh 2", name match, last-used)
+        resolved = channel_cache.resolve_channel(provider, user_text)
+        
+        if resolved:
+            target_email = resolved.get("email", "")
+            target_id = resolved.get("id", "")
+            resolved_channel_title = resolved.get("title", "")
+            print(f"[Actions] ✅ Channel resolved from cache: {resolved_channel_title} ({target_id})")
+        else:
+            # Cache empty → try API fallback to populate cache
+            print(f"[Actions] Cache empty for {provider}, trying API fallback...")
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/accounts?provider=youtube")
+                resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/accounts?provider={provider}")
                 if resp.status_code == 200:
                     accounts = resp.json().get("accounts", [])
+                    all_channels = []
                     for acct in accounts:
                         em = acct.get("email", "")
-                        ch_resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/channels?provider=youtube&email={em}")
+                        ch_resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/channels?provider={provider}&email={em}")
                         if ch_resp.status_code == 200:
                             for ch in ch_resp.json().get("channels", []):
-                                ch_title = (ch.get("title", "") or "").lower()
-                                if target_name in ch_title or ch_title in target_name:
-                                    target_email = em
-                                    break
-                        if target_email:
-                            break
+                                ch_entry = {
+                                    "id": ch.get("id", ""),
+                                    "title": ch.get("title", ""),
+                                    "email": em,
+                                    "subscribers": ch.get("subscribers", 0),
+                                    "url": ch.get("url", ""),
+                                    "provider": provider,
+                                }
+                                all_channels.append(ch_entry)
+                    
+                    if all_channels:
+                        channel_cache.save_channels(provider, all_channels)
+                        # Re-resolve after populating cache
+                        resolved = channel_cache.resolve_channel(provider, user_text)
+                        if resolved:
+                            target_email = resolved.get("email", "")
+                            target_id = resolved.get("id", "")
+                            resolved_channel_title = resolved.get("title", "")
+                        else:
+                            # Just use first channel
+                            target_email = all_channels[0].get("email", "")
+                            target_id = all_channels[0].get("id", "")
+                            resolved_channel_title = all_channels[0].get("title", "")
     except Exception as e:
         print(f"[Actions] Channel resolve error: {e}")
+
+    # Notify user which channel was selected
+    if resolved_channel_title:
+        await send_message_fn(token, chat_id, 
+            f"📺 Upload lên **{provider_label}**: *{resolved_channel_title}*\n"
+            f"💡 Muốn đổi kênh? Nói: 'upload lên kênh 2' hoặc gọi tên kênh"
+        )
 
     # Trigger Upload
     fake_ai_action = {
         "action": "upload_video",
         "file_path": video_path,
-        "provider": "youtube",
+        "provider": provider,
         "privacy": "public",
         "title": ai_title
     }
     if target_email:
         fake_ai_action["email"] = target_email
+    if target_id:
+        fake_ai_action["target_id"] = target_id
 
     reply_payload = "```json\n" + json.dumps(fake_ai_action) + "\n```"
     upload_result = await handle_extension_fn(reply_payload, agent_dict, context)
+
+    # Mark this channel as last-used on success
+    if target_id and "✅" in str(upload_result):
+        try:
+            from tubecli.core.channel_cache import channel_cache
+            channel_cache.set_last_used(provider, target_id)
+        except Exception:
+            pass
 
     # Poll upload status
     duration_sec = _parse_duration(duration)
@@ -557,12 +608,14 @@ async def execute_reup_sequence(
     
     # ── Create pipeline tracker task ──
     from tubecli.core.pipeline_tracker import pipeline_tracker
+    reup_provider = context.get("upload_provider", "youtube")
+    reup_provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(reup_provider, "YouTube")
     pt_task = pipeline_tracker.create_task(
         pipeline_type="reup_pipeline",
         chat_id=chat_id,
         url=video_url,
         original_message=user_text[:200],
-        step_names=[("download", "📥 Tải video"), ("ffmpeg", f"🎬 FFmpeg ({effects_str})"), ("upload", "📤 Upload YouTube")],
+        step_names=[("download", "📥 Tải video"), ("ffmpeg", f"🎬 FFmpeg ({effects_str})"), ("upload", f"📤 Upload {reup_provider_label}")],
     )
     pt_id = pt_task.task_id
     
@@ -572,7 +625,7 @@ async def execute_reup_sequence(
         f"♻️ **Re-up Pipeline Bắt đầu**\n"
         f"📥 Bước 1/3: Tải video...\n"
         f"🎬 Bước 2/3: FFmpeg ({effects_str}{trim_str})\n"
-        f"📤 Bước 3/3: Upload YouTube"
+        f"📤 Bước 3/3: Upload {reup_provider_label}"
     )
 
     # ── Step 2: Download ──
@@ -730,7 +783,7 @@ async def execute_reup_sequence(
             token, chat_id,
             f"✅ FFmpeg xong ({ffmpeg_elapsed}ms): {effects_str}\n"
             f"📁 Output: {os.path.basename(processed_path)} ({size_mb:.1f}MB)\n"
-            f"📤 Đang upload YouTube..."
+            f"📤 Đang upload {reup_provider_label}..."
         )
     else:
         pipeline_tracker.complete_step(pt_id, "ffmpeg", f"No change ({ffmpeg_elapsed}ms)")
@@ -739,43 +792,79 @@ async def execute_reup_sequence(
     title_subtask = fork_result.get("ai_title")
     ai_title = title_subtask.result if title_subtask and title_subtask.status.value == "completed" and title_subtask.result else original_title
 
-    # ── Step 5: Resolve channel + Upload ──
+    # ── Step 5: Smart Channel Resolution (via channel_cache) ──
+    provider = context.get("upload_provider", "youtube")
+    provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(provider, "YouTube")
     target_email = ""
+    target_id = ""
+    resolved_channel_title = ""
     try:
-        channel_match = re.search(r'(?:kênh|channel)\s+(?:youtube\s+)?(.+?)(?:\s+giúp|\s+video|\s*$)', text_lower)
-        if channel_match:
-            target_name = channel_match.group(1).strip()
+        from tubecli.core.channel_cache import channel_cache
+        resolved = channel_cache.resolve_channel(provider, user_text)
+        if resolved:
+            target_email = resolved.get("email", "")
+            target_id = resolved.get("id", "")
+            resolved_channel_title = resolved.get("title", "")
+            print(f"[Reup] ✅ Channel resolved: {resolved_channel_title} ({target_id})")
+        else:
+            # Fallback: API query + cache population
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/accounts?provider=youtube")
+                resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/accounts?provider={provider}")
                 if resp.status_code == 200:
                     accounts = resp.json().get("accounts", [])
+                    all_channels = []
                     for acct in accounts:
                         em = acct.get("email", "")
-                        ch_resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/channels?provider=youtube&email={em}")
+                        ch_resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/video_manager/channels?provider={provider}&email={em}")
                         if ch_resp.status_code == 200:
                             for ch in ch_resp.json().get("channels", []):
-                                ch_title = (ch.get("title", "") or "").lower()
-                                if target_name in ch_title or ch_title in target_name:
-                                    target_email = em
-                                    break
-                        if target_email:
-                            break
+                                all_channels.append({
+                                    "id": ch.get("id", ""), "title": ch.get("title", ""),
+                                    "email": em, "subscribers": ch.get("subscribers", 0),
+                                    "url": ch.get("url", ""), "provider": provider,
+                                })
+                    if all_channels:
+                        channel_cache.save_channels(provider, all_channels)
+                        resolved = channel_cache.resolve_channel(provider, user_text)
+                        if resolved:
+                            target_email = resolved.get("email", "")
+                            target_id = resolved.get("id", "")
+                            resolved_channel_title = resolved.get("title", "")
+                        else:
+                            target_email = all_channels[0].get("email", "")
+                            target_id = all_channels[0].get("id", "")
+                            resolved_channel_title = all_channels[0].get("title", "")
     except Exception as e:
         print(f"[Reup] Channel resolve error: {e}")
+
+    if resolved_channel_title:
+        await send_message_fn(token, chat_id,
+            f"📺 Upload lên **{provider_label}**: *{resolved_channel_title}*"
+        )
 
     fake_ai_action = {
         "action": "upload_video",
         "file_path": processed_path,
-        "provider": "youtube",
+        "provider": provider,
         "privacy": "public",
         "title": ai_title
     }
     if target_email:
         fake_ai_action["email"] = target_email
+    if target_id:
+        fake_ai_action["target_id"] = target_id
 
-    pipeline_tracker.start_step(pt_id, "upload", "YouTube")
+    pipeline_tracker.start_step(pt_id, "upload", provider_label)
     reply_payload = "```json\n" + json.dumps(fake_ai_action) + "\n```"
     upload_result = await handle_extension_fn(reply_payload, agent_dict, context)
+
+    # Mark channel as last-used on success
+    if target_id and "✅" in str(upload_result):
+        try:
+            from tubecli.core.channel_cache import channel_cache
+            channel_cache.set_last_used(provider, target_id)
+        except Exception:
+            pass
 
     # Poll upload status
     duration_sec = _parse_duration(duration)

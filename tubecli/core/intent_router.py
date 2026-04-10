@@ -170,10 +170,16 @@ class IntentRouter:
                 )
             # Check for upload intent
             if any(k in text_lower for k in UPLOAD_KEYWORDS):
+                # Detect target provider from message
+                upload_provider = "youtube"  # default
+                if any(k in text_lower for k in ["facebook", "fanpage", "fb", "page"]):
+                    upload_provider = "facebook"
+                elif "tiktok" in text_lower:
+                    upload_provider = "tiktok"
                 return IntentResult(
                     intent_type="video_upload",
                     confidence=0.95,
-                    extracted_data={"url": video_url},
+                    extracted_data={"url": video_url, "provider": upload_provider},
                     skip_llm=False,  # Need LLM for title optimization
                 )
             return IntentResult(
