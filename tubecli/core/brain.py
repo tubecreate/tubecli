@@ -22,7 +22,7 @@ class AgentBrain:
         msg_clean = re.sub(r'[?!.,;]+$', '', message.strip().lower()).strip()
         
         for skill in skills:
-            commands = skill.get("commands", [])
+            commands = skill.get("commands") or []
             for cmd in commands:
                 if not cmd:
                     continue
@@ -58,14 +58,15 @@ class AgentBrain:
                 # Score by semantic relevance
                 score = 0
                 if msg_lower:
-                    for cmd in skill_cmds:
-                        if cmd.lower() in msg_lower:
-                            score += 3
-                            break
-                    name_lower = skill_name.lower()
-                    if any(w in msg_lower for w in name_lower.split() if len(w) > 2):
+                    if skill_cmds:
+                        for cmd in skill_cmds:
+                            if cmd and str(cmd).lower() in msg_lower:
+                                score += 3
+                                break
+                    name_lower = str(skill_name).lower() if skill_name else ""
+                    if name_lower and any(w in msg_lower for w in name_lower.split() if len(w) > 2):
                         score += 2
-                    desc_words = [w for w in skill_desc_text.lower().split() if len(w) > 3]
+                    desc_words = [w for w in str(skill_desc_text).lower().split() if len(w) > 3] if skill_desc_text else []
                     matching_desc = sum(1 for w in desc_words if w in msg_lower)
                     score += min(matching_desc, 3)  # cap at 3
 
@@ -118,7 +119,8 @@ class AgentBrain:
             "7. **CRITICAL**: For greetings (hi, hello, xin chào, etc.), casual chat, or questions WITHOUT a clear actionable intent → reply conversationally in plain text. Do NOT output any JSON action block. Only output JSON when the user EXPLICITLY requests an action.\n\n"
             "### YOUR PERSONA:\n"
         )
-        return static_prompt + agent_prompt + "\n" + skills_desc + memory_section + "\n"
+        safe_agent_prompt = agent_prompt if agent_prompt is not None else "You are a helpful assistant."
+        return static_prompt + safe_agent_prompt + "\n" + skills_desc + memory_section + "\n"
 
     # ── Quick Reply (Minimal Token) ───────────────────────────────
 

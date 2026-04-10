@@ -233,7 +233,10 @@ class TelegramListener:
 
         # ── Fast-path: Video Upload Sequence ──
         if intent.intent_type == "video_upload":
-            context["_agent_badge"] = "🎬 Video Agent đang xử lý upload..."
+            provider = intent.extracted_data.get("provider", "youtube")
+            provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(provider, "YouTube")
+            context["_agent_badge"] = f"🎬 Video Agent đang upload lên {provider_label}..."
+            context["upload_provider"] = provider
             url = intent.extracted_data.get("url", "")
             result = await execute_upload_sequence(
                 url, text, agent_dict,
@@ -690,9 +693,19 @@ class TelegramListener:
         except Exception:
             pass
         
-        # Detect target channel
-        channel_match = re.search(r'kênh\s*(\d+|[a-zA-Z]\w*)', text.lower())
-        channel_id = channel_match.group(1) if channel_match else None
+        # Detect target channel (using channel_cache for smart resolution)
+        channel_id = None
+        channel_title = ""
+        try:
+            from tubecli.core.channel_cache import channel_cache
+            resolved = channel_cache.resolve_channel("youtube", text)
+            if resolved:
+                channel_id = resolved.get("id")
+                channel_title = resolved.get("title", "")
+        except Exception:
+            # Fallback to basic regex
+            channel_match = re.search(r'kênh\s*(\d+|[a-zA-Z]\w*)', text.lower())
+            channel_id = channel_match.group(1) if channel_match else None
         
         # ── Build dynamic step list ──
         step_defs = [("download", "📥 Tải video"), ("extract", "📝 Tách phụ đề")]
