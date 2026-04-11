@@ -32,7 +32,7 @@ TUBECLI_BASE_URL = "http://localhost:5295"
 # ── Confirmation Keywords ──
 CONFIRM_KEYWORDS = ["ok", "ok đi", "được", "đi", "go", "chạy", "thực hiện", "làm đi", "đồng ý", "yes", "oke", "okê", "chạy đi", "bắt đầu", "xác nhận", "confirm"]
 CANCEL_KEYWORDS = ["không", "hủy", "thôi", "cancel", "no", "bỏ", "dừng"]
-MODIFY_CHANNEL_PATTERN = r'(?:đổi|chuyển|chọn|switch)\s*(?:sang\s*)?(?:kênh|channel|page)\s*(?:thứ\s*)?(\d+)'
+MODIFY_CHANNEL_PATTERN = r'(?:đổi|chuyển|chọn|switch)\s*(?:sang\s*)?(?:kênh|channel|page|trang)\s*(?:thứ\s*)?(\d+)'
 
 
 class TelegramListener:
@@ -44,6 +44,8 @@ class TelegramListener:
         self.client = httpx.AsyncClient(timeout=40)
         # Pending action plans awaiting user confirmation (keyed by chat_id)
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
+        # Auto-execute timer tasks (keyed by chat_id)
+        self._auto_execute_tasks: Dict[int, asyncio.Task] = {}
 
     # ═══════════════════════════════════════════════════════════════
     #  TOKEN MANAGEMENT
@@ -235,6 +237,9 @@ class TelegramListener:
         if pending:
             text_lower_check = text.strip().lower()
             
+            # Cancel any auto-execute timer since user responded
+            self._cancel_auto_execute(chat_id)
+            
             # ── User confirms → execute the pending plan ──
             if any(text_lower_check == k or text_lower_check.startswith(k + " ") for k in CONFIRM_KEYWORDS):
                 plan = self.pending_actions.pop(chat_id)
@@ -266,54 +271,79 @@ class TelegramListener:
                 self.pending_actions.pop(chat_id)
                 return "🚫 Đã hủy kế hoạch. Bạn có thể gửi yêu cầu mới."
             
-            # ── User modifies channel: "đổi kênh 3", "chọn kênh 1" ──
+            # ── User modifies: "đổi kênh 3", "chọn trang 1", "đổi trang 2" ──
             modify_match = re.search(MODIFY_CHANNEL_PATTERN, text_lower_check)
             if modify_match:
                 new_idx = int(modify_match.group(1))
                 try:
                     from tubecli.core.channel_cache import channel_cache
-                    provider = pending.get("provider", "youtube")
-                    new_ch = channel_cache.get_by_index(provider, new_idx)
+                    
+                    # Detect if user is switching provider via keyword
+                    if re.search(r'(?:trang|page)', text_lower_check):
+                        target_provider = "facebook"
+                    elif re.search(r'(?:kênh|channel)', text_lower_check):
+                        target_provider = pending.get("provider", "youtube")
+                    else:
+                        target_provider = pending.get("provider", "youtube")
+                    
+                    new_ch = channel_cache.get_by_index(target_provider, new_idx)
                     if new_ch:
                         pending["channel"] = new_ch
-                        pending["original_text"] = re.sub(
-                            r'(?:kênh|channel)\s*(?:thứ\s*)?\d+',
-                            f'kênh {new_idx}',
-                            pending["original_text"],
-                            flags=re.IGNORECASE
-                        )
-                        # Re-display updated plan
+                        # Switch provider if needed
+                        if target_provider != pending.get("provider"):
+                            pending["provider"] = target_provider
+                            new_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(target_provider, "YouTube")
+                            old_label = pending.get("provider_label", "YouTube")
+                            pending["provider_label"] = new_label
+                            pending["steps"] = [
+                                s.replace(old_label, new_label) if "Upload" in s else s
+                                for s in pending.get("steps", [])
+                            ]
                         plan_msg = self._format_plan(pending)
                         return plan_msg
                     else:
-                        channels = channel_cache.get_channels(provider)
-                        return f"❌ Kênh số {new_idx} không tồn tại. Chỉ có {len(channels)} kênh. Gõ 'danh sách kênh' để xem."
+                        channels = channel_cache.get_channels(target_provider)
+                        entity = "trang" if target_provider == "facebook" else "kênh"
+                        return f"❌ {entity.capitalize()} số {new_idx} không tồn tại. Chỉ có {len(channels)} {entity}. Gõ 'danh sách {entity}' để xem."
                 except Exception as e:
-                    return f"❌ Lỗi đổi kênh: {str(e)[:200]}"
+                    entity = "trang" if pending.get('provider') == 'facebook' else "kênh"
+                    return f"❌ Lỗi đổi {entity}: {str(e)[:200]}"
             
-            # ── User sends "kênh 3" directly (without "đổi") ──
-            kenh_match = re.search(r'^(?:kênh|channel)\s*(?:thứ\s*)?(\d+)$', text_lower_check)
+            # ── User sends "kênh 3" or "trang 2" directly (without "đổi") ──
+            kenh_match = re.search(r'^(?:kênh|channel|trang|page)\s*(?:thứ\s*)?(\d+)$', text_lower_check)
             if kenh_match:
                 new_idx = int(kenh_match.group(1))
                 try:
                     from tubecli.core.channel_cache import channel_cache
-                    provider = pending.get("provider", "youtube")
-                    new_ch = channel_cache.get_by_index(provider, new_idx)
+                    
+                    # "trang N" → Facebook, "kênh N" → keep current provider
+                    if re.search(r'^(?:trang|page)', text_lower_check):
+                        target_provider = "facebook"
+                    else:
+                        target_provider = pending.get("provider", "youtube")
+                    
+                    new_ch = channel_cache.get_by_index(target_provider, new_idx)
                     if new_ch:
                         pending["channel"] = new_ch
-                        pending["original_text"] = re.sub(
-                            r'(?:kênh|channel)\s*(?:thứ\s*)?\d+',
-                            f'kênh {new_idx}',
-                            pending["original_text"],
-                            flags=re.IGNORECASE
-                        )
+                        # Switch provider if needed
+                        if target_provider != pending.get("provider"):
+                            pending["provider"] = target_provider
+                            new_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(target_provider, "YouTube")
+                            old_label = pending.get("provider_label", "YouTube")
+                            pending["provider_label"] = new_label
+                            pending["steps"] = [
+                                s.replace(old_label, new_label) if "Upload" in s else s
+                                for s in pending.get("steps", [])
+                            ]
                         plan_msg = self._format_plan(pending)
                         return plan_msg
                     else:
-                        channels = channel_cache.get_channels(provider)
-                        return f"❌ Kênh số {new_idx} không tồn tại. Chỉ có {len(channels)} kênh."
+                        channels = channel_cache.get_channels(target_provider)
+                        entity = "trang" if target_provider == "facebook" else "kênh"
+                        return f"❌ {entity.capitalize()} số {new_idx} không tồn tại. Chỉ có {len(channels)} {entity}."
                 except Exception as e:
-                    return f"❌ Lỗi chọn kênh: {str(e)[:200]}"
+                    entity = "trang" if pending.get('provider') == 'facebook' else "kênh"
+                    return f"❌ Lỗi chọn {entity}: {str(e)[:200]}"
             
             # ── Any other message while pending → cancel old plan & process new message ──
             # (User might be sending a completely different request)
@@ -363,6 +393,8 @@ class TelegramListener:
                 ],
             }
             self.pending_actions[chat_id] = plan
+            # Schedule auto-execute after 10 seconds
+            self._schedule_auto_execute(chat_id, plan, agent_dict, context, agent_id, history)
             return self._format_plan(plan)
 
         # ── Plan & Confirm: Re-up Pipeline ──
@@ -405,6 +437,8 @@ class TelegramListener:
                 ],
             }
             self.pending_actions[chat_id] = plan
+            # Schedule auto-execute after 10 seconds
+            self._schedule_auto_execute(chat_id, plan, agent_dict, context, agent_id, history)
             return self._format_plan(plan)
 
         # ── Fast-path: Skill Command Match (0 tokens) ──
@@ -614,24 +648,29 @@ class TelegramListener:
     def _format_plan(self, plan: Dict) -> str:
         """Format a pending action plan for user review."""
         plan_type = plan.get("type", "unknown")
+        provider = plan.get("provider", "youtube")
         provider_label = plan.get("provider_label", "YouTube")
         url = plan.get("url", "")
         channel = plan.get("channel")
         steps = plan.get("steps", [])
         effects = plan.get("effects", [])
         
+        # Facebook = "Trang", YouTube = "Kênh"
+        entity = "Trang" if provider == "facebook" else "Kênh"
+        entity_lower = entity.lower()
+        
         # Shorten URL for display
         url_short = url[:60] + "..." if len(url) > 60 else url
         
-        # Channel info
+        # Channel/Page info
         if channel:
             ch_title = channel.get("title", "Không rõ")
             ch_email = channel.get("email", "")
-            channel_line = f"📺 **Kênh đích:** {ch_title}"
+            channel_line = f"📺 **{entity} đích:** {ch_title}"
             if ch_email:
                 channel_line += f" ({ch_email})"
         else:
-            channel_line = f"📺 **Kênh đích:** _(chưa chọn — sẽ dùng kênh mặc định)_"
+            channel_line = f"📺 **{entity} đích:** _(chưa chọn — sẽ dùng {entity_lower} mặc định)_"
         
         # Build plan message
         type_emoji = "📤" if plan_type == "video_upload" else "♻️"
@@ -651,11 +690,86 @@ class TelegramListener:
         for i, step in enumerate(steps, 1):
             lines.append(f"  {i}. {step}")
         
-        lines.append(f"\n✅ Trả lời **'ok'** để thực hiện")
-        lines.append(f"✏️ Đổi kênh? Gõ **'kênh 2'** hoặc **'đổi kênh 3'**")
+        lines.append(f"\n⏱️ Tự động thực hiện sau **10 giây** nếu không trả lời...")
+        lines.append(f"✅ Trả lời **'ok'** để thực hiện ngay")
+        lines.append(f"✏️ Đổi {entity_lower}? Gõ **'{entity_lower} 2'** hoặc **'đổi {entity_lower} 3'**")
         lines.append(f"🚫 Gõ **'hủy'** để bỏ qua")
         
         return "\n".join(lines)
+
+    # ═══════════════════════════════════════════════════════════════
+    #  AUTO-EXECUTE TIMER
+    # ═══════════════════════════════════════════════════════════════
+
+    def _schedule_auto_execute(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
+        """Schedule auto-execution of a pending plan after 10 seconds."""
+        self._cancel_auto_execute(chat_id)
+        
+        task = asyncio.create_task(
+            self._auto_execute_plan(chat_id, plan, agent_dict, context.copy(), agent_id, history)
+        )
+        self._auto_execute_tasks[chat_id] = task
+
+    def _cancel_auto_execute(self, chat_id: int):
+        """Cancel auto-execute timer for a chat."""
+        task = self._auto_execute_tasks.pop(chat_id, None)
+        if task and not task.done():
+            task.cancel()
+            print(f"[AutoExec] Cancelled timer for chat {chat_id}")
+
+    async def _auto_execute_plan(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
+        """Wait 10 seconds then auto-execute the pending plan if still present."""
+        try:
+            await asyncio.sleep(10)
+            
+            # Check if the plan is still pending (user didn't respond)
+            if chat_id not in self.pending_actions:
+                return  # Already confirmed/cancelled/replaced
+            
+            # Pop the plan and execute
+            plan = self.pending_actions.pop(chat_id)
+            self._auto_execute_tasks.pop(chat_id, None)
+            
+            token = context.get("token", "")
+            
+            await self._send_message(token, chat_id,
+                "⏱️ 10s đã qua — tự động thực hiện kế hoạch..."
+            )
+            
+            context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
+            context["upload_provider"] = plan.get("provider", "youtube")
+            
+            if plan["type"] == "video_upload":
+                result = await execute_upload_sequence(
+                    plan["url"], plan["original_text"], agent_dict,
+                    self._send_message, self._send_file,
+                    lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                    context,
+                )
+            elif plan["type"] == "reup_action":
+                result = await execute_reup_sequence(
+                    plan["url"], plan["original_text"], agent_dict,
+                    self._send_message, self._send_file,
+                    lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                    context,
+                )
+            else:
+                result = "❌ Loại kế hoạch không hợp lệ."
+            
+            self._save_history(agent_id, agent_dict, "[auto-execute]", result, history)
+            
+            # Send result back to user
+            if isinstance(result, str) and result.strip():
+                await self._send_message(token, chat_id, result)
+            
+            print(f"[AutoExec] Auto-executed plan for chat {chat_id}")
+            
+        except asyncio.CancelledError:
+            pass  # Timer was cancelled by user response
+        except Exception as e:
+            print(f"[AutoExec] Error: {e}")
+            import traceback
+            traceback.print_exc()
 
     # ═══════════════════════════════════════════════════════════════
     #  HELPER METHODS
