@@ -29,6 +29,12 @@ SETTINGS_FILE = DATA_DIR / "global_settings.json"
 TUBECLI_BASE_URL = "http://localhost:5295"
 
 
+# ── Confirmation Keywords ──
+CONFIRM_KEYWORDS = ["ok", "ok đi", "được", "đi", "go", "chạy", "thực hiện", "làm đi", "đồng ý", "yes", "oke", "okê", "chạy đi", "bắt đầu", "xác nhận", "confirm"]
+CANCEL_KEYWORDS = ["không", "hủy", "thôi", "cancel", "no", "bỏ", "dừng"]
+MODIFY_CHANNEL_PATTERN = r'(?:đổi|chuyển|chọn|switch)\s*(?:sang\s*)?(?:kênh|channel|page)\s*(?:thứ\s*)?(\d+)'
+
+
 class TelegramListener:
     def __init__(self):
         self.running = False
@@ -36,6 +42,8 @@ class TelegramListener:
         self.offsets: Dict[str, int] = {}
         self._sync_task = None
         self.client = httpx.AsyncClient(timeout=40)
+        # Pending action plans awaiting user confirmation (keyed by chat_id)
+        self.pending_actions: Dict[int, Dict[str, Any]] = {}
 
     # ═══════════════════════════════════════════════════════════════
     #  TOKEN MANAGEMENT
@@ -218,6 +226,100 @@ class TelegramListener:
         history = agent.history_log or []
 
         # ═══════════════════════════════════════════════════════════
+        #  CHECK PENDING ACTION CONFIRMATION
+        # ═══════════════════════════════════════════════════════════
+        chat_id = context.get("chat_id", 0)
+        token = context.get("token", "")
+        pending = self.pending_actions.get(chat_id)
+        
+        if pending:
+            text_lower_check = text.strip().lower()
+            
+            # ── User confirms → execute the pending plan ──
+            if any(text_lower_check == k or text_lower_check.startswith(k + " ") for k in CONFIRM_KEYWORDS):
+                plan = self.pending_actions.pop(chat_id)
+                context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
+                context["upload_provider"] = plan.get("provider", "youtube")
+                
+                if plan["type"] == "video_upload":
+                    result = await execute_upload_sequence(
+                        plan["url"], plan["original_text"], agent_dict,
+                        self._send_message, self._send_file,
+                        lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                        context,
+                    )
+                elif plan["type"] == "reup_action":
+                    result = await execute_reup_sequence(
+                        plan["url"], plan["original_text"], agent_dict,
+                        self._send_message, self._send_file,
+                        lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                        context,
+                    )
+                else:
+                    result = "❌ Loại kế hoạch không hợp lệ."
+                
+                self._save_history(agent_id, agent_dict, text, result, history)
+                return result
+            
+            # ── User cancels ──
+            if any(text_lower_check == k or text_lower_check.startswith(k + " ") for k in CANCEL_KEYWORDS):
+                self.pending_actions.pop(chat_id)
+                return "🚫 Đã hủy kế hoạch. Bạn có thể gửi yêu cầu mới."
+            
+            # ── User modifies channel: "đổi kênh 3", "chọn kênh 1" ──
+            modify_match = re.search(MODIFY_CHANNEL_PATTERN, text_lower_check)
+            if modify_match:
+                new_idx = int(modify_match.group(1))
+                try:
+                    from tubecli.core.channel_cache import channel_cache
+                    provider = pending.get("provider", "youtube")
+                    new_ch = channel_cache.get_by_index(provider, new_idx)
+                    if new_ch:
+                        pending["channel"] = new_ch
+                        pending["original_text"] = re.sub(
+                            r'(?:kênh|channel)\s*(?:thứ\s*)?\d+',
+                            f'kênh {new_idx}',
+                            pending["original_text"],
+                            flags=re.IGNORECASE
+                        )
+                        # Re-display updated plan
+                        plan_msg = self._format_plan(pending)
+                        return plan_msg
+                    else:
+                        channels = channel_cache.get_channels(provider)
+                        return f"❌ Kênh số {new_idx} không tồn tại. Chỉ có {len(channels)} kênh. Gõ 'danh sách kênh' để xem."
+                except Exception as e:
+                    return f"❌ Lỗi đổi kênh: {str(e)[:200]}"
+            
+            # ── User sends "kênh 3" directly (without "đổi") ──
+            kenh_match = re.search(r'^(?:kênh|channel)\s*(?:thứ\s*)?(\d+)$', text_lower_check)
+            if kenh_match:
+                new_idx = int(kenh_match.group(1))
+                try:
+                    from tubecli.core.channel_cache import channel_cache
+                    provider = pending.get("provider", "youtube")
+                    new_ch = channel_cache.get_by_index(provider, new_idx)
+                    if new_ch:
+                        pending["channel"] = new_ch
+                        pending["original_text"] = re.sub(
+                            r'(?:kênh|channel)\s*(?:thứ\s*)?\d+',
+                            f'kênh {new_idx}',
+                            pending["original_text"],
+                            flags=re.IGNORECASE
+                        )
+                        plan_msg = self._format_plan(pending)
+                        return plan_msg
+                    else:
+                        channels = channel_cache.get_channels(provider)
+                        return f"❌ Kênh số {new_idx} không tồn tại. Chỉ có {len(channels)} kênh."
+                except Exception as e:
+                    return f"❌ Lỗi chọn kênh: {str(e)[:200]}"
+            
+            # ── Any other message while pending → cancel old plan & process new message ──
+            # (User might be sending a completely different request)
+            self.pending_actions.pop(chat_id)
+        
+        # ═══════════════════════════════════════════════════════════
         #  TIER 1: Intent Classification (0 tokens)
         # ═══════════════════════════════════════════════════════════
         intent = intent_router.classify(text, agent_dict, available_skills)
@@ -231,34 +333,79 @@ class TelegramListener:
             self._save_history(agent_id, agent_dict, text, result, history)
             return result
 
-        # ── Fast-path: Video Upload Sequence ──
+        # ── Plan & Confirm: Video Upload Sequence ──
         if intent.intent_type == "video_upload":
             provider = intent.extracted_data.get("provider", "youtube")
             provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(provider, "YouTube")
-            context["_agent_badge"] = f"🎬 Video Agent đang upload lên {provider_label}..."
-            context["upload_provider"] = provider
             url = intent.extracted_data.get("url", "")
-            result = await execute_upload_sequence(
-                url, text, agent_dict,
-                self._send_message, self._send_file,
-                lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                context,
-            )
-            self._save_history(agent_id, agent_dict, text, result, history)
-            return result
+            
+            # Resolve channel for plan display
+            resolved_channel = None
+            try:
+                from tubecli.core.channel_cache import channel_cache
+                resolved_channel = channel_cache.resolve_channel(provider, text)
+            except Exception:
+                pass
+            
+            # Save pending plan
+            plan = {
+                "type": "video_upload",
+                "url": url,
+                "provider": provider,
+                "provider_label": provider_label,
+                "channel": resolved_channel,
+                "original_text": text,
+                "badge": f"🎬 Video Agent đang upload lên {provider_label}...",
+                "steps": [
+                    f"📥 Tải video từ URL",
+                    f"✨ AI tạo tiêu đề SEO",
+                    f"📤 Upload lên {provider_label}",
+                ],
+            }
+            self.pending_actions[chat_id] = plan
+            return self._format_plan(plan)
 
-        # ── Fast-path: Re-up Pipeline (Download → FFmpeg → Upload) ──
+        # ── Plan & Confirm: Re-up Pipeline ──
         if intent.intent_type == "reup_action":
-            context["_agent_badge"] = "♻️ Re-up Agent đang xử lý pipeline..."
             url = intent.extracted_data.get("url", "")
-            result = await execute_reup_sequence(
-                url, text, agent_dict,
-                self._send_message, self._send_file,
-                lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                context,
-            )
-            self._save_history(agent_id, agent_dict, text, result, history)
-            return result
+            provider = context.get("upload_provider", "youtube")
+            provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(provider, "YouTube")
+            
+            # Parse effects from text for plan display
+            text_lower = text.lower()
+            effects = []
+            if any(k in text_lower for k in ["gương", "mirror", "lật", "flip"]): effects.append("Lật gương")
+            if any(k in text_lower for k in ["trắng đen", "grayscale"]): effects.append("Trắng đen")
+            if any(k in text_lower for k in ["tốc độ 2", "speed 2", "2x"]): effects.append("Tốc độ 2x")
+            if any(k in text_lower for k in ["blur", "mờ"]): effects.append("Blur")
+            if any(k in text_lower for k in ["xóa phông", "tách nền"]): effects.append("Tách nền AI")
+            if not effects: effects.append("Lật gương (mặc định)")
+            
+            resolved_channel = None
+            try:
+                from tubecli.core.channel_cache import channel_cache
+                resolved_channel = channel_cache.resolve_channel(provider, text)
+            except Exception:
+                pass
+            
+            plan = {
+                "type": "reup_action",
+                "url": url,
+                "provider": provider,
+                "provider_label": provider_label,
+                "channel": resolved_channel,
+                "original_text": text,
+                "badge": "♻️ Re-up Agent đang xử lý pipeline...",
+                "effects": effects,
+                "steps": [
+                    f"📥 Tải video từ URL",
+                    f"🎬 FFmpeg: {', '.join(effects)}",
+                    f"✨ AI tạo tiêu đề SEO",
+                    f"📤 Upload lên {provider_label}",
+                ],
+            }
+            self.pending_actions[chat_id] = plan
+            return self._format_plan(plan)
 
         # ── Fast-path: Skill Command Match (0 tokens) ──
         if intent.intent_type == "skill_command":
@@ -459,6 +606,56 @@ class TelegramListener:
         # Handle extension actions from AI response text
         result = await handle_extension_action(reply, agent_dict, context)
         return result
+
+    # ═══════════════════════════════════════════════════════════════
+    #  PLAN FORMATTING
+    # ═══════════════════════════════════════════════════════════════
+
+    def _format_plan(self, plan: Dict) -> str:
+        """Format a pending action plan for user review."""
+        plan_type = plan.get("type", "unknown")
+        provider_label = plan.get("provider_label", "YouTube")
+        url = plan.get("url", "")
+        channel = plan.get("channel")
+        steps = plan.get("steps", [])
+        effects = plan.get("effects", [])
+        
+        # Shorten URL for display
+        url_short = url[:60] + "..." if len(url) > 60 else url
+        
+        # Channel info
+        if channel:
+            ch_title = channel.get("title", "Không rõ")
+            ch_email = channel.get("email", "")
+            channel_line = f"📺 **Kênh đích:** {ch_title}"
+            if ch_email:
+                channel_line += f" ({ch_email})"
+        else:
+            channel_line = f"📺 **Kênh đích:** _(chưa chọn — sẽ dùng kênh mặc định)_"
+        
+        # Build plan message
+        type_emoji = "📤" if plan_type == "video_upload" else "♻️"
+        type_label = "Upload Video" if plan_type == "video_upload" else "Re-up Pipeline"
+        
+        lines = [
+            f"{type_emoji} **Kế hoạch: {type_label}**\n",
+            f"🔗 URL: `{url_short}`",
+            f"🌐 **Nền tảng:** {provider_label}",
+            channel_line,
+        ]
+        
+        if effects:
+            lines.append(f"🎬 **Hiệu ứng:** {', '.join(effects)}")
+        
+        lines.append(f"\n📋 **Các bước thực hiện:**")
+        for i, step in enumerate(steps, 1):
+            lines.append(f"  {i}. {step}")
+        
+        lines.append(f"\n✅ Trả lời **'ok'** để thực hiện")
+        lines.append(f"✏️ Đổi kênh? Gõ **'kênh 2'** hoặc **'đổi kênh 3'**")
+        lines.append(f"🚫 Gõ **'hủy'** để bỏ qua")
+        
+        return "\n".join(lines)
 
     # ═══════════════════════════════════════════════════════════════
     #  HELPER METHODS
