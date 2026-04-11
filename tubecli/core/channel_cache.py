@@ -141,23 +141,28 @@ class ChannelCache:
         """
         text_lower = user_text.lower()
         
-        # 1. Explicit mention
-        if any(k in text_lower for k in ["facebook", "fanpage", "fb"]):
+        # 1. Explicit mention (keywords that ALWAYS map to a provider)
+        if any(k in text_lower for k in ["facebook", "fanpage", "fb", "trang", "page"]):
             return "facebook"
         if "tiktok" in text_lower:
             return "tiktok"
         if any(k in text_lower for k in ["youtube", "yt"]):
             return "youtube"
         
-        # 2. "kênh N" without provider → use last listed context
-        has_channel_index = bool(re.search(r'(?:kênh|channel)\s*(?:thứ\s*)?(\d+)', text_lower))
+        # 2. "trang N" (page + number) → always Facebook (redundant but explicit)
+        has_page_index = bool(re.search(r'(?:trang|page)\s*(?:thứ\s*)?(\d+)', text_lower))
+        if has_page_index:
+            return "facebook"
+        
+        # 3. "kênh N" without provider → use last listed context
+        has_channel_index = bool(re.search(r'(?:kênh|channel|số)\s*(?:thứ\s*)?(\d+)', text_lower))
         if has_channel_index:
             last_listed = self.get_last_listed_provider()
             if last_listed:
                 print(f"[ChannelCache] Inferred provider={last_listed} from last listed context")
                 return last_listed
         
-        # 3. Default
+        # 4. Default
         return "youtube"
 
     def resolve_channel(self, provider: str, user_text: str) -> Optional[Dict]:
@@ -170,8 +175,8 @@ class ChannelCache:
         """
         text_lower = user_text.lower()
         
-        # 1. Try index: "kênh 2", "kênh thứ 3", "channel 1", "số 2"
-        idx_match = re.search(r'(?:kênh|channel|số)\s*(?:thứ\s*)?(\d+)', text_lower)
+        # 1. Try index: "kênh 2", "trang 1", "kênh thứ 3", "channel 1", "số 2"
+        idx_match = re.search(r'(?:kênh|channel|số|trang|page)\s*(?:thứ\s*)?(\d+)', text_lower)
         if idx_match:
             idx = int(idx_match.group(1))
             ch = self.get_by_index(provider, idx)
