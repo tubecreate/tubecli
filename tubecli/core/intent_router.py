@@ -170,12 +170,12 @@ class IntentRouter:
                 )
             # Check for upload intent
             if any(k in text_lower for k in UPLOAD_KEYWORDS):
-                # Detect target provider from message
-                upload_provider = "youtube"  # default
-                if any(k in text_lower for k in ["facebook", "fanpage", "fb", "page"]):
-                    upload_provider = "facebook"
-                elif "tiktok" in text_lower:
-                    upload_provider = "tiktok"
+                # Smart provider detection: keywords + context from last listed channels
+                try:
+                    from tubecli.core.channel_cache import channel_cache
+                    upload_provider = channel_cache.infer_provider(text)
+                except Exception:
+                    upload_provider = "youtube"
                 return IntentResult(
                     intent_type="video_upload",
                     confidence=0.95,

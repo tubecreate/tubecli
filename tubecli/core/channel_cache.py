@@ -12,6 +12,7 @@ Usage:
 """
 import json
 import os
+import re
 import datetime
 from typing import Dict, List, Optional, Any
 from pathlib import Path
@@ -51,14 +52,18 @@ class ChannelCache:
         """Cache a channel list (called after list_channels action).
         
         Each channel dict should have: id, title, email, subscribers, url, etc.
+        Also records this provider as the 'last listed' for context-aware routing.
         """
         self._cache[provider] = {
             "channels": channels,
             "email": email,
             "updated_at": datetime.datetime.now().isoformat(),
         }
+        # Track which provider was listed most recently
+        self._cache["_last_listed_provider"] = provider
+        self._cache["_last_listed_at"] = datetime.datetime.now().isoformat()
         self._save()
-        print(f"[ChannelCache] Saved {len(channels)} {provider} channels")
+        print(f"[ChannelCache] Saved {len(channels)} {provider} channels (last_listed={provider})")
 
     def get_channels(self, provider: str) -> List[Dict]:
         """Get cached channel list for a provider."""
@@ -101,37 +106,59 @@ class ChannelCache:
         self._cache[provider]["last_used_at"] = datetime.datetime.now().isoformat()
         self._save()
 
-    def format_channel_list(self, provider: str) -> str:
-        """Format cached channel list with numbered indices for display."""
-        channels = self.get_channels(provider)
-        if not channels:
-            return ""
+    def get_last_listed_provider(self) -> Optional[str]:
+        """Get the provider that was most recently listed by user.
         
-        last_used_id = self._cache.get(provider, {}).get("last_used_id", "")
-        provider_label = {"youtube": "YouTube", "facebook": "Facebook", "tiktok": "TikTok"}.get(provider, provider)
+        This is critical for context-aware routing:
+        If user just listed Facebook pages then says 'upload lên kênh 1',
+        the system should know they mean Facebook, not YouTube.
         
-        lines = [f"📺 Danh sách Kênh {provider_label}:\n"]
-        for i, ch in enumerate(channels, 1):
-            title = ch.get("title", "Unknown")
-            subs = ch.get("subscribers", 0)
-            url = ch.get("url", "")
-            email = ch.get("email", "")
-            is_last = "⭐" if ch.get("id") == last_used_id else ""
-            
-            try:
-                subs_int = int(subs)
-                subs_str = f"{subs_int:,}" if subs_int else "0"
-            except (ValueError, TypeError):
-                subs_str = "0"
-            
-            lines.append(
-                f"**{i}.** {is_last} {title}\n"
-                f"   📧 {email} | 👥 {subs_str} subs\n"
-                f"   🔗 {url}"
-            )
+        Returns None if stale (> 30 minutes old) to avoid wrong context.
+        """
+        provider = self._cache.get("_last_listed_provider")
+        listed_at = self._cache.get("_last_listed_at")
+        if not provider or not listed_at:
+            return None
         
-        lines.append(f"\n💡 Dùng: 'upload lên kênh {1}' hoặc 'kênh thứ {2}' để chọn nhanh")
-        return "\n".join(lines)
+        # Check freshness (30 minute window)
+        try:
+            listed_time = datetime.datetime.fromisoformat(listed_at)
+            now = datetime.datetime.now()
+            if (now - listed_time).total_seconds() > 1800:  # 30 minutes
+                return None
+        except Exception:
+            pass
+        
+        return provider
+
+    def infer_provider(self, user_text: str) -> str:
+        """Infer the target provider from user text + context.
+        
+        Priority:
+        1. Explicit keyword: "facebook", "fanpage", "tiktok"
+        2. "kênh N" + last listed provider context
+        3. Default: "youtube"
+        """
+        text_lower = user_text.lower()
+        
+        # 1. Explicit mention
+        if any(k in text_lower for k in ["facebook", "fanpage", "fb"]):
+            return "facebook"
+        if "tiktok" in text_lower:
+            return "tiktok"
+        if any(k in text_lower for k in ["youtube", "yt"]):
+            return "youtube"
+        
+        # 2. "kênh N" without provider → use last listed context
+        has_channel_index = bool(re.search(r'(?:kênh|channel)\s*(?:thứ\s*)?(\d+)', text_lower))
+        if has_channel_index:
+            last_listed = self.get_last_listed_provider()
+            if last_listed:
+                print(f"[ChannelCache] Inferred provider={last_listed} from last listed context")
+                return last_listed
+        
+        # 3. Default
+        return "youtube"
 
     def resolve_channel(self, provider: str, user_text: str) -> Optional[Dict]:
         """Smart resolve: try index first, then name, then last-used.
@@ -141,11 +168,10 @@ class ChannelCache:
         - "kênh ABC" (partial name match)
         - No specific mention → last used channel
         """
-        import re
         text_lower = user_text.lower()
         
-        # 1. Try index: "kênh 2", "kênh thứ 3", "channel 1"
-        idx_match = re.search(r'(?:kênh|channel)\s*(?:thứ\s*)?(\d+)', text_lower)
+        # 1. Try index: "kênh 2", "kênh thứ 3", "channel 1", "số 2"
+        idx_match = re.search(r'(?:kênh|channel|số)\s*(?:thứ\s*)?(\d+)', text_lower)
         if idx_match:
             idx = int(idx_match.group(1))
             ch = self.get_by_index(provider, idx)
@@ -156,7 +182,6 @@ class ChannelCache:
         name_match = re.search(r'(?:kênh|channel|page|fanpage|trang)\s+(?:youtube\s+|facebook\s+)?([^\d].+?)(?:\s+giúp|\s+video|\s*$)', text_lower)
         if name_match:
             name = name_match.group(1).strip()
-            # Skip if it's just a number (already handled above)
             if name and not name.isdigit():
                 ch = self.get_by_name(provider, name)
                 if ch:
@@ -168,5 +193,3 @@ class ChannelCache:
 
 # Global singleton
 channel_cache = ChannelCache()
-""", "Description": "Created a Channel Cache service that stores channel lists per provider and supports index-based selection ('kênh 2'), name search, and last-used memory."
-<br>"""
