@@ -29,7 +29,7 @@ def install_ollama():
         return False
 
     installer_url = "https://ollama.com/download/OllamaSetup.exe"
-    temp_dir = Path(os.environ.get("TEMP", "C:/Windows/Temp"))
+    temp_dir = Path(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp")
     installer_path = temp_dir / "OllamaSetup.exe"
 
     try:
@@ -131,26 +131,29 @@ def get_recommended_models() -> list:
     if ram_gb >= 6.5:
         models.extend([
             {"name": "deepseek-r1:1.5b", "desc": t("model.deepseek_15b"), "ram_req": 6},
-            {"name": "qwen2.5:3b", "desc": t("model.qwen_3b"), "ram_req": 8},
-            {"name": "llama3.2:3b", "desc": t("model.llama32_3b"), "ram_req": 8},
+            {"name": "qwen2.5:3b",       "desc": t("model.qwen_3b"),      "ram_req": 8},
+            {"name": "llama3.2:3b",      "desc": t("model.llama32_3b"),   "ram_req": 8},
+            {"name": "gemma3:4b",        "desc": t("model.gemma4_4b"),    "ram_req": 8},
         ])
         
     # 16GB+ RAM
     if ram_gb >= 14:
         models.extend([
-            {"name": "qwen2.5:7b", "desc": t("model.qwen_7b"), "ram_req": 16},
-            {"name": "llama3.1:8b", "desc": t("model.llama31_8b"), "ram_req": 16},
-            {"name": "deepseek-r1:8b", "desc": t("model.deepseek_8b"), "ram_req": 16},
+            {"name": "qwen2.5:7b",       "desc": t("model.qwen_7b"),      "ram_req": 16},
+            {"name": "llama3.1:8b",      "desc": t("model.llama31_8b"),   "ram_req": 16},
+            {"name": "deepseek-r1:8b",   "desc": t("model.deepseek_8b"),  "ram_req": 16},
+            {"name": "gemma3:12b",       "desc": t("model.gemma4_12b"),   "ram_req": 16},
         ])
         
     # 32GB+ RAM
     if ram_gb >= 28:
         models.extend([
-            {"name": "qwen2.5:14b", "desc": t("model.qwen_14b"), "ram_req": 32},
-            {"name": "deepseek-r1:14b", "desc": t("model.deepseek_14b"), "ram_req": 32},
+            {"name": "qwen2.5:14b",      "desc": t("model.qwen_14b"),     "ram_req": 32},
+            {"name": "deepseek-r1:14b",  "desc": t("model.deepseek_14b"), "ram_req": 32},
         ])
         
     return models
+
 
 
 def install_model(model_name: str) -> bool:

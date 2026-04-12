@@ -20,15 +20,15 @@ MESSAGES = {
     "init.lang_saved": "  🌐 语言设置: [green]{lang}[/green]",
 
     # ── Control Panel ─────────────────────────────────────────
-    "panel.title": "⚡ [bold white]TubeCLI 工作台已就绪[/bold white]",
-    "panel.dashboard": "🖥️  在安全浏览器中打开控制面板",
-    "panel.api_keys": "🔑 管理大模型 API Keys (OpenAI/Cloud)",
-    "panel.agents": "🤖 Agents 多智能体管理",
-    "panel.install_model": "🧠 本地部署大语言模型 (Ollama)",
-    "panel.browser_profile": "🌐 启动浏览器环境配置 (Browser Profiles)",
-    "panel.docs": "📖 打开指导文档",
-    "panel.exit": "❌ 退出面板",
-    "panel.select": "\n👉 请输入编号进行操作",
+    "panel.title": "[bold white]TubeCLI 工作台已就绪[/bold white]",
+    "panel.dashboard": "在安全浏览器中打开控制面板",
+    "panel.api_keys": "管理大模型 API Keys (OpenAI/Cloud)",
+    "panel.agents": "Agents 多智能体管理",
+    "panel.install_model": "本地部署大语言模型 (Ollama)",
+    "panel.browser_profile": "启动浏览器环境配置 (Browser Profiles)",
+    "panel.docs": "打开指导文档",
+    "panel.exit": "退出面板",
+    "panel.select": "\n请输入编号进行操作",
     "panel.exiting": "[yellow]正在退出工作台视图。之后任意时刻皆可通过 'zhiying' 指令重返！[/yellow]",
     "panel.opening_dashboard": "\n[cyan]正在渲染 Web 控制面板...[/cyan]",
     "panel.dashboard_opened": "[green]控制面板访问入口已生成: {url}[/green]",
@@ -59,7 +59,7 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Cloud_API 内核拓展调用失败！确保您已经放行它！[/red]",
     "panel.key_status_set": "[green]激活[/green]",
     "panel.key_status_not_set": "[red]空置[/red]",
-    "panel.setup_wizard": "🧙 重新运行安装向导",
+    "panel.setup_wizard": "重新运行安装向导",
 
     # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "🚀 [bold white]欢迎使用 TubeCLI![/bold white]",
@@ -201,4 +201,6 @@ MESSAGES = {
     "model.deepseek_8b": "~4.9GB - 集强到没朋友的超精细 R1 多维精深深度推断为基准底座基础之上的又一代新晋明星产物",
     "model.qwen_14b": "~9.0GB - 重型硬汉般战神 14B 参数超大超算超狠超精准智脑结构体",
     "model.deepseek_14b": "~9.0GB - 深潜巨型 R1 海量数据 14B 版",
+    "model.gemma4_4b": "~3.3GB - Google Gemma 4 最新轻量型，快速精准",
+    "model.gemma4_12b": "~7.9GB - Google Gemma 4 12B，支持图像多模态",
 }
