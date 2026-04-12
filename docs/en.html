@@ -1,0 +1,1292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TubeCLI — Open Source AI Agent CLI System</title>
+    <meta name="description" content="Open-source CLI system to manage AI agents, skills, and workflows. AI agents can read and operate themselves.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-card: #1a1a2e;
+            --bg-card-hover: #222240;
+            --border: #2a2a4a;
+            --text-primary: #e8e8f0;
+            --text-secondary: #9898b8;
+            --text-muted: #6868a0;
+            --accent-cyan: #00d4ff;
+            --accent-purple: #a855f7;
+            --accent-green: #22c55e;
+            --accent-orange: #f59e0b;
+            --accent-pink: #ec4899;
+            --accent-blue: #3b82f6;
+            --gradient-main: linear-gradient(135deg, #00d4ff, #a855f7);
+            --gradient-warm: linear-gradient(135deg, #f59e0b, #ec4899);
+            --gradient-cool: linear-gradient(135deg, #22c55e, #3b82f6);
+            --radius: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        html { scroll-behavior: smooth; }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+            overflow-x: hidden;
+        }
+
+        /* ─── Animated Background ──────────────────────────── */
+        .bg-glow {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        .bg-glow .orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.15;
+            animation: float 20s ease-in-out infinite;
+        }
+        .bg-glow .orb:nth-child(1) { width: 600px; height: 600px; background: var(--accent-cyan); top: -200px; left: -100px; }
+        .bg-glow .orb:nth-child(2) { width: 500px; height: 500px; background: var(--accent-purple); top: 40%; right: -150px; animation-delay: -7s; }
+        .bg-glow .orb:nth-child(3) { width: 400px; height: 400px; background: var(--accent-pink); bottom: -100px; left: 30%; animation-delay: -14s; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) scale(1); }
+            50% { transform: translateY(-60px) scale(1.1); }
+        }
+
+        /* ─── Layout ───────────────────────────────────────── */
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+        section { padding: 80px 0; }
+
+        /* ─── Navigation ───────────────────────────────────── */
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            transition: all 0.3s;
+        }
+        nav .nav-inner {
+            max-width: 1100px; margin: 0 auto; padding: 0 24px;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 64px;
+        }
+        nav .logo { font-weight: 800; font-size: 1.3rem; background: var(--gradient-main); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        nav .nav-links { display: flex; gap: 28px; }
+        nav .nav-links a {
+            color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;
+            transition: color 0.2s; position: relative;
+        }
+        nav .nav-links a:hover { color: var(--accent-cyan); }
+        nav .nav-links a::after {
+            content: ''; position: absolute; bottom: -4px; left: 0; width: 0; height: 2px;
+            background: var(--gradient-main); transition: width 0.3s;
+        }
+        nav .nav-links a:hover::after { width: 100%; }
+        .github-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 16px; border-radius: 8px; font-size: 0.85rem; font-weight: 600;
+            background: var(--bg-card); border: 1px solid var(--border); color: var(--text-primary);
+            text-decoration: none; transition: all 0.2s;
+        }
+        .github-btn:hover { border-color: var(--accent-cyan); background: var(--bg-card-hover); }
+
+        /* ─── Hero ─────────────────────────────────────────── */
+        .hero {
+            padding: 160px 0 100px; text-align: center;
+        }
+        .hero .badge {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 16px; border-radius: 20px; font-size: 0.8rem; font-weight: 600;
+            background: rgba(0, 212, 255, 0.1); border: 1px solid rgba(0, 212, 255, 0.3);
+            color: var(--accent-cyan); margin-bottom: 28px;
+        }
+        .hero .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-green); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem); font-weight: 900; line-height: 1.1;
+            background: linear-gradient(135deg, #fff, #00d4ff, #a855f7);
+            -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+        .hero p { font-size: 1.15rem; color: var(--text-secondary); max-width: 600px; margin: 0 auto 40px; }
+        .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+        .btn-primary {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 32px; border-radius: var(--radius-sm); font-size: 0.95rem; font-weight: 600;
+            background: var(--gradient-main); color: #000; text-decoration: none;
+            transition: all 0.3s; border: none; cursor: pointer;
+        }
+        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(0, 212, 255, 0.3); }
+        .btn-secondary {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 32px; border-radius: var(--radius-sm); font-size: 0.95rem; font-weight: 600;
+            background: var(--bg-card); color: var(--text-primary); text-decoration: none;
+            border: 1px solid var(--border); transition: all 0.3s; cursor: pointer;
+        }
+        .btn-secondary:hover { border-color: var(--accent-purple); transform: translateY(-2px); }
+
+        /* ─── Section Headers ──────────────────────────────── */
+        .section-header { text-align: center; margin-bottom: 56px; }
+        .section-header .label {
+            display: inline-block; padding: 4px 14px; border-radius: 6px;
+            font-size: 0.75rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+        .section-header h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 12px; }
+        .section-header p { color: var(--text-secondary); font-size: 1.05rem; max-width: 550px; margin: 0 auto; }
+
+        /* ─── Architecture Diagram ─────────────────────────── */
+        .arch-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+            margin-bottom: 24px;
+        }
+        .arch-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px;
+            transition: all 0.3s; position: relative; overflow: hidden;
+        }
+        .arch-card:hover { border-color: var(--accent-cyan); transform: translateY(-4px); box-shadow: var(--shadow); }
+        .arch-card .icon { font-size: 2rem; margin-bottom: 12px; }
+        .arch-card h3 { font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; }
+        .arch-card p { color: var(--text-secondary); font-size: 0.9rem; }
+        .arch-card.full { grid-column: 1 / -1; }
+        .arch-card .glow-line {
+            position: absolute; top: 0; left: 0; right: 0; height: 2px;
+            background: var(--gradient-main); opacity: 0; transition: opacity 0.3s;
+        }
+        .arch-card:hover .glow-line { opacity: 1; }
+
+        /* ─── Terminal / Code Block ────────────────────────── */
+        .terminal {
+            background: #0d1117; border: 1px solid #21262d;
+            border-radius: var(--radius); overflow: hidden;
+            margin: 24px 0; box-shadow: var(--shadow);
+        }
+        .terminal-header {
+            display: flex; align-items: center; gap: 8px;
+            padding: 12px 16px; background: #161b22; border-bottom: 1px solid #21262d;
+        }
+        .terminal-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .terminal-dot.red { background: #ff5f57; }
+        .terminal-dot.yellow { background: #febc2e; }
+        .terminal-dot.green { background: #28c840; }
+        .terminal-title { color: var(--text-muted); font-size: 0.8rem; margin-left: 8px; font-family: 'JetBrains Mono', monospace; }
+        .terminal-body {
+            padding: 20px; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem; line-height: 1.8; overflow-x: auto;
+        }
+        .terminal-body .prompt { color: var(--accent-green); }
+        .terminal-body .cmd { color: var(--text-primary); }
+        .terminal-body .comment { color: var(--text-muted); }
+        .terminal-body .output { color: var(--accent-cyan); }
+        .terminal-body .success { color: var(--accent-green); }
+        .terminal-body .arg { color: var(--accent-orange); }
+
+        /* ─── Node Types Table ─────────────────────────────── */
+        .nodes-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .node-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 20px;
+            transition: all 0.3s;
+        }
+        .node-card:hover { border-color: var(--accent-purple); transform: translateY(-2px); }
+        .node-card .node-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+        .node-card .node-icon { font-size: 1.5rem; }
+        .node-card .node-name { font-weight: 700; font-size: 0.95rem; }
+        .node-card .node-type { 
+            font-family: 'JetBrains Mono', monospace; font-size: 0.7rem;
+            padding: 2px 8px; border-radius: 4px; background: rgba(168, 85, 247, 0.15);
+            color: var(--accent-purple);
+        }
+        .node-card .node-desc { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 10px; }
+        .node-card .ports { font-size: 0.8rem; color: var(--text-muted); }
+        .node-card .ports span { color: var(--accent-cyan); }
+
+        /* ─── Workflow Diagram ─────────────────────────────── */
+        .workflow-visual {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 40px;
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; flex-wrap: wrap; margin: 24px 0;
+        }
+        .wf-node {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 16px 20px; border-radius: var(--radius-sm);
+            background: var(--bg-secondary); border: 1px solid var(--border);
+            min-width: 120px; transition: all 0.3s;
+        }
+        .wf-node:hover { border-color: var(--accent-cyan); }
+        .wf-node .wf-icon { font-size: 1.8rem; margin-bottom: 6px; }
+        .wf-node .wf-label { font-size: 0.8rem; font-weight: 600; text-align: center; }
+        .wf-arrow { font-size: 1.5rem; color: var(--accent-cyan); animation: arrow-pulse 1.5s ease-in-out infinite; }
+        @keyframes arrow-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+
+        /* ─── API Endpoints ────────────────────────────────── */
+        .api-table {
+            width: 100%; border-collapse: collapse;
+            background: var(--bg-card); border-radius: var(--radius);
+            overflow: hidden; border: 1px solid var(--border);
+        }
+        .api-table th {
+            text-align: left; padding: 14px 20px; font-weight: 700; font-size: 0.85rem;
+            background: var(--bg-secondary); color: var(--text-secondary);
+            text-transform: uppercase; letter-spacing: 1px;
+        }
+        .api-table td {
+            padding: 12px 20px; border-top: 1px solid var(--border); font-size: 0.9rem;
+        }
+        .api-table tr:hover td { background: var(--bg-card-hover); }
+        .method {
+            font-family: 'JetBrains Mono', monospace; font-size: 0.75rem;
+            padding: 3px 8px; border-radius: 4px; font-weight: 700;
+        }
+        .method.get { background: rgba(34, 197, 94, 0.15); color: var(--accent-green); }
+        .method.post { background: rgba(59, 130, 246, 0.15); color: var(--accent-blue); }
+        .method.put { background: rgba(245, 158, 11, 0.15); color: var(--accent-orange); }
+        .method.delete { background: rgba(236, 72, 153, 0.15); color: var(--accent-pink); }
+        .endpoint { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; color: var(--accent-cyan); }
+
+        /* ─── Skills Cards ─────────────────────────────────── */
+        .skills-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+        }
+        .skill-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+            transition: all 0.3s; cursor: default;
+        }
+        .skill-card:hover { border-color: var(--accent-green); transform: translateY(-4px); box-shadow: var(--shadow); }
+        .skill-card .skill-icon { font-size: 2rem; margin-bottom: 12px; }
+        .skill-card h4 { font-weight: 700; margin-bottom: 6px; }
+        .skill-card p { color: var(--text-secondary); font-size: 0.85rem; }
+
+        /* ─── Footer ───────────────────────────────────────── */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 40px 0; text-align: center;
+            color: var(--text-muted); font-size: 0.85rem;
+        }
+        footer a { color: var(--accent-cyan); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        /* ─── Responsive ───────────────────────────────────── */
+        @media (max-width: 768px) {
+            .arch-grid { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 2rem; }
+            nav .nav-links { display: none; }
+            .workflow-visual { gap: 8px; }
+            .wf-node { min-width: 90px; padding: 12px; }
+        }
+
+        /* ─── Animations ───────────────────────────────────── */
+        .fade-in {
+            opacity: 0; transform: translateY(30px);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .fade-in.visible { opacity: 1; transform: translateY(0); }
+
+        /* ─── Nav Dropdown ─────────────────────────────────── */
+        .nav-dropdown {
+            position: relative;
+        }
+        .nav-dropdown > a {
+            cursor: pointer;
+        }
+        .nav-dropdown > a::after {
+            content: ' ▾';
+            font-size: 0.7em;
+            opacity: 0.6;
+        }
+        .nav-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            min-width: 180px;
+            background: rgba(18, 18, 26, 0.98);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 8px 0;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            z-index: 200;
+        }
+        .nav-dropdown:hover .nav-dropdown-menu {
+            display: block;
+        }
+        .nav-dropdown-menu a {
+            display: block;
+            padding: 8px 20px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .nav-dropdown-menu a:hover {
+            color: var(--accent-cyan);
+            background: rgba(0, 212, 255, 0.05);
+        }
+        .nav-dropdown-menu a::after { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="bg-glow">
+    <div class="orb"></div>
+    <div class="orb"></div>
+    <div class="orb"></div>
+</div>
+
+<!-- ═══ Navigation ═══ -->
+<nav>
+    <div class="nav-inner">
+        <div class="logo">⚡ TubeCLI</div>
+        <div class="nav-links">
+            <a href="#architecture">Architecture</a>
+            <a href="#install">Installation</a>
+            <div class="nav-dropdown">
+                <a>Extensions</a>
+                <div class="nav-dropdown-menu">
+                    <a href="#browser">🌐 Browser</a>
+                    <a href="#teams">👥 Teams</a>
+                    <a href="#studio3d">🏢 3D Studio</a>
+                    <a href="#story">🎬 Story Engine</a>
+                    <a href="#workflow">🔄 Workflow</a>
+                    <a href="#dashboard">🎨 Dashboard</a>
+                    <a href="#market">🛒 Market</a>
+                </div>
+            </div>
+            <a href="#commands">CLI</a>
+            <a href="#api">API</a>
+        </div>
+        <a href="https://github.com/tubecreate/tubecli" target="_blank" class="github-btn">
+            ⭐ GitHub
+        </a>
+    </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section class="hero">
+    <div class="container">
+        <div class="badge"><span class="dot"></span> Open Source • v0.3.0</div>
+        <h1>AI Agent CLI System</h1>
+        <p>Open-source platform managing AI Agents, Workflow Builder, Teams 3D Studio, Story Engine and Browser Automation. Automate tasks with a real-time web interface.</p>
+        <div class="hero-actions">
+            <a href="#install" class="btn-primary">🚀 Get Started</a>
+            <a href="#architecture" class="btn-secondary">📖 Architecture</a>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Architecture ═══ -->
+<section id="architecture">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">ARCHITECTURE</div>
+            <h2>10 Sub-Systems</h2>
+            <p>TubeCLI is built from 10 subsystems working together</p>
+        </div>
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🤖</div>
+                <h3>Agent Manager</h3>
+                <p>Create and manage AI agents with persona, routine, skills, and cloud API keys. JSON storage, CRUD via CLI or API.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">⚡</div>
+                <h3>Skill System</h3>
+                <p>Skills = ready-made workflow templates. 4 default skills. Agents are assigned skills to perform tasks.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔄</div>
+                <h3>Workflow Engine</h3>
+                <p>DAG executor using Kahn's algorithm (topological sort). Nodes connect via ports, supports loop iteration.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>API Server</h3>
+                <p>FastAPI REST server with Swagger docs. CRUD endpoints for agents, skills, workflows. Auto-gen API documentation.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔌</div>
+                <h3>Extension System</h3>
+                <p>Extensible architecture: Browser, Web Dashboard, Marketplace. Enable/disable via CLI, auto-inject commands and API routes.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>Browser Engine</h3>
+                <p>Manage browser profiles, proxy, fingerprint, cookies. Auto-login Google with TOTP 2FA. AI automation via prompts. Profile settings with proxy, OS/device fingerprint, Google Account.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎨</div>
+                <h3>Web Dashboard</h3>
+                <p>SPA web interface at localhost:5295/dashboard. Manage agents, browser profiles (with profile settings ⚙️), workflows, skills, marketplace and settings. Auto-polling browser status in realtime.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">👥</div>
+                <h3>Teams Agents</h3>
+                <p>Multi-agent orchestration: create team from template, hierarchical org chart, auto-delegate tasks to multiple agents by strategy (sequential, parallel, hierarchical).</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🏢</div>
+                <h3>3D Studio</h3>
+                <p>Isometric 3D office (Three.js) with Roblox-style characters. 15+ asset types (desks, chairs, lights...). Per-team scene management. Fullscreen mode.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎬</div>
+                <h3>Story Engine</h3>
+                <p>3D storytelling with a Script Editor that auto-generates dialogue. Play scripts visually via 3D Story Player with Speech Bubbles.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📖</div>
+                <h3>AI Documentation (.agents)</h3>
+                <p>SKILL.md documentation for External AI (Gemini, GPT) to understand the architecture and self-operate, write extension plugins without human intervention.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Installation ═══ -->
+<section id="install">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">INSTALLATION</div>
+            <h2>Get Started in 3 Steps</h2>
+            <p>Quick install and run immediately</p>
+        </div>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">PowerShell</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># 1. Clone & Install</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">git clone</span> <span class="arg">https://github.com/tubecreate/tubecli.git</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">cd</span> <span class="arg">tubecli</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">pip install -e .</span></div>
+                <br>
+                <div><span class="comment"># 2. Initialize workspace</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span> <span class="cmd">--lang</span> <span class="arg">vi</span></div>
+                <div><span class="output">🚀 Initializing TubeCLI workspace...</span></div>
+                <div><span class="output">  📁 Data directory: ./data</span></div>
+                <div><span class="output">  ✅ Added skill: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  ✅ Added skill: 📋 Data Collector</span></div>
+                <div><span class="output">  ✅ Added skill: 📊 Report Generator</span></div>
+                <div><span class="output">  ✅ Added skill: 🔄 Batch Command Runner</span></div>
+                <div><span class="success">✅ TubeCLI workspace ready!</span></div>
+                <br>
+                <div><span class="comment"># 3. Verify</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli --version</span></div>
+                <div><span class="output">tubecli, version 0.1.0</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ CLI Commands ═══ -->
+<section id="commands">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">USAGE</div>
+            <h2>CLI Commands</h2>
+            <p>Manage everything from the terminal</p>
+        </div>
+
+        <!-- Agent Commands -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🤖 Agent Commands</h3>
+        <div class="terminal fade-in" style="margin-bottom: 32px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">Agent Management</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Create a new agent</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent create</span> <span class="arg">"My Bot"</span> <span class="cmd">--description</span> <span class="arg">"Trading assistant"</span> <span class="cmd">--model</span> <span class="arg">"qwen:latest"</span></div>
+                <div><span class="success">✅ Agent created: My Bot</span></div>
+                <div><span class="output">   ID: 069ba003-eca4-7e92...</span></div>
+                <br>
+                <div><span class="comment"># List all</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent list</span></div>
+                <br>
+                <div><span class="comment"># Show details</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent show</span> <span class="arg">"My Bot"</span></div>
+                <br>
+                <div><span class="comment"># Delete agent</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli agent delete</span> <span class="arg">&lt;agent_id&gt;</span></div>
+            </div>
+        </div>
+
+        <!-- Skill Commands -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">⚡ Skill Commands</h3>
+        <div class="terminal fade-in" style="margin-bottom: 32px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">Skill Execution</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># List available skills</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli skill list</span></div>
+                <br>
+                <div><span class="comment"># Run skill with input</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli skill run</span> <span class="arg">"AI Summarizer"</span> <span class="cmd">--input</span> <span class="arg">"Your long text here..."</span></div>
+                <div><span class="output">⚡ Running skill: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  [1/3] Executing: 📝 Input</span></div>
+                <div><span class="output">  [2/3] Executing: 🧠 AI Summarizer</span></div>
+                <div><span class="output">  [3/3] Executing: 📤 Output</span></div>
+                <div><span class="success">✅ Skill completed successfully</span></div>
+            </div>
+        </div>
+
+        <!-- API & Workflow -->
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🌐 API & Workflow</h3>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">API Server & Workflow</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Start API server</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli api start</span> <span class="cmd">--port</span> <span class="arg">5295</span></div>
+                <div><span class="output">🌐 Starting TubeCLI API Server</span></div>
+                <div><span class="output">   URL: http://0.0.0.0:5295</span></div>
+                <div><span class="output">   Docs: http://localhost:5295/api/v1/docs</span></div>
+                <br>
+                <div><span class="comment"># Run workflow from file</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli workflow run</span> <span class="arg">my_workflow.json</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Workflow How It Works ═══ -->
+<section id="workflow">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(59,130,246,0.1); color: var(--accent-blue);">HOW IT WORKS</div>
+            <h2>Workflow Engine</h2>
+            <p>DAG processing: nodes connect via ports, executed in topological order</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💻</div>
+                <h3>Modern Node Builder</h3>
+                <p>Compact node WebUI Workflow Builder design. Supports real-time execution state display (running, success, error) directly on each node.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎛️</div>
+                <h3>Sliding Property Panel</h3>
+                <p>Conveniently edit node parameters via a right-slide panel (without obscuring the diagram). Flexibly switch AI models (Ollama local / Cloud API) within the AI Node.</p>
+            </div>
+        </div>
+
+        <div class="workflow-visual fade-in">
+            <div class="wf-node"><div class="wf-icon">📝</div><div class="wf-label">Text Input</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">🔄</div><div class="wf-label">Loop</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">🧠</div><div class="wf-label">AI Node</div></div>
+            <div class="wf-arrow">→</div>
+            <div class="wf-node"><div class="wf-icon">📤</div><div class="wf-label">Output</div></div>
+        </div>
+
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span><span class="terminal-dot yellow"></span><span class="terminal-dot green"></span>
+                <span class="terminal-title">workflow.json</span>
+            </div>
+            <div class="terminal-body">
+<pre style="color: var(--text-primary);">{
+  <span style="color: var(--accent-cyan);">"name"</span>: <span style="color: var(--accent-green);">"My Workflow"</span>,
+  <span style="color: var(--accent-cyan);">"nodes"</span>: [
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"in"</span>,  <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"text_input"</span>, <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"text"</span>: <span style="color: var(--accent-green);">"Hello world"</span> } },
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"ai_node"</span>,    <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"model"</span>: <span style="color: var(--accent-green);">"qwen:latest"</span> } },
+    { <span style="color: var(--accent-cyan);">"id"</span>: <span style="color: var(--accent-green);">"out"</span>, <span style="color: var(--accent-cyan);">"type"</span>: <span style="color: var(--accent-green);">"output"</span>,    <span style="color: var(--accent-cyan);">"config"</span>: { <span style="color: var(--accent-cyan);">"print"</span>: <span style="color: var(--accent-orange);">true</span> } }
+  ],
+  <span style="color: var(--accent-cyan);">"connections"</span>: [
+    { <span style="color: var(--accent-cyan);">"from_node_id"</span>: <span style="color: var(--accent-green);">"in"</span>,  <span style="color: var(--accent-cyan);">"from_port_id"</span>: <span style="color: var(--accent-green);">"content"</span>,  <span style="color: var(--accent-cyan);">"to_node_id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"to_port_id"</span>: <span style="color: var(--accent-green);">"prompt"</span> },
+    { <span style="color: var(--accent-cyan);">"from_node_id"</span>: <span style="color: var(--accent-green);">"ai"</span>,  <span style="color: var(--accent-cyan);">"from_port_id"</span>: <span style="color: var(--accent-green);">"response"</span>, <span style="color: var(--accent-cyan);">"to_node_id"</span>: <span style="color: var(--accent-green);">"out"</span>, <span style="color: var(--accent-cyan);">"to_port_id"</span>: <span style="color: var(--accent-green);">"data"</span> }
+  ]
+}</pre>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Node Types ═══ -->
+<section id="nodes">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">NODE TYPES</div>
+            <h2>7 Node Types</h2>
+            <p>Each node has typed ports (inputs/outputs) connecting into a workflow DAG</p>
+        </div>
+        <div class="nodes-grid">
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">📝</span>
+                    <span class="node-name">Text Input</span>
+                    <span class="node-type">text_input</span>
+                </div>
+                <div class="node-desc">Provides static text as input for the workflow.</div>
+                <div class="ports">Outputs: <span>content</span>, <span>lines</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🔄</span>
+                    <span class="node-name">Loop</span>
+                    <span class="node-type">loop</span>
+                </div>
+                <div class="node-desc">Iterates over a list of items, executes downstream each iteration.</div>
+                <div class="ports">In: <span>items</span> → Out: <span>current_item</span>, <span>index</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🐍</span>
+                    <span class="node-name">Python Code</span>
+                    <span class="node-type">python_code</span>
+                </div>
+                <div class="node-desc">Run arbitrary Python code. Access inputs via variables.</div>
+                <div class="ports">In: <span>text_input</span>, <span>json_input</span> → Out: <span>result</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🌐</span>
+                    <span class="node-name">API Request</span>
+                    <span class="node-type">api_request</span>
+                </div>
+                <div class="node-desc">HTTP requests (GET/POST/PUT/DELETE) to APIs.</div>
+                <div class="ports">In: <span>url</span>, <span>body</span> → Out: <span>response</span>, <span>status_code</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">💻</span>
+                    <span class="node-name">Run Command</span>
+                    <span class="node-type">run_command</span>
+                </div>
+                <div class="node-desc">Run shell commands, capture stdout and exit code.</div>
+                <div class="ports">In: <span>command</span> → Out: <span>stdout</span>, <span>exit_code</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">🧠</span>
+                    <span class="node-name">AI Inference</span>
+                    <span class="node-type">ai_node</span>
+                </div>
+                <div class="node-desc">Call AI model (Ollama local or Cloud API).</div>
+                <div class="ports">In: <span>prompt</span>, <span>context</span> → Out: <span>response</span></div>
+            </div>
+            <div class="node-card fade-in">
+                <div class="node-header">
+                    <span class="node-icon">📤</span>
+                    <span class="node-name">Output</span>
+                    <span class="node-type">output</span>
+                </div>
+                <div class="node-desc">Display or save the final result to a file.</div>
+                <div class="ports">In: <span>data</span> → Out: <span>file_path</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ API Reference ═══ -->
+<section id="api">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">REST API</div>
+            <h2>API Endpoints</h2>
+            <p>FastAPI server with auto-generated Swagger docs at /api/v1/docs</p>
+        </div>
+        <table class="api-table fade-in">
+            <thead>
+                <tr><th>Method</th><th>Endpoint</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/health</td><td>Health check</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/agents</td><td>List agents</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/agents</td><td>Create agent</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Agent details</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Update agent</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/agents/{id}</td><td>Delete agent</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/skills</td><td>List skills</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/skills</td><td>Create skill</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/skills/{id}</td><td>Delete skill</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/workflows/run</td><td>Run workflow</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/nodes</td><td>List node types</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Default Skills ═══ -->
+<section id="skills">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(34,197,94,0.1); color: var(--accent-green);">BUILT-IN</div>
+            <h2>6 Built-in Skills</h2>
+            <p>Start with industry-standard process templates - supports Markdown Viewer & Real-time Execution</p>
+        </div>
+        
+        <div class="arch-grid" style="margin-bottom: 32px;">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🗂️</div>
+                <h3>Skill Classification</h3>
+                <p>Skills are visually tagged with badges: <span style="background: rgba(34,197,94,0.15); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">Workflow</span> <span style="background: rgba(168,85,247,0.15); color: #a855f7; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">Markdown</span> <span style="background: rgba(0,212,255,0.15); color: #00d4ff; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin: 0 4px;">API</span> to easily categorize automation tools, deep system documentation, and function calls.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">⚡</div>
+                <h3>Visual Run & Inspect</h3>
+                <p>The <strong>Markdown Viewer</strong> modal allows quick viewing of a Skill's source code / instructions without opening a file. The <strong>Run Skill</strong> modal lets you run and track Input/Output step by step with a real-time log stream.</p>
+            </div>
+        </div>
+
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🧠</div>
+                <h4>AI Summarizer</h4>
+                <p>Input text → AI summarizes → Output. Uses Ollama local model.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📋</div>
+                <h4>Data Collector</h4>
+                <p>API request → Parse JSON response → Save to file.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📊</div>
+                <h4>Report Generator</h4>
+                <p>Collect data → AI format → Save report.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔄</div>
+                <h4>Batch Command Runner</h4>
+                <p>Loop → Execute shell commands → Log results.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Extension System ═══ -->
+<section id="extensions">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">EXTENSION SYSTEM</div>
+            <h2>Extension System</h2>
+            <p>Extend TubeCLI via extensions — enable/disable, auto-register CLI commands and API routes</p>
+        </div>
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🌐</div>
+                <h3>Browser Extension</h3>
+                <p>Manage browser profiles with proxy, fingerprint, cookies. Auto-login Google Account on browser launch. Launch/stop browser automation via AI prompts. Profile settings (⚙️) for proxy, OS/device fingerprint, Google Account with TOTP 2FA.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎨</div>
+                <h3>Web UI Extension</h3>
+                <p>Dashboard SPA at localhost:5295/dashboard with 6 tabs: Agents, Browser, Workflows, Skills, Market, Settings. Auto-polling browser status every 5s.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🛒</div>
+                <h3>Market Extension</h3>
+                <p>Browse and install community skills from the marketplace. Search, install, and list skills from the registry.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🔌</div>
+                <h3>Extension Manager</h3>
+                <p>Discover, enable/disable extensions. Auto-inject CLI commands and API routes. Config persists via data/extensions.json.</p>
+            </div>
+        </div>
+        <div class="terminal fade-in">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Extension Management</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># List all extensions</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension list</span></div>
+                <div><span class="output">  browser   0.1.0  ○ Disabled  Browser profile management</span></div>
+                <div><span class="output">  webui     0.1.0  ○ Disabled  Web dashboard</span></div>
+                <div><span class="output">  market    0.1.0  ○ Disabled  Community marketplace</span></div>
+                <br>
+                <div><span class="comment"># Enable extensions</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">browser</span></div>
+                <div><span class="success">✅ Extension 'browser' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">webui</span></div>
+                <div><span class="success">✅ Extension 'webui' enabled.</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli extension enable</span> <span class="arg">market</span></div>
+                <div><span class="success">✅ Extension 'market' enabled.</span></div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Browser Profiles ═══ -->
+<section id="browser">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(0,212,255,0.1); color: var(--accent-cyan);">BROWSER</div>
+            <h2>Browser Automation</h2>
+            <p>Quản lý browser profiles, proxy, fingerprint, cookies — Auto-login Google, AI prompts, Profile Settings</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Browser Commands</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Create browser profile</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser create</span> <span class="arg">"my-profile"</span> <span class="cmd">--proxy</span> <span class="arg">"socks5://user:pass@host:port"</span></div>
+                <div><span class="success">✅ Profile created: my-profile</span></div>
+                <br>
+                <div><span class="comment"># List all profiles</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser profiles</span></div>
+                <div><span class="output">  my-profile  socks5://...  Windows, Chrome  2026-03-18</span></div>
+                <br>
+                <div><span class="comment"># Launch browser with AI prompt</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser launch</span> <span class="arg">"my-profile"</span> <span class="cmd">--prompt</span> <span class="arg">"Go to youtube and subscribe"</span></div>
+                <div><span class="output">🚀 Browser launched</span></div>
+                <div><span class="output">   Instance: browser-a1b2c3d4</span></div>
+                <div><span class="output">   [AutoLogin] Login action completed.</span></div>
+                <br>
+                <div><span class="comment"># Xem status &amp; dừng browser</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser status</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli browser stop</span> <span class="arg">"my-profile"</span></div>
+                <div><span class="output">⏹ Browser 'my-profile' stopped.</span></div>
+                <br>
+                <div><span class="comment"># ═══ Profile Settings (⚙️ on Dashboard) ═══</span></div>
+                <div><span class="comment"># Each profile can be configured with:</span></div>
+                <div><span class="output">  • Proxy: socks5://user:pass@host:port</span></div>
+                <div><span class="output">  • Fingerprint: OS (Windows/macOS) + Browser</span></div>
+                <div><span class="output">  • Google Account: email|password|recovery|2fa_secret</span></div>
+                <br>
+                <div><span class="comment"># Auto-Login Flow when opening browser:</span></div>
+                <div><span class="output">  1. 1. Read google_account from profile config</span></div>
+                <div><span class="output">  2. 2. Check if logged in (myaccount.google.com)</span></div>
+                <div><span class="output">  3. 3. If not → auto enter email/password</span></div>
+                <div><span class="output">  4. 2FA → gọi API /api/v1/browser/2fa (TOTP live code)</span></div>
+                <div><span class="output">  5. 5. Login complete → continue original command</span></div>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🌐 Browser API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>List profiles (with google_account, proxy, fingerprint)</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/profiles</td><td>Create new profile</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Profile details</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Update profile (proxy, fingerprint, google_account)</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/browser/profiles/{name}</td><td>Delete profile</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/launch</td><td>Launch browser (auto-login if google_account exists)</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/browser/stop</td><td>Stop browser</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/status</td><td>Running instances (auto-poll every 5s)</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/log/{profile}</td><td>Read browser instance log file</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/browser/2fa?secret=...</td><td>Generate TOTP 6-digit code from secret key (pyotp)</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Teams Agents ═══ -->
+<section id="teams">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">TEAMS</div>
+            <h2>Teams — Multi-Agent Orchestration</h2>
+            <p>Create AI agent teams, assign roles, auto-delegate tasks by strategy</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">👥</div>
+                <h3>Team Builder</h3>
+                <p>Create team from preset or custom template. Each team has roles, agents assigned to roles, and an execution strategy (sequential, parallel, hierarchical).</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📊</div>
+                <h3>Org Chart & Multi-seat</h3>
+                <p>Drag-and-drop hierarchical org chart. Supports <strong>multi-seat assignment</strong>: one large meeting table can be assigned to multiple agents with smart face-to-face algorithm.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🚀</div>
+                <h3>Task Delegation</h3>
+                <p>Delegate task to the entire team — system auto-assigns to each agent by role and strategy. View each agent's results in realtime.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">📋</div>
+                <h3>Templates</h3>
+                <p>Choose from presets (Dev Team, Marketing, Support...) with predefined roles. Just assign agents and start.</p>
+            </div>
+        </div>
+
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Teams API</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Create team from template</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">POST</span> <span class="arg">/api/v1/multi-agents/teams/from-template</span></div>
+                <div><span class="output">  { "template_id": "dev_team", "name": "My Dev Team", "agent_assignments": {...} }</span></div>
+                <br>
+                <div><span class="comment"># Delegate task to team</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">POST</span> <span class="arg">/api/v1/multi-agents/teams/{id}/delegate</span></div>
+                <div><span class="output">  { "task": "Viết bài marketing cho sản phẩm mới" }</span></div>
+                <div><span class="success">  ✅ 3 agents hoàn thành: Researcher → Writer → Editor</span></div>
+                <br>
+                <div><span class="comment"># View org chart & assign agents</span></div>
+                <div><span class="output">  📊 CEO (🧠 GPT-4) → 📋 Manager (🤖 Qwen) → 💻 Developer (⚡ Gemini)</span></div>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">👥 Teams API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/teams</td><td>List teams</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams</td><td>Create team (custom)</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams/from-template</td><td>Create team from template</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Team details</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Update team (nodes, agents)</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}</td><td>Delete team</td></tr>
+                <tr><td><span class="method post">POST</span></td><td class="endpoint">/api/v1/multi-agents/teams/{id}/delegate</td><td>Delegate task to team</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/templates</td><td>List templates</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/multi-agents/log</td><td>Delegation history</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ 3D Studio ═══ -->
+<section id="studio3d">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">3D STUDIO</div>
+            <h2>3D Office Visualization</h2>
+            <p>Isometric 3D office with Roblox-style characters — visualize AI teams</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🏢</div>
+                <h3>Isometric 3D Office</h3>
+                <p>Three.js renders a 3D workspace with floors, walls, lighting. Each team has its own theme (Dev, Marketing...). Orbit controls camera rotation.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎮</div>
+                <h3>Roblox-style Characters</h3>
+                <p>AI agent characters displayed as 3D blocky figures (round head, box body). Each agent has a name label, hover tooltip, and float animation.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🪑</div>
+                <h3>Procedural Assets & Raycasting</h3>
+                <p>15+ furniture groups created with Procedural Composite Geometry (desks, chairs, rock gardens...). Group Raycasting supports click-select and drag-drop of entire groups.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💾</div>
+                <h3>Scene Management</h3>
+                <p>Save/load room layout per team. Customize room size, floor/wall colors. Scene CRUD API. Fullscreen mode (ESC to exit).</p>
+            </div>
+        </div>
+
+        <h3 style="margin-bottom: 12px; font-size: 1.1rem;">🏢 Studio 3D API Endpoints</h3>
+        <table class="api-table fade-in">
+            <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/studio3d/assets</td><td>Catalog 15+ built-in 3D assets</td></tr>
+                <tr><td><span class="method get">GET</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Get scene layout for team</td></tr>
+                <tr><td><span class="method put">PUT</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Save scene layout (assets, room size, colors)</td></tr>
+                <tr><td><span class="method delete">DEL</span></td><td class="endpoint">/api/v1/studio3d/scenes/{team_id}</td><td>Delete scene</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- ═══ Story Engine ═══ -->
+<section id="story">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(236,72,153,0.1); color: var(--accent-pink);">STORY ENGINE</div>
+            <h2>AI Interactive Story Generation</h2>
+            <p>Automated storytelling system and 3D script performance via Speech Bubbles</p>
+        </div>
+
+        <div class="arch-grid">
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">✍️</div>
+                <h3>AI Script Editor</h3>
+                <p>Auto-generate scripts! Based on your content prompt, AI assigns roles and writes detailed dialogue for each character (agent) in your team.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💬</div>
+                <h3>Speech Bubbles</h3>
+                <p>Agent characters in 3D space communicate via floating speech bubbles, synchronized with actual content reading time.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">🎬</div>
+                <h3>3D Story Player</h3>
+                <p>Play back scripts like a visual video at each Team's 3D Office. Characters automatically face and speak animatedly.</p>
+            </div>
+            <div class="arch-card fade-in">
+                <div class="glow-line"></div>
+                <div class="icon">💾</div>
+                <h3>Save & Export</h3>
+                <p>Save scripts as event sequences. Easily export and share AI-generated conversations.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Web Dashboard ═══ -->
+<section id="dashboard">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(168,85,247,0.1); color: var(--accent-purple);">WEB UI</div>
+            <h2>Web Dashboard</h2>
+            <p>Web interface to manage the entire TubeCLI system at localhost:5295/dashboard</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Start Dashboard</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli init</span></div>
+                <div><span class="output">🚀 Initializing TubeCLI workspace...</span></div>
+                <div><span class="output">✅ TubeCLI workspace successfully initialized!</span></div>
+                <div><span class="output">  Dashboard: http://localhost:5295/dashboard</span></div>
+            </div>
+        </div>
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🤖</div>
+                <h4>Agents Tab</h4>
+                <p>CRUD agents, assign skills, view model. Create/delete directly from dashboard.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🌐</div>
+                <h4>Browser Tab</h4>
+                <p>Manage profiles, launch/stop browser, view running instances in realtime. Profile Settings (⚙️): proxy, fingerprint, Google Account. Auto-login on browser open.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔄</div>
+                <h4>Workflows Tab</h4>
+                <p>View available node types, run workflows, track execution logs.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">⚡</div>
+                <h4>Skills Tab</h4>
+                <p>List installed skills, run skills directly from dashboard.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🛒</div>
+                <h4>Market Tab</h4>
+                <p>Browse marketplace, search skills, install community skills.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">⚙️</div>
+                <h4>Settings Tab</h4>
+                <p>Configure API port, AI model, API base URL. Persist settings.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Marketplace ═══ -->
+<section id="market">
+    <div class="container">
+        <div class="section-header fade-in">
+            <div class="label" style="background: rgba(245,158,11,0.1); color: var(--accent-orange);">MARKETPLACE</div>
+            <h2>Community Skills</h2>
+            <p>Install skills from the community marketplace — Search, install, and use</p>
+        </div>
+        <div class="terminal fade-in" style="margin-bottom: 24px;">
+            <div class="terminal-header">
+                <span class="terminal-dot red"></span>
+                <span class="terminal-dot yellow"></span>
+                <span class="terminal-dot green"></span>
+                <span class="terminal-title">Marketplace</span>
+            </div>
+            <div class="terminal-body">
+                <div><span class="comment"># Search skills</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market search</span> <span class="arg">"youtube"</span></div>
+                <div><span class="output">  🎬 YouTube Uploader   community   Auto upload videos with SEO</span></div>
+                <br>
+                <div><span class="comment"># Install skill</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market install</span> <span class="arg">youtube-uploader</span></div>
+                <div><span class="success">✅ Installed: 🎬 YouTube Uploader</span></div>
+                <br>
+                <div><span class="comment"># Browse all marketplace skills</span></div>
+                <div><span class="prompt">❯ </span><span class="cmd">tubecli market list</span></div>
+            </div>
+        </div>
+        <div class="skills-grid">
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🎬</div>
+                <h4>YouTube Uploader</h4>
+                <p>Auto upload videos to YouTube with SEO optimization.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📱</div>
+                <h4>TikTok Poster</h4>
+                <p>Post content to TikTok automatically.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📧</div>
+                <h4>Email Sender</h4>
+                <p>Batch email sending with templates.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🕷️</div>
+                <h4>Web Scraper</h4>
+                <p>Extract data from websites via CSS selectors.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">📤</div>
+                <h4>Social Poster</h4>
+                <p>Post to multiple social platforms at once.</p>
+            </div>
+            <div class="skill-card fade-in">
+                <div class="skill-icon">🔍</div>
+                <h4>SEO Analyzer</h4>
+                <p>Analyze website SEO metrics and rankings.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ═══ Footer ═══ -->
+<footer>
+    <div class="container">
+        <p>⚡ <strong>TubeCLI</strong> v0.3.0 — Open Source AI Agent CLI System</p>
+        <p style="margin-top: 8px;">
+            <a href="https://github.com/tubecreate/tubecli">GitHub</a> &nbsp;·&nbsp;
+            MIT License &nbsp;·&nbsp;
+            Made with 🤖 by TubeCreate Team
+        </p>
+    </div>
+</footer>
+
+<!-- ═══ JavaScript ═══ -->
+<script>
+// ─── Scroll Animations ───────────────────────────────────
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+        }
+    });
+}, { threshold: 0.1, rootMargin: '0px 0px -50px 0px' });
+
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+// ─── Smooth Nav Scroll ───────────────────────────────────
+document.querySelectorAll('nav a[href^="#"]').forEach(link => {
+    link.addEventListener('click', e => {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+});
+
+// ─── Nav Background on Scroll ────────────────────────────
+const nav = document.querySelector('nav');
+window.addEventListener('scroll', () => {
+    if (window.scrollY > 80) {
+        nav.style.background = 'rgba(10, 10, 15, 0.95)';
+        nav.style.borderBottomColor = 'rgba(42, 42, 74, 0.8)';
+    } else {
+        nav.style.background = 'rgba(10, 10, 15, 0.8)';
+        nav.style.borderBottomColor = 'var(--border)';
+    }
+});
+
+// ─── Typing Effect on Hero ───────────────────────────────
+const badge = document.querySelector('.hero .badge');
+if (badge) {
+    badge.style.opacity = '0';
+    badge.style.transform = 'translateY(10px)';
+    setTimeout(() => {
+        badge.style.transition = 'all 0.5s ease';
+        badge.style.opacity = '1';
+        badge.style.transform = 'translateY(0)';
+    }, 300);
+}
+
+// ─── Workflow Arrow Animation ────────────────────────────
+const arrows = document.querySelectorAll('.wf-arrow');
+arrows.forEach((arrow, i) => {
+    arrow.style.animationDelay = `${i * 0.3}s`;
+});
+
+// ─── Node Card Stagger ───────────────────────────────────
+document.querySelectorAll('.node-card.fade-in').forEach((card, i) => {
+    card.style.transitionDelay = `${i * 0.08}s`;
+});
+
+console.log('⚡ TubeCLI Documentation loaded EN');
+</script>
+
+</body>
+</html>

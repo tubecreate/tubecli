@@ -51,6 +51,7 @@ tubecli/extensions/browser/test_*.py
 # === PROJECT ROOT SCRATCH / TEMP FILES ===
 _check_syntax.py
 check_cross_platform.py
+generate_docs.py
 scratch_*.py
 dump_*.py
 skills.json
