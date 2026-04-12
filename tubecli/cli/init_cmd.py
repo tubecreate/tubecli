@@ -594,8 +594,19 @@ def _run_control_panel():
             
         elif choice == "6":
             console.print(t("panel.documentation"))
-            from tubecli.config import BASE_DIR
-            docs_path = BASE_DIR / "docs" / "index.html"
+            from tubecli.config import BASE_DIR, get_language
+            lang = get_language()
+            # Map language to docs file
+            lang_doc_map = {
+                "vi":  "index.html",
+                "en":  "en.html",
+                "zh":  "zh.html",
+            }
+            doc_file = lang_doc_map.get(lang, "index.html")
+            docs_path = BASE_DIR / "docs" / doc_file
+            # Fallback to index.html if lang-specific file not found
+            if not docs_path.exists():
+                docs_path = BASE_DIR / "docs" / "index.html"
             if docs_path.exists():
                 try:
                     import webbrowser
