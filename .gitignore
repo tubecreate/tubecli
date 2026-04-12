@@ -52,5 +52,8 @@ tubecli/extensions/browser/test_*.py
 _check_syntax.py
 check_cross_platform.py
 scratch_*.py
+dump_*.py
+skills.json
+skills_dump.json
 *.bak
 *.tmp
