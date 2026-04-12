@@ -28,3 +28,29 @@ open_head.js
 *.pth
 *.onnx
 *.bin
+
+# === BROWSER RUNTIME DATA (không cần push lên git) ===
+tubecli/extensions/browser/profiles/
+tubecli/extensions/browser/screenshots/
+tubecli/extensions/browser/scraped_data/
+tubecli/extensions/browser/script/
+
+# === DEV-ONLY ONE-TIME SCRIPTS ===
+tubecli/extensions/browser/add_*.py
+tubecli/extensions/browser/fix_*.py
+tubecli/extensions/browser/insert_*.py
+tubecli/extensions/browser/cleanup_*.py
+tubecli/extensions/browser/update_context.py
+tubecli/extensions/browser/update_open.py
+tubecli/extensions/browser/update_session_manager*.py
+tubecli/extensions/browser/verify_fingerprint_config.js
+tubecli/extensions/browser/quantum_philosopher.json
+tubecli/extensions/browser/test_*.js
+tubecli/extensions/browser/test_*.py
+
+# === PROJECT ROOT SCRATCH / TEMP FILES ===
+_check_syntax.py
+check_cross_platform.py
+scratch_*.py
+*.bak
+*.tmp
