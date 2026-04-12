@@ -60,6 +60,11 @@ MESSAGES = {
     "panel.key_status_set": "[green]Set[/green]",
     "panel.key_status_not_set": "[red]Not set[/red]",
     "panel.setup_wizard": "Run Setup Wizard Again",
+    "panel.toggle_logs": "Toggle API Logs",
+    "panel.logs_on": "ON",
+    "panel.logs_off": "OFF",
+    "panel.toggle_logs_msg": "API logs toggled",
+    "panel.api_restarting": "[cyan]Restarting API server...[/cyan]",
 
     # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "🚀 [bold white]Welcome to TubeCLI![/bold white]",

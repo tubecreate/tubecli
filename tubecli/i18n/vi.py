@@ -34,7 +34,7 @@ MESSAGES = {
     "panel.dashboard_opened": "[green]Dashboard đã mở tại {url}[/green]",
     "panel.dashboard_error": "[red]Không thể mở trình duyệt tự động. Vui lòng mở {url}[/red]",
     "panel.api_key_title": "🔑 [bold white]Cấu hình API Key[/bold white]",
-    "panel.select_provider": "\n👉 Chọn provider để cấu hình (hoặc 0 để quay lại)",
+    "panel.select_provider": "\nChọn provider để cấu hình (hoặc 0 để quay lại)",
     "panel.configuring": "\n[cyan]Đang cấu hình {name}...[/cyan]",
     "panel.enter_key": "Nhập API Key mới (hoặc Enter để hủy)",
     "panel.key_saved": "[green]✅ API Key {name} đã lưu thành công![/green]",
@@ -44,7 +44,7 @@ MESSAGES = {
     "panel.return_main": "🔙 Quay lại Menu Chính",
     "panel.agent_management": "\n[cyan]Quản lý Agent:[/cyan]",
     "panel.agent_help": "\n[yellow]Chạy 'tubecli agent --help' để xem thêm lệnh.[/yellow]",
-    "panel.model_installer_title": "\n[bold cyan]🧠 Trình cài đặt mô hình AI (Ollama)[/bold cyan]",
+    "panel.model_installer_title": "\n[bold cyan]Trình cài đặt mô hình AI (Ollama)[/bold cyan]",
     "panel.models_recommended": "\n[bold]Các mô hình phù hợp với RAM hệ thống:[/bold]",
     "panel.select_model": "\nChọn mô hình để cài đặt",
     "panel.install_cancelled": "[yellow]Đã hủy cài đặt.[/yellow]",
@@ -60,6 +60,11 @@ MESSAGES = {
     "panel.key_status_set": "[green]Đã cài[/green]",
     "panel.key_status_not_set": "[red]Chưa cài[/red]",
     "panel.setup_wizard": "Chạy lại Trình hướng dẫn cài đặt",
+    "panel.toggle_logs": "Bật/Tắt log API",
+    "panel.logs_on": "BT",
+    "panel.logs_off": "TT",
+    "panel.toggle_logs_msg": "Đã chuyển chế độ log API",
+    "panel.api_restarting": "[cyan]Đang khởi động lại API server...[/cyan]",
 
     # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "🚀 [bold white]Chào mừng đến TubeCLI![/bold white]",
@@ -201,6 +206,6 @@ MESSAGES = {
     "model.deepseek_8b": "Khoảng 4.9GB - Model R1 mạnh nhưng vẫn nhẹ",
     "model.qwen_14b": "Khoảng 9.0GB - Model 14B cực mạnh mẽ",
     "model.deepseek_14b": "Khoảng 9.0GB - DeepSeek R1 14B",
-    "model.gemma4_4b": "~3.3GB - Google Gemma 4 mới nhất: nhị, nhanh",
-    "model.gemma4_12b": "~7.9GB - Google Gemma 4 12B, hỗ trợ ảnh ",
+    "model.gemma4_4b": "~3.3GB - Google Gemma 4 mới nhất, nhẹ và nhanh",
+    "model.gemma4_12b": "~7.9GB - Google Gemma 4 12B, hỗ trợ ảnh đa phương thức",
 }
