@@ -18,7 +18,9 @@ def api_cmd():
 @click.option("--host", "-h", default="0.0.0.0", help="Host to bind")
 @click.option("--lang", "-l", default=None, type=click.Choice(["vi", "en"]),
               help="UI language (vi=Vietnamese, en=English). Saves to settings.")
-def start(port, host, lang):
+@click.option("--quiet", "-q", is_flag=True, default=False,
+              help="Suppress HTTP access logs (runs silently in background)")
+def start(port, host, lang, quiet):
     """Start the API server."""
     from tubecli.config import get_api_port
     import uvicorn
@@ -32,18 +34,21 @@ def start(port, host, lang):
         set_language(lang)
         load_language(lang)
 
-    console.print(f"\n🌐 [bold cyan]Starting TubeCLI API Server[/bold cyan]")
-    console.print(f"   URL: [green]http://{host}:{actual_port}[/green]")
-    console.print(f"   Docs: [green]http://localhost:{actual_port}/api/v1/docs[/green]")
-    if lang:
-        console.print(f"   Lang: [green]{lang}[/green]")
-    console.print(f"   Press Ctrl+C to stop.\n")
+    if not quiet:
+        console.print(f"\n[bold cyan]Starting TubeCLI API Server[/bold cyan]")
+        console.print(f"   URL: [green]http://{host}:{actual_port}[/green]")
+        console.print(f"   Docs: [green]http://localhost:{actual_port}/api/v1/docs[/green]")
+        if lang:
+            console.print(f"   Lang: [green]{lang}[/green]")
+        console.print(f"   Press Ctrl+C to stop.\n")
 
     uvicorn.run(
         "tubecli.api.server:app",
         host=host,
         port=actual_port,
         reload=False,
+        log_level="error" if quiet else "info",
+        access_log=not quiet,
     )
 
 

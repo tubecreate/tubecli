@@ -460,37 +460,49 @@ def _run_control_panel():
     from tubecli.i18n import t
     import json
     import os
-    
+
     port = get_api_port()
+    show_api_logs = False  # Default: quiet mode (no INFO spam)
 
-    # Kill any existing server on this port, then restart to pick up new extension routes
-    _kill_server_on_port(port)
-    import time
-    time.sleep(1)  # Brief wait for port to free up
+    def _start_api(quiet: bool):
+        """Start/restart API server with given log mode."""
+        _kill_server_on_port(port)
+        import time
+        time.sleep(1)
+        cmd = f"tubecli api start{' --quiet' if quiet else ''}"
+        if os.name == "nt":
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=flags)
+        else:
+            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(2)
 
+    # Initial start — quiet by default
     console.print(t("panel.api_starting", port=port))
-    if os.name == "nt":
-        creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-        subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=creation_flags)
-    else:
-        subprocess.Popen("tubecli api start", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    _start_api(quiet=True)
     console.print(t("panel.api_started"))
-    time.sleep(2)  # Wait for server to be ready
+
+    import time
 
     while True:
-        console.print("\n[bold cyan]╔══════════════════════════════════════════════╗[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]       {t('panel.title')}             [bold cyan]║[/bold cyan]")
+        # ── Clear screen then draw menu cleanly ──────────────────
+        os.system("cls" if os.name == "nt" else "clear")
+        log_status = t("panel.logs_on") if show_api_logs else t("panel.logs_off")
+        console.print("[bold cyan]╔══════════════════════════════════════════════╗[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  {t('panel.title'):^44}[bold cyan]║[/bold cyan]")
         console.print("[bold cyan]╠══════════════════════════════════════════════╣[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]1.[/bold yellow] {t('panel.dashboard')}            [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]2.[/bold yellow] {t('panel.api_keys')}    [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]3.[/bold yellow] {t('panel.agents')}                         [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]4.[/bold yellow] {t('panel.install_model')}             [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]5.[/bold yellow] {t('panel.browser_profile')}                [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]6.[/bold yellow] {t('panel.docs')}                    [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]7.[/bold yellow] {t('panel.setup_wizard')}         [bold cyan]║[/bold cyan]")
-        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]0.[/bold yellow] {t('panel.exit')}                                   [bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]1.[/bold yellow] {t('panel.dashboard'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]2.[/bold yellow] {t('panel.api_keys'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]3.[/bold yellow] {t('panel.agents'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]4.[/bold yellow] {t('panel.install_model'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]5.[/bold yellow] {t('panel.browser_profile'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]6.[/bold yellow] {t('panel.docs'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]7.[/bold yellow] {t('panel.setup_wizard'):<42}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]8.[/bold yellow] {t('panel.toggle_logs')} [{log_status}]{'':>19}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]0.[/bold yellow] {t('panel.exit'):<42}[bold cyan]║[/bold cyan]")
         console.print("[bold cyan]╚══════════════════════════════════════════════╝[/bold cyan]")
-        
+
         choice = click.prompt(t("panel.select"), type=str, default="1")
         
         if choice == "0":
@@ -618,6 +630,14 @@ def _run_control_panel():
 
         elif choice == "7":
             _run_setup_wizard()
-                
+
+        elif choice == "8":
+            show_api_logs = not show_api_logs
+            mode = t("panel.logs_on") if show_api_logs else t("panel.logs_off")
+            console.print(f"[cyan]{t('panel.toggle_logs_msg')} → [{mode}][/cyan]")
+            console.print(t("panel.api_restarting"))
+            _start_api(quiet=not show_api_logs)
+            console.print(t("panel.api_started"))
+
         else:
             console.print(t("panel.invalid_selection"))
