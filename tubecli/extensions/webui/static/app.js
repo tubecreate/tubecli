@@ -167,7 +167,7 @@ async function loadDynamicExtensionsToSidebar() {
     extensions.forEach(ext => {
         const hardcodedExtensions = [
             'web_crawler', 'sheets_manager', 'calendar_manager', 
-            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager', 'subtitle_extractor'
+            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager', 'subtitle_extractor', 'ai_arena'
         ];
         
         // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
@@ -738,9 +738,9 @@ async function renderCalendarManagerExt(el) {
     // ── Account Selector (top-right, like Sheets Manager) ──
     h += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:15px">
         <div style="display:flex;align-items:center;gap:12px">
-            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--cyan)">${calendars.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Calendars</div></div>
-            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--green)">${events.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Events</div></div>
-            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--purple)">${reminderSettings.minutes_before || 15}m</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Reminder</div></div>
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--cyan)">${calendars.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">${T('cal.calendars', 'Calendars')}</div></div>
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--green)">${events.length}</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">${T('cal.events', 'Events')}</div></div>
+            <div class="ext-info-card" style="min-width:80px;padding:12px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;text-align:center"><div class="info-value" style="font-size:1.4rem;font-weight:700;color:var(--purple)">${reminderSettings.minutes_before || 15}m</div><div class="info-label" style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">${T('cal.reminder', 'Reminder')}</div></div>
         </div>
         <div style="display:flex;align-items:center;gap:12px">
             <div style="position:relative">
@@ -760,8 +760,8 @@ async function renderCalendarManagerExt(el) {
     if (!hasAuth) {
         h += `<div style="background:linear-gradient(135deg,rgba(239,68,68,0.1),rgba(245,158,11,0.1));border:1px solid rgba(239,68,68,0.3);border-radius:16px;padding:32px;margin-bottom:24px;text-align:center;box-shadow:0 8px 24px rgba(0,0,0,0.1)">
             <div style="font-size:56px;margin-bottom:16px;filter:drop-shadow(0 4px 8px rgba(0,0,0,0.2))">🔐</div>
-            <h3 style="color:var(--text);margin-bottom:12px;font-size:1.4rem">Chưa xác thực Google Calendar</h3>
-            <p style="color:var(--text-muted);margin-bottom:24px;font-size:1rem;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.5">Vào <strong>Auth Manager</strong> → Thêm Google OAuth credential với scope <code>calendar</code> → Authorize email của bạn để cấp quyền.</p>
+            <h3 style="color:var(--text);margin-bottom:12px;font-size:1.4rem">${T('cal.no_auth_title', 'Chưa xác thực Google Calendar')}</h3>
+            <p style="color:var(--text-muted);margin-bottom:24px;font-size:1rem;max-width:500px;margin-left:auto;margin-right:auto;line-height:1.5">${T('cal.no_auth_desc', 'Vào <strong>Auth Manager</strong> → Thêm Google OAuth credential với scope <code>calendar</code> → Authorize email của bạn để cấp quyền.')}</p>
         </div>`;
     }
 
@@ -774,13 +774,13 @@ async function renderCalendarManagerExt(el) {
     // ── Events List ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px">
-            <h3 style="color:var(--cyan);margin:0;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">📋</span> Sự kiện sắp tới</h3>
+            <h3 style="color:var(--cyan);margin:0;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">📋</span> ${T('cal.upcoming_events', 'Sự kiện sắp tới')}</h3>
         </div>`;
 
     if (events.length === 0) {
         h += `<div style="text-align:center;padding:40px 20px;background:var(--bg);border-radius:12px;border:1px dashed var(--border)">
             <div style="font-size:2rem;margin-bottom:12px;opacity:0.5">📭</div>
-            <p class="text-muted" style="margin:0">Không có sự kiện nào trong 7 ngày tới.</p>
+            <p class="text-muted" style="margin:0">${T('cal.no_events_7_days', 'Không có sự kiện nào trong 7 ngày tới.')}</p>
             </div>`;
     } else {
         h += `<div style="display:flex;flex-direction:column;gap:12px;max-height:500px;overflow-y:auto;padding-right:8px" class="custom-scrollbar">`;
@@ -809,17 +809,17 @@ async function renderCalendarManagerExt(el) {
 
     // ── Reminder Settings ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-        <h3 style="color:var(--yellow);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">🔔</span> Cài đặt nhắc nhở Telegram</h3>
+        <h3 style="color:var(--yellow);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">🔔</span> ${T('cal.telegram_settings', 'Cài đặt nhắc nhở Telegram')}</h3>
         <div style="display:flex;gap:16px;align-items:flex-end;background:var(--bg2);padding:16px;border-radius:12px;border:1px solid var(--border)">
             <div style="flex:1">
-                <label style="display:block;margin-bottom:8px;font-size:.85rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">Nhắc trước (phút)</label>
+                <label style="display:block;margin-bottom:8px;font-size:.85rem;font-weight:600;color:var(--text-muted);text-transform:uppercase">${T('cal.remind_before_min', 'Nhắc trước (phút)')}</label>
                 <div style="position:relative">
                     <input id="cal-reminder-min" type="number" value="${reminderSettings.minutes_before || 15}" min="1" max="1440"
                         style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:1.1rem;font-weight:600">
                     <span style="position:absolute;right:16px;top:50%;transform:translateY(-50%);color:var(--text-muted);pointer-events:none">phút</span>
                 </div>
             </div>
-            <button class="btn-primary" onclick="calSaveReminder()" style="padding:12px 24px;border-radius:8px;font-weight:600;display:flex;align-items:center;gap:8px;height:47px"><span>💾</span> Lưu cài đặt</button>
+            <button class="btn-primary" onclick="calSaveReminder()" style="padding:12px 24px;border-radius:8px;font-weight:600;display:flex;align-items:center;gap:8px;height:47px"><span>💾</span> ${T('cal.save_settings', 'Lưu cài đặt')}</button>
         </div>
     </div>`;
 
@@ -832,64 +832,64 @@ async function renderCalendarManagerExt(el) {
     // ── Quick Add ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05);position:relative;overflow:hidden">
         <div style="position:absolute;top:-10px;right:-10px;font-size:100px;opacity:0.02;pointer-events:none transform:rotate(15deg)">⚡</div>
-        <h3 style="color:var(--cyan);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px;position:relative"><span style="font-size:1.4rem">⚡</span> Quick Add Event</h3>
-        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;position:relative">Sử dụng ngôn ngữ tự nhiên để thêm sự kiện siêu tốc.</p>
+        <h3 style="color:var(--cyan);margin-bottom:16px;font-size:1.2rem;display:flex;align-items:center;gap:8px;position:relative"><span style="font-size:1.4rem">⚡</span> ${T('cal.quick_add_title', 'Quick Add Event')}</h3>
+        <p style="color:var(--text-muted);font-size:0.9rem;margin-bottom:16px;position:relative">${T('cal.quick_add_desc', 'Sử dụng ngôn ngữ tự nhiên để thêm sự kiện siêu tốc.')}</p>
         <div style="display:flex;flex-direction:column;gap:12px;position:relative">
-            <input id="cal-quick-text" type="text" placeholder='Ví dụ: "Meeting chiều mai 2h", "Livestream tiktok mỗi 8h tối"'
+            <input id="cal-quick-text" type="text" placeholder='${T('cal.quick_add_placeholder', 'Ví dụ: "Meeting chiều mai 2h", "Livestream tiktok mỗi 8h tối"')}'
                 style="width:100%;padding:14px 16px;border:1px solid rgba(6,182,212,0.3);border-radius:10px;background:var(--bg);color:var(--text);font-size:1rem;transition:all 0.2s"
                 onfocus="this.style.borderColor='var(--cyan)';this.style.boxShadow='0 0 0 2px rgba(6,182,212,0.1)'"
                 onblur="this.style.borderColor='rgba(6,182,212,0.3)';this.style.boxShadow='none'"
                 onkeydown="if(event.key==='Enter')calQuickAdd()">
-            <button class="btn-primary" onclick="calQuickAdd()" style="padding:14px;border-radius:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--cyan), #0284c7)"><span>✨</span> Thêm thông minh</button>
+            <button class="btn-primary" onclick="calQuickAdd()" style="padding:14px;border-radius:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--cyan), #0284c7)"><span>✨</span> ${T('cal.quick_add_btn', 'Thêm thông minh')}</button>
         </div>
         <div id="cal-quick-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
     </div>`;
 
     // ── Create Event Form ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-        <h3 style="color:var(--purple);margin-bottom:20px;font-size:1.2rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px"><span style="font-size:1.4rem">📝</span> Tạo sự kiện chi tiết</h3>
+        <h3 style="color:var(--purple);margin-bottom:20px;font-size:1.2rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px"><span style="font-size:1.4rem">📝</span> ${T('cal.create_event_title', 'Tạo sự kiện chi tiết')}</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div style="grid-column:span 2">
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Tên sự kiện *</label>
-                <input id="cal-summary" type="text" placeholder="Livestream tối, Meeting kế hoạch..."
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.event_name', 'Tên sự kiện *')}</label>
+                <input id="cal-summary" type="text" placeholder="${T('cal.event_name_placeholder', 'Livestream tối, Meeting kế hoạch...')}"
                     style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem">
             </div>
             <div>
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Bắt đầu *</label>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.start_time', 'Bắt đầu *')}</label>
                 <input id="cal-start" type="datetime-local" style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem"
                        onfocus="this.showPicker && this.showPicker()">
             </div>
             <div>
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Kết thúc</label>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.end_time', 'Kết thúc')}</label>
                 <input id="cal-end" type="datetime-local" style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem"
                        onfocus="this.showPicker && this.showPicker()">
             </div>
             <div style="grid-column:span 2">
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Mô tả chi tiết</label>
-                <textarea id="cal-desc" placeholder="Agenda buổi meeting, link zoom..." rows="3"
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.description', 'Mô tả chi tiết')}</label>
+                <textarea id="cal-desc" placeholder="${T('cal.desc_placeholder', 'Agenda buổi meeting, link zoom...')}" rows="3"
                     style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;resize:vertical;font-family:inherit"></textarea>
             </div>
             <div>
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Lặp lại (Recurring)</label>
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.recurring', 'Lặp lại (Recurring)')}</label>
                 <div style="position:relative">
                     <select id="cal-recurrence" style="appearance:none;width:100%;padding:12px 36px 12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem;cursor:pointer">
-                        <option value="">Không lặp lại</option>
-                        <option value="RRULE:FREQ=DAILY">🔄 Hằng ngày</option>
-                        <option value="RRULE:FREQ=WEEKLY">🔄 Hằng tuần</option>
-                        <option value="RRULE:FREQ=MONTHLY">🔄 Hằng tháng</option>
-                        <option value="RRULE:FREQ=DAILY;COUNT=30">🔄 Hằng ngày (30 ngày)</option>
-                        <option value="RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR">🔄 T2, T4, T6</option>
+                        <option value="">${T('cal.rec_none', 'Không lặp lại')}</option>
+                        <option value="RRULE:FREQ=DAILY">${T('cal.rec_daily', '🔄 Hằng ngày')}</option>
+                        <option value="RRULE:FREQ=WEEKLY">${T('cal.rec_weekly', '🔄 Hằng tuần')}</option>
+                        <option value="RRULE:FREQ=MONTHLY">${T('cal.rec_monthly', '🔄 Hằng tháng')}</option>
+                        <option value="RRULE:FREQ=DAILY;COUNT=30">${T('cal.rec_daily_30', '🔄 Hằng ngày (30 ngày)')}</option>
+                        <option value="RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR">${T('cal.rec_weekly_246', '🔄 T2, T4, T6')}</option>
                     </select>
                     <div style="position:absolute;right:14px;top:50%;transform:translateY(-50%);pointer-events:none;color:var(--text-muted);font-size:0.8rem">▼</div>
                 </div>
             </div>
             <div>
-                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">Địa điểm / Nền tảng</label>
-                <input id="cal-location" type="text" placeholder="Google Meet, Tiktok..."
+                <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.location', 'Địa điểm / Nền tảng')}</label>
+                <input id="cal-location" type="text" placeholder="${T('cal.location_placeholder', 'Google Meet, Tiktok...')}"
                     style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem">
             </div>
         </div>
-        <button class="btn-primary" onclick="calCreateEvent()" style="margin-top:24px;width:100%;padding:14px;font-weight:600;font-size:1.05rem;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--purple), #be185d)"><span>📅</span> Lưu sự kiện</button>
+        <button class="btn-primary" onclick="calCreateEvent()" style="margin-top:24px;width:100%;padding:14px;font-weight:600;font-size:1.05rem;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--purple), #be185d)"><span>📅</span> ${T('cal.save_event', 'Lưu sự kiện')}</button>
         <div id="cal-create-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
     </div>`;
 
