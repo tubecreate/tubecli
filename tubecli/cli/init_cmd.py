@@ -465,17 +465,26 @@ def _run_control_panel():
     show_api_logs = False  # Default: quiet mode (no INFO spam)
 
     def _start_api(quiet: bool):
-        """Start/restart API server with given log mode."""
+        """Start/restart API server — always hidden (no console window)."""
         _kill_server_on_port(port)
         import time
-        time.sleep(1)
         cmd = f"tubecli api start{' --quiet' if quiet else ''}"
+        env = os.environ.copy()
+        env["PYTHONUTF8"] = "1"  # Ensure UTF-8 output even if hidden
         if os.name == "nt":
-            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             creationflags=flags)
+            CREATE_NO_WINDOW = 0x08000000  # Completely suppress console window
+            subprocess.Popen(
+                cmd, shell=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=CREATE_NO_WINDOW,
+                env=env,
+            )
         else:
-            subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(
+                cmd, shell=True,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=env,
+            )
         time.sleep(2)
 
     # Initial start — quiet by default
