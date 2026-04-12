@@ -604,7 +604,7 @@ async function main() {
   const instanceId = args['instance-id'] || null; // Instance ID from BrowserProcessManager
   const proxyArg = args['proxy'] || ''; // CLI override
   const skipProxyCheck = args['skip-proxy-check'] || false;
-  const profilesDir = args['profiles-dir'] || './profiles'; // Custom profiles directory from ZhiYing
+  const profilesDir = args['profiles-dir'] || './profiles'; // Custom profiles directory from TubeCLI
   const startUrlArg = args['url'] || ''; // URL to open directly (e.g. OAuth callback)
   global._profilesDir = profilesDir;
   let proxy = proxyArg;

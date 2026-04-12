@@ -1,5 +1,5 @@
 /**
- * ZhiYing Dashboard — SPA Logic
+ * TubeCLI Dashboard — SPA Logic
  * Dashboard → Extensions → API Manager → Settings
  */
 const API = localStorage.getItem('zhiying_api') || 'http://localhost:5295';
@@ -58,6 +58,23 @@ function activateTab(tab) {
     if (tab.startsWith('ext-')) {
         const iframe = panel?.querySelector('iframe.ext-iframe[data-src]');
         if (iframe && (!iframe.getAttribute('src') || iframe.getAttribute('src') === '')) {
+            const container = iframe.parentElement;
+            
+            // Add loading spinner UI
+            const loader = document.createElement('div');
+            loader.className = 'iframe-loader';
+            loader.innerHTML = '<div class="iframe-loader-spinner"></div><div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">' + (typeof window.T === "function" ? window.T("app.loading_ext") : "Initializing Extension...") + '</div>';
+            container.appendChild(loader);
+            
+            iframe.style.opacity = '0';
+            
+            iframe.onload = () => {
+                iframe.style.opacity = '1';
+                loader.style.opacity = '0';
+                setTimeout(() => {
+                    if (loader.parentNode) loader.parentNode.removeChild(loader);
+                }, 300);
+            };
             const rawSrc = iframe.getAttribute('data-src');
             iframe.src = rawSrc + (rawSrc.includes('?') ? '&' : '?') + 't=' + Date.now();
         }
@@ -697,7 +714,24 @@ function closeExtDetail() {
 }
 
 function renderFullPageExt(el, name, desc, url) {
-    el.innerHTML = `<div style="height:calc(100vh - 120px); min-height:80vh; overflow:hidden; display:flex; flex-direction:column;"><iframe src="${url}" style="flex:1; width:100%; border:none"></iframe></div>`;
+    el.innerHTML = `
+        <div style="height:calc(100vh - 120px); min-height:80vh; overflow:hidden; position:relative; display:flex; flex-direction:column;">
+            <div class="iframe-loader">
+                <div class="iframe-loader-spinner"></div>
+                <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? window.T("app.loading_ext") : "Initializing Extension..."}</div>
+            </div>
+            <iframe src="${url}" style="flex:1; width:100%; border:none; opacity:0; transition:opacity 0.3s"></iframe>
+        </div>
+    `;
+    const iframe = el.querySelector('iframe');
+    const loader = el.querySelector('.iframe-loader');
+    iframe.onload = () => {
+        iframe.style.opacity = '1';
+        if (loader) {
+            loader.style.opacity = '0';
+            setTimeout(() => { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 300);
+        }
+    };
 }
 
 // ── Calendar Manager Ext ──
@@ -2329,7 +2363,7 @@ async function removeCloudKeyFromSettings(provider, label) {
 async function loadVersionInfo() {
     const d = await apiGet('/api/v1/system/version');
     if (!d) return;
-    document.getElementById('version-badge').textContent = '⚡ ZhiYing v' + (d.version || '?');
+    document.getElementById('version-badge').textContent = '⚡ TubeCLI v' + (d.version || '?');
     document.getElementById('version-hash').textContent = d.git_hash ? ('#' + d.git_hash) : '';
     document.getElementById('version-branch').textContent = d.git_branch ? ('📌 ' + d.git_branch) : '';
     document.getElementById('update-status').textContent = '';
@@ -2369,7 +2403,7 @@ async function checkForUpdate() {
 async function performSystemUpdate() {
     const btn = document.getElementById('btn-system-update');
     const st = document.getElementById('update-status');
-    if (!confirm('Update ZhiYing to latest version? The API server will need to restart after update.')) return;
+    if (!confirm('Update TubeCLI to latest version? The API server will need to restart after update.')) return;
     btn.disabled = true; btn.textContent = '⏳ Updating...';
     st.textContent = 'Pulling latest code from GitHub...'; st.className = 'update-status';
     
@@ -2531,7 +2565,7 @@ async function loadVersionInfo() {
     try {
         const info = await apiGet('/api/v1/version');
         if (!info || info.error) return;
-        badge.textContent = '⚡ ZhiYing v' + (info.version || '?');
+        badge.textContent = '⚡ TubeCLI v' + (info.version || '?');
         if (hashEl && info.git_hash) hashEl.textContent = '#' + info.git_hash;
         if (branchEl && info.git_branch) branchEl.textContent = '🌿 ' + info.git_branch;
         // Auto-check update on startup (silent)

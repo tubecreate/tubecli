@@ -1,5 +1,5 @@
 """
-ZhiYing REST API Server
+TubeCLI REST API Server
 FastAPI-based REST API for agents, skills, and workflows.
 """
 from fastapi import FastAPI, HTTPException, Request
@@ -9,8 +9,8 @@ from typing import Optional, List, Dict, Any
 import os
 
 app = FastAPI(
-    title="ZhiYing API",
-    description="REST API for ZhiYing — AI Agent management, skills, and workflows.",
+    title="TubeCLI API",
+    description="REST API for TubeCLI — AI Agent management, skills, and workflows.",
     version="0.1.0",
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
@@ -150,7 +150,7 @@ class WorkflowSaveRequest(BaseModel):
 @app.get("/api/v1/health")
 async def health():
     from tubecli.config import get_api_port
-    return {"status": "ok", "message": "ZhiYing API is running", "port": get_api_port()}
+    return {"status": "ok", "message": "TubeCLI API is running", "port": get_api_port()}
 
 
 # ── Version & Update ──────────────────────────────────────────────

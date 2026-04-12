@@ -21,10 +21,12 @@
             <button class="nav-item" data-tab="extensions"><span class="nav-icon">🧩</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span></button>
             <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
             <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
-
-            <button class="nav-item" data-tab="ext-pipeline-monitor"><span class="nav-icon">📡</span> <span class="nav-text">Pipeline Monitor</span></button>
+            <button class="nav-item" data-tab="ext-auth-manager"><span class="nav-icon">🔐</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
+            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('market'), 200)"><span class="nav-icon">🛍️</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
 
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
+            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('agents'), 200)"><span class="nav-icon">🤖</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
+            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('browser'), 200)"><span class="nav-icon">🌐</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
             <button class="nav-item ext-conditional" data-ext="web_crawler" data-tab="ext-web-crawler" style="display:none"><span class="nav-icon">🕸️</span> <span class="nav-text">Web Crawler</span></button>
             <button class="nav-item ext-conditional" data-ext="sheets_manager" data-tab="ext-sheets" style="display:none"><span class="nav-icon">📊</span> <span class="nav-text">Sheets</span></button>
             <button class="nav-item ext-conditional" data-ext="calendar_manager" data-tab="ext-calendar" style="display:none"><span class="nav-icon">📅</span> <span class="nav-text">Calendar</span></button>
@@ -85,7 +87,7 @@
                 <button class="btn-secondary ext-conditional" data-ext="video_manager" onclick="navigateTo('ext-video-manager')" style="display:none">📹 Video Manager</button>
                 <button class="btn-secondary ext-conditional" data-ext="subtitle_extractor" onclick="navigateTo('ext-subtitle-extractor')" style="display:none;background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(14,165,233,0.1));border-color:rgba(99,102,241,0.3)">📝 Subtitle Extractor</button>
                 <button class="btn-secondary" onclick="navigateTo('ext-studio')">🎨 3D Studio</button>
-                <button class="btn-secondary" onclick="window.location.href='/auth-manager'">🔐 Auth Manager</button>
+                <button class="btn-secondary" onclick="navigateTo('ext-pipeline-monitor')">📡 Pipeline Monitor</button>
                 <button class="btn-secondary ext-conditional" data-ext="sheets_manager" onclick="navigateTo('ext-sheets')" style="display:none">📊 Sheets Manager</button>
                 <button class="btn-secondary ext-conditional" data-ext="livestream" onclick="navigateTo('ext-livestream')" style="background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(249,115,22,0.1));border-color:rgba(239,68,68,0.3);display:none;">📡 Livestream</button>
                 <button class="btn-secondary ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-downloader')" style="display:none">📥 Douyin Download</button>
@@ -138,8 +140,11 @@
         <section class="tab-panel" id="tab-ext-subtitle-extractor">
             <div class="iframe-container"><iframe data-src="/subtitle-extractor" class="ext-iframe"></iframe></div>
         </section>
+        <section class="tab-panel" id="tab-ext-auth-manager">
+            <div class="iframe-container"><iframe data-src="/auth-manager" class="ext-iframe"></iframe></div>
+        </section>
         <section class="tab-panel" id="tab-ext-pipeline-monitor">
-            <div class="iframe-container"><iframe data-src="/pipeline-monitor" class="ext-iframe"></iframe></div>
+            <div class="iframe-container"><iframe data-src="/pipeline-monitor?v=1003" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-ai-arena">
             <div class="iframe-container"><iframe data-src="/ai-arena" class="ext-iframe"></iframe></div>
@@ -189,7 +194,12 @@
 
         <!-- ═══ SETTINGS TAB ═══ -->
         <section class="tab-panel" id="tab-settings">
-            <div class="panel-header"><h1>⚙️ Settings</h1></div>
+            <div class="panel-header">
+                <h1 data-i18n="settings.title">⚙️ Settings</h1>
+                <button class="btn-primary" onclick="saveGlobalSettings()" style="background:linear-gradient(135deg,#10b981,#06b6d4);font-weight:700;padding:8px 24px;font-size:0.9rem;" data-i18n="settings.btn_save">
+                    💾 Lưu Cài Đặt
+                </button>
+            </div>
 
             <!-- Version & Update Section -->
             <div class="settings-section">
@@ -223,14 +233,14 @@
                     <div class="form-group"><label data-i18n="settings.api_port">Cổng API</label><input id="set-port" value="5295"></div>
                     <div class="form-group">
                         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px;">
-                            <label data-i18n="settings.ai_model" style="margin:0;">Mô hình AI mặc định</label>
-                            <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;">🔑 Quản lý API Key</button>
+                            <label data-i18n="settings.ai_model_default" style="margin:0;">Mô hình AI mặc định</label>
+                            <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;" data-i18n="settings.manage_keys">🔑 Quản lý API Key</button>
                         </div>
                         <select id="set-model" onchange="onModelSelectChange()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
                             <option value="qwen:latest">qwen:latest</option>
                         </select>
                         <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.85rem;color:#f59e0b;"></div>
-                        <small style="color:var(--text-muted);font-size:.75rem">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
+                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.model_desc">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
                     </div>
                     <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
                     <div class="form-group">
@@ -242,52 +252,43 @@
                         </select>
                     </div>
                     <div class="form-group">
-                        <label>🌐 Default Browser Profile</label>
+                        <label data-i18n="settings.default_browser">🌐 Default Browser Profile</label>
                         <select id="set-default-profile" onchange="changeDefaultProfile(this.value)" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
                             <option value="default">default (Mặc định AI)</option>
                         </select>
-                        <small style="color:var(--text-muted);font-size:.75rem">Trình duyệt nhận diện mà Workflow hoặc AI Agent sẽ dùng chạy ngầm.</small>
+                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.browser_desc">Trình duyệt nhận diện mà Workflow hoặc AI Agent sẽ dùng chạy ngầm.</small>
                     </div>
                     <div class="form-group">
-                        <label>📅 Lịch Google mặc định (Calendar Email)</label>
+                        <label data-i18n="settings.default_calendar">📅 Lịch Google mặc định (Calendar Email)</label>
                         <select id="set-default-calendar" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
                             <option value="">Chưa cấu hình</option>
                         </select>
-                        <small style="color:var(--text-muted);font-size:.75rem">Tài khoản Google dùng để AI lên lịch mặc định khi người dùng chat tạo sự kiện qua dòng lệnh.</small>
+                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.calendar_desc">Tài khoản Google dùng để AI lên lịch mặc định khi người dùng chat tạo sự kiện qua dòng lệnh.</small>
                     </div>
                 </div>
             </div>
 
 
             <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--cyan);">✈️ Telegram (Toàn cục)</h3>
-                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;">Cấu hình bot Telegram dùng chung cho thông báo hệ thống. Mỗi Agent có thể có cấu hình Telegram riêng trong tab Agent.</p>
+                <h3 style="margin-bottom:16px; color:var(--cyan);" data-i18n="settings.telegram_global">✈️ Telegram (Toàn cục)</h3>
+                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;" data-i18n="settings.telegram_desc">Cấu hình bot Telegram dùng chung cho thông báo hệ thống. Mỗi Agent có thể có cấu hình Telegram riêng trong tab Agent.</p>
                 <div class="settings-form">
                     <div class="form-group">
-                        <label>🤖 Bot Token</label>
+                        <label data-i18n="settings.bot_token">🤖 Bot Token</label>
                         <input type="password" id="set-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
                     </div>
                     <div class="form-group">
-                        <label>💬 Chat ID</label>
+                        <label data-i18n="settings.chat_id">💬 Chat ID</label>
                         <input id="set-tg-chat" placeholder="-1001234567890 hoặc ID cá nhân">
-                        <small style="color:var(--text-muted);font-size:.75rem">Để lấy Chat ID, gửi tin nhắn đến bot rồi mở: https://api.telegram.org/bot{TOKEN}/getUpdates</small>
+                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.chat_id_hint">Để lấy Chat ID, gửi tin nhắn đến bot rồi mở: https://api.telegram.org/bot{TOKEN}/getUpdates</small>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:8px;">
-                        <button class="btn-secondary" id="btn-test-tg" onclick="testTelegramConnection()" style="flex:1">
+                        <button class="btn-secondary" id="btn-test-tg" onclick="testTelegramConnection()" style="flex:1" data-i18n="settings.test_connection">
                             📡 Test kết nối
                         </button>
                         <div id="tg-test-result" style="flex:2;display:flex;align-items:center;font-size:.85rem;color:var(--text-muted);padding-left:8px;"></div>
                     </div>
                 </div>
-            </div>
-
-            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
-
-            <!-- Save Button -->
-            <div style="display:flex;justify-content:flex-end;gap:12px;padding-top:8px">
-                <button class="btn-primary" onclick="saveGlobalSettings()" style="background:linear-gradient(135deg,#10b981,#06b6d4);font-weight:700;padding:12px 32px;font-size:1rem;">
-                    💾 Lưu Cài Đặt
-                </button>
             </div>
         </section>
     </main>
