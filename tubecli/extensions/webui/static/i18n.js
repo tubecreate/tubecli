@@ -1,5 +1,5 @@
 /**
- * ZhiYing Dashboard — Internationalization (i18n)
+ * TubeCLI Dashboard — Internationalization (i18n)
  * Loads aggregated translations from all extension locales via API.
  */
 let _lang = 'en';

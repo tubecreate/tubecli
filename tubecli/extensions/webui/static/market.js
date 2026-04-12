@@ -1,5 +1,5 @@
 /**
- * ZhiYing Extension Market — Client Logic
+ * TubeCLI Extension Market — Client Logic
  */
 
 const API = '/api/v1/market';

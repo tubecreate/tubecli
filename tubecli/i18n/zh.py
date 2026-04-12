@@ -1,11 +1,11 @@
 """
-Chinese (zh) translation catalog for ZhiYing.
+Chinese (zh) translation catalog for TubeCLI.
 All user-facing messages in Chinese (Simplified).
 """
 
 MESSAGES = {
     # ── init_cmd ──────────────────────────────────────────────
-    "init.initializing": "🚀 [bold cyan]正在初始化 ZhiYing 工作区...[/bold cyan]\n",
+    "init.initializing": "🚀 [bold cyan]正在初始化 TubeCLI 工作区...[/bold cyan]\n",
     "init.data_dir": "  📁 数据目录: [green]{path}[/green]",
     "init.installing_skills": "  📦 正在安装默认执行技能...",
     "init.created_agent": "  🤖 已创建新 Agent: [green]{name}[/green]",
@@ -15,12 +15,12 @@ MESSAGES = {
     "init.ollama_required": "Ollama 是离线部署跑通大模型 (如 Qwen, Llama) 的必备环境。",
     "init.ollama_install_confirm": "您是否要现在自动下载安装 Ollama 依赖？",
     "init.ollama_installed": "\n✅ [green]Ollama 大模型服务器已就绪。[/green]",
-    "init.workspace_ready": "\n✅ [bold green]ZhiYing 工作空间初始化部署完成！[/bold green]\n",
+    "init.workspace_ready": "\n✅ [bold green]TubeCLI 工作空间初始化部署完成！[/bold green]\n",
     "init.lang_prompt": "Choose language / 选择语言 / Chọn ngôn ngữ",
     "init.lang_saved": "  🌐 语言设置: [green]{lang}[/green]",
 
     # ── Control Panel ─────────────────────────────────────────
-    "panel.title": "⚡ [bold white]ZhiYing 工作台已就绪[/bold white]",
+    "panel.title": "⚡ [bold white]TubeCLI 工作台已就绪[/bold white]",
     "panel.dashboard": "🖥️  在安全浏览器中打开控制面板",
     "panel.api_keys": "🔑 管理大模型 API Keys (OpenAI/Cloud)",
     "panel.agents": "🤖 Agents 多智能体管理",
@@ -62,8 +62,8 @@ MESSAGES = {
     "panel.setup_wizard": "🧙 重新运行安装向导",
 
     # ── Setup Wizard ─────────────────────────────────────────
-    "wizard.welcome_title": "🚀 [bold white]欢迎使用 ZhiYing![/bold white]",
-    "wizard.welcome_body": "这是您首次启动 ZhiYing。\n让我们通过 [bold]3 个简单步骤[/bold] 完成初始配置：\n\n  [cyan]步骤 1:[/cyan] 🧠 设置 AI 对话 (API Key 或 Ollama)\n  [cyan]步骤 2:[/cyan] 💬 连接 Telegram Bot\n  [cyan]步骤 3:[/cyan] ✅ 查看总结",
+    "wizard.welcome_title": "🚀 [bold white]欢迎使用 TubeCLI![/bold white]",
+    "wizard.welcome_body": "这是您首次启动 TubeCLI。\n让我们通过 [bold]3 个简单步骤[/bold] 完成初始配置：\n\n  [cyan]步骤 1:[/cyan] 🧠 设置 AI 对话 (API Key 或 Ollama)\n  [cyan]步骤 2:[/cyan] 💬 连接 Telegram Bot\n  [cyan]步骤 3:[/cyan] ✅ 查看总结",
     "wizard.skip_all": "⏭️  全部跳过 → 直接进入控制面板 (稍后在 Settings 中自行配置)",
     "wizard.start_setup": "▶️  开始设置",
     "wizard.skipped_all": "[yellow]已跳过设置。您可以随时从控制面板 → Settings 或输入 7 重新配置。[/yellow]",
@@ -84,9 +84,9 @@ MESSAGES = {
 
     # Step 2: Telegram
     "wizard.telegram_title": "💬 [bold white]步骤 2/3 — 连接 Telegram[/bold white]",
-    "wizard.telegram_body": "连接 Telegram 以通过消息控制 ZhiYing。\n您可以通过聊天发送指令、下载视频、监控网页、\n管理日历... 全部在 Telegram 中完成！",
+    "wizard.telegram_body": "连接 Telegram 以通过消息控制 TubeCLI。\n您可以通过聊天发送指令、下载视频、监控网页、\n管理日历... 全部在 Telegram 中完成！",
     "wizard.telegram_start": "▶️  开始连接 Telegram",
-    "wizard.telegram_guide": "\n[cyan]📋 创建 Telegram Bot 指南 (1分钟)：[/cyan]\n  1. 打开 Telegram → 搜索 [bold]@BotFather[/bold]\n  2. 发送命令 [bold]/newbot[/bold]\n  3. 输入 Bot 名称 (如 \"My ZhiYing\")\n  4. 输入 Bot 用户名 (如 \"my_zhiying_bot\")\n  5. BotFather 会发送一个 [bold]Token[/bold]，格式如: [dim]1234567890:ABCdefGHI...[/dim]\n  6. 复制该 Token 并粘贴到这里：\n",
+    "wizard.telegram_guide": "\n[cyan]📋 创建 Telegram Bot 指南 (1分钟)：[/cyan]\n  1. 打开 Telegram → 搜索 [bold]@BotFather[/bold]\n  2. 发送命令 [bold]/newbot[/bold]\n  3. 输入 Bot 名称 (如 \"My TubeCLI\")\n  4. 输入 Bot 用户名 (如 \"my_zhiying_bot\")\n  5. BotFather 会发送一个 [bold]Token[/bold]，格式如: [dim]1234567890:ABCdefGHI...[/dim]\n  6. 复制该 Token 并粘贴到这里：\n",
     "wizard.telegram_enter_token": "🔑 粘贴 Bot Token",
     "wizard.telegram_invalid_token": "[red]❌ Token 无效。请检查从 @BotFather 获取的 Token。[/red]",
     "wizard.telegram_connected": "Bot [bold]{name}[/bold] (@{username}) 连接成功！",
