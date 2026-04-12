@@ -653,3 +653,55 @@ async def serve_tts_vibevoice_static(filename: str):
         if os.path.exists(filepath):
             return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
+
+
+def _find_ai_arena_dir():
+    """Find the AI Arena extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get("ai_arena")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "ai_arena")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("ai_arena__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
+@router.get("/ai-arena")
+@router.get("/ai_arena")
+async def ai_arena_page():
+    """Serve the AI Arena page."""
+    arena_dir = _find_ai_arena_dir()
+    if arena_dir:
+        html_file = os.path.join(arena_dir, "static", "arena.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>AI Arena — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#6366f1,#ec4899);color:#fff;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">🎮</div><h1>AI Arena</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/ai-arena-static/{filename:path}")
+@router.get("/ai_arena-static/{filename:path}")
+async def serve_ai_arena_static(filename: str):
+    """Serve AI Arena static files (JS, CSS)."""
+    arena_dir = _find_ai_arena_dir()
+    if arena_dir:
+        filepath = os.path.join(arena_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}

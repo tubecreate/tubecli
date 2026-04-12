@@ -15,6 +15,7 @@ let selectedTemplateId = null;
 
 // ── Init ──────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof loadI18nFromApi !== 'undefined') await loadI18nFromApi();
     await Promise.all([loadTeams(), loadAgents(), loadTemplates()]);
     renderTeamsList();
 });
@@ -162,7 +163,7 @@ function renderOrgChart(team) {
     if (nodes.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                Chưa có sơ đồ phân cấp. Bấm <strong>➕ Thêm vai trò</strong> để bắt đầu.
+                ${typeof T === 'function' ? T('multi.org_empty_state') : 'Chưa có sơ đồ phân cấp. Bấm <strong>➕ Thêm vai trò</strong> để bắt đầu.'}
             </div>`;
         return;
     }
@@ -199,7 +200,7 @@ function renderOrgChart(team) {
                     <div class="org-node-role">${escHtml(node.role || node.role_id)}</div>
                     ${agent
                         ? `<div class="org-node-agent">🤖 ${escHtml(agent.name)}</div>`
-                        : `<div class="org-node-empty">⊕ Bấm để gán agent</div>`
+                        : `<div class="org-node-empty">${typeof T === 'function' ? T('multi.click_to_assign') : '⊕ Bấm để gán agent'}</div>`
                     }
                 </div>`;
         });
