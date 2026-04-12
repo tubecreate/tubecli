@@ -20,15 +20,15 @@ MESSAGES = {
     "init.lang_saved": "  🌐 Ngôn ngữ: [green]{lang}[/green]",
 
     # ── Control Panel ─────────────────────────────────────────
-    "panel.title": "⚡ [bold white]TubeCLI Workspace Sẵn Sàng[/bold white]",
-    "panel.dashboard": "🖥️  Mở Dashboard trên trình duyệt",
-    "panel.api_keys": "🔑 Cấu hình API Keys (Gemini/OpenAI)",
-    "panel.agents": "🤖 Quản lý Agents",
-    "panel.install_model": "🧠 Cài đặt mô hình AI (Ollama)",
-    "panel.browser_profile": "🌐 Mở Browser Profile",
-    "panel.docs": "📖 Xem Tài liệu",
-    "panel.exit": "❌ Thoát",
-    "panel.select": "\n👉 Chọn một tùy chọn",
+    "panel.title": "[bold white]TubeCLI Workspace Sẵn Sàng[/bold white]",
+    "panel.dashboard": "Mở Dashboard trên trình duyệt",
+    "panel.api_keys": "Cấu hình API Keys (Gemini/OpenAI)",
+    "panel.agents": "Quản lý Agents",
+    "panel.install_model": "Cài đặt mô hình AI (Ollama)",
+    "panel.browser_profile": "Mở Browser Profile",
+    "panel.docs": "Xem Tài liệu",
+    "panel.exit": "Thoát",
+    "panel.select": "\nChọn một tùy chọn",
     "panel.exiting": "[yellow]Đang thoát Control Panel. Bạn có thể chạy lệnh tubecli bất cứ lúc nào.[/yellow]",
     "panel.opening_dashboard": "\n[cyan]Đang mở Dashboard...[/cyan]",
     "panel.dashboard_opened": "[green]Dashboard đã mở tại {url}[/green]",
@@ -59,7 +59,7 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Không thể tải extension cloud_api. Hãy đảm bảo nó đã được kích hoạt.[/red]",
     "panel.key_status_set": "[green]Đã cài[/green]",
     "panel.key_status_not_set": "[red]Chưa cài[/red]",
-    "panel.setup_wizard": "🧙 Chạy lại Trình hướng dẫn cài đặt",
+    "panel.setup_wizard": "Chạy lại Trình hướng dẫn cài đặt",
 
     # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "🚀 [bold white]Chào mừng đến TubeCLI![/bold white]",
@@ -201,4 +201,6 @@ MESSAGES = {
     "model.deepseek_8b": "Khoảng 4.9GB - Model R1 mạnh nhưng vẫn nhẹ",
     "model.qwen_14b": "Khoảng 9.0GB - Model 14B cực mạnh mẽ",
     "model.deepseek_14b": "Khoảng 9.0GB - DeepSeek R1 14B",
+    "model.gemma4_4b": "~3.3GB - Google Gemma 4 mới nhất: nhị, nhanh",
+    "model.gemma4_12b": "~7.9GB - Google Gemma 4 12B, hỗ trợ ảnh ",
 }

@@ -20,15 +20,15 @@ MESSAGES = {
     "init.lang_saved": "  🌐 Language: [green]{lang}[/green]",
 
     # ── Control Panel ─────────────────────────────────────────
-    "panel.title": "⚡ [bold white]TubeCLI Workspace Ready[/bold white]",
-    "panel.dashboard": "🖥️  Open Dashboard in Browser",
-    "panel.api_keys": "🔑 Configure API Keys (Gemini/OpenAI)",
-    "panel.agents": "🤖 Manage Agents",
-    "panel.install_model": "🧠 Install AI Model (Ollama)",
-    "panel.browser_profile": "🌐 Launch Browser Profile",
-    "panel.docs": "📖 View Documentation",
-    "panel.exit": "❌ Exit",
-    "panel.select": "\n👉 Select an option",
+    "panel.title": "[bold white]TubeCLI Workspace Ready[/bold white]",
+    "panel.dashboard": "Open Dashboard in Browser",
+    "panel.api_keys": "Configure API Keys (Gemini/OpenAI)",
+    "panel.agents": "Manage Agents",
+    "panel.install_model": "Install AI Model (Ollama)",
+    "panel.browser_profile": "Launch Browser Profile",
+    "panel.docs": "View Documentation",
+    "panel.exit": "Exit",
+    "panel.select": "\nSelect an option",
     "panel.exiting": "[yellow]Exiting Control Panel. You can run tubecli commands anytime.[/yellow]",
     "panel.opening_dashboard": "\n[cyan]Opening Dashboard...[/cyan]",
     "panel.dashboard_opened": "[green]Dashboard opened at {url}[/green]",
@@ -59,7 +59,7 @@ MESSAGES = {
     "panel.cloud_api_error": "[red]Could not load cloud_api extension. Please ensure it is enabled.[/red]",
     "panel.key_status_set": "[green]Set[/green]",
     "panel.key_status_not_set": "[red]Not set[/red]",
-    "panel.setup_wizard": "🧙 Run Setup Wizard Again",
+    "panel.setup_wizard": "Run Setup Wizard Again",
 
     # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "🚀 [bold white]Welcome to TubeCLI![/bold white]",
@@ -201,4 +201,6 @@ MESSAGES = {
     "model.deepseek_8b": "~4.9GB - Powerful R1 model, still lightweight",
     "model.qwen_14b": "~9.0GB - Very powerful 14B model",
     "model.deepseek_14b": "~9.0GB - DeepSeek R1 14B",
+    "model.gemma4_4b": "~3.3GB - Google's latest Gemma 4 4B model",
+    "model.gemma4_12b": "~7.9GB - Google's Gemma 4 12B, multimodal",
 }
