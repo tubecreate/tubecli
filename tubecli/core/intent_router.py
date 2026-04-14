@@ -98,7 +98,8 @@ VIDEO_URL_PATTERNS = [
 ]
 
 UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
-REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip"]
+REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip", "template"]
+TEMPLATE_PATTERN = r'template\s*(\d+)'
 TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
 LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
 SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
@@ -106,6 +107,13 @@ TTS_KEYWORDS = ["lồng tiếng", "voiceover", "voice over", "tts", "đọc text
 
 LIST_CHANNELS_PATTERNS = [
     r"(list|danh\s*sách|xem).*?(kênh|youtube|facebook|fanpage|page|tiktok)"
+]
+
+LIST_TEMPLATES_PATTERNS = [
+    r"(list|danh\s*sách|xem).*?template",
+    r"template.*(list|danh\s*sách)",
+    r"có\s+template\s+nào",
+    r"list\s+template",
 ]
 
 
@@ -145,10 +153,15 @@ class IntentRouter:
                 )
             # Check for reup intent (download + ffmpeg + upload)
             if any(k in text_lower for k in REUP_KEYWORDS):
+                extracted = {"url": video_url}
+                # Detect template index (e.g. "template 1", "template 3")
+                tpl_match = re.search(TEMPLATE_PATTERN, text_lower)
+                if tpl_match:
+                    extracted["template_index"] = int(tpl_match.group(1))
                 return IntentResult(
                     intent_type="reup_action",
                     confidence=0.95,
-                    extracted_data={"url": video_url},
+                    extracted_data=extracted,
                     skip_llm=False,
                 )
             # Check for subtitle pipeline (download + subtitle + optional burn/tts/upload)
@@ -256,6 +269,19 @@ class IntentRouter:
                     "action_data": {
                         "action": "list_channels",
                         "provider": provider
+                    }
+                },
+                skip_llm=True,
+            )
+
+        # ── 7a2. List Templates ──────────────────────────────────
+        if self._matches_any(text_lower, LIST_TEMPLATES_PATTERNS):
+            return IntentResult(
+                intent_type="list_templates_action",
+                confidence=0.95,
+                extracted_data={
+                    "action_data": {
+                        "action": "list_templates"
                     }
                 },
                 skip_llm=True,

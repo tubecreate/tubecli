@@ -27,6 +27,12 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
+    import sys
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
     from tubecli.core.telegram_listener import telegram_listener
     telegram_listener.start()
 

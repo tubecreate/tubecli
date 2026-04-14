@@ -8,6 +8,7 @@ Architecture inspired by claw-code-main/src/runtime.py PortRuntime pattern.
 import asyncio
 import httpx
 import traceback
+from tubecli.core.bot_i18n import t, get_user_lang
 import datetime
 import os
 import json
@@ -187,7 +188,7 @@ class TelegramListener:
             print(f"[TelegramListener] ❌ Reply error: {e}\n{full_error}")
             await self._send_message(
                 token, chat_id,
-                f"⚠️ Lỗi xử lý: `{type(e).__name__}: {str(e)[:300]}`"
+                t("sys.error", error=f"{type(e).__name__}: {str(e)[:300]}")
             )
 
     async def _process_message(self, text: str, context: Dict[str, Any]):
@@ -198,13 +199,17 @@ class TelegramListener:
         Tier 2 (Smart Dispatch): Call LLM with only relevant skills
         """
         from tubecli.core.skill import skill_manager
+        
+        chat_id = context.get("chat_id", 0)
+        token = context.get("token", "")
+        text_lower_check = text.strip().lower()
 
         # ── Resolve Agent ──
         agent_id = context.get("agent_id")
         if not agent_id:
             agents = agent_manager.get_all()
             if not agents:
-                return "Tôi chưa được cấu hình Agent nào trong hệ thống."
+                return t("sys.no_agents", get_user_lang(chat_id))
             main_agent = next(
                 (a for a in agents if "tổng" in a.name.lower() or "orchestra" in a.name.lower()),
                 agents[0]
@@ -213,7 +218,7 @@ class TelegramListener:
 
         agent = agent_manager.get(agent_id)
         if not agent:
-            return "Lỗi: Không tìm thấy Agent cấu hình."
+            return t("sys.no_agents", get_user_lang(chat_id))
 
         agent_dict = agent.to_dict()
         self._enrich_agent_config(agent_dict)
@@ -245,6 +250,10 @@ class TelegramListener:
                 plan = self.pending_actions.pop(chat_id)
                 context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
                 context["upload_provider"] = plan.get("provider", "youtube")
+                # Pass template info to executor
+                if plan.get("template_id"):
+                    context["template_id"] = plan["template_id"]
+                    context["template_name"] = plan.get("template_name", "")
                 
                 if plan["type"] == "video_upload":
                     result = await execute_upload_sequence(
@@ -299,7 +308,7 @@ class TelegramListener:
                                 s.replace(old_label, new_label) if "Upload" in s else s
                                 for s in pending.get("steps", [])
                             ]
-                        plan_msg = self._format_plan(pending)
+                        plan_msg = self._format_plan(pending, chat_id)
                         return plan_msg
                     else:
                         channels = channel_cache.get_channels(target_provider)
@@ -335,7 +344,7 @@ class TelegramListener:
                                 s.replace(old_label, new_label) if "Upload" in s else s
                                 for s in pending.get("steps", [])
                             ]
-                        plan_msg = self._format_plan(pending)
+                        plan_msg = self._format_plan(pending, chat_id)
                         return plan_msg
                     else:
                         channels = channel_cache.get_channels(target_provider)
@@ -378,6 +387,7 @@ class TelegramListener:
                 pass
             
             # Save pending plan
+            user_lang = get_user_lang(chat_id)
             plan = {
                 "type": "video_upload",
                 "url": url,
@@ -387,15 +397,15 @@ class TelegramListener:
                 "original_text": text,
                 "badge": f"🎬 Video Agent đang upload lên {provider_label}...",
                 "steps": [
-                    f"📥 Tải video từ URL",
-                    f"✨ AI tạo tiêu đề SEO",
-                    f"📤 Upload lên {provider_label}",
+                    t("plan.step_download", user_lang),
+                    t("plan.step_ai_title", user_lang),
+                    t("plan.step_upload", user_lang, provider=provider_label),
                 ],
             }
             self.pending_actions[chat_id] = plan
             # Schedule auto-execute after 10 seconds
             self._schedule_auto_execute(chat_id, plan, agent_dict, context, agent_id, history)
-            return self._format_plan(plan)
+            return self._format_plan(plan, chat_id)
 
         # ── Plan & Confirm: Re-up Pipeline ──
         if intent.intent_type == "reup_action":
@@ -411,7 +421,10 @@ class TelegramListener:
             if any(k in text_lower for k in ["tốc độ 2", "speed 2", "2x"]): effects.append("Tốc độ 2x")
             if any(k in text_lower for k in ["blur", "mờ"]): effects.append("Blur")
             if any(k in text_lower for k in ["xóa phông", "tách nền"]): effects.append("Tách nền AI")
-            if not effects: effects.append("Lật gương (mặc định)")
+            # Only default to mirror if there are actual mirror keywords and no template-only request
+            template_index = intent.extracted_data.get("template_index")
+            if not effects and not template_index:
+                effects.append("Lật gương (mặc định)")
             
             resolved_channel = None
             try:
@@ -419,6 +432,32 @@ class TelegramListener:
                 resolved_channel = channel_cache.resolve_channel(provider, text)
             except Exception:
                 pass
+            
+            # ── Resolve template by index ──
+            template_id = None
+            template_name = None
+            if template_index:
+                try:
+                    resp = await self.client.get(f"{TUBECLI_BASE_URL}/api/v1/templates", timeout=5)
+                    if resp.status_code == 200:
+                        templates = resp.json().get("templates", [])
+                        if 1 <= template_index <= len(templates):
+                            tpl = templates[template_index - 1]
+                            template_id = tpl.get("id")
+                            template_name = tpl.get("name", f"Template {template_index}")
+                except Exception as e:
+                    print(f"[Reup] Template resolve error: {e}")
+            
+            user_lang = get_user_lang(chat_id)
+            
+            # Build steps list
+            steps = [t("plan.step_download", user_lang)]
+            if effects:
+                steps.append(t("plan.step_ffmpeg", user_lang, effects=', '.join(effects)))
+            if template_id:
+                steps.append(t("plan.step_template", user_lang, name=template_name))
+            steps.append(t("plan.step_ai_title", user_lang))
+            steps.append(t("plan.step_upload", user_lang, provider=provider_label))
             
             plan = {
                 "type": "reup_action",
@@ -429,17 +468,14 @@ class TelegramListener:
                 "original_text": text,
                 "badge": "♻️ Re-up Agent đang xử lý pipeline...",
                 "effects": effects,
-                "steps": [
-                    f"📥 Tải video từ URL",
-                    f"🎬 FFmpeg: {', '.join(effects)}",
-                    f"✨ AI tạo tiêu đề SEO",
-                    f"📤 Upload lên {provider_label}",
-                ],
+                "template_id": template_id,
+                "template_name": template_name,
+                "steps": steps,
             }
             self.pending_actions[chat_id] = plan
-            # Schedule auto-execute after 10 seconds
+            # Schedule auto-execute after 20 seconds
             self._schedule_auto_execute(chat_id, plan, agent_dict, context, agent_id, history)
-            return self._format_plan(plan)
+            return self._format_plan(plan, chat_id)
 
         # ── Fast-path: Skill Command Match (0 tokens) ──
         if intent.intent_type == "skill_command":
@@ -462,7 +498,7 @@ class TelegramListener:
                         return f"⚠️ Skill lỗi: {str(e)[:200]}"
 
         # ── Tracker / Live / List Action Bypass ──
-        if intent.intent_type in ("tracker_action", "live_action", "list_channels_action"):
+        if intent.intent_type in ("tracker_action", "live_action", "list_channels_action", "list_templates_action"):
             if intent.intent_type == "tracker_action":
                 action_type = "trigger_tracker"
                 payload = {"action": action_type}
@@ -471,6 +507,8 @@ class TelegramListener:
                 payload = {"action": action_type}
             elif intent.intent_type == "list_channels_action":
                 payload = intent.extracted_data.get("action_data", {"action": "list_channels"})
+            elif intent.intent_type == "list_templates_action":
+                payload = intent.extracted_data.get("action_data", {"action": "list_templates"})
             
             fake_json = "```json\n" + json.dumps(payload) + "\n```"
             result = await handle_extension_action(fake_json, agent_dict, context)
@@ -566,6 +604,18 @@ class TelegramListener:
             original_prompt = agent_dict.get("system_prompt", "You are a helpful assistant.")
             agent_dict["system_prompt"] = f"{original_prompt}\n\n{ext_capabilities}"
 
+        # Inject user language preference
+        user_lang = get_user_lang(chat_id)
+        current_prompt = agent_dict.get("system_prompt", "You are a helpful assistant.")
+        if user_lang == "vi":
+            lang_instruction = t("sys.only_vi", "vi")
+        elif user_lang == "zh":
+            lang_instruction = t("sys.only_vi", "zh")
+        else:
+            lang_instruction = t("sys.only_vi", "en")
+            
+        agent_dict["system_prompt"] = f"{current_prompt}\n\nIMPORTANT: {lang_instruction}"
+        
         brain_result = AgentBrain.chat_targeted(
             message=text, agent=agent_dict, skills=selected_skills,
             history=history, intent_hint=intent.intent_type,
@@ -645,8 +695,9 @@ class TelegramListener:
     #  PLAN FORMATTING
     # ═══════════════════════════════════════════════════════════════
 
-    def _format_plan(self, plan: Dict) -> str:
+    def _format_plan(self, plan: Dict, chat_id: int) -> str:
         """Format a pending action plan for user review."""
+        lang = get_user_lang(chat_id)
         plan_type = plan.get("type", "unknown")
         provider = plan.get("provider", "youtube")
         provider_label = plan.get("provider_label", "YouTube")
@@ -666,34 +717,34 @@ class TelegramListener:
         if channel:
             ch_title = channel.get("title", "Không rõ")
             ch_email = channel.get("email", "")
-            channel_line = f"📺 **{entity} đích:** {ch_title}"
+            channel_line = t("plan.channel_target", lang, entity=entity, title=ch_title)
             if ch_email:
                 channel_line += f" ({ch_email})"
         else:
-            channel_line = f"📺 **{entity} đích:** _(chưa chọn — sẽ dùng {entity_lower} mặc định)_"
+            channel_line = t("plan.channel_unknown", lang, entity=entity)
         
         # Build plan message
         type_emoji = "📤" if plan_type == "video_upload" else "♻️"
-        type_label = "Upload Video" if plan_type == "video_upload" else "Re-up Pipeline"
+        type_label = t("plan.upload_title", lang) if plan_type == "video_upload" else t("plan.reup_title", lang)
         
         lines = [
-            f"{type_emoji} **Kế hoạch: {type_label}**\n",
+            f"{type_emoji} **{t('plan.header', lang)}: {type_label}**\n",
             f"🔗 URL: `{url_short}`",
-            f"🌐 **Nền tảng:** {provider_label}",
+            f"🌐 **{t('plan.platform', lang)}:** {provider_label}",
             channel_line,
         ]
         
         if effects:
-            lines.append(f"🎬 **Hiệu ứng:** {', '.join(effects)}")
+            lines.append(t("plan.effects", lang, effects=', '.join(effects)))
         
-        lines.append(f"\n📋 **Các bước thực hiện:**")
+        lines.append(t("plan.steps", lang))
         for i, step in enumerate(steps, 1):
             lines.append(f"  {i}. {step}")
         
-        lines.append(f"\n⏱️ Tự động thực hiện sau **10 giây** nếu không trả lời...")
-        lines.append(f"✅ Trả lời **'ok'** để thực hiện ngay")
-        lines.append(f"✏️ Đổi {entity_lower}? Gõ **'{entity_lower} 2'** hoặc **'đổi {entity_lower} 3'**")
-        lines.append(f"🚫 Gõ **'hủy'** để bỏ qua")
+        lines.append(t("plan.auto_execute", lang))
+        lines.append(t("plan.reply_ok", lang))
+        lines.append(t("plan.reply_change", lang, entity=entity_lower))
+        lines.append(t("plan.reply_cancel", lang))
         
         return "\n".join(lines)
 
@@ -702,7 +753,7 @@ class TelegramListener:
     # ═══════════════════════════════════════════════════════════════
 
     def _schedule_auto_execute(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
-        """Schedule auto-execution of a pending plan after 10 seconds."""
+        """Schedule auto-execution of a pending plan after 20 seconds."""
         self._cancel_auto_execute(chat_id)
         
         task = asyncio.create_task(
@@ -718,9 +769,9 @@ class TelegramListener:
             print(f"[AutoExec] Cancelled timer for chat {chat_id}")
 
     async def _auto_execute_plan(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
-        """Wait 10 seconds then auto-execute the pending plan if still present."""
+        """Wait 20 seconds then auto-execute the pending plan if still present."""
         try:
-            await asyncio.sleep(10)
+            await asyncio.sleep(20)
             
             # Check if the plan is still pending (user didn't respond)
             if chat_id not in self.pending_actions:
@@ -733,11 +784,15 @@ class TelegramListener:
             token = context.get("token", "")
             
             await self._send_message(token, chat_id,
-                "⏱️ 10s đã qua — tự động thực hiện kế hoạch..."
+                "⏱️ 20s đã qua — tự động thực hiện kế hoạch..."
             )
             
             context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
             context["upload_provider"] = plan.get("provider", "youtube")
+            # Pass template info to executor
+            if plan.get("template_id"):
+                context["template_id"] = plan["template_id"]
+                context["template_name"] = plan.get("template_name", "")
             
             if plan["type"] == "video_upload":
                 result = await execute_upload_sequence(
@@ -1594,7 +1649,7 @@ class TelegramListener:
         try:
             resp = await self.client.post(
                 f"https://api.telegram.org/bot{token}/sendMessage",
-                json={"chat_id": chat_id, "text": "🤔 Đang suy nghĩ..."}
+                json={"chat_id": chat_id, "text": t("sys.thinking")}
             )
             if resp.status_code == 200:
                 data = resp.json()
