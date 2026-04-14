@@ -95,7 +95,7 @@ def call_gemini(model: str, api_key: str, prompt: str) -> str:
 def call_openai_compatible(model: str, api_key: str, prompt: str, base_url: str = None) -> str:
     try:
         from openai import OpenAI
-        kwargs = {"api_key": api_key}
+        kwargs = {"api_key": api_key, "timeout": 60.0}
         if base_url:
             kwargs["base_url"] = base_url
         client = OpenAI(**kwargs)

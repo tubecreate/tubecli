@@ -468,7 +468,9 @@ def _run_control_panel():
         """Start/restart API server — always hidden (no console window)."""
         _kill_server_on_port(port)
         import time
-        cmd = f"tubecli api start{' --quiet' if quiet else ''}"
+        from tubecli.config import get_language
+        cur_lang = get_language()
+        cmd = f"tubecli api start{' --quiet' if quiet else ''} --lang {cur_lang}"
         env = os.environ.copy()
         env["PYTHONUTF8"] = "1"  # Ensure UTF-8 output even if hidden
         if os.name == "nt":

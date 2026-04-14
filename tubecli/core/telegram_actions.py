@@ -8,6 +8,7 @@ import re
 import json
 import datetime
 import httpx
+from tubecli.core.bot_i18n import t, get_user_lang
 from typing import Dict, Any, Optional, List
 
 from tubecli.config import DATA_DIR
@@ -178,8 +179,10 @@ def clean_reply_text(text: str) -> str:
 #  DOWNLOAD ACTIONS
 # ═══════════════════════════════════════════════════════════════
 
-async def execute_download(url: str, agent_dict: Dict) -> dict:
+async def execute_download(url: str, agent_dict: Dict, context: Dict = None) -> dict:
     """Execute video download via Downloader extension API and return file info."""
+    chat_id = context.get("chat_id", 0) if context else 0
+    lang = get_user_lang(chat_id)
     print(f"[Actions] 📥 Starting download: {url}")
 
     try:
@@ -195,14 +198,14 @@ async def execute_download(url: str, agent_dict: Dict) -> dict:
                     error_detail = parse_resp.json().get("detail", parse_resp.text[:200])
                 except Exception:
                     error_detail = parse_resp.text[:200]
-                return f"❌ Không thể phân tích video: {error_detail}"
+                return t("action.download_err", lang, error=error_detail)
 
             parse_data = parse_resp.json()
             video_info = parse_data.get("data", {})
 
             if video_info.get("type") == "user":
                 user_name = video_info.get("nickname", "Unknown")
-                return f"❌ Link này trỏ tới trang cá nhân Douyin của '{user_name}'. Hãy gửi link một video cụ thể."
+                return t("action.download_err", lang, error="Is user profile")
 
             title = video_info.get("title", "video")[:50]
             author = video_info.get("author", "unknown")
@@ -212,9 +215,9 @@ async def execute_download(url: str, agent_dict: Dict) -> dict:
             print(f"[Actions] ✅ Parsed: {author} - {title}")
 
     except httpx.ConnectError:
-        return "❌ Không thể kết nối tới TubeCLI server. Hãy đảm bảo server đang chạy."
+        return t("action.download_err", lang, error="Connection Error")
     except Exception as e:
-        return f"❌ Lỗi khi phân tích video: {str(e)[:200]}"
+        return t("action.download_err", lang, error=str(e)[:200])
 
     # Step 2: Download
     try:
@@ -228,21 +231,21 @@ async def execute_download(url: str, agent_dict: Dict) -> dict:
                     err = dl_resp.json().get("detail", dl_resp.text[:200])
                 except Exception:
                     err = dl_resp.text[:200]
-                return f"❌ Lỗi tải video: {err}"
+                return t("action.download_err", lang, error=err)
 
             dl_data = dl_resp.json()
             task_id = dl_data.get("task_id", "")
             filename = dl_data.get("filename", "video.mp4")
 
     except Exception as e:
-        return f"❌ Lỗi khi bắt đầu tải: {str(e)[:200]}"
+        return t("action.download_err", lang, error=str(e)[:200])
 
     # Step 3: Wait for download
     print(f"[Actions] ⏳ Waiting for download task: {task_id}")
     file_path = await _wait_for_download(task_id, filename)
 
     if not file_path or not os.path.exists(file_path):
-        return f"❌ Tải video thất bại: không tìm thấy file sau khi tải. Filename: {filename}"
+        return t("action.download_fail", lang)
 
     # Update filename to match actual file on disk
     actual_filename = os.path.basename(file_path)
@@ -340,11 +343,12 @@ async def execute_upload_sequence(
     token = context.get("token", "")
     chat_id = context.get("chat_id", 0)
 
-    await send_message_fn(token, chat_id, "⏳ Đã nhận diện yêu cầu Tải + Upload. ⚡ Đang chạy song song Download + AI Title...")
+    lang = get_user_lang(chat_id)
+    await send_message_fn(token, chat_id, t("action.detect_download", lang))
 
     # ★ FORK: Download + AI Title chạy song song
     from tubecli.core.fork_agent import fork_download_and_title
-    fork_result = await fork_download_and_title(video_url, user_text, agent_dict)
+    fork_result = await fork_download_and_title(video_url, user_text, agent_dict, context)
 
     # Get download result
     dl_subtask = fork_result.get("download")
@@ -436,10 +440,7 @@ async def execute_upload_sequence(
 
     # Notify user which channel was selected
     if resolved_channel_title:
-        await send_message_fn(token, chat_id, 
-            f"📺 Upload lên **{provider_label}**: *{resolved_channel_title}*\n"
-            f"💡 Muốn đổi kênh? Nói: 'upload lên kênh 2' hoặc gọi tên kênh"
-        )
+        await send_message_fn(token, chat_id, t("action.upload_target", lang, provider=provider_label, channel=resolved_channel_title))
 
     # Trigger Upload
     fake_ai_action = {
@@ -475,7 +476,7 @@ async def execute_upload_sequence(
             return await _poll_short_video(task_id, upload_result, handle_extension_fn, send_message_fn, agent_dict, context)
         else:
             asyncio.create_task(_poll_long_video_bg(task_id, handle_extension_fn, send_message_fn, agent_dict, context))
-            return upload_result + "\n\n*(Video dài, đã lên lịch theo dõi. Bot sẽ ping bạn khi YouTube duyệt xong!)*"
+            return upload_result + "\n\n" + t("action.bg_schedule", lang)
 
     return upload_result
 
@@ -499,24 +500,26 @@ def _parse_duration(duration) -> int:
 
 
 async def _poll_short_video(task_id, upload_result, handle_ext_fn, send_msg_fn, agent_dict, context):
+    lang = get_user_lang(context.get("chat_id", 0))
     """Block and wait for short video upload result."""
     token = context.get("token", "")
     chat_id = context.get("chat_id", 0)
-    await send_msg_fn(token, chat_id, "⏳ Video ngắn (<60s). Đang chờ YouTube xử lý...")
+    await send_msg_fn(token, chat_id, t("action.upload_short", lang))
     
     for _ in range(30):
         await asyncio.sleep(10)
         st_payload = "```json\n" + json.dumps({"action": "video_status", "task_id": task_id}) + "\n```"
         st_result = await handle_ext_fn(st_payload, agent_dict, context)
         if "✅" in st_result and "done" in st_result.lower():
-            return f"🎉 **Đăng YouTube thành công!**\n\n{st_result}"
+            return t("action.upload_success", lang, provider="YouTube", result=st_result)
         elif "❌" in st_result or "error" in st_result.lower():
             return st_result
 
-    return upload_result + "\n\n⚠️ Đợi quá lâu, hệ thống sẽ chạy ngầm tiếp."
+    return t("action.upload_timeout", lang, result=upload_result)
 
 
 async def _poll_long_video_bg(task_id, handle_ext_fn, send_msg_fn, agent_dict, context):
+    lang = get_user_lang(context.get("chat_id", 0))
     """Background polling for long video uploads."""
     token = context.get("token", "")
     chat_id = context.get("chat_id", 0)
@@ -526,10 +529,10 @@ async def _poll_long_video_bg(task_id, handle_ext_fn, send_msg_fn, agent_dict, c
         st_payload = "```json\n" + json.dumps({"action": "video_status", "task_id": task_id}) + "\n```"
         st_result = await handle_ext_fn(st_payload, agent_dict, context)
         if "✅" in st_result and "done" in st_result.lower():
-            await send_msg_fn(token, chat_id, f"🎉 **Background**: Video đã được duyệt!\n\n{st_result}")
+            await send_msg_fn(token, chat_id, t("action.bg_success", lang, result=st_result))
             return
         elif "❌" in st_result or "error" in st_result.lower():
-            await send_msg_fn(token, chat_id, f"⚠️ **Background**: Lỗi upload!\n\n{st_result}")
+            await send_msg_fn(token, chat_id, t("action.bg_fail", lang, result=st_result))
             return
         await asyncio.sleep(10)
 
@@ -590,8 +593,10 @@ async def execute_reup_sequence(
         bg_colors = {"trắng": "#FFFFFF", "đen": "#000000", "xanh": "#00FF00", "đỏ": "#FF0000"}
         bg_replace = bg_colors.get(bg_match.group(1), bg_match.group(1))
     
-    # Default to mirror if no explicit effect mentioned (common reup action)
-    if not effects and crop_percent == 0 and not remove_bg:
+    # Default to mirror if no explicit effect mentioned AND no template
+    template_id = context.get("template_id")
+    template_name = context.get("template_name", "")
+    if not effects and crop_percent == 0 and not remove_bg and not template_id:
         effects.append("mirror")
 
     # Parse trim times
@@ -610,27 +615,44 @@ async def execute_reup_sequence(
     from tubecli.core.pipeline_tracker import pipeline_tracker
     reup_provider = context.get("upload_provider", "youtube")
     reup_provider_label = {"facebook": "Facebook", "tiktok": "TikTok"}.get(reup_provider, "YouTube")
+    step_names = [("download", "📥 Tải video")]
+    if effects:
+        step_names.append(("ffmpeg", f"🎬 FFmpeg ({effects_str})"))
+    if template_id:
+        step_names.append(("template", f"🎨 Template: {template_name}"))
+    step_names.append(("upload", f"📤 Upload {reup_provider_label}"))
     pt_task = pipeline_tracker.create_task(
         pipeline_type="reup_pipeline",
         chat_id=chat_id,
         url=video_url,
         original_message=user_text[:200],
-        step_names=[("download", "📥 Tải video"), ("ffmpeg", f"🎬 FFmpeg ({effects_str})"), ("upload", f"📤 Upload {reup_provider_label}")],
+        step_names=step_names,
     )
     pt_id = pt_task.task_id
     
     pipeline_tracker.start_step(pt_id, "download", "Đang tải...")
-    await send_message_fn(
-        token, chat_id,
-        f"♻️ **Re-up Pipeline Bắt đầu**\n"
-        f"📥 Bước 1/3: Tải video...\n"
-        f"🎬 Bước 2/3: FFmpeg ({effects_str}{trim_str})\n"
-        f"📤 Bước 3/3: Upload {reup_provider_label}"
-    )
+    lang = get_user_lang(chat_id)
+    
+    # Build dynamic start message to match what was displayed in the plan
+    exec_steps = [t("plan.step_download", lang)]
+    if effects:
+        exec_steps.append(t("plan.step_ffmpeg", lang, effects=', '.join(effects)))
+    if template_id:
+        exec_steps.append(t("plan.step_template", lang, name=template_name))
+    exec_steps.append(t("plan.step_ai_title", lang))
+    exec_steps.append(t("plan.step_upload", lang, provider=reup_provider_label))
+    
+    title_msg = t("plan.reup_title", lang)  # e.g. "♻️ Plan: Re-up Pipeline"
+    title_msg = title_msg.replace("Plan: ", "") # quick fix to say Re-up Pipeline
+    start_msg = [f"**{title_msg} Started**\n"]
+    for idx, step_txt in enumerate(exec_steps, 1):
+        start_msg.append(f"Step {idx}/{len(exec_steps)}: {step_txt}")
+        
+    await send_message_fn(token, chat_id, "\n".join(start_msg))
 
     # ── Step 2: Download ──
     from tubecli.core.fork_agent import fork_download_and_title
-    fork_result = await fork_download_and_title(video_url, user_text, agent_dict)
+    fork_result = await fork_download_and_title(video_url, user_text, agent_dict, context)
 
     dl_subtask = fork_result.get("download")
     dl_result = dl_subtask.result if dl_subtask and dl_subtask.status.value == "completed" else None
@@ -652,7 +674,7 @@ async def execute_reup_sequence(
     pt_task.video_filename = os.path.basename(video_path)
     
     pipeline_tracker.start_step(pt_id, "ffmpeg", effects_str)
-    await send_message_fn(token, chat_id, f"✅ Tải xong ({dl_speed}). 🎬 Đang xử lý FFmpeg: {effects_str}...")
+    await send_message_fn(token, chat_id, t("action.reup_dl_done", lang, speed=dl_speed, effects=effects_str))
 
     # ── Step 3: FFmpeg Processing ──
     import time
@@ -730,7 +752,7 @@ async def execute_reup_sequence(
             
             # Apply background removal (AI-powered, runs last)
             if remove_bg:
-                await send_message_fn(token, chat_id, "🧠 Đang tách nền AI (RobustVideoMatting)... Có thể mất 1-5phút.")
+                await send_message_fn(token, chat_id, t("action.matting_ai", lang))
                 try:
                     matting_path = os.path.join(ve_dir, "video_matting.py")
                     matting_spec = importlib.util.spec_from_file_location("ve_matting_reup", matting_path)
@@ -741,7 +763,6 @@ async def execute_reup_sequence(
                     green_output = os.path.join(output_dir, f"{base}_greenscreen.mp4")
                     
                     # Step A: Remove background (outputs green screen)
-                    import asyncio
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(None, matting_mod.remove_background, current_input, green_output)
                     
@@ -763,15 +784,15 @@ async def execute_reup_sequence(
                         
                 except Exception as e:
                     print(f"[Reup] ⚠️ Background removal failed: {e}")
-                    await send_message_fn(token, chat_id, f"⚠️ Tách nền lỗi: {str(e)[:150]}. Tiếp tục với video hiện tại...")
+                    await send_message_fn(token, chat_id, t("action.matting_fail", lang, error=str(e)[:150]))
             
             processed_path = current_input
         else:
-            await send_message_fn(token, chat_id, "⚠️ Video Editor extension chưa cài đặt. Bỏ qua bước FFmpeg...")
+            await send_message_fn(token, chat_id, t("action.no_ve_ext", lang))
 
     except Exception as e:
         print(f"[Reup] ❌ FFmpeg error: {e}")
-        await send_message_fn(token, chat_id, f"⚠️ FFmpeg lỗi: {str(e)[:200]}. Upload video gốc...")
+        await send_message_fn(token, chat_id, t("action.ffmpeg_fail", lang, error=str(e)[:200]))
 
     ffmpeg_elapsed = int((time.time() - ffmpeg_start) * 1000)
     
@@ -779,14 +800,66 @@ async def execute_reup_sequence(
         file_size = os.path.getsize(processed_path) if os.path.exists(processed_path) else 0
         size_mb = file_size / (1024 * 1024)
         pipeline_tracker.complete_step(pt_id, "ffmpeg", f"{os.path.basename(processed_path)} ({size_mb:.1f}MB) {ffmpeg_elapsed}ms")
-        await send_message_fn(
-            token, chat_id,
-            f"✅ FFmpeg xong ({ffmpeg_elapsed}ms): {effects_str}\n"
-            f"📁 Output: {os.path.basename(processed_path)} ({size_mb:.1f}MB)\n"
-            f"📤 Đang upload {reup_provider_label}..."
-        )
-    else:
+        await send_message_fn(token, chat_id, t("action.ffmpeg_done", lang, speed=ffmpeg_elapsed, effects=effects_str, filename=os.path.basename(processed_path), size=f"{size_mb:.1f}", provider=reup_provider_label))
+    elif effects:
         pipeline_tracker.complete_step(pt_id, "ffmpeg", f"No change ({ffmpeg_elapsed}ms)")
+
+    # ── Step 3b: Apply Template (if requested) ──
+    if template_id:
+        import time as _time
+        tpl_start = _time.time()
+        pipeline_tracker.start_step(pt_id, "template", template_name)
+        await send_message_fn(token, chat_id, t("action.template_applying", lang, name=template_name))
+        
+        try:
+            async with httpx.AsyncClient(timeout=180) as tpl_client:
+                # Call template render API
+                render_resp = await tpl_client.post(
+                    f"{TUBECLI_BASE_URL}/api/v1/templates/render",
+                    json={"template_id": template_id, "input_video": processed_path},
+                    timeout=30,
+                )
+                if render_resp.status_code == 200:
+                    render_data = render_resp.json()
+                    render_task_id = render_data.get("task_id", "")
+                    render_output = render_data.get("output_file", "")
+                    
+                    # Poll render task until done
+                    if render_task_id:
+                        for _ in range(60):  # 5 min max
+                            await asyncio.sleep(5)
+                            try:
+                                st_resp = await tpl_client.get(
+                                    f"{TUBECLI_BASE_URL}/api/v1/templates/task/{render_task_id}",
+                                    timeout=10,
+                                )
+                                if st_resp.status_code == 200:
+                                    task_info = st_resp.json().get("task", {})
+                                    if task_info.get("status") == "done":
+                                        result_output = task_info.get("result", {}).get("output_file", render_output)
+                                        if result_output and os.path.exists(result_output):
+                                            processed_path = result_output
+                                        elif render_output and os.path.exists(render_output):
+                                            processed_path = render_output
+                                        break
+                                    elif task_info.get("status") == "error":
+                                        tpl_err = task_info.get("error", "Unknown")[:200]
+                                        print(f"[Reup] ⚠️ Template render failed: {tpl_err}")
+                                        await send_message_fn(token, chat_id, t("action.template_fail", lang, error=tpl_err))
+                                        break
+                            except Exception:
+                                pass
+                else:
+                    tpl_err = render_resp.text[:200]
+                    print(f"[Reup] ⚠️ Template render API error: {tpl_err}")
+                    await send_message_fn(token, chat_id, t("action.template_fail", lang, error=tpl_err))
+        except Exception as e:
+            print(f"[Reup] ⚠️ Template error: {e}")
+            await send_message_fn(token, chat_id, t("action.template_fail", lang, error=str(e)[:200]))
+        
+        tpl_elapsed = int((_time.time() - tpl_start) * 1000)
+        pipeline_tracker.complete_step(pt_id, "template", f"{template_name} ({tpl_elapsed}ms)")
+        await send_message_fn(token, chat_id, t("action.template_done", lang, speed=tpl_elapsed, name=template_name))
 
     # ── Step 4: Get AI title ──
     title_subtask = fork_result.get("ai_title")
@@ -838,9 +911,7 @@ async def execute_reup_sequence(
         print(f"[Reup] Channel resolve error: {e}")
 
     if resolved_channel_title:
-        await send_message_fn(token, chat_id,
-            f"📺 Upload lên **{provider_label}**: *{resolved_channel_title}*"
-        )
+        await send_message_fn(token, chat_id, t("action.upload_target", lang, provider=provider_label, channel=resolved_channel_title))
 
     fake_ai_action = {
         "action": "upload_video",
@@ -941,10 +1012,15 @@ async def handle_extension_action(reply: str, agent_dict: Dict, context: Dict = 
         if action_type in ext_actions:
             handler_info = ext_actions[action_type]
             handler_fn = handler_info["handler"]
+            from tubecli.core.bot_i18n import get_user_lang
             ext_context = {"agent": agent_dict}
             if context:
                 ext_context["token"] = context.get("token", "")
-                ext_context["chat_id"] = context.get("chat_id")
+                chat_id = context.get("chat_id")
+                ext_context["chat_id"] = chat_id
+                ext_context["lang"] = get_user_lang(chat_id)
+            else:
+                ext_context["lang"] = get_user_lang()
             result = await handler_fn(action_data, ext_context)
             return result
     except Exception as e:

@@ -148,6 +148,7 @@ async def fork_download_and_title(
     video_url: str,
     user_text: str,
     agent_dict: Dict,
+    context: Dict = None,
 ) -> ForkResult:
     """
     Fork Pattern: Download video + Generate AI title in parallel.
@@ -181,7 +182,7 @@ Nhiệm vụ:
         return None
 
     fork = SubAgentFork(timeout=120)
-    fork.add("download", execute_download(video_url, agent_dict))
+    fork.add("download", execute_download(video_url, agent_dict, context))
     fork.add("ai_title", _generate_title())
     return await fork.run()
 
