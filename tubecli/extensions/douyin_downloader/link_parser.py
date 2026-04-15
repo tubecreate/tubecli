@@ -55,11 +55,11 @@ class LinkParser:
         # Resolve short URLs
         m_douyin = DOUYIN_SHORT.search(url)
         if m_douyin:
-            return await LinkParser._resolve_douyin_short(url, proxy, cookie)
+            return await LinkParser._resolve_douyin_short(m_douyin.group(0), proxy, cookie)
             
         m_tiktok = TIKTOK_SHORT.search(url)
         if m_tiktok:
-            return await LinkParser._resolve_tiktok_short(url, proxy)
+            return await LinkParser._resolve_tiktok_short(m_tiktok.group(0), proxy)
 
         # Last resort: find any 19-digit number
         m = DETAIL_ID.search(url)

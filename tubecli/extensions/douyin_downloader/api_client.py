@@ -205,10 +205,26 @@ class APIClient:
                     logger.warning(f"Empty response for {detail_id} — ABogus may have failed")
                     return None
                 data = resp.json()
-
             detail = data.get("aweme_detail")
+
+            # --- FALLBACK: IESDOUYIN API ---
             if not detail:
-                logger.warning(f"No aweme_detail for {detail_id}: status_code={data.get('status_code')}")
+                logger.warning(f"No aweme_detail for {detail_id} via main API. Trying iesdouyin fallback...")
+                ies_url = f"https://www.iesdouyin.com/web/api/v2/aweme/iteminfo/?item_ids={detail_id}"
+                try:
+                    async with httpx.AsyncClient(timeout=15, proxy=proxy, headers=headers, verify=False) as client:
+                        ies_resp = await client.get(ies_url)
+                        if ies_resp.text:
+                            ies_data = ies_resp.json()
+                            items = ies_data.get("item_list", [])
+                            if items:
+                                detail = items[0]
+                except Exception as ex:
+                    logger.error(f"iesdouyin fallback failed: {ex}")
+            # -------------------------------
+
+            if not detail:
+                logger.warning(f"No aweme_detail for {detail_id}: status_code={data.get('status_code')}. Data: {data}")
                 return None
 
             info = VideoInfo()
