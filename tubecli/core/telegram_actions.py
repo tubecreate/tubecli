@@ -805,11 +805,12 @@ async def execute_reup_sequence(
         pipeline_tracker.complete_step(pt_id, "ffmpeg", f"No change ({ffmpeg_elapsed}ms)")
 
     # ── Step 3b: Apply Template (if requested) ──
+    template_ok = True
     if template_id:
         import time as _time
         tpl_start = _time.time()
         pipeline_tracker.start_step(pt_id, "template", template_name)
-        await send_message_fn(token, chat_id, t("action.template_applying", lang, name=template_name))
+        await send_message_fn(token, chat_id, f"🎨 Đang áp dụng template: {template_name}...")
         
         try:
             async with httpx.AsyncClient(timeout=180) as tpl_client:
@@ -843,23 +844,31 @@ async def execute_reup_sequence(
                                             processed_path = render_output
                                         break
                                     elif task_info.get("status") == "error":
-                                        tpl_err = task_info.get("error", "Unknown")[:200]
-                                        print(f"[Reup] ⚠️ Template render failed: {tpl_err}")
-                                        await send_message_fn(token, chat_id, t("action.template_fail", lang, error=tpl_err))
+                                        tpl_err = task_info.get("error", "Unknown error")[:500]
+                                        template_ok = False
+                                        print(f"[Reup] ❌ Template render failed: {tpl_err}")
+                                        pipeline_tracker.fail_step(pt_id, "template", tpl_err[:200])
+                                        await send_message_fn(token, chat_id, f"❌ Template render thất bại:\n```\n{tpl_err}\n```")
                                         break
-                            except Exception:
-                                pass
+                            except Exception as poll_e:
+                                print(f"[Reup] Poll error: {poll_e}")
                 else:
-                    tpl_err = render_resp.text[:200]
-                    print(f"[Reup] ⚠️ Template render API error: {tpl_err}")
-                    await send_message_fn(token, chat_id, t("action.template_fail", lang, error=tpl_err))
+                    tpl_err = render_resp.text[:500]
+                    template_ok = False
+                    print(f"[Reup] ❌ Template render API error ({render_resp.status_code}): {tpl_err}")
+                    pipeline_tracker.fail_step(pt_id, "template", tpl_err[:200])
+                    await send_message_fn(token, chat_id, f"❌ Template API error ({render_resp.status_code}):\n```\n{tpl_err}\n```")
         except Exception as e:
-            print(f"[Reup] ⚠️ Template error: {e}")
-            await send_message_fn(token, chat_id, t("action.template_fail", lang, error=str(e)[:200]))
+            template_ok = False
+            print(f"[Reup] ❌ Template error: {e}")
+            import traceback; traceback.print_exc()
+            pipeline_tracker.fail_step(pt_id, "template", str(e)[:200])
+            await send_message_fn(token, chat_id, f"❌ Template exception: {str(e)[:300]}")
         
         tpl_elapsed = int((_time.time() - tpl_start) * 1000)
-        pipeline_tracker.complete_step(pt_id, "template", f"{template_name} ({tpl_elapsed}ms)")
-        await send_message_fn(token, chat_id, t("action.template_done", lang, speed=tpl_elapsed, name=template_name))
+        if template_ok:
+            pipeline_tracker.complete_step(pt_id, "template", f"{template_name} ({tpl_elapsed}ms)")
+            await send_message_fn(token, chat_id, f"✅ Template '{template_name}' áp dụng thành công ({tpl_elapsed}ms)")
 
     # ── Step 4: Get AI title ──
     title_subtask = fork_result.get("ai_title")
