@@ -465,28 +465,33 @@ def _run_control_panel():
     show_api_logs = False  # Default: quiet mode (no INFO spam)
 
     def _start_api(quiet: bool):
-        """Start/restart API server — always hidden (no console window)."""
+        """Start/restart API server."""
         _kill_server_on_port(port)
         import time
         from tubecli.config import get_language
         cur_lang = get_language()
-        cmd = f"tubecli api start{' --quiet' if quiet else ''} --lang {cur_lang}"
+        
         env = os.environ.copy()
-        env["PYTHONUTF8"] = "1"  # Ensure UTF-8 output even if hidden
+        env["PYTHONUTF8"] = "1"
         if os.name == "nt":
-            CREATE_NO_WINDOW = 0x08000000  # Completely suppress console window
-            subprocess.Popen(
-                cmd, shell=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                creationflags=CREATE_NO_WINDOW,
-                env=env,
-            )
+            if quiet:
+                cmd = f"tubecli api start --quiet --lang {cur_lang}"
+                CREATE_NO_WINDOW = 0x08000000
+                subprocess.Popen(
+                    cmd, shell=True, creationflags=CREATE_NO_WINDOW,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
+                )
+            else:
+                # Force Windows to open a new interactive visible window with "start"
+                cmd = f'start "TubeCLI API Logs" cmd /k "tubecli api start --lang {cur_lang}"'
+                subprocess.Popen(cmd, shell=True, env=env)
         else:
-            subprocess.Popen(
-                cmd, shell=True,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                env=env,
-            )
+            cmd = f"tubecli api start{' --quiet' if quiet else ''} --lang {cur_lang}"
+            kwargs = {"shell": True, "env": env}
+            if quiet:
+                kwargs["stdout"] = subprocess.DEVNULL
+                kwargs["stderr"] = subprocess.DEVNULL
+            subprocess.Popen(cmd, **kwargs)
         time.sleep(2)
 
     # Initial start — quiet by default
