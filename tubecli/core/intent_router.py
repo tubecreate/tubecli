@@ -101,7 +101,27 @@ UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
 REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip", "template"]
 TEMPLATE_PATTERN = r'template\s*(\d+)'
 TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
-LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream"]
+LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream", "livestream", "live stream", "go live", "tạo live"]
+
+# Live source URL patterns (Douyin live, TikTok live, m3u8, RTMP)
+LIVE_URL_PATTERNS = [
+    r'https?://live\.douyin\.com/\S+',
+    r'https?://(?:www\.)?tiktok\.com/@[^/]+/live',
+    r'https?://\S+\.m3u8\S*',
+    r'rtmp://\S+',
+    r'https?://v\.douyin\.com/\S+',
+    r'https?://\S+',  # Generic URL fallback (lowest priority)
+]
+
+# Standalone live patterns (no URL needed in message body)
+LIVE_STANDALONE_PATTERNS = [
+    r"tạo\s+(phiên\s+)?live",
+    r"(phát|bắt đầu)\s+live",
+    r"live\s*stream",
+    r"restream",
+    r"go\s+live",
+    r"tạo\s+luồng\s+live",
+]
 SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
 TTS_KEYWORDS = ["lồng tiếng", "voiceover", "voice over", "tts", "đọc text", "text to speech", "narrate", "giọng đọc"]
 
@@ -134,6 +154,19 @@ class IntentRouter:
         """
         text = message.strip()
         text_lower = text.lower()
+
+        # ── 0. Live Stream URL Detection ────────────────────────
+        # Check for live-specific URLs first (douyin live, m3u8, rtmp)
+        live_url = self._extract_live_url(text, text_lower)
+        if live_url or (any(k in text_lower for k in LIVE_KEYWORDS) and self._has_any_url(text)):
+            source = live_url or self._extract_any_url(text)
+            if source:
+                return IntentResult(
+                    intent_type="live_action",
+                    confidence=0.97,
+                    extracted_data={"url": source, "original_message": text},
+                    skip_llm=False,
+                )
 
         # ── 1. Video URL Detection ───────────────────────────────
         video_url = self._extract_video_url(text, text_lower)
@@ -213,6 +246,18 @@ class IntentRouter:
                     extracted_data={"skill": matched_skill},
                     skip_llm=True,
                 )
+
+        # ── 2b. Standalone Live Command ────────────────────────
+        if self._matches_any(text_lower, LIVE_STANDALONE_PATTERNS):
+            # User wants to create a live stream but may not have included URL
+            # Extract URL if present in the message
+            url = self._extract_any_url(text)
+            return IntentResult(
+                intent_type="live_action",
+                confidence=0.92,
+                extracted_data={"url": url or "", "original_message": text},
+                skip_llm=False,
+            )
 
         # ── 3. Greeting Detection ────────────────────────────────
         if self._matches_any(text_lower, GREETING_PATTERNS):
@@ -363,6 +408,29 @@ class IntentRouter:
         )
 
     # ── Helpers ───────────────────────────────────────────────────
+
+    def _extract_live_url(self, text: str, text_lower: str) -> Optional[str]:
+        """Extract live stream URL (Douyin live, TikTok live, m3u8, RTMP)."""
+        live_patterns = [
+            r'https?://live\.douyin\.com/\S+',
+            r'https?://(?:www\.)?tiktok\.com/@[^/]+/live',
+            r'https?://\S+\.m3u8\S*',
+            r'rtmp://\S+',
+        ]
+        for pattern in live_patterns:
+            m = re.search(pattern, text)
+            if m:
+                return m.group(0).rstrip('.,;?!')
+        return None
+
+    def _has_any_url(self, text: str) -> bool:
+        """Check if text contains any URL."""
+        return bool(re.search(r'https?://\S+|rtmp://\S+', text))
+
+    def _extract_any_url(self, text: str) -> Optional[str]:
+        """Extract any URL from text."""
+        m = re.search(r'(https?://\S+|rtmp://\S+)', text)
+        return m.group(0).rstrip('.,;?!') if m else None
 
     def _extract_video_url(self, text: str, text_lower: str) -> Optional[str]:
         """Extract video URL from message, respecting bypass keywords."""

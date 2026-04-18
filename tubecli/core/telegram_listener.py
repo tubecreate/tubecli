@@ -269,6 +269,15 @@ class TelegramListener:
                         lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
                         context,
                     )
+                elif plan["type"] == "livestream_action":
+                    from tubecli.core.telegram_actions import execute_livestream_pipeline
+                    result = await execute_livestream_pipeline(
+                        source_url=plan.get("resolved_url", plan["url"]),
+                        user_text=plan["original_text"],
+                        agent_dict=agent_dict,
+                        send_message_fn=self._send_message,
+                        context=context,
+                    )
                 else:
                     result = "❌ Loại kế hoạch không hợp lệ."
                 
@@ -502,18 +511,146 @@ class TelegramListener:
             if intent.intent_type == "tracker_action":
                 action_type = "trigger_tracker"
                 payload = {"action": action_type}
+                fake_json = "```json\n" + json.dumps(payload) + "\n```"
+                result = await handle_extension_action(fake_json, agent_dict, context)
+                self._save_history(agent_id, agent_dict, text, result, history)
+                return result
+
             elif intent.intent_type == "live_action":
-                action_type = "create_livestream"
-                payload = {"action": action_type}
+                # ── Plan & Confirm: Livestream Pipeline ──
+                context["_agent_badge"] = "🔴 Livestream Pipeline"
+                source_url = intent.extracted_data.get("url", "")
+                if not source_url:
+                    import re as _re
+                    url_match = _re.search(r'(https?://\S+|rtmp://\S+)', text)
+                    source_url = url_match.group(0).rstrip('.,;?!') if url_match else ""
+
+                if not source_url:
+                    result = (
+                        "🔴 **Livestream Pipeline**\n\n"
+                        "❌ Thiếu link nguồn (source URL).\n"
+                        "Vui lòng gửi kèm:\n"
+                        "• Link Douyin live: `https://live.douyin.com/xxx`\n"
+                        "• Link video: `https://v.douyin.com/xxx`\n"
+                        "• Link m3u8/RTMP\n\n"
+                        "Ví dụ: `tạo live stream https://v.douyin.com/xxx lên kênh 3`"
+                    )
+                    self._save_history(agent_id, agent_dict, text, result, history)
+                    return result
+
+                # ── Pre-validate source URL (inline) ──
+                source_info = ""
+                source_title = ""
+                resolved_url = source_url
+                is_live_ok = False
+
+                is_live_link = any(k in source_url.lower() for k in ["douyin.com", "tiktok.com", "iesdouyin.com"])
+                if is_live_link:
+                    try:
+                        resp = await self.client.post(
+                            f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/parse",
+                            json={"url": source_url}, timeout=20,
+                        )
+                        if resp.status_code == 200:
+                            parse_data = resp.json().get("data", {})
+                            content_type = parse_data.get("type", "")
+                            source_title = parse_data.get("title", "") or parse_data.get("author", "")
+                            author = parse_data.get("author", "Unknown")
+
+                            if content_type == "live":
+                                hls_url = parse_data.get("download_url", "")
+                                if hls_url:
+                                    resolved_url = hls_url
+                                    is_live_ok = True
+                                    source_info = f"✅ Phòng live đang hoạt động\n👤 {author}\n📺 {source_title}"
+                                else:
+                                    result = (
+                                        "🔴 **Livestream Pipeline**\n\n"
+                                        f"❌ **Phòng live đã offline**\n"
+                                        f"👤 {author}\n🔗 {source_url}\n\n"
+                                        "_Vui lòng kiểm tra lại link hoặc chờ phòng live mở lại._"
+                                    )
+                                    self._save_history(agent_id, agent_dict, text, result, history)
+                                    return result
+                            elif content_type == "video":
+                                video_url = parse_data.get("download_url", "")
+                                if video_url:
+                                    resolved_url = video_url
+                                    is_live_ok = True
+                                    source_info = f"✅ Video (sẽ dùng file_loop)\n👤 {author}\n📺 {source_title}"
+                                else:
+                                    result = (
+                                        "🔴 **Livestream Pipeline**\n\n"
+                                        f"❌ **Không thể lấy link download**\n"
+                                        f"🔗 {source_url}\n\n"
+                                        "_Cookie Douyin có thể đã hết hạn._"
+                                    )
+                                    self._save_history(agent_id, agent_dict, text, result, history)
+                                    return result
+                            else:
+                                is_live_ok = True
+                                source_info = f"⚠️ Loại: {content_type} — sẽ thử stream"
+                        elif resp.status_code in (400, 404):
+                            try:
+                                err = resp.json().get("detail", "")
+                            except Exception:
+                                err = resp.text[:200]
+                            result = (
+                                "🔴 **Livestream Pipeline**\n\n"
+                                f"❌ **Link không hợp lệ**\n🔗 {source_url}\n📝 {err}"
+                            )
+                            self._save_history(agent_id, agent_dict, text, result, history)
+                            return result
+                    except Exception as e:
+                        is_live_ok = True  # Skip validation, try anyway
+                        source_info = f"⚠️ Không kiểm tra được link: {str(e)[:80]}"
+                else:
+                    is_live_ok = True
+                    source_info = f"🔗 URL trực tiếp"
+
+                # ── Resolve target channel ──
+                resolved_channel = None
+                try:
+                    from tubecli.core.channel_cache import channel_cache
+                    resolved_channel = channel_cache.resolve_channel("youtube", text)
+                except Exception:
+                    pass
+
+                user_lang = get_user_lang(chat_id)
+                plan = {
+                    "type": "livestream_action",
+                    "url": source_url,
+                    "resolved_url": resolved_url,
+                    "source_title": source_title,
+                    "source_info": source_info,
+                    "provider": "youtube",
+                    "provider_label": "YouTube",
+                    "channel": resolved_channel,
+                    "original_text": text,
+                    "badge": "🔴 Livestream Pipeline đang phát...",
+                    "steps": [
+                        "🔑 Resolve YouTube credentials",
+                        "✨ AI SEO Title",
+                        "🎬 Create Broadcast + Start FFmpeg",
+                    ],
+                }
+                self.pending_actions[chat_id] = plan
+                self._schedule_auto_execute(chat_id, plan, agent_dict, context, agent_id, history)
+                return self._format_livestream_plan(plan, chat_id)
+
             elif intent.intent_type == "list_channels_action":
                 payload = intent.extracted_data.get("action_data", {"action": "list_channels"})
+                fake_json = "```json\n" + json.dumps(payload) + "\n```"
+                result = await handle_extension_action(fake_json, agent_dict, context)
+                self._save_history(agent_id, agent_dict, text, result, history)
+                return result
+
             elif intent.intent_type == "list_templates_action":
                 payload = intent.extracted_data.get("action_data", {"action": "list_templates"})
-            
-            fake_json = "```json\n" + json.dumps(payload) + "\n```"
-            result = await handle_extension_action(fake_json, agent_dict, context)
-            self._save_history(agent_id, agent_dict, text, result, history)
-            return result
+                fake_json = "```json\n" + json.dumps(payload) + "\n```"
+                result = await handle_extension_action(fake_json, agent_dict, context)
+                self._save_history(agent_id, agent_dict, text, result, history)
+                return result
 
         # ── Team Create ──
         if intent.intent_type == "team_create":
@@ -748,6 +885,44 @@ class TelegramListener:
         
         return "\n".join(lines)
 
+    def _format_livestream_plan(self, plan: Dict, chat_id: int) -> str:
+        """Format a livestream pending plan for user review."""
+        url = plan.get("url", "")
+        source_info = plan.get("source_info", "")
+        channel = plan.get("channel")
+        steps = plan.get("steps", [])
+
+        url_short = url[:60] + "..." if len(url) > 60 else url
+
+        if channel:
+            ch_title = channel.get("title", "Không rõ")
+            ch_email = channel.get("email", "")
+            channel_line = f"📺 **Kênh:** {ch_title}"
+            if ch_email:
+                channel_line += f" ({ch_email})"
+        else:
+            channel_line = "📺 **Kênh:** ⭐ kênh mặc định"
+
+        lines = [
+            "🔴 **Kế hoạch: Livestream Restream**\n",
+            f"🔗 Source: `{url_short}`",
+            source_info,
+            "",
+            channel_line,
+            "",
+            "📋 **Các bước:**",
+        ]
+        for i, step in enumerate(steps, 1):
+            lines.append(f"  {i}. {step}")
+
+        lines.append("")
+        lines.append("⏱️ _Tự động thực hiện sau 20 giây..._")
+        lines.append("✅ Trả lời **ok** để bắt đầu ngay")
+        lines.append("🔄 Trả lời **đổi kênh N** để đổi kênh")
+        lines.append("🚫 Trả lời **hủy** để hủy")
+
+        return "\n".join(lines)
+
     # ═══════════════════════════════════════════════════════════════
     #  AUTO-EXECUTE TIMER
     # ═══════════════════════════════════════════════════════════════
@@ -807,6 +982,15 @@ class TelegramListener:
                     self._send_message, self._send_file,
                     lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
                     context,
+                )
+            elif plan["type"] == "livestream_action":
+                from tubecli.core.telegram_actions import execute_livestream_pipeline
+                result = await execute_livestream_pipeline(
+                    source_url=plan.get("resolved_url", plan["url"]),
+                    user_text=plan["original_text"],
+                    agent_dict=agent_dict,
+                    send_message_fn=self._send_message,
+                    context=context,
                 )
             else:
                 result = "❌ Loại kế hoạch không hợp lệ."
