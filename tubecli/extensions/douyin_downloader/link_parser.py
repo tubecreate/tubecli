@@ -160,10 +160,11 @@ class LinkParser:
                         m = re.search(r'share/user/([^/?]+)', u)
                     if m:
                         sec_uid = m.group(1)
-                        # Detect intent from full text (which is passed in the "url" param)
-                        text_lower = url.lower()
+                        # Detect intent from full text and the redirected URL (which has query params like enter_page=live)
+                        text_lower = (url + " " + u).lower()
                         is_profile_intent = "theo dõi" in text_lower or "ta的更多作品" in text_lower or "profile" in text_lower
-                        is_live_intent = "live" in text_lower or "直播" in text_lower or "tạo phiên live" in text_lower
+                        is_live_intent = ("live" in text_lower or "直播" in text_lower or 
+                                        "tạo phiên live" in text_lower)
                         
                         if is_profile_intent and not is_live_intent:
                             # User definitively wants to follow the profile ("trang chủ")

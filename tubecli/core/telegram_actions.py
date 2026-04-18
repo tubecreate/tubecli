@@ -983,6 +983,310 @@ async def execute_reup_sequence(
 
 
 # ═══════════════════════════════════════════════════════════════
+#  LIVESTREAM PIPELINE (Source → Create Broadcast → SEO Title → FFmpeg)
+# ═══════════════════════════════════════════════════════════════
+
+async def execute_livestream_pipeline(
+    source_url: str,
+    user_text: str,
+    agent_dict: Dict,
+    send_message_fn,
+    context: Dict,
+) -> str:
+    """Full Auto-Livestream Pipeline:
+    1. Resolve YouTube credential (token_id)
+    2. AI SEO Title generation (parallel)
+    3. Call /api/v1/livestream/auto-live (create broadcast + start FFmpeg)
+    4. Notify user with result
+    """
+    import time
+    token = context.get("token", "")
+    chat_id = context.get("chat_id", 0)
+    lang = get_user_lang(chat_id)
+    pipeline_start = time.time()
+
+    await send_message_fn(token, chat_id,
+        "🔴 **Auto-Livestream Pipeline**\n\n"
+        "Step 1/3: 🔑 Resolving YouTube credentials...\n"
+        "Step 2/3: ✨ AI SEO Title...\n"
+        "Step 3/3: 🎬 Create Broadcast + FFmpeg..."
+    )
+
+    # ── Step 0: Pre-validate source URL ──
+    resolved_url = source_url
+    source_title = ""
+    is_live_link = any(k in source_url.lower() for k in ["douyin.com", "tiktok.com", "iesdouyin.com"])
+
+    if is_live_link:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.post(
+                    f"{TUBECLI_BASE_URL}/api/v1/douyin_downloader/parse",
+                    json={"url": source_url},
+                )
+                if resp.status_code == 200:
+                    parse_data = resp.json().get("data", {})
+                    content_type = parse_data.get("type", "")
+                    source_title = parse_data.get("title", "") or parse_data.get("author", "")
+
+                    if content_type == "live":
+                        # It's a live stream — get the HLS/FLV URL
+                        hls_url = parse_data.get("download_url", "")
+                        if hls_url:
+                            resolved_url = hls_url
+                            await send_message_fn(token, chat_id,
+                                f"✅ Step 0/3: Phòng live **đang hoạt động** ✨\n"
+                                f"👤 {parse_data.get('author', 'Unknown')}\n"
+                                f"📺 {source_title}"
+                            )
+                        else:
+                            return (
+                                "🔴 **Livestream Pipeline**\n\n"
+                                "❌ **Phòng live đã offline** hoặc không thể lấy luồng stream.\n"
+                                f"👤 {parse_data.get('author', 'Unknown')}\n"
+                                f"🔗 {source_url}\n\n"
+                                "_Vui lòng kiểm tra lại link hoặc chờ phòng live mở lại._"
+                            )
+                    elif content_type == "video":
+                        # It's a regular video — can still stream it
+                        video_url = parse_data.get("download_url", "")
+                        if video_url:
+                            resolved_url = video_url
+                            await send_message_fn(token, chat_id,
+                                f"✅ Step 0/3: Đây là **video** (không phải live)\n"
+                                f"📺 {source_title}\n"
+                                f"_Sẽ dùng preset file_loop để stream._"
+                            )
+                        else:
+                            return (
+                                "🔴 **Livestream Pipeline**\n\n"
+                                "❌ **Không thể lấy link download** từ video.\n"
+                                f"🔗 {source_url}\n\n"
+                                "_Cookie Douyin có thể đã hết hạn. Kiểm tra Settings._"
+                            )
+                    else:
+                        await send_message_fn(token, chat_id,
+                            f"⚠️ Step 0/3: Loại nội dung: **{content_type}**\n"
+                            f"_Sẽ thử stream trực tiếp._"
+                        )
+                elif resp.status_code == 404:
+                    try:
+                        err_detail = resp.json().get("detail", "")
+                    except Exception:
+                        err_detail = resp.text[:300]
+                    return (
+                        "🔴 **Livestream Pipeline**\n\n"
+                        f"❌ **Link không hợp lệ hoặc đã hết hạn**\n"
+                        f"🔗 {source_url}\n"
+                        f"📝 {err_detail}\n\n"
+                        "_Kiểm tra lại link hoặc thử link khác._"
+                    )
+                elif resp.status_code == 400:
+                    try:
+                        err_detail = resp.json().get("detail", "")
+                    except Exception:
+                        err_detail = resp.text[:300]
+                    return (
+                        "🔴 **Livestream Pipeline**\n\n"
+                        f"❌ **Không phân tích được link**\n"
+                        f"🔗 {source_url}\n"
+                        f"📝 {err_detail}\n\n"
+                        "_Vui lòng nhập link đầy đủ (https://www.douyin.com/video/xxx)._"
+                    )
+        except httpx.ConnectError:
+            # Downloader service not available — skip validation, try anyway
+            await send_message_fn(token, chat_id,
+                "⚠️ Step 0/3: Không kết nối được Downloader API, sẽ thử stream trực tiếp."
+            )
+        except Exception as e:
+            print(f"[Livestream] Pre-validate error: {e}")
+            await send_message_fn(token, chat_id,
+                f"⚠️ Step 0/3: Lỗi kiểm tra link: {str(e)[:100]}\n_Sẽ thử stream trực tiếp._"
+            )
+
+    # ── Step 1: Resolve token_id ──
+    token_id = ""
+    email_display = "default"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{TUBECLI_BASE_URL}/api/v1/livestream/credentials")
+            if resp.status_code == 200:
+                creds = resp.json().get("credentials", [])
+                if creds:
+                    text_lower = user_text.lower()
+
+                    # Priority 1: Match email from user text (e.g. "2@5.com")
+                    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', user_text)
+                    if email_match:
+                        target_email = email_match.group(0)
+                        for c in creds:
+                            if c.get("authorized_email", "").lower() == target_email.lower():
+                                token_id = c["token_id"]
+                                break
+
+                    # Priority 2: Match "kênh N" via channel_cache
+                    if not token_id:
+                        try:
+                            from tubecli.core.channel_cache import channel_cache
+                            ch = channel_cache.resolve_channel("youtube", user_text)
+                            if ch:
+                                ch_email = ch.get("email", "").lower()
+                                if ch_email:
+                                    for c in creds:
+                                        if c.get("authorized_email", "").lower() == ch_email:
+                                            token_id = c["token_id"]
+                                            break
+                        except Exception as e:
+                            print(f"[Livestream] Channel cache resolve error: {e}")
+
+                    # Fallback: use first available credential
+                    if not token_id:
+                        token_id = creds[0].get("token_id", "")
+                    
+                    email_display = next(
+                        (c.get("authorized_email", "") for c in creds if c.get("token_id") == token_id),
+                        "default"
+                    )
+                    await send_message_fn(token, chat_id,
+                        f"✅ Step 1/3: YouTube account: **{email_display}**"
+                    )
+                else:
+                    return "❌ Không tìm thấy YouTube credentials. Vui lòng authorize trong Auth Manager."
+    except Exception as e:
+        print(f"[Livestream] Credential resolve error: {e}")
+        # token_id = "" will let backend use default
+
+    # ── Step 2: AI SEO Title ──
+    ai_title = source_title or "Live Restream"
+    try:
+        from tubecli.core.brain import AgentBrain
+        title_prompt = (
+            f"Generate a short, catchy YouTube livestream title (max 60 chars) for this stream.\n"
+            f"Source: {source_url}\n"
+            f"Source title: {source_title}\n"
+            f"User request: {user_text}\n"
+            f"Rules: Vietnamese or English based on user's language. No quotes. SEO optimized. Return ONLY the title."
+        )
+        title_result = AgentBrain.quick_reply(
+            message=title_prompt,
+            agent=agent_dict,
+            history=[],
+        )
+        if title_result and isinstance(title_result, str) and len(title_result.strip()) > 5:
+            # Clean AI response — take first line, remove quotes
+            first_line = title_result.strip().split('\n')[0]
+            ai_title = first_line.strip().strip('"').strip("'")[:80]
+        await send_message_fn(token, chat_id,
+            f"✅ Step 2/3: AI Title: **{ai_title}**"
+        )
+    except Exception as e:
+        print(f"[Livestream] AI title error: {e}")
+        await send_message_fn(token, chat_id,
+            f"⚠️ Step 2/3: AI Title fallback → **{ai_title}**"
+        )
+
+    # ── Step 3: Call auto-live API ──
+    try:
+        payload = {
+            "token_id": token_id,
+            "title": ai_title,
+            "description": f"Auto-livestream via TubeCLI chatbot | Source: {source_url}",
+            "privacy": "public",
+            "input_source": resolved_url,   # Use pre-resolved URL (HLS/FLV)
+            "preset": "file",
+            "resolution": "1080p",
+            "frame_rate": "30fps",
+        }
+
+        # Detect preset based on content type
+        if is_live_link or any(k in resolved_url.lower() for k in [".m3u8", ".flv", "rtmp://", "live"]):
+            payload["preset"] = "file"  # Real-time restream
+        elif resolved_url.endswith((".mp4", ".mkv", ".avi", ".mov")):
+            payload["preset"] = "file_loop"  # Loop video file
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{TUBECLI_BASE_URL}/api/v1/livestream/auto-live",
+                json=payload,
+            )
+
+            if resp.status_code == 200:
+                data = resp.json()
+                status = data.get("status", "")
+                broadcast = data.get("broadcast", {})
+                ffmpeg_sid = data.get("ffmpeg_session_id", "")
+                elapsed = int((time.time() - pipeline_start) * 1000)
+
+                if status == "success":
+                    broadcast_id = broadcast.get("broadcast_id", "")
+                    stream_key = broadcast.get("stream_key", "???")
+                    yt_url = f"https://www.youtube.com/watch?v={broadcast_id}"
+
+                    result_msg = (
+                        f"🔴 **LIVE! Pipeline hoàn tất** ({elapsed}ms)\n\n"
+                        f"📺 **{ai_title}**\n"
+                        f"🔗 YouTube: {yt_url}\n"
+                        f"🔑 Stream Key: `{stream_key[:12]}...`\n"
+                        f"🎬 FFmpeg Session: `{ffmpeg_sid}`\n"
+                        f"📡 Source: `{source_url[:60]}...`\n\n"
+                        f"_Dùng lệnh 'stop live' để dừng stream._"
+                    )
+                    return result_msg
+
+                elif status == "partial":
+                    broadcast_id = broadcast.get("broadcast_id", "")
+                    ffmpeg_err = data.get("ffmpeg_error", "Unknown")
+                    return (
+                        f"⚠️ **Broadcast đã tạo nhưng FFmpeg lỗi**\n\n"
+                        f"📺 Broadcast ID: `{broadcast_id}`\n"
+                        f"🔑 Stream Key: `{broadcast.get('stream_key', '???')}`\n"
+                        f"❌ FFmpeg: {ffmpeg_err}\n\n"
+                        f"_Thử lại bằng cách gửi link khác hoặc kiểm tra FFmpeg._"
+                    )
+                else:
+                    return f"❌ Livestream lỗi: {data.get('message', 'Không rõ lỗi')}"
+            else:
+                try:
+                    err_detail = resp.json().get("detail", resp.text[:300])
+                except Exception:
+                    err_detail = resp.text[:300]
+                err_str = str(err_detail).lower()
+
+                # ── User-friendly error messages ──
+                if "not enabled for live streaming" in err_str:
+                    return (
+                        f"🔴 **Kênh chưa bật Live Streaming**\n\n"
+                        f"📧 Account: **{email_display if token_id else 'default'}**\n"
+                        f"❌ YouTube yêu cầu bật tính năng Live trước khi phát.\n\n"
+                        f"📋 **Cách bật:**\n"
+                        f"1. Vào [YouTube Studio](https://studio.youtube.com)\n"
+                        f"2. Chọn **Settings** → **Channel** → **Feature eligibility**\n"
+                        f"3. Bật **Live streaming**\n"
+                        f"4. Chờ 24h để YouTube kích hoạt\n\n"
+                        f"_Sau khi bật xong, thử lại lệnh này._"
+                    )
+                elif "quota" in err_str:
+                    return (
+                        f"🔴 **YouTube API quota đã hết**\n\n"
+                        f"❌ Đã vượt giới hạn API YouTube trong ngày.\n"
+                        f"_Thử lại sau 24h hoặc dùng account khác._"
+                    )
+                elif "forbidden" in err_str or "403" in err_str:
+                    return (
+                        f"🔴 **Không có quyền truy cập**\n\n"
+                        f"❌ Account không có quyền tạo broadcast.\n"
+                        f"_Kiểm tra lại quyền OAuth hoặc authorize lại._"
+                    )
+                else:
+                    return f"❌ API lỗi ({resp.status_code}): {err_detail}"
+
+    except httpx.ConnectError:
+        return "❌ Không kết nối được TubeCLI server. Kiểm tra service đang chạy."
+    except Exception as e:
+        return f"❌ Livestream pipeline lỗi: {str(e)[:300]}"
+
+
+# ═══════════════════════════════════════════════════════════════
 #  EXTENSION ACTION HANDLER
 # ═══════════════════════════════════════════════════════════════
 
@@ -1012,6 +1316,10 @@ async def handle_extension_action(reply: str, agent_dict: Dict, context: Dict = 
 
     elif action_type == "schedule_event":
         return await exec_schedule_event(action_data)
+
+    elif action_type == "create_livestream":
+        return await exec_create_livestream(action_data, context)
+
 
     # ── Dynamic extension actions ──
     try:
@@ -1165,3 +1473,56 @@ async def exec_run_api(action_data: Dict) -> str:
                 return f"✅ Response ({resp.status_code}): {resp.text[:300]}"
     except Exception as e:
         return f"❌ Lỗi gọi API {endpoint}: {str(e)[:200]}"
+
+
+async def exec_create_livestream(action_data: Dict, context: Dict = None) -> str:
+    """Execute create_livestream action — fallback handler for extension-dispatched livestream requests."""
+    source_url = action_data.get("input_source", "") or action_data.get("url", "")
+    title = action_data.get("title", "Live Restream")
+    token_id = action_data.get("token_id", "")
+    preset = action_data.get("preset", "file")
+    privacy = action_data.get("privacy", "public")
+
+    if not source_url:
+        return "❌ Thiếu link nguồn (input_source). Vui lòng cung cấp URL để restream."
+
+    payload = {
+        "token_id": token_id,
+        "title": title,
+        "description": f"Auto-livestream via TubeCLI",
+        "privacy": privacy,
+        "input_source": source_url,
+        "preset": preset,
+        "resolution": "1080p",
+        "frame_rate": "30fps",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                f"{TUBECLI_BASE_URL}/api/v1/livestream/auto-live",
+                json=payload,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                broadcast = data.get("broadcast", {})
+                status = data.get("status", "")
+                if status == "success":
+                    broadcast_id = broadcast.get("broadcast_id", "")
+                    return (
+                        f"🔴 **LIVE!**\n"
+                        f"📺 {broadcast.get('title', title)}\n"
+                        f"🔗 https://www.youtube.com/watch?v={broadcast_id}\n"
+                        f"🔑 Stream Key: `{broadcast.get('stream_key', '???')[:12]}...`\n"
+                        f"🎬 FFmpeg: `{data.get('ffmpeg_session_id', '')}`"
+                    )
+                else:
+                    return f"❌ {data.get('message', 'Livestream failed')}"
+            else:
+                try:
+                    err = resp.json().get("detail", resp.text[:300])
+                except Exception:
+                    err = resp.text[:300]
+                return f"❌ Livestream API error ({resp.status_code}): {err}"
+    except Exception as e:
+        return f"❌ Livestream error: {str(e)[:300]}"
