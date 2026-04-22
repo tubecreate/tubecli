@@ -236,9 +236,13 @@
                             <label data-i18n="settings.ai_model_default" style="margin:0;">Mô hình AI mặc định</label>
                             <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;" data-i18n="settings.manage_keys">🔑 Quản lý API Key</button>
                         </div>
-                        <select id="set-model" onchange="onModelSelectChange()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
-                            <option value="qwen:latest">qwen:latest</option>
-                        </select>
+                        <div style="display:flex; gap: 8px;">
+                            <select id="set-model" onchange="onModelSelectChange()" style="flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:.9rem">
+                                <option value="qwen:latest">qwen:latest</option>
+                            </select>
+                            <button class="btn-secondary" id="btn-test-default-ai" onclick="testDefaultAI()" style="padding: 0 16px; border-radius: 8px; white-space: nowrap;">⚡ Test</button>
+                        </div>
+                        <div id="test-default-ai-result" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; font-size:0.85rem;"></div>
                         <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.85rem;color:#f59e0b;"></div>
                         <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.model_desc">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
                     </div>
