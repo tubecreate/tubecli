@@ -258,17 +258,29 @@ class KeyManager:
                 return {"status": "error", "message": f"OpenAI key error: {resp.status_code}"}
 
             elif provider == "openrouter":
-                resp = requests.get(
-                    "https://openrouter.ai/api/v1/auth/key",
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=10,
+                payload = {
+                    "model": "openai/gpt-4o-mini",
+                    "messages": [{"role": "user", "content": "Hello"}]
+                }
+                resp = requests.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=15,
                 )
                 if resp.status_code == 200:
                     entry["active"] = True
                     entry["status_msg"] = ""
                     self._save()
-                    return {"status": "success", "message": f"OpenRouter key is valid."}
-                return {"status": "error", "message": f"OpenRouter key error: {resp.status_code}"}
+                    return {"status": "success", "message": f"OpenRouter key is valid. API Test OK."}
+                
+                try:
+                    err_json = resp.json()
+                    err_msg = err_json.get("error", {}).get("message", "Unknown Error")
+                except Exception:
+                    err_msg = resp.text[:100]
+                    
+                return {"status": "error", "message": f"OpenRouter key error {resp.status_code}: {err_msg}"}
 
             elif provider == "claude":
                 # Claude doesn't have a simple list endpoint, use a minimal message

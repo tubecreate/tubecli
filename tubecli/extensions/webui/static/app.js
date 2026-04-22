@@ -2151,7 +2151,7 @@ async function populateModelDropdown(selectedModel) {
         if (cloud && cloud.providers) {
             cloud.providers.forEach(p => {
                 if (!p.models || p.models.length === 0) return;
-                const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek' }[p.id] || p.id;
+                const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
                 html += `<optgroup label="☁️ ${esc(label)}">`;
                 p.models.forEach(m => {
                     html += `<option value="${esc(m)}">${esc(m)}</option>`;
@@ -2187,7 +2187,7 @@ async function onModelSelectChange() {
         warn.style.display = 'none';
         return;
     }
-    const providerMap = { 'Gemini': 'gemini', 'OpenAI': 'openai', 'Claude': 'claude', 'Grok': 'grok', 'DeepSeek': 'deepseek' };
+    const providerMap = { 'Gemini': 'gemini', 'OpenAI': 'openai', 'Claude': 'claude', 'Grok': 'grok', 'DeepSeek': 'deepseek', 'OpenRouter': 'openrouter' };
     let provider = '';
     for (const [name, id] of Object.entries(providerMap)) {
         if (optgroup.label.includes(name)) { provider = id; break; }
