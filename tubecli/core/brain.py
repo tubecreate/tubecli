@@ -672,20 +672,31 @@ Rules:
         model = agent.get("model") or agent.get("browser_ai_model") or "qwen:latest"
         cloud_keys = agent.get("cloud_api_keys", {})
         
-        # Ollama models use colon notation (e.g. gemma3:1b, qwen:latest)
-        # Cloud models DON'T (e.g. gemini-2.0-flash, gpt-4o)
-        is_ollama_format = ":" in model  # gemma3:1b, qwen:latest, etc.
+        # OpenRouter models use 'provider/model' format (e.g. anthropic/claude-opus-4.6)
+        is_openrouter = "/" in model and not model.startswith("http")
         
-        if not is_ollama_format and any(k in model.lower() for k in ["gemini", "gemma"]):
-            result = AgentBrain._call_gemini(model, cloud_keys.get("gemini", ""), messages, temperature=temperature)
-        elif any(k in model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
-            result = AgentBrain._call_openai(model, cloud_keys.get("openai", ""), messages, temperature=temperature)
-        elif "claude" in model.lower():
-            result = AgentBrain._call_claude(model, cloud_keys.get("claude", ""), messages)
-        elif "deepseek" in model.lower():
-            result = AgentBrain._call_openai(model, cloud_keys.get("deepseek", ""), messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+        if is_openrouter:
+            result = AgentBrain._call_openai(
+                model, cloud_keys.get("openrouter", ""), messages,
+                base_url="https://openrouter.ai/api/v1", temperature=temperature
+            )
         else:
-            return AgentBrain._call_ollama(model, messages, temperature=temperature)
+            # Ollama models use colon notation (e.g. gemma3:1b, qwen:latest)
+            # Cloud models DON'T (e.g. gemini-2.0-flash, gpt-4o)
+            is_ollama_format = ":" in model  # gemma3:1b, qwen:latest, etc.
+            
+            if not is_ollama_format and any(k in model.lower() for k in ["gemini", "gemma"]):
+                result = AgentBrain._call_gemini(model, cloud_keys.get("gemini", ""), messages, temperature=temperature)
+            elif any(k in model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
+                result = AgentBrain._call_openai(model, cloud_keys.get("openai", ""), messages, temperature=temperature)
+            elif "claude" in model.lower():
+                result = AgentBrain._call_claude(model, cloud_keys.get("claude", ""), messages)
+            elif "deepseek" in model.lower():
+                result = AgentBrain._call_openai(model, cloud_keys.get("deepseek", ""), messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+            elif "grok" in model.lower():
+                result = AgentBrain._call_openai(model, cloud_keys.get("grok", ""), messages, base_url="https://api.x.ai/v1", temperature=temperature)
+            else:
+                return AgentBrain._call_ollama(model, messages, temperature=temperature)
         
         # ── Auto-Failover on Quota/Rate Limit Errors ──
         if any(err_tag in result for err_tag in ["429", "quota", "rate limit", "Too Many Requests", "exceeded"]):
@@ -704,7 +715,10 @@ Rules:
             
             # Detect which provider failed
             failed_provider = None
-            if any(k in failed_model.lower() for k in ["gemini", "gemma"]):
+            is_openrouter = "/" in failed_model and not failed_model.startswith("http")
+            if is_openrouter:
+                failed_provider = "openrouter"
+            elif any(k in failed_model.lower() for k in ["gemini", "gemma"]):
                 failed_provider = "gemini"
             elif any(k in failed_model.lower() for k in ["gpt", "chatgpt", "o1", "o3"]):
                 failed_provider = "openai"
@@ -712,6 +726,8 @@ Rules:
                 failed_provider = "claude"
             elif "deepseek" in failed_model.lower():
                 failed_provider = "deepseek"
+            elif "grok" in failed_model.lower():
+                failed_provider = "grok"
             
             if failed_provider and cloud_keys.get(failed_provider):
                 key_manager.report_key_error(failed_provider, cloud_keys[failed_provider], "Auto-disabled: Quota exceeded")
@@ -730,6 +746,10 @@ Rules:
                         result = AgentBrain._call_claude(failed_model, new_key, messages)
                     elif failed_provider == "deepseek":
                         result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                    elif failed_provider == "grok":
+                        result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
+                    elif failed_provider == "openrouter":
+                        result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                     else:
                         result = None
                     if result and not any(e in result for e in ["429", "quota", "rate limit", "exceeded"]):
@@ -737,7 +757,7 @@ Rules:
                         return result
             
             # Step 3: Try a DIFFERENT cloud provider
-            fallback_order = ["gemini", "deepseek", "openai", "claude"]
+            fallback_order = ["openrouter", "gemini", "deepseek", "openai", "grok", "claude"]
             for provider in fallback_order:
                 if provider == failed_provider:
                     continue
@@ -757,6 +777,10 @@ Rules:
                         result = AgentBrain._call_claude(alt_model, alt_key, messages)
                     elif provider == "deepseek":
                         result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                    elif provider == "grok":
+                        result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
+                    elif provider == "openrouter":
+                        result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                     else:
                         continue
                     
