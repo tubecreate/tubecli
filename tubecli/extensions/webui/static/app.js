@@ -2213,6 +2213,99 @@ async function onModelSelectChange() {
     }
 }
 
+async function testDefaultAI() {
+    const sel = document.getElementById('set-model');
+    const resultDiv = document.getElementById('test-default-ai-result');
+    const btn = document.getElementById('btn-test-default-ai');
+    
+    if (!sel || !resultDiv || !btn) return;
+    
+    const selectedOpt = sel.options[sel.selectedIndex];
+    if (!selectedOpt) return;
+    
+    const model = selectedOpt.value;
+    const optgroup = selectedOpt.closest('optgroup');
+    
+    if (!optgroup) {
+        resultDiv.style.display = 'block';
+        resultDiv.textContent = `Không hỗ trợ test cho model này.`;
+        resultDiv.style.color = '#ef4444';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        return;
+    }
+    
+    resultDiv.style.display = 'block';
+    resultDiv.textContent = 'Đang kiểm tra kết nối...';
+    resultDiv.style.color = 'var(--text)';
+    resultDiv.style.background = 'var(--bg-lighter)';
+    btn.disabled = true;
+    
+    try {
+        if (optgroup.label.includes('Ollama')) {
+            const resp = await fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    prompt: "Reply 'OK'",
+                    stream: false
+                })
+            });
+            if (resp.ok) {
+                resultDiv.textContent = `✅ Thành công (Ollama: ${model})`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                resultDiv.textContent = `❌ Lỗi Ollama: ${resp.status}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } else if (optgroup.label.includes('☁️')) {
+            const providerMap = { 'Gemini': 'gemini', 'OpenAI': 'openai', 'Claude': 'claude', 'Grok': 'grok', 'DeepSeek': 'deepseek', 'OpenRouter': 'openrouter' };
+            let provider = '';
+            for (const [name, id] of Object.entries(providerMap)) {
+                if (optgroup.label.includes(name)) { provider = id; break; }
+            }
+            if (!provider) throw new Error("Không xác định được provider");
+            
+            const resp = await fetch(`/api/v1/cloud-api/providers/${provider}/test-model`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    prompt: "Reply 'Hello from API!'"
+                })
+            });
+            
+            const data = await resp.json();
+            if (resp.ok && data.status === 'success') {
+                resultDiv.textContent = `✅ Kết nối tốt! (${data.response?.substring(0, 50) || 'OK'})`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                let errText = data.detail || data.message || 'Unknown error';
+                if (typeof errText === 'string' && errText.length > 100) errText = errText.substring(0, 100) + '...';
+                resultDiv.textContent = `❌ Lỗi: ${errText}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } else {
+            resultDiv.textContent = `Không hỗ trợ test tự động cho nhóm này.`;
+        }
+    } catch (e) {
+        resultDiv.textContent = `❌ Lỗi: ${e.message}`;
+        resultDiv.style.color = '#ef4444';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+    } finally {
+        btn.disabled = false;
+        setTimeout(() => {
+            if (resultDiv.textContent.includes('Thành công') || resultDiv.textContent.includes('tốt')) {
+                resultDiv.style.display = 'none';
+            }
+        }, 5000);
+    }
+}
+
 async function saveGlobalSettings() {
     const payload = {
         default_model: document.getElementById('set-model')?.value || 'qwen:latest',
