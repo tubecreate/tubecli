@@ -114,6 +114,8 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
             res = call_openai_compatible(req.model, key, req.prompt, base_url="https://api.deepseek.com")
         elif prov == "claude":
             res = call_claude(req.model, key, req.prompt)
+        elif prov == "openrouter":
+            res = call_openai_compatible(req.model, key, req.prompt, base_url="https://openrouter.ai/api/v1")
         else:
             raise HTTPException(400, f"Direct testing for {provider} not supported.")
             
