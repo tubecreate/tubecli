@@ -188,6 +188,7 @@ def _wizard_step_ai(t):
             ("openai", "OpenAI"),
             ("claude", "Anthropic Claude"),
             ("deepseek", "DeepSeek"),
+            ("openrouter", "OpenRouter"),
         ]
         for i, (pid, pname) in enumerate(providers, 1):
             console.print(f"  [bold yellow]{i}.[/bold yellow] {pname}")

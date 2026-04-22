@@ -83,7 +83,7 @@ async def list_ai_models():
 
     PROVIDER_LABELS = {
         "gemini": "Google Gemini", "chatgpt": "OpenAI", "claude": "Anthropic Claude",
-        "grok": "xAI Grok", "deepseek": "DeepSeek",
+        "grok": "xAI Grok", "deepseek": "DeepSeek", "openrouter": "OpenRouter",
     }
 
     cloud_keys = _load_cloud_keys()
@@ -201,7 +201,7 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
     error_msg = ""
     
     from tubecli.extensions.cloud_api.extension import key_manager
-    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok", "deepseek": "deepseek"}
+    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok", "deepseek": "deepseek", "openrouter": "openrouter"}
     km_provider = KEY_MAP.get(provider, provider)
 
     max_retries = 3
@@ -244,6 +244,12 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
                     error_msg = "Chưa cấu hình Claude API key."
                     break
                 raw = call_claude(model, current_key, full_prompt)
+            elif provider == "openrouter":
+                if not model: model = "openai/gpt-4o-mini"
+                if not current_key:
+                    error_msg = "Chưa cấu hình OpenRouter API key."
+                    break
+                raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://openrouter.ai/api/v1")
             else:
                 error_msg = f"Provider không hỗ trợ: {provider}"
                 break
