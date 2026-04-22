@@ -169,6 +169,8 @@ class Extension:
             "has_skill_md": self.get_skill_md() is not None,
             "has_nodes": bool(self.get_nodes()),
             "has_ui": self.get_ui_static_dir() is not None,
+            "page_url": manifest.get("page_url", ""),
+            "display_name": manifest.get("display_name", ""),
         }
 
 
