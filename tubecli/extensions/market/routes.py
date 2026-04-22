@@ -542,10 +542,13 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         # 1. requirements.txt takes priority (specific versions)
         req_file = os.path.join(ext_dir, "requirements.txt")
         if os.path.exists(req_file):
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"],
-                capture_output=True, timeout=180,
-            )
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", "-r", req_file, "--quiet"],
+                    capture_output=True, timeout=180,
+                )
+            except subprocess.TimeoutExpired:
+                print(f"[Market] Warning: pip install -r requirements.txt timed out after 3 minutes. Heavy dependencies might need manual installation.")
             # Read what's in requirements.txt to avoid reinstalling below
             with open(req_file, "r") as f:
                 installed_pkgs = {line.strip().split("==")[0].split(">=")[0].split("<=")[0].lower()
@@ -568,10 +571,13 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 
         if deps_to_install:
             print(f"[Market] Installing manifest dependencies: {deps_to_install}")
-            subprocess.run(
-                [sys.executable, "-m", "pip", "install", *deps_to_install, "--quiet"],
-                capture_output=True, timeout=180,
-            )
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", *deps_to_install, "--quiet"],
+                    capture_output=True, timeout=180,
+                )
+            except subprocess.TimeoutExpired:
+                print(f"[Market] Warning: pip install for manifest dependencies timed out after 3 minutes.")
 
         # Register with ExtensionManager and auto-enable
         from tubecli.core.extension_manager import extension_manager
