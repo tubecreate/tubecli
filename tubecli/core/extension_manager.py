@@ -308,6 +308,11 @@ class ExtensionManager:
                 extension = self._load_external_extension(extension_path, manifest)
                 if extension:
                     self.register(extension)
+                    # Auto-enable newly discovered external extensions
+                    # (only if not already in config — respects user's manual disable)
+                    if extension.name not in self._config:
+                        logger.info(f"Auto-enabling new external extension: {extension.name}")
+                        self.enable(extension.name)
 
             except Exception as e:
                 logger.error(f"Error loading external extension {entry}: {e}")
