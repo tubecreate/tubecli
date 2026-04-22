@@ -200,54 +200,38 @@ async function loadDynamicExtensionsToSidebar() {
         
         if (!inRegistry && !isHardcoded && ext.extension_type === 'external' && ext.enabled) {
             const icon = ext.icon || '📦';
-            const name = ext.name;
-            const tabId = 'ext-' + name;
+            const displayName = ext.display_name || ext.name;
+            const tabId = 'ext-' + ext.name;
+            const pageUrl = ext.page_url; // Now available directly from /extensions API
             
-            // Add to sidebar IMMEDIATELY to prevent visual pop-in delay
+            // Create sidebar button
             const btn = document.createElement('button');
             btn.className = 'nav-item';
-            btn.innerHTML = `<span class="nav-icon">${icon}</span> <span class="nav-text">${esc(name)}</span>`;
+            btn.innerHTML = `<span class="nav-icon">${icon}</span> <span class="nav-text">${esc(displayName)}</span>`;
             
-            // Initial routing logic based on pre-fetched has_ui info
-            if (ext.has_ui) {
+            if (pageUrl) {
+                // Extension has a page URL — create iframe panel immediately (no async /info needed)
                 btn.dataset.tab = tabId;
                 btn.addEventListener('click', () => navigateTo(tabId));
+                
+                if (!document.getElementById('tab-' + tabId)) {
+                    const panel = document.createElement('section');
+                    panel.className = 'tab-panel';
+                    panel.id = 'tab-' + tabId;
+                    panel.innerHTML = `<div class="iframe-container"><iframe data-src="${pageUrl}" class="ext-iframe"></iframe></div>`;
+                    document.querySelector('.content').appendChild(panel);
+                }
+                
+                // If user already navigated to this tab (e.g. via URL hash), activate it
+                if (window.location.hash === '#/' + tabId) {
+                    activateTab(tabId);
+                }
             } else {
-                btn.addEventListener('click', () => openExternalExtDetail(name));
+                // No page URL — show extension detail overlay on click
+                btn.addEventListener('click', () => openExternalExtDetail(ext.name));
             }
+            
             sidebarNav.appendChild(btn);
-
-            // Fetch info asynchronously to construct the iframe
-            if (ext.has_ui !== false) {
-                apiGet(`/api/v1/extensions/${encodeURIComponent(ext.name)}/info`).then(info => {
-                    const manifest = info?.manifest || {};
-                    const src = manifest.page_url;
-                    
-                    if (src) {
-                        // Ensure click routing applies
-                        btn.dataset.tab = tabId;
-                        btn.onclick = () => navigateTo(tabId);
-                        
-                        // Append tab panel if missing
-                        if (!document.getElementById('tab-' + tabId)) {
-                            const panel = document.createElement('section');
-                            panel.className = 'tab-panel';
-                            panel.id = 'tab-' + tabId;
-                            panel.innerHTML = `<div class="iframe-container"><iframe data-src="${src}" class="ext-iframe"></iframe></div>`;
-                            document.querySelector('.content').appendChild(panel);
-                        }
-                        
-                        // If it happens to be the currently active hash route, show it immediately
-                        if (window.location.hash === '#/' + tabId) {
-                            activateTab(tabId);
-                        }
-                    } else {
-                        // Fallback in case has_ui was somehow true but no page_url exists
-                        btn.removeAttribute('data-tab');
-                        btn.onclick = () => openExternalExtDetail(name);
-                    }
-                });
-            }
         }
     });
 }
