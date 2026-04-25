@@ -463,3 +463,88 @@ async def api_get_2fa(secret: str = ""):
         return {"code": code, "time": int(time.time()), "remaining": remaining}
     except Exception as e:
         raise HTTPException(500, f"Failed to generate TOTP: {str(e)}")
+
+# ── Chrome Extension Communication ──
+
+import time
+
+# Store connected extensions: token -> {"last_seen": float, "queue": list, "results": dict}
+browser_extensions = {}
+
+class BrowserCommandResult(BaseModel):
+    token: str
+    commandId: str
+    action: str
+    success: bool
+    result: Optional[Any] = None
+    error: Optional[str] = None
+
+class RegisterRequest(BaseModel):
+    token: str
+    userAgent: str
+    timestamp: int
+
+@router.post("/register")
+async def api_register_browser(req: RegisterRequest):
+    browser_extensions[req.token] = {"last_seen": time.time(), "queue": [], "results": {}}
+    return {"success": True}
+
+@router.delete("/extensions/{token}")
+async def api_disconnect_browser(token: str):
+    if token in browser_extensions:
+        del browser_extensions[token]
+    return {"success": True}
+
+@router.get("/extensions")
+async def api_get_browser_extensions():
+    now = time.time()
+    active = []
+    # Clean up dead extensions (inactive > 60s)
+    for token, data in list(browser_extensions.items()):
+        if now - data["last_seen"] < 60:
+            active.append({"token": token, "last_seen": data["last_seen"]})
+        else:
+            del browser_extensions[token]
+    return {"extensions": active}
+
+@router.get("/commands/{token}")
+async def api_get_commands(token: str):
+    if token not in browser_extensions:
+        browser_extensions[token] = {"last_seen": time.time(), "queue": [], "results": {}}
+    else:
+        browser_extensions[token]["last_seen"] = time.time()
+        
+    if browser_extensions[token]["queue"]:
+        cmd = browser_extensions[token]["queue"].pop(0)
+        return {"command": cmd}
+    return {"command": None}
+
+@router.post("/commands/{token}")
+async def api_post_command(token: str, command: dict):
+    if token not in browser_extensions:
+        browser_extensions[token] = {"last_seen": time.time(), "queue": [], "results": {}}
+    
+    if "id" not in command:
+        import uuid
+        command["id"] = str(uuid.uuid4())[:8]
+        
+    browser_extensions[token]["queue"].append(command)
+    return {"success": True, "command_id": command["id"]}
+
+@router.post("/result")
+async def api_post_result(result: BrowserCommandResult):
+    token = result.token
+    if token in browser_extensions:
+        browser_extensions[token]["last_seen"] = time.time()
+        browser_extensions[token]["results"][result.commandId] = result.model_dump()
+        return {"success": True}
+    return {"success": False, "error": "Token not found"}
+
+@router.get("/result/{token}/{command_id}")
+async def api_get_result(token: str, command_id: str):
+    if token in browser_extensions:
+        if command_id in browser_extensions[token]["results"]:
+            res = browser_extensions[token]["results"].pop(command_id) # Consume result
+            return {"ready": True, **res}
+    return {"ready": False}
+
