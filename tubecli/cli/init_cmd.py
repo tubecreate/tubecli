@@ -17,12 +17,23 @@ console = Console()
 @click.command("init")
 @click.option("--lang", type=click.Choice(["zh", "vi", "en"]), default=None,
               help="Set UI language (zh=Chinese, vi=Vietnamese, en=English)")
-def init_cmd(lang):
+@click.option("--port", type=int, default=None,
+              help="Set API server port (default: 5295)")
+def init_cmd(lang, port):
     """Initialize TubeCLI workspace and install default skills."""
     from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES
     from tubecli.i18n import load_language, t
 
-    # 0. Language selection
+    # 0a. Port configuration — persist before anything else uses get_api_port()
+    if port is not None:
+        from tubecli.config import set_api_port
+        if set_api_port(port):
+            os.environ["TUBECLI_PORT"] = str(port)
+            console.print(f"  [green]✅ API port set to [bold]{port}[/bold][/green]")
+        else:
+            console.print(f"  [red]❌ Failed to save port {port}[/red]")
+
+    # 0b. Language selection
     if lang is None:
         # Interactive prompt if --lang not provided
         lang = click.prompt(
@@ -474,6 +485,7 @@ def _run_control_panel():
         
         env = os.environ.copy()
         env["PYTHONUTF8"] = "1"
+        env["TUBECLI_PORT"] = str(port)
         if os.name == "nt":
             if quiet:
                 cmd = f"tubecli api start --quiet --lang {cur_lang}"

@@ -1085,7 +1085,13 @@ class AuthManagerExtension(Extension):
             elif provider == "tiktok":
                 scopes = ["video_list", "video_upload"]
                 
-        base_url = os.environ.get("TUBECLI_BASE_URL", "http://localhost:5295")
+        base_url = os.environ.get("TUBECLI_BASE_URL")
+        if not base_url:
+            try:
+                from tubecli.config import get_api_port
+                base_url = f"http://localhost:{get_api_port()}"
+            except Exception:
+                base_url = "http://localhost:5295"
         
         result = auth_manager.build_oauth_url(
             cred_id=cred_id,

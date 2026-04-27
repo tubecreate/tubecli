@@ -10,12 +10,12 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("UniversalTracker")
 
-TUBECLI_BASE_URL = "http://localhost:5295"
-
 try:
-    from tubecli.config import DATA_DIR
+    from tubecli.config import DATA_DIR, get_api_port
+    TUBECLI_BASE_URL = f"http://localhost:{get_api_port()}"
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "data")
+    TUBECLI_BASE_URL = "http://localhost:5295"
 
 DATA_FILE = os.path.join(str(DATA_DIR), "universal_tracker_jobs.json")
 

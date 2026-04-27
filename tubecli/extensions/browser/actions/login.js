@@ -6,7 +6,7 @@ import path from 'path';
 
 /**
  * Fetch a live TOTP code from the 2FA API.
- * API: http://localhost:5295/api/v1/browser/2fa?secret=<secret>
+ * API: http://localhost:{TUBECLI_PORT}/api/v1/browser/2fa?secret=<secret>
  * Returns the 6-digit code, or null on failure.
  * @param {string} twoFactorCodes - the secret string (space-separated or raw)
  * @returns {Promise<string|null>}
@@ -18,7 +18,8 @@ async function fetchTotpCode(twoFactorCodes) {
     const encoded = encodeURIComponent(cleanSecret);
     
     // Load config if exists
-    let apiUrl = 'http://localhost:5295/api/v1/browser/2fa?secret=';
+    const tubecliPort = process.env.TUBECLI_PORT || '5295';
+    let apiUrl = `http://localhost:${tubecliPort}/api/v1/browser/2fa?secret=`;
     try {
       const configPath = path.join(process.cwd(), '..', '.cache', 'browser_config.json');
       if (fs.existsSync(configPath)) {

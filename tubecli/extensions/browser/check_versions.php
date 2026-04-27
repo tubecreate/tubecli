@@ -20,6 +20,7 @@ header('Access-Control-Allow-Origin: *');
 // Add new entries here as Bablosoft releases new versions.
 // =====================================================================
 $KNOWN_VERSIONS = [
+    ['bas_version' => '29.9.2', 'browser_version' => '146.0.7680.80', 'architecture' => 'x64'],
     ['bas_version' => '29.8.1', 'browser_version' => '145.0.7632.46', 'architecture' => 'x64'],
     ['bas_version' => '29.8.0', 'browser_version' => '145.0.7632.46', 'architecture' => 'x64'],
     ['bas_version' => '29.7.0', 'browser_version' => '144.0.7559.60', 'architecture' => 'x64'],
