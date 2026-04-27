@@ -229,6 +229,8 @@ async def api_get_engine_versions():
 
         # 2. Add local fallback versions if they are not in the list
         fallback_versions = [
+            {"bas_version": "30.0.0", "browser_version": "147.0.7727.56",
+             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.0.0/FastExecuteScript.x64.zip"},
             {"bas_version": "29.9.2", "browser_version": "146.0.7680.80",
              "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.9.2/FastExecuteScript.x64.zip"},
             {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
