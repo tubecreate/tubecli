@@ -227,17 +227,21 @@ async def api_get_engine_versions():
             api_error = f"API connection error: {str(e)}"
             print(f"[PrivateAPI] Error: {e}")
 
-        # 2. Fallback hardcoded versions if API failed
-        if not versions:
-            fallback_versions = [
-                {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
-                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.8.1/FastExecuteScript.x64.zip"},
-                {"bas_version": "29.7.0", "browser_version": "144.0.7559.60",
-                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.7.0/FastExecuteScript.x64.zip"},
-                {"bas_version": "29.5.0", "browser_version": "142.0.7444.60",
-                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
-            ]
-            for fv in fallback_versions:
+        # 2. Add local fallback versions if they are not in the list
+        fallback_versions = [
+            {"bas_version": "29.9.2", "browser_version": "146.0.7680.80",
+             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.9.2/FastExecuteScript.x64.zip"},
+            {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
+             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.8.1/FastExecuteScript.x64.zip"},
+            {"bas_version": "29.7.0", "browser_version": "144.0.7559.60",
+             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.7.0/FastExecuteScript.x64.zip"},
+            {"bas_version": "29.5.0", "browser_version": "142.0.7444.60",
+             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
+        ]
+        
+        existing_bas_versions = set(v.get("bas_version") for v in versions)
+        for fv in fallback_versions:
+            if fv["bas_version"] not in existing_bas_versions:
                 versions.append({
                     "name": fv["browser_version"],
                     "browser_version": fv["browser_version"],

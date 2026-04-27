@@ -2,7 +2,8 @@ import axios from 'axios';
 import path from 'path';
 import fs from 'fs-extra';
 
-const LOCAL_AI_URL = 'http://localhost:5295/api/v1/localai/generate';
+const TUBECLI_PORT = process.env.TUBECLI_PORT || '5295';
+const LOCAL_AI_URL = `http://localhost:${TUBECLI_PORT}/api/v1/localai/generate`;
 const SCREENSHOT_DIR = path.resolve(process.cwd(), 'screenshots');
 
 // Ensure screenshot directory exists

@@ -4,6 +4,13 @@ These are the starting skills available in every TubeCLI installation.
 """
 from typing import List, Dict
 
+def _base_url():
+    try:
+        from tubecli.config import get_api_port
+        return f"http://localhost:{get_api_port()}"
+    except Exception:
+        return "http://localhost:5295"
+
 DEFAULT_SKILLS: List[Dict] = [
     {
         "name": "📊 Google Sheets",
@@ -479,12 +486,22 @@ def register_default_skills():
         existing = {s.name: s for s in skill_manager.get_all()}
         added = 0
 
+        # Resolve current base URL to replace hardcoded localhost:5295
+        base_url = _base_url()
+
         for skill_def in DEFAULT_SKILLS:
             name = skill_def["name"]
             if name not in existing:
+                import copy, json
+                wf = copy.deepcopy(skill_def["workflow_data"])
+                # Replace hardcoded URLs in workflow nodes
+                wf_json = json.dumps(wf)
+                wf_json = wf_json.replace("http://localhost:5295", base_url)
+                wf = json.loads(wf_json)
+
                 skill_manager.create(
                     name=name,
-                    workflow_data=skill_def["workflow_data"],
+                    workflow_data=wf,
                     skill_type=skill_def.get("skill_type", "Skill"),
                     description=skill_def.get("description", ""),
                     commands=skill_def.get("commands", []),

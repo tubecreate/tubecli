@@ -33,7 +33,7 @@ export class SessionManager {
     // Load history per profile
     this.loadHistory().catch(e => console.warn('[SessionManager] Failed to load history:', e.message));
     
-    this.aiUrl = 'http://localhost:5295/api/v1/localai/chat/completions';
+    this.aiUrl = `http://localhost:${process.env.TUBECLI_PORT || '5295'}/api/v1/localai/chat/completions`;
     this.lastRefuelTime = 0;
     this.REFUEL_COOLDOWN_MS = 120000;
     this.taskQueue = [];

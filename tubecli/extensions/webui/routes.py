@@ -28,15 +28,25 @@ def _settings_path():
     os.makedirs(d, exist_ok=True)
     return os.path.join(d, "global_settings.json")
 
-_DEFAULT_SETTINGS = {
-    "default_model": "qwen:latest",
-    "api_port": "5295",
-    "api_base_url": "http://localhost:5295",
-    "language": "vi",
-    "telegram_bot_token": "",
-    "telegram_chat_id": "",
-    "default_calendar_email": "",
-}
+def _default_settings():
+    """Build default settings with dynamic port resolution."""
+    try:
+        from tubecli.config import get_api_port
+        port = str(get_api_port())
+    except Exception:
+        port = "5295"
+    return {
+        "default_model": "qwen:latest",
+        "api_port": port,
+        "api_base_url": f"http://localhost:{port}",
+        "language": "vi",
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "default_calendar_email": "",
+    }
+
+# Keep backward compat for any code referencing _DEFAULT_SETTINGS
+_DEFAULT_SETTINGS = _default_settings()
 
 @router.get("/api/v1/settings")
 async def get_global_settings():

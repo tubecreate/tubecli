@@ -178,7 +178,7 @@
             <!-- Server info -->
             <div class="api-info-bar">
                 <span>🟢 Server: <b style="color:var(--green)">Running</b></span>
-                <span>🔗 <code id="api-base-display">http://localhost:5295</code></span>
+                <span>🔗 <code id="api-base-display"></code></span>
                 <span>📖 <a href="/api/v1/docs" target="_blank" style="color:var(--cyan);">Swagger</a></span>
                 <span>📚 <a href="/api/v1/redoc" target="_blank" style="color:var(--purple);">ReDoc</a></span>
             </div>
@@ -246,7 +246,7 @@
                         <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.85rem;color:#f59e0b;"></div>
                         <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.model_desc">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
                     </div>
-                    <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value="http://localhost:5295"></div>
+                    <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value=""></div>
                     <div class="form-group">
                         <label data-i18n="settings.language">🌐 Ngôn ngữ</label>
                         <select id="set-lang" onchange="changeLanguage(this.value)">
@@ -672,5 +672,15 @@
 
 <script src="/static/i18n.js?v=11"></script>
 <script src="/static/app.js?v=21"></script>
+<script>
+// Auto-fill API base URL from current location
+(function(){
+    var origin = window.location.origin;
+    var el1 = document.getElementById('api-base-display');
+    var el2 = document.getElementById('set-api');
+    if(el1 && !el1.textContent) el1.textContent = origin;
+    if(el2 && !el2.value) el2.value = origin;
+})();
+</script>
 </body>
 </html>

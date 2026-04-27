@@ -11,9 +11,13 @@ import httpx
 from tubecli.core.bot_i18n import t, get_user_lang
 from typing import Dict, Any, Optional, List
 
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, get_api_port
 
-TUBECLI_BASE_URL = "http://localhost:5295"
+def _get_base_url():
+    return f"http://localhost:{get_api_port()}"
+
+# Lazy property: use _get_base_url() in code. Keep TUBECLI_BASE_URL for backward compat at import time.
+TUBECLI_BASE_URL = _get_base_url()
 SETTINGS_FILE = DATA_DIR / "global_settings.json"
 
 

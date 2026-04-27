@@ -24,10 +24,10 @@ from tubecli.core.telegram_actions import (
     handle_extension_action, clean_reply_text,
     exec_schedule_event, exec_create_team, exec_run_api,
 )
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, get_api_port
 
 SETTINGS_FILE = DATA_DIR / "global_settings.json"
-TUBECLI_BASE_URL = "http://localhost:5295"
+TUBECLI_BASE_URL = f"http://localhost:{get_api_port()}"
 
 
 # ── Confirmation Keywords ──

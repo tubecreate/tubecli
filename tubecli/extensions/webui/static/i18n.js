@@ -39,7 +39,7 @@ function applyI18n() {
  * The /api/v1/i18n/{lang} endpoint merges all extension locales.
  */
 async function loadI18nFromApi() {
-    const apiBase = localStorage.getItem('zhiying_api') || 'http://localhost:5295';
+    const apiBase = localStorage.getItem('zhiying_api') || window.location.origin;
 
     // 1. Get current language setting
     try {
@@ -77,7 +77,7 @@ async function changeLanguage(lang) {
     _lang = lang;
     localStorage.setItem('zhiying_lang', lang);
     try {
-        await fetch((localStorage.getItem('zhiying_api') || 'http://localhost:5295') + '/api/v1/settings/language', {
+        await fetch((localStorage.getItem('zhiying_api') || window.location.origin) + '/api/v1/settings/language', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ language: lang })

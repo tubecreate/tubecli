@@ -2,7 +2,7 @@
  * TubeCLI Dashboard — SPA Logic
  * Dashboard → Extensions → API Manager → Settings
  */
-const API = localStorage.getItem('zhiying_api') || 'http://localhost:5295';
+const API = localStorage.getItem('zhiying_api') || window.location.origin;
 
 // ═══ Hash Router ═══
 const ROUTE_TAB_MAP = {
@@ -2310,7 +2310,7 @@ async function saveGlobalSettings() {
     const payload = {
         default_model: document.getElementById('set-model')?.value || 'qwen:latest',
         api_port: document.getElementById('set-port')?.value || '5295',
-        api_base_url: document.getElementById('set-api')?.value || 'http://localhost:5295',
+        api_base_url: document.getElementById('set-api')?.value || window.location.origin,
         telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
         telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
         default_calendar_email: document.getElementById('set-default-calendar')?.value || '',

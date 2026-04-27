@@ -129,6 +129,62 @@ export class BrowserManager {
         throw new Error('Failed to fetch fingerprint after 3 attempts');
     }
 
+    /**
+     * Patch the fingerprint's User-Agent to match the actual engine Chromium version.
+     * This prevents mismatch where fingerprint says Chrome/124 but engine is Chrome/146.
+     * @param {object|string} fingerprint - The fingerprint data
+     * @param {string} targetChromiumVer - Target Chromium version (e.g. '146.0.7680.80')
+     * @returns {object|string} - Patched fingerprint
+     */
+    patchFingerprintUserAgent(fingerprint, targetChromiumVer) {
+        if (!fingerprint || !targetChromiumVer) return fingerprint;
+        
+        const majorVersion = targetChromiumVer.split('.')[0]; // e.g. '146'
+        
+        try {
+            let fp = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
+            const wasString = typeof fingerprint === 'string';
+            
+            // 1. Patch navigator.userAgent — replace Chrome/XXX.0.0.0 with correct major version
+            if (fp.navigator && fp.navigator.userAgent) {
+                const oldUA = fp.navigator.userAgent;
+                const newUA = oldUA.replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`);
+                if (oldUA !== newUA) {
+                    fp.navigator.userAgent = newUA;
+                    console.log(`[Fingerprint] Patched UA: Chrome/${oldUA.match(/Chrome\/(\d+)/)?.[1]} → Chrome/${majorVersion}`);
+                }
+            }
+            
+            // 2. Patch navigator.appVersion
+            if (fp.navigator && fp.navigator.appVersion) {
+                fp.navigator.appVersion = fp.navigator.appVersion.replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`);
+            }
+            
+            // 3. Patch navigator.userAgentData.brands
+            if (fp.navigator && fp.navigator.userAgentData && Array.isArray(fp.navigator.userAgentData.brands)) {
+                for (const brand of fp.navigator.userAgentData.brands) {
+                    if (brand.brand === 'Google Chrome' || brand.brand === 'Chromium') {
+                        brand.version = majorVersion;
+                    }
+                }
+            }
+            
+            // 4. Patch navigator.userAgentData.fullVersionList
+            if (fp.navigator && fp.navigator.userAgentData && Array.isArray(fp.navigator.userAgentData.fullVersionList)) {
+                for (const entry of fp.navigator.userAgentData.fullVersionList) {
+                    if (entry.brand === 'Google Chrome' || entry.brand === 'Chromium') {
+                        entry.version = targetChromiumVer;
+                    }
+                }
+            }
+            
+            return wasString ? JSON.stringify(fp) : fp;
+        } catch (e) {
+            console.warn(`[Fingerprint] Failed to patch UA: ${e.message}`);
+            return fingerprint;
+        }
+    }
+
     normalizeProxy(proxy) {
         if (!proxy) return null;
         
@@ -212,62 +268,18 @@ export class BrowserManager {
             fingerprint = null;
         }
 
-        // Apply fingerprint with retry logic
-        if (fingerprint) {
-             let fpAttempts = 0;
-             while (fpAttempts < 2) {
-                 try {
-
-                    // plugin.useFingerprint accepts either the fingerprint object or the token string
-                    // BUT in practice it often requires the JSON string if fetched as string
-                    if (fingerprint) {
-                        try {
-                            // The plugin often expects the JSON string for raw fingerprints
-                            const fpToUse = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
-                            plugin.useFingerprint(fpToUse);
-                        } catch (err) {
-                             console.warn(`[BrowserManager] Initial fingerprint application failed: ${err.message}. Retrying with direct object...`);
-                             try {
-                                 const parsed = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
-                                 plugin.useFingerprint(parsed);
-                             } catch (finalErr) {
-                                 throw err; // Throw original error if both fail
-                             }
-                        }
-                        break; // Success
-                    } else {
-                        throw new Error('Fingerprint is empty');
-                    }
-                 } catch (e) {
-                     console.error(`Error applying fingerprint (Attempt ${fpAttempts + 1}/2):`, e.message);
-                     if (fpAttempts === 0) {
-                         console.warn('Fingerprint might be corrupted. Deleting and re-fetching...');
-                         try {
-                             const fingerprintPath = path.join(profilePath, 'fingerprint.json');
-                             await fs.remove(fingerprintPath);
-                             // Fetch new one
-                             fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
-                         } catch (err) {
-                             console.error('Failed to refresh fingerprint:', err.message);
-                         }
-                     } else {
-                         throw e; // Fail on second attempt
-                     }
-                     fpAttempts++;
-                 }
-             }
-        }
-
         // Apply proxy (already normalized if it came from args, or loaded from config)
         this.applyProxy(proxy);
 
-        // Apply browser version if saved in config
+        // Resolve browser engine version FIRST (needed for fingerprint UA patching)
+        let targetChromiumVer = null;
+        let targetBasVer = null;
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
-                let targetChromiumVer = conf.browser_version;
-                let targetBasVer = null;
+                targetChromiumVer = conf.browser_version;
                 
                 const ENGINE_MAP = {
+                    '29.9.2': '146.0.7680.80',
                     '29.8.1': '145.0.7632.46',
                     '29.7.0': '144.0.7559.60',
                     '29.5.0': '142.0.7444.60',
@@ -319,6 +331,57 @@ export class BrowserManager {
                 }
         } catch (e) {
             console.warn('Failed to resolve browser_version path:', e.message);
+        }
+
+        // Patch fingerprint User-Agent to match actual engine version
+        if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
+            fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
+        }
+
+        // Apply fingerprint with retry logic
+        if (fingerprint) {
+             let fpAttempts = 0;
+             while (fpAttempts < 2) {
+                 try {
+
+                    // plugin.useFingerprint accepts either the fingerprint object or the token string
+                    // BUT in practice it often requires the JSON string if fetched as string
+                    if (fingerprint) {
+                        try {
+                            // The plugin often expects the JSON string for raw fingerprints
+                            const fpToUse = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                            plugin.useFingerprint(fpToUse);
+                        } catch (err) {
+                             console.warn(`[BrowserManager] Initial fingerprint application failed: ${err.message}. Retrying with direct object...`);
+                             try {
+                                 const parsed = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
+                                 plugin.useFingerprint(parsed);
+                             } catch (finalErr) {
+                                 throw err; // Throw original error if both fail
+                             }
+                        }
+                        break; // Success
+                    } else {
+                        throw new Error('Fingerprint is empty');
+                    }
+                 } catch (e) {
+                     console.error(`Error applying fingerprint (Attempt ${fpAttempts + 1}/2):`, e.message);
+                     if (fpAttempts === 0) {
+                         console.warn('Fingerprint might be corrupted. Deleting and re-fetching...');
+                         try {
+                             const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+                             await fs.remove(fingerprintPath);
+                             // Fetch new one
+                             fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
+                         } catch (err) {
+                             console.error('Failed to refresh fingerprint:', err.message);
+                         }
+                     } else {
+                         throw e; // Fail on second attempt
+                     }
+                     fpAttempts++;
+                 }
+             }
         }
 
         // Default args
