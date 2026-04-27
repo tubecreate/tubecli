@@ -279,6 +279,7 @@ export class BrowserManager {
                 targetChromiumVer = conf.browser_version;
                 
                 const ENGINE_MAP = {
+                    '30.0.0': '147.0.7727.56',
                     '29.9.2': '146.0.7680.80',
                     '29.8.1': '145.0.7632.46',
                     '29.7.0': '144.0.7559.60',
