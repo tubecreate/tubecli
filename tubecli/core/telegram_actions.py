@@ -1009,6 +1009,19 @@ async def execute_livestream_pipeline(
     lang = get_user_lang(chat_id)
     pipeline_start = time.time()
 
+    # ── Ensure cloud API keys are injected (self-contained) ──
+    try:
+        from tubecli.extensions.cloud_api.extension import key_manager
+        cloud_keys = agent_dict.get("cloud_api_keys", {})
+        for prov in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter"]:
+            if prov not in cloud_keys or not cloud_keys[prov]:
+                k = key_manager.get_active_key(prov)
+                if k:
+                    cloud_keys[prov] = k
+        agent_dict["cloud_api_keys"] = cloud_keys
+    except Exception:
+        pass
+
     await send_message_fn(token, chat_id,
         "🔴 **Auto-Livestream Pipeline**\n\n"
         "Step 1/3: 🔑 Resolving YouTube credentials...\n"

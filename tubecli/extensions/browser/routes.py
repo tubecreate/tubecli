@@ -13,7 +13,7 @@ import asyncio
 # Note: psutil and requests are imported lazily inside handlers to avoid
 # preventing route registration when these packages aren't installed.
 
-from .profile_manager import list_profiles, create_profile, get_profile, update_profile, delete_profile, get_fingerprint, reset_fingerprint
+from .profile_manager import list_profiles, create_profile, get_profile, update_profile, delete_profile, get_fingerprint, reset_fingerprint, refresh_fingerprint
 
 router = APIRouter(prefix="/api/v1/browser", tags=["browser"])
 
@@ -27,6 +27,8 @@ class ProfileCreateRequest(BaseModel):
     browser_version: str = "latest"
     version: Optional[str] = None  # Compatibility with UI sending 'version'
     tags: List[str] = ["Windows", "Chrome"]
+    window_size: Optional[dict] = None   # {"width": 1920, "height": 1080}
+    chrome_version: Optional[str] = ""
 
 class ProfileUpdateRequest(BaseModel):
     proxy: Optional[str] = None
@@ -35,6 +37,8 @@ class ProfileUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
     google_account: Optional[Any] = None  # Can be raw string or dict
+    window_size: Optional[dict] = None   # {"width": int, "height": int}
+    chrome_version: Optional[str] = None
 
 class LaunchRequest(BaseModel):
     profile: str
@@ -59,7 +63,14 @@ async def api_create_profile(req: ProfileCreateRequest):
     try:
         # Map 'version' to 'browser_version' if needed
         version = req.version or req.browser_version
-        profile = create_profile(req.name, proxy=req.proxy, browser_version=version, tags=req.tags)
+        profile = create_profile(
+            req.name,
+            proxy=req.proxy,
+            browser_version=version,
+            tags=req.tags,
+            window_size=req.window_size,
+            chrome_version=req.chrome_version or "",
+        )
         return {"status": "created", "profile": profile}
     except ValueError as e:
         raise HTTPException(409, str(e))
@@ -109,8 +120,9 @@ async def api_delete_profile(name: str):
 
 @router.get("/profiles/{name}/fingerprint")
 async def api_get_fingerprint(name: str):
+    import asyncio
     from .profile_manager import get_fingerprint
-    fp = get_fingerprint(name)
+    fp = await asyncio.to_thread(get_fingerprint, name)
     if not fp:
         raise HTTPException(404, f"Fingerprint not found or failed to fetch for profile '{name}'")
     return fp
@@ -121,6 +133,24 @@ async def api_reset_fingerprint(name: str):
     if reset_fingerprint(name):
         return {"status": "reset", "profile": name}
     raise HTTPException(404, f"Fingerprint not found for profile '{name}'")
+
+
+@router.post("/profiles/{name}/fingerprint/refresh")
+async def api_refresh_fingerprint(name: str):
+    """Force-fetch a brand new fingerprint from the remote API, replacing any existing one."""
+    import asyncio
+    from .profile_manager import refresh_fingerprint
+    try:
+        # Run in thread pool — refresh_fingerprint uses blocking requests.get() with 8MB+ responses
+        fp = await asyncio.to_thread(refresh_fingerprint, name)
+        if fp:
+            return {"status": "refreshed", "profile": name, "fingerprint_keys": list(fp.keys())[:5]}
+        raise HTTPException(500, f"Failed to refresh fingerprint for profile '{name}'. API may be unavailable.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[refresh_fingerprint] Error: {e}")
+        raise HTTPException(500, f"Failed to refresh fingerprint for profile '{name}': {str(e)}")
 
 
 @router.post("/launch")

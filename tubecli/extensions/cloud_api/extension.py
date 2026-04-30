@@ -101,6 +101,25 @@ class KeyManager:
             if os.path.exists(self.data_file):
                 with open(self.data_file, "r", encoding="utf-8") as f:
                     self._keys = json.load(f)
+                # Migrate legacy plain-string keys to proper {label: {key, active}} format
+                migrated = False
+                for provider in list(self._keys.keys()):
+                    if provider.startswith("_"):
+                        continue
+                    value = self._keys[provider]
+                    if isinstance(value, str) and value:
+                        import datetime as _dt
+                        self._keys[provider] = {
+                            "default": {
+                                "key": value,
+                                "active": True,
+                                "added_at": _dt.datetime.now().isoformat(),
+                            }
+                        }
+                        migrated = True
+                        logger.info(f"Migrated legacy string key for '{provider}' to proper format.")
+                if migrated:
+                    self._save()
         except Exception:
             self._keys = {}
 
@@ -176,9 +195,13 @@ class KeyManager:
         """Get any active key for a provider (round-robin ready)."""
         self._load()
         entries = self._keys.get(provider, {})
-        for label, entry in entries.items():
-            if entry.get("active"):
-                return entry["key"]
+        # Guard: legacy plain-string key
+        if isinstance(entries, str) and entries:
+            return entries
+        if isinstance(entries, dict):
+            for label, entry in entries.items():
+                if isinstance(entry, dict) and entry.get("active"):
+                    return entry["key"]
         # Fallback: env var
         env_var = PROVIDERS.get(provider, {}).get("env_var", "")
         return os.environ.get(env_var) if env_var else None
@@ -194,6 +217,18 @@ class KeyManager:
             
         for prov, keys in sources.items():
             result[prov] = {}
+            # Guard: legacy plain-string key
+            if isinstance(keys, str):
+                masked = keys[:6] + "..." + keys[-4:] if len(keys) > 10 else "***"
+                result[prov]["default"] = {
+                    "masked_key": masked,
+                    "active": True,
+                    "status_msg": "(legacy format)",
+                    "added_at": "",
+                }
+                continue
+            if not isinstance(keys, dict):
+                continue
             for label, entry in keys.items():
                 if not isinstance(entry, dict): continue
                 key_val = entry.get("key", "")
