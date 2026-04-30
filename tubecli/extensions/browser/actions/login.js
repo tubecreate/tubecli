@@ -334,7 +334,7 @@ async function loginGoogle(page, params) {
 
     // 2FA Challenge — fetch live TOTP code from API, with retry on wrong code
     await page.waitForTimeout(2000);
-    const twoFASelector = 'input[type="tel"], input[aria-label*="code" i], input[placeholder*="code" i]';
+    const twoFASelector = 'input#totpPin, input[name="totpPin"], input[type="tel"], input[aria-label*="code" i], input[placeholder*="code" i], input[autocomplete="one-time-code"]';
     if (await page.locator(twoFASelector).first().isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[Google] 2FA challenge detected.');
       if (twoFactorCodes) {
