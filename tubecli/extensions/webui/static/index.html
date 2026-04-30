@@ -379,8 +379,24 @@
         <h2>Create Profile</h2>
         <div class="form-group"><label>Name</label><input id="profile-name" placeholder="profile_name"></div>
         <div class="form-group"><label>Proxy</label><input id="profile-proxy" placeholder="socks5://user:pass@host:port"></div>
-        <div class="form-row"><div class="form-group"><label>OS</label><select id="profile-os"><option value="Windows">Windows</option><option value="Mac OS X">macOS</option><option value="Linux">Linux</option></select></div><div class="form-group"><label>Browser</label><select id="profile-browser"><option value="Chrome">Chrome</option><option value="Firefox">Firefox</option></select></div><div class="form-group"><label>Browser Engine Version</label><select id="profile-version"><option value="default">Default Latest</option></select></div></div>
-        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-profile')">Cancel</button><button class="btn-primary" onclick="createProfile()" id="btn-create-profile-submit">Create & Fetch Fingerprint</button></div>
+        <div class="form-row">
+            <div class="form-group"><label>OS</label><select id="profile-os"><option value="Windows">Windows</option><option value="Mac OS X">macOS</option><option value="Linux">Linux</option></select></div>
+            <div class="form-group"><label>Browser</label><select id="profile-browser"><option value="Chrome">Chrome</option><option value="Firefox">Firefox</option></select></div>
+            <div class="form-group"><label>Browser Engine Version</label><select id="profile-version"><option value="default">Default Latest</option></select></div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>📐 Kích thước trình duyệt</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input id="profile-win-width" type="number" placeholder="Width" value="1920" min="800" max="3840" style="flex:1">
+                    <span style="color:var(--text-muted)">×</span>
+                    <input id="profile-win-height" type="number" placeholder="Height" value="1080" min="600" max="2160" style="flex:1">
+                    <span style="color:var(--text-muted);font-size:.8rem">px</span>
+                </div>
+                <small style="color:var(--text-muted);font-size:.75rem">Kích thước cửa sổ Chrome khi khởi động (min 1600×900 khuyến nghị)</small>
+            </div>
+        </div>
+        <div class="modal-actions"><button class="btn-primary" onclick="createProfile()" id="btn-create-profile-submit">Create &amp; Fetch Fingerprint</button><button class="btn-secondary" onclick="closeModal('modal-profile')">Cancel</button></div>
     </div>
 </div>
 
@@ -611,7 +627,7 @@
             <input id="settings-proxy" type="text" class="input" placeholder="socks5://user:pass@host:port" style="width:100%;padding:10px 14px">
         </div>
         <div class="form-group" style="margin-top:8px">
-            <label>🧬 Fingerprint Tags (OS, Device)</label>
+            <label>🧬 Fingerprint Tags (OS, Device) &amp; Engine</label>
             <div style="display:flex;gap:8px">
                 <select id="settings-fp-os" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
                     <option value="Windows">Windows</option>
@@ -624,7 +640,21 @@
                     <option value="Firefox">Firefox</option>
                     <option value="Edge">Edge</option>
                 </select>
+                <select id="settings-version" style="flex:1;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
+                    <option value="default">Default Latest</option>
+                </select>
             </div>
+            <small style="color:var(--text-muted);font-size:.75rem">OS · Browser · Browser Engine Version (Chrome build)</small>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+            <label>📐 Kích thước cửa sổ trình duyệt</label>
+            <div style="display:flex;gap:8px;align-items:center">
+                <input id="settings-win-width" type="number" class="input" placeholder="Width" value="1920" min="800" max="3840" style="flex:1;padding:10px 14px">
+                <span style="color:var(--text-muted)">×</span>
+                <input id="settings-win-height" type="number" class="input" placeholder="Height" value="1080" min="600" max="2160" style="flex:1;padding:10px 14px">
+                <span style="color:var(--text-muted);font-size:.8rem">px</span>
+            </div>
+            <small style="color:var(--text-muted);font-size:.75rem">Kích thước cửa sổ Chrome khi khởi động (min 1600×900 khuyến nghị cho anti-detect)</small>
         </div>
         <div class="form-group" style="margin-top:8px">
             <label>🔐 Google Account <small style="color:var(--text-muted)">(auto-login khi mở browser)</small></label>
@@ -638,6 +668,16 @@
                     <div>🔢 <span id="preview-2fa"></span></div>
                 </div>
             </div>
+        </div>
+        <div class="form-group" style="margin-top:8px">
+            <label>🧬 Vân tay (Fingerprint)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+                <span id="settings-fp-status" style="flex:1;font-size:.85rem;color:var(--text-muted)">Chưa tải</span>
+                <button id="btn-refresh-fp" onclick="refreshFingerprint()" class="btn-secondary" style="font-size:.8rem;padding:6px 12px;white-space:nowrap">
+                    🔄 Làm mới vân tay
+                </button>
+            </div>
+            <small style="color:var(--text-muted);font-size:.75rem">Lấy fingerprint mới từ API. Có thể mất 20-30 giây.</small>
         </div>
         <div class="modal-actions">
             <button class="btn-secondary" onclick="closeModal('modal-settings')">Huỷ</button>
@@ -671,7 +711,7 @@
 </div>
 
 <script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=21"></script>
+<script src="/static/app.js?v=24"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){

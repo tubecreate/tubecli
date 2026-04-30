@@ -332,28 +332,74 @@ async function loginGoogle(page, params) {
       }
     }
 
-    // 2FA Challenge — fetch live TOTP code from API, fallback to backup codes
+    // 2FA Challenge — fetch live TOTP code from API, with retry on wrong code
     await page.waitForTimeout(2000);
     const twoFASelector = 'input[type="tel"], input[aria-label*="code" i], input[placeholder*="code" i]';
     if (await page.locator(twoFASelector).first().isVisible({ timeout: 5000 }).catch(() => false)) {
       console.log('[Google] 2FA challenge detected.');
       if (twoFactorCodes) {
-        // Try live TOTP first (from API)
-        let code = await fetchTotpCode(twoFactorCodes);
+        const maxOtpAttempts = 2;
+        let otpSuccess = false;
 
-        if (!code) {
-          console.warn('[Google] Could not generate TOTP code from API. 2FA may require manual intervention.');
-        }
+        for (let otpAttempt = 1; otpAttempt <= maxOtpAttempts; otpAttempt++) {
+          console.log(`[Google] 2FA attempt ${otpAttempt}/${maxOtpAttempts}...`);
+          let code = await fetchTotpCode(twoFactorCodes);
 
-        if (code) {
+          if (!code) {
+            console.warn('[Google] Could not generate TOTP code from API. 2FA may require manual intervention.');
+            break;
+          }
+
           console.log(`[Google] Entering 2FA code: ${code}`);
+          // Clear existing input first
+          const otpInput = page.locator(twoFASelector).first();
           await humanClick(page, twoFASelector);
+          await page.waitForTimeout(300);
+          await page.keyboard.down('Control');
+          await page.keyboard.press('a');
+          await page.keyboard.up('Control');
+          await page.keyboard.press('Backspace');
+          await page.waitForTimeout(200);
           for (const char of code) {
             await page.keyboard.type(char, { delay: 80 + Math.random() * 120 });
           }
           await page.waitForTimeout(800 + Math.random() * 600);
           await humanClick(page, 'button:has-text("Next"), button:has-text("Tiếp theo"), button:has-text("Submit"), button:has-text("Verify")');
-          console.log('[Google] 2FA code submitted.');
+          console.log('[Google] 2FA code submitted, checking result...');
+          await page.waitForTimeout(4000);
+
+          // Check for "Wrong code" error
+          const wrongCodeError = page.locator('text=/Wrong code|Mã sai|incorrect|Try again/i').first();
+          const isWrongCode = await wrongCodeError.isVisible({ timeout: 2000 }).catch(() => false);
+
+          if (!isWrongCode) {
+            // Also verify we left the 2FA page
+            const stillOnChallenge = await page.locator(twoFASelector).first().isVisible({ timeout: 1000 }).catch(() => false);
+            if (!stillOnChallenge || !page.url().includes('challenge')) {
+              console.log('[Google] 2FA code accepted!');
+              otpSuccess = true;
+              break;
+            }
+          }
+
+          console.warn(`[Google] 2FA attempt ${otpAttempt} failed (wrong code).`);
+          if (otpAttempt < maxOtpAttempts) {
+            console.log('[Google] Waiting 32s for next TOTP cycle...');
+            await page.waitForTimeout(32000);
+          }
+        }
+
+        if (!otpSuccess) {
+          console.warn('[Google] ⚠️ 2FA failed after max attempts. Waiting for manual intervention (5 min)...');
+          let waitCount = 0;
+          while (page.url().includes('challenge') || page.url().includes('signin/v2')) {
+            await page.waitForTimeout(3000);
+            waitCount++;
+            if (waitCount > 100) { // ~5 minutes
+              console.error('[Google] Timeout waiting for manual 2FA resolution.');
+              break;
+            }
+          }
         }
       } else {
         console.warn('[Google] 2FA challenge detected but no twoFactorCodes provided.');

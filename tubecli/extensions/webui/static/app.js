@@ -1866,23 +1866,49 @@ async function showCreateProfile() {
     document.getElementById('modal-profile').classList.remove('hidden'); 
     // Fetch browser versions for dropdown
     const sel = document.getElementById('profile-version');
-    if (sel && sel.options.length <= 1) {
-        sel.innerHTML = '<option value="default">Loading...</option>';
-        try {
-            const r = await apiGet('/api/v1/browser/engine/versions');
-            if (r && r.success && r.versions) {
-                const installed = r.versions.filter(v => v.downloaded);
-                sel.innerHTML = '<option value="default">Default Latest</option>' + 
-                    installed.map(v => {
-                        const name = typeof v === 'object' ? v.name : v;
-                        return `<option value="${name}">${name} ✅</option>`;
-                    }).join('');
-            } else {
-                sel.innerHTML = '<option value="default">Default Latest</option>';
+    if (sel) {
+        await loadEngineVersionsDropdown('profile-version', 'default');
+    }
+}
+
+// ─── Shared helper: always fetch & populate an engine version <select> ───
+async function loadEngineVersionsDropdown(selId, currentVersion) {
+    const sel = document.getElementById(selId);
+    if (!sel) return;
+    const prev = sel.value || currentVersion || 'default';
+    sel.innerHTML = '<option value="default">⏳ Loading...</option>';
+    try {
+        const r = await apiGet('/api/v1/browser/engine/versions');
+        if (r && r.success && r.versions) {
+            const installed = r.versions.filter(v => v.downloaded);
+            if (installed.length === 0) {
+                sel.innerHTML = '<option value="default">Default Latest (no engine installed)</option>';
+                return;
             }
-        } catch (e) {
+            sel.innerHTML = '<option value="default">Default Latest</option>' +
+                installed.map(v => {
+                    const nm  = typeof v === 'object' ? (v.browser_version || v.name) : v;
+                    const bas = typeof v === 'object' ? v.bas_version : '';
+                    const label = bas ? `${nm} (BAS ${bas})` : nm;
+                    return `<option value="${esc(nm)}">${esc(label)}</option>`;
+                }).join('');
+            // Restore previously selected version
+            if (prev && prev !== 'default') {
+                sel.value = prev;
+                if (!sel.value || sel.value === 'default') {
+                    // Version not in list — add it
+                    const opt = document.createElement('option');
+                    opt.value = prev; opt.textContent = prev;
+                    sel.insertBefore(opt, sel.options[1] || null);
+                    sel.value = prev;
+                }
+            }
+        } else {
             sel.innerHTML = '<option value="default">Default Latest</option>';
         }
+    } catch (e) {
+        sel.innerHTML = '<option value="default">Default Latest</option>';
+        console.warn('[Engine dropdown] fetch failed:', e);
     }
 }
 async function showBrowserEnginesModal() {
@@ -2020,7 +2046,30 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
         overlay.classList.add('hidden');
     }
 }
-async function createProfile() { const btn=document.getElementById('btn-create-profile-submit'); const name=document.getElementById('profile-name').value.trim(); if(!name) return; btn.disabled=true; btn.textContent='Creating...'; await apiPost('/api/v1/browser/profiles',{name,proxy:document.getElementById('profile-proxy').value,tags:[document.getElementById('profile-os').value,document.getElementById('profile-browser').value],browser_version:document.getElementById('profile-version')?.value}); btn.disabled=false; btn.textContent='Create & Fetch Fingerprint'; closeModal('modal-profile'); document.getElementById('profile-name').value=''; document.getElementById('profile-proxy').value=''; renderBrowserExt(document.getElementById('ext-detail-body')); }
+async function createProfile() {
+    const btn = document.getElementById('btn-create-profile-submit');
+    const name = document.getElementById('profile-name').value.trim();
+    if (!name) return;
+    btn.disabled = true;
+    btn.textContent = 'Creating...';
+    const width  = parseInt(document.getElementById('profile-win-width')?.value)  || 1920;
+    const height = parseInt(document.getElementById('profile-win-height')?.value) || 1080;
+    await apiPost('/api/v1/browser/profiles', {
+        name,
+        proxy: document.getElementById('profile-proxy').value,
+        tags: [document.getElementById('profile-os').value, document.getElementById('profile-browser').value],
+        browser_version: document.getElementById('profile-version')?.value,
+        window_size: { width, height },
+    });
+    btn.disabled = false;
+    btn.textContent = 'Create & Fetch Fingerprint';
+    closeModal('modal-profile');
+    document.getElementById('profile-name').value = '';
+    document.getElementById('profile-proxy').value = '';
+    if (document.getElementById('profile-win-width'))  document.getElementById('profile-win-width').value  = '1920';
+    if (document.getElementById('profile-win-height')) document.getElementById('profile-win-height').value = '1080';
+    renderBrowserExt(document.getElementById('ext-detail-body'));
+}
 async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(document.getElementById('ext-detail-body'));if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = 'Failed to launch: ' + (r?.error || r?.detail || 'Unknown error'); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),1000); }
 async function deleteProfile(name) { if(!confirm('Delete '+name+'?')) return; await apiDelete('/api/v1/browser/profiles/'+name); }
@@ -2544,10 +2593,15 @@ let _settingsProfileName = '';
 async function showProfileSettings(name) {
     _settingsProfileName = name;
     document.getElementById('settings-profile-name').textContent = name;
-    
-    // Load profile data
+    // Reset fingerprint status
+    const fpStatus = document.getElementById('settings-fp-status');
+    if (fpStatus) fpStatus.textContent = 'Đang tải...';
+
+    // Load profile data then populate dropdown with correct selection
     try {
         const data = await apiGet(`/api/v1/browser/profiles/${name}`);
+        // Populate engine versions — always fresh, pre-select saved version
+        await loadEngineVersionsDropdown('settings-version', data?.browser_version || 'default');
         if (data) {
             document.getElementById('settings-proxy').value = data.proxy || '';
             // Set fingerprint tags
@@ -2558,6 +2612,10 @@ async function showProfileSettings(name) {
                 if (['Windows','macOS','Linux','Android'].includes(t)) osEl.value = t;
                 if (['Chrome','Firefox','Edge'].includes(t)) brEl.value = t;
             }
+            // Window size
+            const ws = data.window_size || { width: 1920, height: 1080 };
+            if (document.getElementById('settings-win-width'))  document.getElementById('settings-win-width').value  = ws.width  || 1920;
+            if (document.getElementById('settings-win-height')) document.getElementById('settings-win-height').value = ws.height || 1080;
             // Google account
             const ga = data.google_account;
             if (ga && ga.email) {
@@ -2567,9 +2625,12 @@ async function showProfileSettings(name) {
                 document.getElementById('settings-google-account').value = '';
             }
             previewGoogleAccount();
+            // Fingerprint status
+            if (fpStatus) fpStatus.textContent = data.has_fingerprint ? '✅ Đã có fingerprint' : '⚠️ Chưa có fingerprint';
         }
     } catch (e) {
         console.error('Failed to load profile:', e);
+        if (fpStatus) fpStatus.textContent = '❌ Lỗi tải profile';
     }
     
     openModal('modal-settings');
@@ -2592,11 +2653,16 @@ async function saveProfileSettings() {
     const proxy = document.getElementById('settings-proxy').value.trim();
     const os = document.getElementById('settings-fp-os').value;
     const browser = document.getElementById('settings-fp-browser').value;
+    const browserVersion = document.getElementById('settings-version')?.value || 'default';
     const googleRaw = document.getElementById('settings-google-account').value.trim();
+    const width  = parseInt(document.getElementById('settings-win-width')?.value)  || 1920;
+    const height = parseInt(document.getElementById('settings-win-height')?.value) || 1080;
     
     const payload = {
         proxy: proxy,
         tags: [os, browser],
+        browser_version: browserVersion,
+        window_size: { width, height },
     };
     
     // Send google_account as raw string — backend will parse it
@@ -2627,6 +2693,36 @@ async function saveProfileSettings() {
     } catch (e) {
         console.error('[Settings] Error:', e);
         alert('❌ Error: ' + e.message);
+    }
+}
+
+async function refreshFingerprint() {
+    const btn = document.getElementById('btn-refresh-fp');
+    const fpStatus = document.getElementById('settings-fp-status');
+    if (!_settingsProfileName) return;
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang lấy...'; }
+    if (fpStatus) fpStatus.textContent = '⏳ Đang lấy fingerprint mới...';
+    try {
+        const result = await apiPost(`/api/v1/browser/profiles/${_settingsProfileName}/fingerprint/refresh`, {});
+        if (result && result.status === 'refreshed') {
+            if (fpStatus) fpStatus.textContent = '✅ Fingerprint mới đã được lấy thành công!';
+            const toast = document.createElement('div');
+            toast.textContent = '🧬 Fingerprint đã được làm mới!';
+            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:fadeIn .3s';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+            // Refresh cards
+            const el = document.getElementById('ext-detail-body');
+            if (el) renderBrowserExt(el);
+        } else {
+            if (fpStatus) fpStatus.textContent = '❌ Lỗi: ' + JSON.stringify(result);
+            alert('❌ Refresh fingerprint thất bại: ' + JSON.stringify(result));
+        }
+    } catch (e) {
+        if (fpStatus) fpStatus.textContent = '❌ Lỗi kết nối: ' + e.message;
+        alert('❌ Error: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔄 Làm mới vân tay'; }
     }
 }
 

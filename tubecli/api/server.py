@@ -299,12 +299,17 @@ async def localai_chat_completions(req: Request):
                 cloud_keys = _json.load(f)
         except Exception:
             pass
-    if provider in cloud_keys and isinstance(cloud_keys[provider], dict):
-        for label, info in cloud_keys[provider].items():
-            if isinstance(info, dict) and info.get("active", True):
-                api_key = info.get("key", "") or info.get("api_key", "")
-                if api_key:
-                    break
+    if provider in cloud_keys:
+        val = cloud_keys[provider]
+        if isinstance(val, str) and val:
+            # Legacy plain-string key format
+            api_key = val
+        elif isinstance(val, dict):
+            for label, info in val.items():
+                if isinstance(info, dict) and info.get("active", True):
+                    api_key = info.get("key", "") or info.get("api_key", "")
+                    if api_key:
+                        break
 
     print(f"[AI Proxy] provider={provider} model={model} has_key={bool(api_key)}")
 

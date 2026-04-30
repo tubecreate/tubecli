@@ -1,0 +1,7 @@
+﻿id=581 img=True app=True(238) will_gen=False
+id=582 img=False app=True(199) will_gen=True
+id=583 img=False app=True(238) will_gen=True
+id=584 img=False app=True(237) will_gen=True
+id=585 img=False app=True(210) will_gen=True
+id=586 img=False app=True(237) will_gen=True
+id=587 img=False app=True(196) will_gen=True

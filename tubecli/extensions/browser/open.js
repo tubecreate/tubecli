@@ -896,14 +896,19 @@ async function main() {
                   try {
                       fingerprint = typeof fingerprintData === 'string' ? JSON.parse(fingerprintData) : fingerprintData;
                       
-                      // Fix for wrapper object (e.g. {"canvas":true, ..., "fingerprint": "..."})
-                      if (fingerprint && fingerprint.fingerprint) {
-                          console.log('Detected wrapped fingerprint structure. Extracting inner fingerprint...');
+                      // Bablosoft v5 fingerprints use a wrapper structure:
+                      // { canvas: ..., webgl: ..., audio: ..., fingerprint: { ua, tags, ... } }
+                      // The wrapper contains canvas/webgl noise data needed for spoofing.
+                      // DO NOT extract the inner 'fingerprint' key — pass the FULL object to the engine.
+                      if (fingerprint && fingerprint.fingerprint && fingerprint.canvas !== undefined) {
+                          console.log('Detected Bablosoft v5 wrapper fingerprint (canvas/webgl/audio included). Using full object.');
+                      } else if (fingerprint && fingerprint.fingerprint && fingerprint.canvas === undefined) {
+                          // Legacy format: wrapper without canvas data, extract inner
+                          console.log('Detected legacy wrapped fingerprint (no canvas data). Extracting inner...');
                           try {
-                              // If separate string, try to parse it, otherwise use as string
                               fingerprint = typeof fingerprint.fingerprint === 'string' ? JSON.parse(fingerprint.fingerprint) : fingerprint.fingerprint;
                           } catch (e) {
-                              fingerprint = fingerprint.fingerprint; 
+                              fingerprint = fingerprint.fingerprint;
                           }
                       }
                   } catch (e) {

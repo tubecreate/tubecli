@@ -71,51 +71,105 @@ export class BrowserManager {
             console.log('Loading saved fingerprint...');
             try {
                 const data = await fs.readFile(fingerprintPath, 'utf8');
-                fingerprint = JSON.parse(data);
-                if (!fingerprint || (typeof fingerprint !== 'object' && typeof fingerprint !== 'string') || (typeof fingerprint === 'object' && Object.keys(fingerprint).length < 10)) {
-                     throw new Error('Invalid fingerprint');
+                // Check if it's a plugin.fetch() string token (not JSON object)
+                if (data && data.length > 20) {
+                    try {
+                        const parsed = JSON.parse(data);
+                        // If it's an object with very few keys, it might be a wrapped token
+                        if (typeof parsed === 'object' && parsed !== null) {
+                            fingerprint = data; // Keep as string for plugin.useFingerprint
+                        }
+                    } catch (e) {
+                        fingerprint = data; // Not JSON — likely a raw string token
+                    }
+                    if (!fingerprint) fingerprint = data;
+                    console.log(`Fingerprint loaded successfully (${typeof fingerprint}, ${fingerprint.length} chars).`);
+                    return fingerprint;
                 }
-                console.log(`Fingerprint loaded successfully.`);
-                return fingerprint;
             } catch (e) {
-                console.warn('Failed to parse saved fingerprint, fetching new one:', e.message);
-                // Fall through to fetch
+                console.warn('Failed to load saved fingerprint, fetching new one:', e.message);
             }
         }
 
-        // 2. Fetch new
-        let tags = options.tags || ['Microsoft Windows', 'Chrome'];
+        // Read config for tags/version/window_size
+        let tags = options.tags || ['Windows', 'Chrome'];
+        let minBrowserVersion = null;
+        let windowSize = null;
         
-        // Try to read tags from config if not provided in options
-        if (!options.tags && await fs.pathExists(configPath)) {
+        if (await fs.pathExists(configPath)) {
              try {
                  const config = await fs.readJson(configPath);
-                 if (config.tags && Array.isArray(config.tags)) {
-                     tags = config.tags;
+                 if (config.tags && Array.isArray(config.tags)) tags = config.tags;
+                 if (config.browser_version && config.browser_version !== 'default' && config.browser_version !== 'latest') {
+                     minBrowserVersion = config.browser_version.split('.')[0];
                  }
+                 if (config.window_size) windowSize = config.window_size;
              } catch (e) {}
         }
+        
+        // Map common OS names to Bablosoft expected tags
+        const tagMap = { 'Windows': 'Microsoft Windows', 'macOS': 'Mac OS X' };
+        const mappedTags = tags.map(t => tagMap[t] || t);
 
-        console.log(`Fetching NEW Fingerprint via api.tubecreate.com...`);
-        // Retry logic for fetching
+        // 2. Fetch via PHP API (key stays on server)
+        console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
         let attempts = 0;
+        let triedWithoutSize = false;
         while (attempts < 3) {
             try {
-                const resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { timeout: 120000 });
+                const params = { tags: mappedTags.join(',') };
+                if (minBrowserVersion) params.min_browser_version = minBrowserVersion;
+                if (windowSize && !triedWithoutSize) {
+                    // Use ranges instead of exact match — Bablosoft pool may not have exact resolution
+                    params.min_width = Math.max(windowSize.width - 200, 1024);
+                    params.max_width = windowSize.width + 200;
+                    params.min_height = Math.max(windowSize.height - 200, 600);
+                    params.max_height = windowSize.height + 200;
+                }
+                
+                const resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { 
+                    params,
+                    timeout: 180000,
+                    maxContentLength: 50 * 1024 * 1024,
+                    maxBodyLength: 50 * 1024 * 1024
+                });
                 const data = resp.data;
                 
-                if (data && data.status === 'success' && data.file_path) {
-                    const fpUrl = `https://api.tubecreate.com/${data.file_path}`;
-                    console.log(`Downloading fingerprint from API...`);
-                    const fpResp = await axios.get(fpUrl, { timeout: 120000 });
-                    fingerprint = fpResp.data;
+                if (data && data.status === 'success') {
+                    // New format: fingerprint included directly in response
+                    if (data.fingerprint) {
+                        console.log(`Got fingerprint directly from API response.`);
+                        fingerprint = data.fingerprint;
+                    } 
+                    // Old format: download via file_path
+                    else if (data.file_path) {
+                        const fpUrl = `https://api.tubecreate.com/${data.file_path}`;
+                        console.log(`Downloading fingerprint from API...`);
+                        const fpResp = await axios.get(fpUrl, { timeout: 120000 });
+                        fingerprint = fpResp.data;
+                    } else {
+                        throw new Error('No fingerprint data in API response');
+                    }
+                    
+                    // Validate: Bablosoft may return {valid: false, message: "..."}
+                    if (typeof fingerprint === 'object' && fingerprint.valid === false) {
+                        console.warn(`[Fingerprint] Bablosoft returned invalid: ${fingerprint.message}`);
+                        if (!triedWithoutSize && windowSize) {
+                            console.log('[Fingerprint] Retrying without size constraints...');
+                            triedWithoutSize = true;
+                            attempts++;
+                            continue;
+                        }
+                        throw new Error(`Bablosoft: ${fingerprint.message}`);
+                    }
                     
                     if (!fingerprint || (typeof fingerprint !== 'object' && typeof fingerprint !== 'string')) {
                         throw new Error('Invalid fingerprint data received from API');
                     }
 
                     // Save it
-                    await fs.outputFile(fingerprintPath, JSON.stringify(fingerprint), 'utf8');
+                    const toSave = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                    await fs.outputFile(fingerprintPath, toSave, 'utf8');
                     return fingerprint;
                 } else {
                     throw new Error('Invalid response from getfinger.php');
@@ -126,7 +180,7 @@ export class BrowserManager {
                 await new Promise(r => setTimeout(r, 2000));
             }
         }
-        throw new Error('Failed to fetch fingerprint after 3 attempts');
+        throw new Error('Failed to fetch fingerprint after all attempts');
     }
 
     /**
@@ -139,30 +193,65 @@ export class BrowserManager {
     patchFingerprintUserAgent(fingerprint, targetChromiumVer) {
         if (!fingerprint || !targetChromiumVer) return fingerprint;
         
-        const majorVersion = targetChromiumVer.split('.')[0]; // e.g. '146'
+        const majorVersion = targetChromiumVer.split('.')[0]; // e.g. '147'
         
         try {
             let fp = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
             const wasString = typeof fingerprint === 'string';
             
+            // Handle Bablosoft v5 wrapper format: { canvas, webgl, fingerprint: { navigator, attr, ... } }
+            // Patch the INNER fingerprint object, but return the full wrapper
+            let target = fp;
+            if (fp.fingerprint && fp.canvas !== undefined) {
+                target = typeof fp.fingerprint === 'string' ? JSON.parse(fp.fingerprint) : fp.fingerprint;
+                console.log('[Fingerprint] Patching inside Bablosoft v5 wrapper...');
+            }
+            
             // 1. Patch navigator.userAgent — replace Chrome/XXX.0.0.0 with correct major version
-            if (fp.navigator && fp.navigator.userAgent) {
-                const oldUA = fp.navigator.userAgent;
-                const newUA = oldUA.replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`);
+            if (target.navigator && target.navigator.userAgent) {
+                const oldUA = target.navigator.userAgent;
+                const newUA = oldUA
+                    .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
+                    .replace(/ Edg\/[\d.]+/g, '')
+                    .replace(/ Edge\/[\d.]+/g, '');
                 if (oldUA !== newUA) {
-                    fp.navigator.userAgent = newUA;
-                    console.log(`[Fingerprint] Patched UA: Chrome/${oldUA.match(/Chrome\/(\d+)/)?.[1]} → Chrome/${majorVersion}`);
+                    target.navigator.userAgent = newUA;
+                    console.log(`[Fingerprint] Patched navigator.userAgent: Chrome/${oldUA.match(/Chrome\/(\d+)/)?.[1] || '?'} → Chrome/${majorVersion}`);
+                }
+            }
+            
+            // 1b. Patch Bablosoft specific attr object
+            if (target.attr && target.attr['navigator.userAgent']) {
+                const oldUA = target.attr['navigator.userAgent'];
+                const newUA = oldUA
+                    .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
+                    .replace(/ Edg\/[\d.]+/g, '')
+                    .replace(/ Edge\/[\d.]+/g, '');
+                if (oldUA !== newUA) {
+                    target.attr['navigator.userAgent'] = newUA;
+                    console.log(`[Fingerprint] Patched attr[navigator.userAgent]: Chrome/${oldUA.match(/Chrome\/(\d+)/)?.[1] || '?'} → Chrome/${majorVersion}`);
                 }
             }
             
             // 2. Patch navigator.appVersion
-            if (fp.navigator && fp.navigator.appVersion) {
-                fp.navigator.appVersion = fp.navigator.appVersion.replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`);
+            if (target.navigator && target.navigator.appVersion) {
+                target.navigator.appVersion = target.navigator.appVersion
+                    .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
+                    .replace(/ Edg\/[\d.]+/g, '')
+                    .replace(/ Edge\/[\d.]+/g, '');
+            }
+            
+            // 2b. Patch Bablosoft specific attr appVersion
+            if (target.attr && target.attr['navigator.appVersion']) {
+                target.attr['navigator.appVersion'] = target.attr['navigator.appVersion']
+                    .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
+                    .replace(/ Edg\/[\d.]+/g, '')
+                    .replace(/ Edge\/[\d.]+/g, '');
             }
             
             // 3. Patch navigator.userAgentData.brands
-            if (fp.navigator && fp.navigator.userAgentData && Array.isArray(fp.navigator.userAgentData.brands)) {
-                for (const brand of fp.navigator.userAgentData.brands) {
+            if (target.navigator && target.navigator.userAgentData && Array.isArray(target.navigator.userAgentData.brands)) {
+                for (const brand of target.navigator.userAgentData.brands) {
                     if (brand.brand === 'Google Chrome' || brand.brand === 'Chromium') {
                         brand.version = majorVersion;
                     }
@@ -170,12 +259,44 @@ export class BrowserManager {
             }
             
             // 4. Patch navigator.userAgentData.fullVersionList
-            if (fp.navigator && fp.navigator.userAgentData && Array.isArray(fp.navigator.userAgentData.fullVersionList)) {
-                for (const entry of fp.navigator.userAgentData.fullVersionList) {
+            if (target.navigator && target.navigator.userAgentData && Array.isArray(target.navigator.userAgentData.fullVersionList)) {
+                for (const entry of target.navigator.userAgentData.fullVersionList) {
                     if (entry.brand === 'Google Chrome' || entry.brand === 'Chromium') {
                         entry.version = targetChromiumVer;
                     }
                 }
+            }
+            
+            // 5. Patch HTTP Headers
+            if (target.headers) {
+                const keys = Object.keys(target.headers);
+                
+                const uaKey = keys.find(k => k.toLowerCase() === 'user-agent');
+                if (uaKey && target.headers[uaKey]) {
+                    target.headers[uaKey] = target.headers[uaKey]
+                        .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
+                        .replace(/ Edg\/[\d.]+/g, '')
+                        .replace(/ Edge\/[\d.]+/g, '');
+                }
+                
+                const secChUaKey = keys.find(k => k.toLowerCase() === 'sec-ch-ua');
+                if (secChUaKey && target.headers[secChUaKey]) {
+                    target.headers[secChUaKey] = target.headers[secChUaKey]
+                        .replace(/"Chromium";v="\d+"/g, `"Chromium";v="${majorVersion}"`)
+                        .replace(/"Google Chrome";v="\d+"/g, `"Google Chrome";v="${majorVersion}"`);
+                }
+                
+                const secChUaFullKey = keys.find(k => k.toLowerCase() === 'sec-ch-ua-full-version-list');
+                if (secChUaFullKey && target.headers[secChUaFullKey]) {
+                    target.headers[secChUaFullKey] = target.headers[secChUaFullKey]
+                        .replace(/"Chromium";v="[\d.]+"/g, `"Chromium";v="${targetChromiumVer}"`)
+                        .replace(/"Google Chrome";v="[\d.]+"/g, `"Google Chrome";v="${targetChromiumVer}"`);
+                }
+            }
+            
+            // Write patched target back into wrapper if applicable
+            if (fp.fingerprint && fp.canvas !== undefined && target !== fp) {
+                fp.fingerprint = target;
             }
             
             return wasString ? JSON.stringify(fp) : fp;
@@ -306,6 +427,37 @@ export class BrowserManager {
                 } else {
                     // Try to resolve targetBasVer from config's chromium version
                     targetBasVer = REVERSE_MAP[targetChromiumVer];
+                    
+                    // Verify this engine version is actually installed
+                    if (targetBasVer) {
+                        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                        const requestedEngineDir = path.join(__dirname, 'data', 'script', targetBasVer);
+                        const isInstalled = await fs.pathExists(requestedEngineDir) &&
+                            await fs.pathExists(path.join(requestedEngineDir, 'FastExecuteScript.exe'));
+                        
+                        if (!isInstalled) {
+                            console.warn(`[Launch] ⚠️ Requested engine ${targetBasVer} (Chrome ${targetChromiumVer}) is NOT installed!`);
+                            // Fall back to latest installed engine
+                            const scriptDir = path.join(__dirname, 'data', 'script');
+                            if (await fs.pathExists(scriptDir)) {
+                                const dirs = await fs.readdir(scriptDir);
+                                const candidates = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d))
+                                    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+                                let fallbackBas = null;
+                                for (const d of candidates) {
+                                    const exePath = path.join(scriptDir, d, 'FastExecuteScript.exe');
+                                    if (await fs.pathExists(exePath)) { fallbackBas = d; break; }
+                                }
+                                if (fallbackBas) {
+                                    targetBasVer = fallbackBas;
+                                    targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer;
+                                    console.warn(`[Launch] ↩️ Falling back to latest installed engine: ${targetBasVer} (Chrome ${targetChromiumVer})`);
+                                }
+                            }
+                        } else {
+                            console.log(`[Launch] ✅ Verified engine ${targetBasVer} is installed.`);
+                        }
+                    }
                 }
 
                 if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
@@ -389,6 +541,7 @@ export class BrowserManager {
         const launchArgs = [
             '--start-maximized',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
+            '--disable-blink-features=AutomationControlled',
             ...args
         ];
 
@@ -409,7 +562,8 @@ export class BrowserManager {
                 const context = await plugin.launchPersistentContext(profilePath, {
                     headless,
                     args: launchArgs,
-                    userDataDir: profilePath
+                    userDataDir: profilePath,
+                    ignoreDefaultArgs: ['--enable-automation']
                 });
                 return context;
             } catch (e) {
@@ -423,6 +577,29 @@ export class BrowserManager {
                 const isEngineFlake = errMsg.includes('browserautomationstudio') || 
                                       errMsg.includes('referenceerror: can\'t find variable');
                 const isKeyError    = errMsg.includes('key expired') || errMsg.includes('invalid key');
+                const isFingerprintError = errMsg.includes('fingerprint') && (errMsg.includes('not found') || errMsg.includes('error'));
+
+                if (isFingerprintError && launchAttempt === 1) {
+                    // Fingerprint incompatible with engine — delete old, fetch fresh, retry
+                    console.warn(`[Launch] ⚠️ Fingerprint rejected by engine: ${e.message}`);
+                    console.warn(`[Launch] Deleting old fingerprint and fetching a fresh one...`);
+                    try {
+                        const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+                        await fs.remove(fingerprintPath);
+                        fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
+                        if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
+                            fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
+                        }
+                        // Re-apply fingerprint
+                        const fpToUse = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                        plugin.useFingerprint(fpToUse);
+                        console.log('[Launch] Fresh fingerprint applied. Retrying launch...');
+                    } catch (refreshErr) {
+                        console.error('[Launch] Failed to refresh fingerprint:', refreshErr.message);
+                    }
+                    launchAttempt++;
+                    continue;
+                }
 
                 if (isProxyError || isEngineFlake || isKeyError) {
                     if (isKeyError) {
