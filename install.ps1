@@ -271,7 +271,7 @@ if ($tubecliCmd) {
     Write-Host "[OK] TubeCLI installed successfully!" -ForegroundColor Green
     Write-Host "[*] Initializing TubeCLI Workspace..." -ForegroundColor Yellow
     try {
-        tubecli init
+        tubecli init --lang en --port 5295
         Write-Host "[OK] Workspace Initialized." -ForegroundColor Green
     } catch {
         Write-Host "[!] Failed to run 'tubecli init'. You may need to run it manually." -ForegroundColor Yellow
