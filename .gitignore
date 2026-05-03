@@ -35,7 +35,6 @@ tubecli/extensions/browser/screenshots/
 tubecli/extensions/browser/scraped_data/
 tubecli/extensions/browser/script/
 /profiles/
-/screenshots/
 
 # === DEV-ONLY ONE-TIME SCRIPTS ===
 tubecli/extensions/browser/add_*.py
