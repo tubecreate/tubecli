@@ -48,12 +48,20 @@ The system has evolved into a full-fledged 10-subsystem architecture:
 
 ## 🚀 Quick Start & Installation
 
-### Prerequisites
+### Option 1: One-Click Auto Install (Recommended for Users)
+Open **PowerShell** (Run as Administrator) and paste the following command. It will automatically install Python, Git (if missing), clone the repo, and set up everything for you from A-Z:
+```powershell
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+```
+
+### Option 2: Manual Installation (For Developers)
+
+#### Prerequisites
 - Python 3.9+
 - Ollama (Optional, required for local AI execution)
 - Git
 
-### 1. Clone & Install
+#### 1. Clone & Install
 ```bash
 git clone https://github.com/tubecreate/tubecli.git
 cd tubecli
