@@ -49,10 +49,17 @@ The system has evolved into a full-fledged 10-subsystem architecture:
 ## 🚀 Quick Start & Installation
 
 ### Option 1: One-Click Auto Install (Recommended for Users)
-Open **PowerShell** (Run as Administrator) and paste the following command. It will automatically install Python, Git (if missing), clone the repo, and set up everything for you from A-Z:
+**For Windows:** Open **PowerShell** (Run as Administrator) and paste the following command:
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
 ```
+
+**For Linux / MacOS:** Open your terminal and run:
+```bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+```
+
+It will automatically install Python, Git (if missing), clone the repo, and set up everything for you from A-Z.
 
 ### Option 2: Manual Installation (For Developers)
 
