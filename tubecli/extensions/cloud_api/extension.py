@@ -86,6 +86,12 @@ PROVIDERS = {
         ],
         "env_var": "OPENROUTER_API_KEY",
     },
+    "everai": {
+        "name": "EverAI TTS",
+        "base_url": "https://everai.vn/api/v1",
+        "models": ["tts"],
+        "env_var": "EVERAI_API_KEY",
+    },
 }
 
 

@@ -1211,7 +1211,7 @@ async function renderCloudApiExt(el) {
     const [provData, keysData] = await Promise.all([apiGet('/api/v1/cloud-api/providers'), apiGet('/api/v1/cloud-api/keys')]);
     const providers = provData?.providers || [];
     const keys = keysData?.keys || {};
-    const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡' };
+    const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡', everai:'🎙️' };
     let h = `<div style="margin-bottom:20px"><button class="btn-primary" onclick="showAddApiKey()">${T('cloud_api.add_key')}</button></div>`;
     // Provider cards
     h += '<div class="cards-grid" style="margin-bottom:28px">';
