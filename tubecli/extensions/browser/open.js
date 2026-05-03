@@ -900,16 +900,8 @@ async function main() {
                       // { canvas: ..., webgl: ..., audio: ..., fingerprint: { ua, tags, ... } }
                       // The wrapper contains canvas/webgl noise data needed for spoofing.
                       // DO NOT extract the inner 'fingerprint' key — pass the FULL object to the engine.
-                      if (fingerprint && fingerprint.fingerprint && fingerprint.canvas !== undefined) {
-                          console.log('Detected Bablosoft v5 wrapper fingerprint (canvas/webgl/audio included). Using full object.');
-                      } else if (fingerprint && fingerprint.fingerprint && fingerprint.canvas === undefined) {
-                          // Legacy format: wrapper without canvas data, extract inner
-                          console.log('Detected legacy wrapped fingerprint (no canvas data). Extracting inner...');
-                          try {
-                              fingerprint = typeof fingerprint.fingerprint === 'string' ? JSON.parse(fingerprint.fingerprint) : fingerprint.fingerprint;
-                          } catch (e) {
-                              fingerprint = fingerprint.fingerprint;
-                          }
+                      if (fingerprint && fingerprint.fingerprint) {
+                          console.log('Detected Bablosoft wrapper fingerprint. Using full object to prevent engine format errors.');
                       }
                   } catch (e) {
                       fingerprint = fingerprintData; // Use as-is if not JSON
@@ -944,6 +936,7 @@ async function main() {
 
       const launchArgs = [
           '--remote-debugging-port=0', // Force random port
+          '--test-type',               // Hide unsupported command-line flag warnings
       ];
 
       // Optional: Load specific extensions if provided via CLI
@@ -957,11 +950,17 @@ async function main() {
       // Check for Mobile Fingerprint to resize window
       if (fingerprint) {
           let ua = "";
-          if (typeof fingerprint === 'object' && fingerprint.navigator && fingerprint.navigator.userAgent) {
-              ua = fingerprint.navigator.userAgent.toLowerCase();
-          } else if (typeof fingerprint === 'string') {
-              ua = fingerprint.toLowerCase();
-          }
+          try {
+              let innerFp = fingerprint;
+              if (typeof fingerprint === 'object' && fingerprint.fingerprint) {
+                  innerFp = typeof fingerprint.fingerprint === 'string' ? JSON.parse(fingerprint.fingerprint) : fingerprint.fingerprint;
+              }
+              if (typeof innerFp === 'object' && innerFp.navigator && innerFp.navigator.userAgent) {
+                  ua = innerFp.navigator.userAgent.toLowerCase();
+              } else if (typeof fingerprint === 'string') {
+                  ua = fingerprint.toLowerCase();
+              }
+          } catch(e) {}
 
           if (ua.includes('android') || ua.includes('iphone') || ua.includes('ipad')) {
               console.log('[Launch] Mobile fingerprint detected. Setting small window size.');

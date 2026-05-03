@@ -202,9 +202,9 @@ export class BrowserManager {
             // Handle Bablosoft v5 wrapper format: { canvas, webgl, fingerprint: { navigator, attr, ... } }
             // Patch the INNER fingerprint object, but return the full wrapper
             let target = fp;
-            if (fp.fingerprint && fp.canvas !== undefined) {
+            if (fp.fingerprint) {
                 target = typeof fp.fingerprint === 'string' ? JSON.parse(fp.fingerprint) : fp.fingerprint;
-                console.log('[Fingerprint] Patching inside Bablosoft v5 wrapper...');
+                console.log('[Fingerprint] Patching inside Bablosoft wrapper...');
             }
             
             // 1. Patch navigator.userAgent — replace Chrome/XXX.0.0.0 with correct major version
@@ -295,8 +295,8 @@ export class BrowserManager {
             }
             
             // Write patched target back into wrapper if applicable
-            if (fp.fingerprint && fp.canvas !== undefined && target !== fp) {
-                fp.fingerprint = target;
+            if (fp.fingerprint && target !== fp.fingerprint && target !== fp) {
+                fp.fingerprint = typeof fp.fingerprint === 'string' ? JSON.stringify(target) : target;
             }
             
             return wasString ? JSON.stringify(fp) : fp;
@@ -542,6 +542,7 @@ export class BrowserManager {
             '--start-maximized',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
             '--disable-blink-features=AutomationControlled',
+            '--test-type',
             ...args
         ];
 
