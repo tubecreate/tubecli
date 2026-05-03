@@ -69,15 +69,15 @@ pip install -e .
 ```
 
 ### 2. Initialize Workspace
-Run the initialization command to setup the `data/` directory, extract default skills, and activate core extensions.
+Run the initialization command to setup the `data/` directory, extract default skills, activate core extensions, and configure the default port.
 ```bash
-tubecli init --lang vi
+tubecli init --lang en --port 5295
 ```
 
 ### 3. Start the Web Dashboard
 After initialization, start the API server to access the GUI.
 ```bash
-tubecli api start --port 5295
+tubecli api start
 ```
 Open your browser and navigate to: **http://localhost:5295/dashboard**
 
