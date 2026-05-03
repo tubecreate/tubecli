@@ -236,26 +236,51 @@ async function loginGoogle(page, params) {
 
     await handleCaptcha(page, isRetry);
 
-    // 3. Enter Email
-    console.log('[Google] Entering email...');
+    // 2.5 Handle "Choose an account" page
+    const accountChooser = page.locator('div[data-email], li div[role="link"]:has-text("@")').first();
+    if (await accountChooser.isVisible({ timeout: 2000 }).catch(() => false)) {
+        console.log('[Google] "Choose an account" screen detected.');
+        // Try to find the specific email
+        const targetAccount = page.locator(`div[data-email="${email}" i], li div[role="link"]:has-text("${email}")`).first();
+        if (await targetAccount.isVisible()) {
+            console.log(`[Google] Found target account ${email} in list, clicking it...`);
+            await humanClick(page, `div[data-email="${email}" i], li div[role="link"]:has-text("${email}")`);
+        } else {
+            console.log(`[Google] Target account not in list, clicking "Use another account"...`);
+            const anotherAccount = page.locator('div[role="link"]:has-text("Use another account"), div[role="link"]:has-text("Sử dụng một tài khoản khác")').first();
+            if (await anotherAccount.isVisible()) {
+                await humanClick(page, 'div[role="link"]:has-text("Use another account"), div[role="link"]:has-text("Sử dụng một tài khoản khác")');
+            }
+        }
+        await page.waitForTimeout(3000);
+    }
+
+    // 3. Enter Email (if required)
+    console.log('[Google] Checking for email input...');
     const emailSelector = 'input[type="email"], input[name="identifier"]';
     const emailInput = page.locator(emailSelector).first();
-    await emailInput.waitFor({ state: 'visible', timeout: 20000 });
-    await humanClick(page, emailSelector);
-    await page.waitForTimeout(1000 + Math.random() * 2000);
-    for (const char of email) {
-      await page.keyboard.type(char, { delay: 50 + Math.random() * 150 });
+    
+    // It might skip email step if we clicked an existing account
+    if (await emailInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      console.log('[Google] Entering email...');
+      await humanClick(page, emailSelector);
+      await page.waitForTimeout(1000 + Math.random() * 2000);
+      for (const char of email) {
+        await page.keyboard.type(char, { delay: 50 + Math.random() * 150 });
+      }
+      await page.waitForTimeout(800 + Math.random() * 1200);
+
+      // Re-click/focus the email field to ensure it's focused before pressing Enter
+      await emailInput.click();
+      await page.waitForTimeout(300);
+
+      // Press Enter to submit email
+      console.log('[Google] Pressing Enter to submit email...');
+      await page.keyboard.press('Enter');
+      console.log('[Google] Pressed Enter, waiting for password field...');
+    } else {
+      console.log('[Google] Email input not found. Assuming we jumped to password or already logged in.');
     }
-    await page.waitForTimeout(800 + Math.random() * 1200);
-
-    // Re-click/focus the email field to ensure it's focused before pressing Enter
-    await emailInput.click();
-    await page.waitForTimeout(300);
-
-    // Press Enter to submit email
-    console.log('[Google] Pressing Enter to submit email...');
-    await page.keyboard.press('Enter');
-    console.log('[Google] Pressed Enter, waiting for password field...');
 
     // Error check after Enter
     try {
