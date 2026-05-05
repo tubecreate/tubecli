@@ -92,9 +92,9 @@ def get_profile(name: str) -> Optional[Dict[str, Any]]:
     # Check fingerprint existence
     fp_path = os.path.join(profile_path, "fingerprint.json")
     has_fp = os.path.isfile(fp_path) and os.path.getsize(fp_path) > 100
-    # Check cookies
-    cookie_path = os.path.join(profile_path, "cookies.json")
+    # Check cookies — from cookies.json OR Chrome SQLite DB
     cookie_count = 0
+    cookie_path = os.path.join(profile_path, "cookies.json")
     if os.path.isfile(cookie_path):
         try:
             import json as _json
@@ -103,6 +103,26 @@ def get_profile(name: str) -> Optional[Dict[str, Any]]:
             cookie_count = len(c) if isinstance(c, list) else 0
         except Exception:
             pass
+    # Also check Chrome's native cookie DB (in both main and _bas profiles)
+    if cookie_count == 0:
+        for sub in ["", "_bas"]:
+            chrome_cookie_db = os.path.join(PROFILES_DIR, name + sub, "Default", "Network", "Cookies")
+            if os.path.isfile(chrome_cookie_db):
+                db_size = os.path.getsize(chrome_cookie_db)
+                if db_size > 20480:  # Empty DB is ~20KB, cookies add size
+                    # Try to read via sqlite3 (works when browser is closed)
+                    try:
+                        import sqlite3
+                        conn = sqlite3.connect(chrome_cookie_db, timeout=1)
+                        count = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
+                        conn.close()
+                        if count > 0:
+                            cookie_count = count
+                            break
+                    except Exception:
+                        # Browser is running, estimate from file size
+                        cookie_count = max(1, (db_size - 20480) // 200)
+                        break
     return {"name": name, "has_fingerprint": has_fp, "cookie_count": cookie_count, **config}
 
 

@@ -22,14 +22,41 @@ TIMEOUT_LONG = 60  # For upload/download large extensions
 class MarketService:
     def __init__(self):
         self.api_base = API_BASE
+        self._client = None  # Lazy-init persistent httpx client
+        self._cache = {}     # In-memory cache: key -> (data, expires_at)
+
+    def _get_client(self):
+        """Get or create persistent httpx AsyncClient with connection pooling."""
+        if _HTTPX_AVAILABLE:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
+                    timeout=TIMEOUT,
+                    http2=False,
+                    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+                )
+            return self._client
+        return None
+
+    def _cache_get(self, key: str):
+        """Get cached value if not expired."""
+        import time
+        entry = self._cache.get(key)
+        if entry and entry[1] > time.time():
+            return entry[0]
+        return None
+
+    def _cache_set(self, key: str, data, ttl_seconds: int = 60):
+        """Set cache with TTL."""
+        import time
+        self._cache[key] = (data, time.time() + ttl_seconds)
 
     async def _get(self, url: str, params: dict = None, headers: dict = None) -> dict:
-        """Non-blocking GET using httpx or asyncio.to_thread."""
+        """Non-blocking GET using persistent httpx client or asyncio.to_thread."""
         if _HTTPX_AVAILABLE:
-            async with httpx.AsyncClient(timeout=TIMEOUT) as client:
-                r = await client.get(url, params=params, headers=headers or {})
-                r.raise_for_status()
-                return r.json()
+            client = self._get_client()
+            r = await client.get(url, params=params, headers=headers or {})
+            r.raise_for_status()
+            return r.json()
         else:
             import asyncio
             import requests as _req
@@ -40,13 +67,13 @@ class MarketService:
             return await asyncio.to_thread(_sync)
 
     async def _post(self, url: str, payload: dict, headers: dict = None, timeout: int = None) -> dict:
-        """Non-blocking POST using httpx or asyncio.to_thread."""
+        """Non-blocking POST using persistent httpx client or asyncio.to_thread."""
         _timeout = timeout or TIMEOUT
         if _HTTPX_AVAILABLE:
-            async with httpx.AsyncClient(timeout=_timeout) as client:
-                r = await client.post(url, json=payload, headers=headers)
-                r.raise_for_status()
-                return r.json()
+            client = self._get_client()
+            r = await client.post(url, json=payload, headers=headers, timeout=_timeout)
+            r.raise_for_status()
+            return r.json()
         else:
             import asyncio
             import requests as _req
@@ -55,6 +82,7 @@ class MarketService:
                 r.raise_for_status()
                 return r.json()
             return await asyncio.to_thread(_sync)
+
 
     async def list_items(
         self,
@@ -82,14 +110,22 @@ class MarketService:
         if user_id: params["user_id"] = user_id
 
         try:
-            result = await self._get(url, params=params)
-            # Dùng params stringify để tạo tên file cache tránh trùng lặp
+            # Check in-memory cache first (fast path, 60s TTL)
             import hashlib
             param_str = json.dumps(params, sort_keys=True)
-            cache_hash = hashlib.md5(param_str.encode()).hexdigest()
+            cache_key = f"list_{hashlib.md5(param_str.encode()).hexdigest()}"
+            cached = self._cache_get(cache_key)
+            if cached:
+                return cached
+
+            result = await self._get(url, params=params)
+            cache_hash = cache_key.replace("list_", "")
             cache_file = os.path.join(str(DATA_DIR), f"market_cache_{cache_hash}.json")
             
             if result and result.get("status") == "success":
+                # Save to in-memory cache (60s TTL)
+                self._cache_set(cache_key, result, ttl_seconds=60)
+                # Save to disk cache (offline fallback)
                 try:
                     with open(cache_file, "w", encoding="utf-8") as f:
                         json.dump(result, f, ensure_ascii=False)
@@ -274,9 +310,15 @@ class MarketService:
         return {"status": "error", "message": str(e)}
 
     async def get_categories(self) -> Dict:
-        """Get categories with counts."""
+        """Get categories with counts (cached 5 min)."""
+        cached = self._cache_get("categories")
+        if cached:
+            return cached
         try:
-            return await self._get(f"{self.api_base}/categories.php")
+            result = await self._get(f"{self.api_base}/categories.php")
+            if result and result.get("status") == "success":
+                self._cache_set("categories", result, ttl_seconds=300)
+            return result
         except Exception as e:
             print(f"[MarketCLI] Categories error: {e}")
         return {"status": "error", "categories": []}

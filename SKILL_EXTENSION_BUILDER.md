@@ -18,14 +18,11 @@ data/extensions_external/<extension_name>/
 ├── static/                    ← UI tĩnh (HTML/CSS/JS)
 │   ├── <main_page>.html
 │   ├── <main_page>.css
-│   ├── <main_page>.js
-│   └── i18n/                  ← Đa ngôn ngữ
-│       ├── en.json
-│       ├── vi.json
-│       └── zh.json
-└── locales/                   ← Server-side i18n (API)
+│   └── <main_page>.js
+└── locales/                   ← Đa ngôn ngữ (core i18n API)
     ├── en.json
-    └── vi.json
+    ├── vi.json
+    └── zh.json
 ```
 
 ---
@@ -289,168 +286,75 @@ async def serve_my_extension_static(filename: str):
 
 ## 7. i18n — Đa Ngôn Ngữ
 
-### 7.1. Client-side i18n (Trong Static HTML/JS)
+> **Chỉ dùng `locales/`** — TubeCLI core đã cung cấp hệ thống i18n tập trung. Extension **KHÔNG** cần viết JS loader riêng.
 
-**Cấu trúc file i18n:**
+### Cấu trúc file:
 ```
-static/i18n/
-├── en.json
+locales/
+├── en.json     ← Bắt buộc (fallback)
 ├── vi.json
 └── zh.json
 ```
 
-**Nội dung `en.json`:**
+### Cách hoạt động:
+```
+1. Server khởi động → GET /api/v1/i18n/{lang}
+2. API tự scan ALL extensions: locales/{lang}.json
+3. Merge tất cả vào 1 dict chung → trả về frontend
+4. i18n.js (core) gọi applyI18n() → dịch data-i18n attributes
+```
+
+### Nội dung `locales/en.json`:
 ```json
 {
-    "title": "My Extension",
-    "subtitle": "Description here",
-    "btn_save": "Save",
-    "btn_cancel": "Cancel",
-    "status_loading": "Loading...",
-    "status_ready": "Ready",
-    "status_error": "Error occurred",
-    "label_name": "Name",
-    "label_description": "Description",
-    "msg_success": "Operation completed successfully",
-    "msg_confirm_delete": "Are you sure you want to delete this?"
+    "myext.title": "My Extension",
+    "myext.subtitle": "Description here",
+    "myext.btn_save": "Save",
+    "myext.btn_cancel": "Cancel",
+    "myext.status_loading": "Loading...",
+    "myext.msg_success": "Operation completed"
 }
 ```
 
-**Nội dung `vi.json`:**
+### Nội dung `locales/vi.json`:
 ```json
 {
-    "title": "Extension Của Tôi",
-    "subtitle": "Mô tả ở đây",
-    "btn_save": "Lưu",
-    "btn_cancel": "Hủy",
-    "status_loading": "Đang tải...",
-    "status_ready": "Sẵn sàng",
-    "status_error": "Đã xảy ra lỗi",
-    "label_name": "Tên",
-    "label_description": "Mô tả",
-    "msg_success": "Thao tác hoàn tất",
-    "msg_confirm_delete": "Bạn có chắc muốn xóa?"
+    "myext.title": "Extension Của Tôi",
+    "myext.subtitle": "Mô tả ở đây",
+    "myext.btn_save": "Lưu",
+    "myext.btn_cancel": "Hủy",
+    "myext.status_loading": "Đang tải...",
+    "myext.msg_success": "Thao tác hoàn tất"
 }
 ```
 
-**JavaScript i18n loader (đặt trong file JS chính):**
-```javascript
-// ── i18n System ─────────────────────────────────────────
-const I18N = {
-    _strings: {},
-    _lang: 'en',
-    _fallback: {},
+> **⚠️ Quan trọng:** Dùng prefix `myext.` (tên extension) cho tất cả key để tránh xung đột khi merge với extension khác.
 
-    async init() {
-        // 1. Detect language from parent dashboard or settings
-        this._lang = this._detectLang();
-
-        // 2. Load fallback (English) first
-        try {
-            const enRes = await fetch('/my-extension-static/i18n/en.json');
-            if (enRes.ok) this._fallback = await enRes.json();
-        } catch (e) { console.warn('i18n: fallback load failed'); }
-
-        // 3. Load target language
-        if (this._lang !== 'en') {
-            try {
-                const res = await fetch(`/my-extension-static/i18n/${this._lang}.json`);
-                if (res.ok) this._strings = await res.json();
-            } catch (e) { console.warn(`i18n: ${this._lang} load failed, using fallback`); }
-        }
-
-        if (Object.keys(this._strings).length === 0) {
-            this._strings = this._fallback;
-        }
-
-        // 4. Apply translations to DOM
-        this._applyDOM();
-
-        // 5. Setup language selector if exists
-        const langSelect = document.getElementById('langSelect');
-        if (langSelect) {
-            langSelect.value = this._lang;
-            langSelect.addEventListener('change', (e) => {
-                localStorage.setItem('ext_lang', e.target.value);
-                location.reload();
-            });
-        }
-    },
-
-    _detectLang() {
-        // Priority: localStorage > parent dashboard settings > navigator
-        const stored = localStorage.getItem('ext_lang');
-        if (stored) return stored;
-
-        // Try to read from parent window (dashboard)
-        try {
-            const parentLang = window.parent?.document?.documentElement?.lang;
-            if (parentLang) return parentLang.split('-')[0];
-        } catch (e) {}
-
-        // Try to read from global settings API
-        try {
-            const settings = JSON.parse(localStorage.getItem('tubecli_settings') || '{}');
-            if (settings.language) return settings.language;
-        } catch (e) {}
-
-        // Fallback to browser language
-        return navigator.language?.split('-')[0] || 'en';
-    },
-
-    _applyDOM() {
-        // Auto-translate elements with data-i18n attribute
-        document.querySelectorAll('[data-i18n]').forEach(el => {
-            const key = el.getAttribute('data-i18n');
-            const text = this.t(key);
-            if (text) {
-                if (el.tagName === 'INPUT' && el.type !== 'submit') {
-                    el.placeholder = text;
-                } else {
-                    el.textContent = text;
-                }
-            }
-        });
-
-        // Also handle data-i18n-title
-        document.querySelectorAll('[data-i18n-title]').forEach(el => {
-            const key = el.getAttribute('data-i18n-title');
-            el.title = this.t(key) || el.title;
-        });
-    },
-
-    t(key, fallback) {
-        return this._strings[key] || this._fallback[key] || fallback || key;
-    }
-};
-
-// Initialize on DOM ready
-document.addEventListener('DOMContentLoaded', () => I18N.init());
-```
-
-**HTML sử dụng data-i18n attribute:**
+### HTML sử dụng `data-i18n`:
 ```html
-<h1 data-i18n="title">My Extension</h1>
-<p data-i18n="subtitle">Description</p>
-<button data-i18n="btn_save">Save</button>
-<input type="text" data-i18n="label_name" placeholder="Name">
+<h1 data-i18n="myext.title">My Extension</h1>
+<p data-i18n="myext.subtitle">Description</p>
+<button data-i18n="myext.btn_save">Save</button>
 ```
 
-### 7.2. Server-side i18n (API cung cấp sẵn)
+### JS sử dụng hàm `T()` (từ core `i18n.js`):
+```javascript
+// Trong HTML, include i18n.js từ core:
+// <script src="/static/i18n.js"></script>
 
-TubeCLI đã có API locale tự động cho mỗi extension:
-```
-GET /api/v1/extensions/{name}/locale/{lang}
+// Sau đó dùng trực tiếp:
+showToast(T('myext.msg_success'));
+
+// Với biến thay thế:
+log(T('myext.status_pulling', {name: 'model1'}));
+// locales/en.json: "myext.status_pulling": "Pulling {name}..."
 ```
 
-Nếu cần server-side translations, đặt file JSON trong:
-```
-locales/
-├── en.json
-└── vi.json
-```
-
-API sẽ tự tìm và trả về JSON phù hợp.
+### Chuyển ngôn ngữ:
+Extension **KHÔNG cần** làm gì — dashboard core đã xử lý:
+- User chọn ngôn ngữ → `changeLanguage(lang)` → reload page
+- `loadI18nFromApi()` tự fetch `/api/v1/i18n/{lang}` → merge tất cả locales
+- `applyI18n()` tự dịch tất cả `data-i18n` elements
 
 ---
 
@@ -466,6 +370,8 @@ API sẽ tự tìm và trả về JSON phù hợp.
     <meta name="description" content="Description of extension">
     <link rel="stylesheet" href="/my-extension-static/main.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Core i18n — PHẢI include trước JS của extension -->
+    <script src="/static/i18n.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -474,16 +380,9 @@ API sẽ tự tìm và trả về JSON phù hợp.
             <div class="header-left">
                 <span class="header-icon">🎯</span>
                 <div>
-                    <h1 data-i18n="title">My Extension</h1>
-                    <p class="header-subtitle" data-i18n="subtitle">Description</p>
+                    <h1 data-i18n="myext.title">My Extension</h1>
+                    <p class="header-subtitle" data-i18n="myext.subtitle">Description</p>
                 </div>
-            </div>
-            <div class="header-right">
-                <select id="langSelect" class="lang-select" title="Language">
-                    <option value="en">EN</option>
-                    <option value="vi">VI</option>
-                    <option value="zh">ZH</option>
-                </select>
             </div>
         </header>
 
@@ -706,8 +605,12 @@ Body: `{"name": "...", "data": {...}}`
   □ HTML — đúng path (<name>-static/...)
   □ CSS — dark theme, match dashboard
   □ JS — API calls, event handlers
-  □ i18n/ — en.json + vi.json (tối thiểu)
   □ Google Fonts (Inter) loaded
+
+□ locales/ (đa ngôn ngữ)
+  □ en.json (bắt buộc, fallback)
+  □ vi.json
+  □ Key dùng prefix tên extension (vd: myext.title)
 
 □ API routes
   □ router = APIRouter(prefix=api_prefix)
@@ -740,7 +643,7 @@ Body: `{"name": "...", "data": {...}}`
 | CSS/JS không load | Path sai trong HTML | Dùng `/my-extension-static/file.css`, KHÔNG dùng `./file.css` |
 | Extension không enable | Lỗi import trong extension.py | Check `python -m py_compile extension.py` |
 | API trả lỗi 500 | Lỗi trong route handler | Check server log, thêm try/except |
-| i18n không hoạt động | File JSON path sai | Kiểm tra `/my-extension-static/i18n/en.json` accessible |
+| i18n không hoạt động | Thiếu `locales/` folder hoặc key sai | Kiểm tra `locales/en.json` có tồn tại, key có prefix đúng (vd: `myext.title`) |
 | Node không hiện trong workflow | `nodes` trong manifest không khớp `get_nodes()` | Đảm bảo key trong dict khớp manifest |
 
 ---

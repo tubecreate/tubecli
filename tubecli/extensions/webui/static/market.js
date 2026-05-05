@@ -61,12 +61,16 @@ let editingPublicId = null; // Track if we're editing an existing listing
 
 // ── Init ──
 document.addEventListener('DOMContentLoaded', async () => {
+    // Start Market API calls immediately in parallel with i18n
+    const categoriesPromise = loadCategories();
+    const itemsPromise = loadItems();
+    
+    // Load i18n (local API, fast) — needed for UI labels
     await loadI18nFromApi();
-    // Sync market-specific lang variable
     _marketLang = _lang || localStorage.getItem('tubecli_lang') || 'zh';
-
-    loadCategories();
-    loadItems();
+    
+    // Wait for Market data if not done yet
+    await Promise.all([categoriesPromise, itemsPromise]);
 });
 
 // ── Categories ──

@@ -1298,15 +1298,32 @@ async def package_extension(name: str):
         return found
 
     # ── Collect all files ──────────────────────────────────────────
-    SKIP_DIRS = {"__pycache__", ".git", "node_modules", ".venv", "venv"}
-    SKIP_EXTS = {".pyc", ".pyo", ".egg-info"}
+    SKIP_DIRS = {
+        "__pycache__", ".git", "node_modules", ".venv", "venv",
+        "data", "db", "logs", "tmp", "dist", "build",
+        ".env", ".vscode", ".idea", "coverage",
+    }
+    SKIP_EXTS = {".pyc", ".pyo", ".egg-info", ".sqlite3", ".db", ".log", ".exe", ".dll", ".so", ".zip", ".tar", ".gz"}
     MAX_FILE_SIZE = 500_000  # 500KB per file
+
+    # ── Parse .gitignore for extra exclusions ──
+    gitignore_patterns = set()
+    gitignore_path = os.path.join(ext_dir, ".gitignore")
+    if os.path.isfile(gitignore_path):
+        try:
+            with open(gitignore_path, "r") as f:
+                for line in f:
+                    line = line.strip().rstrip("/")
+                    if line and not line.startswith("#"):
+                        gitignore_patterns.add(line)
+        except Exception:
+            pass
 
     files = []
     all_imports: set = set()
 
     for root, dirs, filenames in os.walk(ext_dir):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and d not in gitignore_patterns]
 
         for fname in filenames:
             if any(fname.endswith(e) for e in SKIP_EXTS):
