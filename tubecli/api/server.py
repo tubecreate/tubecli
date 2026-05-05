@@ -1363,7 +1363,7 @@ async def package_extension(name: str):
         detected_deps.append(pip_name)
 
     # 3. Merge with existing manifest.dependencies (don't lose manually declared ones)
-    read_manifest_path = os.path.join(ext_dir, "zhiying-extension.json")
+    read_manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
     manifest = {}
     if os.path.exists(read_manifest_path):
         with open(read_manifest_path, "r", encoding="utf-8") as f:
@@ -1530,7 +1530,7 @@ async def system_update():
 
         # Read new version from file (since module cache still has old value)
         new_version = old_version
-        init_file = os.path.join(project_root, "zhiying", "__init__.py")
+        init_file = os.path.join(project_root, "tubecli", "__init__.py")
         try:
             with open(init_file, "r") as f:
                 for line in f:
@@ -1641,7 +1641,7 @@ async def update_extension(name: str):
         # Re-read manifest to get new version
         import json
         new_version = ext.version
-        manifest_path = os.path.join(ext_dir, "zhiying-extension.json")
+        manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
         if os.path.exists(manifest_path):
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
@@ -1700,7 +1700,7 @@ async def get_aggregated_i18n(lang: str):
                         pass
                     break
 
-    # 1. Built-in extensions: zhiying/extensions/*/locales/
+    # 1. Built-in extensions: tubecli/extensions/*/locales/
     builtin_ext_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extensions")
     _load_locales_from_dir(builtin_ext_dir)
 

@@ -153,6 +153,53 @@ async def api_refresh_fingerprint(name: str):
         raise HTTPException(500, f"Failed to refresh fingerprint for profile '{name}': {str(e)}")
 
 
+@router.get("/profiles/{name}/cookies")
+async def api_get_cookies(name: str):
+    """Get cookies.json content for a profile."""
+    import os, json
+    from .profile_manager import PROFILES_DIR
+    cookie_path = os.path.join(PROFILES_DIR, name, "cookies.json")
+    if not os.path.exists(cookie_path):
+        return {"cookies": [], "count": 0}
+    try:
+        with open(cookie_path, "r", encoding="utf-8") as f:
+            cookies = json.load(f)
+        return {"cookies": cookies, "count": len(cookies) if isinstance(cookies, list) else 0}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to read cookies: {e}")
+
+@router.post("/profiles/{name}/cookies")
+async def api_import_cookies(name: str, request: Request):
+    """Import cookies.json for a profile."""
+    import os, json
+    from .profile_manager import PROFILES_DIR
+    profile_path = os.path.join(PROFILES_DIR, name)
+    if not os.path.isdir(profile_path):
+        raise HTTPException(404, f"Profile '{name}' not found")
+    try:
+        body = await request.json()
+        cookies = body.get("cookies", body) if isinstance(body, dict) else body
+        if not isinstance(cookies, list):
+            cookies = [cookies]
+        cookie_path = os.path.join(profile_path, "cookies.json")
+        with open(cookie_path, "w", encoding="utf-8") as f:
+            json.dump(cookies, f, indent=2, ensure_ascii=False)
+        return {"status": "imported", "count": len(cookies)}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to import cookies: {e}")
+
+@router.delete("/profiles/{name}/cookies")
+async def api_delete_cookies(name: str):
+    """Delete cookies.json for a profile."""
+    import os
+    from .profile_manager import PROFILES_DIR
+    cookie_path = os.path.join(PROFILES_DIR, name, "cookies.json")
+    if os.path.exists(cookie_path):
+        os.remove(cookie_path)
+        return {"status": "deleted"}
+    return {"status": "not_found"}
+
+
 @router.post("/launch")
 async def api_launch_browser(req: LaunchRequest):
     from .process_manager import browser_process_manager
@@ -329,7 +376,7 @@ async def api_download_engine(version: str, request: Request):
     if version in download_processes:
         return {"status": "already_downloading", "version": version}
     
-    # If no download_url provided, construct bablosoft URL
+    # If no download_url provided, construct Security Browser URL
     if not download_url:
         download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
     
@@ -356,18 +403,18 @@ async def api_download_engine(version: str, request: Request):
         except:
             pass
     
-    # Build fallback bablosoft URL
-    bablosoft_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
+    # Build fallback Security Browser URL
+    fallback_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
     
     def download_and_extract():
         import zipfile
         import requests
         
-        # Try local_url first, then fallback to bablosoft
+        # Try local_url first, then fallback to Security Browser CDN
         urls_to_try = []
-        if download_url and download_url != bablosoft_url:
+        if download_url and download_url != fallback_url:
             urls_to_try.append(("local", download_url))
-        urls_to_try.append(("bablosoft", bablosoft_url))
+        urls_to_try.append(("security_browser", fallback_url))
         
         for url_label, url in urls_to_try:
             try:
@@ -376,7 +423,7 @@ async def api_download_engine(version: str, request: Request):
                 resp = requests.get(url, stream=True, timeout=300, verify=False)
                 if resp.status_code != 200:
                     if url_label == "local":
-                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to bablosoft...")
+                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to Security Browser CDN...")
                         continue
                     write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
                     return
@@ -407,7 +454,7 @@ async def api_download_engine(version: str, request: Request):
                     except:
                         pass
                     if url_label == "local":
-                        write_progress("downloading", 3, "Local file corrupt, switching to bablosoft...")
+                        write_progress("downloading", 3, "Local file corrupt, switching to Security Browser CDN...")
                         continue
                     write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
                     return
@@ -422,7 +469,7 @@ async def api_download_engine(version: str, request: Request):
                 
             except Exception as e:
                 if url_label == "local":
-                    write_progress("downloading", 3, f"Local server failed, switching to bablosoft...")
+                    write_progress("downloading", 3, f"Local server failed, switching to Security Browser CDN...")
                     continue
                 write_progress("error", 0, str(e)[:300])
                 return

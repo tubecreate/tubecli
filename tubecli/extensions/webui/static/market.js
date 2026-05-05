@@ -40,7 +40,7 @@ function clearTerm() {
 }
 
 // Language for this iframe context (fetched from API at init)
-let _marketLang = localStorage.getItem('zhiying_lang') || 'en';
+let _marketLang = localStorage.getItem('tubecli_lang') || 'en';
 
 // ── State ──
 const state = {
@@ -63,7 +63,7 @@ let editingPublicId = null; // Track if we're editing an existing listing
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
     // Sync market-specific lang variable
-    _marketLang = _lang || localStorage.getItem('zhiying_lang') || 'zh';
+    _marketLang = _lang || localStorage.getItem('tubecli_lang') || 'zh';
 
     loadCategories();
     loadItems();
@@ -1019,8 +1019,16 @@ async function submitUpload(e) {
         });
         const data = await res.json();
 
-        if (data.status === 'success' || data.public_id) {
-            showToast(isEdit ? 'Listing updated successfully!' : 'Item published to Market!', 'success');
+        if (res.status === 409) {
+            // Name conflict — another author owns this name
+            const errMsg = typeof data.detail === 'string' ? data.detail : (data.message || 'Extension name already taken');
+            showToast(errMsg, 'error');
+        } else if (data.status === 'success' || data.public_id) {
+            if (data.auto_updated) {
+                showToast(`✅ Version updated! "${payload.title}" v${payload.version} has been published.`, 'success');
+            } else {
+                showToast(isEdit ? 'Listing updated successfully!' : 'Item published to Market!', 'success');
+            }
             closeUploadModal();
             loadItems();
             loadCategories();
@@ -1055,7 +1063,7 @@ function showLoading() {
  * Get the current app language (works in iframe context).
  */
 function getAppLang() {
-    return _marketLang || localStorage.getItem('zhiying_lang') || 'en';
+    return _marketLang || localStorage.getItem('tubecli_lang') || 'en';
 }
 
 /**
@@ -1669,6 +1677,24 @@ async function submitGitInstall() {
     btn.disabled = true;
     btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Installing...';
     
+    clearTerm();
+    termLog(`Initializing git install for ${url}...`, '#88aaff');
+
+    const steps = [
+        "Cloning Git repository (depth=1)...",
+        "Validating tubecli-extension.json manifest...",
+        "Resolving Python (PIP) dependencies if any...",
+        "Resolving Node.js (NPM) dependencies if any...",
+        "Loading extension module..."
+    ];
+    let stepIdx = 0;
+    const termInterval = setInterval(() => {
+        if (stepIdx < steps.length) {
+            termLog(steps[stepIdx], '#aaaaaa');
+            stepIdx++;
+        }
+    }, 1500);
+
     try {
         const res = await fetch(`${API}/items/install-git`, {
             method: 'POST',
@@ -1676,15 +1702,23 @@ async function submitGitInstall() {
             body: JSON.stringify({ git_url: url })
         });
         const data = await res.json();
+        clearInterval(termInterval);
         
         if (data.status === 'success') {
+            termLog('🎉 Installation Complete!', '#00ff00');
+            if (data.message) termLog(data.message, '#00ff00');
             showToast(data.message || 'Installed successfully via Git!', 'success');
-            closeGitInstallModal();
-            loadItems(); // refresh UI
+            setTimeout(() => {
+                closeGitInstallModal();
+                loadItems();
+            }, 1500);
         } else {
+            termLog('❌ Installation Failed: ' + (data.message || data.detail || 'Unknown error'), '#ff4444');
             showToast(data.message || data.detail || 'Git Install failed', 'error');
         }
     } catch (e) {
+        clearInterval(termInterval);
+        termLog('❌ Network Error: ' + e.message, '#ff4444');
         showToast('Network error', 'error');
     }
     

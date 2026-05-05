@@ -304,4 +304,50 @@ class MarketService:
         return {"status": "error", "error": str(e)}
 
 
+    async def check_name_exists(self, title: str, token: str = None) -> Dict:
+        """Check if an item with the same title already exists on the market.
+        Returns: {exists: bool, item: {...}, is_owner: bool}
+        """
+        try:
+            # Search by exact title
+            result = await self.list_items(search=title, limit=50)
+            if result.get("status") != "success":
+                return {"exists": False}
+
+            items = result.get("data", [])
+            title_lower = title.strip().lower().replace(" ", "_")
+
+            for item in items:
+                item_title = (item.get("title") or "").strip().lower().replace(" ", "_")
+                if item_title == title_lower:
+                    # Found exact match — check ownership
+                    is_owner = False
+                    if token:
+                        try:
+                            profile = await self.get_user_profile(token)
+                            user_id = (
+                                profile.get("profile", {}).get("user_id")
+                                or profile.get("user", {}).get("user_id")
+                                or profile.get("user_id")
+                            )
+                            item_seller = item.get("seller_id") or item.get("user_id")
+                            if user_id and item_seller and str(user_id) == str(item_seller):
+                                is_owner = True
+                        except Exception:
+                            pass
+
+                    return {
+                        "exists": True,
+                        "item": item,
+                        "public_id": item.get("public_id"),
+                        "is_owner": is_owner,
+                        "owner_name": item.get("seller_name") or item.get("author") or "Unknown",
+                    }
+
+            return {"exists": False}
+        except Exception as e:
+            print(f"[MarketCLI] check_name_exists error: {e}")
+            return {"exists": False}
+
+
 market_service = MarketService()

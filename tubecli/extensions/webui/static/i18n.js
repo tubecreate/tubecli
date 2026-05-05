@@ -39,7 +39,7 @@ function applyI18n() {
  * The /api/v1/i18n/{lang} endpoint merges all extension locales.
  */
 async function loadI18nFromApi() {
-    const apiBase = localStorage.getItem('zhiying_api') || window.location.origin;
+    const apiBase = localStorage.getItem('tubecli_api') || window.location.origin;
 
     // 1. Get current language setting
     try {
@@ -49,7 +49,7 @@ async function loadI18nFromApi() {
             _lang = d.language;
         }
     } catch (e) {
-        _lang = localStorage.getItem('zhiying_lang') || 'en';
+        _lang = localStorage.getItem('tubecli_lang') || 'en';
     }
 
     // 2. Fetch aggregated translations from all extensions
@@ -75,9 +75,9 @@ async function loadI18nFromApi() {
  */
 async function changeLanguage(lang) {
     _lang = lang;
-    localStorage.setItem('zhiying_lang', lang);
+    localStorage.setItem('tubecli_lang', lang);
     try {
-        await fetch((localStorage.getItem('zhiying_api') || window.location.origin) + '/api/v1/settings/language', {
+        await fetch((localStorage.getItem('tubecli_api') || window.location.origin) + '/api/v1/settings/language', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ language: lang })

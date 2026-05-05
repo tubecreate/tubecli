@@ -89,7 +89,21 @@ def get_profile(name: str) -> Optional[Dict[str, Any]]:
     if not os.path.isdir(profile_path):
         return None
     config = _load_config(name)
-    return {"name": name, **config}
+    # Check fingerprint existence
+    fp_path = os.path.join(profile_path, "fingerprint.json")
+    has_fp = os.path.isfile(fp_path) and os.path.getsize(fp_path) > 100
+    # Check cookies
+    cookie_path = os.path.join(profile_path, "cookies.json")
+    cookie_count = 0
+    if os.path.isfile(cookie_path):
+        try:
+            import json as _json
+            with open(cookie_path, "r", encoding="utf-8") as f:
+                c = _json.load(f)
+            cookie_count = len(c) if isinstance(c, list) else 0
+        except Exception:
+            pass
+    return {"name": name, "has_fingerprint": has_fp, "cookie_count": cookie_count, **config}
 
 
 def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
@@ -175,7 +189,7 @@ def get_fingerprint(name: str) -> Optional[dict]:
                 
                 # Validate: check for {valid: false}
                 if fp_data and isinstance(fp_data, dict) and fp_data.get("valid") is False:
-                    print(f"[Fingerprint] Bablosoft returned valid=false: {fp_data.get('message', '?')}")
+                    print(f"[Fingerprint] Security Browser returned valid=false: {fp_data.get('message', '?')}")
                     return None
                     
                 return fp_data
