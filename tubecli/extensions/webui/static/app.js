@@ -2,7 +2,7 @@
  * TubeCLI Dashboard — SPA Logic
  * Dashboard → Extensions → API Manager → Settings
  */
-const API = localStorage.getItem('zhiying_api') || window.location.origin;
+const API = localStorage.getItem('tubecli_api') || window.location.origin;
 
 // ═══ Hash Router ═══
 const ROUTE_TAB_MAP = {
@@ -1423,8 +1423,63 @@ async function showCreateTeamPrompt() { const n = prompt('Team name:'); if(!n) r
 async function deleteTeam(id) { if(!confirm('Delete team?')) return; await apiDelete('/api/v1/multi-agents/teams/'+id); renderMultiAgentsExt(document.getElementById('ext-detail-body')); }
 
 // ═══ Install Extension ═══
-function showInstallExtension() { document.getElementById('modal-install-ext').classList.remove('hidden'); }
-async function installExtension() { const u = document.getElementById('install-ext-url').value.trim(); if(!u) return alert('URL required.'); const btn = document.getElementById('btn-install-ext'); btn.disabled=true; btn.textContent='⏳ Installing...'; const r = await apiPost('/api/v1/market/items/install-git',{git_url:u}); btn.disabled=false; btn.textContent='🚀 Install'; if(r&&r.status==='success') { closeModal('modal-install-ext'); loadExtensions(); alert('Installed!'); } else alert('Failed: '+(r?.message||'?')); }
+function showInstallExtension() { document.getElementById('modal-install-ext').classList.remove('hidden'); document.getElementById('install-ext-url').value=''; const term = document.getElementById('install-ext-terminal'); if(term) { term.innerHTML=''; term.style.display='none'; } }
+function installTermLog(msg, color = '#00ff00') { const term = document.getElementById('install-ext-terminal'); if (!term) return; term.style.display = 'block'; const div = document.createElement('div'); div.style.color = color; div.style.marginBottom = '4px'; div.textContent = '> ' + msg; term.appendChild(div); term.scrollTop = term.scrollHeight; }
+async function installExtension() {
+    const u = document.getElementById('install-ext-url').value.trim();
+    if(!u) return alert('URL required.');
+    const btn = document.getElementById('btn-install-ext');
+    btn.disabled = true;
+    btn.textContent = '⏳ Installing...';
+
+    // Clear and show terminal
+    const term = document.getElementById('install-ext-terminal');
+    if(term) { term.innerHTML = ''; term.style.display = 'block'; }
+    installTermLog('Initializing installation...', '#88aaff');
+
+    const steps = [
+        'Cloning Git repository (depth=1)...',
+        'Validating tubecli-extension.json manifest...',
+        'Resolving Python (PIP) dependencies if any...',
+        'Resolving Node.js (NPM) dependencies if any...',
+        'Loading extension module...'
+    ];
+    let stepIdx = 0;
+    const termInterval = setInterval(() => {
+        if (stepIdx < steps.length) {
+            installTermLog(steps[stepIdx], '#aaaaaa');
+            stepIdx++;
+        }
+    }, 1500);
+
+    try {
+        const r = await apiPost('/api/v1/market/items/install-git', {git_url: u});
+        clearInterval(termInterval);
+
+        if(r && r.status === 'success') {
+            installTermLog('🎉 Installation Complete!', '#00ff00');
+            if(r.message) installTermLog(r.message, '#00ff00');
+            btn.textContent = '✅ Installed';
+            btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+            setTimeout(() => {
+                closeModal('modal-install-ext');
+                loadExtensions();
+                btn.disabled = false;
+                btn.textContent = '🚀 Install';
+                btn.style.background = '';
+            }, 2000);
+        } else {
+            installTermLog('❌ Installation Failed: ' + (r?.message || 'Unknown error'), '#ff4444');
+            btn.disabled = false;
+            btn.textContent = '🚀 Install';
+        }
+    } catch(e) {
+        clearInterval(termInterval);
+        installTermLog('❌ Error: ' + e.message, '#ff4444');
+        btn.disabled = false;
+        btn.textContent = '🚀 Install';
+    }
+}
 
 // ═══════════════════════════════════════════════════════════
 // ═══ API MANAGER PAGE ═══
@@ -2367,7 +2422,7 @@ async function saveGlobalSettings() {
     try {
         const r = await apiPut('/api/v1/settings', payload);
         if (r && r.status === 'success') {
-            if (payload.api_base_url) localStorage.setItem('zhiying_api', payload.api_base_url);
+            if (payload.api_base_url) localStorage.setItem('tubecli_api', payload.api_base_url);
             const toast = document.createElement('div');
             toast.textContent = '✅ Cài đặt đã lưu thành công!';
             toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;padding:14px 28px;border-radius:10px;z-index:99999;font-weight:700;font-size:1rem;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s';
@@ -2545,7 +2600,7 @@ async function performSystemUpdate() {
         // Show restart banner
         const card = document.getElementById('version-card');
         if (!document.getElementById('restart-banner')) {
-            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>zhiying api start</code></div>');
+            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>tubecli api start</code></div>');
         }
     } else {
         st.textContent = '❌ Update failed: ' + (d?.error || 'Unknown error');
@@ -2818,7 +2873,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadVersionInfo();
     loadGlobalSettings();
     loadDynamicExtensionsToSidebar();
-    const s=localStorage.getItem('zhiying_api');
+    const s=localStorage.getItem('tubecli_api');
     if(s) document.getElementById('set-api').value=s;
     if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
     // Route based on current URL hash

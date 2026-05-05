@@ -120,8 +120,39 @@ async def get_item_detail(public_id: str):
 
 @router.post("/items")
 async def upload_item(req: UploadRequest, authorization: Optional[str] = Header(None)):
-    """Upload a new item to the marketplace."""
+    """Upload a new item to the marketplace.
+    Enforces unique names: if title already exists, auto-update for same author or block.
+    """
     token = _get_token(authorization)
+
+    # Check for duplicate name on market
+    name_check = await market_service.check_name_exists(req.title, token)
+    if name_check.get("exists"):
+        if name_check.get("is_owner"):
+            # Same author → auto-update existing item
+            existing_id = name_check["public_id"]
+            print(f"[Market] Auto-updating existing item '{req.title}' (ID: {existing_id})")
+            result = await market_service.update_item(
+                token=token, public_id=existing_id,
+                title=req.title, description=req.description,
+                category=req.category, price=req.price, item_data=req.item_data,
+                visibility=req.visibility, tags=req.tags, version=req.version,
+                thumbnail_url=req.thumbnail_url, git_url=req.git_url,
+            )
+            if result.get("error"):
+                raise HTTPException(400, result["error"])
+            result["auto_updated"] = True
+            result["public_id"] = existing_id
+            return result
+        else:
+            # Different author → block
+            owner = name_check.get("owner_name", "another user")
+            raise HTTPException(
+                409,
+                f"Extension name '{req.title}' is already taken by {owner}. Please choose a different name."
+            )
+
+    # No duplicate → normal upload
     result = await market_service.upload_item(
         token=token, title=req.title, description=req.description,
         category=req.category, price=req.price, item_data=req.item_data,
@@ -188,10 +219,11 @@ async def delete_market_item(public_id: str, authorization: Optional[str] = Head
 
 # ── Install Extension from Market ──
 
-def _make_install_id(name: str, public_id: str) -> str:
-    """Create a unique install identifier: name__public_id."""
-    name_clean = name.replace(" ", "_").lower()
-    return f"{name_clean}__{public_id}"
+def _make_install_id(name: str, public_id: str = "") -> str:
+    """Create install identifier from extension name.
+    No longer appends public_id — names are unique on the market.
+    """
+    return name.replace(" ", "_").lower()
 
 
 def _check_item_installed(public_id: str, name: str, category: str) -> dict:
@@ -232,7 +264,7 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
                     if os.path.exists(manifest_file):
                         try:
                             import json as _json
-                            with open(manifest_file, "r", encoding="utf-8") as f:
+                            with open(manifest_file, "r", encoding="utf-8-sig") as f:
                                 m = _json.load(f)
                             if m.get("name", "").replace(" ", "_").lower() == name_clean:
                                 installed = True
@@ -258,7 +290,7 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
         if os.path.exists(manifest_file):
             try:
                 import json as _json
-                with open(manifest_file, "r", encoding="utf-8") as f:
+                with open(manifest_file, "r", encoding="utf-8-sig") as f:
                     m = _json.load(f)
                 local_version = m.get("version", "0.0.0")
             except:
@@ -490,7 +522,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                     manifest_file = os.path.join(candidate, "tubecli-extension.json")
                     if os.path.exists(manifest_file):
                         try:
-                            with open(manifest_file, "r", encoding="utf-8") as f:
+                            with open(manifest_file, "r", encoding="utf-8-sig") as f:
                                 m = json.load(f)
                             if m.get("name", "").lower().replace(" ", "_") == name:
                                 source_dir = candidate
@@ -560,7 +592,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
         if os.path.exists(manifest_path):
             try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
+                with open(manifest_path, "r", encoding="utf-8-sig") as f:
                     manifest_data = json_lib.load(f)
                 for dep in manifest_data.get("dependencies", []):
                     pkg = dep.strip().split("==")[0].split(">=")[0].split("<=")[0].lower()

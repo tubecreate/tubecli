@@ -896,12 +896,12 @@ async function main() {
                   try {
                       fingerprint = typeof fingerprintData === 'string' ? JSON.parse(fingerprintData) : fingerprintData;
                       
-                      // Bablosoft v5 fingerprints use a wrapper structure:
+                      // Security Browser v5 fingerprints use a wrapper structure:
                       // { canvas: ..., webgl: ..., audio: ..., fingerprint: { ua, tags, ... } }
                       // The wrapper contains canvas/webgl noise data needed for spoofing.
                       // DO NOT extract the inner 'fingerprint' key — pass the FULL object to the engine.
                       if (fingerprint && fingerprint.fingerprint) {
-                          console.log('Detected Bablosoft wrapper fingerprint. Using full object to prevent engine format errors.');
+                          console.log('Detected Security Browser wrapper fingerprint. Using full object to prevent engine format errors.');
                       }
                   } catch (e) {
                       fingerprint = fingerprintData; // Use as-is if not JSON

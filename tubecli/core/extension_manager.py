@@ -260,7 +260,7 @@ class ExtensionManager:
                     manifest_file = os.path.join(target_dir, "tubecli-extension.json")
                     if os.path.exists(manifest_file):
                         try:
-                            with open(manifest_file, "r", encoding="utf-8") as f:
+                            with open(manifest_file, "r", encoding="utf-8-sig") as f:
                                 manifest = json.load(f)
                                 if manifest.get("name") == essential["name"]:
                                     is_installed = True
@@ -294,7 +294,7 @@ class ExtensionManager:
                 continue
 
             try:
-                with open(manifest_file, "r", encoding="utf-8") as f:
+                with open(manifest_file, "r", encoding="utf-8-sig") as f:
                     manifest = json.load(f)
 
                 errors = validate_manifest(manifest)
@@ -565,7 +565,7 @@ class ExtensionManager:
             return {"status": "error", "message": "No tubecli-extension.json found in repository."}
 
         try:
-            with open(manifest_file, "r", encoding="utf-8") as f:
+            with open(manifest_file, "r", encoding="utf-8-sig") as f:
                 manifest = json.load(f)
         except Exception as e:
             shutil.rmtree(target_dir, ignore_errors=True)
@@ -575,6 +575,20 @@ class ExtensionManager:
         if errors:
             shutil.rmtree(target_dir, ignore_errors=True)
             return {"status": "error", "message": f"Manifest validation failed: {'; '.join(errors)}"}
+
+        # Rename folder from git repo slug to manifest name if different
+        manifest_name = manifest.get("name", repo_name)
+        if manifest_name and manifest_name != repo_name:
+            new_target_dir = os.path.join(ext_dir, manifest_name)
+            if os.path.isdir(new_target_dir):
+                shutil.rmtree(target_dir, ignore_errors=True)
+                return {"status": "error", "message": f"Extension '{manifest_name}' already exists. Uninstall first."}
+            try:
+                os.rename(target_dir, new_target_dir)
+                target_dir = new_target_dir
+                manifest_file = os.path.join(target_dir, "tubecli-extension.json")
+            except OSError as e:
+                logger.warning(f"Could not rename extension dir: {e}")
 
         # Install Python dependencies if requirements.txt exists
         req_file = os.path.join(target_dir, "requirements.txt")

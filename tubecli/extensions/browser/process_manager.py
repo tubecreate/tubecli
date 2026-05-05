@@ -115,7 +115,7 @@ class BrowserProcessManager:
                     "instance_id": instance_id,
                     "status": "error",
                     "error": f"Browser launcher directory not found: {launcher_dir}. "
-                             f"Please place the browser-laucher folder next to the zhiying project.",
+                             f"Please place the browser-laucher folder next to the tubecli project.",
                     "debug": debug_info,
                 }
 
@@ -292,6 +292,22 @@ class BrowserProcessManager:
                 result.append({k: v for k, v in inst.items() if not k.startswith("_")})
         return result
 
+    def _kill_tree(self, process):
+        """Kill process and all its children (worker.exe, chrome.exe, etc.)"""
+        try:
+            pid = process.pid
+            import subprocess as _sp
+            # Windows: taskkill /T kills entire process tree
+            _sp.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True, timeout=10)
+            logger.info(f"[Browser] Killed process tree for PID {pid}")
+        except Exception as e:
+            logger.warning(f"[Browser] taskkill failed, falling back to terminate: {e}")
+            try:
+                process.terminate()
+            except Exception:
+                pass
+
     def terminate(self, instance_id: str) -> bool:
         with self._instances_lock:
             instance = self._instances.get(instance_id)
@@ -301,7 +317,7 @@ class BrowserProcessManager:
             if not process or process.poll() is not None:
                 return False
             try:
-                process.terminate()
+                self._kill_tree(process)
                 instance["status"] = "terminated"
                 instance["ended_at"] = datetime.now().isoformat()
                 return True
@@ -315,7 +331,7 @@ class BrowserProcessManager:
                 if inst["profile"] == profile and inst["status"] == "running":
                     process = inst.get("_process")
                     if process:
-                        process.terminate()
+                        self._kill_tree(process)
                         inst["status"] = "terminated"
                         inst["ended_at"] = datetime.now().isoformat()
                         return True

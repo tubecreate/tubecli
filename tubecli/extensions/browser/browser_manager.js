@@ -107,7 +107,7 @@ export class BrowserManager {
              } catch (e) {}
         }
         
-        // Map common OS names to Bablosoft expected tags
+        // Map common OS names to Security Browser expected tags
         const tagMap = { 'Windows': 'Microsoft Windows', 'macOS': 'Mac OS X' };
         const mappedTags = tags.map(t => tagMap[t] || t);
 
@@ -120,7 +120,7 @@ export class BrowserManager {
                 const params = { tags: mappedTags.join(',') };
                 if (minBrowserVersion) params.min_browser_version = minBrowserVersion;
                 if (windowSize && !triedWithoutSize) {
-                    // Use ranges instead of exact match — Bablosoft pool may not have exact resolution
+                    // Use ranges instead of exact match — Security Browser pool may not have exact resolution
                     params.min_width = Math.max(windowSize.width - 200, 1024);
                     params.max_width = windowSize.width + 200;
                     params.min_height = Math.max(windowSize.height - 200, 600);
@@ -151,16 +151,16 @@ export class BrowserManager {
                         throw new Error('No fingerprint data in API response');
                     }
                     
-                    // Validate: Bablosoft may return {valid: false, message: "..."}
+                    // Validate: Security Browser may return {valid: false, message: "..."}
                     if (typeof fingerprint === 'object' && fingerprint.valid === false) {
-                        console.warn(`[Fingerprint] Bablosoft returned invalid: ${fingerprint.message}`);
+                        console.warn(`[Fingerprint] Security Browser returned invalid: ${fingerprint.message}`);
                         if (!triedWithoutSize && windowSize) {
                             console.log('[Fingerprint] Retrying without size constraints...');
                             triedWithoutSize = true;
                             attempts++;
                             continue;
                         }
-                        throw new Error(`Bablosoft: ${fingerprint.message}`);
+                        throw new Error(`Security Browser: ${fingerprint.message}`);
                     }
                     
                     if (!fingerprint || (typeof fingerprint !== 'object' && typeof fingerprint !== 'string')) {
@@ -199,12 +199,12 @@ export class BrowserManager {
             let fp = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
             const wasString = typeof fingerprint === 'string';
             
-            // Handle Bablosoft v5 wrapper format: { canvas, webgl, fingerprint: { navigator, attr, ... } }
+            // Handle Security Browser v5 wrapper format: { canvas, webgl, fingerprint: { navigator, attr, ... } }
             // Patch the INNER fingerprint object, but return the full wrapper
             let target = fp;
             if (fp.fingerprint) {
                 target = typeof fp.fingerprint === 'string' ? JSON.parse(fp.fingerprint) : fp.fingerprint;
-                console.log('[Fingerprint] Patching inside Bablosoft wrapper...');
+                console.log('[Fingerprint] Patching inside Security Browser wrapper...');
             }
             
             // 1. Patch navigator.userAgent — replace Chrome/XXX.0.0.0 with correct major version
@@ -220,7 +220,7 @@ export class BrowserManager {
                 }
             }
             
-            // 1b. Patch Bablosoft specific attr object
+            // 1b. Patch Security Browser specific attr object
             if (target.attr && target.attr['navigator.userAgent']) {
                 const oldUA = target.attr['navigator.userAgent'];
                 const newUA = oldUA
@@ -241,7 +241,7 @@ export class BrowserManager {
                     .replace(/ Edge\/[\d.]+/g, '');
             }
             
-            // 2b. Patch Bablosoft specific attr appVersion
+            // 2b. Patch Security Browser specific attr appVersion
             if (target.attr && target.attr['navigator.appVersion']) {
                 target.attr['navigator.appVersion'] = target.attr['navigator.appVersion']
                     .replace(/Chrome\/\d+\.0\.0\.0/g, `Chrome/${majorVersion}.0.0.0`)
@@ -604,7 +604,7 @@ export class BrowserManager {
 
                 if (isProxyError || isEngineFlake || isKeyError) {
                     if (isKeyError) {
-                         console.warn(`[Launch] 🛡️ Bablosoft key is expired! Marking profile for FREE mode bypass...`);
+                         console.warn(`[Launch] 🛡️ Security Browser key is expired! Marking profile for FREE mode bypass...`);
                          try { 
                              const fs = await import('fs-extra');
                              await fs.writeFile(path.join(profilePath, 'skip_fingerprint.txt'), 'true');
