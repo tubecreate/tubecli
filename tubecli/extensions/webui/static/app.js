@@ -243,6 +243,24 @@ async function loadExtensions() {
     extensions.forEach(p => { extensionMap[p.name] = p; });
     const grid = document.getElementById('extensions-grid');
 
+    // ── Update Banner ──
+    let bannerHtml = '';
+    const cachedUpdates = _extUpdateCache;
+    if (cachedUpdates && cachedUpdates.length > 0) {
+        bannerHtml = `<div style="background:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(59,130,246,0.08));border:1px solid rgba(245,158,11,0.3);border-radius:14px;padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+            <div style="display:flex;align-items:center;gap:12px">
+                <span style="font-size:1.5rem">⬆️</span>
+                <div>
+                    <div style="font-weight:600;color:var(--text);font-size:0.95rem">${cachedUpdates.length} extension${cachedUpdates.length>1?'s':''} có bản cập nhật mới</div>
+                    <div style="font-size:0.78rem;color:var(--text-muted);margin-top:2px">${cachedUpdates.map(u=>''+esc(u.display_name||u.name)+' (v'+esc(u.local_version)+' → v'+esc(u.market_version)+')').join(' · ')}</div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${cachedUpdates.map(u => '<button class="btn-sm btn-primary" onclick="event.stopPropagation();doExtensionUpdate(\''+esc(u.name)+'\',\''+esc(u.public_id)+'\',\''+esc(u.git_url||'')+'\',this)" style="padding:6px 14px;border-radius:8px;font-size:0.8rem">⬆️ '+esc(u.display_name||u.name)+'</button>').join('')}<button class="btn-sm" onclick="event.stopPropagation();dismissAllExtUpdates()" style="padding:5px 10px;border-radius:8px;font-size:0.72rem;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:rgba(239,130,130,0.85)">🚫 Tắt</button>
+            </div>
+        </div>`;
+    }
+
     // Render built-in/known extensions from EXT_REGISTRY
     let cards = EXT_REGISTRY.map(ext => {
         const extension = extensionMap[ext.id];
@@ -251,8 +269,12 @@ async function loadExtensions() {
         const isExternal = extension?.extension_type === 'external';
         const displayType = isExternal ? 'external' : ext.type;
         const tagClass = displayType === 'core' ? 'green' : 'blue';
+        const hasUpdate = cachedUpdates && cachedUpdates.find(u => (u.name||'').toLowerCase().replace(/ /g,'_') === (ext.id||'').toLowerCase().replace(/ /g,'_'));
 
         let footerHtml = `<span class="tag ${tagClass}">${displayType}</span>`;
+        if (hasUpdate) {
+            footerHtml += `<span class="tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>`;
+        }
         if (isExternal && extension) {
             footerHtml += `
                 <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
@@ -279,6 +301,8 @@ async function loadExtensions() {
         const inRegistry = EXT_REGISTRY.some(e => e.id === ext.name);
         if (!inRegistry && ext.extension_type === 'external') {
             const isEnabled = ext.enabled;
+            const hasUpdate = cachedUpdates && cachedUpdates.find(u => (u.name||'').toLowerCase().replace(/ /g,'_') === (ext.name||'').toLowerCase().replace(/ /g,'_'));
+            const updateTag = hasUpdate ? '<span class="tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>' : '';
             cards += `<div class="card ext-card" onclick="openExternalExtDetail('${esc(ext.name)}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
                 <div class="card-icon">${esc(ext.icon || '\ud83d\udce6')}</div>
                 <h3>${esc(ext.name)}</h3>
@@ -286,6 +310,7 @@ async function loadExtensions() {
                 <p class="card-desc">${esc(ext.description || '')}</p>
                 <div class="card-footer" style="margin-top:10px;gap:8px">
                     <span class="tag blue">external</span>
+                    ${updateTag}
                     <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
                         onclick="event.stopPropagation();toggleExternalExt('${esc(ext.name)}',${isEnabled})">
                         ${isEnabled ? 'Disable' : 'Enable'}
@@ -299,7 +324,7 @@ async function loadExtensions() {
         }
     });
 
-    grid.innerHTML = cards;
+    grid.innerHTML = bannerHtml + cards;
 }
 
 async function toggleExternalExt(name, isEnabled) {
@@ -2866,6 +2891,107 @@ async function performSystemUpdate() {
 }
 
 
+// ═══ Extension Update Check System ═══
+let _extUpdateCache = null;
+let _extUpdateCacheTime = 0;
+const EXT_UPDATE_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+
+function getSkippedExtUpdates() {
+    try { return JSON.parse(localStorage.getItem('tcf_skip_updates') || '[]'); } catch(e) { return []; }
+}
+function skipExtensionUpdate(name) {
+    var list = getSkippedExtUpdates();
+    var key = (name || '').toLowerCase().replace(/ /g, '_');
+    if (!list.includes(key)) { list.push(key); localStorage.setItem('tcf_skip_updates', JSON.stringify(list)); }
+}
+
+async function checkExtensionUpdates(force) {
+    if (!force && _extUpdateCache !== null && Date.now() - _extUpdateCacheTime < EXT_UPDATE_CACHE_TTL) {
+        updateExtBadge(_extUpdateCache.length);
+        return _extUpdateCache;
+    }
+    try {
+        const result = await apiGet('/api/v1/market/check-updates');
+        var allUpdates = result?.updates || [];
+        var skipped = getSkippedExtUpdates();
+        var updates = allUpdates.filter(function(u) {
+            return !skipped.includes((u.name || '').toLowerCase().replace(/ /g, '_'));
+        });
+        _extUpdateCache = updates;
+        _extUpdateCacheTime = Date.now();
+        updateExtBadge(updates.length);
+        return updates;
+    } catch (e) {
+        console.warn('[Updates] Check failed:', e);
+        return [];
+    }
+}
+
+function updateExtBadge(count) {
+    const badge = document.getElementById('ext-update-badge');
+    if (!badge) return;
+    if (count > 0) {
+        badge.textContent = count;
+        badge.style.display = 'inline-flex';
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function dismissAllExtUpdates() {
+    if (!confirm('T\u1eaft th\u00f4ng b\u00e1o c\u1eadp nh\u1eadt v\u0129nh vi\u1ec5n cho t\u1ea5t c\u1ea3 extension \u0111ang hi\u1ec3n th\u1ecb?\n\nB\u1ea1n v\u1eabn c\u00f3 th\u1ec3 b\u1eadt l\u1ea1i b\u1eb1ng c\u00e1ch x\u00f3a key "tcf_skip_updates" trong localStorage.')) return;
+    if (_extUpdateCache) {
+        _extUpdateCache.forEach(function(u) { skipExtensionUpdate(u.name); });
+    }
+    _extUpdateCache = null;
+    _extUpdateCacheTime = 0;
+    checkExtensionUpdates(true);
+    loadExtensions();
+}
+
+async function doExtensionUpdate(name, publicId, gitUrl, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Updating...'; }
+    try {
+        let result;
+        // Try local git update first (fastest)
+        result = await apiPost('/api/v1/market/items/' + encodeURIComponent(name) + '/update-local', {});
+        if (!result || result.status === 'error') {
+            // Fallback: re-download from market
+            if (publicId) {
+                const detail = await apiGet('/api/v1/market/items/' + publicId);
+                if (detail && detail.item) {
+                    result = await apiPost('/api/v1/market/items/' + publicId + '/install', {
+                        item_data: JSON.stringify(detail.item.item_data || {}),
+                        item_name: name,
+                        category: 'extension',
+                        force_update: true,
+                    });
+                }
+            }
+        }
+        if (result && result.status === 'success') {
+            if (btn) { btn.textContent = '✅ Done!'; btn.style.background = 'var(--green)'; }
+            _extUpdateCache = null;
+            _extUpdateCacheTime = 0;
+            setTimeout(function() {
+                checkExtensionUpdates(true);
+                loadExtensions();
+            }, 1000);
+        } else {
+            var msg = (result && (result.message || result.detail)) || 'Update failed';
+            if (btn) { btn.textContent = '❌ Error'; btn.style.background = 'var(--red)'; }
+            alert('Update failed: ' + msg);
+        }
+    } catch (e) {
+        if (btn) { btn.textContent = '❌ Error'; btn.style.background = 'var(--red)'; }
+        alert('Update error: ' + e.message);
+    } finally {
+        setTimeout(function() {
+            if (btn) { btn.disabled = false; btn.textContent = '⬆️ Update'; btn.style.background = ''; }
+        }, 3000);
+    }
+}
+
 // ═══ Init ═══
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
@@ -2878,4 +3004,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
     // Route based on current URL hash
     handleRoute();
+    // Check for extension updates (non-blocking, after page loads)
+    setTimeout(function() { checkExtensionUpdates(); }, 2000);
 });

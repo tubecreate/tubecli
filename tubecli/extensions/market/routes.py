@@ -10,6 +10,77 @@ from tubecli.extensions.market.market_service import market_service
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
 
+# ── Check Updates ──
+
+@router.get("/check-updates")
+async def check_updates():
+    """Compare local extension versions with marketplace versions.
+    Returns list of extensions that have newer versions available on the market.
+    Version format: datetime string like '2026.05.05.201315' (simple string comparison).
+    """
+    import os
+    from tubecli.config import EXTENSIONS_EXTERNAL_DIR
+
+    # Step 1: Collect all local external extensions with their versions
+    ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
+    local_extensions = {}  # name -> {version, display_name, path}
+
+    if os.path.isdir(ext_dir):
+        for entry in os.listdir(ext_dir):
+            manifest_file = os.path.join(ext_dir, entry, "tubecli-extension.json")
+            if not os.path.exists(manifest_file):
+                continue
+            try:
+                with open(manifest_file, "r", encoding="utf-8-sig") as f:
+                    manifest = json.load(f)
+                name = manifest.get("name", entry)
+                local_extensions[name.lower().replace(" ", "_")] = {
+                    "name": name,
+                    "display_name": manifest.get("display_name", name),
+                    "version": manifest.get("version", "0.0.0"),
+                    "icon": manifest.get("icon", "📦"),
+                    "path": os.path.join(ext_dir, entry),
+                }
+            except Exception:
+                continue
+
+    if not local_extensions:
+        return {"updates": [], "total": 0}
+
+    # Step 2: Fetch marketplace items
+    try:
+        market_data = await market_service.list_items(category="extension", limit=100)
+        market_items = market_data.get("data", [])
+    except Exception:
+        return {"updates": [], "total": 0, "error": "Could not reach marketplace"}
+
+    # Step 3: Compare versions
+    updates = []
+    for item in market_items:
+        item_title = (item.get("title") or "").strip().lower().replace(" ", "_")
+        market_version = item.get("version", "0.0.0")
+
+        if item_title in local_extensions:
+            local = local_extensions[item_title]
+            local_version = local["version"]
+
+            # Simple string comparison works for datetime format (2026.05.05.201315)
+            if market_version > local_version:
+                updates.append({
+                    "name": local["name"],
+                    "display_name": local["display_name"],
+                    "icon": local["icon"],
+                    "local_version": local_version,
+                    "market_version": market_version,
+                    "public_id": item.get("public_id", ""),
+                    "description": item.get("description", ""),
+                    "git_url": item.get("git_url", ""),
+                })
+
+    return {"updates": updates, "total": len(updates)}
+
+
+
 # ── Pydantic Models ──
 
 class UploadRequest(BaseModel):

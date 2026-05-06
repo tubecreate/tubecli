@@ -185,6 +185,173 @@ async def create_item(request):
 
 ---
 
+## 4.5. 💾 Data Storage — Ưu Tiên JSON (Tối Ưu Đa Luồng)
+
+> **Quy tắc**: Extension **PHẢI ưu tiên dùng JSON file** làm storage thay vì SQLite. JSON file-per-entity giúp tránh hoàn toàn `database is locked` khi chạy đa luồng/đa tiến trình.
+
+### Tại sao KHÔNG dùng SQLite?
+
+| Vấn đề SQLite | JSON giải quyết |
+|---------------|-----------------|
+| 1 connection cho tất cả threads → `SQLITE_BUSY` | Mỗi entity = file riêng, không conflict |
+| `check_same_thread=False` gây race condition | `threading.Lock` per file, atomic write |
+| WAL mode vẫn serialize writes | Chỉ lock khi write cùng 1 file |
+| Cần migration tool (Alembic) khi thay đổi schema | Thêm field = thêm key vào JSON, không cần migrate |
+
+### Architecture Pattern: File-Per-Entity
+
+```
+data/<extension_name>/
+├── _meta.json              ← ID counters (next_item_id, etc.)
+├── items.json              ← Shared collection (nếu ít data)
+├── categories.json         ← Shared collection
+└── projects/               ← Project-level isolation
+    ├── 1/
+    │   ├── project.json    ← Project metadata
+    │   ├── items.json      ← Items thuộc project 1
+    │   └── sub_items/
+    │       └── item_1.json
+    └── 2/
+        └── ...             ← Project 2 hoàn toàn độc lập
+```
+
+### Template Code: JsonStore Class
+
+```python
+"""
+JSON file-based storage with thread safety and atomic writes.
+Copy pattern này cho mỗi extension cần lưu trữ dữ liệu.
+"""
+import os
+import json
+import threading
+from typing import Optional, List, Dict
+from datetime import datetime, timezone
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+class JsonStore:
+    _instance = None
+
+    def __init__(self, data_dir: str):
+        self.data_dir = data_dir
+        self._file_locks: Dict[str, threading.Lock] = {}
+        os.makedirs(data_dir, exist_ok=True)
+        self._init_meta()
+
+    @classmethod
+    def get_instance(cls, data_dir: str = ""):
+        if cls._instance is None:
+            cls._instance = cls(data_dir)
+        return cls._instance
+
+    def _get_lock(self, filepath: str) -> threading.Lock:
+        """Thread-safe file-level lock."""
+        if filepath not in self._file_locks:
+            self._file_locks[filepath] = threading.Lock()
+        return self._file_locks[filepath]
+
+    def _read(self, filepath: str, default=None):
+        """Read JSON file, trả về default nếu chưa tồn tại."""
+        if not os.path.exists(filepath):
+            return default if default is not None else None
+        lock = self._get_lock(filepath)
+        with lock:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+    def _write(self, filepath: str, data):
+        """Atomic write: ghi vào .tmp → os.replace() (an toàn trên NTFS)."""
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        lock = self._get_lock(filepath)
+        with lock:
+            tmp = filepath + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, filepath)
+
+    def _init_meta(self):
+        """Khởi tạo file ID counters."""
+        meta = os.path.join(self.data_dir, "_meta.json")
+        if not os.path.exists(meta):
+            self._write(meta, {"next_item_id": 1})
+
+    def _next_id(self, key: str = "next_item_id") -> int:
+        """Cấp ID tự tăng, thread-safe."""
+        meta_path = os.path.join(self.data_dir, "_meta.json")
+        lock = self._get_lock(meta_path)
+        with lock:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            nid = meta.get(key, 1)
+            meta[key] = nid + 1
+            tmp = meta_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(meta, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, meta_path)
+        return nid
+
+    # ── CRUD Methods ──────────────────────────────────
+    def _items_path(self) -> str:
+        return os.path.join(self.data_dir, "items.json")
+
+    def create_item(self, data: dict) -> dict:
+        items = self._read(self._items_path(), [])
+        item = {"id": self._next_id(), **data, "created_at": _now()}
+        items.append(item)
+        self._write(self._items_path(), items)
+        return item
+
+    def list_items(self) -> list:
+        return self._read(self._items_path(), [])
+
+    def get_item(self, item_id: int) -> Optional[dict]:
+        for i in self._read(self._items_path(), []):
+            if i["id"] == item_id:
+                return i
+        return None
+
+    def update_item(self, item_id: int, data: dict) -> Optional[dict]:
+        items = self._read(self._items_path(), [])
+        for i in items:
+            if i["id"] == item_id:
+                i.update(data)
+                i["updated_at"] = _now()
+                self._write(self._items_path(), items)
+                return i
+        return None
+
+    def delete_item(self, item_id: int) -> bool:
+        items = self._read(self._items_path(), [])
+        items = [i for i in items if i["id"] != item_id]
+        self._write(self._items_path(), items)
+        return True
+```
+
+### Quy tắc quan trọng:
+
+1. **Atomic write**: Luôn dùng pattern `write .tmp → os.replace()`. KHÔNG BAO GIỜ ghi trực tiếp vào file chính (sẽ corrupt data nếu crash giữa chừng).
+2. **File-level lock**: Mỗi file có `threading.Lock` riêng → 2 project khác nhau không bao giờ block lẫn nhau.
+3. **Soft delete**: Dùng `deleted_at` field thay vì xóa thật, để có thể recover.
+4. **ID centralized**: Dùng `_meta.json` lưu counters, tránh trùng ID.
+5. **Project isolation**: Nếu extension có khái niệm "project/workspace", tách data theo thư mục `projects/<id>/` để tối ưu concurrent access.
+
+### Khi nào CÓ THỂ dùng SQLite?
+
+Chỉ khi extension thỏa **TẤT CẢ** điều kiện sau:
+- Chỉ chạy single-thread (không có background tasks)
+- Cần query phức tạp (JOIN, aggregate, full-text search)
+- Data rất lớn (>100MB) cần index
+- Không cần multi-user concurrent access
+
+### Tham khảo Implementation:
+- **Full example**: `content_studio/db/json_store.py` — 1000+ lines, đầy đủ CRUD cho Drama/Episode/Character/Scene/Storyboard/Gallery/Pipeline
+- **Migration từ SQLite**: `content_studio/db/migrate_db_to_json.py`
+
+---
+
 ## 5. ⚠️ CRITICAL: Route Registration trong `webui/routes.py`
 
 ### Vì sao cần?
@@ -617,6 +784,13 @@ Body: `{"name": "...", "data": {...}}`
   □ Error handling (HTTPException)
   □ Background tasks (nếu cần)
 
+□ Data Storage (ưu tiên JSON)
+  □ JsonStore class (Singleton, thread-safe)
+  □ Atomic write (_write → .tmp → os.replace)
+  □ _meta.json cho ID counters
+  □ Project isolation (nếu multi-project)
+  □ KHÔNG dùng SQLite (trừ khi single-thread + query phức tạp)
+
 □ SKILL.md
   □ Capabilities
   □ Telegram actions
@@ -644,6 +818,7 @@ Body: `{"name": "...", "data": {...}}`
 | Extension không enable | Lỗi import trong extension.py | Check `python -m py_compile extension.py` |
 | API trả lỗi 500 | Lỗi trong route handler | Check server log, thêm try/except |
 | i18n không hoạt động | Thiếu `locales/` folder hoặc key sai | Kiểm tra `locales/en.json` có tồn tại, key có prefix đúng (vd: `myext.title`) |
+| `database is locked` / `SQLITE_BUSY` | Dùng SQLite với đa luồng | Chuyển sang JSON storage (xem Section 4.5). KHÔNG dùng SQLite cho extension có background tasks |
 | Node không hiện trong workflow | `nodes` trong manifest không khớp `get_nodes()` | Đảm bảo key trong dict khớp manifest |
 
 ---

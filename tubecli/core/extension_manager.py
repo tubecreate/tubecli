@@ -171,6 +171,11 @@ class Extension:
             "has_ui": self.get_ui_static_dir() is not None,
             "page_url": manifest.get("page_url", ""),
             "display_name": manifest.get("display_name", ""),
+            "category": manifest.get("category", ""),
+            "tags": manifest.get("tags", []),
+            "license": manifest.get("license", ""),
+            "homepage": manifest.get("homepage", ""),
+            "donate": manifest.get("donate", ""),
         }
 
 
