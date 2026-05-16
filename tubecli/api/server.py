@@ -1365,9 +1365,23 @@ async def package_extension(name: str):
             pass
 
     # 2. From scanned imports → map to pip packages
+    # Respect exclude_auto_deps from manifest (for lazy-loaded heavy deps)
+    exclude_auto = set()
+    if os.path.exists(os.path.join(ext_dir, "tubecli-extension.json")):
+        try:
+            with open(os.path.join(ext_dir, "tubecli-extension.json"), "r", encoding="utf-8") as f:
+                _m = json_lib.load(f)
+            for exc in _m.get("exclude_auto_deps", []):
+                exclude_auto.add(exc.lower().replace("-", "_"))
+        except Exception:
+            pass
+
     req_deps_normalized = {r.replace("-", "_").lower() for r in req_deps}
     for module in sorted(all_imports):
         if module in _STDLIB:
+            continue
+        # Skip modules in exclude_auto_deps (heavy deps installed on-demand)
+        if module.lower().replace("-", "_") in exclude_auto:
             continue
         # Check if already covered by requirements.txt
         mod_normalized = module.replace("-", "_").lower()
@@ -1375,6 +1389,8 @@ async def package_extension(name: str):
         if not pip_name:
             continue  # Unknown mapping, skip
         pip_normalized = pip_name.replace("-", "_").lower()
+        if pip_normalized in exclude_auto:
+            continue
         if pip_normalized in req_deps_normalized or mod_normalized in req_deps_normalized:
             continue  # Already in requirements.txt
         detected_deps.append(pip_name)

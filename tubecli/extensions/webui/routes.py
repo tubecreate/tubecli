@@ -767,3 +767,55 @@ async def serve_template_designer_static(filename: str):
         if os.path.exists(filepath):
             return FileResponse(filepath)
     return {"error": f"File {filename} not found"}
+
+
+def _find_edu_video_studio_dir():
+    """Find the EduVideo Studio extension directory."""
+    from tubecli.core.extension_manager import extension_manager
+    ext = extension_manager.get("edu_video_studio")
+    if ext and ext.extension_dir:
+        return ext.extension_dir
+    from tubecli.config import DATA_DIR
+    ext_base = os.path.join(DATA_DIR, "extensions_external")
+    if not os.path.isdir(ext_base):
+        return None
+    exact = os.path.join(ext_base, "edu_video_studio")
+    if os.path.isdir(exact):
+        return exact
+    for entry in os.listdir(ext_base):
+        if entry.startswith("edu_video_studio__") and os.path.isdir(os.path.join(ext_base, entry)):
+            return os.path.join(ext_base, entry)
+    return None
+
+
+@router.get("/edu-video-studio")
+@router.get("/edu_video_studio")
+async def edu_video_studio_page():
+    """Serve the EduVideo Studio page."""
+    ev_dir = _find_edu_video_studio_dir()
+    if ev_dir:
+        html_file = os.path.join(ev_dir, "static", "edu_studio.html")
+        if os.path.exists(html_file):
+            return FileResponse(html_file)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head><meta charset="UTF-8"><title>EduVideo Studio — Not Installed</title>
+    <style>*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a12;color:#e0e0e0;display:flex;justify-content:center;align-items:center;min-height:100vh}.card{background:linear-gradient(135deg,#1a1a2e,#16213e);border:1px solid #2a2a4a;border-radius:16px;padding:48px;max-width:480px;text-align:center;box-shadow:0 8px 32px rgba(0,0,0,.4)}.icon{font-size:64px;margin-bottom:16px}h1{font-size:24px;margin-bottom:12px;color:#fff}p{color:#aaa;line-height:1.6;margin-bottom:24px}.btn{display:inline-block;padding:12px 32px;background:linear-gradient(135deg,#FFD700,#f59e0b);color:#000;border-radius:8px;text-decoration:none;font-weight:700}</style>
+    </head>
+    <body><div class="card"><div class="icon">🎓</div><h1>EduVideo Studio</h1><p>Extension not installed. Install it from the Marketplace to get started.</p><a href="/dashboard" class="btn">← Back to Dashboard</a></div></body>
+    </html>
+    """, status_code=200)
+
+
+@router.get("/edu-video-studio-static/{filename:path}")
+@router.get("/edu_video_studio-static/{filename:path}")
+async def serve_edu_video_studio_static(filename: str):
+    """Serve EduVideo Studio static files (JS, CSS)."""
+    ev_dir = _find_edu_video_studio_dir()
+    if ev_dir:
+        filepath = os.path.join(ev_dir, "static", filename)
+        if os.path.exists(filepath):
+            return FileResponse(filepath)
+    return {"error": f"File {filename} not found"}

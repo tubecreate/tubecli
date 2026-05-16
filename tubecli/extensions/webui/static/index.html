@@ -248,6 +248,14 @@
                     </div>
                     <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value=""></div>
                     <div class="form-group">
+                        <label data-i18n="settings.ext_open_mode">Mở Extension</label>
+                        <select id="set-ext-open-mode" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem" onchange="localStorage.setItem('ext_open_mode', this.value); location.reload();">
+                            <option value="full_page">Mở full trang ở tab mới (Mặc định)</option>
+                            <option value="dashboard">Mở nhúng trong dashboard (Iframe)</option>
+                        </select>
+                        <small style="color:var(--text-muted);font-size:.75rem">Tùy chọn cách mở khi bấm vào tên extension ở menu bên trái. Thay đổi sẽ tự động tải lại trang.</small>
+                    </div>
+                    <div class="form-group">
                         <label data-i18n="settings.language">🌐 Ngôn ngữ</label>
                         <select id="set-lang" onchange="changeLanguage(this.value)">
                             <option value="zh">中文</option>
@@ -722,6 +730,11 @@
     var el2 = document.getElementById('set-api');
     if(el1 && !el1.textContent) el1.textContent = origin;
     if(el2 && !el2.value) el2.value = origin;
+    
+    var extModeEl = document.getElementById('set-ext-open-mode');
+    if (extModeEl) {
+        extModeEl.value = localStorage.getItem('ext_open_mode') || 'full_page';
+    }
 })();
 </script>
 </body>
