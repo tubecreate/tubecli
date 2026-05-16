@@ -730,8 +730,12 @@ Rules:
                 failed_provider = "grok"
             
             if failed_provider and cloud_keys.get(failed_provider):
-                key_manager.report_key_error(failed_provider, cloud_keys[failed_provider], "Auto-disabled: Quota exceeded")
-                print(f"[Brain] 🔄 Disabled key for {failed_provider}, searching for alternatives...")
+                # Only disable if it's a hard quota error, not a temporary rate limit
+                if "insufficient_quota" in original_error.lower() or "billing" in original_error.lower() or "payment" in original_error.lower():
+                    key_manager.report_key_error(failed_provider, cloud_keys[failed_provider], "Auto-disabled: Quota exceeded")
+                    print(f"[Brain] 🔄 Disabled key for {failed_provider} due to strict quota error.")
+                else:
+                    print(f"[Brain] ⏳ Temporary rate limit for {failed_provider}. Trying alternatives without disabling key...")
             
             # Step 2: Try another key from the SAME provider
             if failed_provider:

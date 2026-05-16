@@ -222,7 +222,17 @@ async def start_download(req: DownloadRequest):
                 filename = sanitize_filename(f"{info.author}_{info.title}") + ".mp4"
 
     task_id = str(uuid.uuid4())[:8]
-    task = await dl.download(download_url, filename, task_id, proxy)
+    
+    # Add Referer header for Douyin/TikTok CDNs to avoid 404/403 errors
+    headers = {}
+    dl_lower = download_url.lower()
+    req_lower = req.url.lower()
+    if "douyin.com" in req_lower or "iesdouyin.com" in req_lower or any(d in dl_lower for d in ["zjcdn.com", "bytecdn.cn", "douyinvod.com", "douyincdn.com", "amemv.com", "huoshan.com"]):
+        headers["Referer"] = "https://www.douyin.com/"
+    elif "tiktok.com" in req_lower or any(d in dl_lower for d in ["tiktokcdn.com", "tiktokv.com"]):
+        headers["Referer"] = "https://www.tiktok.com/"
+
+    task = await dl.download(download_url, filename, task_id, proxy, headers=headers)
 
     return {
         "success": True,

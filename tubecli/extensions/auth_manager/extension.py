@@ -212,26 +212,40 @@ PROVIDERS = {
                 "value": "video.list",
             },
             "video_upload": {
-                "label": "Video Upload",
+                "label": "Video Upload (legacy)",
                 "value": "video.upload",
             },
+            "video_publish": {
+                "label": "Video Publish (Content Posting API v2)",
+                "value": "video.publish",
+            },
             "user_info": {
-                "label": "User Info",
+                "label": "User Info Basic",
                 "value": "user.info.basic",
+            },
+            "user_info_stats": {
+                "label": "User Info Stats",
+                "value": "user.info.stats",
             },
         },
         "services": {
             "tiktok_manage": {
-                "label": "🎬 TikTok — Quản lý video",
-                "description": "Upload video, xem danh sách video",
+                "label": "🎬 TikTok — Quản lý & Xem video",
+                "description": "Xem danh sách video (Display API), upload video dạng draft, xem thông tin tài khoản",
                 "icon": "🎬",
-                "scopes": ["video_list", "video_upload", "user_info"],
+                "scopes": ["user_info", "user_info_stats", "video_list", "video_upload"],
+            },
+            "tiktok_upload": {
+                "label": "⬆️ TikTok — Upload video",
+                "description": "Chỉ upload video lên TikTok (lưu dạng draft)",
+                "icon": "⬆️",
+                "scopes": ["user_info", "video_upload"],
             },
             "tiktok_read": {
-                "label": "👁 TikTok — Chỉ đọc",
-                "description": "Xem thông tin tài khoản, danh sách video",
+                "label": "👁 TikTok — Chỉ đọc (Display API)",
+                "description": "Xem danh sách video và thông tin tài khoản (không upload)",
                 "icon": "👁",
-                "scopes": ["video_list", "user_info"],
+                "scopes": ["user_info", "user_info_stats", "video_list"],
             },
         },
         "credentials_type": ["oauth_client"],
@@ -573,12 +587,20 @@ class AuthManager:
                 "state": state_token,
             }
         elif provider == "tiktok":
+            # TikTok v2 OAuth requires PKCE (S256 method)
+            import hashlib
+            # TikTok has a non-standard PKCE implementation: it expects the challenge as a HEX string, not base64url.
+            code_verifier = secrets.token_urlsafe(32)
+            code_challenge = hashlib.sha256(code_verifier.encode('utf-8')).hexdigest()
+            logger.info(f"[TikTok PKCE] verifier={code_verifier[:8]}... challenge={code_challenge[:8]}...")
             params = {
                 "client_key": cred["client_id"],
                 "redirect_uri": redirect_uri,
                 "response_type": "code",
                 "scope": ",".join(scope_values),
                 "state": state_token,
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
             }
         else:
             params = {
@@ -600,6 +622,8 @@ class AuthManager:
                 "browser_profile": browser_profile,
                 "redirect_uri": redirect_uri,
                 "created_at": datetime.now().isoformat(),
+                # PKCE — only set for TikTok
+                **({"code_verifier": code_verifier} if provider == "tiktok" else {}),
             }
 
         return {
@@ -645,13 +669,22 @@ class AuthManager:
                     "code": code,
                 }, timeout=30)
             elif provider == "tiktok":
-                resp = req_lib.post(prov_config["token_url"], json={
-                    "client_key": cred["client_id"],
-                    "client_secret": cred["client_secret"],
-                    "code": code,
-                    "grant_type": "authorization_code",
-                    "redirect_uri": pending["redirect_uri"],
-                }, timeout=30)
+                code_verifier = pending.get("code_verifier", "")
+                logger.info(f"[TikTok Token] exchanging code with PKCE verifier...")
+                resp = req_lib.post(
+                    prov_config["token_url"],
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    data={
+                        "client_key": cred["client_id"],
+                        "client_secret": cred["client_secret"],
+                        "code": code,
+                        "grant_type": "authorization_code",
+                        "redirect_uri": pending["redirect_uri"],
+                        "code_verifier": code_verifier,
+                    },
+                    timeout=30,
+                )
+                logger.info(f"[TikTok Token] HTTP {resp.status_code} → {resp.text[:300]}")
             else:
                 resp = req_lib.post(prov_config["token_url"], data={
                     "code": code,
@@ -661,11 +694,24 @@ class AuthManager:
                     "grant_type": "authorization_code",
                 }, timeout=30)
 
-            token_data = resp.json()
+            token_raw = resp.json()
+            logger.info(f"[OAuth Token] provider={provider} status={resp.status_code} keys={list(token_raw.keys())}")
 
-            if resp.status_code != 200 or "error" in token_data:
-                error_msg = token_data.get("error_description") or token_data.get("error", str(token_data))
-                return {"status": "error", "message": f"Token exchange failed: {error_msg}"}
+            # TikTok v2 wraps token data inside "data" key and always includes
+            # "error": {"code": "ok"} for success — unwrap before generic checks.
+            if provider == "tiktok":
+                tiktok_error = token_raw.get("error", {})
+                if isinstance(tiktok_error, dict) and tiktok_error.get("code") not in ("ok", None, ""):
+                    return {"status": "error", "message": f"Token exchange failed: {tiktok_error.get('message', tiktok_error.get('code', str(tiktok_error)))}"}
+                if resp.status_code != 200:
+                    return {"status": "error", "message": f"Token exchange failed: HTTP {resp.status_code}"}
+                # Unwrap the nested "data" key → flat token dict
+                token_data = token_raw.get("data", token_raw)
+            else:
+                token_data = token_raw
+                if resp.status_code != 200 or "error" in token_data:
+                    error_msg = token_data.get("error_description") or token_data.get("error", str(token_data))
+                    return {"status": "error", "message": f"Token exchange failed: {error_msg}"}
 
             # Facebook: auto-exchange short-lived → long-lived token
             fb_exchange_note = ""
@@ -984,6 +1030,18 @@ class AuthManager:
                 if provider == "google":
                     req_lib.post(prov_config["revoke_url"],
                                  params={"token": token["access_token"]}, timeout=10)
+                elif provider == "tiktok":
+                    # TikTok revoke requires client_key, client_secret, and token
+                    req_lib.post(
+                        prov_config["revoke_url"],
+                        headers={"Content-Type": "application/x-www-form-urlencoded"},
+                        data={
+                            "client_key": cred.get("client_id", ""),
+                            "client_secret": cred.get("client_secret", ""),
+                            "token": token["access_token"],
+                        },
+                        timeout=10,
+                    )
             except Exception as e:
                 logger.warning(f"Provider revoke failed (non-critical): {e}")
 

@@ -165,6 +165,20 @@ function renderItems(items) {
     });
 }
 
+const EXTENSION_FEATURES = {
+    'pod_studio': { tagline: 'AI Video & Podcast Studio', features: ['🎙️ Record', '🎬 Gen AI Video', '✂️ Edit'] },
+    'tts_vibevoice': { tagline: 'Ultra-realistic Text to Speech', features: ['🗣️ 100+ Voices', '🎚️ Pitch Control', '🌍 Multi-lang'] },
+    'browser_scripts': { tagline: 'Automate Browser Tasks', features: ['🌐 Auto Web', '🖱️ Clicker', '📝 Scrape'] },
+    'content_studio': { tagline: 'Content Generation Hub', features: ['✍️ AI Write', '🖼️ AI Image', '📅 Schedule'] },
+    'web_crawler': { tagline: 'Data Extraction & Crawling', features: ['🕷️ Spider', '📊 Export CSV', '🕒 Cron Jobs'] },
+    'subtitle_extractor': { tagline: 'Extract CC/Subtitles', features: ['📝 SRT/VTT', '🎥 YouTube', '🌍 Translate'] },
+    'sheets_manager': { tagline: 'Spreadsheet Automation', features: ['📊 Google Sheets', '🔄 Sync', '📈 Charts'] },
+    'video_manager': { tagline: 'Multi-platform Video Uploader', features: ['🎬 YouTube', '📱 TikTok', '🕒 Schedule'] },
+    'livestream': { tagline: 'Live Broadcast Manager', features: ['📡 Stream', '💬 Chat', '🔴 Record'] },
+    'video_downloader': { tagline: 'Download from Any Platform', features: ['⬇️ YouTube', '⬇️ TikTok', '⬇️ Douyin'] },
+    'video_editor': { tagline: 'Timeline Video Editor', features: ['✂️ Trim', '✨ Effects', '🎵 Audio'] }
+};
+
 function createCard(item) {
     const price = parseFloat(item.price || 0);
     const isFree = price <= 0;
@@ -172,28 +186,44 @@ function createCard(item) {
     const downloads = parseInt(item.downloads || 0);
     const category = item.category || 'extension';
     const icons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
-    const badgeClass = { extension: 'badge-extension', node: 'badge-node', skill: 'badge-skill', model3d: 'badge-model3d' };
+    
+    const extName = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const knownLogo = EXTENSION_FEATURES[extName] ? `/static/market_logos/${extName}_logo.png` : null;
+    
+    const iconContent = item.thumbnail_url
+        ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="icon" loading="lazy">`
+        : (knownLogo ? `<img src="${knownLogo}" alt="icon" loading="lazy">` : (icons[category] || '📦'));
+
+    const featInfo = EXTENSION_FEATURES[extName] || { tagline: item.description || 'No description available', features: ['✨ New', '📦 ' + category] };
 
     const card = document.createElement('div');
     card.className = 'vsx-card';
     card.onclick = () => openDetailModal(item.public_id);
 
-    const iconContent = item.thumbnail_url
-        ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="icon" loading="lazy">`
-        : (icons[category] || '📦');
-
     card.innerHTML = `
-        <span class="vsx-card-badge ${badgeClass[category] || 'badge-extension'}">${category}</span>
-        <div class="vsx-card-icon">${iconContent}</div>
-        <div class="vsx-card-name" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
-        <div class="vsx-card-author">${escapeHtml(item.seller_name || item.author || 'Unknown')}</div>
-        <div class="vsx-card-version">v${escapeHtml(item.version || '1.0.0')}</div>
-        <div class="vsx-card-bottom">
-            <div class="vsx-card-stats">
-                <span class="vsx-card-rating">★ ${rating.toFixed(1)}</span>
-                <span class="vsx-card-downloads">⬇ ${formatNumber(downloads)}</span>
+        <div class="vsx-card-inner">
+            <span class="card-badge ${category}">${category}</span>
+            <div class="card-header">
+                <div class="card-icon">${iconContent}</div>
+                <div class="card-header-info">
+                    <h3 class="card-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</h3>
+                    <div class="card-author">\u{1F464} ${escapeHtml(item.seller_name || item.author || 'Unknown')}</div>
+                </div>
             </div>
-            <span class="vsx-card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>
+            
+            <div class="card-tagline">${escapeHtml(featInfo.tagline).substring(0, 80)}</div>
+            
+            <div class="card-feature-chips">
+                ${featInfo.features.slice(0, 3).map(f => `<span class="feature-chip">${escapeHtml(f)}</span>`).join('')}
+            </div>
+            
+            <div class="card-footer">
+                <div class="card-stats">
+                    <span class="stat-item">⭐ ${rating.toFixed(1)}</span>
+                    <span class="stat-item">⬇ ${formatNumber(downloads)}</span>
+                </div>
+                <span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>
+            </div>
         </div>
     `;
 
@@ -340,8 +370,17 @@ async function openDetailModal(publicId) {
     body.innerHTML = '<div class="market-loading"><div class="market-spinner"></div></div>';
 
     try {
-        const res = await fetch(`${API}/items/${publicId}`);
+        const [res, mediaRes] = await Promise.all([
+            fetch(`${API}/items/${publicId}`),
+            fetch(`https://api.tubecreate.com/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
+        ]);
+        
         const data = await res.json();
+        let mediaData = { screenshots: [], videos: [] };
+        if (mediaRes && mediaRes.ok) {
+            const m = await mediaRes.json();
+            if (m.status === 'success') mediaData = m;
+        }
 
         if (data.status !== 'success') {
             body.innerHTML = '<p style="color:var(--red)">Failed to load item</p>';
@@ -355,73 +394,131 @@ async function openDetailModal(publicId) {
         const rating = parseFloat(item.rating_avg || 0);
         const tags = item.tags || [];
 
-        // Load locale strings if extension has an installed local counterpart
         const extSlug = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
         const locale = await loadExtLocale(extSlug);
         const displayTitle = extT(locale, 'name', item.title);
         const displayDesc  = extT(locale, 'description', item.description || 'No description provided.');
 
         const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
-        heroIcon.textContent = categoryIcons[item.category] || '📦';
+        
+        const knownLogo = EXTENSION_FEATURES[extSlug] ? `/static/market_logos/${extSlug}_logo.png` : null;
+        if (item.thumbnail_url || knownLogo) {
+            heroIcon.innerHTML = `<img src="${escapeHtml(item.thumbnail_url || knownLogo)}" alt="Logo" style="width:100%;height:100%;object-fit:cover;">`;
+        } else {
+            heroIcon.textContent = categoryIcons[item.category] || '📦';
+        }
 
+        // Generate Tabs HTML
         body.innerHTML = `
-            <h2 class="modal-title">${escapeHtml(displayTitle)}</h2>
-            <div class="modal-seller">
-                ${item.seller_avatar ? `<img src="${escapeHtml(item.seller_avatar)}" alt="avatar">` : '<span>\u{1F464}</span>'}
-                <span class="seller-name">${escapeHtml(item.seller_name || item.seller_id)}</span>
-                <span>·</span>
-                <span>${data.seller_item_count || 0} ${T('detail.other_items')}</span>
+            <div style="padding: 32px 40px 0 40px;">
+                <h2 class="modal-title">${escapeHtml(displayTitle)}</h2>
+                <div class="modal-seller">
+                    ${item.seller_avatar ? `<img src="${escapeHtml(item.seller_avatar)}" alt="avatar">` : '<span>\u{1F464}</span>'}
+                    <span class="seller-name">${escapeHtml(item.seller_name || item.seller_id)}</span>
+                    <span>·</span>
+                    <span>${data.seller_item_count || 0} ${T('detail.other_items')}</span>
+                </div>
+                
+                <div class="modal-action-row" style="margin-top: 24px;">
+                    ${isFree ? '' : `<button class="btn-buy" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
+                        🛒 ${T('detail.buy_for')} ${formatCredits(price)}
+                    </button>`}
+                    <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}" style="${isFree ? '' : 'display:none;'}">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        ${T('detail.install')}
+                    </button>
+                </div>
+                
+                <div class="modal-stats-row" style="margin-top: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border);">
+                    <div class="modal-stat"><span class="stat-icon">⬇️</span> ${formatNumber(item.downloads || 0)} ${T('detail.downloads')}</div>
+                    <div class="modal-stat"><span class="stat-icon">⭐</span> ${rating.toFixed(1)}</div>
+                    <div class="modal-stat"><span class="stat-icon">📦</span> v${escapeHtml(item.version || '1.0.0')}</div>
+                    <div class="modal-stat"><span class="stat-icon">🏷️</span> ${escapeHtml(item.category)}</div>
+                </div>
             </div>
-            <div class="modal-stats-row">
-                <div class="modal-stat"><span class="stat-icon">⬇️</span> ${formatNumber(item.downloads || 0)} ${T('detail.downloads')}</div>
-                <div class="modal-stat"><span class="stat-icon">⭐</span> ${rating.toFixed(1)} (${item.rating_count || 0} ${T('detail.reviews')})</div>
-                <div class="modal-stat"><span class="stat-icon">📦</span> v${escapeHtml(item.version || '1.0.0')}</div>
-                <div class="modal-stat"><span class="stat-icon">🏷️</span> ${escapeHtml(item.category)}</div>
-            </div>
-            <div class="modal-description">${escapeHtml(displayDesc)}</div>
-            ${tags.length ? `<div class="modal-tags">${tags.map(t => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
 
-            ${(() => {
-                try {
-                    const itemDataObj = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : item.item_data;
-                    const auth = itemDataObj && itemDataObj.author_info;
-                    if (!auth) return '';
-                    return `
-                    <div style="margin:20px 0;padding:16px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;">
-                        <h4 style="margin:0 0 12px 0;font-size:0.95rem;color:var(--text);">💖 Tác giả & Hỗ trợ</h4>
-                        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:0.9rem;">
-                            ${auth.name ? `<div><strong style="color:var(--text2);">Tác giả:</strong> <span style="font-weight:600;">${escapeHtml(auth.name)}</span></div>` : ''}
-                            ${auth.contact ? `<div><a href="${escapeHtml(auth.contact)}" target="_blank" style="color:#3b82f6;text-decoration:none;font-weight:600;">💬 Liên hệ hỗ trợ</a></div>` : ''}
-                            ${auth.donate_qr ? `<div style="flex-basis:100%;margin-top:8px;">
-                                <strong style="color:var(--text2);display:block;margin-bottom:8px;">Donate ủng hộ tác giả:</strong>
-                                <a href="${escapeHtml(auth.donate_qr)}" target="_blank"><img src="${escapeHtml(auth.donate_qr)}" style="max-height:160px;border-radius:8px;border:1px solid var(--border);" alt="Donate QR"></a>
-                            </div>` : ''}
-                        </div>
-                    </div>`;
-                } catch(e) { return ''; }
-            })()}
-
-            <div class="modal-action-row">
-                ${isFree ? '' : `<button class="btn-buy" onclick="buyItem('${publicId}')" id="buyBtn_${publicId}">
-                    🛒 ${T('detail.buy_for')} ${formatCredits(price)}
-                </button>`}
-                <button class="btn-install" onclick="installItem('${publicId}', '${escapeHtml(item.title)}', '${escapeHtml(item.category)}')" id="installBtn_${publicId}" style="${isFree ? '' : 'display:none;'}">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                    ${T('detail.install')}
-                </button>
+            <div class="modal-tabs">
+                <div class="modal-tab active" onclick="switchModalTab('overview', this)">📖 Overview</div>
+                <div class="modal-tab" onclick="switchModalTab('media', this)">📸 Media Gallery</div>
+                <div class="modal-tab" onclick="switchModalTab('reviews', this)">⭐ Reviews (${reviews.length})</div>
             </div>
-            <div class="reviews-section">
-                <h3>⭐ ${T('detail.reviews_title')} (${reviews.length})</h3>
-                ${reviews.length ? reviews.map(r => `
-                    <div class="review-card">
-                        <div class="review-header">
-                            <span class="review-author">${escapeHtml(r.reviewer_name || r.reviewer_id)}</span>
-                            <span class="review-date">${formatDate(r.created_at)}</span>
+            
+            <div style="padding: 0 40px 32px 40px;">
+
+                <!-- OVERVIEW TAB -->
+                <div id="tab-overview" class="tab-content active">
+                    <div class="markdown-body" style="margin-top: 24px;">${escapeHtml(displayDesc).replace(/\n/g, '<br>')}</div>
+                    ${tags.length ? `<div class="modal-tags" style="margin-top: 24px;">${tags.map(t => `<span class="modal-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+                    
+                    ${(() => {
+                        try {
+                            const itemDataObj = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : item.item_data;
+                            const auth = itemDataObj && itemDataObj.author_info;
+                            if (!auth) return '';
+                            return `
+                            <div style="margin:32px 0 0 0;padding:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;">
+                                <h4 style="margin:0 0 16px 0;font-size:1.1rem;color:#fff;">💖 Author & Support</h4>
+                                <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:0.95rem;">
+                                    ${auth.name ? `<div><strong style="color:var(--text2);">Author:</strong> <span style="font-weight:600;color:#fff;">${escapeHtml(auth.name)}</span></div>` : ''}
+                                    ${auth.contact ? `<div><a href="${escapeHtml(auth.contact)}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:600;">💬 Contact Support</a></div>` : ''}
+                                    ${auth.donate_qr ? `<div style="flex-basis:100%;margin-top:12px;">
+                                        <strong style="color:var(--text2);display:block;margin-bottom:12px;">Support the Author (Donate):</strong>
+                                        <a href="${escapeHtml(auth.donate_qr)}" target="_blank"><img src="${escapeHtml(auth.donate_qr)}" style="max-height:200px;border-radius:12px;border:1px solid var(--border);" alt="Donate QR"></a>
+                                    </div>` : ''}
+                                </div>
+                            </div>`;
+                        } catch(e) { return ''; }
+                    })()}
+                </div>
+
+                <!-- MEDIA TAB -->
+                <div id="tab-media" class="tab-content" style="margin-top: 24px;">
+                    ${mediaData.videos && mediaData.videos.length ? `
+                        <h3 style="margin-bottom: 16px; color: #fff;">🎬 Demo Video</h3>
+                        <div class="media-gallery">
+                            ${mediaData.videos.map(v => {
+                                const isYouTube = v.url.includes('youtube.com') || v.url.includes('youtu.be');
+                                if (isYouTube) {
+                                    const ytid = v.url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([^&]{11})/)?.[1];
+                                    return ytid ? `<div class="media-item" onclick="openLightboxVideo('https://www.youtube.com/embed/${ytid}')">
+                                        <img src="https://img.youtube.com/vi/${ytid}/hqdefault.jpg" alt="YouTube Demo">
+                                        <div class="media-play-icon">▶</div>
+                                    </div>` : '';
+                                } else {
+                                    return `<div class="media-item" onclick="openLightboxVideo('${escapeHtml(v.url)}')">
+                                        <video src="${escapeHtml(v.url)}#t=0.1" preload="metadata"></video>
+                                        <div class="media-play-icon">▶</div>
+                                    </div>`;
+                                }
+                            }).join('')}
                         </div>
-                        <div class="review-stars">${renderStars(r.rating)}</div>
-                        ${r.comment ? `<div class="review-text">${escapeHtml(r.comment)}</div>` : ''}
-                    </div>
-                `).join('') : `<p style="color:var(--text-muted);font-size:0.85rem;">${T('detail.no_reviews')}</p>`}
+                    ` : ''}
+                    
+                    ${mediaData.screenshots && mediaData.screenshots.length ? `
+                        <h3 style="margin-top: 32px; margin-bottom: 16px; color: #fff;">📸 Screenshots</h3>
+                        <div class="media-gallery">
+                            ${mediaData.screenshots.map(s => `
+                                <div class="media-item" onclick="openLightboxImage('${escapeHtml(s.url)}')">
+                                    <img src="${escapeHtml(s.url)}" alt="Screenshot" loading="lazy">
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : (mediaData.videos && mediaData.videos.length ? '' : '<p style="color:var(--text-muted)">No media uploaded for this item.</p>')}
+                </div>
+
+                <!-- REVIEWS TAB -->
+                <div id="tab-reviews" class="tab-content" style="margin-top: 24px;">
+                    ${reviews.length ? reviews.map(r => `
+                        <div class="review-card" style="background:var(--bg3);padding:20px;border-radius:12px;margin-bottom:16px;">
+                            <div class="review-header" style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                                <span class="review-author" style="font-weight:600;color:#fff;">${escapeHtml(r.reviewer_name || r.reviewer_id)}</span>
+                                <span class="review-date" style="color:var(--text-muted);font-size:0.85rem;">${formatDate(r.created_at)}</span>
+                            </div>
+                            <div class="review-stars" style="color:var(--accent-orange);margin-bottom:12px;">${renderStars(r.rating)}</div>
+                            ${r.comment ? `<div class="review-text" style="line-height:1.5;">${escapeHtml(r.comment)}</div>` : ''}
+                        </div>
+                    `).join('') : `<p style="color:var(--text-muted);">${T('detail.no_reviews')}</p>`}
+                </div>
             </div>
         `;
 
@@ -1028,6 +1125,35 @@ async function submitUpload(e) {
             const errMsg = typeof data.detail === 'string' ? data.detail : (data.message || 'Extension name already taken');
             showToast(errMsg, 'error');
         } else if (data.status === 'success' || data.public_id) {
+            
+            // --- UPLOAD MEDIA ---
+            const publicId = data.public_id || data.item?.public_id || editingPublicId;
+            const ytUrl = document.getElementById('uploadVideoUrl')?.value.trim();
+            if (publicId && (uploadMediaFiles.screenshots.length > 0 || uploadMediaFiles.video || ytUrl)) {
+                btn.innerHTML = '? Uploading Media...';
+                try {
+                    const formData = new FormData();
+                    formData.append('public_id', publicId);
+                    formData.append('token', token);
+                    
+                    uploadMediaFiles.screenshots.forEach(f => formData.append('screenshots[]', f));
+                    if (uploadMediaFiles.video) formData.append('video', uploadMediaFiles.video);
+                    if (ytUrl) formData.append('youtube_url', ytUrl);
+
+                    const mediaRes = await fetch('https://api.tubecreate.com/api/market-cli/upload-media.php', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const mediaData = await mediaRes.json();
+                    if(mediaData.status !== 'success') {
+                        console.error('[Market] Media upload failed:', mediaData.message);
+                    }
+                } catch(me) {
+                    console.error('[Market] Media upload error:', me);
+                }
+            }
+            // --------------------
+
             if (data.auto_updated) {
                 showToast(`✅ Version updated! "${payload.title}" v${payload.version} has been published.`, 'success');
             } else {
@@ -1036,6 +1162,12 @@ async function submitUpload(e) {
             closeUploadModal();
             loadItems();
             loadCategories();
+            
+            // Clear media state
+            uploadMediaFiles = { screenshots: [], video: null };
+            const uvUrl = document.getElementById('uploadVideoUrl');
+            if (uvUrl) uvUrl.value = '';
+            renderUploadMediaPreviews();
         } else {
             // Extract error message from various response formats
             let errMsg = isEdit ? 'Update failed' : 'Upload failed';
@@ -1732,3 +1864,96 @@ async function submitGitInstall() {
 
 // Init auth UI on load
 updateMarketAuthUI();
+
+// ── Tab Switching Logic ──
+function switchModalTab(tabId, btn) {
+    const tabs = document.querySelectorAll('#detailModal .modal-tab');
+    const contents = document.querySelectorAll('#detailModal .tab-content');
+    
+    tabs.forEach(t => t.classList.remove('active'));
+    contents.forEach(c => c.classList.remove('active'));
+    
+    btn.classList.add('active');
+    document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ── Lightbox Logic ──
+function openLightboxImage(url) {
+    const lb = document.getElementById('mediaLightbox');
+    const content = document.getElementById('lightboxContent');
+    content.innerHTML = `<img src="${url}" class="lightbox-content" style="max-height:90vh;max-width:90vw;object-fit:contain;">`;
+    lb.classList.add('active');
+}
+
+function openLightboxVideo(url) {
+    const lb = document.getElementById('mediaLightbox');
+    const content = document.getElementById('lightboxContent');
+    if (url.includes('youtube.com')) {
+        content.innerHTML = `<iframe src="${url}?autoplay=1" class="lightbox-content" style="width:80vw;height:45vw;max-height:80vh;border:none;" allow="autoplay; fullscreen"></iframe>`;
+    } else {
+        content.innerHTML = `<video src="${url}" class="lightbox-content" style="max-height:90vh;max-width:90vw;" controls autoplay></video>`;
+    }
+    lb.classList.add('active');
+}
+
+function closeLightbox(e) {
+    if (e.target.id === 'mediaLightbox' || e.target.classList.contains('lightbox-close')) {
+        const lb = document.getElementById('mediaLightbox');
+        document.getElementById('lightboxContent').innerHTML = ''; // stop video
+        lb.classList.remove('active');
+    }
+}
+
+// ── Upload Media Handling in form ──
+let uploadMediaFiles = { screenshots: [], video: null };
+
+document.getElementById('uploadScreenshots')?.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files).slice(0, 5 - uploadMediaFiles.screenshots.length);
+    uploadMediaFiles.screenshots.push(...files);
+    renderUploadMediaPreviews();
+});
+
+document.getElementById('uploadVideo')?.addEventListener('change', (e) => {
+    if (e.target.files.length) {
+        uploadMediaFiles.video = e.target.files[0];
+        document.getElementById('uploadVideoUrl').value = ''; // clear url if file selected
+        renderUploadMediaPreviews();
+    }
+});
+
+function removeUploadScreenshot(index) {
+    uploadMediaFiles.screenshots.splice(index, 1);
+    renderUploadMediaPreviews();
+}
+
+function removeUploadVideo() {
+    uploadMediaFiles.video = null;
+    document.getElementById('uploadVideo').value = '';
+    renderUploadMediaPreviews();
+}
+
+function renderUploadMediaPreviews() {
+    const sGrid = document.getElementById('screenshotsPreview');
+    if (sGrid) {
+        sGrid.innerHTML = uploadMediaFiles.screenshots.map((f, i) => `
+            <div class="media-preview-item">
+                <img src="${URL.createObjectURL(f)}">
+                <button type="button" class="media-remove-btn" onclick="removeUploadScreenshot(${i})">✕</button>
+            </div>
+        `).join('');
+    }
+    
+    const vGrid = document.getElementById('videoPreview');
+    if (vGrid) {
+        if (uploadMediaFiles.video) {
+            vGrid.innerHTML = `
+                <div class="media-preview-item">
+                    <video src="${URL.createObjectURL(uploadMediaFiles.video)}#t=0.1" preload="metadata"></video>
+                    <button type="button" class="media-remove-btn" onclick="removeUploadVideo()">✕</button>
+                </div>
+            `;
+        } else {
+            vGrid.innerHTML = '';
+        }
+    }
+}

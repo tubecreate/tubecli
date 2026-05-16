@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TubeCLI &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
-    <link rel="stylesheet" href="/static/style.css?v=4">
-    <link rel="stylesheet" href="/static/market.css?v=8">
+    <link rel="stylesheet" href="/static/style.css?v=5">
+    <link rel="stylesheet" href="/static/market.css?v=10">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="/static/i18n.js?v=10"></script>
+    <script src="/static/i18n.js?v=11"></script>
 </head>
 <body>
-<div id="app" style="display:block;">
+<div id="app" style="display:flex; flex-direction:column; height: 100vh; overflow:hidden;">
 
     <!-- Main Content -->
     <main class="content market-page" style="margin-left:0;">
@@ -106,7 +106,7 @@
 <div class="market-modal-overlay" id="detailModal">
     <div class="market-modal">
         <div class="modal-hero" id="modalHero">
-            <span class="hero-icon" id="modalHeroIcon">&#x1F9E9;</span>
+            <span class="modal-hero-icon" id="modalHeroIcon">&#x1F9E9;</span>
             <button class="modal-close" onclick="closeDetailModal()">&#x2715;</button>
         </div>
         <div class="modal-body" id="modalBody">
@@ -211,8 +211,23 @@
                         <div style="font-size:0.78rem;color:var(--text-muted);margin-top:4px;" data-i18n="sell.deps_note">Comma separated. These will be auto-installed when users install your extension.</div>
                     </div>
                     <div class="form-group">
-                        <label data-i18n="sell.description">Description</label>
+                        <label data-i18n="sell.description">Description (Markdown Supported)</label>
                         <textarea id="uploadDesc" data-i18n-placeholder="sell.desc_placeholder" placeholder="Describe what this item does..." rows="3"></textarea>
+                    </div>
+
+                    <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+                        <h4 style="margin-bottom:12px;font-size:0.95rem;color:var(--text);">📸 Media Gallery</h4>
+                        <div class="form-group">
+                            <label>Upload Screenshots (Max 5)</label>
+                            <input type="file" id="uploadScreenshots" accept="image/*" multiple>
+                            <div class="media-preview-grid" id="screenshotsPreview"></div>
+                        </div>
+                        <div class="form-group">
+                            <label>Demo Video (MP4/WebM)</label>
+                            <input type="file" id="uploadVideo" accept="video/mp4,video/webm">
+                            <input type="text" id="uploadVideoUrl" placeholder="Or YouTube URL: https://youtube.com/watch?v=..." style="margin-top:8px;">
+                            <div class="media-preview-grid" id="videoPreview"></div>
+                        </div>
                     </div>
                     
                     <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
@@ -359,6 +374,12 @@
     </div>
 </div>
 
-<script src="/static/market.js?v=2.5"></script>
+<!-- Lightbox -->
+<div class="lightbox" id="mediaLightbox" onclick="closeLightbox(event)">
+    <button class="lightbox-close" onclick="closeLightbox(event)">&#x2715;</button>
+    <div id="lightboxContent" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></div>
+</div>
+
+<script src="/static/market.js?v=2.7"></script>
 </body>
 </html>

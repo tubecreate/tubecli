@@ -24,6 +24,23 @@ const ROUTE_TAB_MAP = {
 };
 
 function navigateTo(tab) {
+    const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
+    if (openMode === 'full_page' && tab.startsWith('ext-')) {
+        const excludeTabs = ['ext-auth-manager', 'ext-calendar'];
+        if (!excludeTabs.includes(tab)) {
+            const panel = document.getElementById('tab-' + tab);
+            if (panel) {
+                const iframe = panel.querySelector('iframe.ext-iframe[data-src]');
+                if (iframe) {
+                    const url = iframe.getAttribute('data-src');
+                    if (url) {
+                        window.open(url, '_blank');
+                        return;
+                    }
+                }
+            }
+        }
+    }
     window.location.hash = '#/' + tab;
 }
 
