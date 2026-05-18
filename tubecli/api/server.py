@@ -165,7 +165,7 @@ async def health():
 async def get_version_info():
     import subprocess
     from tubecli import __version__, __build__
-    info = {"version": __build__, "pip_version": __version__, "git_hash": None, "git_branch": None}
+    info = {"version": __version__, "build": __build__, "pip_version": __version__, "git_hash": None, "git_branch": None}
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=repo, timeout=3)
