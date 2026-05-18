@@ -307,12 +307,17 @@ if ($tubecliCmd) {
 title TubeCLI - AI Agent System
 cd /d "$targetDir"
 
-REM Open dashboard in browser once (after API starts)
-if not exist "%TEMP%\tubecli_browser.lock" (
-    echo. > "%TEMP%\tubecli_browser.lock"
-    start /B cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:5295/dashboard & timeout /t 2 /nobreak >nul & del "%TEMP%\tubecli_browser.lock" >nul 2>nul"
+REM Check if TubeCLI API is already running on port 5295
+netstat -an | findstr "5295" | findstr "LISTENING" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo TubeCLI is already running. Opening dashboard...
+    start http://localhost:5295/dashboard
+    timeout /t 3 /nobreak >nul
+    exit
 )
 
+REM Not running yet - start TubeCLI (auto opens API + menu)
+start /B cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:5295/dashboard"
 tubecli
 pause
 "@
