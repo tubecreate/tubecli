@@ -116,9 +116,30 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
             res = call_claude(req.model, key, req.prompt)
         elif prov == "openrouter":
             res = call_openai_compatible(req.model, key, req.prompt, base_url="https://openrouter.ai/api/v1")
+        elif prov == "9router":
+            # 9Router uses OpenAI-compatible API on localhost:20128
+            res = call_openai_compatible(req.model, key or "9router", req.prompt, base_url="http://localhost:20128/v1")
         else:
             raise HTTPException(400, f"Direct testing for {provider} not supported.")
             
         return {"status": "success", "response": res}
     except Exception as e:
         raise HTTPException(500, str(e))
+
+
+@router.get("/9router/status")
+async def api_9router_status():
+    """Check if 9Router is running and get its models."""
+    import requests as _req
+    try:
+        resp = _req.get("http://localhost:20128/v1/models", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = []
+            if isinstance(data, dict) and "data" in data:
+                models = [m.get("id", m.get("name", "")) for m in data["data"] if isinstance(m, dict)]
+            return {"running": True, "model_count": len(models), "models": models}
+        return {"running": False, "model_count": 0, "models": []}
+    except Exception:
+        return {"running": False, "model_count": 0, "models": []}
+

@@ -359,3 +359,35 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .quick-action-card { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: all 0.2s; font-size: 0.88rem; font-weight: 500; color: var(--text); }
 .quick-action-card:hover { border-color: var(--primary); background: var(--primary-light); transform: translateY(-1px); box-shadow: var(--shadow-soft); }
 .quick-action-card .material-symbols-outlined { color: var(--primary); font-size: 20px; }
+
+/* ─── Settings Page — Modern Card Layout ─── */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
+.settings-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 14px; padding: 24px; transition: all 0.25s; position: relative; }
+.settings-card:hover { border-color: rgba(82,118,235,0.25); box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+.settings-card.full-width { grid-column: 1 / -1; }
+.settings-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-subtle); }
+.settings-card-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
+.settings-card-icon.blue { background: rgba(82,118,235,0.12); }
+.settings-card-icon.green { background: rgba(34,197,94,0.12); }
+.settings-card-icon.purple { background: rgba(124,92,231,0.12); }
+.settings-card-icon.orange { background: rgba(245,158,11,0.12); }
+.settings-card-icon.cyan { background: rgba(6,182,212,0.12); }
+.settings-card-header h3 { font-size: 0.95rem; font-weight: 700; color: var(--text); margin: 0; }
+.settings-card-header small { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
+
+.settings-field { margin-bottom: 16px; position: relative; }
+.settings-field:last-child { margin-bottom: 0; }
+.settings-field label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+.settings-field input, .settings-field select { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.88rem; font-family: inherit; transition: all 0.2s; }
+.settings-field input:focus, .settings-field select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(82,118,235,0.1); }
+.settings-field .field-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
+/* Auto-save inline indicator */
+.save-indicator { display: inline-flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 4px; position: absolute; right: 0; top: 0; animation: fadeInSlide 0.3s ease-out; }
+.save-indicator.success { color: var(--green); background: rgba(34,197,94,0.1); }
+.save-indicator.error { color: var(--red); background: rgba(239,68,68,0.1); }
+.save-indicator.saving { color: var(--primary); background: rgba(82,118,235,0.1); }
+@keyframes fadeInSlide { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes fadeOutSlide { from { opacity: 1; } to { opacity: 0; transform: translateX(8px); } }
+

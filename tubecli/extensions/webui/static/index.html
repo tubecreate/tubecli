@@ -81,6 +81,7 @@
                 <div class="status-mini-card"><span class="status-mini-icon" id="status-api-dot">●</span><span>API Server</span><span class="tag green" id="status-api-label" data-i18n="status.online">Online</span></div>
                 <div class="status-mini-card"><span class="status-mini-icon" id="status-ollama-dot">●</span><span>Ollama</span><span class="tag" id="status-ollama-label" data-i18n="status.checking">Checking...</span></div>
                 <div class="status-mini-card"><span class="status-mini-icon" id="status-browser-dot">●</span><span>Browser</span><span class="tag" id="status-browser-label" data-i18n="status.checking">Checking...</span></div>
+                <div class="status-mini-card"><span class="status-mini-icon" id="status-9router-dot">●</span><span>9Router</span><span class="tag" id="status-9router-label" data-i18n="status.checking">Checking...</span></div>
             </div>
 
             <h3 style="margin: 28px 0 16px; color: var(--text2);" data-i18n="dash.quick_actions"><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:4px;font-size:18px">push_pin</span> Quick Actions</h3>
@@ -211,15 +212,15 @@
         <!-- ═══ SETTINGS TAB ═══ -->
         <section class="tab-panel" id="tab-settings">
             <div class="panel-header">
-                <h1 data-i18n="settings.title">⚙️ Settings</h1>
-                <button class="btn-primary" onclick="saveGlobalSettings()" style="background:linear-gradient(135deg,#10b981,#06b6d4);font-weight:700;padding:8px 24px;font-size:0.9rem;" data-i18n="settings.btn_save">
-                    💾 Lưu Cài Đặt
-                </button>
+                <h1 data-i18n="settings.title"><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:8px">settings</span> Settings</h1>
             </div>
 
-            <!-- Version & Update Section -->
-            <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--cyan);">🔄 Version & Update</h3>
+            <!-- Version & Update — Full Width -->
+            <div class="settings-card full-width" style="margin-bottom:20px;">
+                <div class="settings-card-header">
+                    <div class="settings-card-icon blue"><span class="material-symbols-outlined" style="font-size:18px">update</span></div>
+                    <div><h3>Version & Update</h3><small>Check for updates and manage versions</small></div>
+                </div>
                 <div class="version-card" id="version-card">
                     <div class="version-info">
                         <div class="version-badge-row">
@@ -240,84 +241,132 @@
                 </div>
             </div>
 
-            <hr style="border:none;border-top:1px solid var(--border);margin:24px 0;">
+            <!-- Settings Grid -->
+            <div class="settings-grid">
 
-            <!-- General Settings -->
-            <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--text2);" data-i18n="settings.general">⚙️ Tổng quan</h3>
-                <div class="settings-form">
-                    <div class="form-group"><label data-i18n="settings.api_port">Cổng API</label><input id="set-port" value="5295"></div>
-                    <div class="form-group">
-                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 4px;">
-                            <label data-i18n="settings.ai_model_default" style="margin:0;">Mô hình AI mặc định</label>
-                            <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.75rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;" data-i18n="settings.manage_keys">🔑 Quản lý API Key</button>
+                <!-- ⚙️ General Card -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon green"><span class="material-symbols-outlined" style="font-size:18px">tune</span></div>
+                        <div><h3 data-i18n="settings.general">General</h3><small>Core system configuration</small></div>
+                    </div>
+                    <div class="settings-field">
+                        <label data-i18n="settings.api_port">API Port</label>
+                        <input id="set-port" value="5295" onchange="autoSaveSetting('api_port', this.value, this)">
+                        <div class="field-hint">Default: 5295. Requires restart.</div>
+                    </div>
+                    <div class="settings-field">
+                        <label data-i18n="settings.api_base">API Base URL</label>
+                        <input id="set-api" value="" onchange="autoSaveSetting('api_base_url', this.value, this)">
+                    </div>
+                    <div class="settings-field">
+                        <label data-i18n="settings.ext_open_mode">Extension Open Mode</label>
+                        <select id="set-ext-open-mode" onchange="localStorage.setItem('ext_open_mode', this.value); showFieldIndicator(this, 'success', '✓ Saved'); location.reload();">
+                            <option value="full_page">Open in new tab (Default)</option>
+                            <option value="dashboard">Embed in dashboard (Iframe)</option>
+                        </select>
+                        <div class="field-hint">How extensions open from the sidebar menu.</div>
+                    </div>
+                </div>
+
+                <!-- 🤖 AI Configuration Card -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon purple"><span class="material-symbols-outlined" style="font-size:18px">smart_toy</span></div>
+                        <div><h3>AI Configuration</h3><small>Model & API keys</small></div>
+                    </div>
+                    <div class="settings-field">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 6px;">
+                            <label data-i18n="settings.ai_model_default" style="margin:0;">Default AI Model</label>
+                            <button class="btn-secondary" onclick="openModal('modal-cloud-keys')" style="font-size: 0.72rem; padding: 2px 8px; border-radius: 4px; background: rgba(139,92,246,0.1); border-color: rgba(139,92,246,0.3); color: #c4b5fd;" data-i18n="settings.manage_keys">🔑 API Keys</button>
+                        </div>
+                        <!-- Provider Filter -->
+                        <div id="provider-filter" style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap;">
+                            <button class="ext-chip active" data-provider="all" onclick="filterModelsByProvider('all', this)">All</button>
+                            <button class="ext-chip" data-provider="ollama" onclick="filterModelsByProvider('ollama', this)">🖥️ Ollama</button>
+                            <button class="ext-chip" data-provider="gemini" onclick="filterModelsByProvider('gemini', this)">✨ Gemini</button>
+                            <button class="ext-chip" data-provider="openai" onclick="filterModelsByProvider('openai', this)">🤖 OpenAI</button>
+                            <button class="ext-chip" data-provider="deepseek" onclick="filterModelsByProvider('deepseek', this)">🔮 DeepSeek</button>
+                            <button class="ext-chip" data-provider="claude" onclick="filterModelsByProvider('claude', this)">🧠 Claude</button>
+                            <button class="ext-chip" data-provider="grok" onclick="filterModelsByProvider('grok', this)">⚡ Grok</button>
+                            <button class="ext-chip" data-provider="9router" onclick="filterModelsByProvider('9router', this)">🔀 9Router</button>
                         </div>
                         <div style="display:flex; gap: 8px;">
-                            <select id="set-model" onchange="onModelSelectChange()" style="flex:1; padding:10px 14px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:.9rem">
+                            <select id="set-model" onchange="onModelSelectChange(); autoSaveSetting('default_model', this.value, this)" style="flex:1;">
                                 <option value="qwen:latest">qwen:latest</option>
                             </select>
-                            <button class="btn-secondary" id="btn-test-default-ai" onclick="testDefaultAI()" style="padding: 0 16px; border-radius: 8px; white-space: nowrap;">⚡ Test</button>
+                            <button class="btn-secondary" id="btn-test-default-ai" onclick="testDefaultAI()" style="padding: 0 14px; border-radius: 8px; white-space: nowrap; font-size:0.82rem;">⚡ Test</button>
                         </div>
-                        <div id="test-default-ai-result" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; font-size:0.85rem;"></div>
-                        <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.85rem;color:#f59e0b;"></div>
-                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.model_desc">Model mặc định cho chat, browser AI, và các tác vụ hệ thống</small>
+                        <div id="test-default-ai-result" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; font-size:0.82rem;"></div>
+                        <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.82rem;color:#f59e0b;"></div>
+                        <div class="field-hint" data-i18n="settings.model_desc">Default model for chat, browser AI, and system tasks</div>
                     </div>
-                    <div class="form-group"><label data-i18n="settings.api_base">API Base URL</label><input id="set-api" value=""></div>
-                    <div class="form-group">
-                        <label data-i18n="settings.ext_open_mode">Mở Extension</label>
-                        <select id="set-ext-open-mode" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem" onchange="localStorage.setItem('ext_open_mode', this.value); location.reload();">
-                            <option value="full_page">Mở full trang ở tab mới (Mặc định)</option>
-                            <option value="dashboard">Mở nhúng trong dashboard (Iframe)</option>
-                        </select>
-                        <small style="color:var(--text-muted);font-size:.75rem">Tùy chọn cách mở khi bấm vào tên extension ở menu bên trái. Thay đổi sẽ tự động tải lại trang.</small>
+                </div>
+
+                <!-- 🌐 Language & Browser Card -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon cyan"><span class="material-symbols-outlined" style="font-size:18px">language</span></div>
+                        <div><h3>Language & Browser</h3><small>Localization & default profile</small></div>
                     </div>
-                    <div class="form-group">
-                        <label data-i18n="settings.language">🌐 Ngôn ngữ</label>
+                    <div class="settings-field">
+                        <label data-i18n="settings.language">🌐 Language</label>
                         <select id="set-lang" onchange="changeLanguage(this.value)">
                             <option value="zh">中文</option>
                             <option value="en">English</option>
                             <option value="vi">Tiếng Việt</option>
                         </select>
                     </div>
-                    <div class="form-group">
-                        <label data-i18n="settings.default_browser">🌐 Default Browser Profile</label>
-                        <select id="set-default-profile" onchange="changeDefaultProfile(this.value)" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
-                            <option value="default">default (Mặc định AI)</option>
+                    <div class="settings-field">
+                        <label data-i18n="settings.default_browser">Default Browser Profile</label>
+                        <select id="set-default-profile" onchange="changeDefaultProfile(this.value)" style="width:100%;">
+                            <option value="default">default (AI Default)</option>
                         </select>
-                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.browser_desc">Trình duyệt nhận diện mà Workflow hoặc AI Agent sẽ dùng chạy ngầm.</small>
-                    </div>
-                    <div class="form-group">
-                        <label data-i18n="settings.default_calendar">📅 Lịch Google mặc định (Calendar Email)</label>
-                        <select id="set-default-calendar" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.9rem">
-                            <option value="">Chưa cấu hình</option>
-                        </select>
-                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.calendar_desc">Tài khoản Google dùng để AI lên lịch mặc định khi người dùng chat tạo sự kiện qua dòng lệnh.</small>
+                        <div class="field-hint" data-i18n="settings.browser_desc">Browser profile used by Workflows & AI Agents.</div>
                     </div>
                 </div>
-            </div>
 
+                <!-- 📅 Calendar Card -->
+                <div class="settings-card">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon orange"><span class="material-symbols-outlined" style="font-size:18px">calendar_month</span></div>
+                        <div><h3>Google Calendar</h3><small>Default calendar for AI scheduling</small></div>
+                    </div>
+                    <div class="settings-field">
+                        <label data-i18n="settings.default_calendar">Default Calendar Email</label>
+                        <select id="set-default-calendar" onchange="autoSaveSetting('default_calendar_email', this.value, this)" style="width:100%;">
+                            <option value="">Not configured</option>
+                        </select>
+                        <div class="field-hint" data-i18n="settings.calendar_desc">Google account for AI to schedule events via chat commands.</div>
+                    </div>
+                </div>
 
-            <div class="settings-section">
-                <h3 style="margin-bottom:16px; color:var(--cyan);" data-i18n="settings.telegram_global">✈️ Telegram (Toàn cục)</h3>
-                <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:16px;" data-i18n="settings.telegram_desc">Cấu hình bot Telegram dùng chung cho thông báo hệ thống. Mỗi Agent có thể có cấu hình Telegram riêng trong tab Agent.</p>
-                <div class="settings-form">
-                    <div class="form-group">
-                        <label data-i18n="settings.bot_token">🤖 Bot Token</label>
-                        <input type="password" id="set-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11">
+                <!-- ✈️ Telegram Card — Full Width -->
+                <div class="settings-card full-width">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon blue"><span class="material-symbols-outlined" style="font-size:18px">send</span></div>
+                        <div><h3 data-i18n="settings.telegram_global">Telegram (Global)</h3><small data-i18n="settings.telegram_desc">System-wide notifications. Each Agent can have its own config.</small></div>
                     </div>
-                    <div class="form-group">
-                        <label data-i18n="settings.chat_id">💬 Chat ID</label>
-                        <input id="set-tg-chat" placeholder="-1001234567890 hoặc ID cá nhân">
-                        <small style="color:var(--text-muted);font-size:.75rem" data-i18n="settings.chat_id_hint">Để lấy Chat ID, gửi tin nhắn đến bot rồi mở: https://api.telegram.org/bot{TOKEN}/getUpdates</small>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="settings-field">
+                            <label data-i18n="settings.bot_token">🤖 Bot Token</label>
+                            <input type="password" id="set-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" onchange="autoSaveSetting('telegram_bot_token', this.value, this)">
+                        </div>
+                        <div class="settings-field">
+                            <label data-i18n="settings.chat_id">💬 Chat ID</label>
+                            <input id="set-tg-chat" placeholder="-1001234567890" onchange="autoSaveSetting('telegram_chat_id', this.value, this)">
+                            <div class="field-hint" data-i18n="settings.chat_id_hint">Get Chat ID: send message to bot → open https://api.telegram.org/bot{TOKEN}/getUpdates</div>
+                        </div>
                     </div>
-                    <div style="display:flex;gap:8px;margin-top:8px;">
-                        <button class="btn-secondary" id="btn-test-tg" onclick="testTelegramConnection()" style="flex:1" data-i18n="settings.test_connection">
-                            📡 Test kết nối
+                    <div style="display:flex;gap:8px;margin-top:12px;align-items:center;">
+                        <button class="btn-secondary" id="btn-test-tg" onclick="testTelegramConnection()" style="padding:8px 20px;" data-i18n="settings.test_connection">
+                            📡 Test Connection
                         </button>
-                        <div id="tg-test-result" style="flex:2;display:flex;align-items:center;font-size:.85rem;color:var(--text-muted);padding-left:8px;"></div>
+                        <div id="tg-test-result" style="flex:1;font-size:.82rem;color:var(--text-muted);"></div>
                     </div>
                 </div>
-            </div>
+
+            </div><!-- /settings-grid -->
         </section>
     </main>
 </div>
@@ -429,7 +478,7 @@
 <div id="modal-add-key" class="modal hidden">
     <div class="modal-content">
         <div class="modal-header"><h2>🔑 Add API Key</h2><button class="btn-close" onclick="closeModal('modal-add-key')">✕</button></div>
-        <div class="form-group" style="margin-top:15px"><label>Provider</label><select id="add-key-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option><option value="grok">xAI Grok</option><option value="openrouter">OpenRouter</option><option value="everai">EverAI TTS</option></select></div>
+        <div class="form-group" style="margin-top:15px"><label>Provider</label><select id="add-key-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option><option value="grok">xAI Grok</option><option value="openrouter">OpenRouter</option><option value="everai">EverAI TTS</option><option value="9router">9Router</option></select></div>
         <div class="form-group"><label>API Key</label><input type="password" id="add-key-value" placeholder="Paste API key..."></div>
         <div class="form-group"><label>Label</label><input id="add-key-label" value="default"></div>
         <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-add-key')">Cancel</button><button class="btn-primary" onclick="addApiKey()">Save Key</button></div>
@@ -726,6 +775,7 @@
                 <option value="deepseek">🔮 DeepSeek</option>
                 <option value="grok">⚡ Grok</option>
                 <option value="everai">🎙️ EverAI TTS</option>
+                <option value="9router">🔀 9Router</option>
             </select>
             <input type="password" id="settings-add-key-value" placeholder="Paste API key..." style="flex:2;min-width:150px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.85rem;">
             <button class="btn-primary" onclick="addCloudKeyFromSettings()" style="flex:1;min-width:120px;padding:8px 16px;font-size:.85rem;white-space:nowrap;justify-content:center;">+ Thêm Key</button>

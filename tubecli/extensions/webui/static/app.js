@@ -177,6 +177,24 @@ async function loadDashboard() {
     document.getElementById('status-browser-dot').style.color = runCount > 0 ? 'var(--green)' : 'var(--text-muted)';
     document.getElementById('status-browser-label').className = runCount > 0 ? 'tag green' : 'tag';
     document.getElementById('status-browser-label').textContent = runCount > 0 ? `${runCount} ${T('status.running')}` : T('status.idle');
+
+    // 9Router status
+    try {
+        const nrStatus = await apiGet('/api/v1/cloud-api/9router/status');
+        if (nrStatus?.running) {
+            document.getElementById('status-9router-dot').style.color = 'var(--green)';
+            document.getElementById('status-9router-label').className = 'tag green';
+            document.getElementById('status-9router-label').textContent = `${T('status.online')} (${nrStatus.model_count} models)`;
+        } else {
+            document.getElementById('status-9router-dot').style.color = 'var(--red)';
+            document.getElementById('status-9router-label').className = 'tag';
+            document.getElementById('status-9router-label').textContent = T('status.offline');
+        }
+    } catch(e) {
+        document.getElementById('status-9router-dot').style.color = 'var(--red)';
+        document.getElementById('status-9router-label').className = 'tag';
+        document.getElementById('status-9router-label').textContent = T('status.offline');
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2305,14 +2323,26 @@ async function populateModelDropdown(selectedModel) {
     } catch(e) { console.warn('[Settings] Ollama models fetch failed'); }
     if (!ollamaOnline) {
         html += '<optgroup label="🖥️ Ollama (Local)">';
-        html += '<option disabled style="color:#888">⚠️ Ollama chưa mở — hãy khởi động Ollama trước</option>';
+        html += '<option disabled style="color:#888">⚠️ Ollama not running — start Ollama first</option>';
         html += '</optgroup>';
     }
+    // 9Router models (local proxy)
+    try {
+        const nrStatus = await apiGet('/api/v1/cloud-api/9router/status');
+        if (nrStatus?.running && nrStatus.models && nrStatus.models.length > 0) {
+            html += '<optgroup label="🔀 9Router (Local Proxy)">';
+            nrStatus.models.forEach(m => {
+                html += `<option value="${esc(m)}">${esc(m)}</option>`;
+            });
+            html += '</optgroup>';
+        }
+    } catch(e) { console.warn('[Settings] 9Router status fetch failed'); }
     try {
         const cloud = await apiGet('/api/v1/cloud-api/providers');
         if (cloud && cloud.providers) {
             cloud.providers.forEach(p => {
                 if (!p.models || p.models.length === 0) return;
+                if (p.id === '9router') return; // Already handled above
                 const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
                 html += `<optgroup label="☁️ ${esc(label)}">`;
                 p.models.forEach(m => {
@@ -2333,6 +2363,61 @@ async function populateModelDropdown(selectedModel) {
         } else {
             sel.insertAdjacentHTML('afterbegin', `<option value="${esc(selectedModel)}">${esc(selectedModel)}</option>`);
             sel.value = selectedModel;
+        }
+    }
+}
+
+// Filter model dropdown by provider chip
+function filterModelsByProvider(provider, chipEl) {
+    // Update active chip
+    document.querySelectorAll('#provider-filter .ext-chip').forEach(c => c.classList.remove('active'));
+    if (chipEl) chipEl.classList.add('active');
+    
+    const sel = document.getElementById('set-model');
+    if (!sel) return;
+    
+    const providerKeywords = {
+        'ollama': 'Ollama',
+        'gemini': 'Gemini',
+        'openai': 'OpenAI',
+        'deepseek': 'DeepSeek',
+        'claude': 'Claude',
+        'grok': 'Grok',
+        'openrouter': 'OpenRouter',
+        '9router': '9Router',
+    };
+    
+    const optgroups = sel.querySelectorAll('optgroup');
+    
+    optgroups.forEach(og => {
+        if (provider === 'all') {
+            og.style.display = '';
+            og.querySelectorAll('option').forEach(o => o.style.display = '');
+        } else {
+            const keyword = providerKeywords[provider] || provider;
+            if (og.label && og.label.includes(keyword)) {
+                og.style.display = '';
+                og.querySelectorAll('option').forEach(o => o.style.display = '');
+            } else {
+                og.style.display = 'none';
+                og.querySelectorAll('option').forEach(o => o.style.display = 'none');
+            }
+        }
+    });
+    
+    // Also handle standalone options (not in optgroup)
+    sel.querySelectorAll(':scope > option').forEach(o => {
+        o.style.display = (provider === 'all') ? '' : 'none';
+    });
+    
+    // If current selection is hidden, select first visible option
+    const selectedOpt = sel.options[sel.selectedIndex];
+    if (selectedOpt && selectedOpt.style.display === 'none') {
+        for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].style.display !== 'none' && !sel.options[i].disabled) {
+                sel.selectedIndex = i;
+                break;
+            }
         }
     }
 }
@@ -2451,8 +2536,33 @@ async function testDefaultAI() {
                 resultDiv.style.color = '#ef4444';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
+        } else if (optgroup.label.includes('9Router')) {
+            // Test 9Router directly via OpenAI-compatible API
+            resultDiv.textContent = 'Testing 9Router...';
+            const resp = await fetch('http://localhost:20128/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [{ role: 'user', content: "Reply 'Hello from 9Router!'" }],
+                    max_tokens: 30
+                })
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                const reply = data?.choices?.[0]?.message?.content || 'OK';
+                resultDiv.textContent = `✅ 9Router OK! (${reply.substring(0, 60)})`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                const errData = await resp.json().catch(() => ({}));
+                const errMsg = errData?.error?.message || `HTTP ${resp.status}`;
+                resultDiv.textContent = `❌ 9Router Error: ${errMsg.substring(0, 80)}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
         } else {
-            resultDiv.textContent = `Không hỗ trợ test tự động cho nhóm này.`;
+            resultDiv.textContent = `Test not supported for this group.`;
         }
     } catch (e) {
         resultDiv.textContent = `❌ Lỗi: ${e.message}`;
@@ -2465,6 +2575,56 @@ async function testDefaultAI() {
                 resultDiv.style.display = 'none';
             }
         }, 5000);
+    }
+}
+
+// ═══ Auto-Save Individual Setting ═══
+function showFieldIndicator(inputEl, type, text) {
+    const field = inputEl.closest('.settings-field') || inputEl.closest('.form-group');
+    if (!field) return;
+    // Remove existing indicator
+    const existing = field.querySelector('.save-indicator');
+    if (existing) existing.remove();
+    // Create new indicator
+    const indicator = document.createElement('span');
+    indicator.className = 'save-indicator ' + type;
+    indicator.textContent = text;
+    field.style.position = 'relative';
+    field.appendChild(indicator);
+    // Auto-remove after 2.5s
+    if (type !== 'saving') {
+        setTimeout(() => {
+            indicator.style.animation = 'fadeOutSlide 0.3s forwards';
+            setTimeout(() => indicator.remove(), 300);
+        }, 2500);
+    }
+}
+
+async function autoSaveSetting(key, value, inputEl) {
+    if (inputEl) showFieldIndicator(inputEl, 'saving', '⏳ Saving...');
+    
+    // Build full payload from current form state
+    const payload = {
+        default_model: document.getElementById('set-model')?.value || 'qwen:latest',
+        api_port: document.getElementById('set-port')?.value || '5295',
+        api_base_url: document.getElementById('set-api')?.value || window.location.origin,
+        telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
+        telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
+        default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
+    };
+    // Override with the specific changed key
+    payload[key] = value;
+    
+    try {
+        const r = await apiPut('/api/v1/settings', payload);
+        if (r && r.status === 'success') {
+            if (key === 'api_base_url' && value) localStorage.setItem('tubecli_api', value);
+            if (inputEl) showFieldIndicator(inputEl, 'success', '✓ Saved');
+        } else {
+            if (inputEl) showFieldIndicator(inputEl, 'error', '✗ Error');
+        }
+    } catch (e) {
+        if (inputEl) showFieldIndicator(inputEl, 'error', '✗ ' + e.message);
     }
 }
 
@@ -2482,15 +2642,15 @@ async function saveGlobalSettings() {
         if (r && r.status === 'success') {
             if (payload.api_base_url) localStorage.setItem('tubecli_api', payload.api_base_url);
             const toast = document.createElement('div');
-            toast.textContent = '✅ Cài đặt đã lưu thành công!';
+            toast.textContent = '✅ Settings saved!';
             toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#10b981,#06b6d4);color:#fff;padding:14px 28px;border-radius:10px;z-index:99999;font-weight:700;font-size:1rem;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         } else {
-            alert('❌ Lưu thất bại: ' + JSON.stringify(r));
+            alert('❌ Save failed: ' + JSON.stringify(r));
         }
     } catch (e) {
-        alert('❌ Lỗi: ' + e.message);
+        alert('❌ Error: ' + e.message);
     }
 }
 
@@ -2540,7 +2700,7 @@ async function loadCloudKeysInSettings() {
             container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;font-style:italic">Chưa có API key nào. Thêm key bên dưới để sử dụng mô hình Cloud.</p>';
             return;
         }
-        const icons = { gemini: '✨', openai: '🤖', claude: '🧠', deepseek: '🔮', grok: '⚡' };
+        const icons = { gemini: '✨', openai: '🤖', claude: '🧠', deepseek: '🔮', grok: '⚡', '9router': '🔀' };
         let html = '';
         let totalKeys = 0;
         for (const [provider, labelsObj] of Object.entries(data.keys)) {
@@ -2598,74 +2758,7 @@ async function removeCloudKeyFromSettings(provider, label) {
     await populateModelDropdown(currentModel);
 }
 
-// ═══ Version & Update ═══
-async function loadVersionInfo() {
-    const d = await apiGet('/api/v1/system/version');
-    if (!d) return;
-    document.getElementById('version-badge').textContent = '⚡ TubeCLI v' + (d.version || '?');
-    document.getElementById('version-hash').textContent = d.git_hash ? ('#' + d.git_hash) : '';
-    document.getElementById('version-branch').textContent = d.git_branch ? ('📌 ' + d.git_branch) : '';
-    document.getElementById('update-status').textContent = '';
-    document.getElementById('update-status').className = 'update-status';
-}
-
-async function checkForUpdate() {
-    const btn = document.getElementById('btn-check-update');
-    const st = document.getElementById('update-status');
-    btn.disabled = true; btn.textContent = '🔍 Checking...';
-    st.textContent = 'Fetching from GitHub...'; st.className = 'update-status';
-    
-    const d = await apiPost('/api/v1/system/check-update', {});
-    btn.disabled = false; btn.textContent = '🔍 Check for Update';
-    
-    if (!d || d.error) {
-        st.textContent = '❌ ' + (d?.error || 'Failed to check'); st.className = 'update-status';
-        return;
-    }
-    if (d.has_update) {
-        st.textContent = `🔔 Update available! ${d.commits_behind} new commit(s)`;
-        st.className = 'update-status has-update';
-        document.getElementById('btn-system-update').style.display = 'inline-block';
-        // Show changelog
-        if (d.changelog && d.changelog.length > 0) {
-            document.getElementById('changelog-box').style.display = 'block';
-            document.getElementById('changelog-list').innerHTML = d.changelog.map(c => `<li>${esc(c)}</li>`).join('');
-        }
-    } else {
-        st.textContent = '✅ You are up to date!';
-        st.className = 'update-status up-to-date';
-        document.getElementById('btn-system-update').style.display = 'none';
-        document.getElementById('changelog-box').style.display = 'none';
-    }
-}
-
-async function performSystemUpdate() {
-    const btn = document.getElementById('btn-system-update');
-    const st = document.getElementById('update-status');
-    if (!confirm('Update TubeCLI to latest version? The API server will need to restart after update.')) return;
-    btn.disabled = true; btn.textContent = '⏳ Updating...';
-    st.textContent = 'Pulling latest code from GitHub...'; st.className = 'update-status';
-    
-    const d = await apiPost('/api/v1/system/update', {});
-    btn.disabled = false;
-    
-    if (d?.status === 'success') {
-        st.innerHTML = `✅ Updated to v${esc(d.new_version)}! <strong>Please restart the API server.</strong>`;
-        st.className = 'update-status has-update';
-        btn.textContent = '✅ Done';
-        btn.style.display = 'none';
-        document.getElementById('changelog-box').style.display = 'none';
-        // Show restart banner
-        const card = document.getElementById('version-card');
-        if (!document.getElementById('restart-banner')) {
-            card.insertAdjacentHTML('afterend', '<div class="restart-banner" id="restart-banner">⚠️ Restart the API server to apply the update. Run: <code>tubecli api start</code></div>');
-        }
-    } else {
-        st.textContent = '❌ Update failed: ' + (d?.error || 'Unknown error');
-        st.className = 'update-status';
-        btn.textContent = '⬆️ Update Now';
-    }
-}
+// ═══ Version & Update ═══ (defined below at end of file)
 
 // ═══ Extension Update (External) ═══
 async function checkExtensionUpdate(name, btn) {
@@ -2867,37 +2960,26 @@ async function checkForUpdate(silent = false) {
     const updateBtn = document.getElementById('btn-system-update');
     if (btn && !silent) { btn.disabled = true; btn.textContent = '🔍 Checking...'; }
     try {
-        // Get local version
-        const local = await apiGet('/api/v1/version');
-        const localVer = local?.version || '0';
-
-        // Fetch remote version.json from server
-        const res = await fetch('https://api.tubecreate.com/api/market-cli/version.json?_t=' + Date.now(), {
-            signal: AbortSignal.timeout(5000)
-        });
-        if (!res.ok) throw new Error('Server not reachable');
-        const remote = await res.json();
-        const remoteVer = remote.version || '0';
-
-        // Compare
-        const hasUpdate = remoteVer > localVer;
+        // Use backend endpoint that checks GitHub
+        const data = await apiGet('/api/v1/version/check');
+        if (!data || data.error) {
+            if (!silent && statusEl) statusEl.innerHTML = `<span style="color:var(--yellow)">⚠️ ${data?.error || 'Could not check for updates'}</span>`;
+            return;
+        }
+        
         if (statusEl) {
-            if (hasUpdate) {
-                statusEl.innerHTML = `<span style="color:var(--yellow);font-weight:700">🆕 Phiên bản mới có sẵn: v${remoteVer}</span>`;
+            if (data.has_update) {
+                statusEl.innerHTML = `<span style="color:var(--yellow);font-weight:700">🆕 New version available: v${data.remote_version}</span>`;
                 if (updateBtn) updateBtn.style.display = '';
-                // Show changelog
-                if (changelogBox && changelogList && remote.changelog?.length) {
-                    changelogList.innerHTML = remote.changelog.map(c => `<li>${esc(c)}</li>`).join('');
-                    changelogBox.style.display = '';
-                }
+                if (changelogBox) changelogBox.style.display = 'none'; // Changelog not available from this endpoint
             } else {
-                if (!silent) statusEl.innerHTML = `<span style="color:var(--green)">✅ Đang dùng phiên bản mới nhất (v${localVer})</span>`;
+                if (!silent) statusEl.innerHTML = `<span style="color:var(--green)">✅ Up to date (v${data.current_version})</span>`;
                 if (updateBtn) updateBtn.style.display = 'none';
                 if (changelogBox) changelogBox.style.display = 'none';
             }
         }
     } catch(e) {
-        if (!silent && statusEl) statusEl.innerHTML = `<span style="color:var(--red)">⚠️ Không kết nối được server kiểm tra update</span>`;
+        if (!silent && statusEl) statusEl.innerHTML = `<span style="color:var(--red)">⚠️ Could not connect to update server</span>`;
         console.warn('[Update] Check failed:', e.message);
     }
     if (btn) { btn.disabled = false; btn.textContent = '🔍 Check for Update'; }
