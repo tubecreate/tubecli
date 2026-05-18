@@ -23,6 +23,7 @@
     "dash.browser_profiles": "🌐 浏览器环境",
     "dash.workflow_builder": "🔄 工作流构建器",
     "dash.cloud_api_keys": "☁️ 云端 API 密钥",
+    "nav.cloud_keys": "云 API 密钥",
     "status.online": "在线",
     "status.offline": "离线",
     "status.checking": "检查中...",

@@ -56,8 +56,11 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 /* Collapsed Sidebar */
 .sidebar.collapsed { width: 68px; }
-.sidebar.collapsed .sidebar-logo, .sidebar.collapsed .nav-section-label, .sidebar.collapsed .nav-text, .sidebar.collapsed .sidebar-footer span:not(.status-dot), .sidebar.collapsed .sidebar-version, .sidebar.collapsed .sidebar-update { display: none; }
+.sidebar.collapsed .sidebar-logo, .sidebar.collapsed .sidebar-logo-container, .sidebar.collapsed .nav-section-label, .sidebar.collapsed .nav-text, .sidebar.collapsed .sidebar-footer span:not(.status-dot):not(.material-symbols-outlined), .sidebar.collapsed .sidebar-version, .sidebar.collapsed .sidebar-update { display: none; }
 .sidebar.collapsed .nav-item { padding: 10px; justify-content: center; }
+.sidebar.collapsed .sidebar-menu-btn { width: 100%; text-align: center; justify-content: center; margin: 0 auto; display: flex; }
+.sidebar.collapsed .btn-shutdown { padding: 10px; border-color: transparent; }
+.sidebar.collapsed .btn-shutdown .material-symbols-outlined { font-size: 24px; margin: 0; }
 .sidebar.collapsed .nav-icon { margin-right: 0; font-size: 1.2rem; }
 .sidebar.collapsed .sidebar-footer { justify-content: center; padding: 16px 0; }
 

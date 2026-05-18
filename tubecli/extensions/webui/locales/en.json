@@ -23,6 +23,7 @@
     "dash.browser_profiles": "🌐 Browser Profiles",
     "dash.workflow_builder": "🔄 Workflow Builder",
     "dash.cloud_api_keys": "☁️ Cloud API Keys",
+    "nav.cloud_keys": "Cloud API Keys",
     "status.online": "Online",
     "status.offline": "Offline",
     "status.checking": "Checking...",
