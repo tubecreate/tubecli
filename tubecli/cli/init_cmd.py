@@ -681,7 +681,10 @@ def _run_control_panel():
 # ═══════════════════════════════════════════════════════════════
 
 def _run_update_check():
-    """Check for TubeCLI updates from git and optionally apply them."""
+    """Check for TubeCLI updates from git and optionally apply them.
+    Smart update: only git pull, only install new deps if config files changed.
+    Never runs 'pip install -e .' to avoid breaking the installation.
+    """
     import subprocess
     import sys
     from tubecli.i18n import t
@@ -791,7 +794,26 @@ def _run_update_check():
         _pause()
         return
 
-    # Step 4: Show changelog
+    # Step 4: Check which files changed (to determine what needs updating)
+    changed_files = []
+    try:
+        r = subprocess.run(
+            ["git", "diff", "--name-only", f"HEAD..{remote_branch}"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            changed_files = [f.strip() for f in r.stdout.strip().split("\n") if f.strip()]
+    except Exception:
+        pass
+
+    # Categorize changes
+    deps_changed = any(f in ("pyproject.toml", "requirements.txt", "setup.py", "setup.cfg") for f in changed_files)
+    core_files = [f for f in changed_files if f.startswith("tubecli/") and not f.startswith("tubecli/extensions/")]
+    extension_files = [f for f in changed_files if f.startswith("tubecli/extensions/")]
+    doc_files = [f for f in changed_files if f.startswith("docs/") or f.endswith(".md")]
+    other_files = [f for f in changed_files if f not in core_files + extension_files + doc_files]
+
+    # Show changelog
     console.print(f"\n  [bold yellow]⚡ {t('update.commits_behind', count=commits_behind)}[/bold yellow]")
 
     changelog = []
@@ -815,6 +837,21 @@ def _run_update_check():
         if len(changelog) > 15:
             console.print(f"    [dim]... {t('update.and_more', count=len(changelog) - 15)}[/dim]")
 
+    # Show what will be updated
+    console.print(f"\n  [bold cyan]{t('update.changes_summary')}[/bold cyan]")
+    if core_files:
+        console.print(f"    [green]🔧 {t('update.cat_core')}:[/green] {len(core_files)} files")
+    if extension_files:
+        console.print(f"    [blue]🧩 {t('update.cat_extensions')}:[/blue] {len(extension_files)} files")
+    if doc_files:
+        console.print(f"    [dim]📄 {t('update.cat_docs')}:[/dim] {len(doc_files)} files")
+    if deps_changed:
+        console.print(f"    [yellow]📦 {t('update.cat_deps')}[/yellow]")
+    else:
+        console.print(f"    [green]📦 {t('update.cat_deps_no_change')}[/green]")
+    if other_files:
+        console.print(f"    [dim]📁 {t('update.cat_other')}:[/dim] {len(other_files)} files")
+
     # Step 5: Confirm update
     console.print()
     console.print(f"  [bold yellow]1.[/bold yellow] {t('update.apply_now')}")
@@ -827,7 +864,7 @@ def _run_update_check():
         _pause()
         return
 
-    # Step 6: Apply update
+    # Step 6: Apply update — only git pull, no pip install -e .
     console.print(f"\n  [cyan]{t('update.pulling')}[/cyan]")
     try:
         r_pull = subprocess.run(
@@ -844,16 +881,13 @@ def _run_update_check():
         _pause()
         return
 
-    # Step 7: Reinstall dependencies
-    console.print(f"  [cyan]{t('update.installing_deps')}[/cyan]")
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"],
-            cwd=project_root, capture_output=True, text=True, timeout=120,
-        )
-        console.print(f"  [green]✅ {t('update.deps_installed')}[/green]")
-    except Exception as e:
-        console.print(f"  [yellow]⚠️ {t('update.deps_warning')}: {e}[/yellow]")
+    # Step 7: Smart dependency check — only if pyproject.toml or requirements.txt changed
+    if deps_changed:
+        console.print(f"  [cyan]{t('update.deps_changed_detected')}[/cyan]")
+        # Read new requirements and compare with installed packages
+        _install_missing_deps(project_root, sys.executable)
+    else:
+        console.print(f"  [green]✅ {t('update.deps_skip')}[/green]")
 
     # Read new version
     new_version = ""
@@ -877,6 +911,90 @@ def _run_update_check():
         padding=(1, 2),
     ))
     _pause()
+
+
+def _install_missing_deps(project_root: str, python_exe: str):
+    """Check pyproject.toml and requirements.txt for NEW dependencies
+    and install only the missing ones. Never runs 'pip install -e .'."""
+    import subprocess
+    import re
+    from tubecli.i18n import t
+
+    # Collect required packages from pyproject.toml and requirements.txt
+    required_packages = set()
+
+    # From pyproject.toml
+    pyproject_path = os.path.join(project_root, "pyproject.toml")
+    if os.path.exists(pyproject_path):
+        try:
+            with open(pyproject_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            # Simple TOML parser for dependencies array
+            in_deps = False
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("dependencies"):
+                    in_deps = True
+                    continue
+                if in_deps:
+                    if stripped == "]":
+                        break
+                    # Extract package name from lines like '"click>=8.0",'
+                    match = re.match(r'^\s*"([a-zA-Z0-9_-]+)', stripped)
+                    if match:
+                        required_packages.add(match.group(1).lower().replace("-", "_"))
+        except Exception:
+            pass
+
+    # From requirements.txt
+    req_path = os.path.join(project_root, "requirements.txt")
+    if os.path.exists(req_path):
+        try:
+            with open(req_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        pkg = re.split(r"[>=<!\[\];]", line)[0].strip().lower().replace("-", "_")
+                        if pkg:
+                            required_packages.add(pkg)
+        except Exception:
+            pass
+
+    if not required_packages:
+        console.print(f"  [dim]{t('update.deps_skip')}[/dim]")
+        return
+
+    # Get currently installed packages
+    installed = set()
+    try:
+        r = subprocess.run(
+            [python_exe, "-m", "pip", "list", "--format=columns"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            for line in r.stdout.splitlines()[2:]:  # Skip header
+                parts = line.split()
+                if parts:
+                    installed.add(parts[0].lower().replace("-", "_"))
+    except Exception:
+        pass
+
+    # Find missing packages
+    missing = required_packages - installed
+    if not missing:
+        console.print(f"  [green]✅ {t('update.deps_all_present')}[/green]")
+        return
+
+    # Install only the missing packages
+    console.print(f"  [cyan]📦 {t('update.deps_installing_new', packages=', '.join(sorted(missing)))}[/cyan]")
+    try:
+        subprocess.run(
+            [python_exe, "-m", "pip", "install", *sorted(missing), "--quiet"],
+            capture_output=True, timeout=120,
+        )
+        console.print(f"  [green]✅ {t('update.deps_installed')}[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]⚠️ {t('update.deps_warning')}: {e}[/yellow]")
 
 
 def _pause():
