@@ -695,9 +695,30 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
 
         if (data.status === 'success') {
             termLog("🎉 Installation Complete!", '#00ff00');
+
+            // Derive extension slug for navigation
+            const extSlug = itemName.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+            const extTabId = 'ext-' + extSlug;
+
+            // Refresh sidebar to show the new extension
+            if (typeof loadDynamicExtensionsToSidebar === 'function') {
+                try { await loadDynamicExtensionsToSidebar(); } catch(e) {}
+            }
+
             if (btn) {
-                btn.innerHTML = '✅ Installed';
+                // Replace Installed badge with Open Extension button
+                btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open ${itemName}`;
                 btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                btn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
+                btn.disabled = false;
+                btn.onclick = () => {
+                    closeDetailModal();
+                    if (typeof navigateTo === 'function') {
+                        navigateTo(extTabId);
+                    } else {
+                        window.location.hash = '#/' + extTabId;
+                    }
+                };
             }
             showToast(data.message || 'Installed successfully!', 'success');
         } else if (res.status === 409 || data.detail?.already_installed) {
@@ -1844,6 +1865,12 @@ async function submitGitInstall() {
             termLog('🎉 Installation Complete!', '#00ff00');
             if (data.message) termLog(data.message, '#00ff00');
             showToast(data.message || 'Installed successfully via Git!', 'success');
+
+            // Refresh sidebar to show the new extension
+            if (typeof loadDynamicExtensionsToSidebar === 'function') {
+                try { await loadDynamicExtensionsToSidebar(); } catch(e) {}
+            }
+
             setTimeout(() => {
                 closeGitInstallModal();
                 loadItems();

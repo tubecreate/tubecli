@@ -224,9 +224,13 @@ async function loadDynamicExtensionsToSidebar() {
         const isHardcoded = hardcodedExtensions.includes(ext.name);
         
         if (!inRegistry && !isHardcoded && ext.extension_type === 'external' && ext.enabled) {
+            const tabId = 'ext-' + ext.name;
+
+            // Skip if sidebar button already exists (prevents duplicates on re-call)
+            const existingBtn = sidebarNav.querySelector(`[data-tab="${tabId}"]`);
+            if (existingBtn) return;
             const icon = ext.icon || '📦';
             const displayName = ext.display_name || ext.name;
-            const tabId = 'ext-' + ext.name;
             const pageUrl = ext.page_url; // Now available directly from /extensions API
             
             // Create sidebar button
