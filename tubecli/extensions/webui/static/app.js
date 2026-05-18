@@ -2694,13 +2694,14 @@ async function testTelegramConnection() {
 async function loadCloudKeysInSettings() {
     const container = document.getElementById('settings-cloud-keys-list');
     if (!container) return;
+    container.innerHTML = '<div style="display:flex;align-items:center;gap:8px;padding:16px;justify-content:center;color:var(--text-muted)"><span class="spinner" style="width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .6s linear infinite;display:inline-block"></span> Loading API keys...</div>';
     try {
         const data = await apiGet('/api/v1/cloud-api/keys');
         if (!data || !data.keys || Object.keys(data.keys).length === 0) {
             container.innerHTML = '<p style="color:var(--text-muted);font-size:.85rem;font-style:italic">Chưa có API key nào. Thêm key bên dưới để sử dụng mô hình Cloud.</p>';
             return;
         }
-        const icons = { gemini: '✨', openai: '🤖', claude: '🧠', deepseek: '🔮', grok: '⚡', '9router': '🔀' };
+        const icons = { gemini: '✨', openai: '🤖', claude: '🧠', deepseek: '🔮', grok: '⚡', openrouter: '🌐', everai: '🎙️', github: '🐙', '9router': '🔀' };
         let html = '';
         let totalKeys = 0;
         for (const [provider, labelsObj] of Object.entries(data.keys)) {
