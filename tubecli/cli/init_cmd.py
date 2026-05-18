@@ -905,12 +905,18 @@ def _run_update_check():
     console.print(Panel(
         f"  {t('update.old_ver')}: [dim]{__version__}[/dim]\n"
         f"  {t('update.new_ver')}: [bold green]{new_version or 'updated'}[/bold green]\n\n"
-        f"  💡 {t('update.restart_note')}",
+        f"  🔄 {t('update.auto_restart')}",
         title=f"✅ {t('update.complete')}",
         border_style="bright_green",
         padding=(1, 2),
     ))
-    _pause()
+    # Auto-restart TubeCLI
+    import time
+    for i in range(3, 0, -1):
+        console.print(f"  [cyan]⏳ Restarting in {i}...[/cyan]", end="\r")
+        time.sleep(1)
+    console.print()
+    os.execv(sys.executable, [sys.executable, "-m", "tubecli", "init"])
 
 
 def _install_missing_deps(project_root: str, python_exe: str):
