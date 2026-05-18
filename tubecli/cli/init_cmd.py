@@ -529,6 +529,7 @@ def _run_control_panel():
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]6.[/bold yellow] {t('panel.docs'):<42}[bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]7.[/bold yellow] {t('panel.setup_wizard'):<42}[bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]8.[/bold yellow] {t('panel.toggle_logs')} [{log_status}]{'':>19}[bold cyan]║[/bold cyan]")
+        console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]9.[/bold yellow] {t('panel.update'):<42}[bold cyan]║[/bold cyan]")
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]0.[/bold yellow] {t('panel.exit'):<42}[bold cyan]║[/bold cyan]")
         console.print("[bold cyan]╚══════════════════════════════════════════════╝[/bold cyan]")
 
@@ -668,5 +669,218 @@ def _run_control_panel():
             _start_api(quiet=not show_api_logs)
             console.print(t("panel.api_started"))
 
+        elif choice == "9":
+            _run_update_check()
+
         else:
             console.print(t("panel.invalid_selection"))
+
+
+# ═══════════════════════════════════════════════════════════════
+#  UPDATE CHECKER — Check and apply TubeCLI updates
+# ═══════════════════════════════════════════════════════════════
+
+def _run_update_check():
+    """Check for TubeCLI updates from git and optionally apply them."""
+    import subprocess
+    import sys
+    from tubecli.i18n import t
+    from tubecli.config import BASE_DIR
+    from tubecli import __version__
+
+    project_root = str(BASE_DIR)
+
+    console.print()
+    console.print(Panel(
+        t("update.checking_body"),
+        title=t("update.title"),
+        border_style="bright_cyan",
+        padding=(1, 2),
+    ))
+
+    # Step 1: Get current version info
+    current_hash = ""
+    current_branch = ""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            current_hash = r.stdout.strip()
+    except Exception:
+        pass
+
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            current_branch = r.stdout.strip()
+    except Exception:
+        pass
+
+    console.print(f"  [bold]{t('update.current_version')}[/bold] [cyan]{__version__}[/cyan]")
+    console.print(f"  [bold]{t('update.git_branch')}[/bold] [cyan]{current_branch}[/cyan] ({current_hash})")
+
+    # Step 2: Fetch remote
+    console.print(f"\n  [dim]{t('update.fetching')}[/dim]")
+    try:
+        r_fetch = subprocess.run(
+            ["git", "fetch", "origin"],
+            cwd=project_root, capture_output=True, text=True, timeout=30,
+        )
+        if r_fetch.returncode != 0:
+            console.print(f"  [red]❌ {t('update.fetch_failed')}: {r_fetch.stderr.strip()}[/red]")
+            _pause()
+            return
+    except FileNotFoundError:
+        console.print(f"  [red]❌ Git is not installed or not in PATH.[/red]")
+        _pause()
+        return
+    except subprocess.TimeoutExpired:
+        console.print(f"  [red]❌ {t('update.fetch_timeout')}[/red]")
+        _pause()
+        return
+
+    # Step 3: Compare commits
+    remote_branch = f"origin/{current_branch}" if current_branch else "origin/main"
+
+    latest_hash = ""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--short", remote_branch],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            latest_hash = r.stdout.strip()
+    except Exception:
+        pass
+
+    commits_behind = 0
+    try:
+        r = subprocess.run(
+            ["git", "rev-list", "--count", f"HEAD..{remote_branch}"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            commits_behind = int(r.stdout.strip())
+    except Exception:
+        pass
+
+    # Read remote version from __init__.py
+    remote_version = ""
+    try:
+        r = subprocess.run(
+            ["git", "show", f"{remote_branch}:tubecli/__init__.py"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            for line in r.stdout.splitlines():
+                if line.startswith("__version__"):
+                    remote_version = line.split("=")[1].strip().strip('"').strip("'")
+                    break
+    except Exception:
+        pass
+
+    console.print(f"  [bold]{t('update.remote_version')}[/bold] [green]{remote_version or '?'}[/green] ({latest_hash})")
+
+    if commits_behind == 0:
+        console.print(f"\n  [bold green]✅ {t('update.up_to_date')}[/bold green]")
+        _pause()
+        return
+
+    # Step 4: Show changelog
+    console.print(f"\n  [bold yellow]⚡ {t('update.commits_behind', count=commits_behind)}[/bold yellow]")
+
+    changelog = []
+    try:
+        r = subprocess.run(
+            ["git", "log", "--oneline", f"HEAD..{remote_branch}", "--format=%h %s"],
+            cwd=project_root, capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            changelog = [line.strip() for line in r.stdout.strip().split("\n") if line.strip()]
+    except Exception:
+        pass
+
+    if changelog:
+        console.print(f"\n  [bold cyan]{t('update.changelog')}[/bold cyan]")
+        for entry in changelog[:15]:
+            parts = entry.split(" ", 1)
+            hash_str = parts[0] if len(parts) > 0 else ""
+            msg = parts[1] if len(parts) > 1 else entry
+            console.print(f"    [dim]{hash_str}[/dim] {msg}")
+        if len(changelog) > 15:
+            console.print(f"    [dim]... {t('update.and_more', count=len(changelog) - 15)}[/dim]")
+
+    # Step 5: Confirm update
+    console.print()
+    console.print(f"  [bold yellow]1.[/bold yellow] {t('update.apply_now')}")
+    console.print(f"  [bold yellow]0.[/bold yellow] {t('update.skip')}\n")
+
+    choice = click.prompt(t("panel.select"), type=str, default="1")
+
+    if choice != "1":
+        console.print(f"  [yellow]{t('update.skipped')}[/yellow]")
+        _pause()
+        return
+
+    # Step 6: Apply update
+    console.print(f"\n  [cyan]{t('update.pulling')}[/cyan]")
+    try:
+        r_pull = subprocess.run(
+            ["git", "pull", "origin", current_branch or "main"],
+            cwd=project_root, capture_output=True, text=True, timeout=60,
+        )
+        if r_pull.returncode != 0:
+            console.print(f"  [red]❌ Git pull failed: {r_pull.stderr.strip()}[/red]")
+            _pause()
+            return
+        console.print(f"  [green]✅ {t('update.pull_success')}[/green]")
+    except Exception as e:
+        console.print(f"  [red]❌ Git pull error: {e}[/red]")
+        _pause()
+        return
+
+    # Step 7: Reinstall dependencies
+    console.print(f"  [cyan]{t('update.installing_deps')}[/cyan]")
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"],
+            cwd=project_root, capture_output=True, text=True, timeout=120,
+        )
+        console.print(f"  [green]✅ {t('update.deps_installed')}[/green]")
+    except Exception as e:
+        console.print(f"  [yellow]⚠️ {t('update.deps_warning')}: {e}[/yellow]")
+
+    # Read new version
+    new_version = ""
+    try:
+        init_file = os.path.join(project_root, "tubecli", "__init__.py")
+        with open(init_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("__version__"):
+                    new_version = line.split("=")[1].strip().strip('"').strip("'")
+                    break
+    except Exception:
+        pass
+
+    console.print()
+    console.print(Panel(
+        f"  {t('update.old_ver')}: [dim]{__version__}[/dim]\n"
+        f"  {t('update.new_ver')}: [bold green]{new_version or 'updated'}[/bold green]\n\n"
+        f"  💡 {t('update.restart_note')}",
+        title=f"✅ {t('update.complete')}",
+        border_style="bright_green",
+        padding=(1, 2),
+    ))
+    _pause()
+
+
+def _pause():
+    """Wait for user to press Enter before returning to menu."""
+    from tubecli.i18n import t
+    click.prompt(t("update.press_enter"), default="", show_default=False, prompt_suffix="")
+
