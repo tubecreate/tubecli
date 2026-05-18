@@ -92,6 +92,13 @@ PROVIDERS = {
         "models": ["tts"],
         "env_var": "EVERAI_API_KEY",
     },
+    "9router": {
+        "name": "9Router",
+        "base_url": "http://localhost:20128/v1",
+        "models": [],
+        "env_var": "",
+        "local": True,
+    },
 }
 
 
