@@ -7,9 +7,10 @@ import click
 from tubecli import __version__
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="tubecli")
-def cli():
+@click.pass_context
+def cli(ctx):
     """🚀 TubeCLI — Open Source AI Agent CLI System
 
     Manage agents, skills, and workflows from the command line.
@@ -19,6 +20,10 @@ def cli():
     from tubecli.config import get_language
     from tubecli.i18n import load_language
     load_language(get_language())
+
+    # If no subcommand given → auto-run init with last saved language
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(init_cmd, lang=get_language(), port=None)
 
 
 # ── Core Commands ─────────────────────────────────────────
