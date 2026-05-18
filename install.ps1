@@ -206,6 +206,32 @@ function Ensure-PythonScriptsInPath {
 
 # --- Main Logic ---
 
+# Kill all running TubeCLI processes to prevent conflicts
+Write-Host "[*] Killing existing TubeCLI processes..." -ForegroundColor Yellow
+$killedCount = 0
+try {
+    # Kill by window title
+    Get-Process | Where-Object { $_.MainWindowTitle -like "TubeCLI*" } | ForEach-Object {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        $killedCount++
+    }
+    # Kill python processes running tubecli or uvicorn
+    Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='python3.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
+        $cmdLine = $_.CommandLine
+        if ($cmdLine -and ($cmdLine -match "tubecli|uvicorn")) {
+            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            $killedCount++
+        }
+    }
+} catch {
+    # Silently continue if process killing fails
+}
+if ($killedCount -gt 0) {
+    Write-Host "[OK] Killed $killedCount process(es)" -ForegroundColor Green
+} else {
+    Write-Host "[OK] No running TubeCLI processes found" -ForegroundColor Green
+}
+
 if (-not (Check-Python)) {
     if (-not (Install-Python)) {
         Complete-Install -Succeeded:$false
