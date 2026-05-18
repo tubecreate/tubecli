@@ -276,13 +276,124 @@ if ($tubecliCmd) {
     } catch {
         Write-Host "[!] Failed to run 'tubecli init'. You may need to run it manually." -ForegroundColor Yellow
     }
-    
+
+    # ── Create Launcher & Shortcuts ──────────────────────────────
     Write-Host ""
-    Write-Host "Installation Complete! You can now use the 'tubecli' command." -ForegroundColor Cyan
-    Write-Host "Note: If 'tubecli' is not recognized, please close and reopen your terminal." -ForegroundColor Yellow
+    Write-Host "[*] Creating launcher and shortcuts..." -ForegroundColor Yellow
+
+    # 1. Create TubeCLI.bat launcher in install directory
+    $batPath = Join-Path $targetDir "TubeCLI.bat"
+    $batContent = @"
+@echo off
+title TubeCLI
+cd /d "$targetDir"
+tubecli
+pause
+"@
+    Set-Content -Path $batPath -Value $batContent -Encoding ASCII
+    Write-Host "  [OK] Created launcher: $batPath" -ForegroundColor Green
+
+    # 2. Create .ico from SVG (use a simple embedded icon approach)
+    #    We generate a minimal .ico file for the shortcut
+    $icoPath = Join-Path $targetDir "tubecli.ico"
+    $svgPath = Join-Path $targetDir "tubecli\extensions\webui\static\logo.svg"
+
+    # Try to convert SVG to ICO using PowerShell/.NET if possible
+    $useDefaultIcon = $true
+    if (Test-Path $svgPath) {
+        try {
+            Add-Type -AssemblyName System.Drawing
+            # Create a simple 64x64 icon with the TubeCLI brand color
+            $bmp = New-Object System.Drawing.Bitmap(64, 64)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            # Dark background circle
+            $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(30, 30, 46))
+            $g.FillEllipse($bgBrush, 2, 2, 60, 60)
+            # Cyan accent ring
+            $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 200, 255), 3)
+            $g.DrawEllipse($pen, 4, 4, 56, 56)
+            # "T" letter in center
+            $font = New-Object System.Drawing.Font("Segoe UI", 28, [System.Drawing.FontStyle]::Bold)
+            $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(0, 200, 255))
+            $sf = New-Object System.Drawing.StringFormat
+            $sf.Alignment = [System.Drawing.StringAlignment]::Center
+            $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
+            $rect = New-Object System.Drawing.RectangleF(0, 0, 64, 64)
+            $g.DrawString("T", $font, $textBrush, $rect, $sf)
+            $g.Dispose()
+            # Save as icon
+            $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+            $fs = [System.IO.FileStream]::new($icoPath, [System.IO.FileMode]::Create)
+            $icon.Save($fs)
+            $fs.Close()
+            $bmp.Dispose()
+            $useDefaultIcon = $false
+            Write-Host "  [OK] Created icon: $icoPath" -ForegroundColor Green
+        } catch {
+            Write-Host "  [!] Could not create custom icon, using default" -ForegroundColor Gray
+        }
+    }
+
+    # 3. Create Desktop shortcut
+    try {
+        $desktopPath = [Environment]::GetFolderPath("Desktop")
+        $shortcutPath = Join-Path $desktopPath "TubeCLI.lnk"
+
+        $WshShell = New-Object -ComObject WScript.Shell
+        $shortcut = $WshShell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $batPath
+        $shortcut.WorkingDirectory = $targetDir
+        $shortcut.Description = "TubeCLI - Open Source AI Agent System"
+        $shortcut.WindowStyle = 1  # Normal window
+        if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
+            $shortcut.IconLocation = "$icoPath,0"
+        }
+        $shortcut.Save()
+        Write-Host "  [OK] Desktop shortcut created: $shortcutPath" -ForegroundColor Green
+    } catch {
+        Write-Host "  [!] Could not create Desktop shortcut: $_" -ForegroundColor Yellow
+    }
+
+    # 4. Create Start Menu shortcut
+    try {
+        $startMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\TubeCLI"
+        if (-not (Test-Path $startMenuDir)) {
+            New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
+        }
+        $startShortcutPath = Join-Path $startMenuDir "TubeCLI.lnk"
+
+        $WshShell2 = New-Object -ComObject WScript.Shell
+        $startShortcut = $WshShell2.CreateShortcut($startShortcutPath)
+        $startShortcut.TargetPath = $batPath
+        $startShortcut.WorkingDirectory = $targetDir
+        $startShortcut.Description = "TubeCLI - Open Source AI Agent System"
+        $startShortcut.WindowStyle = 1
+        if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
+            $startShortcut.IconLocation = "$icoPath,0"
+        }
+        $startShortcut.Save()
+        Write-Host "  [OK] Start Menu shortcut created" -ForegroundColor Green
+    } catch {
+        Write-Host "  [!] Could not create Start Menu shortcut: $_" -ForegroundColor Yellow
+    }
+
+    Write-Host ""
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host "  Installation Complete!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  You can now launch TubeCLI by:" -ForegroundColor White
+    Write-Host "    1. Double-click 'TubeCLI' on your Desktop" -ForegroundColor Cyan
+    Write-Host "    2. Search 'TubeCLI' in Start Menu" -ForegroundColor Cyan
+    Write-Host "    3. Type 'tubecli' in any terminal" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Note: If 'tubecli' is not recognized in terminal," -ForegroundColor Yellow
+    Write-Host "  please close and reopen your terminal." -ForegroundColor Yellow
 } else {
     Write-Host "[!] TubeCLI installed, but the 'tubecli' command is not in your PATH." -ForegroundColor Yellow
     Write-Host "Please close this terminal, open a new one, and try running 'tubecli'." -ForegroundColor Yellow
 }
 
 Complete-Install -Succeeded:$true
+
