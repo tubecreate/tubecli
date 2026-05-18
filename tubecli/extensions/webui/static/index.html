@@ -6,32 +6,46 @@
     <title>TubeCLI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=7">
+    <link rel="stylesheet" href="/static/style.css?v=8">
 </head>
 <body>
 <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 16px 4px;">
-            <div class="sidebar-logo" style="padding:0"><img src="/static/logo.svg" alt="TubeCLI"> TubeCLI</div>
-            <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem;"><span class="material-symbols-outlined">menu</span></button>
-        </div>
-        <div class="sidebar-version" id="sidebar-version">v...</div>
-        <div class="sidebar-update" id="sidebar-update" style="display:none">
-            <div class="update-info">
-                <span class="material-symbols-outlined" style="font-size:16px;color:var(--primary)">upgrade</span>
-                <span id="update-text">New version available</span>
+        <div style="padding: 16px 16px 12px; border-bottom: 1px solid var(--border);">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                <div class="sidebar-logo-container" style="display:flex; align-items:center; gap: 10px;">
+                    <div style="width: 38px; height: 38px; background: rgba(82, 118, 235, 0.1); border-radius: 10px; display:flex; align-items:center; justify-content:center; border: 1px solid rgba(82, 118, 235, 0.2);">
+                        <img src="/static/logo.svg" alt="TubeCLI" style="width: 24px; height: 24px;">
+                    </div>
+                    <div style="display:flex; flex-direction:column;">
+                        <div class="sidebar-logo" style="padding:0; font-size:1.05rem; line-height:1.2; font-weight:800;">TubeCLI</div>
+                        <div class="sidebar-version" id="sidebar-version" style="padding:0; margin-top:2px; color:var(--text-muted); font-size:0.75rem;">v...</div>
+                    </div>
+                </div>
+                <button onclick="toggleSidebar()" class="sidebar-menu-btn" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem; margin-top:2px; padding:0; display:flex; justify-content:center; align-items:center;"><span class="material-symbols-outlined">menu</span></button>
             </div>
-            <button class="btn-update-now" id="btn-update-now" onclick="performUpdate()">Update now</button>
+            
+            <div class="sidebar-update" id="sidebar-update" style="display:none; flex-direction:column; gap:8px; margin:12px 0 0 0; background:rgba(245, 158, 11, 0.1); border:1px solid rgba(245, 158, 11, 0.2); border-radius:8px; padding:10px;">
+                <div class="update-info" style="color:var(--warning, #f59e0b); font-size:0.75rem; font-weight:700; display:flex; align-items:center; gap:6px; margin:0;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">arrow_upward</span>
+                    <span id="update-text">New version available</span>
+                </div>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <button class="btn-update-now" id="btn-update-now" onclick="performUpdate()" style="background:var(--warning, #f59e0b); color:#000; border:none; padding:5px 12px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;">Update now</button>
+                    <span style="font-family:monospace; font-size:0.7rem; color:var(--text-muted);">auto-update</span>
+                </div>
+            </div>
         </div>
         <nav class="sidebar-nav">
             <div class="nav-section-label" data-i18n="nav.main">MAIN</div>
             <button class="nav-item active" data-tab="dashboard"><span class="material-symbols-outlined">dashboard</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
             <button class="nav-item" data-tab="extensions" id="nav-extensions"><span class="material-symbols-outlined">extension</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span><span id="ext-update-badge" style="display:none;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;margin-left:auto;padding:0 5px;animation:pulse 2s infinite"></span></button>
             <button class="nav-item" data-tab="api-manager"><span class="material-symbols-outlined">api</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
-            <button class="nav-item" data-tab="settings"><span class="material-symbols-outlined">settings</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
             <button class="nav-item" data-tab="ext-auth-manager"><span class="material-symbols-outlined">lock</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
+            <button class="nav-item" data-tab="ext-cloud-keys"><span class="material-symbols-outlined">cloud</span> <span class="nav-text" data-i18n="nav.cloud_keys">Cloud API Keys</span></button>
             <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('market'), 200)"><span class="material-symbols-outlined">storefront</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
+            <button class="nav-item" data-tab="settings"><span class="material-symbols-outlined">settings</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
 
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
             <button class="nav-item" data-tab="ext-agents"><span class="material-symbols-outlined">smart_toy</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
@@ -53,8 +67,11 @@
             <button class="nav-item ext-conditional" data-ext="ai_arena" data-tab="ext-ai-arena" style="display:none"><span class="material-symbols-outlined">sports_esports</span> <span class="nav-text">AI Arena</span></button>
 
         </nav>
-        <div class="sidebar-footer" id="sidebar-footer">
-            <span class="status-dot"></span> <span data-i18n="sidebar.connected">API Connected</span>
+        <div class="sidebar-footer" id="sidebar-footer" style="padding: 12px;">
+            <button onclick="shutdownServer()" class="btn-shutdown" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px; padding:10px; background:transparent; border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; color:var(--text); font-weight:600; cursor:pointer; transition:all 0.2s;">
+                <span class="material-symbols-outlined" style="font-size:18px;">power_settings_new</span>
+                <span class="nav-text">Shutdown</span>
+            </button>
         </div>
     </aside>
 
@@ -123,6 +140,10 @@
         <section class="tab-panel" id="tab-ext-browser">
             <div class="panel-header"><h1>🌐 Browser Profiles</h1></div>
             <div id="browser-ext-body"></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-cloud-keys">
+            <div class="panel-header"><h1>☁️ Cloud API Keys</h1></div>
+            <div id="cloud-keys-ext-body" style="padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg2);"></div>
         </section>
         <section class="tab-panel" id="tab-ext-downloader">
             <div class="iframe-container"><iframe data-src="/downloader" class="ext-iframe"></iframe></div>
@@ -788,7 +809,7 @@
 </div>
 
 <script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=24"></script>
+<script src="/static/app.js?v=30"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){

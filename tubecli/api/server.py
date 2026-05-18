@@ -55,7 +55,26 @@ async def shutdown_event():
     from tubecli.core.telegram_listener import telegram_listener
     await telegram_listener.stop()
 
-
+@app.post("/api/v1/system/shutdown")
+async def shutdown_server():
+    """Trigger a graceful shutdown of the TubeCLI server."""
+    import threading
+    import time
+    def _shutdown():
+        time.sleep(1)
+        cli_pid = os.environ.get("TUBECLI_CLI_PID")
+        if cli_pid:
+            try:
+                import signal
+                if os.name == 'nt':
+                    os.system(f"taskkill /F /PID {cli_pid}")
+                else:
+                    os.kill(int(cli_pid), signal.SIGTERM)
+            except Exception:
+                pass
+        os._exit(0)
+    threading.Thread(target=_shutdown).start()
+    return {"status": "success", "message": "Server is shutting down..."}
 
 # ── Pydantic Models ──────────────────────────────────────────────
 

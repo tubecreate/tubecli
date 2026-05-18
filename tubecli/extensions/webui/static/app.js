@@ -28,7 +28,7 @@ const ROUTE_TAB_MAP = {
 function navigateTo(tab) {
     const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
-        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser'];
+        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys'];
         if (!excludeTabs.includes(tab)) {
             const panel = document.getElementById('tab-' + tab);
             if (panel) {
@@ -46,6 +46,77 @@ function navigateTo(tab) {
     window.location.hash = '#/' + tab;
 }
 
+async function shutdownServer() {
+    if (!confirm('Are you sure you want to shut down TubeCLI?')) return;
+    try {
+        const btn = document.querySelector('#sidebar-footer button');
+        if (btn) btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;"></span> Shutting down...';
+        await fetch(`${API}/api/v1/system/shutdown`, { method: 'POST' });
+        setTimeout(() => {
+            document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#000;color:#fff;font-family:sans-serif;font-size:1.5rem;">TubeCLI has been shut down. You can close this window.</div>';
+        }, 1000);
+    } catch (e) {
+        console.error('Failed to shutdown', e);
+        alert('Failed to shutdown server.');
+    }
+}
+
+window.syncThemeToIframe = function(iframe) {
+    try {
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (!doc) return;
+        const rootStyles = getComputedStyle(document.documentElement);
+        const getVar = (...names) => {
+            for (const n of names) {
+                const v = rootStyles.getPropertyValue(n).trim();
+                if (v) return v;
+            }
+            return '';
+        };
+
+        const mappedVars = {
+            '--bg': getVar('--bg'),
+            '--bg2': getVar('--bg2'),
+            '--bg3': getVar('--bg3', '--bg-secondary'),
+            '--sidebar-bg': getVar('--bg2', '--bg-secondary'),
+            '--surface': getVar('--bg2', '--bg-secondary'),
+            '--hover-bg': getVar('--bg-hover', '--bg3'),
+            '--text': getVar('--text'),
+            '--text2': getVar('--text2', '--text-muted'),
+            '--text3': getVar('--text-muted', '--text-subtle'),
+            '--muted': getVar('--text-muted', '--text2'),
+            '--border': getVar('--border'),
+            '--card': getVar('--bg3', '--bg2'),
+            '--card2': getVar('--bg-lighter', '--bg3'),
+            '--card-bg': getVar('--bg3', '--bg2'),
+            '--card-border': getVar('--border', '--border-subtle'),
+            '--accent': getVar('--accent', '--primary'),
+            '--accent2': getVar('--accent-hover', '--primary-hover'),
+            '--cyan': getVar('--cyan'),
+            '--red': getVar('--red'),
+            '--green': getVar('--green'),
+            '--orange': getVar('--orange'),
+            '--yellow': getVar('--yellow')
+        };
+        let cssText = ':root { ';
+        for (const [k, v] of Object.entries(mappedVars)) {
+            if (v) cssText += `${k}: ${v} !important; `;
+        }
+        cssText += '} ';
+        cssText += 'body { background: var(--bg) !important; color: var(--text) !important; } ';
+        cssText += '.header { background: var(--bg2) !important; border-bottom-color: var(--border) !important; } ';
+        cssText += '.studio-layout, .studio-sidebar, .studio-toolbar { background: var(--bg) !important; } ';
+        
+        let styleEl = doc.getElementById('tubecli-theme-sync');
+        if (!styleEl) {
+            styleEl = doc.createElement('style');
+            styleEl.id = 'tubecli-theme-sync';
+            doc.head.appendChild(styleEl);
+        }
+        styleEl.innerHTML = cssText;
+    } catch(e) {}
+};
+
 function handleRoute() {
     const hash = window.location.hash.replace('#/', '') || 'dashboard';
     const tab = ROUTE_TAB_MAP[hash] || (hash.startsWith('ext-') ? hash : 'dashboard');
@@ -61,7 +132,7 @@ function activateTab(tab) {
     // Toggle padding on content area for full-screen iframes (skip native calendar)
     const contentArea = document.querySelector('.content');
     if (contentArea) {
-        if (tab.startsWith('ext-') && tab !== 'ext-calendar' && tab !== 'ext-agents' && tab !== 'ext-browser') contentArea.classList.add('no-padding');
+        if (tab.startsWith('ext-') && tab !== 'ext-calendar' && tab !== 'ext-agents' && tab !== 'ext-browser' && tab !== 'ext-cloud-keys') contentArea.classList.add('no-padding');
         else contentArea.classList.remove('no-padding');
     }
 
@@ -93,6 +164,7 @@ function activateTab(tab) {
                 setTimeout(() => {
                     if (loader.parentNode) loader.parentNode.removeChild(loader);
                 }, 300);
+                window.syncThemeToIframe(iframe);
             };
             const rawSrc = iframe.getAttribute('data-src');
             iframe.src = rawSrc + (rawSrc.includes('?') ? '&' : '?') + 't=' + Date.now();
@@ -111,6 +183,9 @@ function activateTab(tab) {
     }
     else if (tab === 'ext-browser') {
         renderBrowserExt(document.getElementById('browser-ext-body'));
+    }
+    else if (tab === 'ext-cloud-keys') {
+        renderCloudApiExt(document.getElementById('cloud-keys-ext-body'));
     }
 }
 
@@ -740,6 +815,7 @@ function openExtDetail(id) {
         'studio3d': 'ext-studio',
         'video_manager': 'ext-video-manager',
         'subtitle_extractor': 'ext-subtitle-extractor',
+        'cloud_api': 'ext-cloud-keys',
     };
     if (hashRoutes[id]) { navigateTo(hashRoutes[id]); return; }
 
@@ -789,6 +865,7 @@ function renderFullPageExt(el, name, desc, url) {
             loader.style.opacity = '0';
             setTimeout(() => { if (loader.parentNode) loader.parentNode.removeChild(loader); }, 300);
         }
+        window.syncThemeToIframe(iframe);
     };
 }
 
@@ -1118,7 +1195,7 @@ async function renderBrowserExt(el) {
 
 // ── Workflows Ext ──
 async function renderWorkflowsExt(el) {
-    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="/workflow?v=3" style="width:100%;height:100%;border:none"></iframe></div>`;
+    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="/workflow?v=3" style="width:100%;height:100%;border:none" onload="window.syncThemeToIframe(this)"></iframe></div>`;
 }
 
 // ── Skills Ext ──
@@ -1443,14 +1520,14 @@ window.saveProviderModels = function() {
     .then(r => {
         if(r?.status === 'success') {
             closeModal('modal-edit-models');
-            renderCloudApiExt(document.getElementById('ext-detail-body'));
+            renderCloudApiExt(document.getElementById('cloud-keys-ext-body') || document.getElementById('ext-detail-body'));
         } else {
             alert(r.error || r.message || 'Lỗi khi lưu models.');
         }
     });
 };
 
-async function removeApiKeyExt(provider, label) { if (!confirm(`Remove "${label}" from ${provider}?`)) return; await apiDelete('/api/v1/cloud-api/keys', {provider,label}); renderCloudApiExt(document.getElementById('ext-detail-body')); }
+async function removeApiKeyExt(provider, label) { if (!confirm(`Remove "${label}" from ${provider}?`)) return; await apiDelete('/api/v1/cloud-api/keys', {provider,label}); renderCloudApiExt(document.getElementById('cloud-keys-ext-body') || document.getElementById('ext-detail-body')); }
 
 // ── Ollama Ext ──
 async function renderOllamaExt(el) {
@@ -1925,7 +2002,7 @@ function copyApiResponse() {
 // ═══ API Key Management ═══
 function showAddApiKey() { document.getElementById('modal-add-key').classList.remove('hidden'); }
 function prefillAddKey(provider) { document.getElementById('add-key-provider').value = provider; document.getElementById('add-key-value').value = ''; document.getElementById('add-key-label').value = `key_${Math.floor(Date.now() / 1000)}`; document.getElementById('modal-add-key').classList.remove('hidden'); }
-async function addApiKey() { const prov=document.getElementById('add-key-provider').value, key=document.getElementById('add-key-value').value.trim(), label=document.getElementById('add-key-label').value.trim()||'default'; if(!key) return alert('Key required.'); const r = await apiPost('/api/v1/cloud-api/keys',{provider:prov,api_key:key,label}); if(r&&r.status==='success') { closeModal('modal-add-key'); renderCloudApiExt(document.getElementById('ext-detail-body')); alert('Added!'); } else alert('Failed.'); }
+async function addApiKey() { const prov=document.getElementById('add-key-provider').value, key=document.getElementById('add-key-value').value.trim(), label=document.getElementById('add-key-label').value.trim()||'default'; if(!key) return alert('Key required.'); const r = await apiPost('/api/v1/cloud-api/keys',{provider:prov,api_key:key,label}); if(r&&r.status==='success') { closeModal('modal-add-key'); renderCloudApiExt(document.getElementById('cloud-keys-ext-body') || document.getElementById('ext-detail-body')); alert('Added!'); } else alert('Failed.'); }
 async function testApiKey(provider, label = 'default') { 
     alert(`Testing ${provider} [${label}]...`); 
     const r = await apiPost('/api/v1/cloud-api/keys/test', {provider, label}); 
@@ -2934,7 +3011,7 @@ async function refreshFingerprint() {
 }
 
 // ═══ Connection Check ═══
-async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(r.ok) document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot"></span> API Connected'; else throw 0; } catch { document.querySelector('.sidebar-footer').innerHTML='<span class="status-dot" style="background:var(--red)"></span> API Offline'; } }
+async function checkConnection() { try { const r=await fetch(API+'/api/v1/health',{signal:AbortSignal.timeout(2000)}); if(!r.ok) throw 0; } catch { console.warn('API Offline'); } }
 
 // ═══ Version & Update ═══
 async function loadVersionInfo() {
@@ -3111,7 +3188,6 @@ async function doExtensionUpdate(name, publicId, gitUrl, btn) {
 // ═══ Init ═══
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
-    checkConnection();
     loadVersionInfo();
     loadGlobalSettings();
     loadDynamicExtensionsToSidebar();

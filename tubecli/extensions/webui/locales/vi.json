@@ -23,6 +23,7 @@
     "dash.browser_profiles": "🌐 Hồ sơ trình duyệt",
     "dash.workflow_builder": "🔄 Trình tạo Workflow",
     "dash.cloud_api_keys": "☁️ Cloud API Keys",
+    "nav.cloud_keys": "Quản lý Cloud API",
     "status.online": "Trực tuyến",
     "status.offline": "Ngoại tuyến",
     "status.checking": "Đang kiểm tra...",

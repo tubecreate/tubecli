@@ -486,6 +486,7 @@ def _run_control_panel():
         env = os.environ.copy()
         env["PYTHONUTF8"] = "1"
         env["TUBECLI_PORT"] = str(port)
+        env["TUBECLI_CLI_PID"] = str(os.getpid())
         if os.name == "nt":
             if quiet:
                 cmd = f"tubecli api start --quiet --lang {cur_lang}"
