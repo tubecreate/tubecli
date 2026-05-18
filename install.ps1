@@ -306,38 +306,89 @@ if ($tubecliCmd) {
 @echo off
 title TubeCLI - AI Agent System
 cd /d "$targetDir"
-echo Starting TubeCLI...
-start "" /B tubecli api start --quiet
-timeout /t 2 /nobreak >nul
-start http://localhost:5295/dashboard
+
+REM Open dashboard in browser once (after API starts)
+if not exist "%TEMP%\tubecli_browser.lock" (
+    echo. > "%TEMP%\tubecli_browser.lock"
+    start /B cmd /c "timeout /t 4 /nobreak >nul & start http://localhost:5295/dashboard & timeout /t 2 /nobreak >nul & del "%TEMP%\tubecli_browser.lock" >nul 2>nul"
+)
+
 tubecli
 pause
 "@
     Set-Content -Path $batPath -Value $batContent -Encoding ASCII
     Write-Host "  [OK] Created launcher: $batPath" -ForegroundColor Green
 
-    # 2. Create .ico icon for shortcut
+    # 2. Generate .ico icon matching the actual TubeCLI logo (blue AI icon)
     $icoPath = Join-Path $targetDir "tubecli.ico"
-    $svgPath = Join-Path $targetDir "tubecli\extensions\webui\static\logo.svg"
 
     $useDefaultIcon = $true
-    if (Test-Path $svgPath) {
+    try {
+        # Use Python to generate a proper icon matching the logo
+        $iconScript = @"
+import sys
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    import subprocess
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'Pillow', '--quiet'], capture_output=True)
+    from PIL import Image, ImageDraw, ImageFont
+
+sizes = [16, 32, 48, 64, 128, 256]
+images = []
+for sz in sizes:
+    img = Image.new('RGBA', (sz, sz), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Blue circle background matching logo color #5276EB
+    margin = max(1, sz // 32)
+    draw.ellipse([margin, margin, sz - margin - 1, sz - margin - 1], fill=(82, 118, 235, 255))
+    # White "AI" text
+    font_size = int(sz * 0.38)
+    try:
+        font = ImageFont.truetype("segoeui.ttf", font_size)
+    except:
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except:
+            font = ImageFont.load_default()
+    text = "AI"
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    x = (sz - tw) // 2
+    y = (sz - th) // 2 - bbox[1]
+    draw.text((x, y), text, fill=(255, 255, 255, 255), font=font)
+    images.append(img)
+
+images[0].save(sys.argv[1], format='ICO', sizes=[(s, s) for s in sizes], append_images=images[1:])
+"@
+        $iconScriptPath = Join-Path $env:TEMP "tubecli_gen_icon.py"
+        Set-Content -Path $iconScriptPath -Value $iconScript -Encoding UTF8
+        $result = python $iconScriptPath $icoPath 2>&1
+        Remove-Item $iconScriptPath -ErrorAction SilentlyContinue
+        if (Test-Path $icoPath) {
+            $useDefaultIcon = $false
+            Write-Host "  [OK] Created icon: $icoPath" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  [!] Could not create icon: $_" -ForegroundColor Gray
+    }
+
+    # Fallback: .NET generated icon
+    if ($useDefaultIcon) {
         try {
             Add-Type -AssemblyName System.Drawing
             $bmp = New-Object System.Drawing.Bitmap(64, 64)
             $g = [System.Drawing.Graphics]::FromImage($bmp)
             $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-            $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(30, 30, 46))
+            $bgBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(82, 118, 235))
             $g.FillEllipse($bgBrush, 2, 2, 60, 60)
-            $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(0, 200, 255), 3)
-            $g.DrawEllipse($pen, 4, 4, 56, 56)
-            $font = New-Object System.Drawing.Font("Segoe UI", 28, [System.Drawing.FontStyle]::Bold)
-            $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(0, 200, 255))
+            $font = New-Object System.Drawing.Font("Segoe UI", 22, [System.Drawing.FontStyle]::Bold)
+            $textBrush = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::White)
             $sf = New-Object System.Drawing.StringFormat
             $sf.Alignment = [System.Drawing.StringAlignment]::Center
             $sf.LineAlignment = [System.Drawing.StringAlignment]::Center
             $rect = New-Object System.Drawing.RectangleF(0, 0, 64, 64)
-            $g.DrawString("T", $font, $textBrush, $rect, $sf)
+            $g.DrawString("AI", $font, $textBrush, $rect, $sf)
             $g.Dispose()
             $icon = [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
             $fs = [System.IO.FileStream]::new($icoPath, [System.IO.FileMode]::Create)
@@ -345,9 +396,9 @@ pause
             $fs.Close()
             $bmp.Dispose()
             $useDefaultIcon = $false
-            Write-Host "  [OK] Created icon: $icoPath" -ForegroundColor Green
+            Write-Host "  [OK] Created icon (fallback): $icoPath" -ForegroundColor Green
         } catch {
-            Write-Host "  [!] Could not create custom icon, using default" -ForegroundColor Gray
+            Write-Host "  [!] Could not create icon, using default" -ForegroundColor Gray
         }
     }
 
