@@ -99,6 +99,12 @@ PROVIDERS = {
         "env_var": "",
         "local": True,
     },
+    "github": {
+        "name": "GitHub",
+        "base_url": "https://api.github.com",
+        "models": [],
+        "env_var": "GITHUB_TOKEN",
+    },
 }
 
 
