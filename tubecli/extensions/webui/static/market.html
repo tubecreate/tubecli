@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TubeCLI &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
-    <link rel="stylesheet" href="/static/style.css?v=5">
-    <link rel="stylesheet" href="/static/market.css?v=10">
+    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/market.css?v=12">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="/static/i18n.js?v=11"></script>
 </head>
@@ -14,7 +14,7 @@
 <div id="app" style="display:flex; flex-direction:column; height: 100vh; overflow:hidden;">
 
     <!-- Main Content -->
-    <main class="content market-page" style="margin-left:0;">
+    <main class="content market-page" style="margin-left:0; flex:1; overflow-y:auto; padding:0;">
 
         <!-- VSX-style Top Bar -->
         <div class="vsx-topbar">
@@ -336,7 +336,7 @@
 
             <div style="text-align:center;margin-top:16px;font-size:0.85rem;color:var(--text-muted,#6868a0);">
                 <span id="authToggleText">Ch&#x01B0;a c&#xF3; t&#xE0;i kho&#x1EA3;n?</span>
-                <a href="#" id="authToggleLink" onclick="toggleMarketAuthMode(event)" style="color:#00d4ff;text-decoration:none;font-weight:600;margin-left:4px;">&#x0110;&#x0103;ng k&#xFD;</a>
+                <a href="#" id="authToggleLink" onclick="toggleMarketAuthMode(event)" style="color:var(--primary);text-decoration:none;font-weight:600;margin-left:4px;">Đăng ký</a>
             </div>
         </div>
     </div>

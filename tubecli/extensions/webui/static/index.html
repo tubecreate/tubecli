@@ -5,44 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TubeCLI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=3">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 <div id="app">
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:20px 16px;">
-            <div class="sidebar-logo" style="padding:0">⚡ TubeCLI</div>
-            <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:1.2rem;">☰</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:16px 16px 4px;">
+            <div class="sidebar-logo" style="padding:0"><img src="/static/logo.svg" alt="TubeCLI"> TubeCLI</div>
+            <button onclick="toggleSidebar()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem;"><span class="material-symbols-outlined">menu</span></button>
+        </div>
+        <div class="sidebar-version" id="sidebar-version">v...</div>
+        <div class="sidebar-update" id="sidebar-update" style="display:none">
+            <div class="update-info">
+                <span class="material-symbols-outlined" style="font-size:16px;color:var(--primary)">upgrade</span>
+                <span id="update-text">New version available</span>
+            </div>
+            <button class="btn-update-now" id="btn-update-now" onclick="performUpdate()">Update now</button>
         </div>
         <nav class="sidebar-nav">
             <div class="nav-section-label" data-i18n="nav.main">MAIN</div>
-            <button class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
-            <button class="nav-item" data-tab="extensions" id="nav-extensions"><span class="nav-icon">🧩</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span><span id="ext-update-badge" style="display:none;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;margin-left:auto;padding:0 5px;animation:pulse 2s infinite"></span></button>
-            <button class="nav-item" data-tab="api-manager"><span class="nav-icon">🔌</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
-            <button class="nav-item" data-tab="settings"><span class="nav-icon">⚙️</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
-            <button class="nav-item" data-tab="ext-auth-manager"><span class="nav-icon">🔐</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
-            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('market'), 200)"><span class="nav-icon">🛍️</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
+            <button class="nav-item active" data-tab="dashboard"><span class="material-symbols-outlined">dashboard</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
+            <button class="nav-item" data-tab="extensions" id="nav-extensions"><span class="material-symbols-outlined">extension</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span><span id="ext-update-badge" style="display:none;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;margin-left:auto;padding:0 5px;animation:pulse 2s infinite"></span></button>
+            <button class="nav-item" data-tab="api-manager"><span class="material-symbols-outlined">api</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
+            <button class="nav-item" data-tab="settings"><span class="material-symbols-outlined">settings</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
+            <button class="nav-item" data-tab="ext-auth-manager"><span class="material-symbols-outlined">lock</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
+            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('market'), 200)"><span class="material-symbols-outlined">storefront</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
 
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
-            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('agents'), 200)"><span class="nav-icon">🤖</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
-            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('browser'), 200)"><span class="nav-icon">🌐</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
-            <button class="nav-item ext-conditional" data-ext="web_crawler" data-tab="ext-web-crawler" style="display:none"><span class="nav-icon">🕸️</span> <span class="nav-text">Web Crawler</span></button>
-            <button class="nav-item ext-conditional" data-ext="sheets_manager" data-tab="ext-sheets" style="display:none"><span class="nav-icon">📊</span> <span class="nav-text">Sheets</span></button>
-            <button class="nav-item ext-conditional" data-ext="calendar_manager" data-tab="ext-calendar" style="display:none"><span class="nav-icon">📅</span> <span class="nav-text">Calendar</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_downloader" data-tab="ext-downloader" style="display:none"><span class="nav-icon">📥</span> <span class="nav-text">Douyin Download</span></button>
-            <button class="nav-item ext-conditional" data-ext="livestream" data-tab="ext-livestream" style="display:none"><span class="nav-icon">📡</span> <span class="nav-text">Livestream</span></button>
-            <button class="nav-item ext-conditional" data-ext="multi_agents" data-tab="ext-teams" style="display:none"><span class="nav-icon">👥</span> <span class="nav-text">Teams AI</span></button>
-            <button class="nav-item" data-tab="ext-story"><span class="nav-icon">🎬</span> <span class="nav-text">Story Engine</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-editor" style="display:none"><span class="nav-icon">📼</span> <span class="nav-text">Video Editor</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-processing" style="display:none"><span class="nav-icon">🪄</span> <span class="nav-text">AI Background</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_manager" data-tab="ext-video-manager" style="display:none"><span class="nav-icon">📹</span> <span class="nav-text">Video Manager</span></button>
-            <button class="nav-item ext-conditional" data-ext="subtitle_extractor" data-tab="ext-subtitle-extractor" style="display:none"><span class="nav-icon">📝</span> <span class="nav-text">Subtitle Extractor</span></button>
-            <button class="nav-item" data-tab="ext-studio"><span class="nav-icon">🎨</span> <span class="nav-text">3D Studio</span></button>
-            <button class="nav-item" data-tab="ext-tracker"><span class="nav-icon">📡</span> <span class="nav-text">Content Tracker</span></button>
-            <button class="nav-item" data-tab="ext-file-manager"><span class="nav-icon">📁</span> <span class="nav-text">Files</span></button>
-            <button class="nav-item ext-conditional" data-ext="ai_arena" data-tab="ext-ai-arena" style="display:none"><span class="nav-icon">🎮</span> <span class="nav-text">AI Arena</span></button>
-            <!-- Dynamic API-only overlays will pop in naturally -->
+            <button class="nav-item" data-tab="ext-agents"><span class="material-symbols-outlined">smart_toy</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
+            <button class="nav-item" data-tab="ext-browser"><span class="material-symbols-outlined">public</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
+            <button class="nav-item ext-conditional" data-ext="web_crawler" data-tab="ext-web-crawler" style="display:none"><span class="material-symbols-outlined">travel_explore</span> <span class="nav-text">Web Crawler</span></button>
+            <button class="nav-item ext-conditional" data-ext="sheets_manager" data-tab="ext-sheets" style="display:none"><span class="material-symbols-outlined">table_chart</span> <span class="nav-text">Sheets</span></button>
+            <button class="nav-item ext-conditional" data-ext="calendar_manager" data-tab="ext-calendar" style="display:none"><span class="material-symbols-outlined">calendar_month</span> <span class="nav-text">Calendar</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_downloader" data-tab="ext-downloader" style="display:none"><span class="material-symbols-outlined">download</span> <span class="nav-text">Douyin Download</span></button>
+            <button class="nav-item ext-conditional" data-ext="livestream" data-tab="ext-livestream" style="display:none"><span class="material-symbols-outlined">cast</span> <span class="nav-text">Livestream</span></button>
+            <button class="nav-item ext-conditional" data-ext="multi_agents" data-tab="ext-teams" style="display:none"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
+            <button class="nav-item" data-tab="ext-story"><span class="material-symbols-outlined">movie</span> <span class="nav-text">Story Engine</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-editor" style="display:none"><span class="material-symbols-outlined">video_settings</span> <span class="nav-text">Video Editor</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-processing" style="display:none"><span class="material-symbols-outlined">auto_fix_high</span> <span class="nav-text">AI Background</span></button>
+            <button class="nav-item ext-conditional" data-ext="video_manager" data-tab="ext-video-manager" style="display:none"><span class="material-symbols-outlined">video_library</span> <span class="nav-text">Video Manager</span></button>
+            <button class="nav-item ext-conditional" data-ext="subtitle_extractor" data-tab="ext-subtitle-extractor" style="display:none"><span class="material-symbols-outlined">subtitles</span> <span class="nav-text">Subtitle Extractor</span></button>
+            <button class="nav-item" data-tab="ext-studio"><span class="material-symbols-outlined">palette</span> <span class="nav-text">3D Studio</span></button>
+            <button class="nav-item" data-tab="ext-tracker"><span class="material-symbols-outlined">monitoring</span> <span class="nav-text">Content Tracker</span></button>
+            <button class="nav-item" data-tab="ext-file-manager"><span class="material-symbols-outlined">folder</span> <span class="nav-text">Files</span></button>
+            <button class="nav-item ext-conditional" data-ext="ai_arena" data-tab="ext-ai-arena" style="display:none"><span class="material-symbols-outlined">sports_esports</span> <span class="nav-text">AI Arena</span></button>
 
         </nav>
         <div class="sidebar-footer" id="sidebar-footer">
@@ -55,16 +63,16 @@
 
         <!-- ═══ DASHBOARD TAB (Stats Only) ═══ -->
         <section class="tab-panel active" id="tab-dashboard">
-            <div class="panel-header"><h1 data-i18n="dash.title">📊 Dashboard</h1></div>
+            <div class="panel-header"><h1 data-i18n="dash.title"><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:8px">dashboard</span> Dashboard</h1></div>
 
             <!-- System Stats -->
             <div class="stats-grid">
-                <div class="stat-card"><div class="stat-icon">🤖</div><div class="stat-info"><div id="stat-agents" class="stat-value">-</div><div class="stat-label" data-i18n="stat.agents">Agents</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🌐</div><div class="stat-info"><div id="stat-profiles" class="stat-value">-</div><div class="stat-label" data-i18n="stat.profiles">Browser Profiles</div></div></div>
-                <div class="stat-card"><div class="stat-icon">⚡</div><div class="stat-info"><div id="stat-skills" class="stat-value">-</div><div class="stat-label" data-i18n="stat.skills">Skills</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🔄</div><div class="stat-info"><div id="stat-workflows" class="stat-value">-</div><div class="stat-label" data-i18n="stat.workflows">Workflows</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🧩</div><div class="stat-info"><div id="stat-extensions" class="stat-value">-</div><div class="stat-label" data-i18n="stat.extensions">Extensions</div></div></div>
-                <div class="stat-card"><div class="stat-icon">🔑</div><div class="stat-info"><div id="stat-api-keys" class="stat-value">-</div><div class="stat-label" data-i18n="stat.api_keys">API Keys</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">smart_toy</span></div><div class="stat-info"><div id="stat-agents" class="stat-value">-</div><div class="stat-label" data-i18n="stat.agents">Agents</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">public</span></div><div class="stat-info"><div id="stat-profiles" class="stat-value">-</div><div class="stat-label" data-i18n="stat.profiles">Browser Profiles</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">bolt</span></div><div class="stat-info"><div id="stat-skills" class="stat-value">-</div><div class="stat-label" data-i18n="stat.skills">Skills</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">sync</span></div><div class="stat-info"><div id="stat-workflows" class="stat-value">-</div><div class="stat-label" data-i18n="stat.workflows">Workflows</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">extension</span></div><div class="stat-info"><div id="stat-extensions" class="stat-value">-</div><div class="stat-label" data-i18n="stat.extensions">Extensions</div></div></div>
+                <div class="stat-card"><div class="stat-icon"><span class="material-symbols-outlined">key</span></div><div class="stat-info"><div id="stat-api-keys" class="stat-value">-</div><div class="stat-label" data-i18n="stat.api_keys">API Keys</div></div></div>
             </div>
 
             <!-- System Status -->
@@ -75,24 +83,24 @@
                 <div class="status-mini-card"><span class="status-mini-icon" id="status-browser-dot">●</span><span>Browser</span><span class="tag" id="status-browser-label" data-i18n="status.checking">Checking...</span></div>
             </div>
 
-            <h3 style="margin: 28px 0 16px; color: var(--text2);" data-i18n="dash.quick_actions">📌 Quick Actions</h3>
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="btn-primary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('agents'), 200)" data-i18n="dash.manage_agents">🤖 Manage Agents</button>
-                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('browser'), 200)" data-i18n="dash.browser_profiles">🌐 Browser Profiles</button>
-                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('workflows'), 200)" data-i18n="dash.workflow_builder">🔄 Workflow Builder</button>
-                <button class="btn-secondary" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('cloud_api'), 200)" data-i18n="dash.cloud_api_keys">☁️ Cloud API Keys</button>
-                <button class="btn-secondary ext-conditional" data-ext="multi_agents" onclick="navigateTo('ext-teams')" style="display:none">🏛️ Teams AI</button>
-                <button class="btn-secondary" onclick="navigateTo('ext-story')">🎬 Story Engine</button>
-                <button class="btn-secondary ext-conditional" data-ext="video_editor" onclick="navigateTo('ext-video-editor')" style="display:none">📼 Video Editor</button>
-                <button class="btn-secondary ext-conditional" data-ext="video_manager" onclick="navigateTo('ext-video-manager')" style="display:none">📹 Video Manager</button>
-                <button class="btn-secondary ext-conditional" data-ext="subtitle_extractor" onclick="navigateTo('ext-subtitle-extractor')" style="display:none;background:linear-gradient(135deg,rgba(99,102,241,0.1),rgba(14,165,233,0.1));border-color:rgba(99,102,241,0.3)">📝 Subtitle Extractor</button>
-                <button class="btn-secondary" onclick="navigateTo('ext-studio')">🎨 3D Studio</button>
-                <button class="btn-secondary" onclick="navigateTo('ext-pipeline-monitor')">📡 Pipeline Monitor</button>
-                <button class="btn-secondary ext-conditional" data-ext="sheets_manager" onclick="navigateTo('ext-sheets')" style="display:none">📊 Sheets Manager</button>
-                <button class="btn-secondary ext-conditional" data-ext="livestream" onclick="navigateTo('ext-livestream')" style="background:linear-gradient(135deg,rgba(239,68,68,0.15),rgba(249,115,22,0.1));border-color:rgba(239,68,68,0.3);display:none;">📡 Livestream</button>
-                <button class="btn-secondary ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-downloader')" style="display:none">📥 Douyin Download</button>
-                <button class="btn-secondary ext-conditional" data-ext="web_crawler" onclick="navigateTo('ext-web-crawler')" style="display:none">🕸️ Web Crawler</button>
-                <button class="btn-secondary ext-conditional" data-ext="ai_arena" onclick="navigateTo('ext-ai-arena')" style="display:none;background:linear-gradient(135deg,rgba(99,102,241,0.15),rgba(236,72,153,0.1));border-color:rgba(99,102,241,0.3)">🎮 AI Arena</button>
+            <h3 style="margin: 28px 0 16px; color: var(--text2);" data-i18n="dash.quick_actions"><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:4px;font-size:18px">push_pin</span> Quick Actions</h3>
+            <div class="quick-action-grid">
+                <div class="quick-action-card" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('agents'), 200)" data-i18n="dash.manage_agents"><span class="material-symbols-outlined">smart_toy</span> Manage Agents</div>
+                <div class="quick-action-card" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('browser'), 200)" data-i18n="dash.browser_profiles"><span class="material-symbols-outlined">public</span> Browser Profiles</div>
+                <div class="quick-action-card" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('workflows'), 200)" data-i18n="dash.workflow_builder"><span class="material-symbols-outlined">sync</span> Workflow Builder</div>
+                <div class="quick-action-card" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('cloud_api'), 200)" data-i18n="dash.cloud_api_keys"><span class="material-symbols-outlined">cloud</span> Cloud API Keys</div>
+                <div class="quick-action-card ext-conditional" data-ext="multi_agents" onclick="navigateTo('ext-teams')" style="display:none"><span class="material-symbols-outlined">groups</span> Teams AI</div>
+                <div class="quick-action-card" onclick="navigateTo('ext-story')"><span class="material-symbols-outlined">movie</span> Story Engine</div>
+                <div class="quick-action-card ext-conditional" data-ext="video_editor" onclick="navigateTo('ext-video-editor')" style="display:none"><span class="material-symbols-outlined">video_settings</span> Video Editor</div>
+                <div class="quick-action-card ext-conditional" data-ext="video_manager" onclick="navigateTo('ext-video-manager')" style="display:none"><span class="material-symbols-outlined">video_library</span> Video Manager</div>
+                <div class="quick-action-card ext-conditional" data-ext="subtitle_extractor" onclick="navigateTo('ext-subtitle-extractor')" style="display:none"><span class="material-symbols-outlined">subtitles</span> Subtitle Extractor</div>
+                <div class="quick-action-card" onclick="navigateTo('ext-studio')"><span class="material-symbols-outlined">palette</span> 3D Studio</div>
+                <div class="quick-action-card" onclick="navigateTo('ext-pipeline-monitor')"><span class="material-symbols-outlined">monitoring</span> Pipeline Monitor</div>
+                <div class="quick-action-card ext-conditional" data-ext="sheets_manager" onclick="navigateTo('ext-sheets')" style="display:none"><span class="material-symbols-outlined">table_chart</span> Sheets Manager</div>
+                <div class="quick-action-card ext-conditional" data-ext="livestream" onclick="navigateTo('ext-livestream')" style="display:none"><span class="material-symbols-outlined">cast</span> Livestream</div>
+                <div class="quick-action-card ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-downloader')" style="display:none"><span class="material-symbols-outlined">download</span> Douyin Download</div>
+                <div class="quick-action-card ext-conditional" data-ext="web_crawler" onclick="navigateTo('ext-web-crawler')" style="display:none"><span class="material-symbols-outlined">travel_explore</span> Web Crawler</div>
+                <div class="quick-action-card ext-conditional" data-ext="ai_arena" onclick="navigateTo('ext-ai-arena')" style="display:none"><span class="material-symbols-outlined">sports_esports</span> AI Arena</div>
             </div>
         </section>
 
@@ -106,6 +114,14 @@
         <section class="tab-panel" id="tab-ext-calendar">
             <div class="panel-header"><h1>📅 Calendar Manager</h1></div>
             <div id="calendar-ext-body"></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-agents">
+            <div class="panel-header"><h1>🤖 Manage Agents</h1></div>
+            <div id="agents-ext-body"></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-browser">
+            <div class="panel-header"><h1>🌐 Browser Profiles</h1></div>
+            <div id="browser-ext-body"></div>
         </section>
         <section class="tab-panel" id="tab-ext-downloader">
             <div class="iframe-container"><iframe data-src="/downloader" class="ext-iframe"></iframe></div>
@@ -735,7 +751,47 @@
     if (extModeEl) {
         extModeEl.value = localStorage.getItem('ext_open_mode') || 'full_page';
     }
+    // Fetch version for sidebar badge + check for updates
+    fetch('/api/v1/version').then(r=>r.json()).then(d=>{
+        var sv = document.getElementById('sidebar-version');
+        if(sv && d.version) sv.textContent = 'v' + d.version;
+        // Check GitHub for newer version
+        fetch('/api/v1/version/check').then(r=>r.json()).then(u=>{
+            if(u.has_update) {
+                var su = document.getElementById('sidebar-update');
+                var ut = document.getElementById('update-text');
+                if(su) su.style.display = '';
+                if(ut) ut.textContent = '↑ v' + u.remote_version + ' available';
+            }
+        }).catch(()=>{});
+    }).catch(()=>{});
 })();
+
+function performUpdate() {
+    var btn = document.getElementById('btn-update-now');
+    if(!btn) return;
+    btn.disabled = true;
+    btn.textContent = 'Updating...';
+    fetch('/api/v1/version/update', {method:'POST'})
+        .then(r=>r.json())
+        .then(d=>{
+            if(d.status === 'success') {
+                btn.textContent = '✓ Done! Restart needed';
+                btn.style.background = 'var(--green)';
+                var ut = document.getElementById('update-text');
+                if(ut) ut.textContent = 'Updated! Please restart TubeCLI';
+            } else {
+                btn.textContent = 'Error: ' + (d.output||'').slice(0,30);
+                btn.style.background = 'var(--red)';
+                setTimeout(()=>{ btn.textContent='Retry'; btn.style.background=''; btn.disabled=false; }, 3000);
+            }
+        })
+        .catch(()=>{
+            btn.textContent = 'Network error';
+            btn.style.background = 'var(--red)';
+            setTimeout(()=>{ btn.textContent='Retry'; btn.style.background=''; btn.disabled=false; }, 3000);
+        });
+}
 </script>
 </body>
 </html>

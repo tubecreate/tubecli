@@ -10,6 +10,8 @@ const ROUTE_TAB_MAP = {
     'extensions': 'extensions',
     'api-manager': 'api-manager',
     'settings': 'settings',
+    'ext-agents': 'ext-agents',
+    'ext-browser': 'ext-browser',
     'ext-web-crawler': 'ext-web-crawler',
     'ext-sheets': 'ext-sheets',
     'ext-calendar': 'ext-calendar',
@@ -26,7 +28,7 @@ const ROUTE_TAB_MAP = {
 function navigateTo(tab) {
     const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
-        const excludeTabs = ['ext-auth-manager', 'ext-calendar'];
+        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser'];
         if (!excludeTabs.includes(tab)) {
             const panel = document.getElementById('tab-' + tab);
             if (panel) {
@@ -59,7 +61,7 @@ function activateTab(tab) {
     // Toggle padding on content area for full-screen iframes (skip native calendar)
     const contentArea = document.querySelector('.content');
     if (contentArea) {
-        if (tab.startsWith('ext-') && tab !== 'ext-calendar') contentArea.classList.add('no-padding');
+        if (tab.startsWith('ext-') && tab !== 'ext-calendar' && tab !== 'ext-agents' && tab !== 'ext-browser') contentArea.classList.add('no-padding');
         else contentArea.classList.remove('no-padding');
     }
 
@@ -103,6 +105,12 @@ function activateTab(tab) {
     else if (tab === 'api-manager') loadApiManagerPage();
     else if (tab === 'ext-calendar') {
         renderCalendarManagerExt(document.getElementById('calendar-ext-body'));
+    }
+    else if (tab === 'ext-agents') {
+        renderAgentsExt(document.getElementById('agents-ext-body'));
+    }
+    else if (tab === 'ext-browser') {
+        renderBrowserExt(document.getElementById('browser-ext-body'));
     }
 }
 
@@ -697,6 +705,8 @@ async function pollYtdlTask(uid, taskId) {
 function openExtDetail(id) {
     // Extensions with dedicated sidebar tabs → navigate via hash route
     const hashRoutes = {
+        'agents': 'ext-agents',
+        'browser': 'ext-browser',
         'web_crawler': 'ext-web-crawler',
         'sheets_manager': 'ext-sheets',
         'calendar_manager': 'ext-calendar',
@@ -741,7 +751,7 @@ function closeExtDetail() {
 
 function renderFullPageExt(el, name, desc, url) {
     el.innerHTML = `
-        <div style="height:calc(100vh - 120px); min-height:80vh; overflow:hidden; position:relative; display:flex; flex-direction:column;">
+        <div style="height:100%; min-height:80vh; overflow:hidden; position:relative; display:flex; flex-direction:column;">
             <div class="iframe-loader">
                 <div class="iframe-loader-spinner"></div>
                 <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? window.T("app.loading_ext") : "Initializing Extension..."}</div>
@@ -1039,11 +1049,13 @@ async function renderAgentsExt(el) {
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
     if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card"><div class="card-icon">🤖</div><h3>${esc(a.name)}</h3><p class="card-meta">${esc(a.model||'default')}</p><p class="card-desc">${esc(a.description||'')}</p><div class="card-footer"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(document.getElementById('ext-detail-body'))">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card"><div class="card-icon">🤖</div><h3>${esc(a.name)}</h3><p class="card-meta">${esc(a.model||'default')}</p><p class="card-desc">${esc(a.description||'')}</p><div class="card-footer"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
 // ── Browser Ext ──
+function getBrowserBody() { return document.getElementById('browser-ext-body') || document.getElementById('ext-detail-body'); }
+function getAgentsBody() { return document.getElementById('agents-ext-body') || document.getElementById('ext-detail-body'); }
 let _browserStatusPoller = null;
 let _lastRunningProfiles = '';
 function startBrowserStatusPoller(el) {
@@ -1077,7 +1089,7 @@ async function renderBrowserExt(el) {
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
         const hasGA = p.google_account && p.google_account.email;
-        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="Settings">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="Run Command" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),500)">✕</button></div></div></div>`;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="Settings">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="Run Command" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }
@@ -2165,10 +2177,10 @@ async function createProfile() {
     document.getElementById('profile-proxy').value = '';
     if (document.getElementById('profile-win-width'))  document.getElementById('profile-win-width').value  = '1920';
     if (document.getElementById('profile-win-height')) document.getElementById('profile-win-height').value = '1080';
-    renderBrowserExt(document.getElementById('ext-detail-body'));
+    renderBrowserExt(getBrowserBody());
 }
-async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(document.getElementById('ext-detail-body'));if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = 'Failed to launch: ' + (r?.error || r?.detail || 'Unknown error'); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
-async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(document.getElementById('ext-detail-body')),1000); }
+async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(getBrowserBody());if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = 'Failed to launch: ' + (r?.error || r?.detail || 'Unknown error'); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
+async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(getBrowserBody()),1000); }
 async function deleteProfile(name) { if(!confirm('Delete '+name+'?')) return; await apiDelete('/api/v1/browser/profiles/'+name); }
 async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name)); if (!r || r.error) { alert('No log available: ' + (r?.error || 'Unknown')); return; } let msg = '📋 Browser Log for: ' + name; msg += '\n\nStatus: ' + (r.status || '-'); msg += '\nCommand: ' + (r.command || '-'); msg += '\nLog file: ' + (r.log_file || '-'); if (r.debug) { const d = r.debug; if (d.node_version) msg += '\nNode: ' + d.node_version; if (d.open_js_exists !== undefined) msg += '\nopen.js: ' + (d.open_js_exists ? '✅' : '❌'); if (d.node_modules_exists !== undefined) msg += '\nnode_modules: ' + (d.node_modules_exists ? '✅' : '❌'); if (d.launcher_dir) msg += '\nLauncher: ' + d.launcher_dir; } msg += '\n\n─── LOG OUTPUT ───\n' + (r.log || '(empty)'); alert(msg); }
 
@@ -2176,7 +2188,7 @@ async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/lo
 let _cmdProfile = '';
 function showProfileCommand(name) { _cmdProfile = name; document.getElementById('cmd-profile-name').textContent = name; document.getElementById('cmd-input').value = ''; document.getElementById('modal-command').classList.remove('hidden'); setTimeout(() => document.getElementById('cmd-input').focus(), 100); }
 function setCommand(cmd) { document.getElementById('cmd-input').value = cmd; document.getElementById('cmd-input').focus(); }
-async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert('Vui lòng nhập lệnh!'); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ Đang chạy...'; const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 Chạy lệnh'; if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(document.getElementById('ext-detail-body')); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = 'Lỗi: ' + (r?.error || r?.detail || 'Unknown'); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
+async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert('Vui lòng nhập lệnh!'); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ Đang chạy...'; const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 Chạy lệnh'; if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(getBrowserBody()); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = 'Lỗi: ' + (r?.error || r?.detail || 'Unknown'); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
 // ═══ Global Settings ═══
@@ -2782,7 +2794,7 @@ async function saveProfileSettings() {
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 2500);
             // Refresh the browser extension view
-            const el = document.getElementById('ext-detail-body');
+            const el = getBrowserBody();
             if (el) renderBrowserExt(el);
         } else {
             alert('❌ Save failed: ' + JSON.stringify(result));
@@ -2809,7 +2821,7 @@ async function refreshFingerprint() {
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
             // Refresh cards
-            const el = document.getElementById('ext-detail-body');
+            const el = getBrowserBody();
             if (el) renderBrowserExt(el);
         } else {
             if (fpStatus) fpStatus.textContent = '❌ Lỗi: ' + JSON.stringify(result);

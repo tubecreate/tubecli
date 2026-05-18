@@ -21,8 +21,8 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 28px;
-    border-bottom: 1px solid var(--border, #2a2a4a);
-    background: var(--bg2, #12121a);
+    border-bottom: 1px solid var(--border, #333);
+    background: var(--bg2, #1e1e1e);
     flex-shrink: 0;
     z-index: 10;
 }
@@ -34,28 +34,25 @@
 }
 
 .am-back-btn {
-    color: var(--text-muted, #6868a0);
+    color: var(--text-muted, #6b7280);
     text-decoration: none;
     font-size: 0.9rem;
     padding: 6px 14px;
     border-radius: 6px;
     transition: all .2s;
-    border: 1px solid var(--border, #2a2a4a);
+    border: 1px solid var(--border, #333);
 }
 .am-back-btn:hover {
-    background: var(--bg3, #1a1a2e);
-    color: var(--cyan, #00d4ff);
-    border-color: var(--cyan, #00d4ff);
+    background: var(--bg3, #262626);
+    color: var(--primary, #5276EB);
+    border-color: var(--primary, #5276EB);
 }
 
 .am-title {
     font-size: 1.4rem;
     font-weight: 800;
     margin: 0;
-    background: linear-gradient(135deg, #8b5cf6, #06b6d4);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text, #ededed);
 }
 
 .am-header-right {
@@ -91,10 +88,10 @@
 
 .am-section-header select {
     padding: 8px 14px;
-    border: 1px solid var(--border, #2a2a4a);
+    border: 1px solid var(--border, #333);
     border-radius: 8px;
-    background: var(--bg, #0a0a0f);
-    color: var(--text, #e8e8f0);
+    background: var(--bg, #1a1a1a);
+    color: var(--text, #ededed);
     font-size: 0.85rem;
     font-family: inherit;
 }
@@ -107,8 +104,8 @@
 }
 
 .am-provider-card {
-    background: var(--bg3, #1a1a2e);
-    border: 1px solid var(--border, #2a2a4a);
+    background: var(--bg3, #262626);
+    border: 1px solid var(--border, #333);
     border-radius: 12px;
     padding: 20px;
     cursor: pointer;
@@ -189,17 +186,17 @@
     font-size: 0.68rem;
     padding: 2px 8px;
     border-radius: 4px;
-    background: rgba(139, 92, 246, 0.12);
-    color: var(--text-muted, #6868a0);
-    border: 1px solid rgba(139, 92, 246, 0.18);
+    background: rgba(82, 118, 235, 0.12);
+    color: var(--text-muted, #6b7280);
+    border: 1px solid rgba(82, 118, 235, 0.18);
 }
 
 /* Table */
 .am-table-wrap {
     overflow-x: auto;
-    border: 1px solid var(--border, #2a2a4a);
+    border: 1px solid var(--border, #333);
     border-radius: 10px;
-    background: var(--bg3, #1a1a2e);
+    background: var(--bg3, #262626);
 }
 
 .am-table {
@@ -211,21 +208,21 @@
     text-align: left;
     padding: 12px 16px;
     font-weight: 600;
-    color: var(--text-muted, #6868a0);
-    border-bottom: 1px solid var(--border, #2a2a4a);
+    color: var(--text-muted, #6b7280);
+    border-bottom: 1px solid var(--border, #333);
     text-transform: uppercase;
     font-size: 0.72rem;
     letter-spacing: 0.5px;
-    background: var(--bg2, #12121a);
+    background: var(--bg2, #1e1e1e);
 }
 .am-table td {
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(42, 42, 74, 0.4);
-    color: var(--text, #e8e8f0);
+    border-bottom: 1px solid rgba(51, 51, 51, 0.4);
+    color: var(--text, #ededed);
     vertical-align: middle;
 }
 .am-table tbody tr:hover {
-    background: var(--bg-hover, #222240);
+    background: rgba(82, 118, 235, 0.05);
 }
 .am-table tbody tr:last-child td {
     border-bottom: none;
@@ -272,8 +269,8 @@
     white-space: nowrap;
 }
 .am-btn-sm:hover {
-    background: var(--bg, #0a0a0f);
-    border-color: var(--cyan, #00d4ff);
+    background: var(--bg, #1a1a1a);
+    border-color: var(--primary, #5276EB);
 }
 .am-btn-sm.danger:hover {
     border-color: #ef4444;
@@ -299,8 +296,8 @@
     transition: all .2s;
 }
 .am-tab.active {
-    color: var(--cyan, #00d4ff);
-    border-bottom-color: var(--cyan, #00d4ff);
+    color: var(--primary, #5276EB);
+    border-bottom-color: var(--primary, #5276EB);
 }
 
 .am-tab-pane { display: none; }
@@ -328,10 +325,10 @@
     transition: background .15s;
 }
 .am-scope-item:hover {
-    background: rgba(139, 92, 246, 0.08);
+    background: rgba(82, 118, 235, 0.08);
 }
 .am-scope-item input[type="checkbox"] {
-    accent-color: #8b5cf6;
+    accent-color: var(--primary, #5276EB);
 }
 .am-scope-item label {
     cursor: pointer;
@@ -354,21 +351,21 @@
 }
 
 .am-redirect-info {
-    background: rgba(0, 212, 255, 0.06);
-    border: 1px solid rgba(0, 212, 255, 0.18);
+    background: rgba(82, 118, 235, 0.06);
+    border: 1px solid rgba(82, 118, 235, 0.18);
     border-radius: 8px;
     padding: 12px 16px;
     margin-top: 16px;
 }
 .am-redirect-info strong {
-    color: var(--cyan, #00d4ff);
+    color: var(--primary, #5276EB);
     font-size: 0.85rem;
 }
 .am-redirect-info code {
     display: block;
     margin: 6px 0;
     padding: 8px 10px;
-    background: var(--bg, #0a0a0f);
+    background: var(--bg, #1a1a1a);
     border-radius: 4px;
     font-size: 0.78rem;
     word-break: break-all;
@@ -376,7 +373,7 @@
     color: #22c55e;
 }
 .am-redirect-info small {
-    color: var(--text-muted, #6868a0);
+    color: var(--text-muted, #6b7280);
     font-size: 0.75rem;
 }
 
@@ -450,13 +447,13 @@
     transition: all .2s ease;
 }
 .am-service-card:hover {
-    border-color: rgba(139, 92, 246, 0.5);
-    background: rgba(139, 92, 246, 0.06);
+    border-color: rgba(82, 118, 235, 0.5);
+    background: rgba(82, 118, 235, 0.06);
 }
 .am-service-card.selected {
-    border-color: var(--cyan, #00d4ff);
-    background: rgba(0, 212, 255, 0.08);
-    box-shadow: 0 0 12px rgba(0, 212, 255, 0.12);
+    border-color: var(--primary, #5276EB);
+    background: rgba(82, 118, 235, 0.08);
+    box-shadow: 0 0 12px rgba(82, 118, 235, 0.12);
 }
 
 .am-service-row {
@@ -466,7 +463,7 @@
 }
 .am-service-check {
     flex-shrink: 0;
-    accent-color: var(--cyan, #00d4ff);
+    accent-color: var(--primary, #5276EB);
     width: 18px !important;
     height: 18px !important;
     margin: 0 !important;
@@ -499,14 +496,14 @@
 
 /* Wizard Scopes Banner */
 .am-required-scopes-box {
-    background: rgba(0, 212, 255, 0.05);
-    border: 1px solid rgba(0, 212, 255, 0.2);
+    background: rgba(82, 118, 235, 0.05);
+    border: 1px solid rgba(82, 118, 235, 0.2);
     border-radius: 6px;
     padding: 12px 14px;
     margin-bottom: 20px;
 }
 .am-scopes-box-header {
-    color: var(--cyan, #00d4ff);
+    color: var(--primary, #5276EB);
     font-weight: 600;
     font-size: 0.9rem;
     margin-bottom: 6px;
@@ -533,8 +530,8 @@
     line-height: 1.4;
 }
 .am-scope-key {
-    color: var(--cyan, #00d4ff);
-    background: rgba(0, 212, 255, 0.08);
+    color: var(--primary, #5276EB);
+    background: rgba(82, 118, 235, 0.08);
     padding: 2px 6px;
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
@@ -601,9 +598,9 @@
     font-size: 0.76rem;
     padding: 4px 10px;
     border-radius: 16px;
-    background: rgba(6, 182, 212, 0.1);
-    color: #06b6d4;
-    border: 1px solid rgba(6, 182, 212, 0.2);
+    background: rgba(82, 118, 235, 0.1);
+    color: var(--primary, #5276EB);
+    border: 1px solid rgba(82, 118, 235, 0.2);
     font-weight: 500;
     white-space: nowrap;
     user-select: none;
