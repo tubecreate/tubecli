@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auth Manager — TubeCLI</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=3">
-    <link rel="stylesheet" href="/static/auth_manager.css?v=8">
+    <link rel="stylesheet" href="/static/style.css?v=6">
+    <link rel="stylesheet" href="/static/auth_manager.css?v=9">
 </head>
 <body>
 <div id="app" class="am-app">
@@ -135,7 +135,7 @@
                 
                 <!-- 1. Required APIs (Dynamic) -->
                 <div id="cred-setup-apis-container" style="display:none; margin-bottom:16px;">
-                    <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:4px">
+                    <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:4px">
                         1. Kích hoạt APIs (API Library):
                     </div>
                     <div class="am-scopes-box-desc" style="margin-bottom:8px">
@@ -146,7 +146,7 @@
                 </div>
 
                 <!-- 2. Scopes -->
-                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:4px">
+                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:4px">
                     2. OAuth Scopes yêu cầu:
                 </div>
                 <div class="am-scopes-box-desc">
@@ -157,7 +157,7 @@
                 <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
 
                 <!-- 3. Redirect URI -->
-                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--cyan); margin-bottom:6px">
+                <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:6px">
                     3. Authorized Redirect URI:
                 </div>
                 <div class="am-scope-row" style="margin-bottom:8px">
@@ -206,7 +206,7 @@
                     <label>Long-lived Access Token</label>
                     <input id="cred-manual-token" type="password" placeholder="EAAQ... (Nhập Token lấy thủ công)">
                 </div>
-                <div style="background:rgba(6,182,212,0.1); border-left:3px solid var(--cyan); padding:10px; border-radius:4px; font-size:0.8rem; line-height:1.4;">
+                <div style="background:rgba(82,118,235,0.1); border-left:3px solid var(--primary); padding:10px; border-radius:4px; font-size:0.8rem; line-height:1.4;">
                     <strong>Dành cho Tool Nội bộ:</strong><br>
                     Không cần setup App. Lấy Token từ Trình khám phá Graph API và dán vào đây để cấp quyền sử dụng hệ thống tự động hóa ngay lập tức.
                 </div>
@@ -280,7 +280,7 @@
         <div class="modal-actions" style="justify-content: flex-end; gap: 8px;">
             <button class="btn-secondary" onclick="closeModal('modal-authorize')">Cancel</button>
             <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:#1e293b; color:#cbd5e1; white-space: nowrap;" title="Copy URL để tự dán vào trình duyệt đang mở">📋 Copy Link</button>
-            <button class="btn-primary" onclick="startAuthorize('open')" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4); white-space: nowrap;">
+            <button class="btn-primary" onclick="startAuthorize('open')" style="white-space: nowrap;">
                 🚀 Authorize
             </button>
         </div>

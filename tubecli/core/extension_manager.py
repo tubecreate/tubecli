@@ -544,11 +544,38 @@ class ExtensionManager:
         if ":" in repo_name:
             repo_name = repo_name.split(":")[-1]
 
+        # Derive likely manifest name: repo slug → underscore format
+        # e.g. "edu-video-studio" → "edu_video_studio"
+        likely_manifest_name = repo_name.replace("-", "_").lower()
+
         target_dir = os.path.join(ext_dir, repo_name)
 
-        # Check if already installed
+        # Check if already installed — by BOTH repo name AND manifest name
         if os.path.isdir(target_dir):
             return {"status": "error", "message": f"Extension directory '{repo_name}' already exists. Uninstall first."}
+
+        # Also check by manifest name (e.g. edu_video_studio vs edu-video-studio)
+        if likely_manifest_name != repo_name:
+            manifest_dir = os.path.join(ext_dir, likely_manifest_name)
+            if os.path.isdir(manifest_dir):
+                return {"status": "error", "message": f"Extension '{likely_manifest_name}' already exists. Uninstall first."}
+
+        # Scan all existing extensions by manifest name to prevent duplicates
+        if os.path.isdir(ext_dir):
+            for entry in os.listdir(ext_dir):
+                entry_path = os.path.join(ext_dir, entry)
+                if not os.path.isdir(entry_path):
+                    continue
+                manifest_file = os.path.join(entry_path, "tubecli-extension.json")
+                if os.path.exists(manifest_file):
+                    try:
+                        with open(manifest_file, "r", encoding="utf-8-sig") as f:
+                            existing_manifest = json.load(f)
+                        existing_name = existing_manifest.get("name", "").replace("-", "_").lower()
+                        if existing_name and existing_name == likely_manifest_name:
+                            return {"status": "error", "message": f"Extension '{existing_name}' is already installed (in folder '{entry}'). Uninstall first."}
+                    except Exception:
+                        continue
 
         # Git clone
         try:
