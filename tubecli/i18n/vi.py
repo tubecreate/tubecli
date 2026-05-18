@@ -246,5 +246,6 @@ MESSAGES = {
     "update.new_ver": "Phiên bản mới",
     "update.complete": "Cập nhật hoàn tất!",
     "update.restart_note": "Khởi động lại TubeCLI (tubecli init) để áp dụng thay đổi.",
+    "update.auto_restart": "TubeCLI sẽ tự khởi động lại...",
     "update.press_enter": "\n  Nhấn Enter để tiếp tục...",
 }
