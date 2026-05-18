@@ -285,8 +285,12 @@ if ($tubecliCmd) {
     $batPath = Join-Path $targetDir "TubeCLI.bat"
     $batContent = @"
 @echo off
-title TubeCLI
+title TubeCLI - AI Agent System
 cd /d "$targetDir"
+echo Starting TubeCLI...
+start "" /B tubecli api start --quiet
+timeout /t 2 /nobreak >nul
+start http://localhost:5295/dashboard
 tubecli
 pause
 "@
