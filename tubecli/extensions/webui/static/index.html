@@ -46,7 +46,7 @@
             <button class="nav-item" data-tab="api-manager"><span class="material-symbols-outlined">api</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
             <button class="nav-item" data-tab="ext-auth-manager"><span class="material-symbols-outlined">lock</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
             <button class="nav-item" data-tab="ext-cloud-keys"><span class="material-symbols-outlined">cloud</span> <span class="nav-text" data-i18n="nav.cloud_keys">Cloud API Keys</span></button>
-            <button class="nav-item" onclick="navigateTo('extensions'); setTimeout(()=>openExtDetail('market'), 200)"><span class="material-symbols-outlined">storefront</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
+            <button class="nav-item" data-tab="ext-market"><span class="material-symbols-outlined">storefront</span> <span class="nav-text" data-i18n="nav.marketplace">Marketplace</span></button>
             <button class="nav-item" data-tab="settings"><span class="material-symbols-outlined">settings</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
 
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
@@ -125,6 +125,9 @@
         </section>
 
         <!-- ═══ EXTENSION IFRAME PANELS ═══ -->
+        <section class="tab-panel" id="tab-ext-market">
+            <div class="iframe-container"><iframe data-src="/market?v=1" class="ext-iframe"></iframe></div>
+        </section>
         <section class="tab-panel" id="tab-ext-web-crawler">
             <div class="iframe-container"><iframe data-src="/web_crawler" class="ext-iframe"></iframe></div>
         </section>
