@@ -159,8 +159,21 @@ function renderItems(items) {
     grid.style.display = 'grid';
     grid.innerHTML = '';
 
+    // Check installed status for all items concurrently
+    const installedData = {};
+    try {
+        const checks = items.map(async item => {
+            const checkParams = new URLSearchParams({ item_name: item.title, category: item.category || 'extension' });
+            const checkRes = await fetch(`${API}/items/${item.public_id}/check-installed?${checkParams}`);
+            installedData[item.public_id] = await checkRes.json();
+        });
+        await Promise.all(checks);
+    } catch(e) {
+        console.warn('[Market] Batch check installed failed', e);
+    }
+
     items.forEach(item => {
-        const card = createCard(item);
+        const card = createCard(item, installedData[item.public_id]);
         grid.appendChild(card);
     });
 }
@@ -179,7 +192,7 @@ const EXTENSION_FEATURES = {
     'video_editor': { tagline: 'Timeline Video Editor', features: ['✂️ Trim', '✨ Effects', '🎵 Audio'] }
 };
 
-function createCard(item) {
+function createCard(item, installData) {
     const price = parseFloat(item.price || 0);
     const isFree = price <= 0;
     const rating = parseFloat(item.rating_avg || 0);
@@ -199,6 +212,27 @@ function createCard(item) {
     const card = document.createElement('div');
     card.className = 'vsx-card';
     card.onclick = () => openDetailModal(item.public_id);
+
+    let actionBtnHtml = `<span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>`;
+    
+    if (installData && installData.installed) {
+        let hasUpdate = false;
+        try {
+            if (installData.local_version && cmpVersions(item.version, installData.local_version) > 0) {
+                hasUpdate = true;
+            }
+        } catch(e) {}
+        
+        if (hasUpdate && category === 'extension') {
+            actionBtnHtml = `<button class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
+        } else {
+            actionBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
+        }
+    } else if (isFree) {
+        actionBtnHtml = `<button class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
+    } else {
+        actionBtnHtml = `<button class="card-price paid" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); openDetailModal('${item.public_id}')">${formatCredits(price)} 🪙</button>`;
+    }
 
     card.innerHTML = `
         <div class="vsx-card-inner">
@@ -222,7 +256,7 @@ function createCard(item) {
                     <span class="stat-item">⭐ ${rating.toFixed(1)}</span>
                     <span class="stat-item">⬇ ${formatNumber(downloads)}</span>
                 </div>
-                <span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>
+                ${actionBtnHtml}
             </div>
         </div>
     `;
