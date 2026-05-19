@@ -233,12 +233,12 @@ function createCard(item, installData) {
         } catch(e) {}
         
         if (hasUpdate && category === 'extension') {
-            actionBtnHtml = `<button class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
+            actionBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
         } else {
             actionBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
         }
     } else if (isFree) {
-        actionBtnHtml = `<button class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
+        actionBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
     } else {
         actionBtnHtml = `<button class="card-price paid" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); openDetailModal('${item.public_id}')">${formatCredits(price)} 🪙</button>`;
     }
@@ -672,13 +672,17 @@ async function buyItem(publicId) {
 
 // ── Install Item ──
 async function installItem(publicId, itemName, category, forceUpdate = false) {
-    const btn = document.getElementById('installBtn_' + publicId);
-    let originalText = '';
-    if (btn) {
-        originalText = btn.innerHTML;
+    const modalBtn = document.getElementById('installBtn_' + publicId);
+    const cardInstallBtn = document.getElementById('cardInstallBtn_' + publicId);
+    const cardUpdateBtn = document.getElementById('cardUpdateBtn_' + publicId);
+    const btns = [modalBtn, cardInstallBtn, cardUpdateBtn].filter(Boolean);
+    
+    let originalTexts = [];
+    btns.forEach((btn, i) => {
+        originalTexts[i] = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Installing...';
-    }
+        btn.innerHTML = '<div class="market-spinner" style="width:14px;height:14px;border-width:2px;margin:0 6px 0 0;display:inline-block;vertical-align:middle;"></div> ' + (forceUpdate ? 'Cập nhật...' : 'Đang cài...');
+    });
 
     clearTerm();
     termLog(`Initializing installation for ${itemName}...`, '#88aaff');
@@ -707,10 +711,10 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             clearInterval(termInterval);
             termLog("Failed to fetch item data from Market API.", '#ff4444');
             showToast('Failed to get item data', 'error');
-            if (btn) {
+            btns.forEach((btn, i) => {
                 btn.disabled = false;
-                btn.innerHTML = originalText;
-            }
+                btn.innerHTML = originalTexts[i];
+            });
             return;
         }
 
@@ -750,48 +754,64 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
                 try { await loadDynamicExtensionsToSidebar(); } catch(e) {}
             }
 
-            if (btn) {
-                // Replace Installed badge with Open Extension button
-                btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open ${itemName}`;
-                btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
-                btn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
-                btn.disabled = false;
-                btn.onclick = () => {
-                    closeDetailModal();
-                    if (window.parent && typeof window.parent.navigateTo === 'function') {
-                        window.parent.navigateTo(extTabId);
-                    } else if (typeof navigateTo === 'function') {
-                        navigateTo(extTabId);
-                    } else {
-                        if (window.parent) window.parent.location.hash = '#/' + extTabId;
-                        else window.location.hash = '#/' + extTabId;
-                    }
-                };
-            }
+            btns.forEach((btn) => {
+                if (btn.id.startsWith('card')) {
+                    btn.innerHTML = 'Đã cài';
+                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.border = '1px solid var(--border)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.boxShadow = 'none';
+                    btn.disabled = true;
+                } else {
+                    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open ${itemName}`;
+                    btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                    btn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
+                    btn.disabled = false;
+                    btn.onclick = () => {
+                        closeDetailModal();
+                        if (window.parent && typeof window.parent.navigateTo === 'function') {
+                            window.parent.navigateTo(extTabId);
+                        } else if (typeof navigateTo === 'function') {
+                            navigateTo(extTabId);
+                        } else {
+                            if (window.parent) window.parent.location.hash = '#/' + extTabId;
+                            else window.location.hash = '#/' + extTabId;
+                        }
+                    };
+                }
+            });
             showToast(data.message || 'Installed successfully!', 'success');
         } else if (res.status === 409 || data.detail?.already_installed) {
             termLog("Item is already installed.", '#ffaa00');
-            if (btn) {
-                btn.innerHTML = '✅ Installed';
+            btns.forEach((btn) => {
+                if (btn.id.startsWith('card')) {
+                    btn.innerHTML = 'Đã cài';
+                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.border = '1px solid var(--border)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.boxShadow = 'none';
+                } else {
+                    btn.innerHTML = '✅ Installed';
+                }
                 btn.disabled = true;
-            }
+            });
             showToast(data.detail?.message || 'This item is already installed', 'error');
         } else {
             termLog("❌ Installation Failed: " + (data.detail || data.message || 'Unknown error'), '#ff4444');
-            if (btn) {
+            btns.forEach((btn, i) => {
                 btn.disabled = false;
-                btn.innerHTML = originalText;
-            }
+                btn.innerHTML = originalTexts[i];
+            });
             showToast(data.detail || data.message || 'Install failed', 'error');
             throw new Error(data.detail || data.message || 'Install failed');
         }
     } catch (e) {
         clearInterval(termInterval);
         termLog("❌ Network / Execution Error: " + e.message, '#ff4444');
-        if (btn) {
+        btns.forEach((btn, i) => {
             btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
+            btn.innerHTML = originalTexts[i];
+        });
         showToast('Install error: ' + e.message, 'error');
         throw e;
     }
@@ -843,12 +863,16 @@ async function uninstallItem(publicId, itemName, category) {
 
 // ── Update Item ──
 async function updateLocalItem(publicId, itemName, category = "extension") {
-    const upBtn = document.getElementById('updateBtn_' + publicId);
-    if (!upBtn) return;
+    const modalBtn = document.getElementById('updateBtn_' + publicId);
+    const cardBtn = document.getElementById('cardUpdateBtn_' + publicId);
+    const btns = [modalBtn, cardBtn].filter(Boolean);
     
-    const originalText = upBtn.innerHTML;
-    upBtn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Updating...';
-    upBtn.disabled = true;
+    let originalTexts = [];
+    btns.forEach((btn, i) => {
+        originalTexts[i] = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div class="market-spinner" style="width:14px;height:14px;border-width:2px;margin:0 6px 0 0;display:inline-block;vertical-align:middle;"></div> Đang cập nhật...';
+    });
 
     clearTerm();
     termLog(`Checking updates for ${itemName}...`, '#88aaff');
@@ -869,8 +893,20 @@ async function updateLocalItem(publicId, itemName, category = "extension") {
             termLog("✅ Extension hot-reloaded successfully!", '#00ff00');
             showToast(data.message || `"${itemName}" updated`, 'success');
             setTimeout(() => {
-                upBtn.innerHTML = '✅ Updated';
-                upBtn.style.boxShadow = 'none';
+                btns.forEach((btn) => {
+                    if (btn.id.startsWith('card')) {
+                        btn.innerHTML = 'Đã cập nhật';
+                        btn.style.background = 'rgba(255,255,255,0.05)';
+                        btn.style.border = '1px solid var(--border)';
+                        btn.style.color = 'var(--text-muted)';
+                        btn.style.boxShadow = 'none';
+                        btn.disabled = true;
+                    } else {
+                        btn.innerHTML = '✅ Updated';
+                        btn.style.boxShadow = 'none';
+                        btn.disabled = true;
+                    }
+                });
             }, 1000);
         } else if (res.status === 400 && (data.detail === "Currently only extensions installed via Git can be updated." || 
                                          data.message === "Currently only extensions installed via Git can be updated.")) {
@@ -878,8 +914,19 @@ async function updateLocalItem(publicId, itemName, category = "extension") {
             termLog("Extension was not installed via Git. Triggering Market ZIP Fallback Force Update...", '#ffaa00');
             showToast('Fetching latest ZIP update from Market...', 'info');
             await installItem(publicId, itemName, category, true);
-            upBtn.innerHTML = '✅ Updated';
-            upBtn.style.boxShadow = 'none';
+            btns.forEach((btn) => {
+                if (btn.id.startsWith('card')) {
+                    btn.innerHTML = 'Đã cập nhật';
+                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.border = '1px solid var(--border)';
+                    btn.style.color = 'var(--text-muted)';
+                    btn.style.boxShadow = 'none';
+                } else {
+                    btn.innerHTML = '✅ Updated';
+                    btn.style.boxShadow = 'none';
+                }
+                btn.disabled = true;
+            });
         } else {
             termLog("❌ Update Failed: " + (data.detail || data.message || 'Unknown'), '#ff4444');
             throw new Error(data.message || data.detail || 'Update failed');
@@ -888,8 +935,10 @@ async function updateLocalItem(publicId, itemName, category = "extension") {
         clearInterval(updateInterval);
         termLog("❌ Error: " + e.message, '#ff4444');
         showToast(e.message || 'Update error', 'error');
-        upBtn.innerHTML = originalText;
-        upBtn.disabled = false;
+        btns.forEach((btn, i) => {
+            btn.innerHTML = originalTexts[i];
+            btn.disabled = false;
+        });
     }
 }
 
