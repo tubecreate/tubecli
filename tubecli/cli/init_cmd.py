@@ -917,7 +917,7 @@ def _run_update_check():
         console.print(f"  [cyan]⏳ Restarting in {i}...[/cyan]", end="\r")
         time.sleep(1)
     console.print()
-    os.execv(sys.executable, [sys.executable, "-m", "tubecli", "init"])
+    os.execv(sys.executable, [sys.executable, "-m", "tubecli.main", "init"])
 
 
 def _install_missing_deps(project_root: str, python_exe: str):
