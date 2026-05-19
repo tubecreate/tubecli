@@ -26,14 +26,16 @@
                 <button onclick="toggleSidebar()" class="sidebar-menu-btn" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.1rem; margin-top:2px; padding:0; display:flex; justify-content:center; align-items:center;"><span class="material-symbols-outlined">menu</span></button>
             </div>
             
-            <div class="sidebar-update" id="sidebar-update" style="display:none; flex-direction:column; gap:8px; margin:12px 0 0 0; background:rgba(245, 158, 11, 0.1); border:1px solid rgba(245, 158, 11, 0.2); border-radius:8px; padding:10px;">
-                <div class="update-info" style="color:var(--warning, #f59e0b); font-size:0.75rem; font-weight:700; display:flex; align-items:center; gap:6px; margin:0;">
-                    <span class="material-symbols-outlined" style="font-size:14px;">arrow_upward</span>
+            <div class="sidebar-update" id="sidebar-update" style="display:none; flex-direction:column; gap:10px; margin:12px 0 0 0; background:rgba(82, 118, 235, 0.08); border:1px solid rgba(82, 118, 235, 0.2); border-radius:8px; padding:12px; position:relative;">
+                <button onclick="skipUpdate()" style="position:absolute; top:6px; right:6px; background:none; border:none; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; padding:2px; border-radius:4px; transition:all 0.15s;" title="Skip this version" onmouseover="this.style.background='rgba(255,255,255,0.1)';this.style.color='#fff';" onmouseout="this.style.background='none';this.style.color='var(--text-muted)';">
+                    <span class="material-symbols-outlined" style="font-size:14px;">close</span>
+                </button>
+                <div class="update-info" style="color:var(--accent, #5276eb); font-size:0.75rem; font-weight:700; display:flex; align-items:center; gap:6px; margin:0; padding-right:16px;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">system_update_alt</span>
                     <span id="update-text">New version available</span>
                 </div>
                 <div style="display:flex; align-items:center; gap:8px;">
-                    <button class="btn-update-now" id="btn-update-now" onclick="performUpdate()" style="background:var(--warning, #f59e0b); color:#000; border:none; padding:5px 12px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;">Update now</button>
-                    <span style="font-family:monospace; font-size:0.7rem; color:var(--text-muted);">auto-update</span>
+                    <button class="btn-update-now" id="btn-update-now" onclick="performUpdate()" style="background:var(--accent, #5276eb); color:#fff; border:none; padding:6px 14px; border-radius:6px; font-weight:600; font-size:0.75rem; cursor:pointer; box-shadow:0 2px 8px rgba(82, 118, 235, 0.3); transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(82, 118, 235, 0.4)';" onmouseout="this.style.transform='none'; this.style.boxShadow='0 2px 8px rgba(82, 118, 235, 0.3)';">Update now</button>
                 </div>
             </div>
         </div>
@@ -830,14 +832,26 @@
         // Check GitHub for newer version
         fetch('/api/v1/version/check').then(r=>r.json()).then(u=>{
             if(u.has_update) {
-                var su = document.getElementById('sidebar-update');
-                var ut = document.getElementById('update-text');
-                if(su) su.style.display = 'flex';  // MUST be 'flex' — flex-direction:column needs flex display
-                if(ut) ut.textContent = '↑ New version: v' + u.remote_version;
+                var skipped = localStorage.getItem('skipped_version');
+                if (skipped !== u.remote_version) {
+                    window._latestRemoteVersion = u.remote_version;
+                    var su = document.getElementById('sidebar-update');
+                    var ut = document.getElementById('update-text');
+                    if(su) su.style.display = 'flex';
+                    if(ut) ut.textContent = 'TubeCLI v' + u.remote_version;
+                }
             }
         }).catch(()=>{});
     }).catch(()=>{});
 })();
+
+function skipUpdate() {
+    if (window._latestRemoteVersion) {
+        localStorage.setItem('skipped_version', window._latestRemoteVersion);
+    }
+    var su = document.getElementById('sidebar-update');
+    if (su) su.style.display = 'none';
+}
 
 function performUpdate() {
     var btn = document.getElementById('btn-update-now');
