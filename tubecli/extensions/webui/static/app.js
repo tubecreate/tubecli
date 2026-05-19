@@ -1535,7 +1535,12 @@ async function renderOllamaExt(el) {
     const models = mdls?.models || [];
     const running = run?.running || [];
     const runNames = running.map(r => r.name);
-    let h = `<div class="ext-info-grid" style="margin-bottom:24px">
+    let h = `
+    <div style="padding: 24px; max-width: 1200px; margin: 0 auto; box-sizing: border-box; width: 100%;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 24px;">
+            <h2 style="margin:0; color:var(--text); font-size:1.8rem; font-weight:700;">🧠 Ollama Manager</h2>
+        </div>
+        <div class="ext-info-grid" style="margin-bottom:24px">
         <div class="ext-info-card"><div class="info-value" style="font-size:1.6rem">${st?.running?'🟢':'🔴'}</div><div class="info-label" style="font-weight:600;color:var(--text)">${st?.running?T('status.online'):T('status.offline')}</div><div class="info-label">${esc(st?.base_url||'')}</div></div>
         <div class="ext-info-card"><div class="info-value">${models.length}</div><div class="info-label">${T('ollama.models')}</div></div>
         <div class="ext-info-card"><div class="info-value">${running.length}</div><div class="info-label">${T('ollama.loaded')}</div></div>
@@ -1546,7 +1551,8 @@ async function renderOllamaExt(el) {
         models.forEach(m => { const loaded = runNames.some(r => r.startsWith(m.name.split(':')[0])); h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(m.name)}</td><td>${esc(m.size_human)}</td><td style="color:var(--text-muted)">${esc((m.modified_at||'').slice(0,10))}</td><td>${loaded?`<span style="color:var(--green)">${T('ollama.loaded')}</span>`:`💤 ${T('status.idle')}`}</td><td><button class="btn-danger" onclick="removeOllamaModel('${esc(m.name)}')">✕</button></td></tr>`; });
         h += '</tbody></table></div>';
     } else h += `<p class="text-muted">${st?.running?T('ollama.no_models'):T('ollama.not_running')}</p>`;
-    h += `<div style="margin-top:16px;display:flex;gap:10px"><input id="ollama-pull-input" placeholder="e.g. qwen:latest" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)"><button class="btn-primary" onclick="pullOllamaModel()">${T('ollama.pull')}</button><button class="btn-secondary" onclick="renderOllamaExt(document.getElementById('ext-detail-body'))">🔄</button></div>`;
+    h += `<div style="margin-top:16px;display:flex;gap:10px"><input id="ollama-pull-input" placeholder="e.g. qwen:latest" style="flex:1;padding:10px 14px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)" autocomplete="off" spellcheck="false" data-lpignore="true"><button class="btn-primary" onclick="pullOllamaModel()">${T('ollama.pull')}</button><button class="btn-secondary" onclick="renderOllamaExt(document.getElementById('ext-detail-body'))">🔄</button></div>`;
+    h += `</div>`; // Close padded container
     el.innerHTML = h;
 }
 async function pullOllamaModel() { const m = document.getElementById('ollama-pull-input')?.value.trim(); if(!m) return alert('Enter model name.'); alert(`Pulling "${m}"...`); const r = await apiPost('/api/v1/ollama/pull',{model:m}); if(r&&!r.error) { alert('Done!'); renderOllamaExt(document.getElementById('ext-detail-body')); } else alert('Failed: '+(r?.error||'?')); }
