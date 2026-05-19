@@ -50,24 +50,11 @@
             <button class="nav-item" data-tab="settings"><span class="material-symbols-outlined">settings</span> <span class="nav-text" data-i18n="nav.settings">Settings</span></button>
 
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
+            <!-- Always-visible core ext -->
             <button class="nav-item" data-tab="ext-agents"><span class="material-symbols-outlined">smart_toy</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
             <button class="nav-item" data-tab="ext-browser"><span class="material-symbols-outlined">public</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
-            <button class="nav-item ext-conditional" data-ext="web_crawler" data-tab="ext-web-crawler" style="display:none"><span class="material-symbols-outlined">travel_explore</span> <span class="nav-text">Web Crawler</span></button>
-            <button class="nav-item ext-conditional" data-ext="sheets_manager" data-tab="ext-sheets" style="display:none"><span class="material-symbols-outlined">table_chart</span> <span class="nav-text">Sheets</span></button>
-            <button class="nav-item ext-conditional" data-ext="calendar_manager" data-tab="ext-calendar" style="display:none"><span class="material-symbols-outlined">calendar_month</span> <span class="nav-text">Calendar</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_downloader" data-tab="ext-downloader" style="display:none"><span class="material-symbols-outlined">download</span> <span class="nav-text">Douyin Download</span></button>
-            <button class="nav-item ext-conditional" data-ext="livestream" data-tab="ext-livestream" style="display:none"><span class="material-symbols-outlined">cast</span> <span class="nav-text">Livestream</span></button>
-            <button class="nav-item ext-conditional" data-ext="multi_agents" data-tab="ext-teams" style="display:none"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
-            <button class="nav-item" data-tab="ext-story"><span class="material-symbols-outlined">movie</span> <span class="nav-text">Story Engine</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-editor" style="display:none"><span class="material-symbols-outlined">video_settings</span> <span class="nav-text">Video Editor</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_editor" data-tab="ext-video-processing" style="display:none"><span class="material-symbols-outlined">auto_fix_high</span> <span class="nav-text">AI Background</span></button>
-            <button class="nav-item ext-conditional" data-ext="video_manager" data-tab="ext-video-manager" style="display:none"><span class="material-symbols-outlined">video_library</span> <span class="nav-text">Video Manager</span></button>
-            <button class="nav-item ext-conditional" data-ext="subtitle_extractor" data-tab="ext-subtitle-extractor" style="display:none"><span class="material-symbols-outlined">subtitles</span> <span class="nav-text">Subtitle Extractor</span></button>
-            <button class="nav-item" data-tab="ext-studio"><span class="material-symbols-outlined">palette</span> <span class="nav-text">3D Studio</span></button>
-            <button class="nav-item" data-tab="ext-tracker"><span class="material-symbols-outlined">monitoring</span> <span class="nav-text">Content Tracker</span></button>
-            <button class="nav-item" data-tab="ext-file-manager"><span class="material-symbols-outlined">folder</span> <span class="nav-text">Files</span></button>
-            <button class="nav-item ext-conditional" data-ext="ai_arena" data-tab="ext-ai-arena" style="display:none"><span class="material-symbols-outlined">sports_esports</span> <span class="nav-text">AI Arena</span></button>
-
+            <!-- Dynamic extension zone: buildSidebar() populates this -->
+            <div id="ext-nav-zone"></div>
         </nav>
         <div class="sidebar-footer" id="sidebar-footer" style="padding: 12px;">
             <button onclick="shutdownServer()" class="btn-shutdown" style="width:100%; display:flex; align-items:center; justify-content:center; gap:8px; padding:10px; background:transparent; border:1px solid rgba(239, 68, 68, 0.3); border-radius:8px; color:var(--text); font-weight:600; cursor:pointer; transition:all 0.2s;">
@@ -76,6 +63,27 @@
             </button>
         </div>
     </aside>
+
+    <!-- Hidden button pool: buildSidebar() moves these into ext-nav-zone -->
+    <div id="ext-btn-pool" style="display:none">
+        <!-- Optional ext: shown only when API says enabled -->
+        <button class="nav-item" data-ext="web_crawler" data-tab="ext-web-crawler"><span class="material-symbols-outlined">travel_explore</span> <span class="nav-text">Web Crawler</span></button>
+        <button class="nav-item" data-ext="sheets_manager" data-tab="ext-sheets"><span class="material-symbols-outlined">table_chart</span> <span class="nav-text">Sheets</span></button>
+        <button class="nav-item" data-ext="calendar_manager" data-tab="ext-calendar"><span class="material-symbols-outlined">calendar_month</span> <span class="nav-text">Calendar</span></button>
+        <button class="nav-item" data-ext="video_downloader" data-tab="ext-downloader"><span class="material-symbols-outlined">download</span> <span class="nav-text">Douyin Download</span></button>
+        <button class="nav-item" data-ext="livestream" data-tab="ext-livestream"><span class="material-symbols-outlined">cast</span> <span class="nav-text">Livestream</span></button>
+        <button class="nav-item" data-ext="multi_agents" data-tab="ext-teams"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
+        <button class="nav-item" data-ext="video_editor" data-tab="ext-video-editor"><span class="material-symbols-outlined">video_settings</span> <span class="nav-text">Video Editor</span></button>
+        <button class="nav-item" data-ext="video_editor" data-tab="ext-video-processing"><span class="material-symbols-outlined">auto_fix_high</span> <span class="nav-text">AI Background</span></button>
+        <button class="nav-item" data-ext="video_manager" data-tab="ext-video-manager"><span class="material-symbols-outlined">video_library</span> <span class="nav-text">Video Manager</span></button>
+        <button class="nav-item" data-ext="subtitle_extractor" data-tab="ext-subtitle-extractor"><span class="material-symbols-outlined">subtitles</span> <span class="nav-text">Subtitle Extractor</span></button>
+        <button class="nav-item" data-ext="ai_arena" data-tab="ext-ai-arena"><span class="material-symbols-outlined">sports_esports</span> <span class="nav-text">AI Arena</span></button>
+        <!-- Static ext: always shown, also groupable -->
+        <button class="nav-item" data-ext="story_engine" data-ext-static="true" data-tab="ext-story"><span class="material-symbols-outlined">movie</span> <span class="nav-text">Story Engine</span></button>
+        <button class="nav-item" data-ext="studio_3d" data-ext-static="true" data-tab="ext-studio"><span class="material-symbols-outlined">palette</span> <span class="nav-text">3D Studio</span></button>
+        <button class="nav-item" data-ext="content_tracker" data-ext-static="true" data-tab="ext-tracker"><span class="material-symbols-outlined">monitoring</span> <span class="nav-text">Content Tracker</span></button>
+        <button class="nav-item" data-ext="file_browser" data-ext-static="true" data-tab="ext-file-manager"><span class="material-symbols-outlined">folder</span> <span class="nav-text">Files</span></button>
+    </div>
 
     <!-- Main Content -->
     <main class="content" style="position: relative;">
@@ -364,6 +372,27 @@
                             <option value="">Not configured</option>
                         </select>
                         <div class="field-hint" data-i18n="settings.calendar_desc">Google account for AI to schedule events via chat commands.</div>
+                    </div>
+                </div>
+
+                <!-- 🧩 Extension Groups Card -->
+                <div class="settings-card full-width">
+                    <div class="settings-card-header">
+                        <div class="settings-card-icon green"><span class="material-symbols-outlined" style="font-size:18px">folder_special</span></div>
+                        <div><h3>Extension Groups</h3><small>Group extensions in the sidebar</small></div>
+                    </div>
+                    <div class="settings-field">
+                        <div style="display:flex; gap: 8px; margin-bottom: 16px; align-items:center;">
+                            <input id="set-ext-group-name" type="text" class="input" placeholder="New Group Name (e.g. Media Providers)" style="flex:1;">
+                            <input id="set-ext-group-icon" type="text" class="input" placeholder="Icon (e.g. folder)" style="width:120px;">
+                            <a href="https://fonts.google.com/icons?icon.set=Material+Symbols" target="_blank" title="Material Symbols List" style="color:var(--text-muted); text-decoration:none; display:flex; align-items:center;">
+                                <span class="material-symbols-outlined" style="font-size:20px;">help</span>
+                            </a>
+                            <button class="btn-primary" onclick="createExtensionGroup()">+ Add Group</button>
+                        </div>
+                        <div id="settings-ext-groups-list" style="display:flex; flex-direction:column; gap: 12px;">
+                            <!-- Dynamic groups will be rendered here -->
+                        </div>
                     </div>
                 </div>
 

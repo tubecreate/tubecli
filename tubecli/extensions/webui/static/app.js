@@ -219,43 +219,56 @@ async function apiDelete(path, data) { try { const opts = { method:'DELETE' }; i
 // ═══ DASHBOARD (Stats + Status) ═══
 // ═══════════════════════════════════════════════════════════
 async function loadDashboard() {
-    const [agents, profiles, skills, extensions, wfs, ollamaStatus, keysData] = await Promise.all([
+    // ── Phase 1: Fast data (stats) ── load immediately
+    const [agents, profiles, skills, extensions, wfs, keysData] = await Promise.all([
         apiGet('/api/v1/agents'), apiGet('/api/v1/browser/profiles'),
         apiGet('/api/v1/skills'), apiGet('/api/v1/extensions'),
-        apiGet('/api/v1/workflows'), apiGet('/api/v1/ollama/status'),
-        apiGet('/api/v1/cloud-api/keys'),
+        apiGet('/api/v1/workflows'), apiGet('/api/v1/cloud-api/keys'),
     ]);
     document.getElementById('stat-agents').textContent = agents?.agents?.length ?? 0;
     document.getElementById('stat-profiles').textContent = profiles?.profiles?.length ?? 0;
     document.getElementById('stat-skills').textContent = skills?.skills?.length ?? 0;
     document.getElementById('stat-workflows').textContent = wfs?.workflows?.length ?? 0;
     document.getElementById('stat-extensions').textContent = extensions?.count ?? 0;
-    // Count keys
     let keyCount = 0;
     if (keysData?.keys) Object.values(keysData.keys).forEach(labels => { keyCount += Object.keys(labels).length; });
     document.getElementById('stat-api-keys').textContent = keyCount;
-    // Status
     document.getElementById('status-api-dot').style.color = 'var(--green)';
     document.getElementById('status-api-label').className = 'tag green';
     document.getElementById('status-api-label').textContent = T('status.online');
-    if (ollamaStatus?.running) {
-        document.getElementById('status-ollama-dot').style.color = 'var(--green)';
-        document.getElementById('status-ollama-label').className = 'tag green';
-        document.getElementById('status-ollama-label').textContent = `${T('status.online')} (${ollamaStatus.model_count} ${T('status.models')})`;
-    } else {
+
+    // ── Phase 2: Slow status checks ── run in background, non-blocking
+    _checkStatusesInBackground();
+}
+
+function _checkStatusesInBackground() {
+    // Ollama
+    apiGet('/api/v1/ollama/status').then(ollamaStatus => {
+        if (ollamaStatus?.running) {
+            document.getElementById('status-ollama-dot').style.color = 'var(--green)';
+            document.getElementById('status-ollama-label').className = 'tag green';
+            document.getElementById('status-ollama-label').textContent = `${T('status.online')} (${ollamaStatus.model_count} ${T('status.models')})`;
+        } else {
+            document.getElementById('status-ollama-dot').style.color = 'var(--red)';
+            document.getElementById('status-ollama-label').className = 'tag';
+            document.getElementById('status-ollama-label').textContent = T('status.offline');
+        }
+    }).catch(() => {
         document.getElementById('status-ollama-dot').style.color = 'var(--red)';
         document.getElementById('status-ollama-label').className = 'tag';
         document.getElementById('status-ollama-label').textContent = T('status.offline');
-    }
-    const browserStatus = await apiGet('/api/v1/browser/status');
-    const runCount = browserStatus?.instances?.length ?? 0;
-    document.getElementById('status-browser-dot').style.color = runCount > 0 ? 'var(--green)' : 'var(--text-muted)';
-    document.getElementById('status-browser-label').className = runCount > 0 ? 'tag green' : 'tag';
-    document.getElementById('status-browser-label').textContent = runCount > 0 ? `${runCount} ${T('status.running')}` : T('status.idle');
+    });
 
-    // 9Router status
-    try {
-        const nrStatus = await apiGet('/api/v1/cloud-api/9router/status');
+    // Browser
+    apiGet('/api/v1/browser/status').then(browserStatus => {
+        const runCount = browserStatus?.instances?.length ?? 0;
+        document.getElementById('status-browser-dot').style.color = runCount > 0 ? 'var(--green)' : 'var(--text-muted)';
+        document.getElementById('status-browser-label').className = runCount > 0 ? 'tag green' : 'tag';
+        document.getElementById('status-browser-label').textContent = runCount > 0 ? `${runCount} ${T('status.running')}` : T('status.idle');
+    }).catch(() => {});
+
+    // 9Router
+    apiGet('/api/v1/cloud-api/9router/status').then(nrStatus => {
         if (nrStatus?.running) {
             document.getElementById('status-9router-dot').style.color = 'var(--green)';
             document.getElementById('status-9router-label').className = 'tag green';
@@ -265,98 +278,183 @@ async function loadDashboard() {
             document.getElementById('status-9router-label').className = 'tag';
             document.getElementById('status-9router-label').textContent = T('status.offline');
         }
-    } catch(e) {
+    }).catch(() => {
         document.getElementById('status-9router-dot').style.color = 'var(--red)';
         document.getElementById('status-9router-label').className = 'tag';
         document.getElementById('status-9router-label').textContent = T('status.offline');
-    }
+    });
 }
 
 // ═══════════════════════════════════════════════════════════
 // ═══ EXTENSIONS (All features as clickable cards) ═══
 // ═══════════════════════════════════════════════════════════
 const EXT_REGISTRY = [
-    { id:'agents', icon:'🤖', name:'nav.dashboard', desc:'ext.agents_desc', type:'core' },
-    { id:'browser', icon:'🌐', name:'stat.profiles', desc:'ext.browser_desc', type:'core' },
-    { id:'workflows', icon:'🔄', name:'stat.workflows', desc:'ext.workflows_desc', type:'core' },
-    { id:'skills', icon:'⚡', name:'stat.skills', desc:'ext.skills_desc', type:'core' },
-    { id:'market', icon:'🛍️', name:'Marketplace', desc:'ext.market_desc', type:'core' },
-    { id:'cloud_api', icon:'☁️', name:'dash.cloud_api_keys', desc:'ext.cloud_api_desc', type:'extension' },
-    { id:'ollama', icon:'🧠', name:'Ollama Manager', desc:'ext.ollama_desc', type:'extension' },
-    { id:'multi_agents', icon:'👥', name:'Multi-Agents', desc:'ext.multi_agents_desc', type:'extension' },
-    { id:'downloader', icon:'📥', name:'Douyin Downloader', desc:'Download TikTok & Douyin videos', type:'extension' },
-    { id:'video_editor', icon:'🎬', name:'Video Editor', desc:'AI-powered Video Editor with Timeline & FFmpeg', type:'extension' },
-    { id:'video_manager', icon:'📹', name:'Video Manager', desc:'Manage your videos and YouTube channels locally', type:'extension' },
-    { id:'subtitle_extractor', icon:'📝', name:'Subtitle Extractor', desc:'Extract subtitles via Whisper Ai or Gemini', type:'extension' },
-    { id:'sheets_manager', icon:'📊', name:'Google Sheets', desc:'Manage Google Spreadsheets directly', type:'extension' },
-    { id:'file_manager', icon:'📁', name:'File Manager', desc:'Quản lý file & folder — tạo, xóa, di chuyển, sao chép trực tiếp', type:'core' },
-    { id:'calendar_manager', icon:'📅', name:'Calendar Manager', desc:'Quản lý Google Calendar — lập lịch, sự kiện lặp lại, nhắc nhở Telegram', type:'core' },
-    { id:'web_crawler', icon:'🕸️', name:'Web Crawler', desc:'Trích xuất dữ liệu, titles, links từ website', type:'extension' },
+    // core: always in nav, not groupable
+    { id:'agents',    tab:'ext-agents',   icon:'smart_toy',  name:'nav.dashboard', type:'core' },
+    { id:'browser',   tab:'ext-browser',  icon:'public',     name:'stat.profiles', type:'core' },
+    { id:'workflows', tab:'workflows',    icon:'sync',       name:'stat.workflows',type:'core' },
+    { id:'skills',    tab:'skills',       icon:'bolt',       name:'stat.skills',   type:'core' },
+    { id:'market',    tab:'ext-market',   icon:'storefront', name:'Marketplace',   type:'core' },
+    // extension: shown when API enabled, groupable
+    { id:'cloud_api',          tab:'ext-cloud-keys',         icon:'cloud',          name:'dash.cloud_api_keys', type:'extension' },
+    { id:'ollama',             tab:'ext-ollama',             icon:'🧠',             name:'Ollama Manager',      type:'extension' },
+    { id:'multi_agents',       tab:'ext-teams',              icon:'groups',         name:'Teams AI',            type:'extension' },
+    { id:'video_downloader',   tab:'ext-downloader',         icon:'download',       name:'Douyin Download',     type:'extension' },
+    { id:'video_editor',       tab:'ext-video-editor',       icon:'video_settings', name:'Video Editor',        type:'extension' },
+    { id:'video_manager',      tab:'ext-video-manager',      icon:'video_library',  name:'Video Manager',       type:'extension' },
+    { id:'subtitle_extractor', tab:'ext-subtitle-extractor', icon:'subtitles',      name:'Subtitle Extractor',  type:'extension' },
+    { id:'sheets_manager',     tab:'ext-sheets',             icon:'table_chart',    name:'Google Sheets',       type:'extension' },
+    { id:'calendar_manager',   tab:'ext-calendar',           icon:'calendar_month', name:'Calendar Manager',    type:'extension' },
+    { id:'web_crawler',        tab:'ext-web-crawler',        icon:'travel_explore', name:'Web Crawler',         type:'extension' },
+    { id:'livestream',         tab:'ext-livestream',         icon:'cast',           name:'Livestream',          type:'extension' },
+    { id:'ai_arena',           tab:'ext-ai-arena',           icon:'sports_esports', name:'AI Arena',            type:'extension' },
+    // static: always shown, groupable (no API gate)
+    { id:'story_engine',    tab:'ext-story',        icon:'movie',      name:'Story Engine',    type:'static' },
+    { id:'studio_3d',       tab:'ext-studio',       icon:'palette',    name:'3D Studio',       type:'static' },
+    { id:'content_tracker', tab:'ext-tracker',      icon:'monitoring', name:'Content Tracker', type:'static' },
+    { id:'file_browser',    tab:'ext-file-manager', icon:'folder',     name:'Files',           type:'static' },
 ];
 
-async function loadDynamicExtensionsToSidebar() {
-    const extensionData = await apiGet('/api/v1/extensions');
-    const extensions = extensionData?.extensions || [];
-    const sidebarNav = document.querySelector('.sidebar-nav');
-    
-    extensions.forEach(ext => {
-        const hardcodedExtensions = [
-            'web_crawler', 'sheets_manager', 'calendar_manager', 
-            'multi_agents', 'livestream', 'files', 'video_editor', 'video_downloader', 'video_manager', 'subtitle_extractor', 'ai_arena'
-        ];
-        
-        // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
-        if (ext.enabled) {
-            document.querySelectorAll(`.ext-conditional[data-ext="${ext.name}"]`).forEach(el => {
-                el.style.display = '';
-            });
-        }
-        
-        // Skip if already in EXT_REGISTRY, hardcoded in Sidebar, or disabled
-        const inRegistry = EXT_REGISTRY.some(e => e.id === ext.name);
-        const isHardcoded = hardcodedExtensions.includes(ext.name);
-        
-        if (!inRegistry && !isHardcoded && ext.extension_type === 'external' && ext.enabled) {
-            const tabId = 'ext-' + ext.name;
+// ── IDs that cannot be grouped (core nav) ──
+const CORE_NAV_IDS = new Set(['agents','browser','workflows','skills','market',
+    'dashboard','extensions','api_manager','auth_manager','cloud_keys','marketplace']);
 
-            // Skip if sidebar button already exists (prevents duplicates on re-call)
-            const existingBtn = sidebarNav.querySelector(`[data-tab="${tabId}"]`);
-            if (existingBtn) return;
-            const icon = ext.icon || '📦';
-            const displayName = ext.display_name || ext.name;
-            const pageUrl = ext.page_url; // Now available directly from /extensions API
-            
-            // Create sidebar button
-            const btn = document.createElement('button');
+/**
+ * buildSidebar(extensions, groups)
+ * - extensions: array from /api/v1/extensions
+ * - groups:     array of {id, name, icon, extensions:[extId,...]}
+ * 
+ * Strategy:
+ *   All extension buttons live in #ext-btn-pool (hidden).
+ *   This function moves them into #ext-nav-zone (or group containers).
+ *   Dynamic external extensions get new buttons created on the fly.
+ *   No hardcoded lists — pool buttons have data-ext, static ones have data-ext-static.
+ */
+function buildSidebar(extensions, groups) {
+    const pool    = document.getElementById('ext-btn-pool');
+    const navZone = document.getElementById('ext-nav-zone');
+    if (!pool || !navZone) return;
+
+    // 1. Return ALL current children of navZone back to pool (reset)
+    //    Also remove sidebar-group wrappers
+    Array.from(navZone.children).forEach(el => pool.appendChild(el));
+    navZone.querySelectorAll('.sidebar-group').forEach(el => el.remove());
+
+    // 2. Build lookup maps
+    const enabledSet = new Set();
+    const extApiMap  = {};
+    extensions.forEach(e => { extApiMap[e.name] = e; if (e.enabled) enabledSet.add(e.name); });
+    allAvailableExtensions = extensions; // keep global in sync
+
+    // 3. Handle non-nav ext-conditional elements (quick-action cards etc.)
+    document.querySelectorAll('.ext-conditional[data-ext]').forEach(el => {
+        if (!el.classList.contains('nav-item') || !pool.contains(el)) {
+            el.style.display = enabledSet.has(el.dataset.ext) ? '' : 'none';
+        }
+    });
+
+    // 4. Collect ordered list of items to place in sidebar
+    //    Each item: { extId, btn } — order preserved from pool DOM order first,
+    //    then dynamic API extensions at the end
+    const items = [];
+    const seenExtIds = new Set(); // track extIds already added (some have multiple buttons e.g. video_editor)
+
+    // 4a. Pool buttons (built-in/static) — in DOM order
+    pool.querySelectorAll('.nav-item[data-ext]').forEach(btn => {
+        const extId   = btn.dataset.ext;
+        const isStatic = btn.dataset.extStatic === 'true';
+        if (!isStatic && !enabledSet.has(extId)) return; // optional ext not installed
+        items.push({ extId, btn });
+        seenExtIds.add(extId);
+    });
+
+    // 4b. Dynamic external extensions from API (not in pool, not core)
+    extensions.forEach(ext => {
+        if (!ext.enabled) return;
+        if (CORE_NAV_IDS.has(ext.name)) return;
+        if (seenExtIds.has(ext.name)) return; // handled by pool already
+        const reg = EXT_REGISTRY.find(r => r.id === ext.name);
+        if (reg && (reg.type === 'core' || reg.type === 'static')) return;
+        // Only show: external extensions (installed by user) that have a display_name
+        // Skip internal/system extensions (webui, file_manager, dash.*, etc.)
+        if (ext.extension_type !== 'external') return;
+        if (!ext.display_name) return; // no display name = internal/unregistered, skip
+
+        const tabId = 'ext-' + ext.name;
+        let btn = pool.querySelector(`[data-tab="${tabId}"]`) ||
+                  navZone.querySelector(`[data-tab="${tabId}"]`) ||
+                  document.querySelector(`[data-tab="${tabId}"].nav-item:not([data-tab="ext-agents"]):not([data-tab="ext-browser"])`);
+
+        if (!btn || btn.closest('#ext-btn-pool') === null && btn.closest('#ext-nav-zone') === null) {
+            // Create new button
+            btn = document.createElement('button');
             btn.className = 'nav-item';
-            btn.innerHTML = `<span class="nav-icon">${icon}</span> <span class="nav-text">${esc(displayName)}</span>`;
-            
-            if (pageUrl) {
-                // Extension has a page URL — create iframe panel immediately (no async /info needed)
-                btn.dataset.tab = tabId;
-                btn.addEventListener('click', () => navigateTo(tabId));
-                
-                if (!document.getElementById('tab-' + tabId)) {
-                    const panel = document.createElement('section');
-                    panel.className = 'tab-panel';
-                    panel.id = 'tab-' + tabId;
-                    panel.innerHTML = `<div class="iframe-container"><iframe data-src="${pageUrl}" class="ext-iframe"></iframe></div>`;
-                    document.querySelector('.content').appendChild(panel);
-                }
-                
-                // If user already navigated to this tab (e.g. via URL hash), activate it
-                if (window.location.hash === '#/' + tabId) {
-                    activateTab(tabId);
-                }
-            } else {
-                // No page URL — show extension detail overlay on click
-                btn.addEventListener('click', () => openExternalExtDetail(ext.name));
-            }
-            
-            sidebarNav.appendChild(btn);
+            btn.dataset.tab = tabId;
+            btn.dataset.ext = ext.name;
+            const regInfo = EXT_REGISTRY.find(r => r.id === ext.name) || {};
+            const iconHtml = renderExtIcon(ext.icon || regInfo.icon);
+            const label = ext.display_name || regInfo.name || ext.name;
+            btn.innerHTML = `<span class="nav-icon" style="display:flex;align-items:center;">${iconHtml}</span> <span class="nav-text">${esc(label)}</span>`;
+            btn.addEventListener('click', () => navigateTo(tabId));
+            pool.appendChild(btn); // add to pool so it can be moved
+        }
+
+        // Ensure iframe panel exists
+        if (ext.page_url && !document.getElementById('tab-' + tabId)) {
+            const panel = document.createElement('section');
+            panel.className = 'tab-panel';
+            panel.id = 'tab-' + tabId;
+            panel.innerHTML = `<div class="iframe-container"><iframe data-src="${ext.page_url}" class="ext-iframe"></iframe></div>`;
+            document.querySelector('.content').appendChild(panel);
+        }
+
+        items.push({ extId: ext.name, btn });
+        seenExtIds.add(ext.name);
+    });
+
+    // 5. Build group containers (only for groups with ≥1 visible item)
+    const extToGroup = {};
+    groups.forEach(g => (g.extensions || []).forEach(id => { extToGroup[id] = g.id; }));
+
+    const groupContainers = {};
+    const orderedGroupIds = [];
+    groups.forEach(g => {
+        const hasItem = items.some(i => extToGroup[i.extId] === g.id);
+        if (!hasItem) return;
+        orderedGroupIds.push(g.id);
+
+        const gDiv = document.createElement('div');
+        gDiv.className = 'sidebar-group expanded';
+        gDiv.dataset.groupId = g.id;
+        gDiv.innerHTML = `
+            <div class="sidebar-group-header" onclick="this.closest('.sidebar-group').classList.toggle('expanded')">
+                <div class="sidebar-group-header-left">
+                    <span style="display:flex;align-items:center;font-size:18px;">${renderGroupIcon(g.icon)}</span>
+                    <span>${esc(g.name)}</span>
+                </div>
+                <span class="material-symbols-outlined sidebar-group-chevron">expand_more</span>
+            </div>
+            <div class="sidebar-group-items"></div>`;
+        navZone.appendChild(gDiv);
+        groupContainers[g.id] = gDiv.querySelector('.sidebar-group-items');
+    });
+
+    // 6. Place items: grouped → into group container, ungrouped → into navZone
+    items.forEach(({ extId, btn }) => {
+        const gId   = extToGroup[extId];
+        const target = gId && groupContainers[gId] ? groupContainers[gId] : navZone;
+        target.appendChild(btn);
+    });
+
+    // 7. Re-attach click handler for pool buttons that navigateTo
+    pool.querySelectorAll('.nav-item[data-tab]').forEach(btn => {
+        if (!btn._sidebarListenerAttached) {
+            btn.addEventListener('click', () => navigateTo(btn.dataset.tab));
+            btn._sidebarListenerAttached = true;
         }
     });
 }
+
 
 async function loadExtensions() {
     const extensionData = await apiGet('/api/v1/extensions');
@@ -2297,28 +2395,26 @@ async function executeProfileCommand() { const cmd = document.getElementById('cm
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
 // ═══ Global Settings ═══
+// Apply settings data to UI (called by init with pre-fetched data)
+async function applyGlobalSettings(s) {
+    if (!s) return;
+    if (s.api_port && document.getElementById('set-port')) document.getElementById('set-port').value = s.api_port;
+    if (s.api_base_url && document.getElementById('set-api')) document.getElementById('set-api').value = s.api_base_url;
+    if (s.telegram_bot_token && document.getElementById('set-tg-token')) document.getElementById('set-tg-token').value = s.telegram_bot_token;
+    if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
+    globalExtensionGroups = s.extension_groups || [];
+    renderExtensionGroupsSettings();
+    // These are async but non-critical, run in background
+    populateModelDropdown(s.default_model || 'qwen:latest');
+    loadCloudKeysInSettings();
+    apiGet('/api/v1/settings/default-profile').then(bp => populateDefaultProfileDropdown(bp?.profile || 'default')).catch(() => {});
+    populateDefaultCalendarDropdown(s.default_calendar_email || '').catch(() => {});
+}
+
 async function loadGlobalSettings() {
     try {
         const s = await apiGet('/api/v1/settings');
-        if (!s) return;
-        if (s.api_port && document.getElementById('set-port')) document.getElementById('set-port').value = s.api_port;
-        if (s.api_base_url && document.getElementById('set-api')) document.getElementById('set-api').value = s.api_base_url;
-        if (s.telegram_bot_token && document.getElementById('set-tg-token')) document.getElementById('set-tg-token').value = s.telegram_bot_token;
-        if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
-        await populateModelDropdown(s.default_model || 'qwen:latest');
-        loadCloudKeysInSettings();
-
-        // Load Default Browser Profile
-        try {
-            const bp = await apiGet('/api/v1/settings/default-profile');
-            await populateDefaultProfileDropdown(bp?.profile || 'default');
-        } catch(e) { console.warn('Failed to load default profile:', e); }
-
-        // Load Default Calendar Email
-        try {
-            await populateDefaultCalendarDropdown(s.default_calendar_email || '');
-        } catch(e) { console.warn('Failed to load default calendar:', e); }
-
+        await applyGlobalSettings(s);
     } catch(e) { console.warn('[Settings] Failed to load:', e); }
 }
 
@@ -2429,12 +2525,12 @@ async function populateModelDropdown(selectedModel) {
                 const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
                 html += `<optgroup label="☁️ ${esc(label)}">`;
                 p.models.forEach(m => {
-                    html += `<option value="${esc(m)}">${esc(m)}</option>`;
                 });
                 html += '</optgroup>';
             });
         }
     } catch(e) { console.warn('[Settings] Cloud API models fetch failed'); }
+
     if (!html) {
         html = '<option value="qwen:latest">qwen:latest</option>';
     }
@@ -3191,17 +3287,296 @@ async function doExtensionUpdate(name, publicId, gitUrl, btn) {
     }
 }
 
+// ── Extension Groups Settings ──
+let globalExtensionGroups = [];
+let allAvailableExtensions = [];
+
+function renderGroupIcon(iconStr) {
+    if (!iconStr) return '<span class="material-symbols-outlined" style="font-size:inherit;">folder_special</span>';
+    if (/^[a-z0-9_]+$/.test(iconStr.trim())) {
+        return `<span class="material-symbols-outlined" style="font-size:inherit;">${esc(iconStr.trim())}</span>`;
+    }
+    return esc(iconStr.trim());
+}
+
+function renderExtIcon(iconStr) {
+    if (!iconStr) return '📦';
+    const s = iconStr.trim();
+    // Material Symbol name = lowercase letters/digits/underscores, must start with letter
+    if (/^[a-z][a-z0-9_]+$/.test(s)) {
+        return `<span class="material-symbols-outlined" style="font-size:20px;">${s}</span>`;
+    }
+    // Emoji / unicode — inject directly (esc() would break multi-byte emoji)
+    return s;
+}
+
+async function renderExtensionGroupsSettings() {
+    const listEl = document.getElementById('settings-ext-groups-list');
+    if (!listEl) return;
+    
+    // Fetch extensions if not loaded
+    if (allAvailableExtensions.length === 0) {
+        try {
+            const extData = await apiGet('/api/v1/extensions');
+            allAvailableExtensions = extData?.extensions || [];
+        } catch(e) { console.warn('Failed to load extensions for groups', e); }
+    }
+    
+    let html = '';
+    if (globalExtensionGroups.length === 0) {
+        html = '<div style="color:var(--text-muted);font-size:0.85rem;">No groups created.</div>';
+    } else {
+        globalExtensionGroups.forEach((g, idx) => {
+            const icon = g.icon || 'folder_special';
+            const name = g.name || 'Unnamed Group';
+            const extIds = g.extensions || [];
+            
+            // Build custom dropdown items — only extensions visible in dynamic sidebar
+            const hardcodedExtensions = [
+                'web_crawler', 'sheets_manager', 'calendar_manager',
+                'multi_agents', 'livestream', 'files', 'video_editor', 'video_downloader', 'video_manager', 'subtitle_extractor', 'ai_arena'
+            ];
+            let dropdownItemsHtml = '';
+            allAvailableExtensions.forEach(ext => {
+                const inGroup = globalExtensionGroups.some(grp => (grp.extensions||[]).includes(ext.name));
+                if (inGroup) return; // already in a group
+                
+                const inRegistry = EXT_REGISTRY.some(e => e.id === ext.name);
+                const isHardcoded = hardcodedExtensions.includes(ext.name);
+                // Only list extensions that would appear in the dynamic sidebar
+                if (!inRegistry && !isHardcoded && ext.extension_type === 'external' && ext.enabled) {
+                    const extIconHtml = renderExtIcon(ext.icon);
+                    const extDisplay = ext.display_name || ext.name;
+                    dropdownItemsHtml += `
+                    <div class="ext-group-dropdown-item" onclick="addExtToGroup('${esc(g.id)}', '${esc(ext.name)}'); this.closest('.ext-group-dropdown-wrapper').classList.remove('open');" style="display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-radius:6px;" onmouseenter="this.style.background='var(--bg)'" onmouseleave="this.style.background='';">
+                        <span style="display:flex;align-items:center;width:20px;">${extIconHtml}</span>
+                        <span style="font-size:0.85rem;">${esc(extDisplay)}</span>
+                    </div>`;
+                }
+            });
+            
+            const hasDropdownItems = dropdownItemsHtml.length > 0;
+            
+            // Build chips with icon+name (look up in API list AND EXT_REGISTRY)
+            let chipsHtml = '';
+            extIds.forEach(eid => {
+                if (!eid) return;
+                const apiInfo  = allAvailableExtensions.find(e => e.name === eid) || {};
+                const regInfo  = EXT_REGISTRY.find(e => e.id === eid) || {};
+                const displayName = apiInfo.display_name || regInfo.name || apiInfo.name || eid;
+                const iconRaw     = apiInfo.icon || regInfo.icon || '';
+                const extIconHtml = renderExtIcon(iconRaw);
+                chipsHtml += `<span class="ext-chip" style="margin:2px; display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 6px;">
+                    <span style="display:flex;align-items:center;">${extIconHtml}</span>
+                    <span>${esc(displayName)}</span>
+                    <button style="background:none;border:none;color:inherit;cursor:pointer;padding:0 0 0 2px;opacity:0.7;" onclick="removeExtFromGroup('${esc(g.id)}', '${esc(eid)}')">✕</button>
+                </span>`;
+            });
+            
+            html += `
+            <div style="background:var(--bg3); padding:12px; border-radius:8px; border:1px solid var(--border);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <div style="font-weight:600; color:var(--cyan); display:flex; gap:8px; align-items:center;">
+                        <span style="display:flex;align-items:center;font-size:18px;">${renderGroupIcon(icon)}</span>
+                        <span>${esc(name)}</span>
+                    </div>
+                    <button class="btn-danger" style="padding:4px 8px; font-size:0.75rem;" onclick="deleteExtensionGroup('${esc(g.id)}')">✕ Delete</button>
+                </div>
+                <div style="display:flex; gap:8px; align-items:flex-start; flex-wrap:wrap;">
+                    ${hasDropdownItems ? `
+                    <div class="ext-group-dropdown-wrapper">
+                        <button class="btn-secondary" id="ext-group-btn-${esc(g.id)}" style="padding:4px 10px;font-size:0.82rem;display:flex;align-items:center;gap:4px;" onclick="openExtGroupDropdown('${esc(g.id)}', this)">
+                            <span class="material-symbols-outlined" style="font-size:16px;">add</span> Add Extension
+                            <span class="material-symbols-outlined" style="font-size:14px;opacity:0.6;">expand_more</span>
+                        </button>
+                    </div>` : ''}
+                    <div style="display:flex; flex-wrap:wrap; gap:4px;">${chipsHtml}</div>
+                </div>
+            </div>`;
+        });
+    }
+    listEl.innerHTML = html;
+}
+
+// Build a single shared fixed dropdown menu (portaled to body)
+function openExtGroupDropdown(groupId, btnEl) {
+    let menu = document.getElementById('ext-group-fixed-menu');
+    if (!menu) {
+        menu = document.createElement('div');
+        menu.id = 'ext-group-fixed-menu';
+        menu.className = 'ext-group-dropdown-menu';
+        document.body.appendChild(menu);
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.ext-group-dropdown-wrapper') && !e.target.closest('#ext-group-fixed-menu')) {
+                menu.classList.remove('open');
+            }
+        });
+    }
+    // If already open for same group, close it
+    if (menu.dataset.groupId === groupId && menu.classList.contains('open')) {
+        menu.classList.remove('open');
+        return;
+    }
+    // Build items for this group
+    const g = globalExtensionGroups.find(g => g.id === groupId);
+    if (!g) return;
+    // Build list: same rules as buildSidebar so both stay in sync
+    const enabledSet = new Set(allAvailableExtensions.filter(e => e.enabled).map(e => e.name));
+    const extApiMap  = {};
+    allAvailableExtensions.forEach(e => extApiMap[e.name] = e);
+    const alreadyGrouped = new Set(globalExtensionGroups.flatMap(grp => grp.extensions || []));
+
+    // Helper to build one item row
+    const makeItem = (extId, icon, displayName) => {
+        if (alreadyGrouped.has(extId)) return ''; // already in a group
+        if (CORE_NAV_IDS.has(extId)) return '';
+        const iconHtml = renderExtIcon(icon);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 12px;cursor:pointer;border-radius:6px;"
+            onmouseenter="this.style.background='var(--bg3)'" onmouseleave="this.style.background='';"
+            onclick="addExtToGroup('${esc(g.id)}', '${esc(extId)}'); document.getElementById('ext-group-fixed-menu').classList.remove('open');">
+            <span style="display:flex;align-items:center;width:20px;">${iconHtml}</span>
+            <span style="font-size:0.85rem;">${esc(displayName)}</span>
+        </div>`;
+    };
+
+    let itemsHtml = '';
+    const seenInDropdown = new Set();
+
+    // Extension buttons (built-in + static + already loaded dynamic)
+    document.querySelectorAll('.nav-item[data-ext]').forEach(btn => {
+        const extId   = btn.dataset.ext;
+        const isStatic = btn.dataset.extStatic === 'true';
+        if (!isStatic && !enabledSet.has(extId)) return;
+        if (seenInDropdown.has(extId)) return;
+        seenInDropdown.add(extId);
+        const reg = EXT_REGISTRY.find(r => r.id === extId) || {};
+        const apiExt = extApiMap[extId] || {};
+        const icon = apiExt.icon || reg.icon;
+        const label = apiExt.display_name || reg.name || extId;
+        itemsHtml += makeItem(extId, icon, label);
+    });
+
+    // Dynamic external extensions (same as buildSidebar step 4b)
+    allAvailableExtensions.forEach(ext => {
+        if (!ext.enabled || !ext.display_name) return;
+        if (ext.extension_type !== 'external') return;
+        if (CORE_NAV_IDS.has(ext.name)) return;
+        if (seenInDropdown.has(ext.name)) return;
+        const reg = EXT_REGISTRY.find(r => r.id === ext.name) || {};
+        if (reg.type === 'core' || reg.type === 'static') return;
+        seenInDropdown.add(ext.name);
+        itemsHtml += makeItem(ext.name, ext.icon || reg.icon, ext.display_name || reg.name || ext.name);
+    });
+
+    if (!itemsHtml) itemsHtml = '<div style="padding:8px 12px;color:var(--text-muted);font-size:0.82rem;">No extensions available</div>';
+    menu.innerHTML = itemsHtml;
+    menu.dataset.groupId = groupId;
+    // Position below button
+    const rect = btnEl.getBoundingClientRect();
+    menu.style.left = rect.left + 'px';
+    menu.style.top = (rect.bottom + 4) + 'px';
+    // Ensure it doesn't go off-screen bottom
+    requestAnimationFrame(() => {
+        const mh = menu.getBoundingClientRect().height;
+        if (rect.bottom + 4 + mh > window.innerHeight - 8) {
+            menu.style.top = (rect.top - mh - 4) + 'px';
+        }
+    });
+    menu.classList.add('open');
+}
+
+function createExtensionGroup() {
+    const name = document.getElementById('set-ext-group-name').value.trim();
+    const icon = document.getElementById('set-ext-group-icon').value.trim();
+    if (!name) return alert('Please enter a group name');
+    
+    const newGroup = {
+        id: 'group_' + Date.now().toString(36),
+        name: name,
+        icon: icon || 'folder_special',
+        extensions: []
+    };
+    globalExtensionGroups.push(newGroup);
+    document.getElementById('set-ext-group-name').value = '';
+    document.getElementById('set-ext-group-icon').value = '';
+    
+    saveExtensionGroups();
+}
+
+function deleteExtensionGroup(id) {
+    if(!confirm('Delete this group?')) return;
+    globalExtensionGroups = globalExtensionGroups.filter(g => g.id !== id);
+    saveExtensionGroups();
+}
+
+function addExtToGroup(groupId, extId) {
+    const group = globalExtensionGroups.find(g => g.id === groupId);
+    if (!group) return;
+    
+    // Remove from other groups first
+    globalExtensionGroups.forEach(g => {
+        g.extensions = (g.extensions || []).filter(e => e !== extId);
+    });
+    
+    if (!group.extensions) group.extensions = [];
+    if (!group.extensions.includes(extId)) group.extensions.push(extId);
+    
+    saveExtensionGroups();
+}
+
+function removeExtFromGroup(groupId, extId) {
+    const group = globalExtensionGroups.find(g => g.id === groupId);
+    if (!group) return;
+    group.extensions = (group.extensions || []).filter(e => e !== extId);
+    saveExtensionGroups();
+}
+
+async function saveExtensionGroups() {
+    try {
+        const r = await apiPut('/api/v1/settings', { extension_groups: globalExtensionGroups });
+        if (r && r.status === 'success') {
+            renderExtensionGroupsSettings();
+            buildSidebar(allAvailableExtensions, globalExtensionGroups); // update sidebar immediately
+        } else {
+            alert('Failed to save groups');
+        }
+    } catch (e) {
+        console.error('saveExtensionGroups failed', e);
+        alert('Error saving groups');
+    }
+}
+// ── End Extension Groups Settings ──
+
 // ═══ Init ═══
 document.addEventListener('DOMContentLoaded', async () => {
     await loadI18nFromApi();
     loadVersionInfo();
-    loadGlobalSettings();
-    loadDynamicExtensionsToSidebar();
-    const s=localStorage.getItem('tubecli_api');
-    if(s) document.getElementById('set-api').value=s;
-    if(document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
-    // Route based on current URL hash
+    // Parallel: fetch extensions + settings in one round trip
+    const [extData, settingsData] = await Promise.all([
+        apiGet('/api/v1/extensions'),
+        apiGet('/api/v1/settings'),
+    ]);
+    // Apply settings
+    globalExtensionGroups = settingsData?.extension_groups || [];
+    if (settingsData) applyGlobalSettings(settingsData);
+    // Build sidebar once — clean, no hardcode, no double fetch
+    buildSidebar(extData?.extensions || [], globalExtensionGroups);
+    // Restore form values
+    const s = localStorage.getItem('tubecli_api');
+    if (s) document.getElementById('set-api').value = s;
+    if (document.getElementById('set-lang')) document.getElementById('set-lang').value = _lang;
+    // Route
     handleRoute();
-    // Check for extension updates (non-blocking, after page loads)
-    setTimeout(function() { checkExtensionUpdates(); }, 2000);
+    // Non-blocking background tasks
+    setTimeout(checkExtensionUpdates, 2000);
+    _checkStatusesInBackground();
+    // Close fixed dropdown on outside click
+    document.addEventListener('click', e => {
+        if (!e.target.closest('.ext-group-dropdown-wrapper') && !e.target.closest('#ext-group-fixed-menu')) {
+            const m = document.getElementById('ext-group-fixed-menu');
+            if (m) m.classList.remove('open');
+        }
+    });
 });
+
+
