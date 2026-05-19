@@ -222,7 +222,8 @@ function createCard(item, installData) {
     card.className = 'vsx-card';
     card.onclick = () => openDetailModal(item.public_id);
 
-    let actionBtnHtml = `<span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>`;
+    const priceBadge = `<span class="card-price ${isFree ? 'free' : 'paid'}">${isFree ? 'Free' : formatCredits(price)}</span>`;
+    let quickBtnHtml = '';
     
     if (installData && installData.installed) {
         let hasUpdate = false;
@@ -233,14 +234,12 @@ function createCard(item, installData) {
         } catch(e) {}
         
         if (hasUpdate && category === 'extension') {
-            actionBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
+            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
         } else {
-            actionBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
+            quickBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
         }
     } else if (isFree) {
-        actionBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
-    } else {
-        actionBtnHtml = `<button class="card-price paid" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); openDetailModal('${item.public_id}')">${formatCredits(price)} 🪙</button>`;
+        quickBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
     }
 
     card.innerHTML = `
@@ -265,7 +264,10 @@ function createCard(item, installData) {
                     <span class="stat-item">⭐ ${rating.toFixed(1)}</span>
                     <span class="stat-item">⬇ ${formatNumber(downloads)}</span>
                 </div>
-                ${actionBtnHtml}
+                <div style="display:flex; align-items:center; gap:8px;">
+                    ${priceBadge}
+                    ${quickBtnHtml}
+                </div>
             </div>
         </div>
     `;
