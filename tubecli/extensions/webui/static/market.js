@@ -136,7 +136,7 @@ async function loadItems() {
 }
 
 // ── Render Items ──
-function renderItems(items) {
+async function renderItems(items) {
     const grid = document.getElementById('marketGrid');
     const empty = document.getElementById('marketEmpty');
     const loading = document.getElementById('marketLoading');
@@ -159,15 +159,24 @@ function renderItems(items) {
     grid.style.display = 'grid';
     grid.innerHTML = '';
 
-    // Check installed status for all items concurrently
-    const installedData = {};
+    // Check installed status for all items concurrently (batch API)
+    let installedData = {};
     try {
-        const checks = items.map(async item => {
-            const checkParams = new URLSearchParams({ item_name: item.title, category: item.category || 'extension' });
-            const checkRes = await fetch(`${API}/items/${item.public_id}/check-installed?${checkParams}`);
-            installedData[item.public_id] = await checkRes.json();
+        const payload = items.map(item => ({
+            public_id: item.public_id,
+            item_name: item.title,
+            category: item.category || 'extension'
+        }));
+        
+        const checkRes = await fetch(`${API}/items/batch-check-installed`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
-        await Promise.all(checks);
+        const checkData = await checkRes.json();
+        if (checkData.status === 'success') {
+            installedData = checkData.data;
+        }
     } catch(e) {
         console.warn('[Market] Batch check installed failed', e);
     }
