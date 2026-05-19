@@ -302,7 +302,7 @@ async function loadDynamicExtensionsToSidebar() {
     extensions.forEach(ext => {
         const hardcodedExtensions = [
             'web_crawler', 'sheets_manager', 'calendar_manager', 
-            'multi_agents', 'livestream', 'files', 'video_editor', 'video_manager', 'subtitle_extractor', 'ai_arena'
+            'multi_agents', 'livestream', 'files', 'video_editor', 'video_downloader', 'video_manager', 'subtitle_extractor', 'ai_arena'
         ];
         
         // Unhide hardcoded conditional buttons (sidebar & quick actions) if the extension is installed
