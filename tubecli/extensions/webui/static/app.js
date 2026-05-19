@@ -28,7 +28,7 @@ const ROUTE_TAB_MAP = {
 function navigateTo(tab) {
     const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
-        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys'];
+        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys', 'ext-market'];
         if (!excludeTabs.includes(tab)) {
             const panel = document.getElementById('tab-' + tab);
             if (panel) {
