@@ -832,8 +832,8 @@
             if(u.has_update) {
                 var su = document.getElementById('sidebar-update');
                 var ut = document.getElementById('update-text');
-                if(su) su.style.display = '';
-                if(ut) ut.textContent = '↑ v' + u.remote_version + ' available';
+                if(su) su.style.display = 'flex';  // MUST be 'flex' — flex-direction:column needs flex display
+                if(ut) ut.textContent = '↑ New version: v' + u.remote_version;
             }
         }).catch(()=>{});
     }).catch(()=>{});

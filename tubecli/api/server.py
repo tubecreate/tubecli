@@ -219,27 +219,41 @@ async def check_for_updates():
     """Check GitHub for newer version by reading pyproject.toml from main branch."""
     import httpx, re
     from tubecli import __version__
+    print(f"[VersionCheck] Local version: {__version__}")
     try:
         raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/pyproject.toml"
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(raw_url)
             if resp.status_code != 200:
+                print(f"[VersionCheck] GitHub returned {resp.status_code}")
                 return {"has_update": False, "error": f"GitHub returned {resp.status_code}"}
             text = resp.text
-            m = re.search(r'version\s*=\s*"([^"]+)"', text)
+            # Match version specifically under [project] section to avoid false matches
+            m = re.search(r'^\[project\].*?^version\s*=\s*"([^"]+)"', text, re.MULTILINE | re.DOTALL)
             if not m:
+                # Fallback: match first version = "..." in file
+                m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+            if not m:
+                print("[VersionCheck] Could not parse version from GitHub pyproject.toml")
                 return {"has_update": False, "error": "Could not parse version"}
             remote_version = m.group(1)
-            # Simple version comparison
-            local_parts = [int(x) for x in __version__.split(".")]
-            remote_parts = [int(x) for x in remote_version.split(".")]
-            has_update = remote_parts > local_parts
+            print(f"[VersionCheck] Remote version: {remote_version}")
+            # Version comparison (supports N-part dotted versions like 2026.05.18.151200)
+            try:
+                local_parts = [int(x) for x in __version__.split(".")]
+                remote_parts = [int(x) for x in remote_version.split(".")]
+                has_update = remote_parts > local_parts
+            except ValueError:
+                # Fallback string comparison if parts are non-numeric
+                has_update = remote_version != __version__
+            print(f"[VersionCheck] has_update={has_update}")
             return {
                 "has_update": has_update,
                 "current_version": __version__,
                 "remote_version": remote_version,
             }
     except Exception as e:
+        print(f"[VersionCheck] Error: {e}")
         return {"has_update": False, "error": str(e)}
 
 
