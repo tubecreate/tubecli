@@ -376,6 +376,20 @@ async def check_installed(public_id: str, item_name: str, category: str):
     result = _check_item_installed(public_id, item_name, category)
     return {"status": "success", **result}
 
+class BatchCheckItem(BaseModel):
+    public_id: str
+    item_name: str
+    category: str
+
+@router.post("/items/batch-check-installed")
+async def batch_check_installed(items: List[BatchCheckItem]):
+    """Check installed status for multiple items at once to speed up UI loading."""
+    result = {}
+    for item in items:
+        status = _check_item_installed(item.public_id, item.item_name, item.category)
+        result[item.public_id] = {"status": "success", **status}
+    return {"status": "success", "data": result}
+
 
 @router.post("/items/{public_id}/uninstall")
 async def uninstall_from_market(public_id: str, item_name: str, category: str):
