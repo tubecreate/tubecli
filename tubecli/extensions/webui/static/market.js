@@ -701,7 +701,9 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             const extTabId = 'ext-' + extSlug;
 
             // Refresh sidebar to show the new extension
-            if (typeof loadDynamicExtensionsToSidebar === 'function') {
+            if (window.parent && typeof window.parent.loadDynamicExtensionsToSidebar === 'function') {
+                try { await window.parent.loadDynamicExtensionsToSidebar(); } catch(e) {}
+            } else if (typeof loadDynamicExtensionsToSidebar === 'function') {
                 try { await loadDynamicExtensionsToSidebar(); } catch(e) {}
             }
 
@@ -713,10 +715,13 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
                 btn.disabled = false;
                 btn.onclick = () => {
                     closeDetailModal();
-                    if (typeof navigateTo === 'function') {
+                    if (window.parent && typeof window.parent.navigateTo === 'function') {
+                        window.parent.navigateTo(extTabId);
+                    } else if (typeof navigateTo === 'function') {
                         navigateTo(extTabId);
                     } else {
-                        window.location.hash = '#/' + extTabId;
+                        if (window.parent) window.parent.location.hash = '#/' + extTabId;
+                        else window.location.hash = '#/' + extTabId;
                     }
                 };
             }
