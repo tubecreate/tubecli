@@ -802,6 +802,7 @@ async function pollYtdlTask(uid, taskId) {
 function openExtDetail(id) {
     // Extensions with dedicated sidebar tabs → navigate via hash route
     const hashRoutes = {
+        'market': 'ext-market',
         'agents': 'ext-agents',
         'browser': 'ext-browser',
         'web_crawler': 'ext-web-crawler',
@@ -836,7 +837,6 @@ function openExtDetail(id) {
     else if (id === 'browser') renderBrowserExt(body);
     else if (id === 'workflows') renderWorkflowsExt(body);
     else if (id === 'skills') renderSkillsExt(body);
-    else if (id === 'market') renderFullPageExt(body, 'Marketplace', 'Khám phá và cài đặt extension từ cộng đồng', `/market?v=${Date.now()}`);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
