@@ -821,7 +821,14 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
 
 // ── Uninstall Item ──
 async function uninstallItem(publicId, itemName, category) {
-    const confirmed = await customConfirm('Gỡ cài đặt extension', `Bạn có chắc muốn gỡ cài đặt "${itemName}"?<br>Hành động này sẽ xóa toàn bộ source files của extension này khỏi máy.`);
+    const confirmed = await customConfirm(
+        'Gỡ cài đặt extension',
+        `Bạn có chắc muốn gỡ cài đặt "<b>${itemName}</b>"?<br>Hành động này sẽ xóa toàn bộ source files của extension này khỏi máy.`,
+        'Xác nhận gỡ cài đặt',
+        'Hủy',
+        'linear-gradient(135deg, #ef4444, #dc2626)',
+        '🗑️'
+    );
     if (!confirmed) return;
 
     const unBtn = document.getElementById('uninstallBtn_' + publicId);
@@ -1633,19 +1640,35 @@ function closeMyListingsModal() {
     document.getElementById('myListingsModal').classList.remove('active');
 }
 
+function normalizeString(str) {
+    if (!str) return '';
+    return str.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 async function loadMyListings() {
     const container = document.getElementById('myListingsContent');
     container.innerHTML = '<div class="market-loading" style="padding:40px 0;"><div class="market-spinner"></div><span style="color:var(--text-muted)">Loading your listings...</span></div>';
 
     try {
         const token = getAuthToken();
-        const res = await fetch(`${API}/my-items`, {
-            headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        });
+        // Fetch seller listings and local extensions in parallel for comparison
+        const [res, localRes] = await Promise.all([
+            fetch(`${API}/my-items`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            }),
+            fetch(`/api/v1/extensions`).catch(() => null)
+        ]);
+
         const data = await res.json();
+        
+        let localExtensions = [];
+        if (localRes && localRes.ok) {
+            const localData = await localRes.json();
+            localExtensions = localData.extensions || localData || [];
+        }
 
         if (data.status === 'success' && data.data && data.data.length > 0) {
-            renderMyListings(data.data);
+            renderMyListings(data.data, localExtensions);
         } else if (data.data && data.data.length === 0) {
             container.innerHTML = `
                 <div style="text-align:center;padding:40px 0;color:var(--text-muted);">
@@ -1663,7 +1686,7 @@ async function loadMyListings() {
     }
 }
 
-function renderMyListings(items) {
+function renderMyListings(items, localExtensions = []) {
     const container = document.getElementById('myListingsContent');
     const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
 
@@ -1672,13 +1695,54 @@ function renderMyListings(items) {
         const price = parseFloat(item.price || 0);
         const isFree = price <= 0;
 
+        let hasNewerLocalVersion = false;
+        let localExtName = '';
+        let localExtVersion = '';
+
+        if (item.category === 'extension' && localExtensions.length > 0) {
+            const matchLe = localExtensions.find(le => {
+                const normLeName = normalizeString(le.name);
+                const normLeDisplay = normalizeString(le.display_name);
+                const normItemTitle = normalizeString(item.title);
+                return normLeName === normItemTitle || normLeDisplay === normItemTitle;
+            });
+            if (matchLe) {
+                localExtName = matchLe.name;
+                localExtVersion = matchLe.version;
+                try {
+                    if (cmpVersions(matchLe.version, item.version) > 0) {
+                        hasNewerLocalVersion = true;
+                    }
+                } catch(e) {}
+            }
+        }
+
+        const updateBadgeHtml = hasNewerLocalVersion 
+            ? `<span class="update-badge" title="Local version v${localExtVersion} is newer than Market v${item.version}">✨ Local: v${localExtVersion} (Newer)</span>`
+            : '';
+
+        const pushButtonHtml = hasNewerLocalVersion 
+            ? `<button class="btn-push-update" data-action="push-update" data-id="${item.public_id}" data-local-name="${localExtName}" data-local-ver="${localExtVersion}" title="Đẩy bản cập nhật v${localExtVersion} lên Market">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg> Update to Market
+               </button>`
+            : '';
+
         return `
-            <div class="my-listing-item" id="myListing_${item.public_id}">
+            <div class="my-listing-item ${hasNewerLocalVersion ? 'has-update-available' : ''}" id="myListing_${item.public_id}">
                 <div class="my-listing-icon">${icon}</div>
                 <div class="my-listing-info">
-                    <div class="my-listing-title">${escapeHtml(item.title)}</div>
+                    <div class="my-listing-title">
+                        ${escapeHtml(item.title)}
+                        ${updateBadgeHtml}
+                    </div>
                     <div class="my-listing-meta">
-                        <span class="my-listing-category">${escapeHtml(item.category)}</span>
+                        <span class="my-listing-category ${item.category}">${escapeHtml(item.category)}</span>
+                        <span>·</span>
+                        <span>v${escapeHtml(item.version || '1.0.0')}</span>
                         <span>·</span>
                         <span>${isFree ? '🆓 Free' : '💰 ' + formatCredits(price)}</span>
                         <span>·</span>
@@ -1688,6 +1752,7 @@ function renderMyListings(items) {
                     </div>
                 </div>
                 <div class="my-listing-actions">
+                    ${pushButtonHtml}
                     <button class="btn-edit-listing" data-action="edit" data-id="${item.public_id}" title="Edit Info">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                     </button>
@@ -1702,7 +1767,7 @@ function renderMyListings(items) {
         `;
     }).join('');
 
-    // Event delegation for View/Delete buttons
+    // Event delegation for listings actions
     container.onclick = function(e) {
         const btn = e.target.closest('[data-action]');
         if (!btn) return;
@@ -1716,8 +1781,107 @@ function renderMyListings(items) {
         } else if (action === 'delete') {
             const title = btn.getAttribute('data-title');
             confirmDeleteListing(id, title);
+        } else if (action === 'push-update') {
+            const localName = btn.getAttribute('data-local-name');
+            const localVer = btn.getAttribute('data-local-ver');
+            pushUpdateToListing(id, localName, localVer);
         }
     };
+}
+
+async function pushUpdateToListing(publicId, localName, localVer) {
+    const btn = document.querySelector(`.btn-push-update[data-id="${publicId}"]`);
+    const listingItem = document.getElementById('myListing_' + publicId);
+    if (!btn || !listingItem) return;
+
+    const confirmed = await customConfirm(
+        'Đẩy bản cập nhật lên Market',
+        `Bạn có chắc muốn đẩy bản cập nhật <b>v${localVer}</b> của extension <b>"${localName}"</b> lên Market?<br>Source files trên máy của bạn sẽ được đóng gói và cập nhật trực tiếp.`,
+        'Xác nhận cập nhật',
+        'Hủy',
+        'linear-gradient(135deg, #f59e0b, #d97706)',
+        '🔄'
+    );
+    if (!confirmed) return;
+
+    // Show loading state
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<div class="market-spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></div> Đang đẩy...`;
+    listingItem.style.pointerEvents = 'none';
+    listingItem.style.opacity = '0.8';
+
+    try {
+        const token = getAuthToken();
+
+        // 1. Fetch current listing details
+        const detailRes = await fetch(`${API}/items/${publicId}`);
+        const detailData = await detailRes.json();
+        if (detailData.status !== 'success' || !detailData.item) {
+            throw new Error('Không thể tải thông tin listing hiện tại từ Market');
+        }
+        const item = detailData.item;
+
+        // 2. Fetch packaged extension source files
+        const packageRes = await fetch(`/api/v1/extensions/${encodeURIComponent(localName)}/package`);
+        const pkg = await packageRes.json();
+        if (pkg.status !== 'success') {
+            throw new Error('Không thể đóng gói source files của extension từ máy.');
+        }
+
+        // 3. Merge files & manifest into item_data
+        let itemDataObj = {};
+        try {
+            itemDataObj = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : (item.item_data || {});
+        } catch(e) {}
+
+        itemDataObj.manifest = pkg.manifest;
+        itemDataObj.files = pkg.files;
+        if (pkg.manifest && pkg.manifest.dependencies) {
+            itemDataObj.dependencies = pkg.manifest.dependencies;
+        }
+
+        // 4. Construct payload
+        const payload = {
+            title: item.title,
+            category: 'extension',
+            price: parseFloat(item.price) || 0,
+            visibility: item.visibility || 'PUBLIC',
+            version: localVer,
+            thumbnail_url: item.thumbnail_url || item.thumbnail || '',
+            tags: item.tags || [],
+            description: item.description || '',
+            item_data: JSON.stringify(itemDataObj),
+            git_url: itemDataObj.git_url || item.git_url || ''
+        };
+
+        // 5. Submit PUT
+        const res = await fetch(`${API}/items/${publicId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (res.ok && (data.status === 'success' || data.public_id)) {
+            showToast(`🚀 Đã cập nhật "${item.title}" lên v${localVer} thành công!`, 'success');
+            await loadMyListings();
+            loadItems();
+        } else {
+            const errMsg = data.detail || data.message || 'Cập nhật thất bại';
+            throw new Error(errMsg);
+        }
+    } catch (err) {
+        console.error('[Market] Push update error:', err);
+        showToast(err.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+        listingItem.style.pointerEvents = '';
+        listingItem.style.opacity = '1';
+    }
 }
 
 async function editListing(publicId) {
@@ -1809,29 +1973,60 @@ async function editListing(publicId) {
     }
 }
 // ── Custom Confirm Dialog ──
-function customConfirm(title, message) {
+function customConfirm(title, message, okText = 'Tiếp tục', cancelText = 'Hủy', okBg = '', icon = '⚠️') {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirmModal');
         document.getElementById('confirmTitle').innerHTML = title;
         document.getElementById('confirmMessage').innerHTML = message;
         
-        modal.style.display = 'flex';
+        // Dynamic OK button text and styling
+        const okBtn = document.getElementById('confirmOkBtn');
+        if (okBtn) {
+            okBtn.innerHTML = okText;
+            if (okBg) {
+                okBtn.style.background = okBg;
+            } else {
+                // Default fallback
+                okBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+            }
+        }
+
+        // Dynamic Cancel button text
+        const cancelBtn = document.getElementById('confirmCancelBtn');
+        if (cancelBtn) {
+            cancelBtn.innerHTML = cancelText;
+        }
+
+        // Dynamic Icon
+        const iconDiv = document.getElementById('confirmIcon');
+        if (iconDiv) {
+            iconDiv.innerHTML = icon;
+        }
+        
+        modal.classList.add('active');
         // Add subtle animation
         modal.querySelector('.market-modal').style.animation = 'marketModalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)';
 
         const cleanup = () => {
-            modal.style.display = 'none';
-            document.getElementById('confirmOkBtn').onclick = null;
-            document.getElementById('confirmCancelBtn').onclick = null;
+            modal.classList.remove('active');
+            if (okBtn) okBtn.onclick = null;
+            if (cancelBtn) cancelBtn.onclick = null;
         };
 
-        document.getElementById('confirmOkBtn').onclick = () => { cleanup(); resolve(true); };
-        document.getElementById('confirmCancelBtn').onclick = () => { cleanup(); resolve(false); };
+        if (okBtn) okBtn.onclick = () => { cleanup(); resolve(true); };
+        if (cancelBtn) cancelBtn.onclick = () => { cleanup(); resolve(false); };
     });
 }
 
 async function confirmDeleteListing(publicId, title) {
-    const confirmed = await customConfirm('Xoá Listing', `Bạn có chắc muốn xoá <b>"${title}"</b> khỏi Market?<br>Hành động này không thể hoàn tác.`);
+    const confirmed = await customConfirm(
+        'Xoá Listing', 
+        `Bạn có chắc muốn xoá <b>"${title}"</b> khỏi Market?<br>Hành động này không thể hoàn tác.`,
+        'Xác nhận xóa',
+        'Hủy',
+        'linear-gradient(135deg, #ef4444, #dc2626)',
+        '⚠️'
+    );
     if (!confirmed) return;
 
     const el = document.getElementById('myListing_' + publicId);

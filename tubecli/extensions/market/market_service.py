@@ -170,6 +170,7 @@ class MarketService:
                           price: float, item_data: str, visibility: str = "PUBLIC",
                           tags: list = None, version: str = "1.0.0", thumbnail_url: str = None, git_url: str = None) -> Dict:
         """Upload a new item to marketplace."""
+        self._cache.clear()
         headers = {"Authorization": f"Bearer {token}"}
         payload = {"title": title, "description": description, "category": category,
                    "price": price, "item_data": item_data, "visibility": visibility,
@@ -227,6 +228,7 @@ class MarketService:
                           tags: list = None, version: str = "1.0.0",
                           thumbnail_url: str = None, git_url: str = None) -> Dict:
         """Update an existing marketplace item."""
+        self._cache.clear()
         headers = {"Authorization": f"Bearer {token}"}
         payload = {
             "public_id": public_id,
@@ -291,6 +293,7 @@ class MarketService:
 
     async def delete_item(self, item_id: str, token: str) -> Dict:
         """Delete an item from marketplace."""
+        self._cache.clear()
         try:
             return await self._post(f"{self.api_base}/delete.php",
                                     payload={"public_id": item_id},

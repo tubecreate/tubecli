@@ -145,7 +145,7 @@ async def check_updates():
         except Exception as e:
             print(f"[Market check-updates] Error fetching marketplace items: {e}")
 
-    return {"updates": updates, "total": len(updates)}len(updates)}
+    return {"updates": updates, "total": len(updates)}
 
 
 
@@ -515,7 +515,35 @@ class MarketInstallRequest(BaseModel):
 async def update_local_extension(item_name: str):
     """Trigger local Git update for an installed extension."""
     from tubecli.core.extension_manager import extension_manager
-    result = extension_manager.update_extension(item_name)
+    
+    # 1. Try direct lookup (original name)
+    ext = extension_manager.get(item_name)
+    
+    # 2. Try normalized name lookup (e.g., "Video Manager" -> "video_manager")
+    if not ext:
+        normalized = item_name.replace(" ", "_").lower()
+        ext = extension_manager.get(normalized)
+        
+    # 3. Try case-insensitive comparison on names / display names
+    if not ext:
+        for e in extension_manager.get_all():
+            if e.name.lower() == item_name.lower():
+                ext = e
+                break
+            
+            # Check manifest display name/title
+            manifest = e.get_manifest()
+            if manifest.get("display_name", "").lower() == item_name.lower():
+                ext = e
+                break
+            if manifest.get("name", "").lower() == item_name.lower():
+                ext = e
+                break
+
+    if not ext:
+        raise HTTPException(400, f"Extension '{item_name}' not found locally.")
+
+    result = extension_manager.update_extension(ext.name)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Update failed"))
     return result
