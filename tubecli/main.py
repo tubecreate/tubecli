@@ -18,6 +18,47 @@ def cli(ctx, do_kill):
     Manage agents, skills, and workflows from the command line.
     AI agents can read .agents/skills/SKILL.md to self-operate.
     """
+    import os
+    import sys
+    import subprocess
+    import time
+
+    # Check if this is the outer parent process managing the restart loop
+    if "TUBECLI_INNER_PROCESS" not in os.environ:
+        # Build child process command
+        if sys.argv[0].endswith(".py"):
+            cmd = [sys.executable, sys.argv[0]] + sys.argv[1:]
+        else:
+            cmd = [sys.argv[0]] + sys.argv[1:]
+            
+        env = os.environ.copy()
+        env["TUBECLI_INNER_PROCESS"] = "1"
+        
+        while True:
+            try:
+                # Run the inner CLI process, keeping stdin/stdout/stderr attached
+                res = subprocess.run(cmd, env=env)
+                if res.returncode == 999:
+                    # Write the .restarted flag file so the next inner process knows it was a restart
+                    from tubecli.config import BASE_DIR
+                    restart_flag = os.path.join(str(BASE_DIR), ".restarted")
+                    try:
+                        with open(restart_flag, "w") as f:
+                            f.write("1")
+                    except Exception:
+                        pass
+                    # Let the terminal user see the restart notice
+                    print("\n🔄 Restarting TubeCLI...\n")
+                    time.sleep(1)
+                    continue
+                else:
+                    sys.exit(res.returncode)
+            except KeyboardInterrupt:
+                sys.exit(0)
+            except Exception as e:
+                print(f"Error in wrapper launcher: {e}")
+                sys.exit(1)
+
     # Auto-load language on every CLI invocation
     from tubecli.config import get_language
     from tubecli.i18n import load_language

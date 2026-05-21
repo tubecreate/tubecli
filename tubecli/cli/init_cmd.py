@@ -21,8 +21,17 @@ console = Console()
               help="Set API server port (default: 5295)")
 def init_cmd(lang, port):
     """Initialize TubeCLI workspace and install default skills."""
-    from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES
+    from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES, BASE_DIR
     from tubecli.i18n import load_language, t
+
+    # Check for temporary .restarted flag file to prevent opening browser on auto-restart
+    restart_flag_file = os.path.join(str(BASE_DIR), ".restarted")
+    if os.path.exists(restart_flag_file):
+        os.environ["TUBECLI_RESTARTED"] = "1"
+        try:
+            os.remove(restart_flag_file)
+        except Exception:
+            pass
 
     # 0a. Port configuration — persist before anything else uses get_api_port()
     if port is not None:
@@ -963,7 +972,14 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 REM 3. Not running yet - start TubeCLI
+:loop
 tubecli
+if %ERRORLEVEL% EQU 999 (
+    echo.
+    echo 🔄 Restarting TubeCLI...
+    echo.
+    goto loop
+)
 pause
 """
             with open(bat_path, "w", encoding="ascii") as f:
@@ -971,19 +987,24 @@ pause
         except Exception:
             pass
 
-    # Auto-restart TubeCLI
+    # Auto-restart TubeCLI cleanly via batch file loop (exiting with code 999)
     import time
+    import sys
+    
+    # Save the .restarted flag file so the next loop knows it is a restart
+    restart_flag = os.path.join(project_root, ".restarted")
+    try:
+        with open(restart_flag, "w") as f:
+            f.write("1")
+    except Exception:
+        pass
+
     for i in range(3, 0, -1):
         console.print(f"  [cyan]⏳ Restarting in {i}...[/cyan]", end="\r")
         time.sleep(1)
     console.print()
-    os.environ["TUBECLI_RESTARTED"] = "1"
-    os.environ["PYTHONPATH"] = project_root + os.path.pathsep + os.environ.get("PYTHONPATH", "")
-    try:
-        os.chdir(project_root)
-    except Exception:
-        pass
-    os.execv(sys.executable, [sys.executable, "-m", "tubecli.main", "init"])
+    
+    sys.exit(999)
 
 
 def _install_missing_deps(project_root: str, python_exe: str):
