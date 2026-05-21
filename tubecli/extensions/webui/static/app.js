@@ -3351,21 +3351,50 @@ async function checkForUpdate(silent = false) {
 async function performSystemUpdate() {
     const btn = document.getElementById('btn-system-update');
     const statusEl = document.getElementById('update-status');
-    if (!confirm('🚀 Bắt đầu cập nhật phiên bản mới?\n\nApp sẽ chạy git pull và có thể cần khởi động lại.')) return;
+    if (!confirm('🚀 Bắt đầu cập nhật phiên bản mới?\n\nApp sẽ chạy git pull và tự động khởi động lại.')) return;
     if (btn) { btn.disabled = true; btn.textContent = '⬇️ Đang cập nhật...'; }
     if (statusEl) statusEl.innerHTML = '<span style="color:var(--cyan)">⏳ Đang tải bản cập nhật...</span>';
     try {
         const r = await apiPost('/api/v1/version/update', {});
         if (r.status === 'success') {
-            if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✅ Cập nhật xong! Vui lòng tải lại trang.<br><small style="color:var(--text-muted)">${esc(r.output)}</small></span>`;
-            setTimeout(() => { if (confirm('✅ Cập nhật thành công! Tải lại trang ngay?')) location.reload(); }, 1500);
+            if (r.restarting) {
+                // Server will restart — show countdown and wait for reconnect
+                if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✅ Cập nhật xong! Đang khởi động lại server...</span>';
+                if (btn) { btn.textContent = '🔄 Đang khởi động lại...'; }
+                // Wait for server to come back up, then reload
+                let attempts = 0;
+                const maxAttempts = 30;
+                const checkInterval = setInterval(async () => {
+                    attempts++;
+                    if (statusEl) statusEl.innerHTML = `<span style="color:var(--cyan)">⏳ Đang chờ server khởi động lại... (${attempts}s)</span>`;
+                    try {
+                        const healthResp = await fetch('/api/v1/health', { signal: AbortSignal.timeout(2000) });
+                        if (healthResp.ok) {
+                            clearInterval(checkInterval);
+                            if (statusEl) statusEl.innerHTML = '<span style="color:var(--green)">✅ Server đã khởi động lại! Đang tải lại trang...</span>';
+                            setTimeout(() => location.reload(), 1000);
+                        }
+                    } catch(e) {
+                        // Server not ready yet, keep waiting
+                    }
+                    if (attempts >= maxAttempts) {
+                        clearInterval(checkInterval);
+                        if (statusEl) statusEl.innerHTML = '<span style="color:var(--orange)">⚠️ Server chưa sẵn sàng. Vui lòng tải lại trang thủ công hoặc chạy lại tubecli init.</span>';
+                        if (btn) { btn.disabled = false; btn.textContent = '🔄 Reload'; btn.onclick = () => location.reload(); }
+                    }
+                }, 1000);
+            } else {
+                if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✅ Cập nhật xong!<br><small style="color:var(--text-muted)">${esc(r.output)}</small></span>`;
+                setTimeout(() => { if (confirm('✅ Cập nhật thành công! Tải lại trang ngay?')) location.reload(); }, 1500);
+            }
         } else {
             if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi: ${esc(r.output)}</span>`;
+            if (btn) { btn.disabled = false; btn.textContent = '⬆️ Update Now'; }
         }
     } catch(e) {
         if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ Lỗi kết nối: ${e.message}</span>`;
+        if (btn) { btn.disabled = false; btn.textContent = '⬆️ Update Now'; }
     }
-    if (btn) { btn.disabled = false; btn.textContent = '⬆️ Update Now'; }
 }
 
 
