@@ -307,19 +307,19 @@ if ($tubecliCmd) {
 title TubeCLI - AI Agent System
 cd /d "$targetDir"
 
-REM 1. Check if TubeCLI console is already running
-tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
+REM 1. Check if TubeCLI API is already running on port 5295
+netstat -an | findstr "5295" | findstr "LISTENING" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI is already starting or running.
-    echo Please check your taskbar for the open terminal window.
+    echo TubeCLI is already running. Opening dashboard...
+    start http://localhost:5295/dashboard
     timeout /t 3 /nobreak >nul
     exit
 )
 
-REM 2. Check if TubeCLI API is already running on port 5295
-netstat -an | findstr "5295" | findstr "LISTENING" >nul 2>nul
+REM 2. Check if TubeCLI console is already running (but port is not listening yet)
+tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI is already running. Opening dashboard...
+    echo TubeCLI is already starting or running. Opening dashboard...
     start http://localhost:5295/dashboard
     timeout /t 3 /nobreak >nul
     exit
