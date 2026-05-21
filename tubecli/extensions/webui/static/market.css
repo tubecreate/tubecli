@@ -436,7 +436,24 @@ p { line-height: 1.6; }
     width: 100%; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     background: var(--bg); color: var(--text); font-size: 0.95rem; outline: none; transition: var(--transition);
 }
-.upload-form input:focus, .upload-form textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(82,118,235,0.1); }
+.upload-form input[type="file"] {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1.5px dashed rgba(255, 255, 255, 0.12);
+    padding: 16px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: var(--transition);
+    outline: none;
+}
+.upload-form input[type="file"]:hover {
+    border-color: rgba(82, 118, 235, 0.45);
+    background: rgba(82, 118, 235, 0.04);
+    color: #ffffff;
+}
+.upload-form input:focus, .upload-form textarea:focus, .upload-form select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(82, 118, 235, 0.15); }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 
 /* Media Upload Preview Grid */
@@ -657,3 +674,431 @@ p { line-height: 1.6; }
     transform: translateY(0) scale(1);
 }
 
+/* ==========================================================================
+   UPLOAD MODAL PREMIUM WIZARD REDESIGN
+   ========================================================================== */
+
+/* Step Stepper Indicator */
+.upload-steps {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 14px 28px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.upload-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.92rem;
+    transition: var(--transition);
+    z-index: 2;
+}
+
+.upload-step.active {
+    color: var(--primary);
+    text-shadow: 0 0 15px rgba(82, 118, 235, 0.25);
+}
+
+.upload-step.done {
+    color: var(--accent-green);
+}
+
+.step-num {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    transition: var(--transition);
+}
+
+.upload-step.active .step-num {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: 0 0 16px rgba(82, 118, 235, 0.45);
+}
+
+.upload-step.done .step-num {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: var(--accent-green);
+    color: var(--accent-green);
+    box-shadow: 0 0 10px rgba(34, 197, 94, 0.15);
+}
+
+.upload-step-line {
+    flex: 1;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.06);
+    margin: 0 24px;
+    border-radius: 2px;
+    z-index: 1;
+}
+
+/* Category Pill Tabs */
+.upload-category-tabs {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.01);
+    padding: 6px;
+    border-radius: var(--radius-md);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.ucat-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.ucat-tab:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #ffffff;
+}
+
+.ucat-tab.active {
+    background: linear-gradient(135deg, rgba(82, 118, 235, 0.18) 0%, rgba(124, 92, 231, 0.18) 100%);
+    border: 1px solid rgba(82, 118, 235, 0.3);
+    color: #8fa4f9;
+    box-shadow: 0 4px 15px rgba(82, 118, 235, 0.12);
+    text-shadow: 0 0 10px rgba(82, 118, 235, 0.2);
+}
+
+/* Items Scroll List */
+.upload-items-list {
+    max-height: 280px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-md);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.upload-items-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.upload-items-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.upload-items-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 100px;
+}
+
+.upload-items-list::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+/* Item Card Selection */
+.upload-item-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.upload-item-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 3px; height: 100%;
+    background: transparent;
+    transition: var(--transition);
+}
+
+.upload-item-card:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(82, 118, 235, 0.28);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+}
+
+.upload-item-card.selected {
+    background: linear-gradient(135deg, rgba(82, 118, 235, 0.08) 0%, rgba(124, 92, 231, 0.08) 100%);
+    border-color: var(--primary);
+    box-shadow: 0 6px 20px rgba(82, 118, 235, 0.12), inset 0 0 10px rgba(82, 118, 235, 0.05);
+}
+
+.upload-item-card.selected::before {
+    background: var(--primary);
+}
+
+.upload-item-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.35rem;
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.upload-item-card:hover .upload-item-icon {
+    border-color: rgba(82, 118, 235, 0.2);
+    background: rgba(82, 118, 235, 0.05);
+}
+
+.upload-item-card.selected .upload-item-icon {
+    background: rgba(82, 118, 235, 0.15);
+    border-color: rgba(82, 118, 235, 0.3);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(82, 118, 235, 0.2);
+}
+
+.upload-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.upload-item-name {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.upload-item-meta {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.upload-item-select-btn {
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 6px 14px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-muted);
+    transition: var(--transition);
+}
+
+.upload-item-card:hover .upload-item-select-btn {
+    background: rgba(82, 118, 235, 0.1);
+    border-color: rgba(82, 118, 235, 0.25);
+    color: #8fa4f9;
+}
+
+.upload-item-card.selected .upload-item-select-btn {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(82, 118, 235, 0.35);
+}
+
+.upload-items-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-muted);
+}
+
+.upload-items-empty .empty-icon {
+    font-size: 2.8rem;
+    margin-bottom: 14px;
+    opacity: 0.55;
+}
+
+/* Selected Item Preview Box in Step 2 */
+.selected-item-preview {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 16px 22px;
+    background: linear-gradient(135deg, rgba(82, 118, 235, 0.08) 0%, rgba(124, 92, 231, 0.02) 100%);
+    border: 1px solid rgba(82, 118, 235, 0.22);
+    border-radius: var(--radius-md);
+    margin-bottom: 26px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    position: relative;
+    overflow: hidden;
+}
+
+.selected-item-preview::before {
+    content: '';
+    position: absolute;
+    top: -50%; left: -50%; width: 200%; height: 200%;
+    background: radial-gradient(circle, rgba(82, 118, 235, 0.05) 0%, transparent 70%);
+    pointer-events: none;
+}
+
+.selected-item-preview .preview-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(82, 118, 235, 0.16);
+    border: 1px solid rgba(82, 118, 235, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    box-shadow: 0 0 16px rgba(82, 118, 235, 0.25);
+    flex-shrink: 0;
+    z-index: 1;
+}
+
+.selected-item-preview .preview-info {
+    flex: 1;
+    z-index: 1;
+}
+
+.selected-item-preview .preview-name {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: #ffffff;
+    margin-bottom: 3px;
+    letter-spacing: -0.01em;
+}
+
+.selected-item-preview .preview-type {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 800;
+    color: #8fa4f9;
+}
+
+/* Beautiful Premium Publish/Back Buttons */
+.btn-upload {
+    background: linear-gradient(135deg, var(--primary), #5b46e0);
+    color: #ffffff;
+    border: none;
+    padding: 12px 26px;
+    border-radius: var(--radius-sm);
+    font-weight: 700;
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    box-shadow: var(--shadow-glow);
+}
+
+.btn-upload:hover {
+    transform: translateY(-2px);
+    background: linear-gradient(135deg, var(--primary-hover), #6954e7);
+    box-shadow: 0 8px 24px rgba(82, 118, 235, 0.4);
+}
+
+.btn-upload:active {
+    transform: translateY(0);
+}
+
+.btn-upload:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* Styled Console-like Progress Log Scrollbar */
+#uploadProgressLog::-webkit-scrollbar {
+    width: 6px;
+}
+#uploadProgressLog::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.2);
+}
+#uploadProgressLog::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 100px;
+}
+#uploadProgressLog::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Styled upload Back button */
+.btn-upload-back {
+    background: rgba(255, 255, 255, 0.03) !important;
+    color: var(--text-muted) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    padding: 10px 22px !important;
+    border-radius: var(--radius-sm) !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    cursor: pointer !important;
+    transition: var(--transition) !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+}
+
+.btn-upload-back:hover {
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Scrollable body for the upload wizard modal with custom slim scrollbar */
+.upload-modal-body {
+    padding: 28px;
+    overflow-y: auto;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.upload-modal-body::-webkit-scrollbar {
+    width: 6px;
+}
+.upload-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+.upload-modal-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 100px;
+}
+.upload-modal-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.18);
+}

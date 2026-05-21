@@ -448,3 +448,34 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .btn-ext-update-inline:active {
     transform: translateY(0) scale(0.98);
 }
+
+/* ─── Drag & Drop & Default Group Styles ─── */
+.draggable-chip {
+    cursor: grab !important;
+    user-select: none;
+    transition: transform 0.2s, opacity 0.2s;
+}
+.draggable-chip:active {
+    cursor: grabbing !important;
+}
+.draggable-chip.dragging {
+    opacity: 0.4;
+    transform: scale(0.95);
+}
+.ext-group-card {
+    transition: border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease;
+}
+.ext-group-card.drag-over {
+    border-color: var(--primary) !important;
+    background: rgba(82, 118, 235, 0.08) !important;
+    box-shadow: 0 0 16px rgba(82, 118, 235, 0.15) !important;
+}
+.default-group-card {
+    border: 1px dashed var(--border) !important;
+    background: rgba(255, 255, 255, 0.01) !important;
+    margin-bottom: 12px;
+}
+body.dragging-active .ext-group-card * {
+    pointer-events: none !important;
+}
+

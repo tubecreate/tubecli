@@ -120,8 +120,8 @@
 
 <!-- Upload Modal (Two-Step Wizard) -->
 <div class="market-modal-overlay" id="uploadModal">
-    <div class="market-modal" style="width:620px;">
-        <div style="padding:28px;">
+    <div class="market-modal" style="width:620px; max-height:85vh;">
+        <div class="upload-modal-body">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
                 <h2 style="font-size:1.3rem;font-weight:800;">&#x1F4E4; <span data-i18n="sell.title">Sell on Market</span></h2>
                 <button class="modal-close" onclick="closeUploadModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
@@ -139,8 +139,8 @@
                 <div class="form-group" style="margin-bottom:16px;">
                     <label data-i18n="sell.category">Category</label>
                     <div class="upload-category-tabs">
-                        <button type="button" class="ucat-tab active" data-cat="skill" onclick="switchUploadCategory('skill', this)">&#x26A1; <span data-i18n="market.cat_skill_s">Skills</span></button>
-                        <button type="button" class="ucat-tab" data-cat="extension" onclick="switchUploadCategory('extension', this)">&#x1F9E9; <span data-i18n="market.cat_ext_s">Extensions</span></button>
+                        <button type="button" class="ucat-tab active" data-cat="extension" onclick="switchUploadCategory('extension', this)">&#x1F9E9; <span data-i18n="market.cat_ext_s">Extensions</span></button>
+                        <button type="button" class="ucat-tab" data-cat="skill" onclick="switchUploadCategory('skill', this)">&#x26A1; <span data-i18n="market.cat_skill_s">Skills</span></button>
                         <button type="button" class="ucat-tab" data-cat="node" onclick="switchUploadCategory('node', this)">&#x1F517; <span data-i18n="market.cat_node_s">Nodes</span></button>
                         <button type="button" class="ucat-tab" data-cat="model3d" onclick="switchUploadCategory('model3d', this)">&#x1F3A8; <span data-i18n="market.cat_3d_s">3D Models</span></button>
                     </div>
@@ -250,7 +250,7 @@
                     </div>
 
                     <div style="display:flex;gap:12px;justify-content:space-between;margin-top:12px;">
-                        <button type="button" class="btn-secondary" onclick="goToUploadStep(1)">&#x2190; <span data-i18n="sell.back">Back</span></button>
+                        <button type="button" class="btn-upload-back" onclick="goToUploadStep(1)">&#x2190; <span data-i18n="sell.back">Back</span></button>
                         <button type="submit" class="btn-upload" id="uploadSubmitBtn">&#x1F4E4; <span data-i18n="sell.publish">Publish to Market</span></button>
                     </div>
 
