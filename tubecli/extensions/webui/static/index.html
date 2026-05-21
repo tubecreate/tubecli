@@ -295,11 +295,21 @@
                     </div>
                     <div class="settings-field">
                         <label data-i18n="settings.ext_open_mode">Extension Open Mode</label>
-                        <select id="set-ext-open-mode" onchange="localStorage.setItem('ext_open_mode', this.value); showFieldIndicator(this, 'success', '✓ Saved'); location.reload();">
-                            <option value="full_page">Open in new tab (Default)</option>
-                            <option value="dashboard">Embed in dashboard (Iframe)</option>
+                        <select id="set-ext-open-mode" onchange="autoSaveSetting('ext_open_mode', this.value, this); setTimeout(() => location.reload(), 400);">
+                            <option value="full_page" data-i18n="settings.ext_open_mode_new_tab">Open in new tab (Default)</option>
+                            <option value="dashboard" data-i18n="settings.ext_open_mode_iframe">Embed in dashboard (Iframe)</option>
                         </select>
-                        <div class="field-hint">How extensions open from the sidebar menu.</div>
+                        <div class="field-hint" data-i18n="settings.ext_open_mode_hint">How extensions open from the sidebar menu.</div>
+                    </div>
+                    <div class="settings-field" style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+                        <div style="flex:1; padding-right:12px;">
+                            <label data-i18n="settings.ext_update_notify" style="margin-bottom:2px;">Extension Update Notifications</label>
+                            <div class="field-hint" data-i18n="settings.ext_update_notify_hint">Show update badges and banners for extensions</div>
+                        </div>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="set-ext-update-notify" onchange="autoSaveSetting('ext_update_notifications', this.checked, this)">
+                            <span class="toggle-slider"></span>
+                        </label>
                     </div>
                 </div>
 
@@ -843,7 +853,7 @@
 </div>
 
 <script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=30"></script>
+<script src="/static/app.js?v=32"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){

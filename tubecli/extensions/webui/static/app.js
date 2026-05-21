@@ -2427,6 +2427,19 @@ async function applyGlobalSettings(s) {
     if (s.api_base_url && document.getElementById('set-api')) document.getElementById('set-api').value = s.api_base_url;
     if (s.telegram_bot_token && document.getElementById('set-tg-token')) document.getElementById('set-tg-token').value = s.telegram_bot_token;
     if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
+    
+    const notifyEnabled = s.ext_update_notifications !== undefined ? s.ext_update_notifications : false;
+    if (document.getElementById('set-ext-update-notify')) {
+        document.getElementById('set-ext-update-notify').checked = notifyEnabled;
+    }
+    localStorage.setItem('ext_update_notifications', notifyEnabled ? 'true' : 'false');
+
+    const openMode = s.ext_open_mode || 'full_page';
+    if (document.getElementById('set-ext-open-mode')) {
+        document.getElementById('set-ext-open-mode').value = openMode;
+    }
+    localStorage.setItem('ext_open_mode', openMode);
+
     globalExtensionGroups = s.extension_groups || [];
     renderExtensionGroupsSettings();
     // These are async but non-critical, run in background
@@ -2550,6 +2563,7 @@ async function populateModelDropdown(selectedModel) {
                 const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
                 html += `<optgroup label="☁️ ${esc(label)}">`;
                 p.models.forEach(m => {
+                    html += `<option value="${esc(m)}">${esc(m)}</option>`;
                 });
                 html += '</optgroup>';
             });
@@ -2807,22 +2821,21 @@ function showFieldIndicator(inputEl, type, text) {
 async function autoSaveSetting(key, value, inputEl) {
     if (inputEl) showFieldIndicator(inputEl, 'saving', '⏳ Saving...');
     
-    // Build full payload from current form state
-    const payload = {
-        default_model: document.getElementById('set-model')?.value || 'qwen:latest',
-        api_port: document.getElementById('set-port')?.value || '5295',
-        api_base_url: document.getElementById('set-api')?.value || window.location.origin,
-        telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
-        telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
-        default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
-    };
-    // Override with the specific changed key
+    // Only send the key that changed to avoid overwriting other values with loading/temporary states
+    const payload = {};
     payload[key] = value;
     
     try {
         const r = await apiPut('/api/v1/settings', payload);
         if (r && r.status === 'success') {
             if (key === 'api_base_url' && value) localStorage.setItem('tubecli_api', value);
+            if (key === 'ext_update_notifications') {
+                localStorage.setItem('ext_update_notifications', value ? 'true' : 'false');
+                updateSidebarBadgeVisibility();
+            }
+            if (key === 'ext_open_mode') {
+                localStorage.setItem('ext_open_mode', value);
+            }
             if (inputEl) showFieldIndicator(inputEl, 'success', '✓ Saved');
         } else {
             if (inputEl) showFieldIndicator(inputEl, 'error', '✗ Error');
@@ -2840,10 +2853,13 @@ async function saveGlobalSettings() {
         telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
         telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
         default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
+        ext_update_notifications: document.getElementById('set-ext-update-notify')?.checked || false,
     };
     try {
         const r = await apiPut('/api/v1/settings', payload);
         if (r && r.status === 'success') {
+            localStorage.setItem('ext_update_notifications', payload.ext_update_notifications ? 'true' : 'false');
+            updateSidebarBadgeVisibility();
             if (payload.api_base_url) localStorage.setItem('tubecli_api', payload.api_base_url);
             const toast = document.createElement('div');
             toast.textContent = '✅ Settings saved!';
@@ -3250,11 +3266,20 @@ async function checkExtensionUpdates(force) {
 function updateExtBadge(count) {
     const badge = document.getElementById('ext-update-badge');
     if (!badge) return;
-    if (count > 0) {
+    const notifyEnabled = localStorage.getItem('ext_update_notifications') === 'true';
+    if (count > 0 && notifyEnabled) {
         badge.textContent = count;
         badge.style.display = 'inline-flex';
     } else {
         badge.style.display = 'none';
+    }
+}
+
+function updateSidebarBadgeVisibility() {
+    if (_extUpdateCache !== null) {
+        updateExtBadge(_extUpdateCache.length);
+    } else {
+        checkExtensionUpdates(false);
     }
 }
 
