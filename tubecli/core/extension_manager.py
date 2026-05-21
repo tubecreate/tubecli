@@ -17,6 +17,91 @@ from tubecli.config import DATA_DIR, EXTENSIONS_EXTERNAL_DIR
 
 logger = logging.getLogger('ExtensionManager')
 
+
+# ── Version comparison & Git Helpers ─────────────────────────────────
+
+def compare_versions(v1: str, v2: str) -> int:
+    """Compare two version strings. Support both standard YYYY.MM.DD.HHMMSS and semver.
+    Returns:
+        1 if v1 > v2
+        -1 if v1 < v2
+        0 if v1 == v2
+    """
+    def parse(v):
+        parts = []
+        for part in str(v).strip().split('.'):
+            if part.isdigit():
+                parts.append(int(part))
+            else:
+                parts.append(part)
+        return parts
+
+    p1 = parse(v1)
+    p2 = parse(v2)
+    
+    for i in range(max(len(p1), len(p2))):
+        el1 = p1[i] if i < len(p1) else 0
+        el2 = p2[i] if i < len(p2) else 0
+        
+        if type(el1) != type(el2):
+            el1 = str(el1)
+            el2 = str(el2)
+            
+        if el1 > el2:
+            return 1
+        elif el1 < el2:
+            return -1
+    return 0
+
+
+def get_git_tracking_branch(dir_path: str) -> str:
+    """Get remote upstream branch name (e.g. main, master)."""
+    import subprocess
+    try:
+        res = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "@{u}"],
+            cwd=dir_path, capture_output=True, text=True, timeout=5
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            parts = res.stdout.strip().split('/', 1)
+            if len(parts) == 2:
+                return parts[1]
+    except Exception:
+        pass
+    
+    try:
+        res = subprocess.run(
+            ["git", "branch", "-r"],
+            cwd=dir_path, capture_output=True, text=True, timeout=5
+        )
+        if res.returncode == 0:
+            branches = res.stdout.strip()
+            if "origin/main" in branches:
+                return "main"
+            elif "origin/master" in branches:
+                return "master"
+    except Exception:
+        pass
+    return "main"
+
+
+def get_git_commit_version(dir_path: str, remote: bool = False, branch: str = "main") -> Optional[str]:
+    """Get the git commit datetime formatted as standard YYYY.MM.DD.HHMMSS."""
+    import subprocess
+    try:
+        if remote:
+            cmd = ["git", "log", "-n", "1", "--format=%cd", "--date=format:%Y.%m.%d.%H%M%S", f"origin/{branch}"]
+        else:
+            cmd = ["git", "log", "-n", "1", "--format=%cd", "--date=format:%Y.%m.%d.%H%M%S"]
+            
+        res = subprocess.run(cmd, cwd=dir_path, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 EXTENSIONS_CONFIG_FILE = os.path.join(DATA_DIR, "extensions.json")
 
 # ── Extension Manifest Schema ────────────────────────────────────────
@@ -360,7 +445,16 @@ class ExtensionManager:
             extension.extension_dir = extension_path
             extension._manifest = manifest
             extension.name = manifest["name"]
-            extension.version = manifest.get("version", "0.1.0")
+            
+            # Standardize version format to YYYY.MM.DD.HHMMSS if it is a git repo
+            ext_ver = manifest.get("version", "0.1.0")
+            git_dir = os.path.join(extension_path, ".git")
+            if os.path.exists(git_dir):
+                git_ver = get_git_commit_version(extension_path)
+                if git_ver:
+                    ext_ver = git_ver
+            
+            extension.version = ext_ver
             extension.description = manifest.get("description", "")
             extension.author = manifest.get("author", "")
 
@@ -692,11 +786,18 @@ class ExtensionManager:
         git_dir = os.path.join(target_dir, ".git")
         if os.path.exists(git_dir):
             try:
-                logger.info(f"Updating extension '{name}' via git pull...")
+                logger.info(f"Updating extension '{name}' via git stash & pull...")
+                # Safe Git update sequence
+                subprocess.run(["git", "stash"], cwd=target_dir, capture_output=True, timeout=30)
+                
+                branch = get_git_tracking_branch(target_dir)
                 result = subprocess.run(
-                    ["git", "pull"],
+                    ["git", "pull", "origin", branch],
                     cwd=target_dir, capture_output=True, text=True, timeout=120
                 )
+                
+                subprocess.run(["git", "stash", "pop"], cwd=target_dir, capture_output=True, timeout=30)
+                
                 if result.returncode != 0:
                     return {"status": "error", "message": f"Git pull failed: {result.stderr}"}
             except Exception as e:

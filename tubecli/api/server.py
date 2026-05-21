@@ -1659,7 +1659,14 @@ async def system_update():
 async def check_extension_update(name: str):
     """Check if an external extension has updates available."""
     import subprocess
-    from tubecli.core.extension_manager import extension_manager
+    import json
+    from tubecli.core.extension_manager import (
+        extension_manager,
+        compare_versions,
+        get_git_tracking_branch,
+        get_git_commit_version,
+    )
+    from tubecli.extensions.market.market_service import market_service
 
     ext = extension_manager.get(name)
     if not ext:
@@ -1675,92 +1682,95 @@ async def check_extension_update(name: str):
         }
 
     ext_dir = ext.extension_dir
-    if not ext_dir or not os.path.isdir(os.path.join(ext_dir, ".git")):
-        return {
-            "name": name,
-            "has_update": False,
-            "message": "Extension is not a git repository.",
-            "current_version": ext.version,
-        }
+    git_dir = os.path.join(ext_dir, ".git") if ext_dir else None
 
-    try:
-        subprocess.run(
-            ["git", "fetch", "origin"],
-            cwd=ext_dir, capture_output=True, text=True, timeout=30,
-        )
+    if ext_dir and git_dir and os.path.isdir(git_dir):
+        # Git-based checking
+        try:
+            subprocess.run(
+                ["git", "fetch", "origin"],
+                cwd=ext_dir, capture_output=True, text=True, timeout=15,
+            )
+            branch = get_git_tracking_branch(ext_dir)
 
-        r_count = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD..origin/main"],
-            cwd=ext_dir, capture_output=True, text=True, timeout=10,
-        )
-        commits_behind = int(r_count.stdout.strip()) if r_count.returncode == 0 else 0
-
-        changelog = []
-        if commits_behind > 0:
-            r_log = subprocess.run(
-                ["git", "log", "--oneline", "HEAD..origin/main", "--format=%s"],
+            r_count = subprocess.run(
+                ["git", "rev-list", "--count", f"HEAD..origin/{branch}"],
                 cwd=ext_dir, capture_output=True, text=True, timeout=10,
             )
-            if r_log.returncode == 0:
-                changelog = [l.strip() for l in r_log.stdout.strip().split("\n") if l.strip()]
+            commits_behind = int(r_count.stdout.strip()) if r_count.returncode == 0 else 0
 
-        return {
-            "name": name,
-            "has_update": commits_behind > 0,
-            "current_version": ext.version,
-            "commits_behind": commits_behind,
-            "changelog": changelog[:10],
-        }
-    except Exception as e:
-        raise HTTPException(500, f"Failed to check extension update: {e}")
+            changelog = []
+            if commits_behind > 0:
+                r_log = subprocess.run(
+                    ["git", "log", "--oneline", f"HEAD..origin/{branch}", "--format=%s"],
+                    cwd=ext_dir, capture_output=True, text=True, timeout=10,
+                )
+                if r_log.returncode == 0:
+                    changelog = [l.strip() for l in r_log.stdout.strip().split("\n") if l.strip()]
+
+            # Fetch remote version from git manifest, fallback to remote commit date
+            remote_version = None
+            try:
+                res_show = subprocess.run(
+                    ["git", "show", f"origin/{branch}:tubecli-extension.json"],
+                    cwd=ext_dir, capture_output=True, text=True, timeout=10
+                )
+                if res_show.returncode == 0:
+                    r_manifest = json.loads(res_show.stdout)
+                    remote_version = r_manifest.get("version")
+            except Exception:
+                pass
+            
+            if not remote_version or compare_versions(remote_version, "2000.01.01.000000") < 0:
+                remote_version = get_git_commit_version(ext_dir, remote=True, branch=branch) or "2026.05.21.000000"
+
+            return {
+                "name": name,
+                "has_update": commits_behind > 0,
+                "current_version": ext.version,
+                "remote_version": remote_version,
+                "commits_behind": commits_behind,
+                "changelog": changelog[:10],
+                "is_git": True,
+            }
+        except Exception as e:
+            raise HTTPException(500, f"Failed to check extension git update: {e}")
+    else:
+        # Marketplace-based checking
+        try:
+            check_res = await market_service.check_name_exists(ext.name)
+            if check_res.get("exists") and check_res.get("item"):
+                item = check_res["item"]
+                market_version = item.get("version", "0.0.0")
+                if compare_versions(market_version, ext.version) > 0:
+                    return {
+                        "name": name,
+                        "has_update": True,
+                        "current_version": ext.version,
+                        "remote_version": market_version,
+                        "public_id": check_res.get("public_id", ""),
+                        "is_git": False,
+                    }
+            return {
+                "name": name,
+                "has_update": False,
+                "message": "Extension is up to date on marketplace.",
+                "current_version": ext.version,
+                "is_git": False,
+            }
+        except Exception as e:
+            raise HTTPException(500, f"Failed to check extension marketplace update: {e}")
 
 
 @app.post("/api/v1/extensions/{name}/update")
 async def update_extension(name: str):
-    """Pull latest code for an external extension."""
-    import subprocess
+    """Pull latest code/updates for an external extension."""
     from tubecli.core.extension_manager import extension_manager
 
-    ext = extension_manager.get(name)
-    if not ext:
-        raise HTTPException(404, f"Extension '{name}' not found")
-
-    if ext.extension_type != "external":
-        raise HTTPException(400, "System extensions cannot be updated individually. Use System Update.")
-
-    ext_dir = ext.extension_dir
-    if not ext_dir or not os.path.isdir(os.path.join(ext_dir, ".git")):
-        raise HTTPException(400, "Extension directory is not a git repository.")
-
-    try:
-        r_pull = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            cwd=ext_dir, capture_output=True, text=True, timeout=60,
-        )
-        if r_pull.returncode != 0:
-            return {"status": "error", "error": f"git pull failed: {r_pull.stderr}"}
-
-        # Re-read manifest to get new version
-        import json
-        new_version = ext.version
-        manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
-        if os.path.exists(manifest_path):
-            try:
-                with open(manifest_path, "r", encoding="utf-8") as f:
-                    manifest = json.load(f)
-                    new_version = manifest.get("version", ext.version)
-            except Exception:
-                pass
-
-        return {
-            "status": "success",
-            "name": name,
-            "new_version": new_version,
-            "git_output": r_pull.stdout.strip()[:300],
-            "message": f"Extension '{name}' updated. Restart API to apply.",
-        }
-    except Exception as e:
-        raise HTTPException(500, f"Extension update failed: {e}")
+    result = extension_manager.update_extension(name)
+    if result.get("status") == "error":
+        raise HTTPException(400, result.get("message", "Update failed"))
+    return result
 
 
 # ── Aggregated i18n (per-extension locales) ─────────────────────────

@@ -497,20 +497,32 @@ async function loadExtensions() {
         }
         if (isExternal && extension) {
             footerHtml += `
-                <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
+                <button class="${isEnabled ? 'btn-disable' : 'btn-enable'}"
                     onclick="event.stopPropagation();toggleExternalExt('${esc(ext.id)}',${isEnabled})">
                     ${isEnabled ? 'Disable' : 'Enable'}
                 </button>
-                <button class="btn-sm" style="background:var(--red)"
+                <button class="btn-uninstall"
                     onclick="event.stopPropagation();uninstallExternalExt('${esc(ext.id)}')">
                     Uninstall
                 </button>`;
         }
 
+        let updateBtnHtml = '';
+        if (hasUpdate) {
+            updateBtnHtml = `
+            <div style="margin: 6px 0 10px 0;">
+                <button class="btn-ext-update-inline"
+                    onclick="event.stopPropagation(); doExtensionUpdate('${esc(ext.id)}', '${esc(hasUpdate.public_id || '')}', '${esc(hasUpdate.git_url || '')}', this)">
+                    ⬆️ Cập nhật ngay
+                </button>
+            </div>`;
+        }
+
         return `<div class="card ext-card" onclick="openExtDetail('${ext.id}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
-            <div class="card-icon">${ext.icon}</div>
+            <div class="card-icon">${renderExtIcon(ext.icon, 32)}</div>
             <h3>${esc(T(ext.name))}</h3>
             <p class="card-meta">v${esc(version)} · ${esc(displayType)}</p>
+            ${updateBtnHtml}
             <p class="card-desc">${esc(T(ext.desc))}</p>
             <div class="card-footer" style="margin-top:10px;gap:8px">${footerHtml}</div>
         </div>`;
@@ -523,19 +535,32 @@ async function loadExtensions() {
             const isEnabled = ext.enabled;
             const hasUpdate = cachedUpdates && cachedUpdates.find(u => (u.name||'').toLowerCase().replace(/ /g,'_') === (ext.name||'').toLowerCase().replace(/ /g,'_'));
             const updateTag = hasUpdate ? '<span class="tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>' : '';
+            
+            let updateBtnHtml = '';
+            if (hasUpdate) {
+                updateBtnHtml = `
+                <div style="margin: 6px 0 10px 0;">
+                    <button class="btn-ext-update-inline"
+                        onclick="event.stopPropagation(); doExtensionUpdate('${esc(ext.name)}', '${esc(hasUpdate.public_id || '')}', '${esc(hasUpdate.git_url || '')}', this)">
+                        ⬆️ Cập nhật ngay
+                    </button>
+                </div>`;
+            }
+
             cards += `<div class="card ext-card" onclick="openExternalExtDetail('${esc(ext.name)}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
                 <div class="card-icon">${esc(ext.icon || '\ud83d\udce6')}</div>
                 <h3>${esc(ext.name)}</h3>
                 <p class="card-meta">v${esc(ext.version || '-')} · external</p>
+                ${updateBtnHtml}
                 <p class="card-desc">${esc(ext.description || '')}</p>
                 <div class="card-footer" style="margin-top:10px;gap:8px">
                     <span class="tag blue">external</span>
                     ${updateTag}
-                    <button class="btn-sm ${isEnabled ? 'btn-danger' : 'btn-primary'}"
+                    <button class="${isEnabled ? 'btn-disable' : 'btn-enable'}"
                         onclick="event.stopPropagation();toggleExternalExt('${esc(ext.name)}',${isEnabled})">
                         ${isEnabled ? 'Disable' : 'Enable'}
                     </button>
-                    <button class="btn-sm" style="background:var(--red)"
+                    <button class="btn-uninstall"
                         onclick="event.stopPropagation();uninstallExternalExt('${esc(ext.name)}')">
                         Uninstall
                     </button>
@@ -3299,12 +3324,13 @@ function renderGroupIcon(iconStr) {
     return esc(iconStr.trim());
 }
 
-function renderExtIcon(iconStr) {
+function renderExtIcon(iconStr, size) {
     if (!iconStr) return '📦';
     const s = iconStr.trim();
+    const px = size || 20;
     // Material Symbol name = lowercase letters/digits/underscores, must start with letter
     if (/^[a-z][a-z0-9_]+$/.test(s)) {
-        return `<span class="material-symbols-outlined" style="font-size:20px;">${s}</span>`;
+        return `<span class="material-symbols-outlined" style="font-size:${px}px;">${s}</span>`;
     }
     // Emoji / unicode — inject directly (esc() would break multi-byte emoji)
     return s;

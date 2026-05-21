@@ -129,7 +129,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
 .card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; transition: all 0.2s; }
 .card:hover { border-color: var(--primary); transform: translateY(-2px); box-shadow: var(--shadow-elevated); }
-.card-icon { font-size: 2rem; margin-bottom: 8px; }
+.card-icon { font-size: 2rem; margin-bottom: 8px; display: flex; align-items: center; min-height: 2.4rem; }
 .card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
 .card .card-meta { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 8px; }
 .card .card-desc { font-size: 0.85rem; color: var(--text2); margin-bottom: 12px; }
@@ -265,6 +265,12 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .ext-update-badge:hover { background: rgba(245,158,11,0.3); }
 .btn-ext-update { padding: 4px 12px; border: none; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: linear-gradient(135deg, var(--green), #10b981); color: #fff; cursor: pointer; transition: all 0.2s; }
 .btn-ext-update:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(34,197,94,0.3); }
+.btn-disable { padding: 4px 10px; border: 1px solid rgba(245,158,11,0.35); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(245,158,11,0.08); color: #d97706; cursor: pointer; transition: all 0.2s; }
+.btn-disable:hover { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.55); color: #f59e0b; }
+.btn-enable { padding: 4px 10px; border: 1px solid rgba(34,197,94,0.35); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(34,197,94,0.08); color: #16a34a; cursor: pointer; transition: all 0.2s; }
+.btn-enable:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.55); color: #22c55e; }
+.btn-uninstall { padding: 4px 10px; border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(239,68,68,0.07); color: #b91c1c; cursor: pointer; transition: all 0.2s; }
+.btn-uninstall:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #ef4444; }
 
 /* Restart banner */
 .restart-banner { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem; color: var(--orange); font-weight: 600; }
@@ -417,3 +423,28 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 @keyframes fadeInSlide { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes fadeOutSlide { from { opacity: 1; } to { opacity: 0; transform: translateX(8px); } }
 
+/* ─── Inline Premium Update Button ─── */
+.btn-ext-update-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin: 6px 0 10px 0;
+    padding: 6px 14px;
+    background: linear-gradient(135deg, #f59e0b, #3b82f6);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.btn-ext-update-inline:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
+    background: linear-gradient(135deg, #d97706, #2563eb);
+}
+.btn-ext-update-inline:active {
+    transform: translateY(0) scale(0.98);
+}
