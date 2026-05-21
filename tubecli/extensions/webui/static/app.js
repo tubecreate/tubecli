@@ -2879,12 +2879,38 @@ async function testDefaultAI() {
                 body: JSON.stringify({
                     model: model,
                     messages: [{ role: 'user', content: "Reply 'Hello from 9Router!'" }],
-                    max_tokens: 30
+                    max_tokens: 30,
+                    stream: false
                 })
             });
             if (resp.ok) {
-                const data = await resp.json();
-                const reply = data?.choices?.[0]?.message?.content || 'OK';
+                const text = await resp.text();
+                let reply = 'OK';
+                try {
+                    const data = JSON.parse(text);
+                    reply = data?.choices?.[0]?.message?.content || 'OK';
+                } catch(parseErr) {
+                    console.log('[Settings] Failed to parse 9Router response as JSON, trying SSE stream format...', parseErr);
+                    let content = '';
+                    const lines = text.split('\n');
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('data:')) {
+                            const rawJson = trimmed.substring(5).trim();
+                            if (rawJson === '[DONE]') continue;
+                            try {
+                                const parsedChunk = JSON.parse(rawJson);
+                                const delta = parsedChunk?.choices?.[0]?.delta?.content || parsedChunk?.choices?.[0]?.text || '';
+                                content += delta;
+                            } catch(e) {}
+                        }
+                    }
+                    if (content) {
+                        reply = content;
+                    } else {
+                        throw parseErr;
+                    }
+                }
                 resultDiv.textContent = `✅ 9Router OK! (${reply.substring(0, 60)})`;
                 resultDiv.style.color = '#10b981';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
