@@ -513,6 +513,30 @@ def _run_control_panel():
     _start_api(quiet=True)
     console.print(t("panel.api_started"))
 
+    # Auto-open browser on clean first launch (not in-place restarted)
+    if not os.environ.get("TUBECLI_RESTARTED"):
+        import threading
+        def _wait_and_open_browser():
+            import time
+            import requests
+            import webbrowser
+            api_ready = False
+            for _ in range(30):  # Wait up to 15 seconds
+                try:
+                    resp = requests.get(f"http://localhost:{port}/api/v1/health", timeout=1)
+                    if resp.status_code == 200:
+                        api_ready = True
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            if api_ready:
+                try:
+                    webbrowser.open(f"http://localhost:{port}/dashboard")
+                except Exception:
+                    pass
+        threading.Thread(target=_wait_and_open_browser, daemon=True).start()
+
     import time
 
     while True:
@@ -911,12 +935,49 @@ def _run_update_check():
         border_style="bright_green",
         padding=(1, 2),
     ))
+
+    # Recreate/update TubeCLI.bat to ensure they get the single-instance safety fixes
+    bat_path = os.path.join(project_root, "TubeCLI.bat")
+    if os.path.exists(bat_path):
+        try:
+            bat_content = f"""@echo off
+title TubeCLI - AI Agent System
+cd /d "{project_root}"
+
+REM 1. Check if TubeCLI console is already running
+tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo TubeCLI is already starting or running.
+    echo Please check your taskbar for the open terminal window.
+    timeout /t 3 /nobreak >nul
+    exit
+)
+
+REM 2. Check if TubeCLI API is already running on port {port}
+netstat -an | findstr "{port}" | findstr "LISTENING" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo TubeCLI is already running. Opening dashboard...
+    start http://localhost:{port}/dashboard
+    timeout /t 3 /nobreak >nul
+    exit
+)
+
+REM 3. Not running yet - start TubeCLI
+tubecli
+pause
+"""
+            with open(bat_path, "w", encoding="ascii") as f:
+                f.write(bat_content)
+        except Exception:
+            pass
+
     # Auto-restart TubeCLI
     import time
     for i in range(3, 0, -1):
         console.print(f"  [cyan]⏳ Restarting in {i}...[/cyan]", end="\r")
         time.sleep(1)
     console.print()
+    os.environ["TUBECLI_RESTARTED"] = "1"
     os.execv(sys.executable, [sys.executable, "-m", "tubecli.main", "init"])
 
 

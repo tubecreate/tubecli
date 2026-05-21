@@ -39,6 +39,128 @@ function clearTerm() {
     }
 }
 
+function updateProgressLog(message, type = 'info', customContainer = null) {
+    const logContainer = customContainer || document.getElementById('uploadProgressLog');
+    if (!logContainer) return;
+    logContainer.style.display = 'block';
+    
+    let color = '#8cd8f7'; // default info
+    let prefix = '[INFO]';
+    if (type === 'success') {
+        color = '#4ade80';
+        prefix = '[SUCCESS]';
+    } else if (type === 'error') {
+        color = '#f87171';
+        prefix = '[ERROR]';
+    } else if (type === 'warn') {
+        color = '#fbbf24';
+        prefix = '[WARN]';
+    } else if (type === 'progress') {
+        color = '#60a5fa';
+        prefix = '[PROGRESS]';
+    }
+    
+    const timeStr = new Date().toLocaleTimeString();
+    const newText = `${timeStr} ${prefix} ${message}`;
+    
+    if (type === 'progress' && logContainer.lastChild && logContainer.lastChild.dataset.type === 'progress') {
+        logContainer.lastChild.textContent = newText;
+        logContainer.lastChild.style.color = color;
+    } else {
+        const div = document.createElement('div');
+        div.style.marginBottom = '6px';
+        div.style.color = color;
+        div.dataset.type = type;
+        div.textContent = newText;
+        logContainer.appendChild(div);
+    }
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function clearProgressLog() {
+    const logContainer = document.getElementById('uploadProgressLog');
+    if (logContainer) {
+        logContainer.innerHTML = '';
+        logContainer.style.display = 'none';
+    }
+}
+
+function syncPackageManifest(itemDataObj, metadata, category) {
+    if (!itemDataObj) return itemDataObj;
+    
+    if (!itemDataObj.manifest) {
+        itemDataObj.manifest = {};
+    }
+    
+    const manifest = itemDataObj.manifest;
+    
+    manifest.display_name = metadata.displayName;
+    manifest.version = metadata.version;
+    manifest.description = metadata.description;
+    
+    if (metadata.gitUrl !== undefined) {
+        itemDataObj.git_url = metadata.gitUrl;
+        manifest.git_url = metadata.gitUrl;
+    }
+    
+    if (metadata.authorName || metadata.authorContact || metadata.authorDonate) {
+        const authorInfo = {
+            name: metadata.authorName,
+            contact: metadata.authorContact,
+            donate_qr: metadata.authorDonate
+        };
+        itemDataObj.author_info = authorInfo;
+        manifest.author_info = authorInfo;
+    }
+    
+    if (category === 'extension') {
+        manifest.dependencies = metadata.dependencies;
+        itemDataObj.dependencies = metadata.dependencies;
+        
+        if (Array.isArray(itemDataObj.files)) {
+            const manifestFile = itemDataObj.files.find(f => 
+                f.path === 'tubecli-extension.json' || f.path.endsWith('/tubecli-extension.json')
+            );
+            if (manifestFile) {
+                try {
+                    let parsedContent = {};
+                    if (typeof manifestFile.content === 'string') {
+                        parsedContent = JSON.parse(manifestFile.content);
+                    } else if (typeof manifestFile.content === 'object') {
+                        parsedContent = manifestFile.content;
+                    }
+                    
+                    parsedContent.display_name = metadata.displayName;
+                    parsedContent.version = metadata.version;
+                    parsedContent.description = metadata.description;
+                    parsedContent.dependencies = metadata.dependencies;
+                    
+                    if (metadata.gitUrl !== undefined) {
+                        parsedContent.git_url = metadata.gitUrl;
+                    }
+                    
+                    if (metadata.authorName || metadata.authorContact || metadata.authorDonate) {
+                        parsedContent.author_info = {
+                            name: metadata.authorName,
+                            contact: metadata.authorContact,
+                            donate_qr: metadata.authorDonate
+                        };
+                    }
+                    
+                    manifestFile.content = JSON.stringify(parsedContent, null, 4);
+                    console.log('[Market] Successfully synchronized tubecli-extension.json file content');
+                } catch(err) {
+                    console.error('[Market] Failed to parse/sync tubecli-extension.json content:', err);
+                }
+            } else {
+                console.warn('[Market] tubecli-extension.json not found in files array to sync');
+            }
+        }
+    }
+    
+    return itemDataObj;
+}
+
 // Language for this iframe context (fetched from API at init)
 let _marketLang = localStorage.getItem('tubecli_lang') || 'en';
 
@@ -970,6 +1092,36 @@ const CATEGORY_ICONS = { extension: '🧩', node: '🔗', skill: '⚡', model3d:
 function openUploadModal() {
     uploadState.selectedItem = null;
     uploadState.category = 'skill';
+    
+    // Clear all Step 2 inputs to prevent leaked state from previous runs
+    document.getElementById('uploadDisplayName').value = '';
+    document.getElementById('uploadPrice').value = '0';
+    document.getElementById('uploadVisibility').value = 'PUBLIC';
+    document.getElementById('uploadVersion').value = '1.0.0';
+    const uploadAvatar = document.getElementById('uploadAvatar');
+    if (uploadAvatar) uploadAvatar.value = '';
+    document.getElementById('uploadTags').value = '';
+    document.getElementById('uploadDesc').value = '';
+    document.getElementById('uploadData').value = '';
+    
+    const depsInput = document.getElementById('uploadDeps');
+    if (depsInput) depsInput.value = '';
+    const gitInput = document.getElementById('uploadGitUrl');
+    if (gitInput) gitInput.value = '';
+    const aName = document.getElementById('uploadAuthorName');
+    const aContact = document.getElementById('uploadAuthorContact');
+    const aDonate = document.getElementById('uploadAuthorDonate');
+    if (aName) aName.value = '';
+    if (aContact) aContact.value = '';
+    if (aDonate) aDonate.value = '';
+    const videoUrl = document.getElementById('uploadVideoUrl');
+    if (videoUrl) videoUrl.value = '';
+    
+    const submitBtn = document.getElementById('uploadSubmitBtn');
+    if (submitBtn) submitBtn.innerHTML = '📤 Publish to Market';
+    
+    clearProgressLog();
+    
     goToUploadStep(1);
     document.getElementById('uploadModal').classList.add('active');
     loadUploadItems('skill');
@@ -1027,10 +1179,32 @@ function goToUploadStep(step) {
                                 files: pkg.files,
                             });
                             console.log(`[Market] Packaged extension: ${pkg.file_count} files`);
+                            
+                            // Auto-fill version from manifest
+                            if (pkg.manifest?.version) {
+                                document.getElementById('uploadVersion').value = pkg.manifest.version;
+                            }
+                            
                             // Auto-fill dependencies from manifest
                             const depsInput = document.getElementById('uploadDeps');
                             if (depsInput && pkg.manifest?.dependencies?.length) {
                                 depsInput.value = pkg.manifest.dependencies.join(', ');
+                            }
+                            
+                            // Auto-fill git url from manifest
+                            if (pkg.manifest?.git_url) {
+                                document.getElementById('uploadGitUrl').value = pkg.manifest.git_url;
+                            }
+                            
+                            // Auto-fill author info from manifest
+                            if (pkg.manifest?.author_info) {
+                                const a = pkg.manifest.author_info;
+                                const aName = document.getElementById('uploadAuthorName');
+                                const aContact = document.getElementById('uploadAuthorContact');
+                                const aDonate = document.getElementById('uploadAuthorDonate');
+                                if (aName && a.name) aName.value = a.name;
+                                if (aContact && a.contact) aContact.value = a.contact;
+                                if (aDonate && a.donate_qr) aDonate.value = a.donate_qr;
                             }
                         } else {
                             showToast('Failed to package extension files', 'error');
@@ -1170,72 +1344,73 @@ async function submitUpload(e) {
     e.preventDefault();
     const btn = document.getElementById('uploadSubmitBtn');
     btn.disabled = true;
-    btn.innerHTML = '⏳ Publishing...';
+    
+    const isEdit = !!editingPublicId;
+    btn.innerHTML = isEdit ? '⏳ Saving changes...' : '⏳ Publishing...';
+    
+    // Clear and initialize log panel
+    clearProgressLog();
+    updateProgressLog(isEdit ? "Chuẩn bị lưu thay đổi listing..." : "Bắt đầu đăng sản phẩm lên Market...", "info");
 
     const tagsInput = document.getElementById('uploadTags').value;
     const tags = tagsInput ? tagsInput.split(',').map(t => t.trim()).filter(Boolean) : [];
+    
+    const category = document.getElementById('uploadCategory').value;
+    const displayName = document.getElementById('uploadDisplayName').value || document.getElementById('uploadTitle').value;
+    const version = document.getElementById('uploadVersion').value || '1.0.0';
+    const description = document.getElementById('uploadDesc').value;
+    
+    // Build metadata object for synchronization
+    const metadata = {
+        displayName: displayName,
+        version: version,
+        description: description || '',
+        dependencies: (() => {
+            const depsInput = document.getElementById('uploadDeps')?.value || '';
+            return depsInput.split(',').map(d => d.trim()).filter(Boolean);
+        })(),
+        gitUrl: document.getElementById('uploadGitUrl') ? document.getElementById('uploadGitUrl').value : '',
+        authorName: document.getElementById('uploadAuthorName') ? document.getElementById('uploadAuthorName').value.trim() : '',
+        authorContact: document.getElementById('uploadAuthorContact') ? document.getElementById('uploadAuthorContact').value.trim() : '',
+        authorDonate: document.getElementById('uploadAuthorDonate') ? document.getElementById('uploadAuthorDonate').value.trim() : ''
+    };
+
+    updateProgressLog(`[Metadata] Đang đồng bộ thông tin: ${displayName} (v${version})`, "info");
 
     const payload = {
-        title: document.getElementById('uploadDisplayName').value || document.getElementById('uploadTitle').value,
-        category: document.getElementById('uploadCategory').value,
+        title: displayName,
+        category: category,
         price: parseFloat(document.getElementById('uploadPrice').value) || 0,
         visibility: document.getElementById('uploadVisibility').value,
-        version: document.getElementById('uploadVersion').value || '1.0.0',
+        version: version,
         thumbnail_url: document.getElementById('uploadAvatar') ? document.getElementById('uploadAvatar').value.trim() : undefined,
         tags: tags,
-        description: document.getElementById('uploadDesc').value,
+        description: description,
         item_data: (() => {
-            // For extensions: merge user-declared dependencies into item_data
             let raw = document.getElementById('uploadData').value;
-            const category = document.getElementById('uploadCategory').value;
-            const gitUrl = document.getElementById('uploadGitUrl') ? document.getElementById('uploadGitUrl').value : undefined;
-            const authorName = document.getElementById('uploadAuthorName') ? document.getElementById('uploadAuthorName').value.trim() : '';
-            const authorContact = document.getElementById('uploadAuthorContact') ? document.getElementById('uploadAuthorContact').value.trim() : '';
-            const authorDonate = document.getElementById('uploadAuthorDonate') ? document.getElementById('uploadAuthorDonate').value.trim() : '';
-            
             try {
-                const parsed = JSON.parse(raw);
-                
-                // Inject git_url straight into the item_data JSON so PHP API doesn't lose it
-                if (gitUrl) {
-                    parsed.git_url = gitUrl;
-                    if (parsed.manifest) parsed.manifest.git_url = gitUrl;
-                }
-
-                // Inject author_info
-                if (authorName || authorContact || authorDonate) {
-                    parsed.author_info = {
-                        name: authorName,
-                        contact: authorContact,
-                        donate_qr: authorDonate
-                    };
-                    if (parsed.manifest) parsed.manifest.author_info = parsed.author_info;
-                }
+                let parsed = JSON.parse(raw);
+                parsed = syncPackageManifest(parsed, metadata, category);
+                raw = JSON.stringify(parsed);
                 
                 if (category === 'extension') {
-                    const depsInput = document.getElementById('uploadDeps')?.value || '';
-                    const deps = depsInput.split(',').map(d => d.trim()).filter(Boolean);
-                    if (deps.length > 0) {
-                        if (parsed.manifest) {
-                            parsed.manifest.dependencies = deps;
-                        } else {
-                            parsed.dependencies = deps;
-                        }
-                    }
+                    updateProgressLog("Đã đồng bộ hoá manifest tubecli-extension.json thành công.", "success");
                 }
-                raw = JSON.stringify(parsed);
-            } catch(e) {}
+            } catch(err) {
+                updateProgressLog("Cảnh báo: Không thể đồng bộ hoá manifest file bên trong gói file.", "warn");
+                console.error('[Market] Parsing error during syncPackageManifest inside submitUpload:', err);
+            }
             return raw;
         })(),
-        git_url: document.getElementById('uploadGitUrl') ? document.getElementById('uploadGitUrl').value : undefined,
+        git_url: metadata.gitUrl || undefined,
     };
 
     try {
         const token = getAuthToken();
-        const isEdit = !!editingPublicId;
         const url = isEdit ? `${API}/items/${editingPublicId}` : `${API}/items`;
         const method = isEdit ? 'PUT' : 'POST';
-        btn.innerHTML = isEdit ? '⏳ Saving changes...' : '⏳ Publishing...';
+        
+        updateProgressLog("Đang tải dữ liệu metadata lên Market API...", "info");
         
         const res = await fetch(url, {
             method,
@@ -1248,16 +1423,19 @@ async function submitUpload(e) {
         const data = await res.json();
 
         if (res.status === 409) {
-            // Name conflict — another author owns this name
             const errMsg = typeof data.detail === 'string' ? data.detail : (data.message || 'Extension name already taken');
+            updateProgressLog(`Thất bại: ${errMsg}`, "error");
             showToast(errMsg, 'error');
         } else if (data.status === 'success' || data.public_id) {
+            const publicId = data.public_id || data.item?.public_id || editingPublicId;
+            updateProgressLog(`Tải metadata thành công! ID sản phẩm: ${publicId}`, "success");
             
             // --- UPLOAD MEDIA ---
-            const publicId = data.public_id || data.item?.public_id || editingPublicId;
             const ytUrl = document.getElementById('uploadVideoUrl')?.value.trim();
             if (publicId && (uploadMediaFiles.screenshots.length > 0 || uploadMediaFiles.video || ytUrl)) {
-                btn.innerHTML = '? Uploading Media...';
+                updateProgressLog("Phát hiện file media. Đang chuẩn bị tải lên media...", "info");
+                btn.innerHTML = '⏳ Uploading Media...';
+                
                 try {
                     const formData = new FormData();
                     formData.append('public_id', publicId);
@@ -1267,28 +1445,68 @@ async function submitUpload(e) {
                     if (uploadMediaFiles.video) formData.append('video', uploadMediaFiles.video);
                     if (ytUrl) formData.append('youtube_url', ytUrl);
 
-                    const mediaRes = await fetch('https://api.tubecreate.com/api/market-cli/upload-media.php', {
-                        method: 'POST',
-                        body: formData
+                    updateProgressLog("Đang bắt đầu tải lên media server...", "info");
+                    
+                    await new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        xhr.open('POST', 'https://api.tubecreate.com/api/market-cli/upload-media.php');
+                        
+                        xhr.upload.onprogress = (evt) => {
+                            if (evt.lengthComputable) {
+                                const percentComplete = Math.round((evt.loaded / evt.total) * 100);
+                                updateProgressLog(`Đang tải lên media: ${percentComplete}%...`, "progress");
+                            }
+                        };
+                        
+                        xhr.onload = () => {
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                try {
+                                    const resData = JSON.parse(xhr.responseText);
+                                    if (resData.status === 'success') {
+                                        updateProgressLog("Đã tải lên media thành công!", "success");
+                                        resolve(resData);
+                                    } else {
+                                        updateProgressLog("Cảnh báo media: " + (resData.message || "Unknown error"), "warn");
+                                        resolve(resData);
+                                    }
+                                } catch(e) {
+                                    updateProgressLog("Không thể parse kết quả trả về từ media server", "warn");
+                                    resolve(null);
+                                }
+                            } else {
+                                updateProgressLog("Tải lên media thất bại với status code: " + xhr.status, "warn");
+                                resolve(null);
+                            }
+                        };
+                        
+                        xhr.onerror = () => {
+                            updateProgressLog("Lỗi kết nối mạng trong quá trình tải lên media", "warn");
+                            resolve(null);
+                        };
+                        
+                        xhr.send(formData);
                     });
-                    const mediaData = await mediaRes.json();
-                    if(mediaData.status !== 'success') {
-                        console.error('[Market] Media upload failed:', mediaData.message);
-                    }
                 } catch(me) {
+                    updateProgressLog("Lỗi tải lên media: " + me.message, "warn");
                     console.error('[Market] Media upload error:', me);
                 }
             }
             // --------------------
+
+            updateProgressLog("Đã hoàn thành toàn bộ tiến trình publish!", "success");
 
             if (data.auto_updated) {
                 showToast(`✅ Version updated! "${payload.title}" v${payload.version} has been published.`, 'success');
             } else {
                 showToast(isEdit ? 'Listing updated successfully!' : 'Item published to Market!', 'success');
             }
-            closeUploadModal();
-            loadItems();
-            loadCategories();
+            
+            // Wait slightly so they can see the gorgeous 100% success log
+            setTimeout(() => {
+                closeUploadModal();
+                loadItems();
+                loadCategories();
+            }, 1000);
             
             // Clear media state
             uploadMediaFiles = { screenshots: [], video: null };
@@ -1296,16 +1514,18 @@ async function submitUpload(e) {
             if (uvUrl) uvUrl.value = '';
             renderUploadMediaPreviews();
         } else {
-            // Extract error message from various response formats
             let errMsg = isEdit ? 'Update failed' : 'Upload failed';
             if (typeof data.detail === 'string') errMsg = data.detail;
             else if (typeof data.detail === 'object' && data.detail?.msg) errMsg = data.detail.msg;
             else if (data.error) errMsg = data.error;
             else if (data.message) errMsg = data.message;
+            
+            updateProgressLog(`Thất bại: ${errMsg}`, "error");
             console.error('[Market] Submit error:', data);
             showToast(errMsg, 'error');
         }
     } catch (e) {
+        updateProgressLog(`Lỗi kết nối mạng: ${e.message}`, "error");
         console.error('[Market] Submit network error:', e);
         showToast('Network error: ' + e.message, 'error');
     }
@@ -1804,58 +2024,106 @@ async function pushUpdateToListing(publicId, localName, localVer) {
     );
     if (!confirmed) return;
 
+    // Create/get a terminal log container for this listing card
+    let logContainer = listingItem.querySelector('.push-update-progress-log');
+    if (!logContainer) {
+        logContainer = document.createElement('div');
+        logContainer.className = 'push-update-progress-log';
+        logContainer.style.marginTop = '12px';
+        logContainer.style.background = '#07070a';
+        logContainer.style.border = '1px solid #1a1a24';
+        logContainer.style.borderRadius = '8px';
+        logContainer.style.padding = '10px';
+        logContainer.style.fontFamily = "'Courier New', Courier, monospace";
+        logContainer.style.fontSize = '0.78rem';
+        logContainer.style.color = '#8cd8f7';
+        logContainer.style.maxHeight = '120px';
+        logContainer.style.overflowY = 'auto';
+        logContainer.style.width = '100%';
+        logContainer.style.boxShadow = 'inset 0 2px 6px rgba(0,0,0,0.8)';
+        logContainer.style.lineHeight = '1.4';
+        logContainer.style.pointerEvents = 'auto'; // allow scroll
+        listingItem.appendChild(logContainer);
+    }
+    logContainer.innerHTML = '';
+    logContainer.style.display = 'block';
+
     // Show loading state
     const originalContent = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = `<div class="market-spinner" style="width:14px;height:14px;border-width:2px;margin:0;display:inline-block;vertical-align:middle;"></div> Đang đẩy...`;
     listingItem.style.pointerEvents = 'none';
-    listingItem.style.opacity = '0.8';
+    listingItem.style.opacity = '0.9'; // keep it readable but indicate work
+
+    updateProgressLog("Bắt đầu tiến trình cập nhật nhanh cho extension...", "info", logContainer);
 
     try {
         const token = getAuthToken();
 
         // 1. Fetch current listing details
+        updateProgressLog("Đang tải thông tin listing hiện tại từ Market...", "info", logContainer);
         const detailRes = await fetch(`${API}/items/${publicId}`);
         const detailData = await detailRes.json();
         if (detailData.status !== 'success' || !detailData.item) {
             throw new Error('Không thể tải thông tin listing hiện tại từ Market');
         }
         const item = detailData.item;
+        updateProgressLog("Đã tải thông tin listing hiện tại thành công.", "success", logContainer);
 
         // 2. Fetch packaged extension source files
+        updateProgressLog("Đang đóng gói và nén source files từ máy...", "info", logContainer);
         const packageRes = await fetch(`/api/v1/extensions/${encodeURIComponent(localName)}/package`);
         const pkg = await packageRes.json();
         if (pkg.status !== 'success') {
             throw new Error('Không thể đóng gói source files của extension từ máy.');
         }
+        updateProgressLog(`Đã đóng gói thành công ${pkg.files?.length || 0} files.`, "success", logContainer);
 
-        // 3. Merge files & manifest into item_data
+        // 3. Merge files & manifest into item_data and sync
+        updateProgressLog("Đồng bộ hóa metadata và manifest tubecli-extension.json...", "info", logContainer);
         let itemDataObj = {};
         try {
             itemDataObj = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : (item.item_data || {});
         } catch(e) {}
 
-        itemDataObj.manifest = pkg.manifest;
-        itemDataObj.files = pkg.files;
+        itemDataObj.manifest = pkg.manifest || {};
+        itemDataObj.files = pkg.files || [];
         if (pkg.manifest && pkg.manifest.dependencies) {
             itemDataObj.dependencies = pkg.manifest.dependencies;
         }
 
+        // Build metadata object for synchronization
+        const metadata = {
+            displayName: pkg.manifest.display_name || item.title,
+            version: localVer,
+            description: pkg.manifest.description || item.description || '',
+            dependencies: pkg.manifest.dependencies || [],
+            gitUrl: pkg.manifest.git_url || itemDataObj.git_url || item.git_url || '',
+            authorName: pkg.manifest.author_info?.name || itemDataObj.author_info?.name || '',
+            authorContact: pkg.manifest.author_info?.contact || itemDataObj.author_info?.contact || '',
+            authorDonate: pkg.manifest.author_info?.donate_qr || itemDataObj.author_info?.donate_qr || ''
+        };
+
+        // Sync the package manifest inside itemDataObj
+        itemDataObj = syncPackageManifest(itemDataObj, metadata, 'extension');
+        updateProgressLog("Đã đồng bộ hoá manifest tubecli-extension.json thành công.", "success", logContainer);
+
         // 4. Construct payload
         const payload = {
-            title: item.title,
+            title: metadata.displayName || item.title,
             category: 'extension',
             price: parseFloat(item.price) || 0,
             visibility: item.visibility || 'PUBLIC',
             version: localVer,
             thumbnail_url: item.thumbnail_url || item.thumbnail || '',
             tags: item.tags || [],
-            description: item.description || '',
+            description: metadata.description || item.description || '',
             item_data: JSON.stringify(itemDataObj),
-            git_url: itemDataObj.git_url || item.git_url || ''
+            git_url: metadata.gitUrl || item.git_url || ''
         };
 
         // 5. Submit PUT
+        updateProgressLog("Đang đẩy gói dữ liệu mới lên Market API...", "info", logContainer);
         const res = await fetch(`${API}/items/${publicId}`, {
             method: 'PUT',
             headers: {
@@ -1867,14 +2135,20 @@ async function pushUpdateToListing(publicId, localName, localVer) {
         const data = await res.json();
 
         if (res.ok && (data.status === 'success' || data.public_id)) {
-            showToast(`🚀 Đã cập nhật "${item.title}" lên v${localVer} thành công!`, 'success');
-            await loadMyListings();
-            loadItems();
+            updateProgressLog(`🚀 Đã cập nhật "${payload.title}" lên v${localVer} thành công!`, 'success', logContainer);
+            showToast(`🚀 Đã cập nhật "${payload.title}" lên v${localVer} thành công!`, 'success');
+            
+            // Allow 1.2s to review the success console logs before re-render
+            setTimeout(async () => {
+                await loadMyListings();
+                loadItems();
+            }, 1200);
         } else {
             const errMsg = data.detail || data.message || 'Cập nhật thất bại';
             throw new Error(errMsg);
         }
     } catch (err) {
+        updateProgressLog(`Thất bại: ${err.message}`, "error", logContainer);
         console.error('[Market] Push update error:', err);
         showToast(err.message, 'error');
         btn.disabled = false;
@@ -1933,7 +2207,8 @@ async function editListing(publicId) {
 
             // Prefill standard form
             uploadState.selectedItem = null; // We are not uploading a local extension
-            document.getElementById('uploadCategory').value = item.category || 'extension';
+            const category = item.category || 'extension';
+            document.getElementById('uploadCategory').value = category;
             document.getElementById('uploadDisplayName').value = item.title;
             document.getElementById('uploadTitle').value = item.title;
             document.getElementById('uploadPrice').value = item.price || 0;
@@ -1947,21 +2222,48 @@ async function editListing(publicId) {
             // Set underlying data so if they just press Save, it uploads the old JSON unmodified in its core
             document.getElementById('uploadData').value = typeof item.item_data === 'string' ? item.item_data : JSON.stringify(item.item_data);
 
+            // Toggle dependencies group visibility
+            const depsGroup = document.getElementById('uploadDepsGroup');
+            if (depsGroup) {
+                depsGroup.style.display = (category === 'extension') ? 'block' : 'none';
+            }
+
             // Depopulate specific meta fields for UI rendering
             try {
                 const parsed = typeof item.item_data === 'string' ? JSON.parse(item.item_data) : item.item_data;
-                const gitUrlField = document.getElementById('uploadGitUrl');
-                if(gitUrlField) gitUrlField.value = parsed.git_url || '';
-
-                if (parsed.author_info) {
-                    const aName = document.getElementById('uploadAuthorName');
-                    const aContact = document.getElementById('uploadAuthorContact');
-                    const aDonate = document.getElementById('uploadAuthorDonate');
-                    if(aName) aName.value = parsed.author_info.name || '';
-                    if(aContact) aContact.value = parsed.author_info.contact || '';
-                    if(aDonate) aDonate.value = parsed.author_info.donate_qr || '';
+                
+                // Prefill dependencies if category is extension
+                if (category === 'extension') {
+                    const depsInput = document.getElementById('uploadDeps');
+                    if (depsInput) {
+                        const deps = parsed.dependencies || parsed.manifest?.dependencies || [];
+                        depsInput.value = Array.isArray(deps) ? deps.join(', ') : '';
+                    }
+                } else {
+                    const depsInput = document.getElementById('uploadDeps');
+                    if (depsInput) depsInput.value = '';
                 }
-            } catch(e) {}
+
+                const gitUrlField = document.getElementById('uploadGitUrl');
+                if(gitUrlField) gitUrlField.value = parsed.git_url || parsed.manifest?.git_url || item.git_url || '';
+
+                const aName = document.getElementById('uploadAuthorName');
+                const aContact = document.getElementById('uploadAuthorContact');
+                const aDonate = document.getElementById('uploadAuthorDonate');
+                
+                const authorInfo = parsed.author_info || parsed.manifest?.author_info;
+                if (authorInfo) {
+                    if(aName) aName.value = authorInfo.name || '';
+                    if(aContact) aContact.value = authorInfo.contact || '';
+                    if(aDonate) aDonate.value = authorInfo.donate_qr || '';
+                } else {
+                    if(aName) aName.value = '';
+                    if(aContact) aContact.value = '';
+                    if(aDonate) aDonate.value = '';
+                }
+            } catch(e) {
+                console.error('[Market] Error depopulating edit listing fields:', e);
+            }
             
         } else {
             showToast('Item not found', 'error');
