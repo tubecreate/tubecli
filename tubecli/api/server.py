@@ -208,20 +208,166 @@ async def get_version_info():
 
 @app.post("/api/v1/version/update")
 async def perform_git_update():
-    import subprocess
+    """Safe update: git pull + install only missing deps + restart.
+    Mirrors the init_cmd.py option-9 logic. Never runs 'pip install -e .'
+    which would break the running installation.
+    """
+    import subprocess, re, threading, time
     from tubecli import __build__
+    from tubecli.config import BASE_DIR
     try:
-        repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        repo = str(BASE_DIR)
+
         # Step 1: git pull
         r = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=repo, timeout=60)
         pull_output = r.stdout.strip() or r.stderr.strip()
-        # Step 2: pip install -e . (re-install to pick up new deps)
-        pip_r = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "-q"],
-            capture_output=True, text=True, cwd=repo, timeout=120
-        )
-        pip_output = pip_r.stdout.strip() or pip_r.stderr.strip()
-        return {"status": "success", "output": pull_output, "pip_output": pip_output, "version": __build__}
+        if r.returncode != 0:
+            return {"status": "error", "output": f"git pull failed: {pull_output}"}
+
+        # Step 2: Check which files changed to determine if deps need updating
+        changed_files = []
+        try:
+            r_diff = subprocess.run(
+                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
+                capture_output=True, text=True, cwd=repo, timeout=10,
+            )
+            if r_diff.returncode == 0:
+                changed_files = [f.strip() for f in r_diff.stdout.strip().split("\n") if f.strip()]
+        except Exception:
+            pass
+
+        deps_changed = any(f in ("pyproject.toml", "requirements.txt", "setup.py", "setup.cfg") for f in changed_files)
+        pip_output = ""
+
+        # Step 3: Smart dependency check — only if pyproject.toml or requirements.txt changed
+        if deps_changed:
+            required_packages = set()
+            # From pyproject.toml
+            pyproject_path = os.path.join(repo, "pyproject.toml")
+            if os.path.exists(pyproject_path):
+                try:
+                    with open(pyproject_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    in_deps = False
+                    for line in content.splitlines():
+                        stripped = line.strip()
+                        if stripped.startswith("dependencies"):
+                            in_deps = True
+                            continue
+                        if in_deps:
+                            if stripped == "]":
+                                break
+                            match = re.match(r'^\s*"([a-zA-Z0-9_-]+)', stripped)
+                            if match:
+                                required_packages.add(match.group(1).lower().replace("-", "_"))
+                except Exception:
+                    pass
+
+            # From requirements.txt
+            req_path = os.path.join(repo, "requirements.txt")
+            if os.path.exists(req_path):
+                try:
+                    with open(req_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith("#"):
+                                pkg = re.split(r"[>=<!\[\];]", line)[0].strip().lower().replace("-", "_")
+                                if pkg:
+                                    required_packages.add(pkg)
+                except Exception:
+                    pass
+
+            if required_packages:
+                # Get installed packages
+                installed = set()
+                try:
+                    r_pip = subprocess.run(
+                        [sys.executable, "-m", "pip", "list", "--format=columns"],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    if r_pip.returncode == 0:
+                        for line in r_pip.stdout.splitlines()[2:]:
+                            parts = line.split()
+                            if parts:
+                                installed.add(parts[0].lower().replace("-", "_"))
+                except Exception:
+                    pass
+
+                missing = required_packages - installed
+                if missing:
+                    pip_r = subprocess.run(
+                        [sys.executable, "-m", "pip", "install", *sorted(missing), "--quiet"],
+                        capture_output=True, text=True, timeout=120,
+                    )
+                    pip_output = f"Installed {len(missing)} new package(s): {', '.join(sorted(missing))}"
+                else:
+                    pip_output = "All dependencies already satisfied."
+            else:
+                pip_output = "No dependencies to check."
+        else:
+            pip_output = "No dependency files changed, skipping pip."
+
+        # Step 4: Read updated version from file
+        new_version = __build__
+        try:
+            init_file = os.path.join(repo, "tubecli", "__init__.py")
+            with open(init_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("__version__"):
+                        new_version = line.split("=")[1].strip().strip('"').strip("'")
+                        break
+        except Exception:
+            pass
+
+        # Step 5: Schedule restart — kill CLI parent process after response is sent
+        # The CLI init_cmd.py menu loop will detect termination and the user
+        # double-clicks the shortcut or runs 'tubecli init' again.
+        restart_flag = os.path.join(repo, ".restarted")
+        try:
+            with open(restart_flag, "w") as f:
+                f.write("1")
+        except Exception:
+            pass
+
+        def _delayed_restart():
+            time.sleep(2)
+            cli_pid = os.environ.get("TUBECLI_CLI_PID")
+            if cli_pid:
+                try:
+                    if os.name == 'nt':
+                        os.system(f"taskkill /F /PID {cli_pid}")
+                    else:
+                        import signal
+                        os.kill(int(cli_pid), signal.SIGTERM)
+                except Exception:
+                    pass
+            # Restart CLI in a new process
+            try:
+                if os.name == 'nt':
+                    CREATE_NO_WINDOW = 0x08000000
+                    subprocess.Popen(
+                        f'start "TubeCLI" cmd /k "cd /d {repo} && tubecli init"',
+                        shell=True, cwd=repo,
+                    )
+                else:
+                    subprocess.Popen(
+                        ["tubecli", "init"],
+                        cwd=repo, start_new_session=True,
+                    )
+            except Exception:
+                pass
+            time.sleep(1)
+            os._exit(0)
+
+        threading.Thread(target=_delayed_restart, daemon=True).start()
+
+        return {
+            "status": "success",
+            "output": pull_output,
+            "pip_output": pip_output,
+            "version": new_version,
+            "restarting": True,
+        }
     except Exception as e:
         return {"status": "error", "output": str(e)}
 

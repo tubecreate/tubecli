@@ -953,7 +953,7 @@ def _run_update_check():
 title TubeCLI - AI Agent System
 cd /d "{project_root}"
 
-REM 1. Check if TubeCLI console is already running
+REM 1. Check if TubeCLI console is already running (init menu)
 tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo TubeCLI is already starting or running.
@@ -965,14 +965,15 @@ if %ERRORLEVEL% EQU 0 (
 REM 2. Check if TubeCLI API is already running on port {port}
 netstat -an | findstr "{port}" | findstr "LISTENING" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI is already running. Opening dashboard...
-    start http://localhost:{port}/dashboard
-    timeout /t 3 /nobreak >nul
-    exit
+    echo TubeCLI API is running. Shutting down old server...
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":{port}" ^| findstr "LISTENING"') do (
+        taskkill /F /PID %%a >nul 2>nul
+    )
+    timeout /t 2 /nobreak >nul
 )
 
-REM 3. Not running yet - start TubeCLI
-tubecli
+REM 3. Start TubeCLI CLI
+tubecli init
 pause
 """
             with open(bat_path, "w", encoding="ascii") as f:
