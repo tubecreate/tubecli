@@ -23,6 +23,9 @@ const ROUTE_TAB_MAP = {
     'ext-studio': 'ext-studio',
     'ext-file-manager': 'ext-file-manager',
     'ext-video-manager': 'ext-video-manager',
+    'ext-video-downloader': 'ext-video-downloader',
+    'ext-video_downloader': 'ext-video-downloader',
+    'ext-subtitle-extractor': 'ext-subtitle-extractor',
 };
 
 function navigateTo(tab) {
@@ -299,7 +302,7 @@ const EXT_REGISTRY = [
     { id:'cloud_api',          tab:'ext-cloud-keys',         icon:'cloud',          name:'dash.cloud_api_keys', type:'extension' },
     { id:'ollama',             tab:'ext-ollama',             icon:'🧠',             name:'Ollama Manager',      type:'extension' },
     { id:'multi_agents',       tab:'ext-teams',              icon:'groups',         name:'Teams AI',            type:'extension' },
-    { id:'video_downloader',   tab:'ext-downloader',         icon:'download',       name:'Douyin Download',     type:'extension' },
+    { id:'video_downloader',   tab:'ext-video-downloader',   icon:'download',       name:'Video Downloader',    type:'extension' },
     { id:'video_editor',       tab:'ext-video-editor',       icon:'video_settings', name:'Video Editor',        type:'extension' },
     { id:'video_manager',      tab:'ext-video-manager',      icon:'video_library',  name:'Video Manager',       type:'extension' },
     { id:'subtitle_extractor', tab:'ext-subtitle-extractor', icon:'subtitles',      name:'Subtitle Extractor',  type:'extension' },
@@ -931,7 +934,7 @@ function openExtDetail(id) {
         'web_crawler': 'ext-web-crawler',
         'sheets_manager': 'ext-sheets',
         'calendar_manager': 'ext-calendar',
-        'downloader': 'ext-downloader',
+        'video_downloader': 'ext-downloader',
         'multi_agents': 'ext-teams',
         'story_engine': 'ext-story',
         'video_editor': 'ext-video-editor',
@@ -2529,9 +2532,16 @@ async function changeDefaultCalendar(val) {
     console.log("Selected Default Calendar Email pending save:", val);
 }
 
-async function populateModelDropdown(selectedModel) {
+async function loadOllamaModels() {
     const sel = document.getElementById('set-model');
     if (!sel) return;
+    
+    // Check if already loaded
+    let optgroup = sel.querySelector('optgroup[label*="Ollama"]');
+    if (optgroup && optgroup.querySelector('option:not([disabled])')) {
+        return; // Already loaded successfully
+    }
+    
     let html = '';
     let ollamaOnline = false;
     try {
@@ -2546,12 +2556,33 @@ async function populateModelDropdown(selectedModel) {
             html += '</optgroup>';
         }
     } catch(e) { console.warn('[Settings] Ollama models fetch failed'); }
+    
     if (!ollamaOnline) {
         html += '<optgroup label="🖥️ Ollama (Local)">';
         html += '<option disabled style="color:#888">⚠️ Ollama not running — start Ollama first</option>';
         html += '</optgroup>';
     }
-    // 9Router models (local proxy)
+    
+    if (optgroup) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = `<select>${html}</select>`;
+        const newOptgroup = tempDiv.querySelector('optgroup');
+        optgroup.replaceWith(newOptgroup);
+    } else {
+        sel.insertAdjacentHTML('afterbegin', html);
+    }
+}
+
+async function load9RouterModels() {
+    const sel = document.getElementById('set-model');
+    if (!sel) return;
+    
+    let optgroup = sel.querySelector('optgroup[label*="9Router"]');
+    if (optgroup && optgroup.querySelector('option:not([disabled])')) {
+        return; // Already loaded successfully
+    }
+    
+    let html = '';
     try {
         const nrStatus = await apiGet('/api/v1/cloud-api/9router/status');
         if (nrStatus?.running && nrStatus.models && nrStatus.models.length > 0) {
@@ -2562,39 +2593,116 @@ async function populateModelDropdown(selectedModel) {
             html += '</optgroup>';
         }
     } catch(e) { console.warn('[Settings] 9Router status fetch failed'); }
+    
+    if (html) {
+        if (optgroup) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = `<select>${html}</select>`;
+            const newOptgroup = tempDiv.querySelector('optgroup');
+            optgroup.replaceWith(newOptgroup);
+        } else {
+            const ollamaGroup = sel.querySelector('optgroup[label*="Ollama"]');
+            if (ollamaGroup) {
+                ollamaGroup.insertAdjacentHTML('afterend', html);
+            } else {
+                sel.insertAdjacentHTML('afterbegin', html);
+            }
+        }
+    }
+}
+
+function renderCloudModelsHTML(cloudProviders) {
+    const sel = document.getElementById('set-model');
+    if (!sel || !cloudProviders) return;
+    
+    // Avoid double rendering
+    if (sel.querySelector('optgroup[label*="Gemini"], optgroup[label*="OpenAI"], optgroup[label*="Claude"]')) {
+        return;
+    }
+    
+    let html = '';
+    cloudProviders.forEach(p => {
+        if (!p.models || p.models.length === 0) return;
+        if (p.id === '9router') return;
+        const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
+        html += `<optgroup label="☁️ ${esc(label)}">`;
+        p.models.forEach(m => {
+            html += `<option value="${esc(m)}">${esc(m)}</option>`;
+        });
+        html += '</optgroup>';
+    });
+    sel.insertAdjacentHTML('beforeend', html);
+}
+
+async function populateModelDropdown(selectedModel) {
+    const sel = document.getElementById('set-model');
+    if (!sel) return;
+    
+    // Clear dropdown and start loading
+    sel.innerHTML = '';
+    
+    // 1. Fetch Cloud providers immediately (local API call, instant < 5ms)
+    let cloudProviders = [];
     try {
         const cloud = await apiGet('/api/v1/cloud-api/providers');
         if (cloud && cloud.providers) {
-            cloud.providers.forEach(p => {
-                if (!p.models || p.models.length === 0) return;
-                if (p.id === '9router') return; // Already handled above
-                const label = { gemini: '✨ Gemini', openai: '🤖 OpenAI', claude: '🧠 Claude', grok: '⚡ Grok', deepseek: '🔮 DeepSeek', openrouter: '🌐 OpenRouter' }[p.id] || p.id;
-                html += `<optgroup label="☁️ ${esc(label)}">`;
-                p.models.forEach(m => {
-                    html += `<option value="${esc(m)}">${esc(m)}</option>`;
-                });
-                html += '</optgroup>';
-            });
+            cloudProviders = cloud.providers;
         }
     } catch(e) { console.warn('[Settings] Cloud API models fetch failed'); }
-
-    if (!html) {
-        html = '<option value="qwen:latest">qwen:latest</option>';
+    
+    // 2. Identify the active provider of the selectedModel
+    let isCloudModel = false;
+    let is9RouterModel = false;
+    
+    if (selectedModel) {
+        cloudProviders.forEach(p => {
+            if (p.models && p.models.includes(selectedModel)) {
+                isCloudModel = true;
+            }
+        });
+        
+        const lower = selectedModel.toLowerCase();
+        if (lower.startsWith('9router') || lower.includes('9router')) {
+            is9RouterModel = true;
+        }
     }
-    sel.innerHTML = html;
+    
+    // 3. Populate only the active/selected provider first to ensure instant rendering (no delays!)
+    if (isCloudModel) {
+        // Cloud model: Only render cloud models, skip Ollama & 9Router entirely on startup
+        renderCloudModelsHTML(cloudProviders);
+    } else if (is9RouterModel) {
+        // 9Router model: Load 9Router only
+        await load9RouterModels();
+        renderCloudModelsHTML(cloudProviders);
+    } else {
+        // Ollama model (or others): Load Ollama only
+        await loadOllamaModels();
+        renderCloudModelsHTML(cloudProviders);
+    }
+    
+    // 4. Ensure the selectedModel is selected (and insert it if not present)
     if (selectedModel) {
         const exists = Array.from(sel.options).some(o => o.value === selectedModel);
         if (exists) {
             sel.value = selectedModel;
         } else {
-            sel.insertAdjacentHTML('afterbegin', `<option value="${esc(selectedModel)}">${esc(selectedModel)}</option>`);
+            sel.insertAdjacentHTML('afterbegin', `<option value="${esc(selectedModel)}" selected>${esc(selectedModel)}</option>`);
             sel.value = selectedModel;
         }
     }
 }
 
 // Filter model dropdown by provider chip
-function filterModelsByProvider(provider, chipEl) {
+async function filterModelsByProvider(provider, chipEl) {
+    // Load on demand based on what provider chip is clicked
+    if (provider === 'ollama' || provider === 'all') {
+        await loadOllamaModels();
+    }
+    if (provider === '9router' || provider === 'all') {
+        await load9RouterModels();
+    }
+    
     // Update active chip
     document.querySelectorAll('#provider-filter .ext-chip').forEach(c => c.classList.remove('active'));
     if (chipEl) chipEl.classList.add('active');

@@ -4,6 +4,17 @@ WebUI API routes — serve dashboard and workflow static files via FastAPI.
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 import os
+import mimetypes
+
+# Register proper MIME types to prevent Windows-specific text/plain CSS bugs
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("image/png", ".png")
+mimetypes.add_type("image/jpeg", ".jpg")
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("application/json", ".json")
+
 
 router = APIRouter(tags=["webui"])
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -43,6 +54,8 @@ def _default_settings():
         "telegram_bot_token": "",
         "telegram_chat_id": "",
         "default_calendar_email": "",
+        "ext_update_notifications": False,
+        "ext_open_mode": "full_page",
     }
 
 # Keep backward compat for any code referencing _DEFAULT_SETTINGS

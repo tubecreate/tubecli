@@ -9,8 +9,8 @@ from tubecli import __version__
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="tubecli")
-@click.option("--kill", "do_kill", is_flag=True, default=False,
-              help="Kill all running TubeCLI processes (API server, background tasks)")
+@click.option("--shutdown", "--kill", "do_kill", is_flag=True, default=False,
+              help="Shutdown all running TubeCLI processes (API server, background tasks)")
 @click.pass_context
 def cli(ctx, do_kill):
     """🚀 TubeCLI — Open Source AI Agent CLI System
@@ -23,7 +23,7 @@ def cli(ctx, do_kill):
     from tubecli.i18n import load_language
     load_language(get_language())
 
-    # Handle --kill flag
+    # Handle --shutdown flag
     if do_kill:
         _kill_all_tubecli()
         ctx.exit(0)
@@ -66,7 +66,7 @@ def _kill_all_tubecli():
             continue
 
     if killed:
-        click.echo(f"✅ Killed {len(killed)} TubeCLI process(es):")
+        click.echo(f"✅ Shutdown {len(killed)} TubeCLI process(es):")
         for p in killed:
             click.echo(f"   • {p}")
     else:
@@ -107,7 +107,7 @@ def _kill_all_fallback():
                 continue
 
     if killed_count > 0:
-        click.echo(f"✅ Killed TubeCLI processes.")
+        click.echo(f"✅ Shutdown TubeCLI processes.")
     else:
         click.echo("ℹ️  No running TubeCLI processes found.")
 

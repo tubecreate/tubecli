@@ -101,6 +101,9 @@
 
     async function checkForUpdate(ext) {
         try {
+            const notifyEnabled = localStorage.getItem('ext_update_notifications') === 'true';
+            if (!notifyEnabled) return;
+
             var extName = (ext.name || '').toLowerCase().replace(/ /g, '_');
             if (getSkippedExts().includes(extName)) return;
             const res = await fetch(`${API_BASE}/api/v1/market/check-updates`);

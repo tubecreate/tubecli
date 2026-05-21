@@ -548,9 +548,12 @@ class ExtensionManager:
 
                 router = extension.get_routes()
                 if router:
-                    app.include_router(router)
+                    # Support extensions returning a list of routers
+                    routers = router if isinstance(router, list) else [router]
+                    for r in routers:
+                        app.include_router(r)
                     logger.info(f"Registered API routes for extension '{extension.name}'")
-                    print(f"SUCCESS registering {extension.name} routes")
+                    print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
             except Exception as e:
                 import traceback
                 print(f"FAILED to register API routes for extension '{extension.name}': {e}")
