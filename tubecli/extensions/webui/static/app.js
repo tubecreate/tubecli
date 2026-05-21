@@ -2442,6 +2442,14 @@ async function applyGlobalSettings(s) {
 
     globalExtensionGroups = s.extension_groups || [];
     renderExtensionGroupsSettings();
+    
+    // Show immediate loading state with the saved model to prevent user confusion
+    const modelSel = document.getElementById('set-model');
+    if (modelSel) {
+        const savedModel = s.default_model || 'qwen:latest';
+        modelSel.innerHTML = `<option value="${esc(savedModel)}" selected>⏳ ${esc(savedModel)} (Đang tải...)</option>`;
+    }
+
     // These are async but non-critical, run in background
     populateModelDropdown(s.default_model || 'qwen:latest');
     loadCloudKeysInSettings();
