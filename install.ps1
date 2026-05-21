@@ -326,14 +326,7 @@ if %ERRORLEVEL% EQU 0 (
 )
 
 REM 3. Not running yet - start TubeCLI
-:loop
 tubecli
-if %ERRORLEVEL% EQU 999 (
-    echo.
-    echo 🔄 Restarting TubeCLI...
-    echo.
-    goto loop
-)
 pause
 "@
     Set-Content -Path $batPath -Value $batContent -Encoding ASCII

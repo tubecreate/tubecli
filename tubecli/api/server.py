@@ -191,74 +191,11 @@ async def health():
 
 # ── Version & Update ──────────────────────────────────────────────
 
-def get_current_version_info():
-    """Read the current version and build directly from __init__.py on disk to bypass sys.modules cache."""
-    import os
-    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    init_file = os.path.join(current_dir, "__init__.py")
-    
-    version = "1.0.0"
-    build = ""
-    
-    try:
-        if os.path.exists(init_file):
-            with open(init_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    if line.startswith("__version__"):
-                        version = line.split("=")[1].strip().strip('"').strip("'")
-                    elif line.startswith("__build__"):
-                        build = line.split("=")[1].strip().strip('"').strip("'")
-    except Exception:
-        pass
-        
-    return version, build
-
-
-def trigger_restart():
-    """Schedule the API server process to restart itself after a short delay."""
-    import threading
-    import time
-    import sys
-    import os
-    current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    project_root = os.path.dirname(current_dir)
-    
-    def restart_process():
-        # Wait 1.5 seconds to let the HTTP response finish sending
-        time.sleep(1.5)
-        print("[System] Restarting API server...")
-        try:
-            os.environ["TUBECLI_RESTARTED"] = "1"
-            os.environ["PYTHONPATH"] = project_root + os.path.pathsep + os.environ.get("PYTHONPATH", "")
-            try:
-                os.chdir(project_root)
-            except Exception:
-                pass
-                
-            # Rebuild argv safely
-            args = []
-            if "api" in sys.argv:
-                idx = sys.argv.index("api")
-                args = ["-m", "tubecli.main"] + sys.argv[idx:]
-            elif sys.argv[0].endswith(".py"):
-                args = sys.argv.copy()
-            else:
-                # Fallback default start
-                args = ["-m", "tubecli.main", "api", "start"]
-                
-            os.execv(sys.executable, [sys.executable] + args)
-        except Exception as e:
-            print(f"[System] Restart failed: {e}")
-            os._exit(1)
-            
-    threading.Thread(target=restart_process, daemon=True).start()
-
-
 @app.get("/api/v1/version")
 async def get_version_info():
     import subprocess
-    version, build = get_current_version_info()
-    info = {"version": version, "build": build, "pip_version": version, "git_hash": None, "git_branch": None}
+    from tubecli import __version__, __build__
+    info = {"version": __version__, "build": __build__, "pip_version": __version__, "git_hash": None, "git_branch": None}
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         h = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, cwd=repo, timeout=3)
@@ -272,6 +209,7 @@ async def get_version_info():
 @app.post("/api/v1/version/update")
 async def perform_git_update():
     import subprocess
+    from tubecli import __build__
     try:
         repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         # Step 1: git pull
@@ -283,14 +221,7 @@ async def perform_git_update():
             capture_output=True, text=True, cwd=repo, timeout=120
         )
         pip_output = pip_r.stdout.strip() or pip_r.stderr.strip()
-        
-        # Get the new version/build from disk after pull
-        new_version, new_build = get_current_version_info()
-        
-        # Trigger self-restart of the API server process
-        trigger_restart()
-        
-        return {"status": "success", "output": pull_output, "pip_output": pip_output, "version": new_build}
+        return {"status": "success", "output": pull_output, "pip_output": pip_output, "version": __build__}
     except Exception as e:
         return {"status": "error", "output": str(e)}
 
@@ -298,8 +229,8 @@ async def perform_git_update():
 async def check_for_updates():
     """Check GitHub for newer version by reading pyproject.toml from main branch."""
     import httpx, re
-    version, _ = get_current_version_info()
-    print(f"[VersionCheck] Local version (disk): {version}")
+    from tubecli import __version__
+    print(f"[VersionCheck] Local version: {__version__}")
     try:
         raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/pyproject.toml"
         async with httpx.AsyncClient(timeout=15) as client:
@@ -320,16 +251,16 @@ async def check_for_updates():
             print(f"[VersionCheck] Remote version: {remote_version}")
             # Version comparison (supports N-part dotted versions like 2026.05.18.151200)
             try:
-                local_parts = [int(x) for x in version.split(".")]
+                local_parts = [int(x) for x in __version__.split(".")]
                 remote_parts = [int(x) for x in remote_version.split(".")]
                 has_update = remote_parts > local_parts
             except ValueError:
                 # Fallback string comparison if parts are non-numeric
-                has_update = remote_version != version
+                has_update = remote_version != __version__
             print(f"[VersionCheck] has_update={has_update}")
             return {
                 "has_update": has_update,
-                "current_version": version,
+                "current_version": __version__,
                 "remote_version": remote_version,
             }
     except Exception as e:
@@ -1592,7 +1523,7 @@ async def get_extension_skill_mds():
 async def system_version():
     """Get current system version and git info."""
     import subprocess
-    version, _ = get_current_version_info()
+    from tubecli import __version__
     from tubecli.config import BASE_DIR
 
     git_hash = ""
@@ -1620,7 +1551,7 @@ async def system_version():
         pass
 
     return {
-        "version": version,
+        "version": __version__,
         "git_hash": git_hash,
         "git_branch": git_branch,
     }
@@ -1630,7 +1561,7 @@ async def system_version():
 async def system_check_update():
     """Check if a system update is available by comparing local vs remote git."""
     import subprocess
-    version, _ = get_current_version_info()
+    from tubecli import __version__
     from tubecli.config import BASE_DIR
 
     project_root = str(BASE_DIR)
@@ -1675,7 +1606,7 @@ async def system_check_update():
 
         return {
             "has_update": commits_behind > 0,
-            "current_version": version,
+            "current_version": __version__,
             "current_hash": current_hash,
             "latest_hash": latest_hash,
             "commits_behind": commits_behind,
@@ -1689,11 +1620,11 @@ async def system_check_update():
 async def system_update():
     """Pull latest code from git and reinstall dependencies."""
     import subprocess, sys
-    version, _ = get_current_version_info()
+    from tubecli import __version__
     from tubecli.config import BASE_DIR
 
     project_root = str(BASE_DIR)
-    old_version = version
+    old_version = __version__
 
     try:
         # Git pull
@@ -1710,7 +1641,7 @@ async def system_update():
             cwd=project_root, capture_output=True, text=True, timeout=120,
         )
 
-        # Read new version from file
+        # Read new version from file (since module cache still has old value)
         new_version = old_version
         init_file = os.path.join(project_root, "tubecli", "__init__.py")
         try:
@@ -1722,15 +1653,12 @@ async def system_update():
         except Exception:
             pass
 
-        # Trigger self-restart of the API server process
-        trigger_restart()
-
         return {
             "status": "success",
             "old_version": old_version,
             "new_version": new_version,
             "git_output": r_pull.stdout.strip()[:500],
-            "message": "Updated successfully! Restarting the API server in 1.5 seconds to apply changes.",
+            "message": "Updated successfully! Please restart the API server to apply changes.",
         }
     except Exception as e:
         raise HTTPException(500, f"Update failed: {e}")
