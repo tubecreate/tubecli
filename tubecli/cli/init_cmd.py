@@ -950,10 +950,19 @@ def _run_update_check():
     if os.path.exists(bat_path):
         try:
             bat_content = f"""@echo off
-title TubeCLI - AI Agent System
-cd /d "{project_root}"
 
-REM 1. Check if TubeCLI console is already running (init menu)
+REM === Single-Instance Guard (check BEFORE setting title) ===
+
+REM 1. Check if another TubeCLI window is already open (by window title)
+tasklist /V /FI "IMAGENAME eq cmd.exe" 2>nul | findstr /I "TubeCLI - AI Agent" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo TubeCLI is already running in another window.
+    echo Please check your taskbar for the open terminal window.
+    timeout /t 3 /nobreak >nul
+    exit
+)
+
+REM 2. Check if tubecli.exe process is already running
 tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo TubeCLI is already starting or running.
@@ -962,17 +971,21 @@ if %ERRORLEVEL% EQU 0 (
     exit
 )
 
-REM 2. Check if TubeCLI API is already running on port {port}
+REM === Passed all checks — claim this instance ===
+title TubeCLI - AI Agent System
+cd /d "{project_root}"
+
+REM 3. Clean up zombie API server if still running on port
 netstat -an | findstr "{port}" | findstr "LISTENING" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI API is running. Shutting down old server...
+    echo Cleaning up old TubeCLI server...
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":{port}" ^| findstr "LISTENING"') do (
         taskkill /F /PID %%a >nul 2>nul
     )
     timeout /t 2 /nobreak >nul
 )
 
-REM 3. Start TubeCLI CLI
+REM 4. Start TubeCLI CLI
 tubecli init
 pause
 """

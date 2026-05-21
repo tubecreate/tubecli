@@ -304,10 +304,19 @@ if ($tubecliCmd) {
     $batPath = Join-Path $targetDir "TubeCLI.bat"
     $batContent = @"
 @echo off
-title TubeCLI - AI Agent System
-cd /d "$targetDir"
 
-REM 1. Check if TubeCLI console is already running (init menu)
+REM === Single-Instance Guard (check BEFORE setting title) ===
+
+REM 1. Check if another TubeCLI window is already open (by window title)
+tasklist /V /FI "IMAGENAME eq cmd.exe" 2>nul | findstr /I "TubeCLI - AI Agent" >nul 2>nul
+if %ERRORLEVEL% EQU 0 (
+    echo TubeCLI is already running in another window.
+    echo Please check your taskbar for the open terminal window.
+    timeout /t 3 /nobreak >nul
+    exit
+)
+
+REM 2. Check if tubecli.exe process is already running
 tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
     echo TubeCLI is already starting or running.
@@ -316,18 +325,21 @@ if %ERRORLEVEL% EQU 0 (
     exit
 )
 
-REM 2. Check if TubeCLI API is already running on port 5295
+REM === Passed all checks — claim this instance ===
+title TubeCLI - AI Agent System
+cd /d "$targetDir"
+
+REM 3. Clean up zombie API server if still running on port
 netstat -an | findstr "5295" | findstr "LISTENING" >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI API is running. Shutting down old server...
-    REM Kill python processes running tubecli/uvicorn
+    echo Cleaning up old TubeCLI server...
     for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5295" ^| findstr "LISTENING"') do (
         taskkill /F /PID %%a >nul 2>nul
     )
     timeout /t 2 /nobreak >nul
 )
 
-REM 3. Start TubeCLI CLI
+REM 4. Start TubeCLI CLI
 tubecli init
 pause
 "@
