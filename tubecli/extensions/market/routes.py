@@ -11,73 +11,141 @@ router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
 
 # ── Check Updates ──
-
 @router.get("/check-updates")
 async def check_updates():
-    """Compare local extension versions with marketplace versions.
-    Returns list of extensions that have newer versions available on the market.
-    Version format: datetime string like '2026.05.05.201315' (simple string comparison).
+    """Compare local extension versions with Git repositories or marketplace versions.
+    Returns list of extensions that have newer versions available.
     """
     import os
+    import json
+    import subprocess
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR
+    from tubecli.core.extension_manager import (
+        compare_versions,
+        get_git_tracking_branch,
+        get_git_commit_version,
+    )
 
-    # Step 1: Collect all local external extensions with their versions
     ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
-    local_extensions = {}  # name -> {version, display_name, path}
+    local_extensions = {}       # name -> info (for non-git marketplace fallback)
+    updates = []                # final list of updates
 
     if os.path.isdir(ext_dir):
         for entry in os.listdir(ext_dir):
-            manifest_file = os.path.join(ext_dir, entry, "tubecli-extension.json")
+            local_path = os.path.join(ext_dir, entry)
+            manifest_file = os.path.join(local_path, "tubecli-extension.json")
             if not os.path.exists(manifest_file):
                 continue
             try:
                 with open(manifest_file, "r", encoding="utf-8-sig") as f:
                     manifest = json.load(f)
                 name = manifest.get("name", entry)
-                local_extensions[name.lower().replace(" ", "_")] = {
-                    "name": name,
-                    "display_name": manifest.get("display_name", name),
-                    "version": manifest.get("version", "0.0.0"),
-                    "icon": manifest.get("icon", "📦"),
-                    "path": os.path.join(ext_dir, entry),
-                }
+                key = name.lower().replace(" ", "_")
+                
+                # Check if it has a git directory
+                git_dir = os.path.join(local_path, ".git")
+                if os.path.exists(git_dir):
+                    # 1. Dynamic git update check
+                    # Try git fetch
+                    subprocess.run(["git", "fetch", "origin"], cwd=local_path, capture_output=True, timeout=15)
+                    branch = get_git_tracking_branch(local_path)
+                    
+                    # Count commits behind upstream
+                    r_behind = subprocess.run(
+                        ["git", "rev-list", "--count", f"HEAD..origin/{branch}"],
+                        cwd=local_path, capture_output=True, text=True, timeout=10
+                    )
+                    commits_behind = 0
+                    if r_behind.returncode == 0:
+                        try:
+                            commits_behind = int(r_behind.stdout.strip())
+                        except Exception:
+                            pass
+                    
+                    if commits_behind > 0:
+                        # Fetch local standardized version
+                        local_version = get_git_commit_version(local_path) or manifest.get("version", "0.0.0")
+                        
+                        # Fetch remote version from git manifest, fallback to remote commit date
+                        remote_version = None
+                        try:
+                            res_show = subprocess.run(
+                                ["git", "show", f"origin/{branch}:tubecli-extension.json"],
+                                cwd=local_path, capture_output=True, text=True, timeout=10
+                            )
+                            if res_show.returncode == 0:
+                                r_manifest = json.loads(res_show.stdout)
+                                remote_version = r_manifest.get("version")
+                        except Exception:
+                            pass
+                        
+                        if not remote_version or compare_versions(remote_version, "2000.01.01.000000") < 0:
+                            remote_version = get_git_commit_version(local_path, remote=True, branch=branch) or "2026.05.21.000000"
+                        
+                        # Get remote URL
+                        git_url = ""
+                        try:
+                            r_url = subprocess.run(
+                                ["git", "remote", "get-url", "origin"],
+                                cwd=local_path, capture_output=True, text=True, timeout=5
+                            )
+                            if r_url.returncode == 0:
+                                git_url = r_url.stdout.strip()
+                        except Exception:
+                            pass
+
+                        updates.append({
+                            "name": name,
+                            "display_name": manifest.get("display_name", name),
+                            "icon": manifest.get("icon", "📦"),
+                            "local_version": local_version,
+                            "market_version": remote_version,
+                            "public_id": "",
+                            "description": manifest.get("description", ""),
+                            "git_url": git_url,
+                            "is_git": True,
+                        })
+                else:
+                    # Non-git marketplace based extension
+                    local_extensions[key] = {
+                        "name": name,
+                        "display_name": manifest.get("display_name", name),
+                        "version": manifest.get("version", "0.0.0"),
+                        "icon": manifest.get("icon", "📦"),
+                        "path": local_path,
+                    }
             except Exception:
                 continue
 
-    if not local_extensions:
-        return {"updates": [], "total": 0}
+    # Step 2: Fetch marketplace items and check for updates for non-git extensions
+    if local_extensions:
+        try:
+            market_data = await market_service.list_items(category="extension", limit=100)
+            market_items = market_data.get("data", [])
+            for item in market_items:
+                item_title = (item.get("title") or "").strip().lower().replace(" ", "_")
+                market_version = item.get("version", "0.0.0")
 
-    # Step 2: Fetch marketplace items
-    try:
-        market_data = await market_service.list_items(category="extension", limit=100)
-        market_items = market_data.get("data", [])
-    except Exception:
-        return {"updates": [], "total": 0, "error": "Could not reach marketplace"}
+                if item_title in local_extensions:
+                    local = local_extensions[item_title]
+                    local_version = local["version"]
 
-    # Step 3: Compare versions
-    updates = []
-    for item in market_items:
-        item_title = (item.get("title") or "").strip().lower().replace(" ", "_")
-        market_version = item.get("version", "0.0.0")
+                    if compare_versions(market_version, local_version) > 0:
+                        updates.append({
+                            "name": local["name"],
+                            "display_name": local["display_name"],
+                            "icon": local["icon"],
+                            "local_version": local_version,
+                            "market_version": market_version,
+                            "public_id": item.get("public_id", ""),
+                            "description": item.get("description", ""),
+                            "git_url": item.get("git_url", ""),
+                            "is_git": False,
+                        })
+        except Exception as e:
+            print(f"[Market check-updates] Error fetching marketplace items: {e}")
 
-        if item_title in local_extensions:
-            local = local_extensions[item_title]
-            local_version = local["version"]
-
-            # Simple string comparison works for datetime format (2026.05.05.201315)
-            if market_version > local_version:
-                updates.append({
-                    "name": local["name"],
-                    "display_name": local["display_name"],
-                    "icon": local["icon"],
-                    "local_version": local_version,
-                    "market_version": market_version,
-                    "public_id": item.get("public_id", ""),
-                    "description": item.get("description", ""),
-                    "git_url": item.get("git_url", ""),
-                })
-
-    return {"updates": updates, "total": len(updates)}
+    return {"updates": updates, "total": len(updates)}len(updates)}
 
 
 
