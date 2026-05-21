@@ -337,7 +337,7 @@
                         </div>
                         <div style="display:flex; gap: 8px;">
                             <select id="set-model" onchange="onModelSelectChange(); autoSaveSetting('default_model', this.value, this)" style="flex:1;">
-                                <option value="qwen:latest">qwen:latest</option>
+                                <option value="" disabled selected>⏳ Đang tải cấu hình...</option>
                             </select>
                             <button class="btn-secondary" id="btn-test-default-ai" onclick="testDefaultAI()" style="padding: 0 14px; border-radius: 8px; white-space: nowrap; font-size:0.82rem;">⚡ Test</button>
                         </div>
@@ -853,7 +853,7 @@
 </div>
 
 <script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=32"></script>
+<script src="/static/app.js?v=33"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){
