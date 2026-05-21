@@ -7,6 +7,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os, sys
+import mimetypes
+
+# Fix Windows registry MIME type bug for CSS/JS/SVG files
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("image/svg+xml", ".svg")
+mimetypes.add_type("image/png", ".png")
+mimetypes.add_type("image/jpeg", ".jpg")
+mimetypes.add_type("image/webp", ".webp")
+mimetypes.add_type("application/json", ".json")
+
 
 app = FastAPI(
     title="TubeCLI API",

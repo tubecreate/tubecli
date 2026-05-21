@@ -70,7 +70,7 @@
         <button class="nav-item" data-ext="web_crawler" data-tab="ext-web-crawler"><span class="material-symbols-outlined">travel_explore</span> <span class="nav-text">Web Crawler</span></button>
         <button class="nav-item" data-ext="sheets_manager" data-tab="ext-sheets"><span class="material-symbols-outlined">table_chart</span> <span class="nav-text">Sheets</span></button>
         <button class="nav-item" data-ext="calendar_manager" data-tab="ext-calendar"><span class="material-symbols-outlined">calendar_month</span> <span class="nav-text">Calendar</span></button>
-        <button class="nav-item" data-ext="video_downloader" data-tab="ext-downloader"><span class="material-symbols-outlined">download</span> <span class="nav-text">Douyin Download</span></button>
+        <button class="nav-item" data-ext="video_downloader" data-tab="ext-video-downloader"><span class="material-symbols-outlined">download</span> <span class="nav-text">Video Downloader</span></button>
         <button class="nav-item" data-ext="livestream" data-tab="ext-livestream"><span class="material-symbols-outlined">cast</span> <span class="nav-text">Livestream</span></button>
         <button class="nav-item" data-ext="multi_agents" data-tab="ext-teams"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
         <button class="nav-item" data-ext="video_editor" data-tab="ext-video-editor"><span class="material-symbols-outlined">video_settings</span> <span class="nav-text">Video Editor</span></button>
@@ -126,7 +126,7 @@
                 <div class="quick-action-card" onclick="navigateTo('ext-pipeline-monitor')"><span class="material-symbols-outlined">monitoring</span> Pipeline Monitor</div>
                 <div class="quick-action-card ext-conditional" data-ext="sheets_manager" onclick="navigateTo('ext-sheets')" style="display:none"><span class="material-symbols-outlined">table_chart</span> Sheets Manager</div>
                 <div class="quick-action-card ext-conditional" data-ext="livestream" onclick="navigateTo('ext-livestream')" style="display:none"><span class="material-symbols-outlined">cast</span> Livestream</div>
-                <div class="quick-action-card ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-downloader')" style="display:none"><span class="material-symbols-outlined">download</span> Douyin Download</div>
+                <div class="quick-action-card ext-conditional" data-ext="video_downloader" onclick="navigateTo('ext-video-downloader')" style="display:none"><span class="material-symbols-outlined">download</span> Video Downloader</div>
                 <div class="quick-action-card ext-conditional" data-ext="web_crawler" onclick="navigateTo('ext-web-crawler')" style="display:none"><span class="material-symbols-outlined">travel_explore</span> Web Crawler</div>
                 <div class="quick-action-card ext-conditional" data-ext="ai_arena" onclick="navigateTo('ext-ai-arena')" style="display:none"><span class="material-symbols-outlined">sports_esports</span> AI Arena</div>
             </div>
@@ -160,6 +160,9 @@
         </section>
         <section class="tab-panel" id="tab-ext-downloader">
             <div class="iframe-container"><iframe data-src="/downloader" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-video-downloader">
+            <div class="iframe-container"><iframe data-src="/video-downloader" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-livestream">
             <div class="iframe-container"><iframe data-src="/livestream" class="ext-iframe"></iframe></div>
@@ -853,7 +856,7 @@
 </div>
 
 <script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=33"></script>
+<script src="/static/app.js?v=34"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){
