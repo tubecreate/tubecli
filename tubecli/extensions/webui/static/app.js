@@ -3486,6 +3486,142 @@ async function doExtensionUpdate(name, publicId, gitUrl, btn) {
 let globalExtensionGroups = [];
 let allAvailableExtensions = [];
 
+// Helper to get all active groupable extensions
+function getGroupableExtensions() {
+    const enabledSet = new Set(allAvailableExtensions.filter(e => e.enabled).map(e => e.name));
+    const extApiMap = {};
+    allAvailableExtensions.forEach(e => extApiMap[e.name] = e);
+
+    const groupable = [];
+    const seenExtIds = new Set();
+
+    const isExcluded = (extId) => {
+        return CORE_NAV_IDS.has(extId);
+    };
+
+    // Pool buttons (built-in/static)
+    document.querySelectorAll('.nav-item[data-ext]').forEach(btn => {
+        const extId = btn.dataset.ext;
+        if (isExcluded(extId)) return;
+        const isStatic = btn.dataset.extStatic === 'true';
+        if (!isStatic && !enabledSet.has(extId)) return;
+        if (seenExtIds.has(extId)) return;
+        seenExtIds.add(extId);
+
+        const reg = EXT_REGISTRY.find(r => r.id === extId) || {};
+        const apiExt = extApiMap[extId] || {};
+        groupable.push({
+            id: extId,
+            name: apiExt.display_name || reg.name || extId,
+            icon: apiExt.icon || reg.icon || ''
+        });
+    });
+
+    // Dynamic external extensions
+    allAvailableExtensions.forEach(ext => {
+        if (!ext.enabled || !ext.display_name) return;
+        if (ext.extension_type !== 'external') return;
+        if (isExcluded(ext.name)) return;
+        if (seenExtIds.has(ext.name)) return;
+        const reg = EXT_REGISTRY.find(r => r.id === ext.name) || {};
+        if (reg.type === 'core' || reg.type === 'static') return;
+        seenExtIds.add(ext.name);
+
+        groupable.push({
+            id: ext.name,
+            name: ext.display_name || reg.name || ext.name,
+            icon: ext.icon || reg.icon || ''
+        });
+    });
+
+    return groupable;
+}
+window.getGroupableExtensions = getGroupableExtensions;
+
+// Global helper to load new dynamic extensions, update sidebar & settings UI
+async function loadDynamicExtensionsToSidebar() {
+    try {
+        const extData = await apiGet('/api/v1/extensions');
+        allAvailableExtensions = extData?.extensions || [];
+        // update sidebar
+        buildSidebar(allAvailableExtensions, globalExtensionGroups);
+        // update settings UI
+        renderExtensionGroupsSettings();
+    } catch (e) {
+        console.error('loadDynamicExtensionsToSidebar failed', e);
+    }
+}
+window.loadDynamicExtensionsToSidebar = loadDynamicExtensionsToSidebar;
+
+// HTML5 Drag & Drop handlers
+function handleDragStart(e, extId) {
+    try {
+        e.dataTransfer.setData('text/plain', extId);
+    } catch (err) {
+        console.warn('dataTransfer.setData failed, using fallback', err);
+    }
+    window._draggedExtId = extId;
+    e.currentTarget.classList.add('dragging');
+    document.body.classList.add('dragging-active');
+}
+
+function handleDragEnd(e) {
+    e.currentTarget.classList.remove('dragging');
+    document.body.classList.remove('dragging-active');
+    document.querySelectorAll('.ext-group-card').forEach(el => el.classList.remove('drag-over'));
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+}
+
+function handleDragEnter(e, el) {
+    e.preventDefault();
+    el.classList.add('drag-over');
+}
+
+function handleDragLeave(e, el) {
+    el.classList.remove('drag-over');
+}
+
+function handleDrop(e, groupId) {
+    e.preventDefault();
+    const el = e.currentTarget;
+    el.classList.remove('drag-over');
+    document.body.classList.remove('dragging-active');
+    const extId = e.dataTransfer.getData('text/plain') || window._draggedExtId;
+    if (extId) {
+        addExtToGroup(groupId, extId);
+    }
+}
+
+function handleDropToDefault(e) {
+    e.preventDefault();
+    const el = e.currentTarget;
+    el.classList.remove('drag-over');
+    document.body.classList.remove('dragging-active');
+    const extId = e.dataTransfer.getData('text/plain') || window._draggedExtId;
+    if (extId) {
+        let changed = false;
+        globalExtensionGroups.forEach(g => {
+            const oldLen = (g.extensions || []).length;
+            g.extensions = (g.extensions || []).filter(eid => eid !== extId);
+            if ((g.extensions || []).length !== oldLen) changed = true;
+        });
+        if (changed) {
+            saveExtensionGroups();
+        }
+    }
+}
+
+window.handleDragStart = handleDragStart;
+window.handleDragEnd = handleDragEnd;
+window.handleDragOver = handleDragOver;
+window.handleDragEnter = handleDragEnter;
+window.handleDragLeave = handleDragLeave;
+window.handleDrop = handleDrop;
+window.handleDropToDefault = handleDropToDefault;
+
 function renderGroupIcon(iconStr) {
     if (!iconStr) return '<span class="material-symbols-outlined" style="font-size:inherit;">folder_special</span>';
     if (/^[a-z0-9_]+$/.test(iconStr.trim())) {
@@ -3518,9 +3654,54 @@ async function renderExtensionGroupsSettings() {
         } catch(e) { console.warn('Failed to load extensions for groups', e); }
     }
     
+    const groupableExtensions = getGroupableExtensions();
+    const alreadyGrouped = new Set(globalExtensionGroups.flatMap(grp => grp.extensions || []));
+    const defaultExts = groupableExtensions.filter(ext => !alreadyGrouped.has(ext.id));
+    
     let html = '';
+
+    // 1. Render Default Group (Ungrouped Extensions) at the top
+    let defaultChipsHtml = '';
+    if (defaultExts.length === 0) {
+        defaultChipsHtml = '<div style="color:var(--text-muted);font-size:0.8rem;padding:4px 8px;font-style:italic;">No ungrouped extensions. Drag here to reset.</div>';
+    } else {
+        defaultExts.forEach(ext => {
+            const extIconHtml = renderExtIcon(ext.icon);
+            defaultChipsHtml += `<span class="ext-chip draggable-chip" draggable="true" 
+                ondragstart="handleDragStart(event, '${esc(ext.id)}')" 
+                ondragend="handleDragEnd(event)"
+                style="margin:2px; display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 6px;">
+                <span style="display:flex;align-items:center;">${extIconHtml}</span>
+                <span>${esc(ext.name)}</span>
+            </span>`;
+        });
+    }
+
+    html += `
+    <div class="ext-group-card default-group-card" 
+         ondragover="handleDragOver(event)" 
+         ondragenter="handleDragEnter(event, this)" 
+         ondragleave="handleDragLeave(event, this)" 
+         ondrop="handleDropToDefault(event)"
+         style="padding:16px; border-radius:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <div style="font-weight:600; color:var(--text); display:flex; gap:8px; align-items:center;">
+                <span class="material-symbols-outlined" style="font-size:20px;color:var(--text-muted);">folder_open</span>
+                <span>Default Group (Ungrouped)</span>
+            </div>
+            <span style="font-size:0.75rem; color:var(--text-muted); font-weight:500; background:var(--bg2); padding:2px 8px; border-radius:10px;">
+                ${defaultExts.length} extension${defaultExts.length !== 1 ? 's' : ''}
+            </span>
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:12px;">Extensions in this group appear directly in the sidebar (ungrouped).</div>
+        <div style="display:flex; flex-wrap:wrap; gap:6px; min-height:40px; align-items:center;">
+            ${defaultChipsHtml}
+        </div>
+    </div>`;
+
+    // 2. Render Custom Groups
     if (globalExtensionGroups.length === 0) {
-        html = '<div style="color:var(--text-muted);font-size:0.85rem;">No groups created.</div>';
+        html += '<div style="color:var(--text-muted);font-size:0.85rem;margin-top:8px;">No custom groups created.</div>';
     } else {
         globalExtensionGroups.forEach((g, idx) => {
             const icon = g.icon || 'folder_special';
@@ -3562,7 +3743,10 @@ async function renderExtensionGroupsSettings() {
                 const displayName = apiInfo.display_name || regInfo.name || apiInfo.name || eid;
                 const iconRaw     = apiInfo.icon || regInfo.icon || '';
                 const extIconHtml = renderExtIcon(iconRaw);
-                chipsHtml += `<span class="ext-chip" style="margin:2px; display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 6px;">
+                chipsHtml += `<span class="ext-chip draggable-chip" draggable="true"
+                    ondragstart="handleDragStart(event, '${esc(eid)}')"
+                    ondragend="handleDragEnd(event)"
+                    style="margin:2px; display:inline-flex; align-items:center; gap:6px; padding:4px 8px 4px 6px;">
                     <span style="display:flex;align-items:center;">${extIconHtml}</span>
                     <span>${esc(displayName)}</span>
                     <button style="background:none;border:none;color:inherit;cursor:pointer;padding:0 0 0 2px;opacity:0.7;" onclick="removeExtFromGroup('${esc(g.id)}', '${esc(eid)}')">✕</button>
@@ -3570,7 +3754,12 @@ async function renderExtensionGroupsSettings() {
             });
             
             html += `
-            <div style="background:var(--bg3); padding:12px; border-radius:8px; border:1px solid var(--border);">
+            <div class="ext-group-card" 
+                 ondragover="handleDragOver(event)" 
+                 ondragenter="handleDragEnter(event, this)" 
+                 ondragleave="handleDragLeave(event, this)" 
+                 ondrop="handleDrop(event, '${esc(g.id)}')"
+                 style="background:var(--bg3); padding:12px; border-radius:8px; border:1px solid var(--border); margin-top:8px;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                     <div style="font-weight:600; color:var(--cyan); display:flex; gap:8px; align-items:center;">
                         <span style="display:flex;align-items:center;font-size:18px;">${renderGroupIcon(icon)}</span>
@@ -3586,7 +3775,7 @@ async function renderExtensionGroupsSettings() {
                             <span class="material-symbols-outlined" style="font-size:14px;opacity:0.6;">expand_more</span>
                         </button>
                     </div>` : ''}
-                    <div style="display:flex; flex-wrap:wrap; gap:4px;">${chipsHtml}</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:4px; min-height:30px; align-items:center;">${chipsHtml}</div>
                 </div>
             </div>`;
         });

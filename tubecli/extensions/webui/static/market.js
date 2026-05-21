@@ -1091,7 +1091,7 @@ const CATEGORY_ICONS = { extension: '🧩', node: '🔗', skill: '⚡', model3d:
 
 function openUploadModal() {
     uploadState.selectedItem = null;
-    uploadState.category = 'skill';
+    uploadState.category = 'extension';
     
     // Clear all Step 2 inputs to prevent leaked state from previous runs
     document.getElementById('uploadDisplayName').value = '';
@@ -1122,9 +1122,18 @@ function openUploadModal() {
     
     clearProgressLog();
     
+    // Reset active category tab styles
+    document.querySelectorAll('.ucat-tab').forEach(t => {
+        if (t.getAttribute('data-cat') === 'extension') {
+            t.classList.add('active');
+        } else {
+            t.classList.remove('active');
+        }
+    });
+    
     goToUploadStep(1);
     document.getElementById('uploadModal').classList.add('active');
-    loadUploadItems('skill');
+    loadUploadItems('extension');
 }
 
 function closeUploadModal() {
@@ -1282,6 +1291,37 @@ async function loadUploadItems(category) {
                 _meta: `${(w.nodes || []).length} nodes`,
                 _rawData: w,
             }));
+        }
+
+        // Fetch user's listings to filter out already published ones
+        const token = getAuthToken();
+        let myItems = [];
+        try {
+            const myItemsRes = await fetch(`${API}/my-items`, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            });
+            if (myItemsRes.ok) {
+                const myItemsData = await myItemsRes.json();
+                if (myItemsData.status === 'success' && Array.isArray(myItemsData.data)) {
+                    myItems = myItemsData.data;
+                }
+            }
+        } catch (err) {
+            console.error('[Market] Failed to load my-items for upload filtering:', err);
+        }
+
+        if (myItems.length > 0) {
+            const myItemsOfCategory = myItems.filter(mi => mi.category === category);
+            items = items.filter(localItem => {
+                const normLocalId = normalizeString(localItem._id);
+                const normLocalName = normalizeString(localItem._displayName);
+                
+                const alreadyPublished = myItemsOfCategory.some(mi => {
+                    const normTitle = normalizeString(mi.title);
+                    return normTitle === normLocalId || normTitle === normLocalName;
+                });
+                return !alreadyPublished;
+            });
         }
 
         uploadState.allItems = items;
