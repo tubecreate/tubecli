@@ -456,3 +456,204 @@ p { line-height: 1.6; }
 .lightbox.active { display: flex; }
 .lightbox-content { max-width: 90%; max-height: 90%; border-radius: var(--radius-sm); box-shadow: 0 10px 50px rgba(0,0,0,0.5); }
 .lightbox-close { position: absolute; top: 20px; right: 20px; background: none; border: none; color: #fff; font-size: 2rem; cursor: pointer; }
+
+/* ==========================================================================
+   MY LISTINGS PREMIUM DESIGN & GLASSMORPHISM
+   ========================================================================== */
+
+#myListingsModal .market-modal {
+    background: rgba(20, 20, 25, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(25px);
+    -webkit-backdrop-filter: blur(25px);
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 50px rgba(82, 118, 235, 0.1);
+}
+
+.my-listing-item {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 18px;
+    margin-bottom: 14px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: var(--radius-md);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.my-listing-item::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 4px; height: 100%;
+    background: transparent;
+    transition: var(--transition);
+}
+
+.my-listing-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(82, 118, 235, 0.3);
+    transform: translateX(4px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.my-listing-item.has-update-available {
+    border-color: rgba(245, 158, 11, 0.25);
+    background: rgba(245, 158, 11, 0.02);
+}
+
+.my-listing-item.has-update-available::before {
+    background: linear-gradient(to bottom, #f59e0b, #d97706);
+}
+
+.my-listing-item.has-update-available:hover {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(245, 158, 11, 0.04);
+}
+
+.my-listing-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.6rem;
+    flex-shrink: 0;
+}
+
+.my-listing-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.my-listing-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.my-listing-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    flex-wrap: wrap;
+}
+
+.my-listing-category {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 800;
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text);
+}
+
+.my-listing-category.extension { background: rgba(82, 118, 235, 0.15); color: #7393f6; }
+.my-listing-category.skill { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+.my-listing-category.node { background: rgba(124, 92, 231, 0.15); color: #a78bfa; }
+
+.update-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.22), rgba(217, 119, 6, 0.22));
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    text-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+    animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 4px rgba(245, 158, 11, 0.1); transform: scale(1); }
+    50% { box-shadow: 0 0 14px rgba(245, 158, 11, 0.4); transform: scale(1.02); }
+}
+
+.my-listing-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.my-listing-actions button {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition);
+}
+
+.my-listing-actions button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    transform: scale(1.08);
+}
+
+.my-listing-actions button.btn-edit-listing:hover {
+    border-color: rgba(82, 118, 235, 0.4);
+    color: #7393f6;
+    background: rgba(82, 118, 235, 0.08);
+}
+
+.my-listing-actions button.btn-view-listing:hover {
+    border-color: rgba(34, 197, 94, 0.4);
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.08);
+}
+
+.my-listing-actions button.btn-delete-listing:hover {
+    border-color: rgba(239, 68, 68, 0.4);
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.my-listing-actions button.btn-push-update {
+    width: auto;
+    padding: 0 14px;
+    height: 38px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    border: none;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    transition: var(--transition);
+}
+
+.my-listing-actions button.btn-push-update:hover {
+    transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 6px 20px rgba(245, 158, 11, 0.45);
+    background: linear-gradient(135deg, #fbbf24, #f59e0b);
+    color: #ffffff;
+}
+
+.my-listing-actions button.btn-push-update:active {
+    transform: translateY(0) scale(1);
+}
+

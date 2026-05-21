@@ -3270,6 +3270,9 @@ function dismissAllExtUpdates() {
 }
 
 async function doExtensionUpdate(name, publicId, gitUrl, btn) {
+    if (!confirm('Bạn có chắc chắn muốn cập nhật extension "' + name + '" lên phiên bản mới nhất không?')) {
+        return;
+    }
     if (btn) { btn.disabled = true; btn.textContent = '⏳ Updating...'; }
     try {
         let result;

@@ -773,7 +773,29 @@ class ExtensionManager:
         """Update an external extension from Git and reinstall dependencies."""
         extension = self._extensions.get(name)
         if not extension:
+            # Try slugified version
+            normalized = name.replace(" ", "_").lower()
+            extension = self._extensions.get(normalized)
+            
+        if not extension:
+            # Try case-insensitive name or display name comparison
+            for e in self.get_all():
+                if e.name.lower() == name.lower():
+                    extension = e
+                    break
+                manifest = e.get_manifest()
+                if manifest.get("display_name", "").lower() == name.lower():
+                    extension = e
+                    break
+                if manifest.get("name", "").lower() == name.lower():
+                    extension = e
+                    break
+
+        if not extension:
             return {"status": "error", "message": f"Extension '{name}' not found."}
+
+        # Normalize name for subsequent operations
+        name = extension.name
 
         if extension.extension_type != "external":
             return {"status": "error", "message": f"Cannot update system extension '{name}'."}

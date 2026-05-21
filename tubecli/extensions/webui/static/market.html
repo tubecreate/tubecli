@@ -280,17 +280,7 @@
 <!-- Toast -->
 <div class="market-toast" id="marketToast"></div>
 
-<!-- Confirm Modal (shared) -->
-<div id="confirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;align-items:center;justify-content:center;">
-    <div class="market-modal" style="max-width:400px;padding:28px;">
-        <h3 id="confirmTitle" style="font-size:1.1rem;font-weight:800;margin-bottom:10px;"></h3>
-        <p id="confirmMessage" style="color:var(--text-muted);font-size:0.9rem;margin-bottom:20px;line-height:1.5;"></p>
-        <div style="display:flex;gap:10px;justify-content:flex-end;">
-            <button id="confirmCancelBtn" class="btn-secondary" style="padding:8px 18px;">H&#x1EE7;y</button>
-            <button id="confirmOkBtn" style="padding:8px 18px;background:linear-gradient(135deg,#ef4444,#dc2626);color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:600;">X&#xE1;c nh&#x1EAD;n x&#xF3;a</button>
-        </div>
-    </div>
-</div>
+<!-- Confirm Modal is defined below in the Custom Confirm Alert section -->
 
 <!-- Login / Register Modal -->
 <div class="market-modal-overlay" id="loginModal">
@@ -362,9 +352,9 @@
 </div>
 
 <!-- Custom Confirm Alert -->
-<div class="market-modal-overlay" id="confirmModal" style="z-index:3000; display:none; align-items:center; justify-content:center;">
+<div class="market-modal-overlay" id="confirmModal" style="z-index:3000;">
     <div class="market-modal" style="width:400px; padding:28px; text-align:center;">
-        <div style="font-size:3.5rem; margin-bottom:16px;">&#x26A0;&#xFE0F;</div>
+        <div id="confirmIcon" style="font-size:3.5rem; margin-bottom:16px;">&#x26A0;&#xFE0F;</div>
         <h3 id="confirmTitle" style="font-size:1.3rem; font-weight:800; margin-bottom:12px; color:var(--text, #e8e8f0);">X&#xE1;c nh&#x1EAD;n</h3>
         <p id="confirmMessage" style="font-size:0.95rem; color:var(--text-muted, #6868a0); margin-bottom:28px; line-height:1.5;"></p>
         <div style="display:flex; gap:12px; justify-content:center;">
