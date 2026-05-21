@@ -567,7 +567,7 @@ def _run_control_panel():
         console.print(f"[bold cyan]║[/bold cyan]  [bold yellow]0.[/bold yellow] {t('panel.exit'):<42}[bold cyan]║[/bold cyan]")
         console.print("[bold cyan]╚══════════════════════════════════════════════╝[/bold cyan]")
 
-        choice = click.prompt(t("panel.select"), type=str, default="1")
+        choice = click.prompt(t("panel.select"), type=str, default="", show_default=False)
         
         if choice == "0":
             console.print(t("panel.exiting"))
