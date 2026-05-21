@@ -978,6 +978,11 @@ pause
         time.sleep(1)
     console.print()
     os.environ["TUBECLI_RESTARTED"] = "1"
+    os.environ["PYTHONPATH"] = project_root + os.path.pathsep + os.environ.get("PYTHONPATH", "")
+    try:
+        os.chdir(project_root)
+    except Exception:
+        pass
     os.execv(sys.executable, [sys.executable, "-m", "tubecli.main", "init"])
 
 
