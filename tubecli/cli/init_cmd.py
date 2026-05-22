@@ -951,6 +951,7 @@ def _run_update_check():
         try:
             bat_content = f"""@echo off
 setlocal enabledelayedexpansion
+chcp 65001 >nul 2>nul
 
 REM === Check if TubeCLI is already running (by checking API port) ===
 set ALREADY_RUNNING=0
@@ -959,29 +960,29 @@ if !ERRORLEVEL! EQU 0 set ALREADY_RUNNING=1
 
 if %ALREADY_RUNNING% EQU 1 (
     cls
-    echo ==============================================================
-    echo  TubeCLI is already running in another window.
-    echo ==============================================================
     echo.
-    echo  What would you like to do?
+    echo  ╔══════════════════════════════════════════════╗
+    echo  ║       TubeCLI - Already Running              ║
+    echo  ╠══════════════════════════════════════════════╣
+    echo  ║                                              ║
+    echo  ║   1. Open Dashboard                          ║
+    echo  ║   2. Restart TubeCLI                         ║
+    echo  ║   3. Shut down TubeCLI                       ║
+    echo  ║   0. Exit                                    ║
+    echo  ║                                              ║
+    echo  ╚══════════════════════════════════════════════╝
     echo.
-    echo  [1] Open Dashboard (WebUI Browser)
-    echo  [2] Restart TubeCLI (Shut down the other instance and start fresh)
-    echo  [3] Shut down TubeCLI (Shut down the other instance and exit)
-    echo  [4] Exit
-    echo.
-    set /p opt="Select an option (1-4, default is 1): "
+    set /p opt="  Select an option: "
     
     if "!opt!"=="" set opt=1
     
     if "!opt!"=="1" (
-        echo Opening Dashboard...
         start http://localhost:{port}/dashboard
         exit
     )
     if "!opt!"=="2" (
-        echo Restarting TubeCLI...
-        echo Shutting down existing instance...
+        echo.
+        echo   Restarting TubeCLI...
         for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":{port}" ^| findstr "LISTENING"') do (
             taskkill /F /PID %%a >nul 2>nul
         )
@@ -989,10 +990,12 @@ if %ALREADY_RUNNING% EQU 1 (
         goto :START_CLI
     )
     if "!opt!"=="3" (
-        echo Shutting down TubeCLI...
+        echo.
+        echo   Shutting down TubeCLI...
         for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":{port}" ^| findstr "LISTENING"') do (
             taskkill /F /PID %%a >nul 2>nul
         )
+        echo   Done.
         timeout /t 1 /nobreak >nul
         exit
     )
