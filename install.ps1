@@ -249,7 +249,7 @@ function Ensure-PythonScriptsInPath {
 # --- Main Logic ---
 
 # Stop any running TubeCLI processes to prevent file lock during install
-Write-Host "[*] Checking for running TubeCLI processes..." -ForegroundColor Yellow
+Write-Host "[*] Stopping running TubeCLI processes..." -ForegroundColor Yellow
 $killedCount = 0
 try {
     # 1. Kill API server by port
@@ -262,20 +262,37 @@ try {
             $killedCount++
         }
     }
-    # 2. Kill tubecli.exe CLI process (prevents pip file lock on tubecli.exe)
+    # 2. Kill tubecli.exe CLI process via PowerShell
     Get-Process -Name "tubecli" -ErrorAction SilentlyContinue | ForEach-Object {
         Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
         $killedCount++
     }
+    # 3. Fallback: taskkill /F /IM ensures Windows releases the file handle
+    $taskKillOut = taskkill /F /IM "tubecli.exe" 2>&1
+    if ($LASTEXITCODE -eq 0) { $killedCount++ }
 } catch {
     # Silently continue if process cleanup fails
 }
 if ($killedCount -gt 0) {
     Write-Host "[OK] Stopped $killedCount running process(es)" -ForegroundColor Green
-    Start-Sleep -Seconds 2  # Wait for file handles to be released
+    Start-Sleep -Seconds 3  # Wait for Windows to fully release file handles
 } else {
     Write-Host "[OK] No running TubeCLI processes found" -ForegroundColor Green
 }
+
+# Clean up corrupted pip distributions (~ / ~ubecli / ~~becli remnants)
+try {
+    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($pythonCmd -and $pythonCmd.Source) {
+        $sitePackages = Join-Path (Split-Path $pythonCmd.Source) "Lib\site-packages"
+        if (Test-Path $sitePackages) {
+            Get-ChildItem -Path $sitePackages -Directory -Filter "~*" -ErrorAction SilentlyContinue | ForEach-Object {
+                Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Host "  [OK] Cleaned corrupted distribution: $($_.Name)" -ForegroundColor Gray
+            }
+        }
+    }
+} catch {}
 
 if (-not (Check-Python)) {
     if (-not (Install-Python)) {
@@ -322,10 +339,24 @@ $prevDir = Get-Location
 Set-Location $targetDir
 
 try {
-    # Install in development mode
-    python -m pip install -e .
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "[!] pip install failed." -ForegroundColor Red
+    # Install with retry logic for file lock issues (WinError 32)
+    $installSuccess = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        python -m pip install -e .
+        if ($LASTEXITCODE -eq 0) {
+            $installSuccess = $true
+            break
+        }
+        if ($attempt -lt 3) {
+            Write-Host "  [!] Install attempt $attempt failed. Retrying in 5 seconds..." -ForegroundColor Yellow
+            # Force kill any remaining tubecli processes before retry
+            taskkill /F /IM "tubecli.exe" 2>$null | Out-Null
+            Start-Sleep -Seconds 5
+        }
+    }
+    if (-not $installSuccess) {
+        Write-Host "[!] pip install failed after 3 attempts." -ForegroundColor Red
+        Write-Host "    Please close all TubeCLI windows and terminals, then try again." -ForegroundColor Yellow
         Set-Location $prevDir
         Complete-Install -Succeeded:$false
         return
