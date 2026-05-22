@@ -114,8 +114,8 @@ def init_cmd(lang, port):
 
 
 def _kill_server_on_port(port: int):
-    """Kill any process listening on the given port (cross-platform)."""
-    import subprocess, os
+    """Kill any process listening on the given port (cross-platform) and wait for it to be released."""
+    import subprocess, os, time, socket
     try:
         if os.name == "nt":
             result = subprocess.run(
@@ -129,6 +129,16 @@ def _kill_server_on_port(port: int):
                     subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
         else:
             subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
+        
+        # Wait up to 3 seconds for the socket to be completely released by the OS
+        for _ in range(6):
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.bind(("127.0.0.1", port))
+                    break # Port is free!
+                except socket.error:
+                    pass
+            time.sleep(0.5)
     except Exception:
         pass
 
@@ -489,6 +499,7 @@ def _run_control_panel():
         """Start/restart API server."""
         _kill_server_on_port(port)
         import time
+        import sys
         from tubecli.config import get_language
         cur_lang = get_language()
         
@@ -496,9 +507,10 @@ def _run_control_panel():
         env["PYTHONUTF8"] = "1"
         env["TUBECLI_PORT"] = str(port)
         env["TUBECLI_CLI_PID"] = str(os.getpid())
+        python_exe = sys.executable
         if os.name == "nt":
             if quiet:
-                cmd = f"tubecli api start --quiet --lang {cur_lang}"
+                cmd = f'"{python_exe}" -m tubecli.main api start --quiet --lang {cur_lang}'
                 CREATE_NO_WINDOW = 0x08000000
                 subprocess.Popen(
                     cmd, shell=True, creationflags=CREATE_NO_WINDOW,
@@ -506,10 +518,10 @@ def _run_control_panel():
                 )
             else:
                 # Force Windows to open a new interactive visible window with "start"
-                cmd = f'start "TubeCLI API Logs" cmd /k "tubecli api start --lang {cur_lang}"'
+                cmd = f'start "TubeCLI API Logs" cmd /k ""{python_exe}" -m tubecli.main api start --lang {cur_lang}"'
                 subprocess.Popen(cmd, shell=True, env=env)
         else:
-            cmd = f"tubecli api start{' --quiet' if quiet else ''} --lang {cur_lang}"
+            cmd = f'"{python_exe}" -m tubecli.main api start{" --quiet" if quiet else ""} --lang {cur_lang}'
             kwargs = {"shell": True, "env": env}
             if quiet:
                 kwargs["stdout"] = subprocess.DEVNULL
@@ -640,7 +652,8 @@ def _run_control_panel():
                 
         elif choice == "3":
             console.print(t("panel.agent_management"))
-            subprocess.run(["tubecli", "agent", "list"])
+            import sys
+            subprocess.run([sys.executable, "-m", "tubecli.main", "agent", "list"])
             console.print(t("panel.agent_help"))
             
         elif choice == "4":
@@ -665,7 +678,8 @@ def _run_control_panel():
                 
         elif choice == "5":
             console.print(t("panel.browser_profiles"))
-            subprocess.run(["tubecli", "browser", "profiles"])
+            import sys
+            subprocess.run([sys.executable, "-m", "tubecli.main", "browser", "profiles"])
             console.print(t("panel.browser_help"))
             
         elif choice == "6":
