@@ -54,10 +54,5 @@ if !ALREADY_RUNNING! EQU 1 (
 title TubeCLI - AI Agent System
 cd /d "C:\tubecreate-vue\tubecli"
 
-where tubecli >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    tubecli init
-) else (
-    python -m tubecli.main init
-)
+python -m tubecli.main init
 pause

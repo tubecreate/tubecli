@@ -441,12 +441,7 @@ if !ALREADY_RUNNING! EQU 1 (
 title TubeCLI - AI Agent System
 cd /d "$targetDir"
 
-where tubecli >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    tubecli init
-) else (
-    python -m tubecli.main init
-)
+python -m tubecli.main init
 pause
 "@
 Set-Content -Path $batPath -Value $batContent -Encoding UTF8

@@ -346,12 +346,12 @@ async def perform_git_update():
                 if os.name == 'nt':
                     CREATE_NO_WINDOW = 0x08000000
                     subprocess.Popen(
-                        f'start "TubeCLI" cmd /k "cd /d {repo} && tubecli init"',
+                        f'start "TubeCLI" cmd /k "cd /d {repo} && python -m tubecli.main init"',
                         shell=True, cwd=repo,
                     )
                 else:
                     subprocess.Popen(
-                        ["tubecli", "init"],
+                        [sys.executable, "-m", "tubecli.main", "init"],
                         cwd=repo, start_new_session=True,
                     )
             except Exception:

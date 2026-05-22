@@ -29,7 +29,7 @@ if %ERRORLEVEL% EQU 0 (
 echo.
 
 echo [3] Verifying...
-tubecli --version
+python -m tubecli.main --version
 if %ERRORLEVEL% EQU 0 (
     echo.
     echo  ============================================
