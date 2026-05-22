@@ -248,10 +248,11 @@ function Ensure-PythonScriptsInPath {
 
 # --- Main Logic ---
 
-# Stop any running TubeCLI server on the API port to prevent conflicts
-Write-Host "[*] Checking for running TubeCLI server..." -ForegroundColor Yellow
+# Stop any running TubeCLI processes to prevent file lock during install
+Write-Host "[*] Checking for running TubeCLI processes..." -ForegroundColor Yellow
 $killedCount = 0
 try {
+    # 1. Kill API server by port
     $netstatOut = netstat -ano 2>$null | Select-String ":5295\s" | Select-String "LISTENING"
     foreach ($line in $netstatOut) {
         $parts = $line.ToString().Trim() -split '\s+'
@@ -261,13 +262,19 @@ try {
             $killedCount++
         }
     }
+    # 2. Kill tubecli.exe CLI process (prevents pip file lock on tubecli.exe)
+    Get-Process -Name "tubecli" -ErrorAction SilentlyContinue | ForEach-Object {
+        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+        $killedCount++
+    }
 } catch {
     # Silently continue if process cleanup fails
 }
 if ($killedCount -gt 0) {
-    Write-Host "[OK] Stopped $killedCount running server(s)" -ForegroundColor Green
+    Write-Host "[OK] Stopped $killedCount running process(es)" -ForegroundColor Green
+    Start-Sleep -Seconds 2  # Wait for file handles to be released
 } else {
-    Write-Host "[OK] No running TubeCLI server found" -ForegroundColor Green
+    Write-Host "[OK] No running TubeCLI processes found" -ForegroundColor Green
 }
 
 if (-not (Check-Python)) {
