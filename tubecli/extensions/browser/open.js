@@ -506,12 +506,14 @@ async function main() {
     await fs.ensureDir(engineBaseDir);
 
     async function updateProgress(data) {
-        await fs.writeJson(progressFile, { 
+        const tmpFile = progressFile + '.tmp';
+        await fs.writeJson(tmpFile, { 
             version: v, 
             status: 'downloading', 
             percent: 0, 
             ...data 
         }, { spaces: 2 });
+        await fs.move(tmpFile, progressFile, { overwrite: true });
     }
 
     console.log(`[Download] Starting download for version: ${v}...`);

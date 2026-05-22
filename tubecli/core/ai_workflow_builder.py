@@ -320,7 +320,55 @@ def call_llm(prompt: str, user_message: str, provider: str, model: str, api_key:
         # Alias for chatgpt
         return call_llm(prompt, user_message, "chatgpt", model, api_key)
 
+    elif provider == "9router":
+        headers = {"Content-Type": "application/json"}
+        current_key = api_key
+        if not current_key or current_key == "9router":
+            from tubecli.extensions.cloud_api.extension import key_manager
+            current_key = key_manager.get_active_key("9router")
+        if current_key:
+            headers["Authorization"] = f"Bearer {current_key}"
+        resp = requests.post(
+            "http://localhost:20128/v1/chat/completions",
+            headers=headers,
+            json={
+                "model": model or "deepseek-chat",
+                "messages": messages,
+                "temperature": 0.3,
+            },
+            timeout=120,
+        )
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"]
+        raise Exception(f"9Router error ({resp.status_code}): {resp.text[:300]}")
+
     else:
+        # Check central PROVIDERS map for generic OpenAI compatible fallback
+        try:
+            from tubecli.extensions.cloud_api.extension import PROVIDERS
+            if provider in PROVIDERS:
+                p_info = PROVIDERS[provider]
+                p_url = p_info.get("base_url")
+                if p_url:
+                    headers = {"Content-Type": "application/json"}
+                    if api_key and api_key != "9router":
+                        headers["Authorization"] = f"Bearer {api_key}"
+                    resp = requests.post(
+                        f"{p_url.rstrip('/')}/chat/completions",
+                        headers=headers,
+                        json={
+                            "model": model or (p_info.get("models")[0] if p_info.get("models") else "gpt-4o-mini"),
+                            "messages": messages,
+                            "temperature": 0.3,
+                        },
+                        timeout=120,
+                    )
+                    if resp.status_code == 200:
+                        return resp.json()["choices"][0]["message"]["content"]
+                    raise Exception(f"{p_info.get('name', provider)} error ({resp.status_code}): {resp.text[:300]}")
+        except Exception as ex:
+            raise Exception(f"Provider {provider} failed: {ex}")
+
         raise Exception(f"Unknown provider: {provider}")
 
 
@@ -375,6 +423,8 @@ def generate_workflow(prompt: str, provider: str = "ollama", model: str = "", ap
 
 def _resolve_cloud_api_key(provider: str) -> str:
     """Fetch the real API key from the Cloud API Keys extension."""
+    if provider == "9router":
+        return "9router"
     try:
         from tubecli.extensions.cloud_api.extension import key_manager
         # Map frontend provider names to cloud_api provider names

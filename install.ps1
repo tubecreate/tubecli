@@ -44,6 +44,11 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
 # --- Python Checking and Installation ---
 
 function Check-Python {
+    param([int]$Depth = 0)
+    if ($Depth -gt 1) {
+        Write-Host "[!] Python found at known location but not working correctly" -ForegroundColor Yellow
+        return $false
+    }
     try {
         $pythonVersion = (python --version 2>$null)
         if ($pythonVersion -match "Python (\d+)\.(\d+)") {
@@ -63,7 +68,7 @@ function Check-Python {
         if (Test-Path $localPython) {
             Add-ToProcessPath (Split-Path $localPython)
             Add-ToProcessPath (Join-Path (Split-Path $localPython) "Scripts")
-            return Check-Python
+            return (Check-Python -Depth ($Depth + 1))
         }
         Write-Host "[!] Python not found on PATH" -ForegroundColor Yellow
         return $false
@@ -88,26 +93,24 @@ function Install-Python {
         }
     }
 
-    # Fallback to direct download
-    Write-Host "  Downloading Python installer..." -ForegroundColor Gray
-    $installerPath = Join-Path $env:TEMP "python-installer.exe"
-    Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.8/python-3.11.8-amd64.exe" -OutFile $installerPath
-    
-    Write-Host "  Running Python installer (this may take a minute)..." -ForegroundColor Gray
-    Start-Process -FilePath $installerPath -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0" -Wait
-    
-    Remove-Item $installerPath -ErrorAction SilentlyContinue
+    # Fallback: guide user to install manually (avoids antivirus false positives)
+    Write-Host ""
+    Write-Host "  [!] winget not available. Please install Python 3.11+ manually:" -ForegroundColor Yellow
+    Write-Host "      https://www.python.org/downloads/" -ForegroundColor Cyan
+    Write-Host "  IMPORTANT: Check 'Add Python to PATH' during installation!" -ForegroundColor Yellow
+    Write-Host ""
+    try { Start-Process "https://www.python.org/downloads/" } catch {}
+    Read-Host "  Press Enter after installing Python..."
 
     # Refresh PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
     if (Check-Python) {
-        Write-Host "[OK] Python installed via direct download" -ForegroundColor Green
+        Write-Host "[OK] Python detected after manual install" -ForegroundColor Green
         return $true
     }
 
-    Write-Host "[!] Python installation completed, but 'python' is still not found in this shell." -ForegroundColor Yellow
-    Write-Host "Please restart your computer or terminal, and try again." -ForegroundColor Yellow
+    Write-Host "[!] Python still not found. Please restart your terminal and try again." -ForegroundColor Yellow
     return $false
 }
 
@@ -138,30 +141,69 @@ function Install-Git {
         }
     }
 
-    # Fallback portable git download similar to openclaw can go here, but winget usually works
-    # For now, let's use direct download of MinGit
-    Write-Host "  Downloading Portable MinGit..." -ForegroundColor Gray
-    $minGitUrl = "https://github.com/git-for-windows/git/releases/download/v2.44.0.windows.1/MinGit-2.44.0-64-bit.zip"
-    $minGitZip = Join-Path $env:TEMP "mingit.zip"
-    $minGitDir = Join-Path $env:LOCALAPPDATA "MinGit"
+    # Fallback: guide user to install manually (avoids antivirus false positives)
+    Write-Host ""
+    Write-Host "  [!] winget not available. Please install Git manually:" -ForegroundColor Yellow
+    Write-Host "      https://git-scm.com/download/win" -ForegroundColor Cyan
+    Write-Host ""
+    try { Start-Process "https://git-scm.com/download/win" } catch {}
+    Read-Host "  Press Enter after installing Git..."
 
-    if (-not (Test-Path $minGitDir)) {
-        New-Item -ItemType Directory -Force -Path $minGitDir | Out-Null
-    }
-
-    Invoke-WebRequest -Uri $minGitUrl -OutFile $minGitZip
-    Expand-Archive -Path $minGitZip -DestinationPath $minGitDir -Force
-    Remove-Item $minGitZip -ErrorAction SilentlyContinue
-
-    Add-ToProcessPath (Join-Path $minGitDir "cmd")
-    Add-ToUserPath (Join-Path $minGitDir "cmd")
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
     if (Check-Git) {
-        Write-Host "[OK] Portable Git installed" -ForegroundColor Green
+        Write-Host "[OK] Git detected after manual install" -ForegroundColor Green
         return $true
     }
 
-    Write-Host "[!] Git installation failed." -ForegroundColor Red
+    Write-Host "[!] Git still not found. Please restart your terminal and try again." -ForegroundColor Red
+    return $false
+}
+
+# --- Node.js checking and Installation ---
+
+function Check-Node {
+    try {
+        $null = Get-Command node -ErrorAction Stop
+        $null = Get-Command npm -ErrorAction Stop
+        Write-Host "[OK] Node.js and npm found" -ForegroundColor Green
+        return $true
+    } catch {
+        return $false
+    }
+}
+
+function Install-Node {
+    Write-Host "[*] Installing Node.js..." -ForegroundColor Yellow
+
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        Write-Host "  Using winget..." -ForegroundColor Gray
+        winget install --id OpenJS.NodeJS --source winget --accept-package-agreements --accept-source-agreements
+        
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        
+        if (Check-Node) {
+            Write-Host "[OK] Node.js installed via winget" -ForegroundColor Green
+            return $true
+        }
+    }
+
+    # Fallback: guide user to install manually (avoids antivirus false positives)
+    Write-Host ""
+    Write-Host "  [!] winget not available. Please install Node.js LTS manually:" -ForegroundColor Yellow
+    Write-Host "      https://nodejs.org/" -ForegroundColor Cyan
+    Write-Host ""
+    try { Start-Process "https://nodejs.org/" } catch {}
+    Read-Host "  Press Enter after installing Node.js (or press Enter to skip)..."
+
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+    if (Check-Node) {
+        Write-Host "[OK] Node.js detected after manual install" -ForegroundColor Green
+        return $true
+    }
+
+    Write-Host "[!] Node.js still not found. Browser extension may not work until installed." -ForegroundColor Yellow
     return $false
 }
 
@@ -206,30 +248,26 @@ function Ensure-PythonScriptsInPath {
 
 # --- Main Logic ---
 
-# Kill all running TubeCLI processes to prevent conflicts
-Write-Host "[*] Killing existing TubeCLI processes..." -ForegroundColor Yellow
+# Stop any running TubeCLI server on the API port to prevent conflicts
+Write-Host "[*] Checking for running TubeCLI server..." -ForegroundColor Yellow
 $killedCount = 0
 try {
-    # Kill by window title
-    Get-Process | Where-Object { $_.MainWindowTitle -like "TubeCLI*" } | ForEach-Object {
-        Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
-        $killedCount++
-    }
-    # Kill python processes running tubecli or uvicorn
-    Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='python3.exe'" -ErrorAction SilentlyContinue | ForEach-Object {
-        $cmdLine = $_.CommandLine
-        if ($cmdLine -and ($cmdLine -match "tubecli|uvicorn")) {
-            Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    $netstatOut = netstat -ano 2>$null | Select-String ":5295\s" | Select-String "LISTENING"
+    foreach ($line in $netstatOut) {
+        $parts = $line.ToString().Trim() -split '\s+'
+        $pid = $parts[-1]
+        if ($pid -and $pid -ne "0") {
+            Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue
             $killedCount++
         }
     }
 } catch {
-    # Silently continue if process killing fails
+    # Silently continue if process cleanup fails
 }
 if ($killedCount -gt 0) {
-    Write-Host "[OK] Killed $killedCount process(es)" -ForegroundColor Green
+    Write-Host "[OK] Stopped $killedCount running server(s)" -ForegroundColor Green
 } else {
-    Write-Host "[OK] No running TubeCLI processes found" -ForegroundColor Green
+    Write-Host "[OK] No running TubeCLI server found" -ForegroundColor Green
 }
 
 if (-not (Check-Python)) {
@@ -246,14 +284,20 @@ if (-not (Check-Git)) {
     }
 }
 
+if (-not (Check-Node)) {
+    if (-not (Install-Node)) {
+        Write-Host "[!] Warning: Node.js installation failed or requires a terminal restart. The browser extension might not work until Node.js is installed manually." -ForegroundColor Yellow
+    }
+}
+
 Write-Host "[*] Upgrading pip..." -ForegroundColor Yellow
 python -m pip install --upgrade pip | Out-Null
 
 $targetDir = ""
 
-# If setup.py exists in current directory, assume local installation
-if (Test-Path ".\setup.py") {
-    Write-Host "[*] Local setup.py detected, installing from current directory." -ForegroundColor Green
+# If setup.py or pyproject.toml exists in current directory, assume local installation
+if ((Test-Path ".\setup.py") -or (Test-Path ".\pyproject.toml")) {
+    Write-Host "[*] Local project directory detected, installing from current directory." -ForegroundColor Green
     $targetDir = (Get-Location).Path
 } else {
     Write-Host "[*] Cloning TubeCLI repository to $InstallDir..." -ForegroundColor Yellow
@@ -293,128 +337,150 @@ if (-not $tubecliCmd) {
     $tubecliCmd = Get-Command tubecli -ErrorAction SilentlyContinue
 }
 
-if ($tubecliCmd) {
-    Write-Host "[OK] TubeCLI installed successfully!" -ForegroundColor Green
+# We always create launcher and shortcuts because the installation was successful!
+Write-Host "[OK] TubeCLI installed successfully!" -ForegroundColor Green
 
-    # ── Create Launcher & Shortcuts (BEFORE init, since init blocks) ──
-    Write-Host ""
-    Write-Host "[*] Creating launcher and shortcuts..." -ForegroundColor Yellow
+# ── Create Launcher & Shortcuts (BEFORE init, since init blocks) ──
+Write-Host ""
+Write-Host "[*] Creating launcher and shortcuts..." -ForegroundColor Yellow
 
-    # 1. Create TubeCLI.bat launcher in install directory
-    $batPath = Join-Path $targetDir "TubeCLI.bat"
-    $batContent = @"
+# 1. Create TubeCLI.bat launcher in install directory
+$batPath = Join-Path $targetDir "TubeCLI.bat"
+$batContent = @"
 @echo off
+setlocal enabledelayedexpansion
 
-REM === Single-Instance Guard (check BEFORE setting title) ===
+REM === Check if TubeCLI is already running (by checking API port) ===
+set ALREADY_RUNNING=0
+netstat -ano 2>nul | findstr ":5295" | findstr "LISTENING" >nul 2>nul
+if !ERRORLEVEL! EQU 0 set ALREADY_RUNNING=1
 
-REM 1. Check if another TubeCLI window is already open (by window title)
-tasklist /V /FI "IMAGENAME eq cmd.exe" 2>nul | findstr /I "TubeCLI - AI Agent" >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI is already running in another window.
-    echo Please check your taskbar for the open terminal window.
-    timeout /t 3 /nobreak >nul
+if %ALREADY_RUNNING% EQU 1 (
+    cls
+    echo ==============================================================
+    echo  TubeCLI is already running in another window.
+    echo ==============================================================
+    echo.
+    echo  What would you like to do?
+    echo.
+    echo  [1] Open Dashboard (WebUI Browser)
+    echo  [2] Restart TubeCLI (Shut down the other instance and start fresh)
+    echo  [3] Shut down TubeCLI (Shut down the other instance and exit)
+    echo  [4] Exit
+    echo.
+    set /p opt="Select an option (1-4, default is 1): "
+    
+    if "!opt!"=="" set opt=1
+    
+    if "!opt!"=="1" (
+        echo Opening Dashboard...
+        start http://localhost:5295/dashboard
+        exit
+    )
+    if "!opt!"=="2" (
+        echo Restarting TubeCLI...
+        echo Shutting down existing instance...
+        for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5295" ^| findstr "LISTENING"') do (
+            taskkill /F /PID %%a >nul 2>nul
+        )
+        timeout /t 2 /nobreak >nul
+        goto :START_CLI
+    )
+    if "!opt!"=="3" (
+        echo Shutting down TubeCLI...
+        for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5295" ^| findstr "LISTENING"') do (
+            taskkill /F /PID %%a >nul 2>nul
+        )
+        timeout /t 1 /nobreak >nul
+        exit
+    )
     exit
 )
 
-REM 2. Check if tubecli.exe process is already running
-tasklist /FI "IMAGENAME eq tubecli.exe" 2>nul | findstr /I "tubecli.exe" >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-    echo TubeCLI is already starting or running.
-    echo Please check your taskbar for the open terminal window.
-    timeout /t 3 /nobreak >nul
-    exit
-)
-
-REM === Passed all checks — claim this instance ===
+:START_CLI
 title TubeCLI - AI Agent System
 cd /d "$targetDir"
 
-REM 3. Clean up zombie API server if still running on port
-netstat -an | findstr "5295" | findstr "LISTENING" >nul 2>nul
+where tubecli >nul 2>nul
 if %ERRORLEVEL% EQU 0 (
-    echo Cleaning up old TubeCLI server...
-    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5295" ^| findstr "LISTENING"') do (
-        taskkill /F /PID %%a >nul 2>nul
-    )
-    timeout /t 2 /nobreak >nul
+    tubecli init
+) else (
+    python -m tubecli.main init
 )
-
-REM 4. Start TubeCLI CLI
-tubecli init
 pause
 "@
-    Set-Content -Path $batPath -Value $batContent -Encoding ASCII
-    Write-Host "  [OK] Created launcher: $batPath" -ForegroundColor Green
+Set-Content -Path $batPath -Value $batContent -Encoding UTF8
+Write-Host "  [OK] Created launcher: $batPath" -ForegroundColor Green
 
-    # 2. Use the provided dashboard logo (.ico)
-    $icoPath = Join-Path $targetDir "tubecli\extensions\webui\static\logo.ico"
-    $useDefaultIcon = $false
-    if (-not (Test-Path $icoPath)) {
-        Write-Host "  [!] Warning: $icoPath not found, shortcut might not have an icon." -ForegroundColor Yellow
-    } else {
-        Write-Host "  [OK] Found icon: $icoPath" -ForegroundColor Green
+# 2. Use the provided dashboard logo (.ico)
+$icoPath = Join-Path $targetDir "tubecli\extensions\webui\static\logo.ico"
+$useDefaultIcon = $false
+if (-not (Test-Path $icoPath)) {
+    Write-Host "  [!] Warning: $icoPath not found, shortcut might not have an icon." -ForegroundColor Yellow
+} else {
+    Write-Host "  [OK] Found icon: $icoPath" -ForegroundColor Green
+}
+
+# 3. Create Desktop shortcut
+try {
+    $desktopPath = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktopPath "TubeCLI.lnk"
+
+    $WshShell = New-Object -ComObject WScript.Shell
+    $shortcut = $WshShell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $batPath
+    $shortcut.WorkingDirectory = $targetDir
+    $shortcut.Description = "TubeCLI - Open Source AI Agent System"
+    $shortcut.WindowStyle = 1
+    if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
+        $shortcut.IconLocation = "$icoPath,0"
     }
+    $shortcut.Save()
+    Write-Host "  [OK] Desktop shortcut created: $shortcutPath" -ForegroundColor Green
+} catch {
+    Write-Host "  [!] Could not create Desktop shortcut: $_" -ForegroundColor Yellow
+}
 
-    # 3. Create Desktop shortcut
-    try {
-        $desktopPath = [Environment]::GetFolderPath("Desktop")
-        $shortcutPath = Join-Path $desktopPath "TubeCLI.lnk"
-
-        $WshShell = New-Object -ComObject WScript.Shell
-        $shortcut = $WshShell.CreateShortcut($shortcutPath)
-        $shortcut.TargetPath = $batPath
-        $shortcut.WorkingDirectory = $targetDir
-        $shortcut.Description = "TubeCLI - Open Source AI Agent System"
-        $shortcut.WindowStyle = 1
-        if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
-            $shortcut.IconLocation = "$icoPath,0"
-        }
-        $shortcut.Save()
-        Write-Host "  [OK] Desktop shortcut created: $shortcutPath" -ForegroundColor Green
-    } catch {
-        Write-Host "  [!] Could not create Desktop shortcut: $_" -ForegroundColor Yellow
+# 4. Create Start Menu shortcut
+try {
+    $startMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\TubeCLI"
+    if (-not (Test-Path $startMenuDir)) {
+        New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
     }
+    $startShortcutPath = Join-Path $startMenuDir "TubeCLI.lnk"
 
-    # 4. Create Start Menu shortcut
-    try {
-        $startMenuDir = Join-Path ([Environment]::GetFolderPath("StartMenu")) "Programs\TubeCLI"
-        if (-not (Test-Path $startMenuDir)) {
-            New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
-        }
-        $startShortcutPath = Join-Path $startMenuDir "TubeCLI.lnk"
-
-        $WshShell2 = New-Object -ComObject WScript.Shell
-        $startShortcut = $WshShell2.CreateShortcut($startShortcutPath)
-        $startShortcut.TargetPath = $batPath
-        $startShortcut.WorkingDirectory = $targetDir
-        $startShortcut.Description = "TubeCLI - Open Source AI Agent System"
-        $startShortcut.WindowStyle = 1
-        if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
-            $startShortcut.IconLocation = "$icoPath,0"
-        }
-        $startShortcut.Save()
-        Write-Host "  [OK] Start Menu shortcut created" -ForegroundColor Green
-    } catch {
-        Write-Host "  [!] Could not create Start Menu shortcut: $_" -ForegroundColor Yellow
+    $WshShell2 = New-Object -ComObject WScript.Shell
+    $startShortcut = $WshShell2.CreateShortcut($startShortcutPath)
+    $startShortcut.TargetPath = $batPath
+    $startShortcut.WorkingDirectory = $targetDir
+    $startShortcut.Description = "TubeCLI - Open Source AI Agent System"
+    $startShortcut.WindowStyle = 1
+    if ((-not $useDefaultIcon) -and (Test-Path $icoPath)) {
+        $startShortcut.IconLocation = "$icoPath,0"
     }
+    $startShortcut.Save()
+    Write-Host "  [OK] Start Menu shortcut created" -ForegroundColor Green
+} catch {
+    Write-Host "  [!] Could not create Start Menu shortcut: $_" -ForegroundColor Yellow
+}
 
-    Write-Host ""
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host "  Installation Complete!" -ForegroundColor Green
-    Write-Host "========================================" -ForegroundColor Cyan
-    Write-Host ""
-    Write-Host "  You can now launch TubeCLI by:" -ForegroundColor White
-    Write-Host "    1. Double-click 'TubeCLI' on your Desktop" -ForegroundColor Cyan
-    Write-Host "    2. Search 'TubeCLI' in Start Menu" -ForegroundColor Cyan
-    Write-Host "    3. Type 'tubecli' in any terminal" -ForegroundColor Cyan
-    Write-Host ""
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Installation Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "  You can now launch TubeCLI by:" -ForegroundColor White
+Write-Host "    1. Double-click 'TubeCLI' on your Desktop" -ForegroundColor Cyan
+Write-Host "    2. Search 'TubeCLI' in Start Menu" -ForegroundColor Cyan
+Write-Host "    3. Type 'tubecli' in any terminal" -ForegroundColor Cyan
+Write-Host ""
 
-    # ── Run init LAST (blocks with interactive menu) ──
-    Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
+# ── Run init LAST (blocks with interactive menu) ──
+Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
+if ($tubecliCmd) {
     tubecli init --lang en --port 5295
 } else {
-    Write-Host "[!] TubeCLI installed, but the 'tubecli' command is not in your PATH." -ForegroundColor Yellow
-    Write-Host "Please close this terminal, open a new one, and try running 'tubecli'." -ForegroundColor Yellow
+    python -m tubecli.main init --lang en --port 5295
 }
 
 Complete-Install -Succeeded:$true

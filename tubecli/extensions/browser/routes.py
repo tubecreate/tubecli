@@ -55,7 +55,8 @@ class StopRequest(BaseModel):
 @router.get("/profiles")
 async def api_list_profiles():
     from .profile_manager import list_profiles
-    return {"profiles": list_profiles()}
+    profiles = await asyncio.to_thread(list_profiles)
+    return {"profiles": profiles}
 
 @router.post("/profiles")
 async def api_create_profile(req: ProfileCreateRequest):
@@ -63,7 +64,8 @@ async def api_create_profile(req: ProfileCreateRequest):
     try:
         # Map 'version' to 'browser_version' if needed
         version = req.version or req.browser_version
-        profile = create_profile(
+        profile = await asyncio.to_thread(
+            create_profile,
             req.name,
             proxy=req.proxy,
             browser_version=version,
@@ -78,7 +80,7 @@ async def api_create_profile(req: ProfileCreateRequest):
 @router.get("/profiles/{name}")
 async def api_get_profile(name: str):
     from .profile_manager import get_profile
-    profile = get_profile(name)
+    profile = await asyncio.to_thread(get_profile, name)
     if not profile:
         raise HTTPException(404, f"Profile '{name}' not found")
     return profile
@@ -106,7 +108,7 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
         else:
             data["google_account"] = None
     
-    profile = update_profile(name, **data)
+    profile = await asyncio.to_thread(update_profile, name, **data)
     if not profile:
         raise HTTPException(404, f"Profile '{name}' not found")
     return {"status": "updated", "profile": profile}
@@ -114,7 +116,8 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
 @router.delete("/profiles/{name}")
 async def api_delete_profile(name: str):
     from .profile_manager import delete_profile
-    if not delete_profile(name):
+    success = await asyncio.to_thread(delete_profile, name)
+    if not success:
         raise HTTPException(404, f"Profile '{name}' not found")
     return {"status": "deleted"}
 
@@ -130,7 +133,8 @@ async def api_get_fingerprint(name: str):
 @router.post("/profiles/{name}/fingerprint/reset")
 async def api_reset_fingerprint(name: str):
     from .profile_manager import reset_fingerprint
-    if reset_fingerprint(name):
+    success = await asyncio.to_thread(reset_fingerprint, name)
+    if success:
         return {"status": "reset", "profile": name}
     raise HTTPException(404, f"Fingerprint not found for profile '{name}'")
 
@@ -257,108 +261,111 @@ async def api_browser_log(profile: str):
 
 @router.get("/engine/versions")
 async def api_get_engine_versions():
-    import json
-    import os
-    
-    try:
-        ext_dir = os.path.dirname(__file__)
-        versions = []
-        api_error = None
+    def _fetch():
+        import json
+        import os
         
-        # 1. Fetch versions from private API server (fast, no HEAD requests)
-        private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
         try:
-            import requests
-            from tubecli.config import get_language
-            lang = get_language()
-            resp = requests.post(private_api_url, json={"lang": lang}, timeout=15)
-            if resp.status_code == 200:
-                private_data = resp.json()
-                if private_data.get("success"):
-                    for pv in private_data.get("versions", []):
-                        pv_name = pv.get("browser_version")
-                        if not pv_name or pv_name == "Unknown":
-                            pv_name = pv.get("bas_version")
-                        if not pv_name:
-                            pv_name = "Unknown"
-                            
-                        versions.append({
-                            "name": pv_name,
-                            "browser_version": pv.get("browser_version", pv_name),
-                            "bas_version": pv.get("bas_version", ""),
-                            "downloaded": False,
-                            "download_url": pv.get("download_url"),
-                            "local_url": pv.get("local_url"),
-                            "bablosoft_url": pv.get("bablosoft_url"),
-                            "is_private": True,
-                            "path": "-"
-                        })
+            ext_dir = os.path.dirname(__file__)
+            versions = []
+            api_error = None
+            
+            # 1. Fetch versions from private API server (fast, no HEAD requests)
+            private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
+            try:
+                import requests
+                from tubecli.config import get_language
+                lang = get_language()
+                resp = requests.post(private_api_url, json={"lang": lang}, timeout=15)
+                if resp.status_code == 200:
+                    private_data = resp.json()
+                    if private_data.get("success"):
+                        for pv in private_data.get("versions", []):
+                            pv_name = pv.get("browser_version")
+                            if not pv_name or pv_name == "Unknown":
+                                pv_name = pv.get("bas_version")
+                            if not pv_name:
+                                pv_name = "Unknown"
+                                
+                            versions.append({
+                                "name": pv_name,
+                                "browser_version": pv.get("browser_version", pv_name),
+                                "bas_version": pv.get("bas_version", ""),
+                                "downloaded": False,
+                                "download_url": pv.get("download_url"),
+                                "local_url": pv.get("local_url"),
+                                "bablosoft_url": pv.get("bablosoft_url"),
+                                "is_private": True,
+                                "path": "-"
+                            })
+                    else:
+                        api_error = private_data.get("message", "API returned success=false")
                 else:
-                    api_error = private_data.get("message", "API returned success=false")
-            else:
-                api_error = f"API returned status {resp.status_code}"
-        except ImportError:
-            api_error = "Python 'requests' module not installed. Run: pip install requests"
-            print(f"[PrivateAPI] {api_error}")
+                    api_error = f"API returned status {resp.status_code}"
+            except ImportError:
+                api_error = "Python 'requests' module not installed. Run: pip install requests"
+                print(f"[PrivateAPI] {api_error}")
+            except Exception as e:
+                api_error = f"API connection error: {str(e)}"
+                print(f"[PrivateAPI] Error: {e}")
+
+            # 2. Add local fallback versions if they are not in the list
+            fallback_versions = [
+                {"bas_version": "30.0.0", "browser_version": "147.0.7727.56",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.0.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.9.2", "browser_version": "146.0.7680.80",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.9.2/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.8.1/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.7.0", "browser_version": "144.0.7559.60",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.7.0/FastExecuteScript.x64.zip"},
+                {"bas_version": "29.5.0", "browser_version": "142.0.7444.60",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
+            ]
+            
+            existing_bas_versions = set(v.get("bas_version") for v in versions)
+            for fv in fallback_versions:
+                if fv["bas_version"] not in existing_bas_versions:
+                    versions.append({
+                        "name": fv["browser_version"],
+                        "browser_version": fv["browser_version"],
+                        "bas_version": fv["bas_version"],
+                        "downloaded": False,
+                        "download_url": fv["download_url"],
+                        "is_private": False,
+                        "is_fallback": True,
+                        "path": "-"
+                    })
+
+            # 3. Check local install status — data/script/{bas_version}/
+            # plugin.setWorkingFolder(__dirname) in open.js makes plugin look here
+            for v in versions:
+                bas_ver = v.get("bas_version", "")
+                if not bas_ver:
+                    continue
+                
+                script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
+                is_installed = os.path.isdir(script_dir) and os.path.isfile(
+                    os.path.join(script_dir, "FastExecuteScript.exe")
+                )
+                
+                v["downloaded"] = is_installed
+                v["path"] = script_dir if is_installed else "-"
+            
+            # Sort: newest first
+            versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
+            
+            result = {"success": True, "versions": versions}
+            if api_error and not any(v.get("is_private") for v in versions):
+                result["warning"] = api_error
+            return result
+                
         except Exception as e:
-            api_error = f"API connection error: {str(e)}"
-            print(f"[PrivateAPI] Error: {e}")
+            import traceback
+            traceback.print_exc()
+            return {"success": False, "status": "error", "message": str(e), "error": str(e)}
 
-        # 2. Add local fallback versions if they are not in the list
-        fallback_versions = [
-            {"bas_version": "30.0.0", "browser_version": "147.0.7727.56",
-             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.0.0/FastExecuteScript.x64.zip"},
-            {"bas_version": "29.9.2", "browser_version": "146.0.7680.80",
-             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.9.2/FastExecuteScript.x64.zip"},
-            {"bas_version": "29.8.1", "browser_version": "145.0.7632.46",
-             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.8.1/FastExecuteScript.x64.zip"},
-            {"bas_version": "29.7.0", "browser_version": "144.0.7559.60",
-             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.7.0/FastExecuteScript.x64.zip"},
-            {"bas_version": "29.5.0", "browser_version": "142.0.7444.60",
-             "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
-        ]
-        
-        existing_bas_versions = set(v.get("bas_version") for v in versions)
-        for fv in fallback_versions:
-            if fv["bas_version"] not in existing_bas_versions:
-                versions.append({
-                    "name": fv["browser_version"],
-                    "browser_version": fv["browser_version"],
-                    "bas_version": fv["bas_version"],
-                    "downloaded": False,
-                    "download_url": fv["download_url"],
-                    "is_private": False,
-                    "is_fallback": True,
-                    "path": "-"
-                })
-
-        # 3. Check local install status — data/script/{bas_version}/
-        # plugin.setWorkingFolder(__dirname) in open.js makes plugin look here
-        for v in versions:
-            bas_ver = v.get("bas_version", "")
-            if not bas_ver:
-                continue
-            
-            script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
-            is_installed = os.path.isdir(script_dir) and os.path.isfile(
-                os.path.join(script_dir, "FastExecuteScript.exe")
-            )
-            
-            v["downloaded"] = is_installed
-            v["path"] = script_dir if is_installed else "-"
-        
-        # Sort: newest first
-        versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
-        
-        result = {"success": True, "versions": versions}
-        if api_error and not any(v.get("is_private") for v in versions):
-            result["warning"] = api_error
-        return result
-            
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return {"success": False, "status": "error", "message": str(e), "error": str(e)}
+    return await asyncio.to_thread(_fetch)
 
 @router.post("/engine/download/{version}")
 async def api_download_engine(version: str, request: Request):
@@ -398,8 +405,10 @@ async def api_download_engine(version: str, request: Request):
         if error:
             data["error"] = error
         try:
-            with open(progress_file, "w") as f:
+            tmp_progress = progress_file + ".tmp"
+            with open(tmp_progress, "w") as f:
                 _json.dump(data, f, indent=2)
+            os.replace(tmp_progress, progress_file)
         except:
             pass
     
@@ -475,6 +484,9 @@ async def api_download_engine(version: str, request: Request):
                 return
         
         write_progress("error", 0, "All download servers failed")
+    
+    # Write initial progress immediately to prevent startup flicker
+    write_progress("downloading", 0, "Initializing download...")
     
     # Run download in background thread
     def run_bg():

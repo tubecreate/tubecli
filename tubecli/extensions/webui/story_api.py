@@ -84,6 +84,7 @@ async def list_ai_models():
     PROVIDER_LABELS = {
         "gemini": "Google Gemini", "chatgpt": "OpenAI", "claude": "Anthropic Claude",
         "grok": "xAI Grok", "deepseek": "DeepSeek", "openrouter": "OpenRouter",
+        "9router": "9Router",
     }
 
     cloud_keys = _load_cloud_keys()
@@ -101,6 +102,23 @@ async def list_ai_models():
         provider = PROVIDER_MAP.get(key_name, key_name)
         # Get models dynamically from KeyManager settings (or defaults)
         model_names = key_manager.get_models(key_name)
+        if key_name == "9router" and not model_names:
+            try:
+                import requests
+                active_key = key_manager.get_active_key("9router")
+                headers = {}
+                if active_key:
+                    headers["Authorization"] = f"Bearer {active_key}"
+                resp = requests.get("http://localhost:20128/v1/models", headers=headers, timeout=2)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, dict) and "data" in data:
+                        model_names = [m.get("id", m.get("name", "")) for m in data["data"] if isinstance(m, dict)]
+            except Exception:
+                pass
+            if not model_names:
+                model_names = ["deepseek-chat"]
+                
         if model_names:
             result["cloud"].append({
                 "provider": provider,
@@ -201,7 +219,7 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
     error_msg = ""
     
     from tubecli.extensions.cloud_api.extension import key_manager
-    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok", "deepseek": "deepseek", "openrouter": "openrouter"}
+    KEY_MAP = {"chatgpt": "openai", "gemini": "gemini", "claude": "claude", "grok": "grok", "deepseek": "deepseek", "openrouter": "openrouter", "9router": "9router"}
     km_provider = KEY_MAP.get(provider, provider)
 
     max_retries = 3
@@ -250,6 +268,9 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
                     error_msg = "Chưa cấu hình OpenRouter API key."
                     break
                 raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://openrouter.ai/api/v1")
+            elif provider == "9router":
+                if not model: model = "deepseek-chat"
+                raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url="http://localhost:20128/v1")
             else:
                 error_msg = f"Provider không hỗ trợ: {provider}"
                 break
