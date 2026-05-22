@@ -152,14 +152,22 @@ def generate_agent_json(name: str, description: str, provider: str, model: str, 
             raw = call_ollama(model, prompt)
         elif provider == "gemini":
             raw = call_gemini(model, current_key, prompt)
-        elif provider == "chatgpt":
+        elif provider == "chatgpt" or provider == "openai":
             raw = call_openai_compatible(model, current_key, prompt)
         elif provider == "grok":
             raw = call_openai_compatible(model, current_key, prompt, base_url="https://api.x.ai/v1")
         elif provider == "claude":
             raw = call_claude(model, current_key, prompt)
+        elif provider == "9router":
+            raw = call_openai_compatible(model, current_key or "9router", prompt, base_url="http://localhost:20128/v1")
         else:
-            raise ValueError(f"Unknown provider: {provider}")
+            from tubecli.extensions.cloud_api.extension import PROVIDERS
+            if provider in PROVIDERS:
+                p_info = PROVIDERS[provider]
+                p_url = p_info.get("base_url")
+                raw = call_openai_compatible(model, current_key or provider, prompt, base_url=p_url)
+            else:
+                raise ValueError(f"Unknown provider: {provider}")
 
         if raw.startswith("[QUOTA_ERROR]"):
             if not api_key and current_key:

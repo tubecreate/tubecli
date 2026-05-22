@@ -266,7 +266,7 @@ class KeyManager:
         self._load()
         result = []
         for prov_id, prov_info in PROVIDERS.items():
-            has_key = self.get_active_key(prov_id) is not None
+            has_key = self.get_active_key(prov_id) is not None or prov_info.get("local", False)
             result.append({
                 "id": prov_id,
                 "name": prov_info["name"],

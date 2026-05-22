@@ -189,6 +189,7 @@
           <option value="ollama">🤖 Ollama (Local)</option>
           <option value="chatgpt">🟢 ChatGPT</option>
           <option value="claude">🟠 Claude</option>
+          <option value="9router">🔀 9Router</option>
         </select>
       </div>
       <div style="flex:1;">
@@ -226,6 +227,7 @@
           <option value="ollama">🤖 Ollama</option>
           <option value="chatgpt">🟢 ChatGPT</option>
           <option value="claude">🟠 Claude</option>
+          <option value="9router">🔀 9Router</option>
         </select>
       </div>
       <div style="flex:1;">
@@ -1093,6 +1095,7 @@ function onAiProviderChange() {
     else if (p === 'ollama') m.value = 'qwen:latest';
     else if (p === 'chatgpt') m.value = 'gpt-4o-mini';
     else if (p === 'claude') m.value = 'claude-3-haiku-20240307';
+    else if (p === '9router') m.value = 'deepseek-chat';
 }
 
 async function submitAiGenerate() {
@@ -1205,6 +1208,7 @@ function onQtProviderChange() {
     else if (p === 'ollama') m.value = 'qwen:latest';
     else if (p === 'chatgpt') m.value = 'gpt-4o-mini';
     else if (p === 'claude') m.value = 'claude-3-haiku-20240307';
+    else if (p === '9router') m.value = 'deepseek-chat';
 }
 async function submitQuickTeam() {
     const desc = document.getElementById('qt-description').value.trim();

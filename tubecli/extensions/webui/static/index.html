@@ -397,10 +397,21 @@
                     <div class="settings-field">
                         <div style="display:flex; gap: 8px; margin-bottom: 16px; align-items:center;">
                             <input id="set-ext-group-name" type="text" class="input" placeholder="New Group Name (e.g. Media Providers)" style="flex:1;">
-                            <input id="set-ext-group-icon" type="text" class="input" placeholder="Icon (e.g. folder)" style="width:120px;">
-                            <a href="https://fonts.google.com/icons?icon.set=Material+Symbols" target="_blank" title="Material Symbols List" style="color:var(--text-muted); text-decoration:none; display:flex; align-items:center;">
-                                <span class="material-symbols-outlined" style="font-size:20px;">help</span>
-                            </a>
+                            <div style="position:relative;">
+                                <input id="set-ext-group-icon" type="text" class="input" placeholder="Icon" autocomplete="off"
+                                    style="width:120px; padding-right:30px; cursor:pointer;"
+                                    onclick="toggleIconPicker()" readonly>
+                                <span class="material-symbols-outlined"
+                                    style="position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:18px; color:var(--text-muted); pointer-events:none;">
+                                    expand_more
+                                </span>
+                                <div id="icon-picker-dropdown" style="display:none; position:absolute; top:calc(100% + 4px); left:0; z-index:9999;
+                                    background:var(--card-bg); border:1px solid var(--border); border-radius:12px;
+                                    padding:8px; width:240px; box-shadow:0 8px 24px rgba(0,0,0,0.5);
+                                    max-height:260px; overflow-y:auto; overflow-x:hidden;">
+                                    <div style="display:grid; grid-template-columns:repeat(5,1fr); gap:2px;" id="icon-picker-grid"></div>
+                                </div>
+                            </div>
                             <button class="btn-primary" onclick="createExtensionGroup()">+ Add Group</button>
                         </div>
                         <div id="settings-ext-groups-list" style="display:flex; flex-direction:column; gap: 12px;">

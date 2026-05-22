@@ -113,7 +113,7 @@ def get_profile(name: str) -> Optional[Dict[str, Any]]:
                     # Try to read via sqlite3 (works when browser is closed)
                     try:
                         import sqlite3
-                        conn = sqlite3.connect(chrome_cookie_db, timeout=1)
+                        conn = sqlite3.connect(chrome_cookie_db, timeout=0.05)
                         count = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
                         conn.close()
                         if count > 0:

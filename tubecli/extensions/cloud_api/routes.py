@@ -131,8 +131,13 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
 async def api_9router_status():
     """Check if 9Router is running and get its models."""
     import requests as _req
+    from tubecli.extensions.cloud_api.extension import key_manager
     try:
-        resp = _req.get("http://localhost:20128/v1/models", timeout=3)
+        key = key_manager.get_active_key("9router")
+        headers = {}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+        resp = _req.get("http://localhost:20128/v1/models", headers=headers, timeout=3)
         if resp.status_code == 200:
             data = resp.json()
             models = []

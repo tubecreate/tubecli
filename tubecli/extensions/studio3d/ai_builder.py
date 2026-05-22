@@ -72,12 +72,20 @@ def generate_studio_json(prompt: str, team_agents: List[Dict], room_width: float
         raw = call_ollama(model, ai_prompt)
     elif provider == "gemini":
         raw = call_gemini(model, current_key, ai_prompt)
-    elif provider == "chatgpt":
+    elif provider == "chatgpt" or provider == "openai":
         raw = call_openai_compatible(model, current_key, ai_prompt)
     elif provider == "claude":
         raw = call_claude(model, current_key, ai_prompt)
+    elif provider == "9router":
+        raw = call_openai_compatible(model, current_key or "9router", ai_prompt, base_url="http://localhost:20128/v1")
     else:
-        raise ValueError(f"Unknown AI provider: {provider}")
+        from tubecli.extensions.cloud_api.extension import PROVIDERS
+        if provider in PROVIDERS:
+            p_info = PROVIDERS[provider]
+            p_url = p_info.get("base_url")
+            raw = call_openai_compatible(model, current_key or provider, ai_prompt, base_url=p_url)
+        else:
+            raise ValueError(f"Unknown AI provider: {provider}")
 
     if raw.startswith("[ERROR]") or raw.startswith("[QUOTA_ERROR]"):
         raise RuntimeError(raw)
@@ -139,12 +147,20 @@ def generate_quick_team(description: str, provider: str, model: str) -> dict:
         raw = call_ollama(model, full_prompt)
     elif provider == "gemini":
         raw = call_gemini(model, current_key, full_prompt)
-    elif provider == "chatgpt":
+    elif provider == "chatgpt" or provider == "openai":
         raw = call_openai_compatible(model, current_key, full_prompt)
     elif provider == "claude":
         raw = call_claude(model, current_key, full_prompt)
+    elif provider == "9router":
+        raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url="http://localhost:20128/v1")
     else:
-        raise ValueError(f"Unknown AI provider: {provider}")
+        from tubecli.extensions.cloud_api.extension import PROVIDERS
+        if provider in PROVIDERS:
+            p_info = PROVIDERS[provider]
+            p_url = p_info.get("base_url")
+            raw = call_openai_compatible(model, current_key or provider, full_prompt, base_url=p_url)
+        else:
+            raise ValueError(f"Unknown AI provider: {provider}")
 
     if raw.startswith("[ERROR]") or raw.startswith("[QUOTA_ERROR]"):
         raise RuntimeError(raw)

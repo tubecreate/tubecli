@@ -479,3 +479,16 @@ body.dragging-active .ext-group-card * {
     pointer-events: none !important;
 }
 
+/* Icon Picker */
+.icon-picker-item:hover {
+    background: var(--bg-hover) !important;
+    border-color: var(--border) !important;
+}
+.icon-picker-item:hover .material-symbols-outlined {
+    color: var(--primary) !important;
+}
+.icon-picker-item:active {
+    transform: scale(0.9);
+}
+#icon-picker-dropdown::-webkit-scrollbar { width: 4px; }
+#icon-picker-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }

@@ -3899,6 +3899,104 @@ function openExtGroupDropdown(groupId, btnEl) {
     menu.classList.add('open');
 }
 
+// ═══ Icon Picker for Extension Groups ═══
+const ICON_PICKER_LIST = [
+    { icon: 'folder', label: 'Folder' },
+    { icon: 'folder_special', label: 'Special' },
+    { icon: 'computer', label: 'Computer' },
+    { icon: 'smart_toy', label: 'Robot' },
+    { icon: 'movie', label: 'Movie' },
+    { icon: 'videocam', label: 'Video' },
+    { icon: 'music_note', label: 'Music' },
+    { icon: 'brush', label: 'Design' },
+    { icon: 'code', label: 'Code' },
+    { icon: 'terminal', label: 'Terminal' },
+    { icon: 'language', label: 'Language' },
+    { icon: 'public', label: 'Web' },
+    { icon: 'cloud', label: 'Cloud' },
+    { icon: 'storage', label: 'Storage' },
+    { icon: 'analytics', label: 'Analytics' },
+    { icon: 'monitoring', label: 'Monitor' },
+    { icon: 'build', label: 'Tools' },
+    { icon: 'settings', label: 'Settings' },
+    { icon: 'extension', label: 'Extension' },
+    { icon: 'widgets', label: 'Widgets' },
+    { icon: 'image', label: 'Image' },
+    { icon: 'photo_camera', label: 'Camera' },
+    { icon: 'mic', label: 'Mic' },
+    { icon: 'headphones', label: 'Audio' },
+    { icon: 'download', label: 'Download' },
+    { icon: 'upload', label: 'Upload' },
+    { icon: 'schedule', label: 'Schedule' },
+    { icon: 'notifications', label: 'Notify' },
+    { icon: 'mail', label: 'Mail' },
+    { icon: 'chat', label: 'Chat' },
+    { icon: 'group', label: 'Team' },
+    { icon: 'person', label: 'Person' },
+    { icon: 'shopping_cart', label: 'Shop' },
+    { icon: 'attach_money', label: 'Money' },
+    { icon: 'trending_up', label: 'Trending' },
+    { icon: 'auto_awesome', label: 'AI Magic' },
+    { icon: 'psychology', label: 'Brain' },
+    { icon: 'school', label: 'Learn' },
+    { icon: 'science', label: 'Science' },
+    { icon: 'biotech', label: 'Biotech' },
+    { icon: 'security', label: 'Security' },
+    { icon: 'vpn_key', label: 'Key' },
+    { icon: 'palette', label: 'Palette' },
+    { icon: 'sports_esports', label: 'Game' },
+    { icon: 'rocket_launch', label: 'Rocket' },
+    { icon: 'travel_explore', label: 'Explore' },
+    { icon: 'hub', label: 'Hub' },
+    { icon: 'dns', label: 'Server' },
+];
+
+let _iconPickerInit = false;
+
+function toggleIconPicker() {
+    const dropdown = document.getElementById('icon-picker-dropdown');
+    if (!dropdown) return;
+
+    if (!_iconPickerInit) {
+        const grid = document.getElementById('icon-picker-grid');
+        if (grid) {
+            grid.innerHTML = ICON_PICKER_LIST.map(item => `
+                <div class="icon-picker-item" title="${item.label}"
+                    onclick="selectGroupIcon('${item.icon}')"
+                    style="display:flex; align-items:center; justify-content:center;
+                        padding:8px; border-radius:8px; cursor:pointer; transition:all 0.15s ease;
+                        border:1px solid transparent;">
+                    <span class="material-symbols-outlined" style="font-size:22px; color:var(--text-secondary)">${item.icon}</span>
+                </div>
+            `).join('');
+        }
+        _iconPickerInit = true;
+    }
+
+    const isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
+
+    if (!isOpen) {
+        // Close when clicking outside
+        setTimeout(() => {
+            function closeHandler(e) {
+                if (!dropdown.contains(e.target) && e.target.id !== 'set-ext-group-icon') {
+                    dropdown.style.display = 'none';
+                    document.removeEventListener('click', closeHandler);
+                }
+            }
+            document.addEventListener('click', closeHandler);
+        }, 10);
+    }
+}
+
+function selectGroupIcon(iconName) {
+    const input = document.getElementById('set-ext-group-icon');
+    if (input) input.value = iconName;
+    const dropdown = document.getElementById('icon-picker-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+
 function createExtensionGroup() {
     const name = document.getElementById('set-ext-group-name').value.trim();
     const icon = document.getElementById('set-ext-group-icon').value.trim();

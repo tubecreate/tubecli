@@ -1275,7 +1275,7 @@ const WF = (() => {
     }
 
     // Cloud providers from cloud_api extension
-    const provIcons = { gemini: '🔷', openai: '🟢', chatgpt: '🟢', claude: '🟠', grok: '⚡', deepseek: '🔵' };
+    const provIcons = { gemini: '🔷', openai: '🟢', chatgpt: '🟢', claude: '🟠', grok: '⚡', deepseek: '🔵', '9router': '🔀' };
     for (const p of info.cloudProviders) {
       const icon = provIcons[p.id] || '☁️';
       const models = (p.models || []).join(',');
@@ -1306,7 +1306,21 @@ const WF = (() => {
     const models = (opt?.getAttribute('data-models') || '').split(',').filter(Boolean);
 
     // Set model from provider's configured models (first model) or keep current
-    if (models.length > 0) {
+    if (provider === '9router') {
+      $model.value = 'deepseek-chat';
+      $model.placeholder = 'deepseek-chat';
+      // Attempt to load live models from local proxy in background
+      fetch('/api/v1/cloud-api/9router/status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'running' && data.models && data.models.length > 0) {
+            $model.placeholder = data.models.join(', ');
+            if ($model.value === 'deepseek-chat') {
+              $model.value = data.models[0];
+            }
+          }
+        }).catch(err => console.log('9Router status check failed:', err));
+    } else if (models.length > 0) {
       $model.value = models[0];
       $model.placeholder = models.join(', ');
     } else {

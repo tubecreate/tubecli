@@ -133,6 +133,7 @@ class BrowserProcessManager:
                 cwd=launcher_dir,
                 stdout=log_file,
                 stderr=log_file,
+                shell=True,
             )
 
             debug_info["pid"] = process.pid
