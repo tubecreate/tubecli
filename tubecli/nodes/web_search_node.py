@@ -5,6 +5,7 @@ from typing import Dict, Any, List
 from tubecli.nodes.base_node import BaseNode, PortType
 import requests
 import re
+import os
 import concurrent.futures
 import time
 
@@ -56,15 +57,44 @@ class WebSearchNode(BaseNode):
                 "status": f"❌ Error: {e}",
             }
 
+    def _tavily_search(self, query: str, num_results: int = 6) -> list:
+        """Search using Tavily API. Requires TAVILY_API_KEY env var."""
+        from tavily import TavilyClient
+
+        client = TavilyClient()
+        response = client.search(
+            query=query,
+            max_results=num_results,
+            search_depth="basic",
+            topic="general",
+        )
+        results = []
+        for r in response.get("results", []):
+            results.append({
+                "title": r.get("title", ""),
+                "snippet": r.get("content", ""),
+                "link": r.get("url", ""),
+            })
+        return results
+
     def _fast_search(self, query: str, num_results: int = 6) -> str:
         """Fast search: try DuckDuckGo first (most reliable), then Google fallback.
         Uses short timeouts to avoid blocking."""
-        
+
+        # If Tavily is configured, use it as the search provider
+        if os.environ.get("TAVILY_API_KEY") and self.config.get("provider") == "tavily":
+            try:
+                results = self._tavily_search(query, num_results)
+                if results:
+                    return self._format_results(query, results, num_results)
+            except Exception as e:
+                print(f"  [WebSearch] Tavily failed: {e}, falling back to default chain")
+
         # Strategy: DuckDuckGo HTML is the most reliable for programmatic access
         # Google often returns CAPTCHAs or blocks bot requests
-        
+
         results = []
-        
+
         # 1. Try DuckDuckGo first (fast, reliable, no CAPTCHA)
         try:
             results = self._duckduckgo_search(query)
@@ -88,7 +118,10 @@ class WebSearchNode(BaseNode):
         if not results:
             return ""
 
-        # Format results as readable text
+        return self._format_results(query, results, num_results)
+
+    def _format_results(self, query: str, results: list, num_results: int = 6) -> str:
+        """Format search results as readable text."""
         lines = [f"🔍 Kết quả tìm kiếm: \"{query}\"\n"]
         for i, r in enumerate(results[:num_results], 1):
             title = r.get("title", "No title")
