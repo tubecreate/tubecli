@@ -387,7 +387,6 @@ $batPath = Join-Path $targetDir "TubeCLI.bat"
 $batContent = @"
 @echo off
 setlocal enabledelayedexpansion
-chcp 65001 >nul 2>nul
 
 REM === Check if TubeCLI is already running (by checking API port) ===
 set ALREADY_RUNNING=0
@@ -397,16 +396,16 @@ if !ERRORLEVEL! EQU 0 set ALREADY_RUNNING=1
 if !ALREADY_RUNNING! EQU 1 (
     cls
     echo.
-    echo  ╔══════════════════════════════════════════════╗
-    echo  ║       TubeCLI - Already Running              ║
-    echo  ╠══════════════════════════════════════════════╣
-    echo  ║                                              ║
-    echo  ║   1. Open Dashboard                          ║
-    echo  ║   2. Restart TubeCLI                         ║
-    echo  ║   3. Shut down TubeCLI                       ║
-    echo  ║   0. Exit                                    ║
-    echo  ║                                              ║
-    echo  ╚══════════════════════════════════════════════╝
+    echo  ==================================================
+    echo             TubeCLI - Already Running
+    echo  ==================================================
+    echo.
+    echo    1. Open Dashboard
+    echo    2. Restart TubeCLI
+    echo    3. Shut down TubeCLI
+    echo    0. Exit
+    echo.
+    echo  ==================================================
     echo.
     set /p opt="  Select an option: "
     
