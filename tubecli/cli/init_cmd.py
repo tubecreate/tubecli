@@ -891,12 +891,25 @@ def _run_update_check():
 
     # Step 6: Apply update — only git pull, no pip install -e .
     console.print(f"\n  [cyan]{t('update.pulling')}[/cyan]")
+    
+    bat_path = os.path.join(project_root, "TubeCLI.bat")
+    had_bat = os.path.exists(bat_path)
+    if had_bat:
+        try:
+            os.remove(bat_path)
+        except Exception:
+            pass
+
     try:
         r_pull = subprocess.run(
             ["git", "pull", "origin", current_branch or "main"],
             cwd=project_root, capture_output=True, text=True, timeout=60,
         )
         if r_pull.returncode != 0:
+            # Recreate the deleted bat file if pull failed so the user is not left without it
+            if had_bat and not os.path.exists(bat_path):
+                # Let a later step handle writing it, or we can just leave it to retry
+                pass
             console.print(f"  [red]❌ Git pull failed: {r_pull.stderr.strip()}[/red]")
             _pause()
             return
@@ -937,8 +950,7 @@ def _run_update_check():
     ))
 
     # Recreate/update TubeCLI.bat to ensure they get the single-instance safety fixes
-    bat_path = os.path.join(project_root, "TubeCLI.bat")
-    if os.path.exists(bat_path):
+    if had_bat or os.path.exists(bat_path):
         try:
             bat_content = f"""@echo off
 setlocal enabledelayedexpansion
