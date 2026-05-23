@@ -1042,7 +1042,19 @@ pause
         os.chdir(project_root)
     except Exception:
         pass
-    os.execve(sys.executable, [sys.executable, "-m", "tubecli.main", "init"], os.environ)
+
+    from tubecli.config import get_language
+    cur_lang = get_language()
+    args = [sys.executable, "-m", "tubecli.main", "init", "--lang", cur_lang]
+
+    if os.name == "nt":
+        import subprocess
+        # On Windows, os.execve terminates the parent, causing CMD to regain stdin control.
+        # Using subprocess.run blocks the parent until the new process exits, ensuring a clean restart.
+        subprocess.run(args, env=os.environ)
+        sys.exit(0)
+    else:
+        os.execve(sys.executable, args, os.environ)
 
 
 def _install_missing_deps(project_root: str, python_exe: str):
