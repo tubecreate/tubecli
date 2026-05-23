@@ -1048,10 +1048,11 @@ pause
     args = [sys.executable, "-m", "tubecli.main", "init", "--lang", cur_lang]
 
     if os.name == "nt":
-        import subprocess
         # On Windows, os.execve terminates the parent, causing CMD to regain stdin control.
-        # Using subprocess.run blocks the parent until the new process exits, ensuring a clean restart.
-        subprocess.run(args, env=os.environ)
+        # subprocess.run can inherit modified console modes (raw/no-echo) from rich/click.
+        # os.system runs via cmd.exe, resetting the console mode and ensuring stdin works perfectly.
+        cmd_str = f'"{sys.executable}" -m tubecli.main init --lang {cur_lang}'
+        os.system(cmd_str)
         sys.exit(0)
     else:
         os.execve(sys.executable, args, os.environ)
