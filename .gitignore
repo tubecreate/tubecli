@@ -20,7 +20,7 @@ test_fingerprint*.json
 test_*.py
 open_head.js
 
-# Large binaries / AI models
+# Large binaries / AI models / media / databases
 *.mp4
 *.avi
 *.mkv
@@ -28,6 +28,9 @@ open_head.js
 *.pth
 *.onnx
 *.bin
+*.db
+*.mp3
+*.wav
 
 # === BROWSER RUNTIME DATA (không cần push lên git) ===
 tubecli/extensions/browser/profiles/
