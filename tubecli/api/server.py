@@ -47,6 +47,10 @@ async def startup_event():
     from tubecli.core.telegram_listener import telegram_listener
     telegram_listener.start()
 
+    # Pre-fetch Core update in background once on server startup
+    import asyncio
+    asyncio.create_task(check_for_updates())
+
     # Start PageWatcher scheduler (if web_crawler extension has watches)
     try:
         import sys

@@ -534,29 +534,6 @@ def _run_control_panel():
     _start_api(quiet=True)
     console.print(t("panel.api_started"))
 
-    # Auto-open browser on clean first launch (not in-place restarted)
-    if not os.environ.get("TUBECLI_RESTARTED"):
-        import threading
-        def _wait_and_open_browser():
-            import time
-            import requests
-            import webbrowser
-            api_ready = False
-            for _ in range(30):  # Wait up to 15 seconds
-                try:
-                    resp = requests.get(f"http://localhost:{port}/api/v1/health", timeout=1)
-                    if resp.status_code == 200:
-                        api_ready = True
-                        break
-                except Exception:
-                    pass
-                time.sleep(0.5)
-            if api_ready:
-                try:
-                    webbrowser.open(f"http://localhost:{port}/dashboard")
-                except Exception:
-                    pass
-        threading.Thread(target=_wait_and_open_browser, daemon=True).start()
 
     import time
 

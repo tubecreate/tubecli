@@ -889,12 +889,15 @@
         fetch('/api/v1/version/check').then(r=>r.json()).then(u=>{
             if(u.has_update) {
                 var skipped = localStorage.getItem('skipped_version');
-                if (skipped !== u.remote_version) {
+                var notified = sessionStorage.getItem('tubecli_update_notified');
+                if (skipped !== u.remote_version && !notified) {
                     window._latestRemoteVersion = u.remote_version;
                     var su = document.getElementById('sidebar-update');
                     var ut = document.getElementById('update-text');
                     if(su) su.style.display = 'flex';
                     if(ut) ut.textContent = 'TubeCLI v' + u.remote_version;
+                    // Mark as notified so it only displays exactly once per browser session
+                    sessionStorage.setItem('tubecli_update_notified', 'true');
                 }
             }
         }).catch(()=>{});
