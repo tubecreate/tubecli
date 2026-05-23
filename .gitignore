@@ -15,6 +15,9 @@ node_modules/
 .env
 *.zip
 
+# Local launchers (avoid pushing to git / antivirus false positives)
+TubeCLI.bat
+
 # Test/debug files rác
 test_fingerprint*.json
 test_*.py
