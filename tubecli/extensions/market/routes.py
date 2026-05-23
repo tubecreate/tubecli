@@ -382,8 +382,12 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
     import os
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
 
+    def _normalize_name(n: str) -> str:
+        return (n or "").replace(" ", "").replace("_", "").replace("-", "").lower()
+
     install_id = _make_install_id(name, public_id)
     name_clean = name.replace(" ", "_").lower()
+    name_norm = _normalize_name(name)
     installed = False
     install_path = ""
     local_version = "0.0.0"
@@ -402,19 +406,24 @@ def _check_item_installed(public_id: str, name: str, category: str) -> dict:
                     candidate = os.path.join(ext_base, entry)
                     if not os.path.isdir(candidate):
                         continue
-                    # Match by folder name prefix (e.g. video_editor__xxx)
-                    if entry == name_clean or entry.startswith(name_clean + "__"):
+                    
+                    # 1. Match by normalized folder name prefix
+                    entry_norm = _normalize_name(entry)
+                    if entry_norm == name_norm or entry_norm.startswith(name_norm + "__") or name_norm.startswith(entry_norm + "__"):
                         installed = True
                         install_path = candidate
                         break
-                    # Also check manifest name
+                    
+                    # 2. Also check manifest name & display name for ultimate compatibility
                     manifest_file = os.path.join(candidate, "tubecli-extension.json")
                     if os.path.exists(manifest_file):
                         try:
                             import json as _json
                             with open(manifest_file, "r", encoding="utf-8-sig") as f:
                                 m = _json.load(f)
-                            if m.get("name", "").replace(" ", "_").lower() == name_clean:
+                            m_name_norm = _normalize_name(m.get("name"))
+                            m_display_norm = _normalize_name(m.get("display_name"))
+                            if m_name_norm == name_norm or m_display_norm == name_norm:
                                 installed = True
                                 install_path = candidate
                                 break

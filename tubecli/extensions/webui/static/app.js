@@ -15,7 +15,8 @@ const ROUTE_TAB_MAP = {
     'ext-web-crawler': 'ext-web-crawler',
     'ext-sheets': 'ext-sheets',
     'ext-calendar': 'ext-calendar',
-    'ext-downloader': 'ext-downloader',
+    'ext-douyin-downloader': 'ext-douyin-downloader',
+    'ext-douyin_downloader': 'ext-douyin-downloader',
     'ext-livestream': 'ext-livestream',
     'ext-teams': 'ext-teams',
     'ext-story': 'ext-story',
@@ -302,7 +303,7 @@ const EXT_REGISTRY = [
     { id:'cloud_api',          tab:'ext-cloud-keys',         icon:'cloud',          name:'dash.cloud_api_keys', type:'extension' },
     { id:'ollama',             tab:'ext-ollama',             icon:'🧠',             name:'Ollama Manager',      type:'extension' },
     { id:'multi_agents',       tab:'ext-teams',              icon:'groups',         name:'Teams AI',            type:'extension' },
-    { id:'video_downloader',   tab:'ext-video-downloader',   icon:'download',       name:'Video Downloader',    type:'extension' },
+    { id:'douyin_downloader',  tab:'ext-douyin-downloader',  icon:'download',       name:'Douyin Downloader',   type:'extension' },
     { id:'video_editor',       tab:'ext-video-editor',       icon:'video_settings', name:'Video Editor',        type:'extension' },
     { id:'video_manager',      tab:'ext-video-manager',      icon:'video_library',  name:'Video Manager',       type:'extension' },
     { id:'subtitle_extractor', tab:'ext-subtitle-extractor', icon:'subtitles',      name:'Subtitle Extractor',  type:'extension' },
@@ -934,7 +935,8 @@ function openExtDetail(id) {
         'web_crawler': 'ext-web-crawler',
         'sheets_manager': 'ext-sheets',
         'calendar_manager': 'ext-calendar',
-        'video_downloader': 'ext-downloader',
+        'douyin_downloader': 'ext-douyin-downloader',
+        'video_downloader': 'ext-video-downloader',
         'multi_agents': 'ext-teams',
         'story_engine': 'ext-story',
         'video_editor': 'ext-video-editor',
@@ -3740,7 +3742,7 @@ async function renderExtensionGroupsSettings() {
             // Build custom dropdown items — only extensions visible in dynamic sidebar
             const hardcodedExtensions = [
                 'web_crawler', 'sheets_manager', 'calendar_manager',
-                'multi_agents', 'livestream', 'files', 'video_editor', 'video_downloader', 'video_manager', 'subtitle_extractor', 'ai_arena'
+                'multi_agents', 'livestream', 'files', 'video_editor', 'douyin_downloader', 'video_downloader', 'video_manager', 'subtitle_extractor', 'ai_arena'
             ];
             let dropdownItemsHtml = '';
             allAvailableExtensions.forEach(ext => {
