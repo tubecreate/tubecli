@@ -46,8 +46,17 @@ async def check_updates():
                 git_dir = os.path.join(local_path, ".git")
                 if os.path.exists(git_dir):
                     # 1. Dynamic git update check
-                    # Try git fetch
-                    subprocess.run(["git", "fetch", "origin"], cwd=local_path, capture_output=True, timeout=15)
+                    # Throttle git fetch to avoid blocking requests (throttle: 15 minutes)
+                    fetch_head = os.path.join(git_dir, "FETCH_HEAD")
+                    should_fetch = True
+                    if os.path.exists(fetch_head):
+                        import time
+                        last_fetch = os.path.getmtime(fetch_head)
+                        if time.time() - last_fetch < 900:
+                            should_fetch = False
+                    
+                    if should_fetch:
+                        subprocess.run(["git", "fetch", "origin"], cwd=local_path, capture_output=True, timeout=15)
                     branch = get_git_tracking_branch(local_path)
                     
                     # Count commits behind upstream

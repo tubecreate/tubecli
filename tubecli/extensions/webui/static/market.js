@@ -334,8 +334,18 @@ function createCard(item, installData) {
     const extName = (item.title || '').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
     const knownLogo = EXTENSION_FEATURES[extName] ? `/static/market_logos/${extName}_logo.png` : null;
     
-    const iconContent = item.thumbnail_url
-        ? `<img src="${escapeHtml(item.thumbnail_url)}" alt="icon" loading="lazy">`
+    let thumbUrl = item.thumbnail_url;
+    if (thumbUrl && thumbUrl.startsWith('/images/')) {
+        const imgName = thumbUrl.replace('/images/', '').replace('.png', '');
+        if (imgName === 'edu_studio' || imgName === 'pod_ad_studio') {
+            thumbUrl = '/static/market_logos/pod_studio_logo.png';
+        } else {
+            thumbUrl = `/static/market_logos/${imgName}_logo.png`;
+        }
+    }
+    
+    const iconContent = thumbUrl
+        ? `<img src="${escapeHtml(thumbUrl)}" alt="icon" loading="lazy">`
         : (knownLogo ? `<img src="${knownLogo}" alt="icon" loading="lazy">` : (icons[category] || '📦'));
 
     const featInfo = EXTENSION_FEATURES[extName] || { tagline: item.description || 'No description available', features: ['✨ New', '📦 ' + category] };
@@ -539,7 +549,7 @@ async function openDetailModal(publicId) {
     try {
         const [res, mediaRes] = await Promise.all([
             fetch(`${API}/items/${publicId}`),
-            fetch(`https://api.tubecreate.com/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
+            fetch(`https://tubecli.zeabur.app/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
         ]);
         
         const data = await res.json();
@@ -569,8 +579,18 @@ async function openDetailModal(publicId) {
         const categoryIcons = { extension: '🧩', node: '🔗', skill: '⚡', model3d: '🎨' };
         
         const knownLogo = EXTENSION_FEATURES[extSlug] ? `/static/market_logos/${extSlug}_logo.png` : null;
-        if (item.thumbnail_url || knownLogo) {
-            heroIcon.innerHTML = `<img src="${escapeHtml(item.thumbnail_url || knownLogo)}" alt="Logo" style="width:100%;height:100%;object-fit:cover;">`;
+        let thumbUrl = item.thumbnail_url;
+        if (thumbUrl && thumbUrl.startsWith('/images/')) {
+            const imgName = thumbUrl.replace('/images/', '').replace('.png', '');
+            if (imgName === 'edu_studio' || imgName === 'pod_ad_studio') {
+                thumbUrl = '/static/market_logos/pod_studio_logo.png';
+            } else {
+                thumbUrl = `/static/market_logos/${imgName}_logo.png`;
+            }
+        }
+        
+        if (thumbUrl || knownLogo) {
+            heroIcon.innerHTML = `<img src="${escapeHtml(thumbUrl || knownLogo)}" alt="Logo" style="width:100%;height:100%;object-fit:cover;">`;
         } else {
             heroIcon.textContent = categoryIcons[item.category] || '📦';
         }
@@ -1489,7 +1509,7 @@ async function submitUpload(e) {
                     
                     await new Promise((resolve, reject) => {
                         const xhr = new XMLHttpRequest();
-                        xhr.open('POST', 'https://api.tubecreate.com/api/market-cli/upload-media.php');
+                        xhr.open('POST', 'https://tubecli.zeabur.app/api/market-cli/upload-media.php');
                         
                         xhr.upload.onprogress = (evt) => {
                             if (evt.lengthComputable) {
@@ -1686,7 +1706,7 @@ function showToast(message, type = 'success') {
 
 // ── Auth System ──
 
-const AUTH_API = 'https://api.tubecreate.com/api/user';
+const AUTH_API = 'https://tubecli.zeabur.app/api/user';
 let marketIsRegisterMode = false;
 let pendingSellAction = false;
 

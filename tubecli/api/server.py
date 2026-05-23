@@ -371,9 +371,15 @@ async def perform_git_update():
     except Exception as e:
         return {"status": "error", "output": str(e)}
 
+VERSION_CHECK_CACHE = {"data": None}
+
 @app.get("/api/v1/version/check")
 async def check_for_updates():
-    """Check GitHub for newer version by reading pyproject.toml from main branch."""
+    """Check GitHub for newer version by reading pyproject.toml from main branch (checked once per server startup)."""
+    global VERSION_CHECK_CACHE
+    if VERSION_CHECK_CACHE["data"] is not None:
+        return VERSION_CHECK_CACHE["data"]
+
     import httpx, re
     from tubecli import __version__
     print(f"[VersionCheck] Local version: {__version__}")
@@ -383,7 +389,10 @@ async def check_for_updates():
             resp = await client.get(raw_url)
             if resp.status_code != 200:
                 print(f"[VersionCheck] GitHub returned {resp.status_code}")
-                return {"has_update": False, "error": f"GitHub returned {resp.status_code}"}
+                res = {"has_update": False, "error": f"GitHub returned {resp.status_code}"}
+                VERSION_CHECK_CACHE["data"] = res
+                VERSION_CHECK_CACHE["last_check"] = now
+                return res
             text = resp.text
             # Match version specifically under [project] section to avoid false matches
             m = re.search(r'^\[project\].*?^version\s*=\s*"([^"]+)"', text, re.MULTILINE | re.DOTALL)
@@ -392,7 +401,10 @@ async def check_for_updates():
                 m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
             if not m:
                 print("[VersionCheck] Could not parse version from GitHub pyproject.toml")
-                return {"has_update": False, "error": "Could not parse version"}
+                res = {"has_update": False, "error": "Could not parse version"}
+                VERSION_CHECK_CACHE["data"] = res
+                VERSION_CHECK_CACHE["last_check"] = now
+                return res
             remote_version = m.group(1)
             print(f"[VersionCheck] Remote version: {remote_version}")
             # Version comparison (supports N-part dotted versions like 2026.05.18.151200)
@@ -404,14 +416,20 @@ async def check_for_updates():
                 # Fallback string comparison if parts are non-numeric
                 has_update = remote_version != __version__
             print(f"[VersionCheck] has_update={has_update}")
-            return {
+            res = {
                 "has_update": has_update,
                 "current_version": __version__,
                 "remote_version": remote_version,
             }
+            VERSION_CHECK_CACHE["data"] = res
+            VERSION_CHECK_CACHE["last_check"] = now
+            return res
     except Exception as e:
         print(f"[VersionCheck] Error: {e}")
-        return {"has_update": False, "error": str(e)}
+        res = {"has_update": False, "error": str(e)}
+        VERSION_CHECK_CACHE["data"] = res
+        VERSION_CHECK_CACHE["last_check"] = now
+        return res
 
 
 # ── Agents ───────────────────────────────────────────────────────

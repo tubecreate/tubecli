@@ -15,7 +15,7 @@ export class BrowserManager {
         if (this.serviceKey) return this.serviceKey;
         try {
             console.log('Fetching service key from API...');
-            const response = await axios.get('https://api.tubecreate.com/api/fingerprints/key.php', { timeout: 10000 });
+            const response = await axios.get('https://tubecli.zeabur.app/api/fingerprints/key.php', { timeout: 10000 });
             if (response.data && response.data.status === 'success' && response.data.key) {
                 // Decode Base64 key
                 this.serviceKey = Buffer.from(response.data.key, 'base64').toString('utf8');
@@ -112,7 +112,7 @@ export class BrowserManager {
         const mappedTags = tags.map(t => tagMap[t] || t);
 
         // 2. Fetch via PHP API (key stays on server)
-        console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
+        console.log(`Fetching fingerprint via tubecli.zeabur.app [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
         let attempts = 0;
         let triedWithoutSize = false;
         while (attempts < 3) {
@@ -127,7 +127,7 @@ export class BrowserManager {
                     params.max_height = windowSize.height + 200;
                 }
                 
-                const resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { 
+                const resp = await axios.get('https://tubecli.zeabur.app/api/fingerprints/getfinger.php', { 
                     params,
                     timeout: 180000,
                     maxContentLength: 50 * 1024 * 1024,
@@ -143,7 +143,7 @@ export class BrowserManager {
                     } 
                     // Old format: download via file_path
                     else if (data.file_path) {
-                        const fpUrl = `https://api.tubecreate.com/${data.file_path}`;
+                        const fpUrl = `https://tubecli.zeabur.app/${data.file_path}`;
                         console.log(`Downloading fingerprint from API...`);
                         const fpResp = await axios.get(fpUrl, { timeout: 120000 });
                         fingerprint = fpResp.data;
