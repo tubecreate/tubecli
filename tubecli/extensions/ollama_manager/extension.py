@@ -17,8 +17,12 @@ class OllamaModelManager:
 
     def __init__(self, base_url: str = OLLAMA_BASE_URL):
         self.base_url = base_url.rstrip("/")
+        self._is_running_cached = None
+        self._last_running_check = 0
 
     def _get(self, path: str, timeout: int = 10) -> dict:
+        if not self.is_running():
+            return {"error": f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"}
         try:
             resp = requests.get(f"{self.base_url}{path}", timeout=timeout)
             resp.raise_for_status()
@@ -29,6 +33,8 @@ class OllamaModelManager:
             return {"error": str(e)}
 
     def _post(self, path: str, data: dict = None, timeout: int = 300) -> dict:
+        if not self.is_running():
+            return {"error": f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"}
         try:
             resp = requests.post(f"{self.base_url}{path}", json=data or {}, timeout=timeout)
             resp.raise_for_status()
@@ -39,6 +45,8 @@ class OllamaModelManager:
             return {"error": str(e)}
 
     def _delete(self, path: str, data: dict = None, timeout: int = 30) -> dict:
+        if not self.is_running():
+            return {"error": f"Cannot connect to Ollama at {self.base_url}. Is Ollama running?"}
         try:
             resp = requests.delete(f"{self.base_url}{path}", json=data or {}, timeout=timeout)
             resp.raise_for_status()
@@ -49,12 +57,21 @@ class OllamaModelManager:
             return {"error": str(e)}
 
     def is_running(self) -> bool:
-        """Check if Ollama server is running."""
+        """Check if Ollama server is running (cached for 10 seconds)."""
+        import time
+        now = time.time()
+        if self._is_running_cached is not None and (now - self._last_running_check < 10):
+            return self._is_running_cached
+
         try:
-            resp = requests.get(f"{self.base_url}/", timeout=3)
-            return resp.status_code == 200
+            resp = requests.get(f"{self.base_url}/", timeout=1.5)
+            running = resp.status_code == 200
         except Exception:
-            return False
+            running = False
+
+        self._is_running_cached = running
+        self._last_running_check = now
+        return running
 
     def list_models(self) -> dict:
         """List all locally available models."""

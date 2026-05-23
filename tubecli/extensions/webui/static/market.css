@@ -1102,3 +1102,34 @@ p { line-height: 1.6; }
 .upload-modal-body::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.18);
 }
+
+/* Tags Row & Pills */
+.vsx-tags-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 0 24px 16px;
+}
+.tag-pill {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    padding: 6px 14px;
+    border-radius: 100px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition);
+    user-select: none;
+}
+.tag-pill:hover {
+    border-color: var(--primary);
+    color: var(--text);
+    background: rgba(82, 118, 235, 0.08);
+}
+.tag-pill.active {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    box-shadow: var(--shadow-glow);
+}

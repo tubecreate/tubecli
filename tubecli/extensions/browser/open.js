@@ -869,7 +869,7 @@ async function main() {
       console.log('Fetching service key...');
       let serviceKey = '';
       try {
-        const keyResponse = await axios.get('https://api.tubecreate.com/api/fingerprints/key.php', { timeout: 10000 });
+        const keyResponse = await axios.get('https://tubecli.zeabur.app/api/fingerprints/key.php', { timeout: 10000 });
         if (keyResponse.data && keyResponse.data.status === 'success' && keyResponse.data.key) {
           // Decode Base64 key
           serviceKey = Buffer.from(keyResponse.data.key, 'base64').toString('utf8');
