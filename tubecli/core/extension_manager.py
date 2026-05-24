@@ -240,6 +240,12 @@ class Extension:
 
     def to_dict(self) -> dict:
         manifest = self._manifest or {}
+        if self.extension_dir:
+            git_dir = os.path.join(self.extension_dir, ".git")
+            if os.path.exists(git_dir):
+                git_ver = get_git_commit_version(self.extension_dir)
+                if git_ver:
+                    self.version = git_ver
         return {
             "name": self.name,
             "version": self.version,
