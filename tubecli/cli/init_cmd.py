@@ -38,15 +38,15 @@ def init_cmd(lang, port):
         from tubecli.config import set_api_port
         if set_api_port(port):
             os.environ["TUBECLI_PORT"] = str(port)
-            console.print(f"  [green]✅ API port set to [bold]{port}[/bold][/green]")
+            console.print(f"  [green]API port set to [bold]{port}[/bold][/green]")
         else:
-            console.print(f"  [red]❌ Failed to save port {port}[/red]")
+            console.print(f"  [red]Failed to save port {port}[/red]")
 
     # 0b. Language selection
     if lang is None:
         # Interactive prompt if --lang not provided
         lang = click.prompt(
-            "🌐 Choose language / 选择语言 / Chọn ngôn ngữ",
+            "Choose language / 选择语言 / Chọn ngôn ngữ",
             type=click.Choice(SUPPORTED_LANGUAGES),
             default=get_language(),
         )
@@ -79,7 +79,7 @@ def init_cmd(lang, port):
     from tubecli.core.specialists import register_builtin_specialists
     created_specialists = register_builtin_specialists()
     if created_specialists:
-        console.print(f"  [green]✅ Created {len(created_specialists)} specialist agents:[/green]")
+        console.print(f"  [green]Created {len(created_specialists)} specialist agents:[/green]")
         for name in created_specialists:
             console.print(f"    • {name}")
 
@@ -275,9 +275,9 @@ def _wizard_step_ai(t):
                                 for agent in agent_manager.get_all():
                                     agent_manager.update(agent.id, model=selected_model)
                                     
-                                console.print(f"[green]✅ Đã tự động đặt AI mặc định: [bold]{selected_model}[/bold] cho tất cả agents.[/green]")
+                                console.print(f"[green]Đã tự động đặt AI mặc định: [bold]{selected_model}[/bold] cho tất cả agents.[/green]")
                             except Exception as e:
-                                console.print(f"[red]❌ Lỗi khi lưu cấu hình: {e}[/red]")
+                                console.print(f"[red]Lỗi khi lưu cấu hình: {e}[/red]")
                         else:
                             console.print(t("panel.invalid_selection"))
                     except ValueError:
@@ -296,13 +296,13 @@ def _save_api_key(provider_id: str, key: str):
         from tubecli.extensions.cloud_api.extension import key_manager
         result = key_manager.add_key(provider_id, key)
         if result.get("status") == "success":
-            console.print(f"[green]✅ {provider_id.upper()} API Key {_t_safe('wizard.key_saved')}[/green]")
+            console.print(f"[green]{provider_id.upper()} API Key {_t_safe('wizard.key_saved')}[/green]")
             # Auto-set model on all agents
             _auto_set_agent_model(provider_id, key)
         else:
-            console.print(f"[red]❌ {result.get('message', 'Error')}[/red]")
+            console.print(f"[red]{result.get('message', 'Error')}[/red]")
     except Exception as e:
-        console.print(f"[red]❌ {e}[/red]")
+        console.print(f"[red]{e}[/red]")
 
 
 def _auto_set_agent_model(provider_id: str, key: str):
@@ -329,9 +329,9 @@ def _auto_set_agent_model(provider_id: str, key: str):
                 model=model,
                 cloud_api_keys=cloud_keys,
             )
-        console.print(f"[green]  🧠 Đã tự động đặt AI mặc định: [bold]{model}[/bold] cho tất cả agents.[/green]")
+        console.print(f"[green]  Đã tự động đặt AI mặc định: [bold]{model}[/bold] cho tất cả agents.[/green]")
     except Exception as e:
-        console.print(f"[yellow]  ⚠️ Không thể tự động cập nhật agent model: {e}[/yellow]")
+        console.print(f"[yellow]  Không thể tự động cập nhật agent model: {e}[/yellow]")
 
 
 def _t_safe(key):
@@ -385,16 +385,16 @@ def _wizard_step_telegram(t):
             bot_info = resp.json()["result"]
             bot_name = bot_info.get("first_name", "Bot")
             bot_username = bot_info.get("username", "")
-            console.print(f"[green]✅ {t('wizard.telegram_connected', name=bot_name, username=bot_username)}[/green]")
+            console.print(f"[green]{t('wizard.telegram_connected', name=bot_name, username=bot_username)}[/green]")
 
             # Save to global_settings.json
             _save_telegram_token(token)
 
-            console.print(f"\n  💡 {t('wizard.telegram_next_step', username=bot_username)}")
+            console.print(f"\n  {t('wizard.telegram_next_step', username=bot_username)}")
         else:
             console.print(t("wizard.telegram_invalid_token"))
     except Exception as e:
-        console.print(f"[red]❌ {t('wizard.telegram_test_fail')}: {e}[/red]")
+        console.print(f"[red]{t('wizard.telegram_test_fail')}: {e}[/red]")
 
 
 def _save_telegram_token(token: str):
@@ -421,26 +421,26 @@ def _wizard_step_summary(t):
     from tubecli.config import DATA_DIR, get_api_port
 
     # Check AI status
-    ai_status = "❌"
+    ai_status = ""
     try:
         from tubecli.extensions.cloud_api.extension import key_manager
         for prov in ["gemini", "openai", "claude", "deepseek"]:
             if key_manager.get_active_key(prov):
-                ai_status = f"✅ {prov.upper()}"
+                ai_status = f"{prov.upper()}"
                 break
     except Exception:
         pass
     # Check Ollama
-    if ai_status == "❌":
+    if ai_status == "":
         try:
             from tubecli.core.ollama_utils import is_ollama_installed
             if is_ollama_installed():
-                ai_status = "✅ Ollama"
+                ai_status = "Ollama"
         except Exception:
             pass
 
     # Check Telegram status
-    tg_status = "❌"
+    tg_status = ""
     tg_username = ""
     settings_path = DATA_DIR / "global_settings.json"
     if settings_path.exists():
@@ -453,15 +453,15 @@ def _wizard_step_summary(t):
                 resp = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
                 if resp.status_code == 200 and resp.json().get("ok"):
                     tg_username = resp.json()["result"].get("username", "")
-                    tg_status = f"✅ @{tg_username}"
+                    tg_status = f"@{tg_username}"
         except Exception:
-            tg_status = "✅ (configured)"
+            tg_status = "(configured)"
 
     port = get_api_port()
 
     summary = (
-        f"  🧠 AI Chat: {ai_status}\n"
-        f"  💬 Telegram: {tg_status}\n"
+        f"  AI Chat: {ai_status}\n"
+        f"  Telegram: {tg_status}\n"
         f"  🖥️  Dashboard: [cyan]http://localhost:{port}/dashboard[/cyan]\n"
     )
 
@@ -474,7 +474,7 @@ def _wizard_step_summary(t):
     ))
 
     if tg_username:
-        console.print(f"  💡 {t('wizard.summary_tip', username=tg_username)}")
+        console.print(f"  {t('wizard.summary_tip', username=tg_username)}")
     console.print()
 
 
@@ -760,15 +760,15 @@ def _run_update_check():
             cwd=project_root, capture_output=True, text=True, timeout=30,
         )
         if r_fetch.returncode != 0:
-            console.print(f"  [red]❌ {t('update.fetch_failed')}: {r_fetch.stderr.strip()}[/red]")
+            console.print(f"  [red]{t('update.fetch_failed')}: {r_fetch.stderr.strip()}[/red]")
             _pause()
             return
     except FileNotFoundError:
-        console.print(f"  [red]❌ Git is not installed or not in PATH.[/red]")
+        console.print(f"  [red]Git is not installed or not in PATH.[/red]")
         _pause()
         return
     except subprocess.TimeoutExpired:
-        console.print(f"  [red]❌ {t('update.fetch_timeout')}[/red]")
+        console.print(f"  [red]{t('update.fetch_timeout')}[/red]")
         _pause()
         return
 
@@ -815,7 +815,7 @@ def _run_update_check():
     console.print(f"  [bold]{t('update.remote_version')}[/bold] [green]{remote_version or '?'}[/green] ({latest_hash})")
 
     if commits_behind == 0:
-        console.print(f"\n  [bold green]✅ {t('update.up_to_date')}[/bold green]")
+        console.print(f"\n  [bold green]{t('update.up_to_date')}[/bold green]")
         _pause()
         return
 
@@ -839,7 +839,7 @@ def _run_update_check():
     other_files = [f for f in changed_files if f not in core_files + extension_files + doc_files]
 
     # Show changelog
-    console.print(f"\n  [bold yellow]⚡ {t('update.commits_behind', count=commits_behind)}[/bold yellow]")
+    console.print(f"\n  [bold yellow]{t('update.commits_behind', count=commits_behind)}[/bold yellow]")
 
     changelog = []
     try:
@@ -867,15 +867,15 @@ def _run_update_check():
     if core_files:
         console.print(f"    [green]🔧 {t('update.cat_core')}:[/green] {len(core_files)} files")
     if extension_files:
-        console.print(f"    [blue]🧩 {t('update.cat_extensions')}:[/blue] {len(extension_files)} files")
+        console.print(f"    [blue]{t('update.cat_extensions')}:[/blue] {len(extension_files)} files")
     if doc_files:
         console.print(f"    [dim]📄 {t('update.cat_docs')}:[/dim] {len(doc_files)} files")
     if deps_changed:
-        console.print(f"    [yellow]📦 {t('update.cat_deps')}[/yellow]")
+        console.print(f"    [yellow]{t('update.cat_deps')}[/yellow]")
     else:
-        console.print(f"    [green]📦 {t('update.cat_deps_no_change')}[/green]")
+        console.print(f"    [green]{t('update.cat_deps_no_change')}[/green]")
     if other_files:
-        console.print(f"    [dim]📁 {t('update.cat_other')}:[/dim] {len(other_files)} files")
+        console.print(f"    [dim]{t('update.cat_other')}:[/dim] {len(other_files)} files")
 
     # Step 5: Confirm update
     console.print()
@@ -910,12 +910,12 @@ def _run_update_check():
             if had_bat and not os.path.exists(bat_path):
                 # Let a later step handle writing it, or we can just leave it to retry
                 pass
-            console.print(f"  [red]❌ Git pull failed: {r_pull.stderr.strip()}[/red]")
+            console.print(f"  [red]Git pull failed: {r_pull.stderr.strip()}[/red]")
             _pause()
             return
-        console.print(f"  [green]✅ {t('update.pull_success')}[/green]")
+        console.print(f"  [green]{t('update.pull_success')}[/green]")
     except Exception as e:
-        console.print(f"  [red]❌ Git pull error: {e}[/red]")
+        console.print(f"  [red]Git pull error: {e}[/red]")
         _pause()
         return
 
@@ -925,7 +925,7 @@ def _run_update_check():
         # Read new requirements and compare with installed packages
         _install_missing_deps(project_root, sys.executable)
     else:
-        console.print(f"  [green]✅ {t('update.deps_skip')}[/green]")
+        console.print(f"  [green]{t('update.deps_skip')}[/green]")
 
     # Read new version
     new_version = ""
@@ -943,8 +943,8 @@ def _run_update_check():
     console.print(Panel(
         f"  {t('update.old_ver')}: [dim]{__version__}[/dim]\n"
         f"  {t('update.new_ver')}: [bold green]{new_version or 'updated'}[/bold green]\n\n"
-        f"  🔄 {t('update.auto_restart')}",
-        title=f"✅ {t('update.complete')}",
+        f"  {t('update.auto_restart')}",
+        title=f"{t('update.complete')}",
         border_style="bright_green",
         padding=(1, 2),
     ))
@@ -1127,19 +1127,19 @@ def _install_missing_deps(project_root: str, python_exe: str):
     # Find missing packages
     missing = required_packages - installed
     if not missing:
-        console.print(f"  [green]✅ {t('update.deps_all_present')}[/green]")
+        console.print(f"  [green]{t('update.deps_all_present')}[/green]")
         return
 
     # Install only the missing packages
-    console.print(f"  [cyan]📦 {t('update.deps_installing_new', packages=', '.join(sorted(missing)))}[/cyan]")
+    console.print(f"  [cyan]{t('update.deps_installing_new', packages=', '.join(sorted(missing)))}[/cyan]")
     try:
         subprocess.run(
             [python_exe, "-m", "pip", "install", *sorted(missing), "--quiet"],
             capture_output=True, timeout=120,
         )
-        console.print(f"  [green]✅ {t('update.deps_installed')}[/green]")
+        console.print(f"  [green]{t('update.deps_installed')}[/green]")
     except Exception as e:
-        console.print(f"  [yellow]⚠️ {t('update.deps_warning')}: {e}[/yellow]")
+        console.print(f"  [yellow]{t('update.deps_warning')}: {e}[/yellow]")
 
 
 def _pause():

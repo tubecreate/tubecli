@@ -384,7 +384,8 @@ async def check_for_updates():
     if VERSION_CHECK_CACHE["data"] is not None:
         return VERSION_CHECK_CACHE["data"]
 
-    import httpx, re
+    import httpx, re, time
+    now = time.time()
     from tubecli import __version__
     print(f"[VersionCheck] Local version: {__version__}")
     try:
