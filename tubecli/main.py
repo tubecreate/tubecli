@@ -13,7 +13,7 @@ from tubecli import __version__
               help="Shutdown all running TubeCLI processes (API server, background tasks)")
 @click.pass_context
 def cli(ctx, do_kill):
-    """🚀 TubeCLI — Open Source AI Agent CLI System
+    """TubeCLI — Open Source AI Agent CLI System
 
     Manage agents, skills, and workflows from the command line.
     AI agents can read .agents/skills/SKILL.md to self-operate.
@@ -66,11 +66,11 @@ def _kill_all_tubecli():
             continue
 
     if killed:
-        click.echo(f"✅ Shutdown {len(killed)} TubeCLI process(es):")
+        click.echo(f"Shutdown {len(killed)} TubeCLI process(es):")
         for p in killed:
             click.echo(f"   • {p}")
     else:
-        click.echo("ℹ️  No running TubeCLI processes found.")
+        click.echo("No running TubeCLI processes found.")
 
 
 def _kill_all_fallback():
@@ -107,9 +107,9 @@ def _kill_all_fallback():
                 continue
 
     if killed_count > 0:
-        click.echo(f"✅ Shutdown TubeCLI processes.")
+        click.echo(f"Shutdown TubeCLI processes.")
     else:
-        click.echo("ℹ️  No running TubeCLI processes found.")
+        click.echo("No running TubeCLI processes found.")
 
 
 # ── Core Commands ─────────────────────────────────────────
