@@ -65,3 +65,8 @@ skills.json
 skills_dump.json
 *.bak
 *.tmp
+
+# Scratch folder
+scratch/
+/scratch/
+
