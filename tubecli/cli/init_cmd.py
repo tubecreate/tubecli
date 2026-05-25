@@ -487,7 +487,7 @@ def _run_control_panel():
     from tubecli.core.ollama_utils import is_ollama_installed, get_recommended_models, install_model
     import subprocess
     import requests
-    from tubecli.config import get_api_port, DATA_DIR
+    from tubecli.config import get_api_port, DATA_DIR, BASE_DIR
     from tubecli.i18n import t
     import json
     import os
@@ -507,6 +507,11 @@ def _run_control_panel():
         env["PYTHONUTF8"] = "1"
         env["TUBECLI_PORT"] = str(port)
         env["TUBECLI_CLI_PID"] = str(os.getpid())
+        
+        # Ensure imports are resolved correctly even if CWD is the repo parent directory
+        project_root = str(BASE_DIR)
+        env["PYTHONPATH"] = project_root + os.path.pathsep + env.get("PYTHONPATH", "")
+        
         python_exe = sys.executable
         if os.name == "nt":
             if quiet:
@@ -514,15 +519,16 @@ def _run_control_panel():
                 CREATE_NO_WINDOW = 0x08000000
                 subprocess.Popen(
                     cmd, shell=True, creationflags=CREATE_NO_WINDOW,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env,
+                    cwd=project_root
                 )
             else:
                 # Force Windows to open a new interactive visible window with "start"
                 cmd = f'start "TubeCLI API Logs" cmd /k ""{python_exe}" -m tubecli.main api start --lang {cur_lang}"'
-                subprocess.Popen(cmd, shell=True, env=env)
+                subprocess.Popen(cmd, shell=True, env=env, cwd=project_root)
         else:
             cmd = f'"{python_exe}" -m tubecli.main api start{" --quiet" if quiet else ""} --lang {cur_lang}'
-            kwargs = {"shell": True, "env": env}
+            kwargs = {"shell": True, "env": env, "cwd": project_root}
             if quiet:
                 kwargs["stdout"] = subprocess.DEVNULL
                 kwargs["stderr"] = subprocess.DEVNULL
@@ -630,7 +636,9 @@ def _run_control_panel():
         elif choice == "3":
             console.print(t("panel.agent_management"))
             import sys
-            subprocess.run([sys.executable, "-m", "tubecli.main", "agent", "list"])
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(BASE_DIR) + os.path.pathsep + env.get("PYTHONPATH", "")
+            subprocess.run([sys.executable, "-m", "tubecli.main", "agent", "list"], cwd=str(BASE_DIR), env=env)
             console.print(t("panel.agent_help"))
             
         elif choice == "4":
@@ -656,7 +664,9 @@ def _run_control_panel():
         elif choice == "5":
             console.print(t("panel.browser_profiles"))
             import sys
-            subprocess.run([sys.executable, "-m", "tubecli.main", "browser", "profiles"])
+            env = os.environ.copy()
+            env["PYTHONPATH"] = str(BASE_DIR) + os.path.pathsep + env.get("PYTHONPATH", "")
+            subprocess.run([sys.executable, "-m", "tubecli.main", "browser", "profiles"], cwd=str(BASE_DIR), env=env)
             console.print(t("panel.browser_help"))
             
         elif choice == "6":

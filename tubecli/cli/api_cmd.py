@@ -62,10 +62,10 @@ def status():
     try:
         resp = requests.get(f"http://localhost:{port}/api/v1/health", timeout=3)
         if resp.status_code == 200:
-            console.print(f"\n✅ [green]API server is running[/green] on port {port}\n")
+            console.print(f"\n[bold green][OK][/bold green] [green]API server is running[/green] on port {port}\n")
         else:
-            console.print(f"\n⚠️  [yellow]API returned status {resp.status_code}[/yellow]\n")
+            console.print(f"\n[bold yellow][!][/bold yellow] [yellow]API returned status {resp.status_code}[/yellow]\n")
     except requests.exceptions.ConnectionError:
-        console.print(f"\n❌ [red]API server is not running[/red] (port {port})\n")
+        console.print(f"\n[bold red][x][/bold red] [red]API server is not running[/red] (port {port})\n")
     except Exception as e:
-        console.print(f"\n❌ [red]Error:[/red] {e}\n")
+        console.print(f"\n[bold red][x][/bold red] [red]Error:[/red] {e}\n")
