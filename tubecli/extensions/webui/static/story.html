@@ -405,16 +405,25 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     </main>
 
     <!-- ── Timeline Editor ─────────────────────────────────── -->
+    <!-- ── Timeline Editor ─────────────────────────────────── -->
     <section class="story-timeline">
-        <div class="timeline-toolbar">
-            <span data-i18n="story.timeline_title">⏱ Timeline</span>
-            <button class="se-btn-icon" id="btn-zoom-out" data-i18n-title="story.zoom_out" title="Thu nhỏ">−</button>
+        <div class="timeline-toolbar" style="padding-bottom:0;">
+            <div class="timeline-tabs" style="display:flex;gap:4px;">
+                <button class="timeline-tab-btn active" id="tab-timeline" onclick="switchTimelineTab('timeline')" style="border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;transition:all 0.2s;outline:none;background:var(--card);color:var(--accent);border-color:var(--accent);border-bottom:1.5px solid var(--card);">⏱ Timeline</button>
+                <button class="timeline-tab-btn" id="tab-logs" onclick="switchTimelineTab('logs')" style="border:1px solid var(--border);border-bottom:none;border-radius:6px 6px 0 0;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;transition:all 0.2s;outline:none;background:transparent;color:var(--muted);border-color:var(--border);">📜 Event Logs</button>
+            </div>
+            <button class="se-btn-icon" id="btn-zoom-out" data-i18n-title="story.zoom_out" title="Thu nhỏ" style="margin-left:8px;">−</button>
             <button class="se-btn-icon" id="btn-zoom-in"  data-i18n-title="story.zoom_in" title="Phóng to">＋</button>
-            <span style="margin-left:auto;font-size:11px;color:var(--muted)" data-i18n="story.timeline_hint">Click vào track để thêm event · Kéo event để đổi thời gian</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted)" id="se-zoom-hint" data-i18n="story.timeline_hint">Click vào track để thêm event · Kéo event để đổi thời gian</span>
         </div>
-        <div style="position:relative;flex:1;overflow:auto;">
+        <div id="panel-timeline-content" style="position:relative;flex:1;overflow:auto;display:block;">
             <div id="se-playhead"></div>
             <div id="se-timeline"></div>
+        </div>
+        <div id="panel-logs-content" style="flex:1;overflow-y:auto;background:#05070e;padding:12px;display:none;font-family:'Consolas','Fira Code','Courier New',monospace;font-size:11.5px;line-height:1.6;color:#e2e8f0;border-top:1px solid var(--border);">
+            <div id="ws-logs-list" style="display:flex;flex-direction:column;gap:4px;">
+                <div class="ws-log-placeholder" style="color:var(--muted);font-style:italic;">📜 Chưa có sự kiện nào được ghi nhận. Khởi chạy WorldSeed AI Tự hành để theo dõi log trực tiếp tại đây...</div>
+            </div>
         </div>
     </section>
 
@@ -438,6 +447,60 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 // ══════════════════════════════════════════════════════════
 // Story Page Bootstrap — Team-driven
 // ══════════════════════════════════════════════════════════
+
+function switchTimelineTab(tab) {
+    const timelineBtn = document.getElementById('tab-timeline');
+    const logsBtn = document.getElementById('tab-logs');
+    const timelinePanel = document.getElementById('panel-timeline-content');
+    const logsPanel = document.getElementById('panel-logs-content');
+    const zoomOut = document.getElementById('btn-zoom-out');
+    const zoomIn = document.getElementById('btn-zoom-in');
+    const hint = document.getElementById('se-zoom-hint');
+
+    if (!timelineBtn || !logsBtn) return;
+
+    if (tab === 'timeline') {
+        timelineBtn.style.color = 'var(--accent)';
+        timelineBtn.style.borderColor = 'var(--accent)';
+        timelineBtn.style.background = 'var(--card)';
+        timelineBtn.style.borderBottom = '1.5px solid var(--card)';
+        
+        logsBtn.style.color = 'var(--muted)';
+        logsBtn.style.borderColor = 'var(--border)';
+        logsBtn.style.background = 'transparent';
+        logsBtn.style.borderBottom = '1px solid var(--border)';
+
+        if (timelinePanel) timelinePanel.style.display = 'block';
+        if (logsPanel) logsPanel.style.display = 'none';
+
+        if (zoomOut) zoomOut.style.display = '';
+        if (zoomIn) zoomIn.style.display = '';
+        if (hint) {
+            hint.style.display = '';
+            hint.textContent = 'Click vào track để thêm event · Kéo event để đổi thời gian';
+        }
+    } else {
+        logsBtn.style.color = 'var(--accent)';
+        logsBtn.style.borderColor = 'var(--accent)';
+        logsBtn.style.background = 'var(--card)';
+        logsBtn.style.borderBottom = '1.5px solid var(--card)';
+        
+        timelineBtn.style.color = 'var(--muted)';
+        timelineBtn.style.borderColor = 'var(--border)';
+        timelineBtn.style.background = 'transparent';
+        timelineBtn.style.borderBottom = '1px solid var(--border)';
+
+        if (timelinePanel) timelinePanel.style.display = 'none';
+        if (logsPanel) logsPanel.style.display = 'block';
+
+        if (zoomOut) zoomOut.style.display = 'none';
+        if (zoomIn) zoomIn.style.display = 'none';
+        if (hint) {
+            hint.style.display = '';
+            hint.textContent = 'Nhật ký sự kiện tự hành của các AI Agent được cập nhật theo thời gian thực';
+        }
+    }
+}
 
 let allTeams = [];
 let allAgentsGlobal = [];

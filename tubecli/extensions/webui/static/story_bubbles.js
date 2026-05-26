@@ -38,36 +38,96 @@ class StoryBubbles {
      * @param {Object} character - agentCharacter ref from teams3d.js
      * @param {string} text
      * @param {number} duration - seconds
+     * @param {string} bubbleType - 'say', 'thought', 'code', 'test', 'drink', 'reboot', 'unlock', 'deploy'
      */
-    show(character, text, duration = 3) {
+    show(character, text, duration = 3, bubbleType = 'say') {
         if (!this.container) return;
 
         // Remove existing bubble for this character
         this._removeForChar(character);
 
         const el = document.createElement('div');
-        el.className = 'story-bubble';
-        el.innerHTML = `
-            <div class="bubble-content">
-                <span class="bubble-name">${this._charName(character)}</span>
-                <span class="bubble-text"></span>
-            </div>
-            <div class="bubble-tail"></div>
-        `;
+        
+        if (bubbleType === 'thought') {
+            el.className = 'story-bubble thought-bubble';
+            el.innerHTML = `
+                <div class="bubble-content">
+                    <span class="bubble-name">${this._charName(character)}</span>
+                    <span class="bubble-text"></span>
+                </div>
+                <div class="thought-tail-circle-1"></div>
+                <div class="thought-tail-circle-2"></div>
+            `;
+        } else if (['code', 'test', 'drink', 'reboot', 'unlock', 'deploy'].includes(bubbleType)) {
+            let filename = 'terminal';
+            let subClass = 'code-terminal';
+            if (bubbleType === 'code') {
+                const role = character.role || '';
+                const charName = this._charName(character).replace(/\s+/g, '_');
+                const ext = (role.toLowerCase().includes('lead') || role.toLowerCase().includes('specialist') || role.toLowerCase().includes('qa')) ? 'py' : 'js';
+                filename = `${charName}.${ext}`;
+                subClass = 'code-terminal';
+            } else if (bubbleType === 'test') {
+                filename = 'npm_test.sh';
+                subClass = 'test-terminal';
+            } else if (bubbleType === 'drink') {
+                filename = 'caffeine_monitor.log';
+                subClass = 'drink-terminal';
+            } else if (bubbleType === 'reboot') {
+                filename = 'system_recovery.sh';
+                subClass = 'reboot-terminal';
+            } else if (bubbleType === 'unlock') {
+                filename = 'door_access.log';
+                subClass = 'unlock-terminal';
+            } else if (bubbleType === 'deploy') {
+                filename = 'deploy_prod.sh';
+                subClass = 'deploy-terminal';
+            }
+
+            el.className = `story-bubble terminal-bubble ${subClass}`;
+            el.innerHTML = `
+                <div class="bubble-header">
+                    <span class="terminal-dots">
+                        <span class="dot-red"></span>
+                        <span class="dot-yellow"></span>
+                        <span class="dot-green"></span>
+                    </span>
+                    <span class="terminal-filename">${filename}</span>
+                </div>
+                <div class="bubble-content">
+                    <span class="bubble-name">${this._charName(character)}</span>
+                    <span class="bubble-text"></span>
+                </div>
+                <div class="bubble-tail"></div>
+            `;
+        } else {
+            // default 'say' / 'whisper'
+            el.className = 'story-bubble chat-bubble';
+            el.innerHTML = `
+                <div class="bubble-content">
+                    <span class="bubble-name">${this._charName(character)}</span>
+                    <span class="bubble-text"></span>
+                </div>
+                <div class="bubble-tail"></div>
+            `;
+        }
+
         this.container.appendChild(el);
 
         const textSpan = el.querySelector('.bubble-text');
 
-        // Typewriter effect
+        // Typewriter effect with blinking cursor
         let charIdx = 0;
         const chars = [...text]; // handles emoji correctly
         const interval = setInterval(() => {
             if (charIdx < chars.length) {
-                textSpan.textContent += chars[charIdx++];
+                textSpan.textContent = chars.slice(0, charIdx + 1).join('') + '▋';
+                charIdx++;
             } else {
+                textSpan.textContent = text; // remove cursor at the end
                 clearInterval(interval);
             }
-        }, Math.min(60, (duration * 700) / Math.max(chars.length, 1)));
+        }, Math.min(30, (duration * 700) / Math.max(chars.length, 1)));
 
         const entry = {
             domEl: el,
@@ -127,6 +187,7 @@ class StoryBubbles {
     }
 
     _charName(ch) {
+        if (ch.agentName) return ch.agentName;
         // Try to find the actor name from current story script
         try {
             const actor = storyPlayer?.script?.actors?.find(a => a.agent_id === ch.agentId);
@@ -218,12 +279,12 @@ const storyBubbles = new StoryBubbles();
     border-radius: 14px;
     padding: 8px 14px;
     min-width: 120px;
-    max-width: 260px;
+    max-width: 280px;
     color: #f0f4ff;
     font-size: 13px;
     line-height: 1.45;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(34,211,238,0.1);
-    transition: opacity 0.25s ease;
+    box-shadow: 0 6px 28px rgba(0,0,0,0.55), 0 0 0 1px rgba(34,211,238,0.1);
+    transition: opacity 0.25s ease, transform 0.2s ease-out;
     z-index: 1000;
     text-align: left;
     backdrop-filter: blur(8px);
@@ -262,6 +323,190 @@ const storyBubbles = new StoryBubbles();
     filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
     transition: opacity 0.3s;
 }
+
+/* --- Thought Bubble --- */
+.story-bubble.thought-bubble {
+    background: linear-gradient(135deg, rgba(23, 15, 38, 0.95), rgba(13, 8, 24, 0.98));
+    border: 1.5px dashed rgba(216, 180, 254, 0.5);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.25), 0 0 0 1px rgba(216, 180, 254, 0.15);
+    font-style: italic;
+    color: #e9d5ff;
+}
+.story-bubble.thought-bubble .bubble-name {
+    color: #c084fc;
+}
+.story-bubble.thought-bubble .bubble-tail {
+    display: none;
+}
+.story-bubble.thought-bubble .thought-tail-circle-1 {
+    position: absolute;
+    bottom: -6px;
+    left: 48%;
+    width: 8px;
+    height: 8px;
+    background: rgba(13, 8, 24, 0.98);
+    border: 1px solid rgba(216, 180, 254, 0.4);
+    border-radius: 50%;
+}
+.story-bubble.thought-bubble .thought-tail-circle-2 {
+    position: absolute;
+    bottom: -12px;
+    left: 45%;
+    width: 5px;
+    height: 5px;
+    background: rgba(13, 8, 24, 0.98);
+    border: 1px solid rgba(216, 180, 254, 0.3);
+    border-radius: 50%;
+}
+
+/* --- Terminal IDE Bubble --- */
+.story-bubble.terminal-bubble {
+    background: rgba(10, 12, 16, 0.96);
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    border-radius: 8px;
+    padding: 0;
+    min-width: 210px;
+    max-width: 320px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.75), 0 0 12px rgba(52, 211, 153, 0.15);
+    font-family: 'Consolas', 'Fira Code', 'Cascadia Code', 'Courier New', monospace;
+    overflow: hidden;
+}
+.story-bubble.terminal-bubble .bubble-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(22, 27, 34, 0.95);
+    padding: 6px 12px;
+    border-bottom: 1px solid rgba(52, 211, 153, 0.2);
+}
+.story-bubble.terminal-bubble .terminal-dots {
+    display: flex;
+    gap: 5px;
+}
+.story-bubble.terminal-bubble .terminal-dots span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.story-bubble.terminal-bubble .terminal-dots span.dot-red { background: #ef4444; }
+.story-bubble.terminal-bubble .terminal-dots span.dot-yellow { background: #eab308; }
+.story-bubble.terminal-bubble .terminal-dots span.dot-green { background: #22c55e; }
+
+.story-bubble.terminal-bubble .terminal-filename {
+    font-size: 10px;
+    font-weight: 600;
+    color: #34d399;
+    letter-spacing: 0.5px;
+}
+.story-bubble.terminal-bubble .bubble-content {
+    padding: 10px 12px;
+}
+.story-bubble.terminal-bubble .bubble-name {
+    color: #a7f3d0;
+    margin-bottom: 5px;
+}
+.story-bubble.terminal-bubble .bubble-text {
+    font-size: 11px;
+    line-height: 1.5;
+    white-space: pre;
+    color: #10b981;
+    text-shadow: 0 0 3px rgba(16, 185, 129, 0.35);
+}
+.story-bubble.terminal-bubble .bubble-tail {
+    border-top-color: rgba(10, 12, 16, 0.96);
+}
+
+/* Custom terminal colors for different status */
+.story-bubble.terminal-bubble.test-terminal {
+    border-color: rgba(56, 189, 248, 0.45);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 12px rgba(56, 189, 248, 0.15);
+}
+.story-bubble.terminal-bubble.test-terminal .bubble-header {
+    border-bottom-color: rgba(56, 189, 248, 0.2);
+}
+.story-bubble.terminal-bubble.test-terminal .terminal-filename {
+    color: #38bdf8;
+}
+.story-bubble.terminal-bubble.test-terminal .bubble-text {
+    color: #38bdf8;
+    text-shadow: 0 0 3px rgba(56, 189, 248, 0.35);
+}
+
+.story-bubble.terminal-bubble.drink-terminal {
+    border-color: rgba(245, 158, 11, 0.45);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 12px rgba(245, 158, 11, 0.15);
+}
+.story-bubble.terminal-bubble.drink-terminal .bubble-header {
+    border-bottom-color: rgba(245, 158, 11, 0.2);
+}
+.story-bubble.terminal-bubble.drink-terminal .terminal-filename {
+    color: #fbbf24;
+}
+.story-bubble.terminal-bubble.drink-terminal .bubble-text {
+    color: #fbbf24;
+    text-shadow: 0 0 3px rgba(251, 191, 36, 0.35);
+}
+
+.story-bubble.terminal-bubble.reboot-terminal {
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 12px rgba(239, 68, 68, 0.15);
+}
+.story-bubble.terminal-bubble.reboot-terminal .bubble-header {
+    border-bottom-color: rgba(239, 68, 68, 0.2);
+}
+.story-bubble.terminal-bubble.reboot-terminal .terminal-filename {
+    color: #f87171;
+}
+.story-bubble.terminal-bubble.reboot-terminal .bubble-text {
+    color: #f87171;
+    text-shadow: 0 0 3px rgba(248, 113, 113, 0.35);
+}
+
+.story-bubble.terminal-bubble.unlock-terminal {
+    border-color: rgba(168, 85, 247, 0.45);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 12px rgba(168, 85, 247, 0.15);
+}
+.story-bubble.terminal-bubble.unlock-terminal .bubble-header {
+    border-bottom-color: rgba(168, 85, 247, 0.2);
+}
+.story-bubble.terminal-bubble.unlock-terminal .terminal-filename {
+    color: #c084fc;
+}
+.story-bubble.terminal-bubble.unlock-terminal .bubble-text {
+    color: #c084fc;
+    text-shadow: 0 0 3px rgba(192, 132, 252, 0.35);
+}
+
+.story-bubble.terminal-bubble.deploy-terminal {
+    border-color: rgba(245, 158, 11, 0.5);
+    box-shadow: 0 10px 40px rgba(0,0,0,0.7), 0 0 15px rgba(245, 158, 11, 0.25);
+}
+.story-bubble.terminal-bubble.deploy-terminal .bubble-header {
+    border-bottom-color: rgba(245, 158, 11, 0.2);
+}
+.story-bubble.terminal-bubble.deploy-terminal .terminal-filename {
+    color: #fbbf24;
+}
+.story-bubble.terminal-bubble.deploy-terminal .bubble-text {
+    color: #fbbf24;
+    text-shadow: 0 0 3px rgba(251, 191, 36, 0.35);
+}
+
+/* --- Say/Chat Bubble --- */
+.story-bubble.chat-bubble {
+    background: linear-gradient(135deg, rgba(14, 20, 42, 0.95), rgba(8, 12, 28, 0.98));
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    box-shadow: 0 8px 32px rgba(56, 189, 248, 0.2), 0 0 0 1px rgba(56, 189, 248, 0.1);
+}
+.story-bubble.chat-bubble .bubble-name {
+    color: #38bdf8;
+}
+.story-bubble.chat-bubble .bubble-tail {
+    border-top-color: rgba(8, 12, 28, 0.98);
+}
+
 @keyframes emoteFloat {
     from { transform: translate(-50%, -80%) scale(0.5); opacity: 0; }
     to   { transform: translate(-50%, -100%) scale(1); opacity: 1; }
@@ -269,3 +514,4 @@ const storyBubbles = new StoryBubbles();
     `;
     document.head.appendChild(s);
 })();
+

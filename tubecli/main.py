@@ -3,6 +3,22 @@ TubeCLI — Main CLI Entry Point
 All commands are organized into groups: agent, skill, workflow, api, init, extension.
 Extension system auto-discovers and registers enabled extension commands.
 """
+import os
+import sys
+
+# ── Fix Windows Console Encoding ──────────────────────────────────
+# Ensures Vietnamese characters, box-drawing Unicode (╔═╗║), and emoji
+# display correctly in ANY CMD window, even freshly opened ones.
+if os.name == "nt":
+    try:
+        os.system("chcp 65001 >nul 2>&1")
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import click
 from tubecli import __version__
 

@@ -655,6 +655,8 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
         group,
         roleId: node.role_id,
         agentId: node.agent_id || '',
+        agentName: labelName,
+        role: node.role,
         hasAgent: !!agent,
         limbs: { armL, armR, legL, legR, head, torso },
         homePos: { x: pos.x, z: pos.z + 0.55 },

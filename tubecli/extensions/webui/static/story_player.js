@@ -325,10 +325,35 @@ function _faceTowards(ac, targetX, targetZ, dt, lerpSpeed) {
 }
 
 /**
+ * Helper to transition character back to natural states
+ */
+function transitionAfterStoryState(ac) {
+    if (typeof worldSeedConnector !== 'undefined' && worldSeedConnector.isActive) {
+        const dx = ac.homePos.x - ac.group.position.x;
+        const dz = ac.homePos.z - ac.group.position.z;
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        if (dist > 0.5) {
+            ac.state = 'returning';
+            ac.stateTimer = 8;
+            ac.targetPos = { x: ac.homePos.x, z: ac.homePos.z };
+        } else {
+            ac.state = 'working';
+            ac.stateTimer = 5 + Math.random() * 5;
+        }
+    } else {
+        ac.state = 'story_idle';
+    }
+}
+
+/**
  * Call this from the animate3d() loop in teams3d.js
  */
 function storyAnimateUpdate(dt, t, player) {
-    if (!player || !player.script) return;
+    const isWS = (typeof worldSeedConnector !== 'undefined' && worldSeedConnector.isActive);
+    if (!isWS && (!player || !player.script)) return;
+
+    const isPlaying = (player && player.isPlaying);
+    const currentTime = (player && player.currentTime) || 0;
 
     const chars = (typeof agentCharacters !== 'undefined') ? agentCharacters : [];
     chars.forEach(ac => {
@@ -364,6 +389,7 @@ function storyAnimateUpdate(dt, t, player) {
                         ac.stateTimer = 5;
                     } else {
                         ac.state = 'story_idle';
+                        ac.stateTimer = 3.0;
                     }
                 }
                 break;
@@ -375,6 +401,15 @@ function storyAnimateUpdate(dt, t, player) {
                 // Gently look around — find nearest other actor
                 const nearIdle = _findNearestInScene(ac);
                 if (nearIdle) _faceTowards(ac, nearIdle.x, nearIdle.z, dt, 2);
+
+                if (typeof worldSeedConnector !== 'undefined' && worldSeedConnector.isActive) {
+                    if (ac.stateTimer === undefined || ac.stateTimer === null || isNaN(ac.stateTimer)) {
+                        ac.stateTimer = 3.0;
+                    }
+                    if (ac.stateTimer <= 0) {
+                        transitionAfterStoryState(ac);
+                    }
+                }
                 break;
             }
 
@@ -388,9 +423,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armL.rotation.x = -0.15;
                 ac.limbs.head.rotation.x = Math.sin(t * 2.5) * 0.12;
                 ac.limbs.head.rotation.y = Math.sin(t * 0.8) * 0.15;
-                if (player.currentTime >= ac.storyStateEnd) {
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
                     resetLimbs(ac);
                     ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }
@@ -403,8 +439,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armL.rotation.z = 0.3;
                 ac.limbs.armR.rotation.z = -0.3;
                 ac.limbs.head.rotation.x = 0.4;
-                if (player.currentTime >= ac.storyStateEnd) {
-                    resetLimbs(ac); ac.state = 'story_idle';
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
+                    resetLimbs(ac); 
+                    ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }
@@ -416,8 +454,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armR.rotation.z = -0.2;
                 ac.limbs.armL.rotation.x = -0.3;
                 ac.limbs.head.rotation.x = -0.1;
-                if (player.currentTime >= ac.storyStateEnd) {
-                    resetLimbs(ac); ac.state = 'story_idle';
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
+                    resetLimbs(ac); 
+                    ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }
@@ -429,8 +469,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armR.rotation.x = -Math.PI / 2;
                 ac.limbs.armR.rotation.z = 0;
                 ac.group.position.y = ac.homeY + Math.sin(t * 6) * 0.04;
-                if (player.currentTime >= ac.storyStateEnd) {
-                    resetLimbs(ac); ac.state = 'story_idle';
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
+                    resetLimbs(ac); 
+                    ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }
@@ -444,8 +486,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armL.rotation.z = 0.4;
                 ac.limbs.armR.rotation.z = -0.4;
                 ac.group.position.y = ac.homeY + Math.abs(Math.sin(t * 4)) * 0.1;
-                if (player.currentTime >= ac.storyStateEnd) {
-                    resetLimbs(ac); ac.state = 'story_idle';
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
+                    resetLimbs(ac); 
+                    ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }
@@ -458,8 +502,10 @@ function storyAnimateUpdate(dt, t, player) {
                 ac.limbs.armR.rotation.z = -0.5;
                 ac.limbs.head.rotation.y = Math.sin(t * 0.5) * 0.2;
                 ac.limbs.head.rotation.x = -0.1;
-                if (player.currentTime >= ac.storyStateEnd) {
-                    resetLimbs(ac); ac.state = 'story_idle';
+                if (currentTime >= ac.storyStateEnd || (!isPlaying && ac.stateTimer <= 0)) {
+                    resetLimbs(ac); 
+                    ac.state = 'story_idle';
+                    ac.stateTimer = 3.0;
                 }
                 break;
             }

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tubecli"
-version = "2026.05.25.010000"
+version = "2026.05.26.095300"
 description = "Open Source AI Agent CLI System — Install, manage, and orchestrate AI agents, skills, and workflows from the command line."
 readme = "README.md"
 license = {text = "MIT"}
@@ -29,6 +29,13 @@ dependencies = [
     "httpx>=0.24",
     "beautifulsoup4>=4.12.0",
     "lxml",
+    "litellm",
+    "instructor",
+    "pyyaml",
+    "structlog",
+    "deepdiff",
+    "lunar-python",
+    "anthropic",
 ]
 
 [project.scripts]

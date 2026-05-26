@@ -572,7 +572,39 @@ def _run_control_panel():
             console.print(t("panel.opening_dashboard"))
             try:
                 import webbrowser
+                import requests as _req
                 dashboard_url = f"http://localhost:{port}/dashboard"
+                
+                # Health check: ensure API server is actually running
+                server_alive = False
+                try:
+                    resp = _req.get(f"http://localhost:{port}/api/v1/health", timeout=2)
+                    server_alive = resp.status_code == 200
+                except Exception:
+                    pass
+                
+                if not server_alive:
+                    console.print("[yellow]  API server chưa sẵn sàng. Đang khởi động lại...[/yellow]")
+                    _start_api(quiet=True)
+                    # Wait for server to be ready (up to 8 seconds)
+                    for _ in range(8):
+                        try:
+                            resp = _req.get(f"http://localhost:{port}/api/v1/health", timeout=1)
+                            if resp.status_code == 200:
+                                server_alive = True
+                                break
+                        except Exception:
+                            pass
+                        time.sleep(1)
+                    
+                    if not server_alive:
+                        console.print("[red]  API server không thể khởi động. Vui lòng kiểm tra lỗi.[/red]")
+                        console.print(f"[yellow]  Thử chạy: tubecli api start --lang vi (trong CMD riêng) để xem log lỗi chi tiết.[/yellow]")
+                        time.sleep(3)
+                        continue
+                    
+                    console.print("[green]  API server đã sẵn sàng![/green]")
+                
                 webbrowser.open(dashboard_url)
                 console.print(t("panel.dashboard_opened", url=dashboard_url))
             except Exception:
