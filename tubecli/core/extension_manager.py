@@ -542,6 +542,35 @@ class ExtensionManager:
             except Exception as e:
                 logger.error(f"Error registering CLI for {extension.name}: {e}")
 
+    def _ensure_extension_deps(self, extension):
+        """Auto-install missing Python dependencies declared in tubecli-extension.json."""
+        manifest = getattr(extension, '_manifest', None)
+        if not manifest:
+            return
+        deps = manifest.get("dependencies", [])
+        if not deps:
+            return
+
+        missing = []
+        for pkg in deps:
+            # Normalize package name for import check: lunar-python → lunar_python
+            import_name = pkg.replace("-", "_").split(">=")[0].split("<=")[0].split("==")[0].strip()
+            try:
+                importlib.import_module(import_name)
+            except ImportError:
+                missing.append(pkg)
+
+        if missing:
+            print(f"[ExtensionManager] Installing dependencies for '{extension.name}': {', '.join(missing)}")
+            try:
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", *missing, "--quiet"],
+                    capture_output=True, timeout=120,
+                )
+                print(f"[ExtensionManager] Dependencies installed successfully for '{extension.name}'")
+            except Exception as e:
+                print(f"[ExtensionManager] WARNING: Failed to install deps for '{extension.name}': {e}")
+
     def register_api_routes(self, app):
         """Register all enabled extension API routes to the FastAPI app."""
         for extension in self.get_enabled():
@@ -551,6 +580,9 @@ class ExtensionManager:
                 ext_dir = getattr(extension, 'extension_dir', None)
                 if ext_dir and ext_dir not in sys.path:
                     sys.path.insert(0, ext_dir)
+
+                # Auto-install missing dependencies from manifest before loading
+                self._ensure_extension_deps(extension)
 
                 router = extension.get_routes()
                 if router:
