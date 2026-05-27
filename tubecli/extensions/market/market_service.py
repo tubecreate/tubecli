@@ -14,7 +14,7 @@ except ImportError:
     import requests
     _HTTPX_AVAILABLE = False
 
-API_BASE = "https://tubecli.zeabur.app/api/market-cli"
+API_BASE = "https://api.tubecreate.com/api/market-cli"
 TIMEOUT = 15
 TIMEOUT_LONG = 60  # For upload/download large extensions
 

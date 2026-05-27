@@ -191,7 +191,7 @@ def get_fingerprint(name: str) -> Optional[dict]:
             window_size = config.get("window_size")
 
         def _do_fetch(params):
-            resp = requests.get("https://tubecli.zeabur.app/api/fingerprints/getfinger.php", params=params, timeout=180.0)
+            resp = requests.get("https://api.tubecreate.com/api/fingerprints/getfinger.php", params=params, timeout=180.0)
             resp.raise_for_status()
             data = resp.json()
             
@@ -202,7 +202,7 @@ def get_fingerprint(name: str) -> Optional[dict]:
                     fp_data = data["fingerprint"]
                 # Old format: download via file_path
                 elif data.get("file_path"):
-                    fp_url = f"https://tubecli.zeabur.app/{data['file_path']}"
+                    fp_url = f"https://api.tubecreate.com/{data['file_path']}"
                     fp_resp = requests.get(fp_url, timeout=120.0)
                     fp_resp.raise_for_status()
                     fp_data = fp_resp.json()

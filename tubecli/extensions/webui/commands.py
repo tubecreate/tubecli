@@ -35,7 +35,7 @@ def start_webui(port):
         return
 
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=static_dir)
-    server = http.server.HTTPServer(("0.0.0.0", port), handler)
+    server = http.server.HTTPServer(("127.0.0.1", port), handler)
 
     console.print(f"[green]🎨 TubeCLI Dashboard started[/green]")
     console.print(f"   URL: [cyan]http://localhost:{port}[/cyan]")

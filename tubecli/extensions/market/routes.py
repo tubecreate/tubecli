@@ -9,6 +9,10 @@ from tubecli.extensions.market.market_service import market_service
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
+# ── Stripe Payment Routes ──
+from tubecli.extensions.market.stripe_routes import stripe_router
+router.include_router(stripe_router)
+
 
 # ── Check Updates ──
 @router.get("/check-updates")

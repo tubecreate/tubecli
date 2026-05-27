@@ -43,6 +43,15 @@ class StoryBubbles {
     show(character, text, duration = 3, bubbleType = 'say') {
         if (!this.container) return;
 
+        // Limit active bubbles to at most 3 to avoid screen clutter/spam
+        while (this.active.length >= 3) {
+            const oldest = this.active.shift();
+            if (oldest) {
+                if (oldest.typewriterInterval) clearInterval(oldest.typewriterInterval);
+                if (oldest.domEl) oldest.domEl.remove();
+            }
+        }
+
         // Remove existing bubble for this character
         this._removeForChar(character);
 
