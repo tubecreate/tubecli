@@ -2703,10 +2703,10 @@ function _dlgClose(id) {
 
 
 const STRIPE_PACKAGES_DEFAULT = [
-    { id: 'starter',  name: 'Starter',  credits: 50,   price_usd: 5.00,  badge: null,          color: '#6366f1' },
-    { id: 'pro',      name: 'Pro',       credits: 150,  price_usd: 12.00, badge: 'Popular',     color: '#8b5cf6' },
-    { id: 'power',    name: 'Power',     credits: 500,  price_usd: 35.00, badge: 'Best Value',  color: '#a855f7' },
-    { id: 'ultimate', name: 'Ultimate',  credits: 1500, price_usd: 90.00, badge: 'Pro',         color: '#ec4899' },
+    { id: 'starter',  name: 'Starter',  credits: 5000,   price_usd: 5.00,  badge: null,          color: '#6366f1' },
+    { id: 'pro',      name: 'Pro',       credits: 15000,  price_usd: 12.00, badge: 'Popular',     color: '#8b5cf6' },
+    { id: 'power',    name: 'Power',     credits: 50000,  price_usd: 35.00, badge: 'Best Value',  color: '#a855f7' },
+    { id: 'ultimate', name: 'Ultimate',  credits: 150000, price_usd: 90.00, badge: 'Pro',         color: '#ec4899' },
 ];
 
 
@@ -2885,10 +2885,10 @@ function renderTopUpPackages(packages) {
         return `
         <div class="topup-pkg ${isPopular ? 'topup-popular' : ''} ${isBest ? 'topup-best' : ''}" onclick="startTopUp('${pkg.id}', this)">
             ${pkg.badge ? `<div class="topup-badge">${pkg.badge}</div>` : ''}
-            <div class="topup-credits-num">${pkg.credits}</div>
+            <div class="topup-credits-num">${pkg.credits.toLocaleString()}</div>
             <div class="topup-credits-lbl">credits</div>
             <div class="topup-price-tag">$${pkg.price_usd.toFixed(2)} <span style="font-size:0.7rem;opacity:0.6;">USD</span></div>
-            <div class="topup-rate">${(pkg.price_usd / pkg.credits * 100).toFixed(1)}¢ / credit</div>
+            <div class="topup-rate">${Math.round(pkg.credits / pkg.price_usd).toLocaleString()} credits / $1</div>
             <button class="topup-go-btn">Nạp ngay →</button>
         </div>`;
     }).join('');
