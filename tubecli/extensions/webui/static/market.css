@@ -1411,8 +1411,10 @@ dialog.tc-dialog::backdrop {
 dialog.pmc-dialog  { width: min(480px, 95vw); }
 dialog.topup-dialog { width: min(680px, 95vw); }
 
-/* Ensure dialog is centered and visible — fallback for any open state */
 dialog.tc-dialog[open] {
     display: flex;
     flex-direction: column;
+    position: fixed;
+    inset: 0;
+    margin: auto;
 }
