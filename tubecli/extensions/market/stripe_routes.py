@@ -21,10 +21,10 @@ stripe_router = APIRouter(prefix="/stripe", tags=["stripe"])
 
 # ── Credit Packages ──────────────────────────────────────────────────────────
 CREDIT_PACKAGES = [
-    {"id": "starter",  "name": "Starter",  "credits": 50,   "price_usd": 5.00,  "badge": None,     "color": "#6366f1"},
-    {"id": "pro",      "name": "Pro",       "credits": 150,  "price_usd": 12.00, "badge": "Popular","color": "#8b5cf6"},
-    {"id": "power",    "name": "Power",     "credits": 500,  "price_usd": 35.00, "badge": "Best Value","color": "#a855f7"},
-    {"id": "ultimate", "name": "Ultimate",  "credits": 1500, "price_usd": 90.00, "badge": "Pro",    "color": "#ec4899"},
+    {"id": "starter",  "name": "Starter",  "credits": 5000,   "price_usd": 5.00,  "badge": None,     "color": "#6366f1"},
+    {"id": "pro",      "name": "Pro",       "credits": 15000,  "price_usd": 12.00, "badge": "Popular","color": "#8b5cf6"},
+    {"id": "power",    "name": "Power",     "credits": 50000,  "price_usd": 35.00, "badge": "Best Value","color": "#a855f7"},
+    {"id": "ultimate", "name": "Ultimate",  "credits": 150000, "price_usd": 90.00, "badge": "Pro",    "color": "#ec4899"},
 ]
 
 # ── Settings Helpers ─────────────────────────────────────────────────────────
@@ -207,8 +207,8 @@ async def create_quickpay_session(req: QuickPayRequest, authorization: Optional[
 
     stripe = _get_stripe()
 
-    # Convert credits to USD: 1 credit = $0.10
-    price_usd   = req.item_price_credits * 0.10
+    # Convert credits to USD: 1,000 credits = $1.00 USD (1 credit = $0.001 USD)
+    price_usd   = req.item_price_credits * 0.001
     amount_cents = int(price_usd * 100)
 
     if amount_cents < 50:  # Stripe minimum $0.50
