@@ -549,7 +549,7 @@ async function openDetailModal(publicId) {
     try {
         const [res, mediaRes] = await Promise.all([
             fetch(`${API}/items/${publicId}`),
-            fetch(`https://tubecli.zeabur.app/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
+            fetch(`https://api.tubecreate.com/api/market-cli/get-media.php?public_id=${publicId}`).catch(() => null)
         ]);
         
         const data = await res.json();
@@ -772,47 +772,68 @@ function closeDetailModal() {
     document.getElementById('detailModal').classList.remove('active');
 }
 
-// ── Buy Item ──
+// ── Buy Item (with payment choice: Credits or Stripe Quick Pay) ──
 async function buyItem(publicId) {
-    const btn = document.getElementById('buyBtn_' + publicId);
-    if (!btn) return;
-
-    const originalText = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Processing...';
-
+    // Fetch item detail to get price
     try {
-        const token = getAuthToken();
-        const res = await fetch(`${API}/items/${publicId}/buy`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-            },
-        });
+        const res = await fetch(`${API}/items/${publicId}`);
         const data = await res.json();
-
-        if (data.status === 'success' || data.purchased) {
-            btn.innerHTML = '✅ Purchased';
-            btn.classList.add('free');
-            showToast('Item purchased successfully!', 'success');
-
-            // Show Install button after successful purchase
-            const installBtn = document.getElementById('installBtn_' + publicId);
-            if (installBtn) {
-                installBtn.style.display = '';
-            }
-        } else {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            showToast(data.message || data.detail || 'Purchase failed', 'error');
+        if (data.status !== 'success') { showToast('Cannot load item', 'error'); return; }
+        const item  = data.item;
+        const price = parseFloat(item.price || 0);
+        if (price <= 0) {
+            // Free item — install directly
+            await installItem(publicId, item.title, item.category);
+            return;
         }
+        // Show payment choice modal
+        openPaymentChoiceModal(publicId, item.title, price);
     } catch (e) {
-        btn.disabled = false;
-        btn.innerHTML = originalText;
-        showToast('Network error', 'error');
+        showToast('Error loading item', 'error');
     }
 }
+
+// ── Buy with credits (original flow) ──
+async function buyItemWithCredits(publicId) {
+    closePaymentChoiceModal();
+    const btn = document.getElementById('buyBtn_' + publicId);
+
+    const doFetch = async () => {
+        try {
+            const token = getAuthToken();
+            const res = await fetch(`${API}/items/${publicId}/buy`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+                },
+            });
+            const data = await res.json();
+            if (data.status === 'success' || data.purchased) {
+                if (btn) { btn.innerHTML = '✅ Purchased'; btn.classList.add('free'); }
+                showToast('Mua thành công! Bạn có thể cài đặt ngay.', 'success');
+                // Show Install button
+                const installBtn = document.getElementById('installBtn_' + publicId);
+                if (installBtn) installBtn.style.display = '';
+                // Refresh balance in header
+                loadStripeBalance();
+            } else {
+                const msg = data.message || data.detail || '';
+                if (msg.includes('credit') || msg.includes('insufficient') || res.status === 402) {
+                    // Not enough credits — offer top-up
+                    openTopUpModal();
+                    showToast('Không đủ credits. Vui lòng nạp thêm.', 'warn');
+                } else {
+                    showToast(msg || 'Purchase failed', 'error');
+                }
+            }
+        } catch (e) {
+            showToast('Network error', 'error');
+        }
+    };
+    await doFetch();
+}
+
 
 // ── Install Item ──
 async function installItem(publicId, itemName, category, forceUpdate = false) {
@@ -1509,7 +1530,7 @@ async function submitUpload(e) {
                     
                     await new Promise((resolve, reject) => {
                         const xhr = new XMLHttpRequest();
-                        xhr.open('POST', 'https://tubecli.zeabur.app/api/market-cli/upload-media.php');
+                        xhr.open('POST', 'https://api.tubecreate.com/api/market-cli/upload-media.php');
                         
                         xhr.upload.onprogress = (evt) => {
                             if (evt.lengthComputable) {
@@ -1706,7 +1727,7 @@ function showToast(message, type = 'success') {
 
 // ── Auth System ──
 
-const AUTH_API = 'https://tubecli.zeabur.app/api/user';
+const AUTH_API = 'https://api.tubecreate.com/api/user';
 let marketIsRegisterMode = false;
 let pendingSellAction = false;
 
@@ -2640,3 +2661,308 @@ function renderUploadMediaPreviews() {
         }
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+//  STRIPE PAYMENT — TopUp Credits + Quick Pay
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _stripeBalance = null;
+let _stripePublishableKey = null;
+let _stripePackages = [];
+let _paymentChoiceItemId = null;
+let _paymentChoicePrice  = 0;
+let _paymentChoiceTitle  = '';
+
+// ── Universal dialog helpers (works with <dialog> and old overlay divs) ──
+function _dlgShow(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === 'DIALOG') {
+        try {
+            if (!el.open) el.showModal();
+        } catch(e) {
+            // Fallback: set open attr manually
+            el.setAttribute('open', '');
+            el.style.cssText = 'display:flex!important;position:fixed;inset:0;z-index:9999;margin:auto;';
+        }
+    } else {
+        el.classList.add('active');
+    }
+}
+function _dlgClose(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === 'DIALOG') {
+        if (el.open) el.close();
+        el.removeAttribute('open');
+        el.style.cssText = '';
+    } else {
+        el.classList.remove('active');
+    }
+}
+
+
+const STRIPE_PACKAGES_DEFAULT = [
+    { id: 'starter',  name: 'Starter',  credits: 50,   price_usd: 5.00,  badge: null,          color: '#6366f1' },
+    { id: 'pro',      name: 'Pro',       credits: 150,  price_usd: 12.00, badge: 'Popular',     color: '#8b5cf6' },
+    { id: 'power',    name: 'Power',     credits: 500,  price_usd: 35.00, badge: 'Best Value',  color: '#a855f7' },
+    { id: 'ultimate', name: 'Ultimate',  credits: 1500, price_usd: 90.00, badge: 'Pro',         color: '#ec4899' },
+];
+
+
+// ── Init: Load Stripe config + balance on page load ──
+async function initStripe() {
+    try {
+        const res = await fetch(`${API}/stripe/config`);
+        const cfg = await res.json();
+        _stripePublishableKey = cfg.publishable_key;
+        _stripePackages       = cfg.packages || [];
+    } catch (e) {
+        console.warn('[Stripe] Failed to load config:', e);
+    }
+    await loadStripeBalance();
+    renderCreditBadge();
+    handleStripeReturn();
+}
+
+async function loadStripeBalance() {
+    const token = getAuthToken();
+    if (!token) { _stripeBalance = null; renderCreditBadge(); return; }
+    try {
+        const res = await fetch(`${API}/stripe/balance`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        _stripeBalance = data.balance ?? 0;
+    } catch (e) {
+        _stripeBalance = null;
+    }
+    renderCreditBadge();
+}
+
+function renderCreditBadge() {
+    const el = document.getElementById('creditBalanceBadge');
+    if (!el) return;
+    if (_stripeBalance === null) { el.style.display = 'none'; return; }
+    el.style.display = 'flex';
+    el.innerHTML = `
+        <span style="opacity:0.7;font-size:0.75rem;">💎</span>
+        <span id="creditBalanceVal" style="font-weight:700;">${Math.floor(_stripeBalance)}</span>
+        <span style="opacity:0.6;font-size:0.75rem;">credits</span>
+        <button onclick="openTopUpModal()" style="margin-left:6px;padding:2px 10px;font-size:0.72rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">+ Nạp</button>
+    `;
+}
+
+// ── Handle return from Stripe ──
+function handleStripeReturn() {
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get('stripe_success')) {
+        const credits = params.get('credits');
+        const pkg     = params.get('package');
+        showToast(`🎉 Nạp thành công ${credits || ''} credits (gói ${pkg || ''})!`, 'success');
+        loadStripeBalance();
+        history.replaceState({}, '', window.location.pathname);
+    }
+    if (params.get('stripe_quickpay_success')) {
+        showToast('🎉 Thanh toán thành công! Bạn có thể cài đặt ngay.', 'success');
+        const itemId = params.get('item_id');
+        if (itemId) {
+            const installBtn = document.getElementById('installBtn_' + itemId);
+            if (installBtn) installBtn.style.display = '';
+        }
+        history.replaceState({}, '', window.location.pathname);
+    }
+    if (params.get('stripe_cancel')) {
+        showToast('Thanh toán đã bị huỷ.', 'warn');
+        history.replaceState({}, '', window.location.pathname);
+    }
+}
+
+// ── Payment Choice Modal (native <dialog>) ──
+function openPaymentChoiceModal(publicId, title, priceCredits) {
+    _paymentChoiceItemId = publicId;
+    _paymentChoicePrice  = priceCredits;
+    _paymentChoiceTitle  = title;
+
+    const priceUsd  = (priceCredits * 0.10).toFixed(2);
+    const balance   = _stripeBalance !== null ? Math.floor(_stripeBalance) : null;
+    const canAfford = balance !== null && balance >= priceCredits;
+
+    const dlg = document.getElementById('paymentChoiceModal');
+    if (!dlg) { buyItemWithCredits(publicId); return; }
+
+    document.getElementById('paymentChoiceBody').innerHTML = `
+        <div class="pmc-item-info">
+            <div class="pmc-item-icon">🧩</div>
+            <div>
+                <div style="font-weight:700;font-size:1rem;color:#fff">${escapeHtml(title)}</div>
+                <div style="font-size:0.8rem;color:var(--text-muted);margin-top:3px">
+                    Giá: <strong style="color:#818cf8">${priceCredits} credits</strong>
+                    &nbsp;≈&nbsp; <strong>$${priceUsd} USD</strong>
+                </div>
+            </div>
+        </div>
+
+        ${balance !== null ? `
+        <div class="pmc-balance">
+            <span>💎 Số dư của bạn:</span>
+            <strong style="color:${canAfford ? '#4ade80' : '#f87171'}">${balance} credits</strong>
+            ${!canAfford ? `<span style="color:#f87171;font-size:0.74rem;margin-left:6px;">⚠ Thiếu ${priceCredits - balance} credits</span>` : ''}
+        </div>` : ''}
+
+        <div class="pmc-options">
+            <div class="pmc-option ${!canAfford ? 'pmc-disabled' : ''}" onclick="${canAfford ? `buyItemWithCredits('${publicId}')` : 'openTopUpModal()'}">
+                <div class="pmc-opt-icon">💎</div>
+                <div class="pmc-opt-body">
+                    <div class="pmc-opt-title">${canAfford ? 'Trả bằng Credits' : 'Nạp thêm Credits'}</div>
+                    <div class="pmc-opt-desc">${canAfford
+                        ? `Dùng ${priceCredits} credits từ số dư — tức thì`
+                        : `Thiếu ${priceCredits - (balance||0)} credits — bấm để nạp`}</div>
+                </div>
+                <span class="pmc-opt-badge ${canAfford ? 'badge-green' : 'badge-orange'}">${canAfford ? '✅ Đủ' : '+ Nạp'}</span>
+            </div>
+
+            <div class="pmc-option pmc-stripe" onclick="startQuickPay('${publicId}', ${priceCredits})">
+                <div class="pmc-opt-icon">💳</div>
+                <div class="pmc-opt-body">
+                    <div class="pmc-opt-title">Thanh toán nhanh qua Stripe</div>
+                    <div class="pmc-opt-desc">Trả $${priceUsd} USD bằng thẻ quốc tế — không cần credits</div>
+                </div>
+                <span class="pmc-opt-badge badge-stripe">⚡ Quick Pay</span>
+            </div>
+        </div>
+    `;
+
+    _dlgShow('paymentChoiceModal');
+    // Close on backdrop click
+    const dlg2 = document.getElementById('paymentChoiceModal');
+    if (dlg2) dlg2.onclick = (e) => { if (e.target === dlg2) _dlgClose('paymentChoiceModal'); };
+}
+
+function closePaymentChoiceModal() {
+    _dlgClose('paymentChoiceModal');
+    _paymentChoiceItemId = null;
+}
+
+
+// ── TopUp Modal (native <dialog>) ──
+function openTopUpModal() {
+    closePaymentChoiceModal();
+
+    const packages = _stripePackages.length ? _stripePackages : STRIPE_PACKAGES_DEFAULT;
+    if (!_stripePackages.length) {
+        fetch(`${API}/stripe/config`)
+            .then(r => r.json())
+            .then(cfg => {
+                if (cfg.packages && cfg.packages.length) {
+                    _stripePackages = cfg.packages;
+                    renderTopUpPackages();
+                }
+            })
+            .catch(() => {});
+    }
+    renderTopUpPackages(packages);
+
+    _dlgShow('topupModal');
+    const dlg = document.getElementById('topupModal');
+    if (dlg) dlg.onclick = (e) => { if (e.target === dlg) _dlgClose('topupModal'); };
+}
+
+function closeTopUpModal() {
+    _dlgClose('topupModal');
+}
+
+
+function renderTopUpPackages(packages) {
+    const grid = document.getElementById('topupPackageGrid');
+    if (!grid) return;
+    // Use provided packages, or _stripePackages, or fallback
+    const pkgs = packages || (_stripePackages.length ? _stripePackages : STRIPE_PACKAGES_DEFAULT);
+    grid.innerHTML = pkgs.map(pkg => {
+        const isPopular = pkg.badge === 'Popular';
+        const isBest    = pkg.badge === 'Best Value';
+        return `
+        <div class="topup-pkg ${isPopular ? 'topup-popular' : ''} ${isBest ? 'topup-best' : ''}" onclick="startTopUp('${pkg.id}', this)">
+            ${pkg.badge ? `<div class="topup-badge">${pkg.badge}</div>` : ''}
+            <div class="topup-credits-num">${pkg.credits}</div>
+            <div class="topup-credits-lbl">credits</div>
+            <div class="topup-price-tag">$${pkg.price_usd.toFixed(2)} <span style="font-size:0.7rem;opacity:0.6;">USD</span></div>
+            <div class="topup-rate">${(pkg.price_usd / pkg.credits * 100).toFixed(1)}¢ / credit</div>
+            <button class="topup-go-btn">Nạp ngay →</button>
+        </div>`;
+    }).join('');
+}
+
+
+async function startTopUp(packageId, cardEl) {
+    const token = getAuthToken();
+    if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
+
+    const btn = cardEl ? cardEl.querySelector('.topup-go-btn') : null;
+    if (btn) { btn.textContent = 'Đang chuyển...'; btn.disabled = true; }
+
+    try {
+        const res = await fetch(`${API}/stripe/topup-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                package_id:  packageId,
+                success_url: window.location.href.split('?')[0],
+                cancel_url:  window.location.href.split('?')[0],
+            }),
+        });
+        const data = await res.json();
+        if (data.checkout_url) {
+            // Stripe cannot run inside an iframe — open in new tab
+            window.open(data.checkout_url, '_blank');
+            closeTopUpModal();
+            if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
+        } else {
+            showToast(data.detail || 'Không tạo được phiên thanh toán', 'error');
+            if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
+        }
+    } catch (e) {
+        showToast('Lỗi kết nối Stripe', 'error');
+        if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
+    }
+}
+
+// ── Quick Pay ──
+async function startQuickPay(publicId, priceCredits) {
+    closePaymentChoiceModal();
+    const token = getAuthToken();
+    if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
+
+    showToast('Đang chuyển đến Stripe...', 'info');
+
+    try {
+        const res = await fetch(`${API}/stripe/quickpay-session`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+                item_public_id:     publicId,
+                item_title:         _paymentChoiceTitle,
+                item_price_credits: priceCredits,
+                success_url: window.location.href.split('?')[0],
+                cancel_url:  window.location.href.split('?')[0],
+            }),
+        });
+        const data = await res.json();
+        if (data.checkout_url) {
+            // Stripe cannot run inside an iframe — open in new tab
+            window.open(data.checkout_url, '_blank');
+            closePaymentChoiceModal();
+            if (btn) { btn.textContent = 'Thanh toán'; btn.disabled = false; }
+        } else {
+            showToast(data.detail || 'Không tạo được phiên thanh toán', 'error');
+        }
+    } catch (e) {
+        showToast('Lỗi kết nối Stripe', 'error');
+    }
+}
+
+// ── Kick off Stripe init after DOM ready ──
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(initStripe, 800);
+});

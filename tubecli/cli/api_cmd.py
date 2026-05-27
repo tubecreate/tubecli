@@ -15,7 +15,7 @@ def api_cmd():
 
 @api_cmd.command("start")
 @click.option("--port", "-p", default=None, type=int, help="Port number")
-@click.option("--host", "-h", default="0.0.0.0", help="Host to bind")
+@click.option("--host", "-h", default="127.0.0.1", help="Host to bind")
 @click.option("--lang", "-l", default=None, type=click.Choice(["vi", "en"]),
               help="UI language (vi=Vietnamese, en=English). Saves to settings.")
 @click.option("--quiet", "-q", is_flag=True, default=False,

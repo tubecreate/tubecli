@@ -271,7 +271,7 @@ async def api_get_engine_versions():
             api_error = None
             
             # 1. Fetch versions from private API server (fast, no HEAD requests)
-            private_api_url = "https://tubecli.zeabur.app/api/fingerprints/check_versions.php"
+            private_api_url = "https://api.tubecreate.com/api/fingerprints/check_versions.php"
             try:
                 import requests
                 from tubecli.config import get_language

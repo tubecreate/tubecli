@@ -1133,3 +1133,286 @@ p { line-height: 1.6; }
     color: #fff;
     box-shadow: var(--shadow-glow);
 }
+
+/* ═══════════════════════════════════════════════════════════
+   STRIPE PAYMENT — Payment Choice Modal
+   ═══════════════════════════════════════════════════════════ */
+
+.pmc-modal {
+    max-width: 480px;
+    width: 95%;
+}
+
+.pmc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px 28px;
+    border-bottom: 1px solid var(--border);
+}
+.pmc-header h3 { font-size: 1.1rem; font-weight: 800; margin: 0; color: #fff; }
+
+.pmc-body { padding: 24px 28px; }
+
+.pmc-item-info {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: var(--radius-md);
+    margin-bottom: 16px;
+}
+.pmc-item-icon { font-size: 2rem; }
+
+.pmc-balance {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    padding: 10px 14px;
+    background: rgba(255,255,255,0.02);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255,255,255,0.04);
+}
+.pmc-balance strong { font-size: 1rem; font-weight: 700; }
+
+.pmc-options { display: flex; flex-direction: column; gap: 12px; }
+
+.pmc-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+}
+.pmc-option:hover {
+    background: rgba(255,255,255,0.06);
+    border-color: rgba(99,102,241,0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(99,102,241,0.1);
+}
+.pmc-option.pmc-disabled {
+    opacity: 0.65;
+    border-color: rgba(255,255,255,0.04);
+}
+.pmc-option.pmc-disabled:hover {
+    border-color: rgba(245,158,11,0.4);
+    background: rgba(245,158,11,0.04);
+    transform: none;
+}
+.pmc-option.pmc-stripe {
+    border-color: rgba(99,102,241,0.2);
+    background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.06));
+}
+.pmc-option.pmc-stripe:hover {
+    border-color: rgba(99,102,241,0.5);
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+    box-shadow: 0 4px 20px rgba(99,102,241,0.2);
+}
+.pmc-opt-icon { font-size: 1.5rem; flex-shrink: 0; }
+.pmc-opt-body { flex: 1; }
+.pmc-opt-title { font-weight: 700; font-size: 0.95rem; color: #fff; margin-bottom: 3px; }
+.pmc-opt-desc  { font-size: 0.78rem; color: var(--text-muted); line-height: 1.4; }
+.pmc-opt-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.badge-green  { background: rgba(34,197,94,0.15);  color: #4ade80; border: 1px solid rgba(34,197,94,0.3); }
+.badge-orange { background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+.badge-stripe { background: linear-gradient(135deg,#6366f1,#8b5cf6); color: #fff; }
+
+/* ═══════════════════════════════════════════════════════════
+   STRIPE PAYMENT — TopUp Modal
+   ═══════════════════════════════════════════════════════════ */
+
+.topup-modal {
+    max-width: 680px;
+    width: 95%;
+}
+
+.topup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 28px 32px 24px;
+    border-bottom: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.06));
+}
+
+.topup-packages {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    padding: 28px 32px;
+}
+
+@media (max-width: 600px) {
+    .topup-packages { grid-template-columns: repeat(2, 1fr); }
+}
+
+.topup-pkg {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 22px 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition);
+    text-align: center;
+    overflow: hidden;
+}
+.topup-pkg:hover {
+    border-color: rgba(99,102,241,0.5);
+    background: rgba(99,102,241,0.06);
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(99,102,241,0.15);
+}
+.topup-pkg.topup-popular {
+    border-color: rgba(99,102,241,0.4);
+    background: linear-gradient(135deg, rgba(99,102,241,0.1), rgba(139,92,246,0.1));
+    box-shadow: 0 4px 20px rgba(99,102,241,0.15);
+}
+.topup-pkg.topup-popular:hover {
+    border-color: rgba(99,102,241,0.7);
+    box-shadow: 0 10px 40px rgba(99,102,241,0.3);
+}
+.topup-pkg.topup-best {
+    border-color: rgba(236,72,153,0.4);
+    background: linear-gradient(135deg, rgba(236,72,153,0.08), rgba(168,85,247,0.08));
+}
+.topup-pkg.topup-best:hover {
+    border-color: rgba(236,72,153,0.7);
+    box-shadow: 0 10px 40px rgba(236,72,153,0.2);
+}
+
+.topup-badge {
+    position: absolute;
+    top: 0; left: 50%; transform: translateX(-50%);
+    font-size: 0.62rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    padding: 3px 10px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    border-radius: 0 0 8px 8px;
+}
+.topup-pkg.topup-best .topup-badge {
+    background: linear-gradient(135deg, #ec4899, #a855f7);
+}
+
+.topup-credits-num {
+    font-size: 2.2rem;
+    font-weight: 900;
+    color: #fff;
+    line-height: 1;
+    margin-top: 12px;
+    background: linear-gradient(135deg, #a5b4fc, #818cf8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.topup-credits-lbl {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    margin: 2px 0 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+.topup-price-tag {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 3px;
+}
+.topup-rate {
+    font-size: 0.68rem;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+.topup-go-btn {
+    width: 100%;
+    padding: 8px 0;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.82rem;
+    cursor: pointer;
+    transition: var(--transition);
+}
+.topup-go-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(99,102,241,0.4); }
+.topup-go-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.topup-footer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px 32px 20px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   NATIVE <dialog> ELEMENT — tc-dialog
+   ═══════════════════════════════════════════════════════════ */
+
+dialog.tc-dialog {
+    background: var(--bg2, #131320);
+    border: 1px solid var(--border, #2a2a4a);
+    border-radius: var(--radius-lg, 16px);
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.7), 0 0 60px rgba(99,102,241,0.08);
+    color: var(--text, #e8e8f0);
+    max-height: 90vh;
+    overflow-y: auto;
+
+    /* Entry animation */
+    animation: dialogSlideIn 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes dialogSlideIn {
+    from { opacity: 0; transform: translateY(20px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+dialog.tc-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    animation: backdropFadeIn 0.2s ease;
+}
+
+@keyframes backdropFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* Specific dialog sizes */
+dialog.pmc-dialog  { width: min(480px, 95vw); }
+dialog.topup-dialog { width: min(680px, 95vw); }
+
+/* Ensure dialog is centered and visible — fallback for any open state */
+dialog.tc-dialog[open] {
+    display: flex;
+    flex-direction: column;
+}

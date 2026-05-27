@@ -3,10 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a0a0f">
     <title>TubeCLI &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
+    <style>html,body{background:#0a0a0f!important;color:#e8e8f0;margin:0}</style>
     <link rel="stylesheet" href="/static/style.css?v=6">
-    <link rel="stylesheet" href="/static/market.css?v=13">
+    <link rel="stylesheet" href="/static/market.css?v=15">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="/static/i18n.js?v=11"></script>
 </head>
@@ -67,7 +69,10 @@
                     <button class="btn-logout" onclick="logoutMarket()" title="&#x0110;&#x0103;ng xu&#x1EA5;t">&#x1F6AA;</button>
                 </div>
                 <button class="vsx-btn-secondary" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">&#x1F4CB; <span data-i18n="market.my_listings">My Listings</span></button>
+                <!-- Credit Balance Badge -->
+                <div id="creditBalanceBadge" style="display:none;align-items:center;gap:4px;padding:4px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:10px;font-size:0.82rem;color:#c4b5fd;"></div>
                 <button class="vsx-btn-primary" onclick="requireAuth(() => openUploadModal())">&#x1F4E4; <span data-i18n="market.sell_item">Sell Item</span></button>
+
             </div>
         </div>
 
@@ -374,6 +379,35 @@
     <div id="lightboxContent" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;"></div>
 </div>
 
-<script src="/static/market.js?v=2.8"></script>
+<!-- ═══════════════ PAYMENT CHOICE MODAL ═══════════════ -->
+<dialog id="paymentChoiceModal" class="tc-dialog pmc-dialog">
+    <div class="pmc-header">
+        <h3>🛒 Chọn phương thức thanh toán</h3>
+        <button class="modal-close" onclick="closePaymentChoiceModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
+    </div>
+    <div class="pmc-body" id="paymentChoiceBody"></div>
+</dialog>
+
+<!-- ═══════════════ TOPUP MODAL ═══════════════ -->
+<dialog id="topupModal" class="tc-dialog topup-dialog">
+    <div class="topup-header">
+        <div>
+            <h3 style="margin:0;font-size:1.3rem;font-weight:800;">💎 Nạp Credits</h3>
+            <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted);">1 credit ≈ $0.10 USD · Thanh toán qua Stripe bảo mật</p>
+        </div>
+        <button class="modal-close" onclick="closeTopUpModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
+    </div>
+    <div class="topup-packages" id="topupPackageGrid"></div>
+    <div class="topup-footer">
+        <span>🔒 Bảo mật bởi</span>
+        <svg width="48" height="20" viewBox="0 0 60 25" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-left:6px;">
+            <text x="0" y="18" font-size="18" font-family="Arial" font-weight="bold" fill="#6366f1">stripe</text>
+        </svg>
+        <span style="margin-left:8px;opacity:0.5;">· TLS 1.3 Encrypted</span>
+    </div>
+</dialog>
+
+<script src="/static/market.js?v=3.3"></script>
+
 </body>
 </html>
