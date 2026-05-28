@@ -58,14 +58,26 @@ def _get_stripe_settings() -> dict:
 
 
 def _get_stripe():
-    """Initialize and return stripe module."""
+    """Initialize and return stripe module. Auto-installs if missing."""
     try:
         import stripe as _stripe
+    except ImportError:
+        # Auto-install stripe on first use
+        import subprocess, sys
+        print("[Stripe] stripe package not found — installing automatically...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "stripe", "-q"])
+        import stripe as _stripe
+
+    try:
         cfg = _get_stripe_settings()
+        if not cfg["secret_key"]:
+            raise HTTPException(503, "Stripe secret key not configured in global_settings.json")
         _stripe.api_key = cfg["secret_key"]
         return _stripe
-    except ImportError:
-        raise HTTPException(503, "stripe library not installed. Run: pip install stripe")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(503, f"Stripe init error: {str(e)}")
 
 
 def _get_market_api_base() -> str:
