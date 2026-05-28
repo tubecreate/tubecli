@@ -759,9 +759,10 @@ def _run_update_check():
     import subprocess
     import sys
     from tubecli.i18n import t
-    from tubecli.config import BASE_DIR
+    from tubecli.config import BASE_DIR, get_api_port
     from tubecli import __version__
 
+    port = get_api_port()
     project_root = str(BASE_DIR)
 
     console.print()
