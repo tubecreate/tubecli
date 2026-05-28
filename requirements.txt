@@ -12,3 +12,4 @@ gmssl
 httpx>=0.24
 beautifulsoup4>=4.12.0
 lxml
+stripe>=5.0
