@@ -92,15 +92,8 @@ def init_cmd(lang, port):
             extension_manager.enable(ext.name)
     console.print(t("init.extensions_enabled"))
 
-    # 5. Check and Install Ollama
-    from tubecli.core.ollama_utils import is_ollama_installed, install_ollama
-    if not is_ollama_installed():
-        console.print(t("init.ollama_not_installed"))
-        console.print(t("init.ollama_required"))
-        if click.confirm(t("init.ollama_install_confirm")):
-            install_ollama()
-    else:
-        console.print(t("init.ollama_installed"))
+    # 5. Ollama check — silently skip (optional, user can install via menu option 4)
+    # No interactive prompt on startup
 
     console.print(t("init.workspace_ready"))
 
@@ -535,10 +528,21 @@ def _run_control_panel():
             subprocess.Popen(cmd, **kwargs)
         time.sleep(2)
 
-    # Initial start — quiet by default
-    console.print(t("panel.api_starting", port=port))
-    _start_api(quiet=True)
-    console.print(t("panel.api_started"))
+    # Initial start — check if already running first
+    import requests as _req_init
+    server_already_running = False
+    try:
+        resp = _req_init.get(f"http://localhost:{port}/api/v1/health", timeout=2)
+        server_already_running = resp.status_code == 200
+    except Exception:
+        pass
+
+    if server_already_running:
+        console.print(f"  [green]API server đang chạy tại port {port}[/green]")
+    else:
+        console.print(t("panel.api_starting", port=port))
+        _start_api(quiet=True)
+        console.print(t("panel.api_started"))
 
 
     import time
