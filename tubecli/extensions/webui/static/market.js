@@ -371,7 +371,10 @@ function createCard(item, installData) {
             quickBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
         }
     } else if (isFree) {
-        quickBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cài đặt</button>`;
+        quickBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">${T('card.install') || 'Cài đặt'}</button>`;
+    } else {
+        // Paid item, not installed → show Quick Pay button
+        quickBtnHtml = `<button id="cardQuickPayBtn_${item.public_id}" class="card-price" style="cursor:pointer; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border:none; font-size:0.78rem; padding:4px 10px;" onclick="event.stopPropagation(); _paymentChoiceTitle='${escapeHtml(item.title).replace(/'/g, '\\\'')}'; startQuickPay('${item.public_id}', ${price})">⚡ Mua ngay</button>`;
     }
 
     card.innerHTML = `
@@ -1878,6 +1881,7 @@ async function handleMarketAuth() {
 
             closeLoginModal();
             updateMarketAuthUI();
+            loadStripeBalance();  // Load credit balance + show TopUp badge immediately
             showToast(marketIsRegisterMode ? 'Đăng ký thành công!' : 'Đăng nhập thành công!', 'success');
 
             // Resume sell action if pending
@@ -2902,6 +2906,15 @@ async function startTopUp(packageId, cardEl) {
     const btn = cardEl ? cardEl.querySelector('.topup-go-btn') : null;
     if (btn) { btn.textContent = 'Đang chuyển...'; btn.disabled = true; }
 
+    // Open a blank window synchronously to prevent browser popup blockers
+    const paymentWindow = window.open('about:blank', '_blank');
+    if (!paymentWindow) {
+        showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
+        if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
+        return;
+    }
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán Stripe...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
+
     try {
         const res = await fetch(`${API}/stripe/topup-session`, {
             method: 'POST',
@@ -2914,15 +2927,16 @@ async function startTopUp(packageId, cardEl) {
         });
         const data = await res.json();
         if (data.checkout_url) {
-            // Stripe cannot run inside an iframe — open in new tab
-            window.open(data.checkout_url, '_blank');
+            paymentWindow.location.href = data.checkout_url;
             closeTopUpModal();
             if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
         } else {
+            paymentWindow.close();
             showToast(data.detail || 'Không tạo được phiên thanh toán', 'error');
             if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
         }
     } catch (e) {
+        paymentWindow.close();
         showToast('Lỗi kết nối Stripe', 'error');
         if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
     }
@@ -2932,14 +2946,25 @@ async function startTopUp(packageId, cardEl) {
 async function startQuickPay(publicId, priceCredits) {
     closePaymentChoiceModal();
     const token = getAuthToken();
-    if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
+
+    // Open a blank window synchronously to prevent browser popup blockers
+    const paymentWindow = window.open('about:blank', '_blank');
+    if (!paymentWindow) {
+        showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
+        return;
+    }
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán Stripe...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
 
     showToast('Đang chuyển đến Stripe...', 'info');
 
     try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
         const res = await fetch(`${API}/stripe/quickpay-session`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            headers: headers,
             body: JSON.stringify({
                 item_public_id:     publicId,
                 item_title:         _paymentChoiceTitle,
@@ -2950,14 +2975,15 @@ async function startQuickPay(publicId, priceCredits) {
         });
         const data = await res.json();
         if (data.checkout_url) {
-            // Stripe cannot run inside an iframe — open in new tab
-            window.open(data.checkout_url, '_blank');
+            paymentWindow.location.href = data.checkout_url;
             closePaymentChoiceModal();
-            if (btn) { btn.textContent = 'Thanh toán'; btn.disabled = false; }
+            if (typeof btn !== 'undefined' && btn) { btn.textContent = 'Thanh toán'; btn.disabled = false; }
         } else {
+            paymentWindow.close();
             showToast(data.detail || 'Không tạo được phiên thanh toán', 'error');
         }
     } catch (e) {
+        paymentWindow.close();
         showToast('Lỗi kết nối Stripe', 'error');
     }
 }

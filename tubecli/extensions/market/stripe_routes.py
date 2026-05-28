@@ -197,13 +197,16 @@ async def create_quickpay_session(req: QuickPayRequest, authorization: Optional[
     Price is calculated as: credits × $0.10/credit
     Returns: { checkout_url, session_id }
     """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Đăng nhập để mua item")
+    username = None
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.replace("Bearer ", "")
+        username = await _resolve_username(token)
 
-    token = authorization.replace("Bearer ", "")
-    username = await _resolve_username(token)
     if not username:
-        raise HTTPException(401, "Không xác định được tài khoản")
+        # Guest flow: generate temporary guest identifier
+        import uuid
+        username = f"guest_{uuid.uuid4().hex[:8]}"
 
     stripe = _get_stripe()
 
@@ -236,7 +239,7 @@ async def create_quickpay_session(req: QuickPayRequest, authorization: Optional[
             metadata={
                 "type":         "quickpay",
                 "username":     username,
-                "token":        token[:32],
+                "token":        token[:32] if token else "guest",
                 "item_id":      req.item_public_id,
                 "item_title":   req.item_title,
                 "credits_cost": str(req.item_price_credits),
