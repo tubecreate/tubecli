@@ -1069,6 +1069,9 @@ pause
 
     # Auto-restart TubeCLI
     import time
+
+    # Kill old API server so it restarts with new code
+    _kill_server_on_port(port)
     
     # Save the .restarted flag file so the next process knows it is a restart
     restart_flag = os.path.join(project_root, ".restarted")
