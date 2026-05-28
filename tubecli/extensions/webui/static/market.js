@@ -2949,6 +2949,14 @@ async function startQuickPay(publicId, priceCredits) {
 
     showToast('Đang chuyển đến Stripe...', 'info');
 
+    // Open a blank window synchronously to prevent popup blockers (same pattern as startTopUp)
+    const paymentWindow = window.open('about:blank', '_blank');
+    if (!paymentWindow) {
+        showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
+        return;
+    }
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán Stripe...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
+
     try {
         const headers = { 'Content-Type': 'application/json' };
         if (token) {
@@ -2967,12 +2975,14 @@ async function startQuickPay(publicId, priceCredits) {
         });
         const data = await res.json();
         if (data.checkout_url) {
-            // Redirect current tab to Stripe Checkout — avoids popup blockers & tracking prevention
-            window.location.href = data.checkout_url;
+            // Redirect the new tab to Stripe Checkout
+            paymentWindow.location.href = data.checkout_url;
         } else {
+            paymentWindow.close();
             showToast(data.detail || 'Không tạo được phiên thanh toán', 'error');
         }
     } catch (e) {
+        paymentWindow.close();
         showToast('Lỗi kết nối Stripe', 'error');
     }
 }
