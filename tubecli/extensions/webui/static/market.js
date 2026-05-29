@@ -3340,7 +3340,7 @@ function showCryptoPayment(packageId) {
     document.getElementById('crypto-details-mount').style.display = 'none';
     document.getElementById('crypto-pay-btn').disabled = false;
     document.getElementById('crypto-pay-btn').style.display = 'flex';
-    document.getElementById('crypto-pay-btn').innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+    document.getElementById('crypto-pay-btn').innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
     
     const pkgMap = {
         'starter': 'Gói nạp: Starter (5,000 credits - $5.00 USD)',
@@ -3368,7 +3368,7 @@ async function startCryptoPaymentFlow() {
     if (!username) {
         showToast("Vui lòng đăng nhập lại", "error");
         payBtn.disabled = false;
-        payBtn.innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+        payBtn.innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
         return;
     }
     
@@ -3403,7 +3403,7 @@ async function startCryptoPaymentFlow() {
     } catch (err) {
         showToast(err.message, "error");
         payBtn.disabled = false;
-        payBtn.innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+        payBtn.innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
     }
 }
 
