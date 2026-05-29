@@ -9,9 +9,11 @@ from tubecli.extensions.market.market_service import market_service
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
-# ── Stripe Payment Routes ──
+# ── Stripe & PayPal Payment Routes ──
 from tubecli.extensions.market.stripe_routes import stripe_router
+from tubecli.extensions.market.paypal_routes import paypal_router
 router.include_router(stripe_router)
+router.include_router(paypal_router)
 
 
 # ── Check Updates ──

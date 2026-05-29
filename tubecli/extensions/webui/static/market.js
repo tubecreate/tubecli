@@ -2717,12 +2717,12 @@ const STRIPE_PACKAGES_DEFAULT = [
 // ── Init: Load Stripe config + balance on page load ──
 async function initStripe() {
     try {
-        const res = await fetch(`${API}/stripe/config`);
+        const res = await fetch(`${API}/paypal/config`);
         const cfg = await res.json();
-        _stripePublishableKey = cfg.publishable_key;
+        _stripePublishableKey = cfg.client_id;
         _stripePackages       = cfg.packages || [];
     } catch (e) {
-        console.warn('[Stripe] Failed to load config:', e);
+        console.warn('[PayPal] Failed to load config:', e);
     }
     await loadStripeBalance();
     renderCreditBadge();
@@ -2733,7 +2733,7 @@ async function loadStripeBalance() {
     const token = getAuthToken();
     if (!token) { _stripeBalance = null; renderCreditBadge(); return; }
     try {
-        const res = await fetch(`${API}/stripe/balance`, {
+        const res = await fetch(`${API}/paypal/balance`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         const data = await res.json();
@@ -2856,7 +2856,7 @@ function openTopUpModal() {
 
     const packages = _stripePackages.length ? _stripePackages : STRIPE_PACKAGES_DEFAULT;
     if (!_stripePackages.length) {
-        fetch(`${API}/stripe/config`)
+        fetch(`${API}/paypal/config`)
             .then(r => r.json())
             .then(cfg => {
                 if (cfg.packages && cfg.packages.length) {
@@ -2913,10 +2913,10 @@ async function startTopUp(packageId, cardEl) {
         if (btn) { btn.textContent = 'Nạp ngay →'; btn.disabled = false; }
         return;
     }
-    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán Stripe...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán PayPal...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
 
     try {
-        const res = await fetch(`${API}/stripe/topup-session`, {
+        const res = await fetch(`${API}/paypal/topup-session`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
             body: JSON.stringify({
@@ -2947,7 +2947,7 @@ async function startQuickPay(publicId, priceCredits) {
     closePaymentChoiceModal();
     const token = getAuthToken();
 
-    showToast('Đang chuyển đến Stripe...', 'info');
+    showToast('Đang chuyển đến PayPal...', 'info');
 
     // Open a blank window synchronously to prevent popup blockers (same pattern as startTopUp)
     const paymentWindow = window.open('about:blank', '_blank');
@@ -2955,14 +2955,14 @@ async function startQuickPay(publicId, priceCredits) {
         showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
         return;
     }
-    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán Stripe...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán PayPal...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
 
     try {
         const headers = { 'Content-Type': 'application/json' };
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
-        const res = await fetch(`${API}/stripe/quickpay-session`, {
+        const res = await fetch(`${API}/paypal/quickpay-session`, {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
@@ -2983,7 +2983,7 @@ async function startQuickPay(publicId, priceCredits) {
         }
     } catch (e) {
         paymentWindow.close();
-        showToast('Lỗi kết nối Stripe', 'error');
+        showToast('Lỗi kết nối PayPal', 'error');
     }
 }
 
