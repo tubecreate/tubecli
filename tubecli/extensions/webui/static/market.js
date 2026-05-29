@@ -1719,6 +1719,15 @@ function isLoggedIn() {
     return !!getAuthToken();
 }
 
+function getAuthUser() {
+    if (!isLoggedIn()) return null;
+    try {
+        return JSON.parse(localStorage.getItem('market_user') || '{}');
+    } catch(e) {
+        return null;
+    }
+}
+
 function showToast(message, type = 'success') {
     const toast = document.getElementById('marketToast');
     toast.textContent = message;
