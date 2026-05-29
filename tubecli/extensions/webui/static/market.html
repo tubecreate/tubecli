@@ -401,61 +401,20 @@
     <!-- Package Grid Selection -->
     <div class="topup-packages" id="topupPackageGrid"></div>
 
-    <!-- PayPal payment method selector, hidden by default -->
-    <div id="paypal-method-selector" style="display:none; padding:20px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; margin: 15px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
-        <h4 style="margin: 0 0 8px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
-            <span>🛒</span> Chọn hình thức thanh toán qua PayPal:
+    <!-- PayPal Smart Buttons Container, hidden by default -->
+    <div id="paypal-button-container" style="display:none; margin: 15px 0; padding: 24px; background: var(--bg2, #161622); border: 1px solid var(--border, #2e2e42); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+        <h4 style="margin: 0 0 6px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
+            <span>💳</span> Phương thức thanh toán PayPal
         </h4>
-        <p style="margin: 0 0 20px 0; font-size: 0.8rem; color: var(--text-muted, #8e8ea8); text-align: center;">
-            Hỗ trợ tài khoản ví PayPal hoặc Thẻ quốc tế trực tiếp bảo mật tuyệt đối
-        </p>
+        <div id="selected-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.95rem; text-align: center;"></div>
         
-        <div style="display:grid; grid-template-columns: 1fr; gap:12px; margin-bottom:20px;">
-            <!-- Option 1: Express Checkout (Login to PayPal) -->
-            <button type="button" id="btn-pay-express" style="padding:14px; background:linear-gradient(135deg, #ffc439, #ffb300); border:none; border-radius:10px; color:#003087; font-weight:800; font-size:0.95rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; box-shadow: 0 4px 15px rgba(255,196,57,0.2); transition:all 0.2s;" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-                <span style="font-size:1.25rem;">💛</span> Đăng nhập ví PayPal (Nhanh & Tiện lợi)
-            </button>
-
-            <!-- Option 2: Card Fields (Direct Credit Card) -->
-            <button type="button" id="btn-pay-cardfields" style="padding:14px; background:linear-gradient(135deg, #1e1e2f, #2d2d44); border:1px solid var(--border, #2e2e42); border-radius:10px; color:#fff; font-weight:700; font-size:0.95rem; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:10px; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--primary)'" onmouseout="this.style.borderColor='var(--border)'">
-                <span style="font-size:1.25rem;">💳</span> Thanh toán bằng Thẻ (Visa/Mastercard)
-            </button>
-        </div>
-
-        <button type="button" onclick="hidePaypalMethodSelector()" style="width:100%; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+        <!-- PayPal SDK will render buttons here -->
+        <div id="paypal-buttons-mount" style="min-height: 100px;"></div>
+        
+        <div id="paypal-buttons-error" style="display:none; color:#ef4444; font-size:0.85rem; margin-top:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500; text-align:center;"></div>
+        
+        <button type="button" onclick="hidePaypalButtons()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
             ← Quay lại chọn gói khác
-        </button>
-    </div>
-
-    <!-- PayPal Card Fields form, hidden by default -->
-    <div id="paypal-card-form-container" style="display:none; padding:20px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; margin: 15px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
-        <h4 style="margin: 0 0 15px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px;">
-            <span>💳</span> Nhập thông tin Thẻ thanh toán (Visa/Mastercard)
-        </h4>
-        <div style="margin-bottom:14px;">
-            <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Gói đã chọn:</label>
-            <div id="selected-package-summary" style="padding:10px 14px; border-radius:8px; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); font-weight:700; color:#a5b4fc; font-size:0.95rem;"></div>
-        </div>
-        <div style="margin-bottom:14px;">
-            <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Số thẻ (Card Number)</label>
-            <div id="card-number-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
-        </div>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:20px;">
-            <div>
-                <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Hết hạn (Expiry Date)</label>
-                <div id="card-expiry-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
-            </div>
-            <div>
-                <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Mã CVV (Security Code)</label>
-                <div id="card-cvv-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
-            </div>
-        </div>
-        <div id="card-fields-error" style="display:none; color:#ef4444; font-size:0.85rem; margin-bottom:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500;"></div>
-        <button id="card-submit-btn" style="width:100%; padding:14px; background:linear-gradient(135deg, #6366f1, #8b5cf6); border:none; border-radius:8px; color:#fff; font-weight:700; cursor:pointer; font-size:0.95rem; display:flex; justify-content:center; align-items:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 15px rgba(99,102,241,0.3);" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
-            ⚡ Thanh toán ngay
-        </button>
-        <button type="button" onclick="hidePaypalCardForm()" style="width:100%; margin-top:8px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:8px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
-            ← Quay lại chọn gói nạp khác
         </button>
     </div>
 

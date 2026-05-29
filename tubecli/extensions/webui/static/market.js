@@ -2828,13 +2828,13 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
                 <span class="pmc-opt-badge ${canAfford ? 'badge-green' : 'badge-orange'}">${canAfford ? '✅ Đủ' : '+ Nạp'}</span>
             </div>
 
-            <div class="pmc-option pmc-stripe" onclick="closePaymentChoiceModal(); openTopUpModal(); showPaypalCardForm({ type: 'quickpay', itemId: '${publicId}', itemTitle: '${escapeHtml(title).replace(/'/g, "\\\'")}', priceCredits: ${priceCredits} })">
+            <div class="pmc-option pmc-stripe" onclick="closePaymentChoiceModal(); openTopUpModal(); showPaypalButtons({ type: 'quickpay', itemId: '${publicId}', itemTitle: '${escapeHtml(title).replace(/'/g, "\\\'")}', priceCredits: ${priceCredits} })">
                 <div class="pmc-opt-icon">💳</div>
                 <div class="pmc-opt-body">
-                    <div class="pmc-opt-title">Thanh toán bằng Thẻ (Visa/Mastercard)</div>
-                    <div class="pmc-opt-desc">Trả trực tiếp $${priceUsd} USD qua PayPal — bảo mật và nhanh chóng</div>
+                    <div class="pmc-opt-title">Thanh toán PayPal / Thẻ quốc tế</div>
+                    <div class="pmc-opt-desc">Trả trực tiếp $${priceUsd} USD qua PayPal hoặc Thẻ Visa/Mastercard bảo mật</div>
                 </div>
-                <span class="pmc-opt-badge badge-stripe" style="background:#003087;">💳 Thẻ Trực Tiếp</span>
+                <span class="pmc-opt-badge badge-stripe" style="background:#003087;">⚡ PayPal / Card</span>
             </div>
         </div>
     `;
@@ -3074,32 +3074,55 @@ async function initAndRenderPaypalFields() {
     }
 }
 
-function hidePaypalCardForm() {
-    document.getElementById('paypal-card-form-container').style.display = 'none';
-    // Instead of showing package grid directly, go back to method selector!
-    document.getElementById('paypal-method-selector').style.display = 'block';
+// ── Dynamic PayPal Smart Buttons SDK Loader ──
+let paypalButtonsSdkPromise = null;
+function getPayPalSDKButtons(clientId) {
+    if (paypalButtonsSdkPromise) return paypalButtonsSdkPromise;
+    paypalButtonsSdkPromise = new Promise((resolve, reject) => {
+        if (window.paypal && window.paypal.Buttons) {
+            resolve(window.paypal);
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = `https://www.paypal.com/sdk/js?client-id=${clientId}&currency=USD&components=buttons`;
+        script.onload = () => {
+            if (window.paypal && window.paypal.Buttons) {
+                resolve(window.paypal);
+            } else {
+                reject(new Error('PayPal Buttons SDK load failed'));
+            }
+        };
+        script.onerror = (err) => reject(err);
+        document.head.appendChild(script);
+    });
+    return paypalButtonsSdkPromise;
 }
 
-async function showPaypalCardForm(sessionObj) {
+let _paypalButtonsInstance = null;
+
+async function showPaypalButtons(sessionObj) {
     _activePaymentSession = sessionObj;
     
-    // Clear error
-    document.getElementById('card-fields-error').style.display = 'none';
-    document.getElementById('card-fields-error').textContent = '';
+    // Hide package selection grid
+    document.getElementById('topupPackageGrid').style.display = 'none';
     
-    // Set button text to standard
-    const submitBtn = document.getElementById('card-submit-btn');
-    submitBtn.disabled = false;
-    submitBtn.innerHTML = '⚡ Thanh toán ngay';
+    // Show buttons container
+    const container = document.getElementById('paypal-button-container');
+    container.style.display = 'block';
+    
+    // Clear previous error
+    const errorEl = document.getElementById('paypal-buttons-error');
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
     
     // Render package summary
     const summaryEl = document.getElementById('selected-package-summary');
     if (sessionObj.type === 'topup') {
         const pkgMap = {
-            'starter': 'Starter (5,000 credits - $5.00 USD)',
-            'pro': 'Pro (15,000 credits - $12.00 USD)',
-            'power': 'Power (50,000 credits - $35.00 USD)',
-            'ultimate': 'Ultimate (150,000 credits - $90.00 USD)'
+            'starter': 'Gói nạp: Starter (5,000 credits - $5.00 USD)',
+            'pro': 'Gói nạp: Pro (15,000 credits - $12.00 USD)',
+            'power': 'Gói nạp: Power (50,000 credits - $35.00 USD)',
+            'ultimate': 'Gói nạp: Ultimate (150,000 credits - $90.00 USD)'
         };
         summaryEl.textContent = pkgMap[sessionObj.packageId] || `${sessionObj.packageId} package`;
     } else {
@@ -3107,110 +3130,99 @@ async function showPaypalCardForm(sessionObj) {
         summaryEl.textContent = `Mua đứt: ${sessionObj.itemTitle} ($${priceUsd} USD)`;
     }
     
-    // Hide method selector and package grid
-    document.getElementById('topupPackageGrid').style.display = 'none';
-    document.getElementById('paypal-method-selector').style.display = 'none';
+    // Clear mount point to avoid duplicate renders
+    const mountEl = document.getElementById('paypal-buttons-mount');
+    mountEl.innerHTML = '';
     
-    // Show card form container
-    document.getElementById('paypal-card-form-container').style.display = 'block';
+    const client_id = _stripePublishableKey; // PayPal Client ID fetched from /config
+    if (!client_id) {
+        showToast("Lỗi: Không lấy được cấu hình PayPal Client ID", "error");
+        return;
+    }
     
-    // Load and render
-    await initAndRenderPaypalFields();
-}
-
-let _paypalMethodSelectorInitialized = false;
-
-function showPaypalMethodSelector(sessionObj) {
-    _activePaymentSession = sessionObj;
-    
-    // Hide package selection grid and card form
-    document.getElementById('topupPackageGrid').style.display = 'none';
-    document.getElementById('paypal-card-form-container').style.display = 'none';
-    
-    // Show selector container
-    const selector = document.getElementById('paypal-method-selector');
-    selector.style.display = 'block';
-    
-    if (!_paypalMethodSelectorInitialized) {
-        document.getElementById('btn-pay-express').addEventListener('click', () => {
-            triggerPaypalExpressCheckout();
+    try {
+        const paypal = await getPayPalSDKButtons(client_id);
+        
+        _paypalButtonsInstance = paypal.Buttons({
+            style: {
+                layout: 'vertical',
+                color:  'gold',
+                shape:  'rect',
+                label:  'paypal'
+            },
+            createOrder: async function() {
+                const token = getAuthToken();
+                if (!token) {
+                    showToast("Vui lòng đăng nhập lại", "error");
+                    throw new Error("Not authenticated");
+                }
+                
+                errorEl.style.display = 'none';
+                
+                let url, body;
+                if (_activePaymentSession.type === 'topup') {
+                    url = `${API}/paypal/topup-session`;
+                    body = {
+                        package_id: _activePaymentSession.packageId,
+                        success_url: window.location.href.split('?')[0],
+                        cancel_url: window.location.href.split('?')[0]
+                    };
+                } else {
+                    url = `${API}/paypal/quickpay-session`;
+                    body = {
+                        item_public_id: _activePaymentSession.itemId,
+                        item_title: _activePaymentSession.itemTitle,
+                        item_price_credits: _activePaymentSession.priceCredits,
+                        success_url: window.location.href.split('?')[0],
+                        cancel_url: window.location.href.split('?')[0]
+                    };
+                }
+                
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify(body)
+                    });
+                    const data = await res.json();
+                    if (!res.ok || !data.order_id) {
+                        throw new Error(data.error || data.detail || "Không tạo được order ID từ PayPal");
+                    }
+                    return data.order_id;
+                } catch (err) {
+                    errorEl.style.display = 'block';
+                    errorEl.textContent = err.message;
+                    throw err;
+                }
+            },
+            onApprove: async function(data) {
+                const { orderID } = data;
+                executePaypalCapture(orderID);
+            },
+            onError: function(err) {
+                console.error("PayPal Buttons Error:", err);
+                errorEl.style.display = 'block';
+                errorEl.textContent = "Thao tác thanh toán thất bại hoặc đã bị huỷ.";
+            }
         });
-        document.getElementById('btn-pay-cardfields').addEventListener('click', () => {
-            selector.style.display = 'none';
-            showPaypalCardForm(_activePaymentSession);
-        });
-        _paypalMethodSelectorInitialized = true;
+        
+        await _paypalButtonsInstance.render('#paypal-buttons-mount');
+    } catch (e) {
+        console.error("PayPal buttons render failed:", e);
+        mountEl.innerHTML = '<p style="color:#ef4444;text-align:center;font-weight:600;padding:20px;">Lỗi: Không tải được thành phần thanh toán PayPal. Vui lòng thử lại.</p>';
     }
 }
 
-function hidePaypalMethodSelector() {
-    document.getElementById('paypal-method-selector').style.display = 'none';
+function hidePaypalButtons() {
+    document.getElementById('paypal-button-container').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
     // If we came from QuickPay, clicking back should close topupModal and open paymentChoiceModal again
     if (_activePaymentSession && _activePaymentSession.type === 'quickpay') {
         closeTopUpModal();
         openPaymentChoiceModal(_activePaymentSession.itemId, _activePaymentSession.itemTitle, _activePaymentSession.priceCredits);
-    }
-}
-
-async function triggerPaypalExpressCheckout() {
-    const token = getAuthToken();
-    if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
-
-    const btn = document.getElementById('btn-pay-express');
-    const originalHtml = btn.innerHTML;
-    btn.disabled = true;
-    btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Đang kết nối PayPal...';
-
-    // Open a blank window synchronously to prevent browser popup blockers
-    const paymentWindow = window.open('about:blank', '_blank');
-    if (!paymentWindow) {
-        showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
-        return;
-    }
-    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán PayPal...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
-
-    let url, body;
-    if (_activePaymentSession.type === 'topup') {
-        url = `${API}/paypal/topup-session`;
-        body = {
-            package_id: _activePaymentSession.packageId,
-            success_url: window.location.href.split('?')[0],
-            cancel_url: window.location.href.split('?')[0]
-        };
-    } else {
-        url = `${API}/paypal/quickpay-session`;
-        body = {
-            item_public_id: _activePaymentSession.itemId,
-            item_title: _activePaymentSession.itemTitle,
-            item_price_credits: _activePaymentSession.priceCredits,
-            success_url: window.location.href.split('?')[0],
-            cancel_url: window.location.href.split('?')[0]
-        };
-    }
-
-    try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        if (data.checkout_url) {
-            paymentWindow.location.href = data.checkout_url;
-            closeTopUpModal();
-        } else {
-            paymentWindow.close();
-            showToast(data.error || 'Không tạo được phiên thanh toán', 'error');
-        }
-    } catch (e) {
-        paymentWindow.close();
-        showToast('Lỗi kết nối PayPal', 'error');
-    } finally {
-        btn.disabled = false;
-        btn.innerHTML = originalHtml;
     }
 }
 
@@ -3221,30 +3233,25 @@ async function handlePaypalRedirectReturn() {
     const payerId = params.get('PayerID');
     
     if (token && payerId) {
-        // If we are inside the popup, let's notify the parent window and close!
         if (window.opener && !window.opener.closed) {
             try {
                 window.opener.handlePaypalExpressSuccess(token);
                 window.close();
                 return;
-            } catch (e) {
-                // fall back to current window if opener blocked
-            }
+            } catch (e) {}
         }
-        
-        // Otherwise, handle in the current window
         await executePaypalCapture(token);
     }
 }
 
 async function executePaypalCapture(orderId) {
-    // Show full screen overlay
+    // Show full screen loading overlay
     const overlay = document.createElement('div');
     overlay.id = 'paypal-loading-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,0.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;backdrop-filter:blur(10px);';
     overlay.innerHTML = `
         <div class="market-spinner" style="width:50px;height:50px;border-width:4px;margin-bottom:20px;"></div>
-        <h3 style="margin:0;font-size:1.3rem;font-weight:800;letter-spacing:-0.02em;">🔄 Đang xác nhận giao dịch PayPal...</h3>
+        <h3 style="margin:0;font-size:1.3rem;font-weight:800;">🔄 Đang xác thực giao dịch PayPal...</h3>
         <p style="margin:8px 0 0;color:var(--text-muted);font-size:0.9rem;">Hệ thống đang cộng Credits vào ví của bạn. Vui lòng không đóng tab này.</p>
     `;
     document.body.appendChild(overlay);
@@ -3263,10 +3270,9 @@ async function executePaypalCapture(orderId) {
         
         if (result.status === 'success') {
             showToast(`🎉 Nạp thành công +${result.credits || ''} credits vào tài khoản!`, "success");
-            // Clear query parameters
             history.replaceState({}, '', window.location.pathname);
-            // Refresh balance
             await loadStripeBalance();
+            closeTopUpModal();
         } else {
             showToast(result.error || "Giao dịch không thành công hoặc đã xử lý trước đó", "error");
             history.replaceState({}, '', window.location.pathname);
@@ -3279,7 +3285,6 @@ async function executePaypalCapture(orderId) {
     }
 }
 
-// Expose success handler for popup postMessage/opener
 window.handlePaypalExpressSuccess = function(orderId) {
     executePaypalCapture(orderId);
 };
@@ -3288,15 +3293,13 @@ async function startTopUp(packageId, cardEl) {
     const token = getAuthToken();
     if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
     
-    // Show PayPal Method Selector choice screen
-    showPaypalMethodSelector({ type: 'topup', packageId: packageId });
+    showPaypalButtons({ type: 'topup', packageId: packageId });
 }
 
 function closeTopUpModal() {
     _dlgClose('topupModal');
     // Reset view
-    document.getElementById('paypal-method-selector').style.display = 'none';
-    document.getElementById('paypal-card-form-container').style.display = 'none';
+    document.getElementById('paypal-button-container').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
 }
 
