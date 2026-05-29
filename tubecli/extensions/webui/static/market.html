@@ -393,15 +393,50 @@
     <div class="topup-header">
         <div>
             <h3 style="margin:0;font-size:1.3rem;font-weight:800;">💎 Nạp Credits</h3>
-            <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted);">1,000 credits = $1.00 USD · Thanh toán qua Stripe bảo mật</p>
+            <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted);">1,000 credits = $1.00 USD · Thanh toán qua PayPal bảo mật</p>
         </div>
         <button class="modal-close" onclick="closeTopUpModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
     </div>
+    
+    <!-- Package Grid Selection -->
     <div class="topup-packages" id="topupPackageGrid"></div>
+
+    <!-- PayPal Card Fields form, hidden by default -->
+    <div id="paypal-card-form-container" style="display:none; padding:20px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; margin: 15px 0; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+        <h4 style="margin: 0 0 15px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px;">
+            <span>💳</span> Nhập thông tin Thẻ thanh toán (Visa/Mastercard)
+        </h4>
+        <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Gói đã chọn:</label>
+            <div id="selected-package-summary" style="padding:10px 14px; border-radius:8px; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); font-weight:700; color:#a5b4fc; font-size:0.95rem;"></div>
+        </div>
+        <div style="margin-bottom:14px;">
+            <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Số thẻ (Card Number)</label>
+            <div id="card-number-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:20px;">
+            <div>
+                <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Hết hạn (Expiry Date)</label>
+                <div id="card-expiry-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
+            </div>
+            <div>
+                <label style="display:block; font-size:0.8rem; color:var(--text-muted, #8e8ea8); margin-bottom:6px; font-weight:600;">Mã CVV (Security Code)</label>
+                <div id="card-cvv-container" class="card-field-container" style="padding:12px; border-radius:8px; border:1px solid var(--border, #2e2e42); background:var(--bg, #0a0a0f); color:var(--text, #e8e8f0); min-height:40px;"></div>
+            </div>
+        </div>
+        <div id="card-fields-error" style="display:none; color:#ef4444; font-size:0.85rem; margin-bottom:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500;"></div>
+        <button id="card-submit-btn" style="width:100%; padding:14px; background:linear-gradient(135deg, #6366f1, #8b5cf6); border:none; border-radius:8px; color:#fff; font-weight:700; cursor:pointer; font-size:0.95rem; display:flex; justify-content:center; align-items:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 15px rgba(99,102,241,0.3);" onmouseover="this.style.opacity='0.9'" onmouseout="this.style.opacity='1'">
+            ⚡ Thanh toán ngay
+        </button>
+        <button type="button" onclick="hidePaypalCardForm()" style="width:100%; margin-top:8px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:8px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+            ← Quay lại chọn gói nạp khác
+        </button>
+    </div>
+
     <div class="topup-footer">
         <span>🔒 Bảo mật bởi</span>
         <svg width="48" height="20" viewBox="0 0 60 25" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-left:6px;">
-            <text x="0" y="18" font-size="18" font-family="Arial" font-weight="bold" fill="#6366f1">stripe</text>
+            <text x="0" y="18" font-size="18" font-family="Arial" font-weight="bold" fill="#003087">PayPal</text>
         </svg>
         <span style="margin-left:8px;opacity:0.5;">· TLS 1.3 Encrypted</span>
     </div>
