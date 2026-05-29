@@ -169,10 +169,55 @@ async def capture_paypal_order(req: CaptureRequest, authorization: Optional[str]
             )
             data = r.json()
             if r.status_code >= 400:
+                print(f"[PayPal Capture Error] HTTP Status: {r.status_code}")
+                print(f"[PayPal Capture Error] Response Data: {data}")
                 raise HTTPException(r.status_code, data.get("error", "PHP server error"))
             return data
     except HTTPException:
         raise
     except Exception as e:
+        print(f"[PayPal Capture Proxy Exception] Error: {str(e)}")
         raise HTTPException(500, f"PayPal capture proxy error: {str(e)}")
+
+
+# ── Pydantic models for Crypto ────────────────────────────────────────────────
+class CryptoTopUpRequest(BaseModel):
+    package_id: str          # starter | pro | power | ultimate
+    currency: str            # usdttrc20 | bnb | btc | etc.
+    username: str
+
+
+# ── POST /crypto-session ──────────────────────────────────────────────────────
+@paypal_router.post("/crypto-session")
+async def create_crypto_session(req: CryptoTopUpRequest):
+    """Proxy to PHP /api/order/usdt-create.php — creates a NOWPayments crypto payment."""
+    import httpx
+    try:
+        packages = {
+            "starter": 5.0,
+            "pro": 12.0,
+            "power": 35.0,
+            "ultimate": 90.0
+        }
+        amount = packages.get(req.package_id, 5.0)
+        
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                "https://api.tubecreate.com/api/order/usdt-create.php",
+                json={
+                    "username": req.username,
+                    "currency": req.currency,
+                    "amount": amount,
+                    "plan_slug": req.package_id
+                }
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, data.get("error", "PHP server error"))
+            return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Crypto proxy error: {str(e)}")
+
 

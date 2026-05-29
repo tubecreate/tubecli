@@ -3218,11 +3218,12 @@ async function showPaypalButtons(sessionObj) {
 
 function hidePaypalButtons() {
     document.getElementById('paypal-button-container').style.display = 'none';
-    document.getElementById('topupPackageGrid').style.display = 'grid';
     // If we came from QuickPay, clicking back should close topupModal and open paymentChoiceModal again
     if (_activePaymentSession && _activePaymentSession.type === 'quickpay') {
         closeTopUpModal();
         openPaymentChoiceModal(_activePaymentSession.itemId, _activePaymentSession.itemTitle, _activePaymentSession.priceCredits);
+    } else {
+        document.getElementById('topup-method-choice-container').style.display = 'block';
     }
 }
 
@@ -3289,18 +3290,140 @@ window.handlePaypalExpressSuccess = function(orderId) {
     executePaypalCapture(orderId);
 };
 
+let _selectedTopUpPackage = null;
+
 async function startTopUp(packageId, cardEl) {
     const token = getAuthToken();
     if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
     
-    showPaypalButtons({ type: 'topup', packageId: packageId });
+    _selectedTopUpPackage = packageId;
+    
+    // Hide package selection grid
+    document.getElementById('topupPackageGrid').style.display = 'none';
+    
+    // Show payment choice container
+    const choiceContainer = document.getElementById('topup-method-choice-container');
+    choiceContainer.style.display = 'block';
+    
+    // Render package summary in choice modal
+    const pkgMap = {
+        'starter': 'Gói nạp: Starter (5,000 credits - $5.00 USD)',
+        'pro': 'Gói nạp: Pro (15,000 credits - $12.00 USD)',
+        'power': 'Gói nạp: Power (50,000 credits - $35.00 USD)',
+        'ultimate': 'Gói nạp: Ultimate (150,000 credits - $90.00 USD)'
+    };
+    document.getElementById('choice-package-summary').textContent = pkgMap[packageId] || `${packageId} package`;
+}
+
+function cancelTopUpMethodSelection() {
+    document.getElementById('topup-method-choice-container').style.display = 'none';
+    document.getElementById('topupPackageGrid').style.display = 'grid';
+    _selectedTopUpPackage = null;
+}
+
+function selectTopUpMethod(method) {
+    document.getElementById('topup-method-choice-container').style.display = 'none';
+    
+    if (method === 'paypal') {
+        showPaypalButtons({ type: 'topup', packageId: _selectedTopUpPackage });
+    } else if (method === 'crypto') {
+        showCryptoPayment(_selectedTopUpPackage);
+    }
+}
+
+// ── Crypto TopUp Flow ──
+function showCryptoPayment(packageId) {
+    const container = document.getElementById('crypto-payment-container');
+    container.style.display = 'block';
+    
+    // Clear details mount
+    document.getElementById('crypto-details-mount').style.display = 'none';
+    document.getElementById('crypto-pay-btn').disabled = false;
+    document.getElementById('crypto-pay-btn').style.display = 'flex';
+    document.getElementById('crypto-pay-btn').innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+    
+    const pkgMap = {
+        'starter': 'Gói nạp: Starter (5,000 credits - $5.00 USD)',
+        'pro': 'Gói nạp: Pro (15,000 credits - $12.00 USD)',
+        'power': 'Gói nạp: Power (50,000 credits - $35.00 USD)',
+        'ultimate': 'Gói nạp: Ultimate (150,000 credits - $90.00 USD)'
+    };
+    document.getElementById('crypto-package-summary').textContent = pkgMap[packageId] || `${packageId} package`;
+}
+
+function hideCryptoPayment() {
+    document.getElementById('crypto-payment-container').style.display = 'none';
+    document.getElementById('topup-method-choice-container').style.display = 'block';
+}
+
+async function startCryptoPaymentFlow() {
+    const payBtn = document.getElementById('crypto-pay-btn');
+    payBtn.disabled = true;
+    payBtn.innerHTML = '<span class="market-spinner" style="width:16px;height:16px;border-width:2px;margin:0;border-color:#fff transparent transparent transparent;"></span> Đang tạo ví...';
+    
+    const currency = document.getElementById('crypto-currency-select').value;
+    const user = getAuthUser();
+    const username = user ? user.username : '';
+    
+    if (!username) {
+        showToast("Vui lòng đăng nhập lại", "error");
+        payBtn.disabled = false;
+        payBtn.innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+        return;
+    }
+    
+    try {
+        const res = await fetch(`${API}/paypal/crypto-session`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                package_id: _selectedTopUpPackage,
+                currency: currency,
+                username: username
+            })
+        });
+        
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            throw new Error(data.error || "Lỗi khởi tạo cổng thanh toán Crypto");
+        }
+        
+        // Show wallet and QR code details
+        document.getElementById('crypto-qr-img').src = data.qrCode || '';
+        document.getElementById('crypto-pay-amount').textContent = `${data.amount} ${data.pay_currency.toUpperCase()}`;
+        document.getElementById('crypto-pay-address').value = data.address;
+        
+        document.getElementById('crypto-details-mount').style.display = 'block';
+        payBtn.style.display = 'none'; // hide pay creation button once created
+        
+        showToast("Tạo yêu cầu thanh toán Crypto thành công! Vui lòng gửi tiền.", "success");
+        
+    } catch (err) {
+        showToast(err.message, "error");
+        payBtn.disabled = false;
+        payBtn.innerHTML = '⚡ Tạo địa chỉ ví thanh toán';
+    }
+}
+
+function copyCryptoAddress() {
+    const input = document.getElementById('crypto-pay-address');
+    input.select();
+    input.setSelectionRange(0, 99999);
+    navigator.clipboard.writeText(input.value);
+    showToast("Đã copy địa chỉ ví!", "success");
 }
 
 function closeTopUpModal() {
     _dlgClose('topupModal');
     // Reset view
     document.getElementById('paypal-button-container').style.display = 'none';
+    document.getElementById('topup-method-choice-container').style.display = 'none';
+    document.getElementById('crypto-payment-container').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
+    document.getElementById('crypto-pay-btn').style.display = 'flex'; // restore pay button display
+    _selectedTopUpPackage = null;
 }
 
 // ── Kick off Stripe init after DOM ready ──
