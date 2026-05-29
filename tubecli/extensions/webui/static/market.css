@@ -1418,3 +1418,20 @@ dialog.tc-dialog[open] {
     inset: 0;
     margin: auto;
 }
+
+/* Compact styling for TopUp Payment Flow to avoid scrollbar */
+dialog.topup-dialog.topup-compact .topup-header {
+    padding: 12px 24px 10px;
+}
+dialog.topup-dialog.topup-compact .topup-header h3 {
+    font-size: 1.15rem !important;
+}
+dialog.topup-dialog.topup-compact .topup-header p {
+    font-size: 0.76rem !important;
+    margin-top: 2px !important;
+}
+dialog.topup-dialog.topup-compact .topup-footer {
+    padding: 8px 24px 10px;
+    font-size: 0.72rem;
+}
+
