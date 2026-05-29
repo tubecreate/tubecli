@@ -2880,7 +2880,10 @@ function openTopUpModal() {
 
     _dlgShow('topupModal');
     const dlg = document.getElementById('topupModal');
-    if (dlg) dlg.onclick = (e) => { if (e.target === dlg) _dlgClose('topupModal'); };
+    if (dlg) {
+        dlg.classList.remove('topup-compact');
+        dlg.onclick = (e) => { if (e.target === dlg) _dlgClose('topupModal'); };
+    }
 }
 
 function closeTopUpModal() {
@@ -3310,6 +3313,10 @@ async function startTopUp(packageId, cardEl) {
     // Hide package selection grid
     document.getElementById('topupPackageGrid').style.display = 'none';
     
+    // Set compact style when in payment steps
+    const modal = document.getElementById('topupModal');
+    if (modal) modal.classList.add('topup-compact');
+    
     // Show payment choice container
     const choiceContainer = document.getElementById('topup-method-choice-container');
     choiceContainer.style.display = 'block';
@@ -3328,6 +3335,9 @@ function cancelTopUpMethodSelection() {
     document.getElementById('topup-method-choice-container').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
     _selectedTopUpPackage = null;
+    
+    const modal = document.getElementById('topupModal');
+    if (modal) modal.classList.remove('topup-compact');
 }
 
 function selectTopUpMethod(method) {
@@ -3340,16 +3350,38 @@ function selectTopUpMethod(method) {
     }
 }
 
+// ── Helper to dynamically update the dialog footer gateway branding ──
+function updateTopUpFooter(gateway) {
+    const footer = document.getElementById('topupModalFooter');
+    if (!footer) return;
+    if (gateway === 'crypto') {
+        footer.innerHTML = `
+            <span>🔒 Bảo mật bởi <b>NOWPayments</b></span>
+            <span style="margin-left:8px;opacity:0.5;">· TLS 1.3 Encrypted</span>
+        `;
+    } else {
+        footer.innerHTML = `
+            <span>🔒 Bảo mật bởi</span>
+            <svg width="48" height="20" viewBox="0 0 60 25" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-left:6px; vertical-align:middle;">
+                <text x="0" y="18" font-size="18" font-family="Arial" font-weight="bold" fill="#003087">PayPal</text>
+            </svg>
+            <span style="margin-left:8px;opacity:0.5;">· TLS 1.3 Encrypted</span>
+        `;
+    }
+}
+
 // ── Crypto TopUp Flow ──
 function showCryptoPayment(packageId) {
     const container = document.getElementById('crypto-payment-container');
     container.style.display = 'block';
     
+    // Update footer to NOWPayments
+    updateTopUpFooter('crypto');
+    
     // Clear details mount
     document.getElementById('crypto-details-mount').style.display = 'none';
     document.getElementById('crypto-pay-btn').disabled = false;
     document.getElementById('crypto-pay-btn').style.display = 'flex';
-    document.getElementById('crypto-pay-btn').innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
     
     const pkgMap = {
         'starter': 'Gói nạp: Starter (5,000 credits - $5.00 USD)',
@@ -3362,22 +3394,52 @@ function showCryptoPayment(packageId) {
 
 function hideCryptoPayment() {
     document.getElementById('crypto-payment-container').style.display = 'none';
+    document.getElementById('crypto-details-mount').style.display = 'none';
+    document.getElementById('crypto-pay-btn').style.display = 'flex';
+    document.getElementById('crypto-pay-btn').disabled = false;
+    document.getElementById('crypto-pay-btn').innerHTML = T('topup.crypto_pay_btn') || '⚡ Bấm để lấy mã QR thanh toán';
     document.getElementById('topup-method-choice-container').style.display = 'block';
+    
+    // Revert footer to PayPal
+    updateTopUpFooter('paypal');
+    
+    if (window._cryptoTimerInterval) {
+        clearInterval(window._cryptoTimerInterval);
+        window._cryptoTimerInterval = null;
+    }
+}
+
+function onCryptoCurrencyChange() {
+    const mount = document.getElementById('crypto-details-mount');
+    if (mount && mount.style.display === 'block') {
+        startCryptoPaymentFlow();
+    }
 }
 
 async function startCryptoPaymentFlow() {
     const payBtn = document.getElementById('crypto-pay-btn');
     payBtn.disabled = true;
-    payBtn.innerHTML = '<span class="market-spinner" style="width:16px;height:16px;border-width:2px;margin:0;border-color:#fff transparent transparent transparent;"></span> Đang tạo ví...';
+    payBtn.innerHTML = '<span class="market-spinner" style="width:16px;height:16px;border-width:2px;margin:0;border-color:#fff transparent transparent transparent;"></span> ' + (T('topup.creating_wallet') || 'Đang tạo ví...');
+    
+    // If wallet details are already visible, show a premium loading indicator inside the mount
+    const mount = document.getElementById('crypto-details-mount');
+    if (mount && mount.style.display === 'block') {
+        mount.innerHTML = `
+            <div style="padding:40px 20px; text-align:center; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;">
+                <span class="market-spinner" style="width:28px; height:28px; border-width:2.5px; border-color:#a78bfa transparent transparent transparent; margin:0;"></span>
+                <span style="font-size:0.85rem; color:var(--text-muted, #8e8ea8); font-weight:600; letter-spacing:0.3px;">${T('topup.changing_network') || 'Đang đổi mạng lưới & tạo ví mới...'}</span>
+            </div>
+        `;
+    }
     
     const currency = document.getElementById('crypto-currency-select').value;
     const user = getAuthUser();
     const username = user ? user.username : '';
     
     if (!username) {
-        showToast("Vui lòng đăng nhập lại", "error");
+        showToast(T('topup.login_first') || "Vui lòng đăng nhập lại", "error");
         payBtn.disabled = false;
-        payBtn.innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
+        payBtn.innerHTML = T('topup.crypto_pay_btn') || '⚡ Bấm để lấy mã QR thanh toán';
         return;
     }
     
@@ -3399,20 +3461,164 @@ async function startCryptoPaymentFlow() {
             throw new Error(data.error || data.detail || "Lỗi khởi tạo cổng thanh toán Crypto");
         }
         
-        // Show wallet and QR code details
-        document.getElementById('crypto-qr-img').src = data.qrCode || '';
-        document.getElementById('crypto-pay-amount').textContent = `${data.amount} ${data.pay_currency.toUpperCase()}`;
-        document.getElementById('crypto-pay-address').value = data.address;
+        const mount = document.getElementById('crypto-details-mount');
         
-        document.getElementById('crypto-details-mount').style.display = 'block';
-        payBtn.style.display = 'none'; // hide pay creation button once created
-        
-        showToast("Tạo yêu cầu thanh toán Crypto thành công! Vui lòng gửi tiền.", "success");
+        if (data.invoice_url) {
+            // MODE 2: Invoice URL returned -> Embed the beautiful NOWPayments widget in an iframe directly inside our modal!
+            mount.innerHTML = `
+                <!-- Topbar status -->
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2e2e42; padding-bottom:12px; margin-bottom:16px;">
+                    <span style="font-weight:800; color:#fff; font-size:0.95rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
+                    <a href="${data.invoice_url}" target="_blank" style="font-size:0.82rem; color:#c4b5fd; font-weight:700; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); padding:4px 10px; border-radius:6px; text-decoration:none; display:inline-block; transition:all 0.2s;">
+                        🔗 Mở trong tab mới ↗
+                    </a>
+                </div>
+                <div style="width:100%; height:450px; background:#fff; border-radius:12px; overflow:hidden; border:1px solid #2e2e42; box-shadow:0 4px 20px rgba(0,0,0,0.4); position:relative;">
+                    <iframe src="${data.invoice_url}" style="width:100%; height:100%; border:none;" allow="clipboard-read; clipboard-write"></iframe>
+                </div>
+            `;
+            mount.style.display = 'block';
+            payBtn.style.display = 'none';
+            showToast("Khởi tạo hóa đơn thanh toán Crypto thành công!", "success");
+        } else {
+            // MODE 1: Direct Payment returned -> Render the stunning custom dark-mode "SEND DEPOSIT" UI
+            
+            // Map pay_currency to dynamic full network name
+            const currencyMap = {
+                'usdttrc20': 'Tron Network (TRC20)',
+                'usdtbsc': 'BNB Smart Chain (BEP20)',
+                'usdterc20': 'Ethereum (ERC20)',
+                'usdc': 'BNB Smart Chain (BEP20)',
+                'bnb': 'BNB Smart Chain (BEP20)',
+                'btc': 'Bitcoin Network',
+                'eth': 'Ethereum Network'
+            };
+            const networkName = currencyMap[data.pay_currency] || 'Crypto Network';
+            const displayCurrency = data.pay_currency ? data.pay_currency.toUpperCase().replace('TRC20', '').replace('BSC', '').replace('ERC20', '') : 'USDT';
+
+            mount.innerHTML = `
+                <!-- Topbar status -->
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2e2e42; padding-bottom:8px; margin-bottom:10px;">
+                    <span style="font-weight:800; color:#fff; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
+                    <span id="crypto-timer" style="font-size:0.78rem; color:#a78bfa; font-weight:700; background:rgba(167,139,250,0.1); padding:3px 6px; border-radius:6px; display:flex; align-items:center; gap:4px;">
+                        ⏳ <span id="crypto-countdown-val">59:59</span>
+                    </span>
+                </div>
+
+                <!-- Two-column grid -->
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; text-align:left;">
+                    
+                    <!-- Left Column (QR & Wallet Details) -->
+                    <div style="display:flex; flex-direction:column; align-items:center; border-right:1px solid #2e2e42; padding-right:12px;">
+                        
+                        <!-- Network selector lookalike -->
+                        <div style="width:100%; padding:4px 8px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:700; font-size:0.78rem; text-align:center; margin-bottom:8px;">
+                            ${networkName}
+                        </div>
+
+                        <!-- QR Code Frame -->
+                        <div style="margin: 4px 0 6px 0; padding:6px; background:#fff; border-radius:12px; display:flex; justify-content:center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                            <img id="crypto-qr-img" src="${data.qrCode}" style="width:115px; height:115px; display:block;" />
+                        </div>
+
+                        <!-- Network badge -->
+                        <div style="margin-bottom:6px; text-align:center;">
+                            <span style="font-size:0.65rem; color:var(--text-muted, #8e8ea8); font-weight:700; display:block; margin-bottom:2px; text-transform:uppercase; letter-spacing:0.5px;" data-i18n="topup.network_label">${T('topup.network_label') || 'NETWORK'}</span>
+                            <span style="background:rgba(99,102,241,0.2); border:1px solid rgba(99,102,241,0.4); color:#c4b5fd; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:20px; text-transform:uppercase; display:inline-block; letter-spacing:0.5px;">
+                                ${data.network ? data.network.replace(' (Tron)', '').replace(' (BNB Chain)', '').replace(' (Ethereum)', '') : 'USDT'}
+                            </span>
+                        </div>
+
+                        <!-- Wallet Address input box with Copy -->
+                        <div style="width:100%;">
+                            <span style="font-size:0.65rem; color:var(--text-muted, #8e8ea8); font-weight:700; display:block; margin-bottom:2px; text-transform:uppercase; letter-spacing:0.5px;" data-i18n="topup.wallet_label">${T('topup.wallet_label') || 'WALLET ADDRESS'}</span>
+                            <div style="display:flex; border:1px solid var(--border, #2e2e42); border-radius:8px; overflow:hidden; background:var(--bg2, #161622);">
+                                <input id="crypto-pay-address" readonly value="${data.address || ''}" style="flex:1; padding:6px; background:transparent; border:none; color:#fff; font-size:0.72rem; font-family:monospace; text-align:center; outline:none;" />
+                                <button onclick="copyCryptoAddress()" style="background:#2a2a3e; border:none; border-left:1px solid var(--border, #2e2e42); color:#c4b5fd; padding:0 8px; cursor:pointer; font-weight:700; font-size:0.7rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='#2a2a3e'">
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Right Column (Amount & Instructions) -->
+                    <div style="display:flex; flex-direction:column; justify-content:space-between;">
+                        
+                        <!-- Amount Frame -->
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:6px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px;">
+                            <span style="font-size:0.75rem; font-weight:600; color:var(--text-muted, #8e8ea8);" data-i18n="topup.amount_label">${T('topup.amount_label') || 'Số tiền cần gửi:'}</span>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span id="crypto-pay-amount" style="font-size:1rem; font-weight:900; color:#10b981;">
+                                    ${data.amount} <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">${displayCurrency}</span>
+                                </span>
+                                <button onclick="copyCryptoAmount()" style="background:#2a2a3e; border:1px solid var(--border, #2e2e42); border-radius:6px; color:#c4b5fd; padding:2px 6px; cursor:pointer; font-size:0.65rem; font-weight:700; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='#2a2a3e'">Copy</button>
+                            </div>
+                        </div>
+
+                        <!-- Instructions Block -->
+                        <div style="padding:8px; background:rgba(99,102,241,0.04); border:1px dashed rgba(99,102,241,0.2); border-radius:8px; margin-bottom:8px;">
+                            <div style="font-weight:800; font-size:0.7rem; color:#a5b4fc; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px; margin-bottom:4px;" data-i18n="topup.instructions_title">
+                                <span>📖</span> ${T('topup.instructions_title') || 'Crypto Transfer Instructions'}
+                            </div>
+                            <ul style="margin:0; padding:0; list-style:none; font-size:0.7rem; color:var(--text-muted, #8e8ea8); line-height:1.3; display:flex; flex-direction:column; gap:2px;">
+                                <li><b style="color:#fff;">${T('sell.step1') || 'Bước 1'}:</b> ${T('topup.step1')}</li>
+                                <li><b style="color:#fff;">${T('sell.step2') || 'Bước 2'}:</b> ${T('topup.step2')} <span style="color:#c4b5fd;font-weight:700;">${data.network || 'TRC20'}</span></li>
+                                <li><b style="color:#fff;">Bước 3:</b> ${T('topup.step3')}</li>
+                                <li><b style="color:#fff;">Bước 4:</b> ${T('topup.step4')}</li>
+                                <li><b style="color:#fff;">Bước 5:</b> ${T('topup.step5')}</li>
+                                <li><b style="color:#fff;">Bước 6:</b> ${T('topup.step6')}</li>
+                            </ul>
+                        </div>
+
+                        <!-- Transaction tracking badge -->
+                        <div style="padding:6px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); border-radius:8px;">
+                            <p style="margin:0; font-size:0.7rem; color:#34d399; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
+                                <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:#34d399 transparent transparent transparent; margin:0;"></span>
+                                ${T('topup.tracking') || 'Hệ thống đang tự động theo dõi Blockchain...'}
+                            </p>
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <!-- Footer Warnings -->
+                <div style="margin-top:8px; padding:6px 10px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); border-radius:6px; text-align:left;">
+                    <p style="margin:0; font-size:0.65rem; color:#fbbf24; line-height:1.35; font-weight:500;">
+                        ${T('topup.warning')}
+                    </p>
+                </div>
+            `;
+            mount.style.display = 'block';
+            payBtn.style.display = 'none'; // hide payment creation button once created
+            
+            // Start countdown timer
+            let timeLeft = 60 * 60; // 60 minutes
+            if (window._cryptoTimerInterval) clearInterval(window._cryptoTimerInterval);
+            
+            window._cryptoTimerInterval = setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) {
+                    clearInterval(window._cryptoTimerInterval);
+                    document.getElementById('crypto-countdown-val').textContent = 'EXPIRED';
+                    return;
+                }
+                const mins = Math.floor(timeLeft / 60);
+                const secs = timeLeft % 60;
+                const displayEl = document.getElementById('crypto-countdown-val');
+                if (displayEl) {
+                    displayEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                }
+            }, 1000);
+
+            showToast(T('topup.crypto_success') || "Tạo yêu cầu thanh toán Crypto thành công! Vui lòng gửi tiền.", "success");
+        }
         
     } catch (err) {
         showToast(err.message, "error");
         payBtn.disabled = false;
-        payBtn.innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
+        payBtn.innerHTML = T('topup.crypto_pay_btn') || '⚡ Bấm để lấy mã QR thanh toán';
     }
 }
 
@@ -3421,17 +3627,40 @@ function copyCryptoAddress() {
     input.select();
     input.setSelectionRange(0, 99999);
     navigator.clipboard.writeText(input.value);
-    showToast("Đã copy địa chỉ ví!", "success");
+    showToast(T('topup.copied_address') || "Đã copy địa chỉ ví nhận!", "success");
+}
+
+function copyCryptoAmount() {
+    const amountText = document.getElementById('crypto-pay-amount').textContent;
+    // Extract numeric amount only (exclude currency part)
+    const amountVal = parseFloat(amountText.trim());
+    if (!isNaN(amountVal)) {
+        navigator.clipboard.writeText(amountVal);
+        showToast(T('topup.copied_amount') || "Đã copy số tiền thanh toán!", "success");
+    }
 }
 
 function closeTopUpModal() {
     _dlgClose('topupModal');
     // Reset view
+    const modal = document.getElementById('topupModal');
+    if (modal) modal.classList.remove('topup-compact');
+    
+    // Revert footer to PayPal
+    updateTopUpFooter('paypal');
+
     document.getElementById('paypal-button-container').style.display = 'none';
     document.getElementById('topup-method-choice-container').style.display = 'none';
     document.getElementById('crypto-payment-container').style.display = 'none';
+    document.getElementById('crypto-details-mount').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
     document.getElementById('crypto-pay-btn').style.display = 'flex'; // restore pay button display
+    document.getElementById('crypto-pay-btn').disabled = false;
+    document.getElementById('crypto-pay-btn').innerHTML = '⚡ Bấm để lấy mã QR thanh toán';
+    if (window._cryptoTimerInterval) {
+        clearInterval(window._cryptoTimerInterval);
+        window._cryptoTimerInterval = null;
+    }
     _selectedTopUpPackage = null;
 }
 

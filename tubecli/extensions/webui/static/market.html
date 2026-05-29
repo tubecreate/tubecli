@@ -392,8 +392,8 @@
 <dialog id="topupModal" class="tc-dialog topup-dialog">
     <div class="topup-header">
         <div>
-            <h3 style="margin:0;font-size:1.3rem;font-weight:800;">💎 Nạp Credits</h3>
-            <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted);">1,000 credits = $1.00 USD · Thanh toán qua PayPal bảo mật</p>
+            <h3 style="margin:0;font-size:1.3rem;font-weight:800;" data-i18n="topup.title">💎 Nạp Credits</h3>
+            <p style="margin:4px 0 0;font-size:0.82rem;color:var(--text-muted);" data-i18n="topup.subtitle">1,000 credits = $1.00 USD · Thanh toán qua PayPal bảo mật</p>
         </div>
         <button class="modal-close" onclick="closeTopUpModal()" style="position:static;background:var(--bg3);">&#x2715;</button>
     </div>
@@ -402,9 +402,9 @@
     <div class="topup-packages" id="topupPackageGrid"></div>
 
     <!-- PayPal Smart Buttons Container, hidden by default -->
-    <div id="paypal-button-container" style="display:none; margin: 15px 0; padding: 24px; background: var(--bg2, #161622); border: 1px solid var(--border, #2e2e42); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+    <div id="paypal-button-container" style="display:none; padding: 12px 32px 16px;">
         <h4 style="margin: 0 0 6px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
-            <span>💳</span> Phương thức thanh toán PayPal
+            <span>💳</span> <span data-i18n="topup.paypal_title">Phương thức thanh toán PayPal</span>
         </h4>
         <div id="selected-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.95rem; text-align: center;"></div>
         
@@ -413,71 +413,74 @@
         
         <div id="paypal-buttons-error" style="display:none; color:#ef4444; font-size:0.85rem; margin-top:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500; text-align:center;"></div>
         
-        <button type="button" onclick="hidePaypalButtons()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+        <button type="button" onclick="hidePaypalButtons()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'" data-i18n="topup.back_packages">
             ← Quay lại chọn gói khác
         </button>
     </div>
 
     <!-- ── Payment Choice Selection (PayPal vs Crypto) ── -->
-    <div id="topup-method-choice-container" style="display:none; margin: 15px 0; padding: 10px 0;">
-        <h4 style="margin: 0 0 14px 0; color: #fff; font-size: 1.05rem; text-align:center; font-weight:700;">
+    <div id="topup-method-choice-container" style="display:none; padding: 12px 32px 16px;">
+        <h4 style="margin: 0 0 10px 0; color: #fff; font-size: 0.95rem; text-align:center; font-weight:700;" data-i18n="topup.choose_method">
             ✨ Chọn phương thức thanh toán
         </h4>
-        <div id="choice-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.95rem; text-align: center;"></div>
+        <div id="choice-package-summary" style="margin-bottom: 12px; padding: 6px 12px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.85rem; text-align: center;"></div>
         
-        <div style="display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; flex-direction:column; gap:8px;">
             <!-- Option 1: PayPal -->
-            <div onclick="selectTopUpMethod('paypal')" style="padding:16px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='var(--accent, #6366f1)'; this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
-                <span style="font-size:1.8rem;">💳</span>
+            <div onclick="selectTopUpMethod('paypal')" style="padding:10px 14px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='var(--accent, #6366f1)'; this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
+                <span style="font-size:1.4rem;">💳</span>
                 <div style="flex:1;">
-                    <div style="font-weight:700; color:#fff; font-size:0.95rem;">Thanh toán PayPal / Thẻ quốc tế</div>
-                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Thanh toán tức thì qua PayPal, Visa, Mastercard</div>
+                    <div style="font-weight:700; color:#fff; font-size:0.88rem;" data-i18n="topup.paypal_method">Thanh toán PayPal / Thẻ quốc tế</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" data-i18n="topup.paypal_desc">Visa, Mastercard, Discover</div>
                 </div>
-                <span style="background:#003087; color:#fff; font-size:0.7rem; font-weight:700; padding:4px 8px; border-radius:6px; text-transform:uppercase;">PayPal</span>
+                <span style="background:#003087; color:#fff; font-size:0.65rem; font-weight:700; padding:3px 6px; border-radius:4px; text-transform:uppercase;">PayPal</span>
             </div>
 
             <!-- Option 2: Crypto -->
-            <div onclick="selectTopUpMethod('crypto')" style="padding:16px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='#8b5cf6'; this.style.background='rgba(139,92,246,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
-                <span style="font-size:1.8rem;">🪙</span>
+            <div onclick="selectTopUpMethod('crypto')" style="padding:10px 14px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='#8b5cf6'; this.style.background='rgba(139,92,246,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
+                <span style="font-size:1.4rem;">🪙</span>
                 <div style="flex:1;">
-                    <div style="font-weight:700; color:#fff; font-size:0.95rem;">Thanh toán Crypto (Tự động)</div>
-                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Nạp bằng USDT, BNB, BTC, ETH qua NOWPayments</div>
+                    <div style="font-weight:700; color:#fff; font-size:0.88rem;" data-i18n="topup.crypto_method">Thanh toán Crypto (Tự động)</div>
+                    <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" data-i18n="topup.crypto_desc">Nạp bằng USDT, BNB, BTC, ETH qua NOWPayments</div>
                 </div>
-                <span style="background:linear-gradient(135deg, #8b5cf6, #a855f7); color:#fff; font-size:0.7rem; font-weight:700; padding:4px 8px; border-radius:6px; text-transform:uppercase;">Crypto</span>
+                <span style="background:linear-gradient(135deg, #8b5cf6, #a855f7); color:#fff; font-size:0.65rem; font-weight:700; padding:3px 6px; border-radius:4px; text-transform:uppercase;">Crypto</span>
             </div>
         </div>
 
-        <button type="button" onclick="cancelTopUpMethodSelection()" style="width:100%; margin-top:20px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+        <button type="button" onclick="cancelTopUpMethodSelection()" style="width:100%; margin-top:12px; padding:8px 10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:8px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.8rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'" data-i18n="topup.back_packages">
             ← Quay lại chọn gói khác
         </button>
     </div>
 
     <!-- ── Crypto Payment Container ── -->
-    <div id="crypto-payment-container" style="display:none; margin: 15px 0; padding: 24px; background: var(--bg2, #161622); border: 1px solid var(--border, #2e2e42); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
-        <h4 style="margin: 0 0 16px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
-            <span>🪙</span> Thanh toán Crypto qua NOWPayments
+    <div id="crypto-payment-container" style="display:none; padding: 12px 32px 16px;">
+        <h4 style="margin: 0 0 6px 0; color: #fff; font-size: 0.9rem; display:flex; align-items:center; gap:6px; justify-content:center;">
+            <span>🪙</span> <span data-i18n="topup.crypto_title">Thanh toán Crypto qua NOWPayments</span>
         </h4>
-        <div id="crypto-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); font-weight: 700; color: #c084fc; font-size: 0.95rem; text-align: center;"></div>
         
-        <div style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--text-muted);">Chọn đồng tiền thanh toán:</label>
-            <select id="crypto-currency-select" style="width:100%; padding:10px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:600; font-size:0.9rem; outline:none;">
-                <option value="usdttrc20">USDT (TRC20 - Tron Network) - Khuyên dùng</option>
-                <option value="usdtbsc">USDT (BEP20 - BNB Smart Chain)</option>
-                <option value="usdterc20">USDT (ERC20 - Ethereum Network)</option>
-                <option value="usdc">USDC (BEP20 - BNB Smart Chain)</option>
-                <option value="bnb">BNB (BEP20)</option>
-                <option value="btc">BTC (Bitcoin)</option>
-                <option value="eth">ETH (Ethereum)</option>
-            </select>
+        <!-- Package info & selector flex row -->
+        <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
+            <div id="crypto-package-summary" style="flex: 1.2; margin-bottom: 0; padding: 6px 10px; border-radius: 8px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); font-weight: 700; color: #c084fc; font-size: 0.82rem; text-align: center;"></div>
+            <div style="flex: 1; display: flex; align-items: center; gap: 6px;">
+                <label style="white-space: nowrap; font-weight:600; font-size:0.75rem; color:var(--text-muted); margin:0;" data-i18n="topup.currency_label">Đồng tiền:</label>
+                <select id="crypto-currency-select" onchange="onCryptoCurrencyChange()" style="flex:1; padding:6px 8px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:600; font-size:0.8rem; outline:none;">
+                    <option value="usdttrc20">USDT (TRC20 - Tron)</option>
+                    <option value="usdtbsc">USDT (BEP20 - BSC)</option>
+                    <option value="usdterc20">USDT (ERC20 - ETH)</option>
+                    <option value="usdc">USDC (BEP20 - BSC)</option>
+                    <option value="bnb">BNB (BEP20)</option>
+                    <option value="btc">BTC (Bitcoin)</option>
+                    <option value="eth">ETH (Ethereum)</option>
+                </select>
+            </div>
         </div>
 
-        <button type="button" id="crypto-pay-btn" onclick="startCryptoPaymentFlow()" style="width:100%; padding:12px; background:linear-gradient(135deg, #8b5cf6, #a855f7); border:none; border-radius:10px; color:#fff; font-weight:700; cursor:pointer; font-size:0.95rem; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 12px rgba(139,92,246,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'">
+        <button type="button" id="crypto-pay-btn" onclick="startCryptoPaymentFlow()" style="width:100%; padding:8px; background:linear-gradient(135deg, #8b5cf6, #a855f7); border:none; border-radius:8px; color:#fff; font-weight:700; cursor:pointer; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 12px rgba(139,92,246,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'" data-i18n="topup.crypto_pay_btn">
             ⚡ Bấm để lấy mã QR thanh toán
         </button>
 
         <!-- QR and wallet details -->
-        <div id="crypto-details-mount" style="display:none; margin-top:20px; padding:18px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:10px; text-align:center;">
+        <div id="crypto-details-mount" style="display:none; margin-top:8px; padding:8px 12px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:10px; text-align:center;">
             <p style="margin:0 0 10px 0; font-size:0.82rem; color:var(--text-muted);">Quét mã QR hoặc gửi chính xác số tiền đến ví dưới đây:</p>
             
             <div style="margin: 15px 0; display:flex; justify-content:center;">
@@ -505,12 +508,12 @@
             </div>
         </div>
 
-        <button type="button" onclick="hideCryptoPayment()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+        <button type="button" onclick="hideCryptoPayment()" style="width:100%; margin-top:8px; padding:8px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:8px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.8rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
             ← Quay lại chọn gói khác
         </button>
     </div>
 
-    <div class="topup-footer">
+    <div class="topup-footer" id="topupModalFooter">
         <span>🔒 Bảo mật bởi</span>
         <svg width="48" height="20" viewBox="0 0 60 25" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-left:6px;">
             <text x="0" y="18" font-size="18" font-family="Arial" font-weight="bold" fill="#003087">PayPal</text>
@@ -519,7 +522,7 @@
     </div>
 </dialog>
 
-<script src="/static/market.js?v=3.5"></script>
+<script src="/static/market.js?v=3.9"></script>
 
 </body>
 </html>
