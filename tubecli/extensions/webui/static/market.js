@@ -3387,7 +3387,7 @@ async function startCryptoPaymentFlow() {
         
         const data = await res.json();
         if (!res.ok || !data.success) {
-            throw new Error(data.error || "Lỗi khởi tạo cổng thanh toán Crypto");
+            throw new Error(data.error || data.detail || "Lỗi khởi tạo cổng thanh toán Crypto");
         }
         
         // Show wallet and QR code details
