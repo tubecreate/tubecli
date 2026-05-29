@@ -2727,6 +2727,7 @@ async function initStripe() {
     await loadStripeBalance();
     renderCreditBadge();
     handleStripeReturn();
+    handlePaypalRedirectReturn();
 }
 
 async function loadStripeBalance() {
@@ -3075,12 +3076,8 @@ async function initAndRenderPaypalFields() {
 
 function hidePaypalCardForm() {
     document.getElementById('paypal-card-form-container').style.display = 'none';
-    document.getElementById('topupPackageGrid').style.display = 'grid';
-    // If we came from QuickPay, clicking back should close topupModal and open paymentChoiceModal again
-    if (_activePaymentSession && _activePaymentSession.type === 'quickpay') {
-        closeTopUpModal();
-        openPaymentChoiceModal(_activePaymentSession.itemId, _activePaymentSession.itemTitle, _activePaymentSession.priceCredits);
-    }
+    // Instead of showing package grid directly, go back to method selector!
+    document.getElementById('paypal-method-selector').style.display = 'block';
 }
 
 async function showPaypalCardForm(sessionObj) {
@@ -3110,8 +3107,9 @@ async function showPaypalCardForm(sessionObj) {
         summaryEl.textContent = `Mua đứt: ${sessionObj.itemTitle} ($${priceUsd} USD)`;
     }
     
-    // Hide package selection grid
+    // Hide method selector and package grid
     document.getElementById('topupPackageGrid').style.display = 'none';
+    document.getElementById('paypal-method-selector').style.display = 'none';
     
     // Show card form container
     document.getElementById('paypal-card-form-container').style.display = 'block';
@@ -3120,17 +3118,184 @@ async function showPaypalCardForm(sessionObj) {
     await initAndRenderPaypalFields();
 }
 
+let _paypalMethodSelectorInitialized = false;
+
+function showPaypalMethodSelector(sessionObj) {
+    _activePaymentSession = sessionObj;
+    
+    // Hide package selection grid and card form
+    document.getElementById('topupPackageGrid').style.display = 'none';
+    document.getElementById('paypal-card-form-container').style.display = 'none';
+    
+    // Show selector container
+    const selector = document.getElementById('paypal-method-selector');
+    selector.style.display = 'block';
+    
+    if (!_paypalMethodSelectorInitialized) {
+        document.getElementById('btn-pay-express').addEventListener('click', () => {
+            triggerPaypalExpressCheckout();
+        });
+        document.getElementById('btn-pay-cardfields').addEventListener('click', () => {
+            selector.style.display = 'none';
+            showPaypalCardForm(_activePaymentSession);
+        });
+        _paypalMethodSelectorInitialized = true;
+    }
+}
+
+function hidePaypalMethodSelector() {
+    document.getElementById('paypal-method-selector').style.display = 'none';
+    document.getElementById('topupPackageGrid').style.display = 'grid';
+    // If we came from QuickPay, clicking back should close topupModal and open paymentChoiceModal again
+    if (_activePaymentSession && _activePaymentSession.type === 'quickpay') {
+        closeTopUpModal();
+        openPaymentChoiceModal(_activePaymentSession.itemId, _activePaymentSession.itemTitle, _activePaymentSession.priceCredits);
+    }
+}
+
+async function triggerPaypalExpressCheckout() {
+    const token = getAuthToken();
+    if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
+
+    const btn = document.getElementById('btn-pay-express');
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div class="market-spinner" style="width:18px;height:18px;border-width:2px;margin:0;"></div> Đang kết nối PayPal...';
+
+    // Open a blank window synchronously to prevent browser popup blockers
+    const paymentWindow = window.open('about:blank', '_blank');
+    if (!paymentWindow) {
+        showToast('⚠️ Vui lòng cho phép bật cửa sổ popup trên trình duyệt của bạn.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        return;
+    }
+    paymentWindow.document.write('<div style="font-family:sans-serif;text-align:center;margin-top:100px;color:#666;"><h3>Đang chuyển hướng đến cổng thanh toán PayPal...</h3><div style="border: 4px solid #f3f3f3; border-top: 4px solid #6366f1; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto;"></div><style>@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style></div>');
+
+    let url, body;
+    if (_activePaymentSession.type === 'topup') {
+        url = `${API}/paypal/topup-session`;
+        body = {
+            package_id: _activePaymentSession.packageId,
+            success_url: window.location.href.split('?')[0],
+            cancel_url: window.location.href.split('?')[0]
+        };
+    } else {
+        url = `${API}/paypal/quickpay-session`;
+        body = {
+            item_public_id: _activePaymentSession.itemId,
+            item_title: _activePaymentSession.itemTitle,
+            item_price_credits: _activePaymentSession.priceCredits,
+            success_url: window.location.href.split('?')[0],
+            cancel_url: window.location.href.split('?')[0]
+        };
+    }
+
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.checkout_url) {
+            paymentWindow.location.href = data.checkout_url;
+            closeTopUpModal();
+        } else {
+            paymentWindow.close();
+            showToast(data.error || 'Không tạo được phiên thanh toán', 'error');
+        }
+    } catch (e) {
+        paymentWindow.close();
+        showToast('Lỗi kết nối PayPal', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+    }
+}
+
+// ── Handle Auto-Capture for PayPal Express Checkout Return ──
+async function handlePaypalRedirectReturn() {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const payerId = params.get('PayerID');
+    
+    if (token && payerId) {
+        // If we are inside the popup, let's notify the parent window and close!
+        if (window.opener && !window.opener.closed) {
+            try {
+                window.opener.handlePaypalExpressSuccess(token);
+                window.close();
+                return;
+            } catch (e) {
+                // fall back to current window if opener blocked
+            }
+        }
+        
+        // Otherwise, handle in the current window
+        await executePaypalCapture(token);
+    }
+}
+
+async function executePaypalCapture(orderId) {
+    // Show full screen overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'paypal-loading-overlay';
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,0.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;backdrop-filter:blur(10px);';
+    overlay.innerHTML = `
+        <div class="market-spinner" style="width:50px;height:50px;border-width:4px;margin-bottom:20px;"></div>
+        <h3 style="margin:0;font-size:1.3rem;font-weight:800;letter-spacing:-0.02em;">🔄 Đang xác nhận giao dịch PayPal...</h3>
+        <p style="margin:8px 0 0;color:var(--text-muted);font-size:0.9rem;">Hệ thống đang cộng Credits vào ví của bạn. Vui lòng không đóng tab này.</p>
+    `;
+    document.body.appendChild(overlay);
+    
+    const authToken = getAuthToken();
+    try {
+        const res = await fetch(`${API}/paypal/capture`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({ order_id: orderId })
+        });
+        const result = await res.json();
+        
+        if (result.status === 'success') {
+            showToast(`🎉 Nạp thành công +${result.credits || ''} credits vào tài khoản!`, "success");
+            // Clear query parameters
+            history.replaceState({}, '', window.location.pathname);
+            // Refresh balance
+            await loadStripeBalance();
+        } else {
+            showToast(result.error || "Giao dịch không thành công hoặc đã xử lý trước đó", "error");
+            history.replaceState({}, '', window.location.pathname);
+        }
+    } catch (e) {
+        showToast("Lỗi hệ thống khi capture giao dịch PayPal", "error");
+        history.replaceState({}, '', window.location.pathname);
+    } finally {
+        overlay.remove();
+    }
+}
+
+// Expose success handler for popup postMessage/opener
+window.handlePaypalExpressSuccess = function(orderId) {
+    executePaypalCapture(orderId);
+};
+
 async function startTopUp(packageId, cardEl) {
     const token = getAuthToken();
     if (!token) { showToast('Vui lòng đăng nhập', 'error'); return; }
     
-    // Show direct Card form
-    showPaypalCardForm({ type: 'topup', packageId: packageId });
+    // Show PayPal Method Selector choice screen
+    showPaypalMethodSelector({ type: 'topup', packageId: packageId });
 }
 
 function closeTopUpModal() {
     _dlgClose('topupModal');
     // Reset view
+    document.getElementById('paypal-method-selector').style.display = 'none';
     document.getElementById('paypal-card-form-container').style.display = 'none';
     document.getElementById('topupPackageGrid').style.display = 'grid';
 }
