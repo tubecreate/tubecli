@@ -86,6 +86,10 @@ class QuickPayRequest(BaseModel):
     cancel_url:  Optional[str] = None
 
 
+class CaptureRequest(BaseModel):
+    order_id: str
+
+
 # ── POST /topup-session ──────────────────────────────────────────────────────
 @paypal_router.post("/topup-session")
 async def create_topup_session(req: TopUpRequest, authorization: Optional[str] = Header(None)):
@@ -144,3 +148,31 @@ async def create_quickpay_session(req: QuickPayRequest, authorization: Optional[
         raise
     except Exception as e:
         raise HTTPException(500, f"PayPal proxy error: {str(e)}")
+
+
+# ── POST /capture ────────────────────────────────────────────────────────────
+@paypal_router.post("/capture")
+async def capture_paypal_order(req: CaptureRequest, authorization: Optional[str] = Header(None)):
+    """Proxy to PHP /api/paypal/capture.php — captures payment and updates credits/purchase."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Đăng nhập để hoàn thành giao dịch")
+
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.post(
+                f"{_get_php_api_base()}/capture.php",
+                json={
+                    "order_id": req.order_id,
+                },
+                headers={"Authorization": authorization},
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, data.get("error", "PHP server error"))
+            return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"PayPal capture proxy error: {str(e)}")
+
