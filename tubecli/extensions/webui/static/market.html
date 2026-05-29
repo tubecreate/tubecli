@@ -418,6 +418,98 @@
         </button>
     </div>
 
+    <!-- ── Payment Choice Selection (PayPal vs Crypto) ── -->
+    <div id="topup-method-choice-container" style="display:none; margin: 15px 0; padding: 10px 0;">
+        <h4 style="margin: 0 0 14px 0; color: #fff; font-size: 1.05rem; text-align:center; font-weight:700;">
+            ✨ Chọn phương thức thanh toán
+        </h4>
+        <div id="choice-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.95rem; text-align: center;"></div>
+        
+        <div style="display:flex; flex-direction:column; gap:12px;">
+            <!-- Option 1: PayPal -->
+            <div onclick="selectTopUpMethod('paypal')" style="padding:16px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='var(--accent, #6366f1)'; this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
+                <span style="font-size:1.8rem;">💳</span>
+                <div style="flex:1;">
+                    <div style="font-weight:700; color:#fff; font-size:0.95rem;">Thanh toán PayPal / Thẻ quốc tế</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Thanh toán tức thì qua PayPal, Visa, Mastercard</div>
+                </div>
+                <span style="background:#003087; color:#fff; font-size:0.7rem; font-weight:700; padding:4px 8px; border-radius:6px; text-transform:uppercase;">PayPal</span>
+            </div>
+
+            <!-- Option 2: Crypto -->
+            <div onclick="selectTopUpMethod('crypto')" style="padding:16px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:12px; cursor:pointer; display:flex; align-items:center; gap:14px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='#8b5cf6'; this.style.background='rgba(139,92,246,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
+                <span style="font-size:1.8rem;">🪙</span>
+                <div style="flex:1;">
+                    <div style="font-weight:700; color:#fff; font-size:0.95rem;">Thanh toán Crypto (Tự động)</div>
+                    <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">Nạp bằng USDT, BNB, BTC, ETH qua NOWPayments</div>
+                </div>
+                <span style="background:linear-gradient(135deg, #8b5cf6, #a855f7); color:#fff; font-size:0.7rem; font-weight:700; padding:4px 8px; border-radius:6px; text-transform:uppercase;">Crypto</span>
+            </div>
+        </div>
+
+        <button type="button" onclick="cancelTopUpMethodSelection()" style="width:100%; margin-top:20px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+            ← Quay lại chọn gói khác
+        </button>
+    </div>
+
+    <!-- ── Crypto Payment Container ── -->
+    <div id="crypto-payment-container" style="display:none; margin: 15px 0; padding: 24px; background: var(--bg2, #161622); border: 1px solid var(--border, #2e2e42); border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.4);">
+        <h4 style="margin: 0 0 16px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
+            <span>🪙</span> Thanh toán Crypto qua NOWPayments
+        </h4>
+        <div id="crypto-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); font-weight: 700; color: #c084fc; font-size: 0.95rem; text-align: center;"></div>
+        
+        <div style="margin-bottom: 15px;">
+            <label style="display:block; margin-bottom:8px; font-weight:600; font-size:0.85rem; color:var(--text-muted);">Chọn đồng tiền thanh toán:</label>
+            <select id="crypto-currency-select" style="width:100%; padding:10px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:600; font-size:0.9rem; outline:none;">
+                <option value="usdttrc20">USDT (TRC20 - Tron Network) - Khuyên dùng</option>
+                <option value="usdtbsc">USDT (BEP20 - BNB Smart Chain)</option>
+                <option value="usdterc20">USDT (ERC20 - Ethereum Network)</option>
+                <option value="usdc">USDC (BEP20 - BNB Smart Chain)</option>
+                <option value="bnb">BNB (BEP20)</option>
+                <option value="btc">BTC (Bitcoin)</option>
+                <option value="eth">ETH (Ethereum)</option>
+            </select>
+        </div>
+
+        <button type="button" id="crypto-pay-btn" onclick="startCryptoPaymentFlow()" style="width:100%; padding:12px; background:linear-gradient(135deg, #8b5cf6, #a855f7); border:none; border-radius:10px; color:#fff; font-weight:700; cursor:pointer; font-size:0.95rem; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 12px rgba(139,92,246,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'">
+            ⚡ Tạo địa chỉ ví thanh toán
+        </button>
+
+        <!-- QR and wallet details -->
+        <div id="crypto-details-mount" style="display:none; margin-top:20px; padding:18px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:10px; text-align:center;">
+            <p style="margin:0 0 10px 0; font-size:0.82rem; color:var(--text-muted);">Quét mã QR hoặc gửi chính xác số tiền đến ví dưới đây:</p>
+            
+            <div style="margin: 15px 0; display:flex; justify-content:center;">
+                <img id="crypto-qr-img" src="" style="width:180px; height:180px; border-radius:8px; border:4px solid white; background:white;" />
+            </div>
+
+            <div style="margin-bottom:12px;">
+                <span style="display:block; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Số tiền cần gửi:</span>
+                <span id="crypto-pay-amount" style="font-size:1.3rem; font-weight:800; color:#10b981;">0.00 USDT</span>
+            </div>
+
+            <div style="margin-bottom:15px; position:relative;">
+                <span style="display:block; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; margin-bottom:4px;">Địa chỉ ví nhận:</span>
+                <div style="display:flex; gap:6px;">
+                    <input id="crypto-pay-address" readonly style="flex:1; padding:8px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:6px; color:#fff; font-size:0.8rem; font-family:monospace; text-align:center; outline:none;" />
+                    <button onclick="copyCryptoAddress()" style="padding:6px 12px; background:var(--bg4, #2a2a3e); border:1px solid var(--border, #2e2e42); border-radius:6px; color:#fff; font-size:0.8rem; font-weight:600; cursor:pointer;">Copy</button>
+                </div>
+            </div>
+
+            <div style="padding:10px; background:rgba(16,185,129,0.1); border:1px dashed rgba(16,185,129,0.3); border-radius:8px;">
+                <p style="margin:0; font-size:0.82rem; color:#34d399; font-weight:600; display:flex; align-items:center; justify-content:center; gap:6px;">
+                    <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:#34d399 transparent transparent transparent; margin:0;"></span>
+                    Hệ thống đang tự động theo dõi giao dịch trên Blockchain...
+                </p>
+            </div>
+        </div>
+
+        <button type="button" onclick="hideCryptoPayment()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'">
+            ← Quay lại chọn gói khác
+        </button>
+    </div>
+
     <div class="topup-footer">
         <span>🔒 Bảo mật bởi</span>
         <svg width="48" height="20" viewBox="0 0 60 25" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin-left:6px;">
@@ -427,7 +519,7 @@
     </div>
 </dialog>
 
-<script src="/static/market.js?v=3.3"></script>
+<script src="/static/market.js?v=3.4"></script>
 
 </body>
 </html>
