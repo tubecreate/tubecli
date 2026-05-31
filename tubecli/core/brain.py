@@ -86,7 +86,7 @@ class AgentBrain:
             skills_desc = (
                 f"\n\n### AVAILABLE SKILLS ({shown}/{total}) — Analyze user INTENT to pick the right one:\n"
                 + "\n".join(lines)
-                + "\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search skill."
+                + "\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search or Tavily Search skill."
                 + "\nIf user sends a DIRECT video link (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → use download_video action."
                 + "\nIf user sends a SHORT link (v.douyin.com/xxx) with intent like 'mới nhất', 'theo dõi', 'post lên kênh' → this is a USER PROFILE link, use the appropriate skill (add_tracker, trigger_tracker) instead of download_video."
                 + "\nIf no skill matches the intent → reply conversationally.\n"

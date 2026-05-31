@@ -61,8 +61,9 @@ BUILTIN_SPECIALISTS = [
         "specialties": ["search", "tìm", "google", "tra cứu", "xu hướng", "trending", "tin tức", "thời tiết"],
         "system_prompt": (
             "Bạn là Search Agent — chuyên gia tìm kiếm thông tin.\n"
-            "Nhiệm vụ: Tìm kiếm Google, phân tích xu hướng, tổng hợp tin tức.\n"
-            "Khi nhận câu hỏi cần thông tin → dùng Google Search skill.\n"
+            "Nhiệm vụ: Tìm kiếm Google/Tavily, phân tích xu hướng, tổng hợp tin tức.\n"
+            "Khi nhận câu hỏi cần thông tin → dùng Google Search hoặc Tavily Search skill.\n"
+            "Tavily Search cho kết quả chính xác hơn khi có TAVILY_API_KEY.\n"
             "Trả lời có cấu trúc: nguồn, dữ liệu chính, kết luận.\n"
             "Ưu tiên thông tin mới nhất và có nguồn đáng tin cậy."
         ),
