@@ -3004,19 +3004,29 @@
       const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       try {
         const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/pending-move?player_id=${encodeURIComponent(playerId)}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn(`[Poll] HTTP ${res.status} for player ${playerId.slice(-8)}`);
+          return;
+        }
         const data = await res.json();
-        if (data.status !== 'your_turn') return;
-
-        // It's our turn — pause this player's poll, compute move, submit
-        clearInterval(onlinePlayerPollIntervals[playerId]);
-        delete onlinePlayerPollIntervals[playerId];
-        console.log(`[Online] Turn ${data.turn}: Computing move for ${playerId}...`);
-        await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId || onlineMyGame);
-        // Resume polling after submit
-        startPlayerPollLoop(matchId, playerId, gameId || onlineMyGame);
+        if (data.status === 'your_turn') {
+          // It's our turn — pause this player's poll, compute move, submit
+          clearInterval(onlinePlayerPollIntervals[playerId]);
+          delete onlinePlayerPollIntervals[playerId];
+          console.log(`%c[Poll] 🎯 TURN ${data.turn} for ${playerId.slice(-8)} — calling local AI...`, 'color: #22c55e; font-weight: bold');
+          await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId || onlineMyGame);
+          // Resume polling after submit
+          startPlayerPollLoop(matchId, playerId, gameId || onlineMyGame);
+        } else {
+          // Debug: log every 5th poll so we know it's running
+          if (!pollForMyTurn._count) pollForMyTurn._count = {};
+          pollForMyTurn._count[playerId] = (pollForMyTurn._count[playerId] || 0) + 1;
+          if (pollForMyTurn._count[playerId] % 5 === 0) {
+            console.log(`[Poll] waiting (${pollForMyTurn._count[playerId]}) for ${playerId.slice(-8)} — status: ${data.status}`);
+          }
+        }
       } catch(e) {
-        console.warn('[Online] Polling error:', e.message);
+        console.warn('[Poll] Error:', e.message);
       }
     }
 
@@ -3041,6 +3051,10 @@
         if (localRes.ok) {
           const result = await localRes.json();
           move = result.move || null;
+          console.log(`[Poll] Local AI returned move:`, move);
+        } else {
+          const errTxt = await localRes.text();
+          console.error(`[Poll] Local AI error ${localRes.status}:`, errTxt.slice(0, 200));
         }
 
         if (!move) {
