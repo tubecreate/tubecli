@@ -3000,7 +3000,7 @@
       }
     }
 
-    async function pollForMyTurn(matchId, playerId) {
+    async function pollForMyTurn(matchId, playerId, gameId) {
       const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       try {
         const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/pending-move?player_id=${encodeURIComponent(playerId)}`);
@@ -3008,10 +3008,13 @@
         const data = await res.json();
         if (data.status !== 'your_turn') return;
 
-        // It's our turn — stop polling temporarily, compute move, submit
-        stopOnlineMovePolling();
-        console.log(`[Online] Turn ${data.turn}: Computing move via local AI...`);
+        // It's our turn — pause this player's poll, compute move, submit
+        clearInterval(onlinePlayerPollIntervals[playerId]);
+        delete onlinePlayerPollIntervals[playerId];
+        console.log(`[Online] Turn ${data.turn}: Computing move for ${playerId}...`);
         await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId || onlineMyGame);
+        // Resume polling after submit
+        startPlayerPollLoop(matchId, playerId, gameId || onlineMyGame);
       } catch(e) {
         console.warn('[Online] Polling error:', e.message);
       }
@@ -3694,16 +3697,70 @@
         logBody.scrollTop = logBody.scrollHeight;
       };
 
-      // Start polling for our own turns (submit-move architecture)
-      // Always start polling — don't rely solely on SSE
-      if (onlineMyPlayerId) {
-        startOnlineMovePolling(matchId, onlineMyPlayerId, gameId);
-      } else {
-        console.warn('[Online] onlineMyPlayerId not set — polling will not start automatically.');
-      }
+      // Auto-detect which local agents are players in this match, poll for ALL of them
+      // Fixes: same-machine testing where HOST + CHALLENGER are both local agents
+      autoStartLocalPolling(matchId, gameId);
 
       // State-polling fallback: update board every 2s from D1 even if SSE drops events
       startOnlineStatePoll(matchId, gameId);
+    }
+
+    // Per-player poll intervals: { player_id: intervalId }
+    let onlinePlayerPollIntervals = {};
+
+    async function autoStartLocalPolling(matchId, gameId) {
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+      if (!hubUrl) return;
+
+      // Short delay so SSE sync arrives first
+      await new Promise(r => setTimeout(r, 800));
+
+      try {
+        const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const p1Id = data.player_1_id;
+        const p2Id = data.player_2_id;
+
+        // Find which local agents are in this match
+        const localIds = new Set(ARENA_AGENTS.map(a => a.id));
+        const toControl = [];
+        if (p1Id && localIds.has(p1Id)) toControl.push(p1Id);
+        if (p2Id && localIds.has(p2Id)) toControl.push(p2Id);
+
+        // Also include onlineMyPlayerId if explicitly set and matches a player
+        if (onlineMyPlayerId && (onlineMyPlayerId === p1Id || onlineMyPlayerId === p2Id)
+            && !toControl.includes(onlineMyPlayerId)) {
+          toControl.push(onlineMyPlayerId);
+        }
+
+        if (toControl.length === 0) {
+          console.warn('[Online] No local agents found in match', matchId, '— watch-only mode.');
+          return;
+        }
+
+        console.log('[Online] Auto-controlling local players:', toControl);
+        for (const pid of toControl) {
+          startPlayerPollLoop(matchId, pid, gameId);
+        }
+      } catch(e) {
+        console.error('[Online] autoStartLocalPolling error:', e.message);
+        if (onlineMyPlayerId) startPlayerPollLoop(matchId, onlineMyPlayerId, gameId);
+      }
+    }
+
+    function startPlayerPollLoop(matchId, playerId, gameId) {
+      if (onlinePlayerPollIntervals[playerId]) clearInterval(onlinePlayerPollIntervals[playerId]);
+      console.log(`[Online] Polling player ${playerId} in match ${matchId}`);
+      onlinePlayerPollIntervals[playerId] = setInterval(
+        () => pollForMyTurn(matchId, playerId, gameId),
+        1500
+      );
+    }
+
+    function stopAllPlayerPolls() {
+      for (const iid of Object.values(onlinePlayerPollIntervals)) clearInterval(iid);
+      onlinePlayerPollIntervals = {};
     }
 
     let onlineStatePollInterval = null;
@@ -3760,6 +3817,7 @@
     let replayInterval = null;
 
     function closeOnlineStream() {
+      stopAllPlayerPolls();
       stopOnlineMovePolling();
       stopOnlineStatePoll();
       onlineMyPlayerId = null;
