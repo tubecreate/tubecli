@@ -640,6 +640,15 @@ async def play_turn(req: PlayTurnRequest):
             
         return {"move": {"move": move}}
 
+    # Get skill block for learning
+    skill_block = ""
+    gm = _gm()
+    if req.game_id == "chess" and getattr(gm, "coach", None):
+        try:
+            skill_block = gm.coach.get_skill_block(f"{provider}|{model}")
+        except Exception:
+            pass
+
     # 3. Instantiate AIPlayer to communicate with the model
     from ai_player import AIPlayer
     player = AIPlayer(
@@ -648,10 +657,53 @@ async def play_turn(req: PlayTurnRequest):
         provider=provider,
         model=model,
         api_key=api_key,
-        agent_id=req.agent_id
+        agent_id=req.agent_id,
+        skill_block=skill_block
     )
 
-    # 4. Call LLM to get the response
+    # Check if we have a local game engine for this game to run robust decide_move
+    game = GAME_REGISTRY.get(req.game_id)
+    if game:
+        import copy
+        # Adapt state from Hub format to local engine format
+        local_state = copy.deepcopy(req.game_state)
+        if "board" in local_state and "fen" not in local_state:
+            local_state["fen"] = local_state["board"]
+
+        current_color = local_state.get("current_turn", "white")
+        if current_color == "white":
+            local_state["players"] = {"white": req.agent_id, "black": "opponent"}
+        else:
+            local_state["players"] = {"white": "opponent", "black": req.agent_id}
+
+        hub_history = local_state.get("move_history", [])
+        local_history = []
+        for i, san in enumerate(hub_history):
+            local_history.append({
+                "player": "player_1" if i % 2 == 0 else "player_2",
+                "uci": "",
+                "san": san,
+                "move_number": i + 1
+            })
+        local_state["move_history"] = local_history
+        local_state["move_count"] = len(hub_history)
+
+        try:
+            # Run robust local decide_move logic in a thread
+            res = await asyncio.to_thread(player.decide_move, game, local_state)
+            if res.get("move") is not None:
+                return {
+                    "move": {
+                        "move": res["move"],
+                        "chat_message": res.get("chat_message", "")
+                    }
+                }
+            else:
+                logger.error(f"[{player.name}] local decide_move returned None: {res.get('error')}")
+        except Exception as e:
+            logger.error(f"[{player.name}] Error in local decide_move execution: {e}", exc_info=True)
+
+    # 4. Fallback: Call LLM with raw prompt to get the response if no local engine or if decide_move errored
     try:
         # Run blocking HTTP call in a separate thread to keep FastAPI loop non-blocking
         raw_response = await asyncio.to_thread(player._call_ai, req.prompt)
