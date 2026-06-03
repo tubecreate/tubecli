@@ -1323,6 +1323,43 @@
             </div>
           </div>
 
+          <!-- ── REPLAY TOOLBAR (hidden by default, shown in replay mode) ── -->
+          <div id="replay-toolbar" style="display:none; background: rgba(0,0,0,0.4); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 10px 20px; gap: 10px; flex-direction: column;">
+            <!-- Timeline scrubber -->
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span id="replay-turn-label" style="font-size:11px; color:var(--text-muted); min-width:60px;">Lượt 0/0</span>
+              <input type="range" id="replay-scrubber" min="0" max="0" value="0"
+                style="flex:1; accent-color: var(--accent); cursor:pointer; height:4px;"
+                oninput="onReplayScrub(this.value)"
+                onchange="onReplayScrub(this.value)">
+              <span id="replay-time-label" style="font-size:11px; color:var(--text-muted); min-width:55px; text-align:right;">0.0s</span>
+            </div>
+            <!-- Controls row -->
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <button id="replay-btn-prev" onclick="replayStepBy(-1)" title="Lùi 1 lượt"
+                style="background:rgba(255,255,255,0.08); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:14px;">⏮</button>
+              <button id="replay-btn-play" onclick="toggleReplayPlay()" title="Play/Pause"
+                style="background: var(--accent); border:none; color:#fff; border-radius:6px; padding:5px 14px; cursor:pointer; font-size:14px; font-weight:700;">▶ Play</button>
+              <button id="replay-btn-next" onclick="replayStepBy(1)" title="Tiến 1 lượt"
+                style="background:rgba(255,255,255,0.08); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; padding:5px 10px; cursor:pointer; font-size:14px;">⏭</button>
+              <select id="replay-speed" onchange="updateReplaySpeed()" title="Tốc độ phát"
+                style="background:rgba(0,0,0,0.4); border:1px solid var(--border); color:var(--text-primary); border-radius:6px; padding:5px 8px; cursor:pointer; font-size:12px;">
+                <option value="2000">0.5×</option>
+                <option value="1000">1×</option>
+                <option value="600" selected>1.5×</option>
+                <option value="400">2×</option>
+                <option value="200">5×</option>
+                <option value="80">Max</option>
+              </select>
+              <span style="font-size:11px; color:var(--text-muted); margin-left:6px;">Tốc độ</span>
+              <!-- Thinking time display -->
+              <div id="replay-thinking-badge" style="margin-left:auto; background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); border-radius:6px; padding:4px 10px; font-size:11px; display:none;">
+                <span style="color:var(--text-muted);">🧠 Suy nghĩ:</span>
+                <span id="replay-thinking-time" style="color:var(--accent-light); font-weight:700; margin-left:4px;">—</span>
+              </div>
+            </div>
+          </div>
+
           <!-- Canvas Container -->
           <div class="board-container" style="padding: 24px; position: relative;">
             <div style="position: absolute; top: 12px; left: 12px; background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 4px 10px; border-radius: 4px; display: flex; align-items: center; gap: 6px; z-index: 10;">
@@ -3834,6 +3871,11 @@
       stopAllPlayerPolls();
       stopOnlineMovePolling();
       stopOnlineStatePoll();
+      _replayPlaying = false;
+      if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+      // Hide replay toolbar
+      const toolbar = document.getElementById('replay-toolbar');
+      if (toolbar) toolbar.style.display = 'none';
       onlineMyPlayerId = null;
       onlineMyMatchId = null;
       if (onlineEventSource) {
@@ -3877,126 +3919,221 @@
       }
     }
 
+    // ── Replay state ──────────────────────────────────────────
+    let _replayHistory = [];
+    let _replayMatchData = null;
+    let _replayCurrentTurn = 0;   // 0-indexed
+    let _replayPlaying = false;
+    let _replayGameId = 'chess';
+
+    function _replayRenderTurn(idx) {
+      if (!_replayHistory || idx < 0 || idx >= _replayHistory.length) return;
+      _replayCurrentTurn = idx;
+      const turnData = _replayHistory[idx];
+      const logBody = document.getElementById('online-log-body');
+
+      // Board
+      renderOnlineBoard(_replayGameId, turnData.state);
+
+      // Turn indicator
+      document.getElementById('online-turn-indicator').innerText = `Lượt ${turnData.turn}`;
+
+      // Scrubber + turn label
+      const scrubber = document.getElementById('replay-scrubber');
+      if (scrubber) {
+        scrubber.value = idx;
+        document.getElementById('replay-turn-label').innerText = `Lượt ${idx+1}/${_replayHistory.length}`;
+      }
+
+      // Thinking time badge
+      const badge = document.getElementById('replay-thinking-badge');
+      const timeEl = document.getElementById('replay-thinking-time');
+      const timeLabel = document.getElementById('replay-time-label');
+      if (turnData.thinking_time_ms != null) {
+        const secs = (turnData.thinking_time_ms / 1000).toFixed(1);
+        if (badge) { badge.style.display = ''; timeEl.innerText = `${secs}s`; }
+        if (timeLabel) timeLabel.innerText = `${secs}s`;
+      } else {
+        if (badge) badge.style.display = 'none';
+        if (timeLabel) timeLabel.innerText = '—';
+      }
+
+      // Score
+      if (turnData.state) {
+        if (turnData.state.snakes) {
+          document.getElementById('online-p1-score').innerText = turnData.state.snakes.player_1?.score ?? 0;
+          document.getElementById('online-p2-score').innerText = turnData.state.snakes.player_2?.score ?? 0;
+        }
+      }
+
+      // Combat log — highlight current turn entry
+      const entries = logBody.querySelectorAll('.replay-entry');
+      entries.forEach((el, i) => {
+        el.style.background = i === idx ? 'rgba(99,102,241,0.2)' : '';
+        el.style.border = i === idx ? '1px solid var(--accent)' : '1px solid transparent';
+        if (i === idx) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+
+    function replayStepBy(delta) {
+      _replayPlaying = false;
+      document.getElementById('replay-btn-play').textContent = '▶ Play';
+      if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+      const next = Math.max(0, Math.min(_replayCurrentTurn + delta, _replayHistory.length - 1));
+      _replayRenderTurn(next);
+    }
+
+    function onReplayScrub(val) {
+      _replayPlaying = false;
+      document.getElementById('replay-btn-play').textContent = '▶ Play';
+      if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+      _replayRenderTurn(parseInt(val));
+    }
+
+    function updateReplaySpeed() {
+      if (_replayPlaying) {
+        // Restart interval with new speed
+        if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+        const speed = parseInt(document.getElementById('replay-speed').value);
+        replayInterval = setInterval(_replayAutoStep, speed);
+      }
+    }
+
+    function _replayAutoStep() {
+      if (_replayCurrentTurn >= _replayHistory.length - 1) {
+        _replayPlaying = false;
+        document.getElementById('replay-btn-play').textContent = '▶ Play';
+        clearInterval(replayInterval);
+        replayInterval = null;
+        return;
+      }
+      _replayRenderTurn(_replayCurrentTurn + 1);
+    }
+
+    function toggleReplayPlay() {
+      _replayPlaying = !_replayPlaying;
+      const btn = document.getElementById('replay-btn-play');
+      if (_replayPlaying) {
+        btn.textContent = '⏸ Pause';
+        // If at end, restart from beginning
+        if (_replayCurrentTurn >= _replayHistory.length - 1) _replayCurrentTurn = 0;
+        const speed = parseInt(document.getElementById('replay-speed').value);
+        replayInterval = setInterval(_replayAutoStep, speed);
+      } else {
+        btn.textContent = '▶ Play';
+        if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+      }
+    }
+
     async function playOnlineReplay(matchId, gameId, updateHash = true) {
       if (updateHash) {
         window.location.hash = `#online-match?match_id=${matchId}&game_id=${gameId}&mode=replay`;
         return;
       }
-      // Clear any active SSE streams
-      if (onlineEventSource) {
-        onlineEventSource.close();
-        onlineEventSource = null;
-      }
-      
-      // Clear any active replay interval
-      if (replayInterval) {
-        clearInterval(replayInterval);
-        replayInterval = null;
-      }
+
+      // Stop any running intervals
+      if (onlineEventSource) { onlineEventSource.close(); onlineEventSource = null; }
+      stopAllPlayerPolls();
+      stopOnlineStatePoll();
+      _replayPlaying = false;
+      if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
 
       const chessContainer = document.getElementById('online-chess-container');
       if (chessContainer) chessContainer.innerHTML = '';
       _onlineLastChessFxKey = null;
+      _replayGameId = gameId;
 
       showPage('online-match', false);
-      
-      const logBody = document.getElementById('online-log-body');
-      logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--text-muted); font-style: italic;">Đang tải dữ liệu lịch sử trận đấu...</div></div>`;
 
-      // Set badge to REPLAY
+      const logBody = document.getElementById('online-log-body');
+      logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--text-muted); font-style: italic;">Đang tải lịch sử trận đấu...</div></div>`;
+
+      // Show REPLAY badge, hide LIVE indicator
       const statusBadge = document.getElementById('online-status-badge');
-      statusBadge.textContent = 'REPLAY 🎬';
+      statusBadge.textContent = '🎬 REPLAY';
       statusBadge.className = 'match-status-badge status-completed';
+
+      // Show replay toolbar
+      const toolbar = document.getElementById('replay-toolbar');
+      if (toolbar) toolbar.style.display = 'flex';
 
       const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
 
       try {
-        // Fetch full match data directly from Hub
         const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}`);
-        if (!res.ok) {
-          throw new Error(`Mã lỗi HTTP: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const history = data.history || [];
 
+        _replayMatchData = data;
+        _replayHistory = history;
+        _replayCurrentTurn = 0;
+
         if (history.length === 0) {
-          if (data.error) {
-            logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--danger); font-weight:700;">❌ Trận đấu bị lỗi: ${data.error}</div></div>`;
-          } else {
-            logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--danger);">Không tìm thấy lịch sử các lượt đi của trận đấu này.</div></div>`;
-          }
+          logBody.innerHTML = data.error
+            ? `<div class="chat-msg"><div class="chat-text" style="color:var(--danger);">❌ Lỗi: ${data.error}</div></div>`
+            : `<div class="chat-msg"><div class="chat-text" style="color:var(--danger);">Không có lịch sử nước đi.</div></div>`;
           return;
         }
 
-        // Set player names
+        // Player names
         document.getElementById('online-p1-name').innerText = data.player_1;
         document.getElementById('online-p2-name').innerText = data.player_2;
-        
-        logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--accent-light); font-weight:700;">🎬 Bắt đầu phát lại trận đấu: ${data.player_1} vs ${data.player_2}</div></div>`;
+        document.getElementById('online-p1-score').innerText = '0';
+        document.getElementById('online-p2-score').innerText = '0';
+        document.getElementById('online-turn-indicator').innerText = 'Lượt 0';
 
-        let currentReplayTurn = 0;
+        // Init scrubber range
+        const scrubber = document.getElementById('replay-scrubber');
+        if (scrubber) {
+          scrubber.max = history.length - 1;
+          scrubber.value = 0;
+          document.getElementById('replay-turn-label').innerText = `Lượt 1/${history.length}`;
+        }
 
-        // Determine playback speed (interval) based on game type
-        let speed = 800; // default for chess
-        if (gameId === 'tetris') speed = 300;
-        if (gameId === 'snake') speed = 200;
-
-        replayInterval = setInterval(() => {
-          if (currentReplayTurn >= history.length) {
-            clearInterval(replayInterval);
-            replayInterval = null;
-            
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'chat-msg';
-            msgDiv.style.background = 'rgba(99, 102, 241, 0.15)';
-            msgDiv.style.border = '1px solid var(--accent)';
-            msgDiv.innerHTML = `
-              <div class="chat-author" style="color: var(--accent-light)">🏁 KẾT THÚC PHÁT LẠI</div>
-              <div class="chat-text" style="font-weight:700;">Đã phát hết tất cả các nước đi (${history.length} lượt). Người thắng: ${data.winner || 'Hòa'}.</div>
-            `;
-            logBody.appendChild(msgDiv);
-            logBody.scrollTop = logBody.scrollHeight;
-            return;
-          }
-
-          const turnData = history[currentReplayTurn];
-          
-          // Update turn counter in header
-          document.getElementById('online-turn-indicator').innerText = `Lượt ${turnData.turn}`;
-
-          // Draw board
-          renderOnlineBoard(gameId, turnData.state);
-
-          // Update score
-          if (turnData.state) {
-            if (turnData.state.snakes) {
-              document.getElementById('online-p1-score').innerText = turnData.state.snakes.player_1.score;
-              document.getElementById('online-p2-score').innerText = turnData.state.snakes.player_2.score;
-            } else if (turnData.state.player_1) {
-              document.getElementById('online-p1-score').innerText = turnData.state.player_1.score;
-              document.getElementById('online-p2-score').innerText = turnData.state.player_2.score;
-            }
-          }
-
-          // Add message to Combat Log
-          const isP1 = turnData.player === data.player_1;
-          const colorStyle = isP1 ? 'color: var(--success)' : 'color: var(--danger)';
+        // Build combat log entries (all at once, highlight current)
+        logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color:var(--accent-light); font-weight:700;">🎬 ${data.player_1} vs ${data.player_2} — ${history.length} lượt</div></div>`;
+        history.forEach((t, i) => {
+          const isP1 = t.player === data.player_1;
+          const colorStyle = isP1 ? 'color:var(--success)' : 'color:var(--danger)';
           const emoji = isP1 ? '🟢' : '🔴';
-          
+          const thinkStr = t.thinking_time_ms != null ? ` <span style="color:var(--text-muted); font-size:10px;">⏱ ${(t.thinking_time_ms/1000).toFixed(1)}s</span>` : '';
           const msgDiv = document.createElement('div');
-          msgDiv.className = 'chat-msg';
+          msgDiv.className = 'chat-msg replay-entry';
+          msgDiv.style.cursor = 'pointer';
+          msgDiv.style.borderRadius = '6px';
+          msgDiv.style.transition = 'background 0.15s, border 0.15s';
+          msgDiv.style.border = '1px solid transparent';
           msgDiv.innerHTML = `
-            <div class="chat-author" style="${colorStyle}">${emoji} ${turnData.player} (Lượt ${turnData.turn})</div>
-            <div class="chat-text">${turnData.message}</div>
+            <div class="chat-author" style="${colorStyle}">${emoji} ${t.player} (Lượt ${t.turn})${thinkStr}</div>
+            <div class="chat-text">${t.message}</div>
           `;
+          msgDiv.addEventListener('click', () => {
+            _replayPlaying = false;
+            document.getElementById('replay-btn-play').textContent = '▶ Play';
+            if (replayInterval) { clearInterval(replayInterval); replayInterval = null; }
+            _replayRenderTurn(i);
+          });
           logBody.appendChild(msgDiv);
-          logBody.scrollTop = logBody.scrollHeight;
+        });
 
-          currentReplayTurn++;
-        }, speed);
+        // Add final result
+        const endDiv = document.createElement('div');
+        endDiv.className = 'chat-msg';
+        endDiv.style.background = 'rgba(99,102,241,0.15)';
+        endDiv.style.border = '1px solid var(--accent)';
+        endDiv.innerHTML = `<div class="chat-author" style="color:var(--accent-light)">🏁 KẾT THÚC</div>
+          <div class="chat-text" style="font-weight:700;">Người thắng: ${data.winner || 'Hòa'} · ${history.length} lượt</div>`;
+        logBody.appendChild(endDiv);
+
+        // Show first turn
+        _replayRenderTurn(0);
+
+        // Auto-play
+        toggleReplayPlay();
 
       } catch (e) {
-        logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--danger);">Lỗi tải phát lại: ${e.message}</div></div>`;
+        logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color:var(--danger);">Lỗi tải replay: ${e.message}</div></div>`;
       }
     }
 
