@@ -796,7 +796,7 @@ from fastapi.responses import StreamingResponse
 import httpx
 
 @router.get("/hub/matches/{match_id}/stream")
-async def proxy_hub_stream(match_id: str, hub_url: str = "https://tour.zeabur.app"):
+async def proxy_hub_stream(match_id: str, hub_url: str = "https://tournament-hub.tubecreate.com"):
     """Server-side proxy for Central Hub SSE streams to avoid cross-origin (CORS) security blocks in browser."""
     async def event_generator():
         headers = {"Accept": "text/event-stream"}
@@ -836,7 +836,7 @@ async def proxy_hub_stream(match_id: str, hub_url: str = "https://tour.zeabur.ap
 
 
 @router.get("/hub/matches/{match_id}")
-async def proxy_hub_match_details(match_id: str, hub_url: str = "https://tour.zeabur.app"):
+async def proxy_hub_match_details(match_id: str, hub_url: str = "https://tournament-hub.tubecreate.com"):
     """Proxy match details from Central Hub to local browser to avoid CORS blocks."""
     import httpx
     async with httpx.AsyncClient() as client:
