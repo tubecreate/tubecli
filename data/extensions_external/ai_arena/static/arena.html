@@ -1101,16 +1101,11 @@
             <div class="player-slot" style="background: rgba(0,0,0,0.3); border: 1px solid var(--border); padding: 16px;">
               <div style="display: flex; flex-direction: column; gap: 10px;">
                 <label style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">HUB SERVER URL</label>
-                <input type="text" id="online-hub-url" value="https://tournament-hub.tubecreate.com" placeholder="https://..." style="width: 100%;">
-                
-                <label style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">WEBHOOK MÁY LOCAL (ĐỂ NHẬN LƯỢT)</label>
-                <div style="display: flex; gap: 8px; align-items: center; width: 100%;">
-                  <input type="text" id="online-webhook-url" value="" placeholder="http://..." style="flex: 1; margin: 0;">
-                  <button class="nav-btn" id="btn-start-tunnel" onclick="autoStartCloudflareTunnel()" style="margin: 0; padding: 8px 12px; white-space: nowrap; font-size: 12px; height: 36px; display: flex; align-items: center; gap: 4px;">⚡ Cloudflare Tunnel</button>
+                <input type="text" id="online-hub-url" value="https://cloudflare-workers-autoconfig-tournament-hub.tubecli.workers.dev" placeholder="https://..." style="width: 100%;">
+                <div style="background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; padding: 10px; font-size: 11px; color: #86efac; line-height: 1.5;">
+                  ✅ <b>Không cần Webhook / Tunnel!</b><br>
+                  Kiến trúc mới: arena.html tự polling Hub để biết đến lượt, rồi gửi nước đi qua <code>submit-move</code>. Bạn chỉ cần kết nối internet bình thường.
                 </div>
-                <span style="font-size: 11px; color: var(--text-muted); line-height: 1.4;">
-                  💡 Hub Server sẽ gọi URL này (endpoint `/api/v1/arena/play-turn`) để lấy nước đi của Agent. Nhấn nút <b>Cloudflare Tunnel</b> để tự động tạo URL công khai bằng trycloudflare.com.
-                </span>
               </div>
             </div>
           </div>
@@ -2971,11 +2966,113 @@
       }
     }
 
+    /**
+     * Resolve the effective API base URL for Hub calls.
+     * The new Cloudflare Worker hosts BOTH static assets AND the API.
+     * No redirect needed — call the workers.dev URL directly.
+     */
+    function resolveHubApiUrl(rawHubUrl) {
+      return (rawHubUrl || '').trim();
+    }
+
+    // ---- Submit-Move Architecture ----
+    // Instead of Hub calling a webhook, arena.html polls for its turn
+    // and submits moves directly to the Hub.
+
+    let onlineMovePollingInterval = null;
+    let onlineMyPlayerId = null;  // agent_id of our local player in current match
+    let onlineMyMatchId = null;
+    let onlineMyGame = null;
+
+    function startOnlineMovePolling(matchId, playerId, gameId) {
+      stopOnlineMovePolling();
+      onlineMyMatchId = matchId;
+      onlineMyPlayerId = playerId;
+      onlineMyGame = gameId;
+      console.log(`[Online] Start polling for turns: match=${matchId}, player=${playerId}`);
+      onlineMovePollingInterval = setInterval(() => pollForMyTurn(matchId, playerId), 1500);
+    }
+
+    function stopOnlineMovePolling() {
+      if (onlineMovePollingInterval) {
+        clearInterval(onlineMovePollingInterval);
+        onlineMovePollingInterval = null;
+      }
+    }
+
+    async function pollForMyTurn(matchId, playerId) {
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
+      try {
+        const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/pending-move?player_id=${encodeURIComponent(playerId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status !== 'your_turn') return;
+
+        // It's our turn — stop polling temporarily, compute move, submit
+        stopOnlineMovePolling();
+        console.log(`[Online] Turn ${data.turn}: Computing move via local AI...`);
+        await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId || onlineMyGame);
+      } catch(e) {
+        console.warn('[Online] Polling error:', e.message);
+      }
+    }
+
+    async function computeAndSubmitMove(matchId, playerId, turn, gameState, prompt, gameId) {
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
+      const agentId = playerId;
+
+      try {
+        // Call local tubecli to compute AI move
+        const localRes = await fetch(`/api/v1/arena/play-turn`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agent_id: agentId,
+            game_id: gameId,
+            game_state: gameState,
+            prompt: prompt
+          })
+        });
+
+        let move = null;
+        if (localRes.ok) {
+          const result = await localRes.json();
+          move = result.move || null;
+        }
+
+        if (!move) {
+          console.warn('[Online] Local AI did not return a move, submitting empty');
+          move = {};
+        }
+
+        // Submit move to Hub
+        const submitRes = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/submit-move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ player_id: playerId, move, turn })
+        });
+
+        if (submitRes.ok) {
+          console.log(`[Online] Move submitted for turn ${turn}:`, move);
+        } else {
+          const err = await submitRes.json();
+          console.warn('[Online] Submit move failed:', err);
+        }
+      } catch(e) {
+        console.error('[Online] computeAndSubmitMove error:', e.message);
+      } finally {
+        // Resume polling for next turn
+        if (onlineMyMatchId === matchId) {
+          startOnlineMovePolling(matchId, playerId, onlineMyGame);
+        }
+      }
+    }
+
     async function fetchOnlineRooms() {
       const tbody = document.getElementById('online-rooms-body');
       if (!tbody) return;
 
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       if (!hubUrl) return;
 
       try {
@@ -3021,36 +3118,12 @@
         return false;
       }
       
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
-      let webhookUrl = document.getElementById('online-webhook-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       const gameId = document.getElementById('online-game').value;
 
       if (!hubUrl) {
         alert("Vui lòng nhập Hub URL!");
         return false;
-      }
-
-      const isHubLocal = hubUrl.includes('localhost') || hubUrl.includes('127.0.0.1');
-      
-      if (!isHubLocal && (!webhookUrl || webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1'))) {
-        const confirmTunnel = confirm("⚠️ Cảnh báo: Webhook URL của bạn chưa được cấu hình hoặc đang là địa chỉ cục bộ (localhost), trong khi bạn đang kết nối tới Hub từ xa.\n\nBạn có muốn hệ thống tự động kích hoạt Cloudflare Tunnel để tạo URL công khai (trycloudflare.com) thay thế không?");
-        if (confirmTunnel) {
-          await autoStartCloudflareTunnel();
-          webhookUrl = document.getElementById('online-webhook-url').value.trim();
-        }
-      }
-
-      if (!webhookUrl) {
-        alert("Vui lòng cấu hình Webhook URL công khai hoặc cục bộ hợp lệ!");
-        return false;
-      }
-
-      const isWebhookLocal = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('192.168.') || webhookUrl.includes('10.');
-      if (!isHubLocal && isWebhookLocal) {
-        const confirmLocal = confirm("⚠️ Cảnh báo: Bạn đang sử dụng Hub từ xa nhưng Webhook URL lại là địa chỉ cục bộ (localhost/local IP). Hub từ xa sẽ KHÔNG THỂ gửi yêu cầu nước đi đến máy của bạn được.\n\nĐể khắc phục, bạn cần:\n1. Chạy Hub ở máy local (ví dụ http://localhost:8000)\nhoặc 2. Sử dụng ngrok/cloudflare tunnel để tạo URL công khai cho Webhook của bạn.\n\nBạn có muốn tiếp tục đăng ký không?");
-        if (!confirmLocal) {
-          return false;
-        }
       }
 
       // Check model availability first
@@ -3095,13 +3168,14 @@
           body: JSON.stringify({
             agent_id: agentId,
             name: `${name} (${selectedModel})`,
-            owner_server_url: webhookUrl,
             game_id: gameId
+            // No owner_server_url — new submit-move architecture!
           })
         });
         const data = await res.json();
         if (res.ok) {
-          alert(`Đăng ký Agent "${name}" sử dụng model "${selectedModel}" thành công lên Hub!`);
+          onlineMyPlayerId = agentId;
+          alert(`Đăng ký Agent "${name}" sử dụng model "${selectedModel}" thành công!\n✅ Không cần Webhook/Tunnel — tự động polling để lấy lượt.`);
           return true;
         } else {
           alert(`Đăng ký thất bại: ${data.detail || JSON.stringify(data)}`);
@@ -3122,7 +3196,7 @@
         alert("Vui lòng chọn Agent cục bộ để làm Host!");
         return;
       }
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       const gameId = document.getElementById('online-game').value;
 
       const btn = document.getElementById('btn-online-create-room');
@@ -3346,7 +3420,7 @@
         return;
       }
 
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
 
       // Check model availability first
       const statusEl = document.getElementById('modal-challenge-status');
@@ -3454,7 +3528,7 @@
         alert("Vui lòng chọn một Agent cục bộ!");
         return;
       }
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       const gameId = document.getElementById('online-game').value;
       const btn = document.getElementById('btn-online-queue');
 
@@ -3522,7 +3596,7 @@
     async function loadOnlineLeaderboard() {
       const tbody = document.getElementById('online-leaderboard-body');
       if (!tbody) return;
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
       const gameId = document.getElementById('online-leaderboard-game').value;
 
       try {
@@ -3554,7 +3628,7 @@
     async function loadOnlineHistory() {
       const container = document.getElementById('online-history-list');
       if (!container) return;
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
 
       try {
         const res = await fetch(`${hubUrl}/api/v1/hub/matches/list`);
@@ -3604,7 +3678,7 @@
       _onlineLastChessFxKey = null;
       
       const logBody = document.getElementById('online-log-body');
-      logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--text-muted); font-style: italic;">Đang kết nối SSE stream với Hub qua Proxy...</div></div>`;
+      logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--text-muted); font-style: italic;">Đang kết nối SSE stream với Hub...</div></div>`;
 
       // Reset score labels
       document.getElementById('online-p1-score').innerText = '0';
@@ -3613,9 +3687,11 @@
 
       if (onlineEventSource) onlineEventSource.close();
 
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
-      // Connect to the local FastAPI backend SSE proxy
-      onlineEventSource = new EventSource(`${API}/hub/matches/${matchId}/stream?hub_url=${encodeURIComponent(hubUrl)}`);
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
+      const gameId = document.getElementById('online-game')?.value || 'chess';
+
+      // Connect SSE directly to Cloudflare Worker Hub (no local proxy needed)
+      onlineEventSource = new EventSource(`${hubUrl}/api/v1/hub/matches/${matchId}/stream`);
 
       onlineEventSource.onmessage = function(e) {
         try {
@@ -3639,11 +3715,19 @@
         logBody.appendChild(msgDiv);
         logBody.scrollTop = logBody.scrollHeight;
       };
+
+      // Start polling for our own turns (submit-move architecture)
+      if (onlineMyPlayerId) {
+        startOnlineMovePolling(matchId, onlineMyPlayerId, gameId);
+      }
     }
 
     let replayInterval = null;
 
     function closeOnlineStream() {
+      stopOnlineMovePolling();
+      onlineMyPlayerId = null;
+      onlineMyMatchId = null;
       if (onlineEventSource) {
         onlineEventSource.close();
         onlineEventSource = null;
@@ -3716,11 +3800,11 @@
       statusBadge.textContent = 'REPLAY 🎬';
       statusBadge.className = 'match-status-badge status-completed';
 
-      const hubUrl = document.getElementById('online-hub-url').value.trim();
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
 
       try {
-        // Fetch full match data via local proxy
-        const res = await fetch(`${API}/hub/matches/${matchId}?hub_url=${encodeURIComponent(hubUrl)}`);
+        // Fetch full match data directly from Hub
+        const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}`);
         if (!res.ok) {
           throw new Error(`Mã lỗi HTTP: ${res.status}`);
         }
@@ -3892,6 +3976,7 @@
 
         renderOnlineBoard(gameId, data.state);
       } else if (data.event === 'end') {
+        stopOnlineMovePolling();
         const msgDiv = document.createElement('div');
         msgDiv.className = 'chat-msg';
         msgDiv.style.background = 'rgba(99, 102, 241, 0.15)';
@@ -3911,6 +3996,7 @@
           onlineEventSource = null;
         }
       } else if (data.event === 'error') {
+        stopOnlineMovePolling();
         const msgDiv = document.createElement('div');
         msgDiv.className = 'chat-msg';
         msgDiv.style.background = 'rgba(239, 68, 68, 0.15)';
