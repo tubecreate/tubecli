@@ -3695,8 +3695,65 @@
       };
 
       // Start polling for our own turns (submit-move architecture)
+      // Always start polling — don't rely solely on SSE
       if (onlineMyPlayerId) {
         startOnlineMovePolling(matchId, onlineMyPlayerId, gameId);
+      } else {
+        console.warn('[Online] onlineMyPlayerId not set — polling will not start automatically.');
+      }
+
+      // State-polling fallback: update board every 2s from D1 even if SSE drops events
+      startOnlineStatePoll(matchId, gameId);
+    }
+
+    let onlineStatePollInterval = null;
+
+    function startOnlineStatePoll(matchId, gameId) {
+      stopOnlineStatePoll();
+      onlineStatePollInterval = setInterval(async () => {
+        const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+        if (!hubUrl) return;
+        try {
+          const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}`);
+          if (!res.ok) return;
+          const data = await res.json();
+          if (!data || !data.state) return;
+
+          // Update turn indicator
+          const turnCount = data.history ? data.history.length : 0;
+          document.getElementById('online-turn-indicator').innerText = `Turn ${turnCount}`;
+
+          // Update board
+          renderOnlineBoard(gameId, data.state);
+
+          // Update player names if needed
+          if (data.player_1) document.getElementById('online-p1-name').innerText = data.player_1;
+          if (data.player_2) document.getElementById('online-p2-name').innerText = data.player_2;
+
+          // Update status badge
+          const badge = document.getElementById('online-status-badge');
+          if (data.status === 'finished') {
+            badge.textContent = 'FINISHED';
+            badge.className = 'match-status-badge status-completed';
+            stopOnlineStatePoll();
+            stopOnlineMovePolling();
+          }
+
+          // If waiting_for_player is set, show in log if not already shown
+          if (data.waiting_for_player) {
+            const turnInd = document.getElementById('online-turn-indicator');
+            if (turnInd) turnInd.innerText = `Turn ${data.turn_count || turnCount} — Chờ ${data.waiting_for_player}...`;
+          }
+        } catch(e) {
+          // Ignore network errors
+        }
+      }, 2000);
+    }
+
+    function stopOnlineStatePoll() {
+      if (onlineStatePollInterval) {
+        clearInterval(onlineStatePollInterval);
+        onlineStatePollInterval = null;
       }
     }
 
@@ -3704,6 +3761,7 @@
 
     function closeOnlineStream() {
       stopOnlineMovePolling();
+      stopOnlineStatePoll();
       onlineMyPlayerId = null;
       onlineMyMatchId = null;
       if (onlineEventSource) {
@@ -3953,6 +4011,22 @@
         }
 
         renderOnlineBoard(gameId, data.state);
+      } else if (data.event === 'waiting') {
+        // Show which player is being waited on
+        const isMe = data.player_id === onlineMyPlayerId;
+        const logBody = document.getElementById('online-log-body');
+        const msgDiv = document.createElement('div');
+        msgDiv.className = 'chat-msg';
+        msgDiv.style.background = isMe ? 'rgba(99,102,241,0.15)' : 'rgba(0,0,0,0.2)';
+        msgDiv.style.border = isMe ? '1px solid var(--accent)' : '1px solid var(--border)';
+        msgDiv.innerHTML = `
+          <div class="chat-author" style="color: ${isMe ? 'var(--accent-light)' : 'var(--text-secondary)'}">${isMe ? '🎯 ĐẾN LƯỢT BẠN' : '⏳ Đang chờ đối thủ'} (Lượt ${data.turn})</div>
+          <div class="chat-text">${isMe ? 'AI của bạn đang tính toán...' : `Đang chờ ${data.player}...`}</div>
+        `;
+        logBody.appendChild(msgDiv);
+        logBody.scrollTop = logBody.scrollHeight;
+        document.getElementById('online-turn-indicator').innerText = `Turn ${data.turn}`;
+        if (data.state) renderOnlineBoard(document.getElementById('online-game')?.value || 'chess', data.state);
       } else if (data.event === 'end') {
         stopOnlineMovePolling();
         const msgDiv = document.createElement('div');
