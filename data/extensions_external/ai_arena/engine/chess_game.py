@@ -38,6 +38,11 @@ class ChessGame(BaseGame):
     DEFAULT_TIME_CONTROL = "rapid"
 
     def __init__(self, time_control: str = None):
+        if chess is None:
+            raise ValueError(
+                "Thư viện python-chess chưa được cài đặt trên máy. "
+                "Vui lòng chạy lệnh 'pip install chess' hoặc kiểm tra kết nối mạng để Extension tự động cài đặt."
+            )
         self.time_control = time_control or self.DEFAULT_TIME_CONTROL
         if self.time_control not in self.TIME_CONTROLS:
             self.time_control = self.DEFAULT_TIME_CONTROL
