@@ -29,6 +29,122 @@ def _gm() -> GameManager:
     return _game_manager
 
 
+# --- Realtime / Hybrid AI Pathfinder for Snake Arena ---
+import time
+
+SNAKE_AGENTS_CACHE = {}  # agent_id -> {target: [x,y], last_llm_call_time: float, pending_llm_call: bool}
+
+
+def _find_bfs_path(start, target, obstacles, width, height):
+    start = tuple(start)
+    target = tuple(target)
+    if start == target:
+        return []
+        
+    queue = [(start, [])]
+    visited = {start}
+    
+    while queue:
+        (cx, cy), path = queue.pop(0)
+        
+        for move, (dx, dy) in [("UP", (0, -1)), ("DOWN", (0, 1)), ("LEFT", (-1, 0)), ("RIGHT", (1, 0))]:
+            nx, ny = cx + dx, cy + dy
+            if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in obstacles:
+                if (nx, ny) == target:
+                    return path + [move]
+                if (nx, ny) not in visited:
+                    visited.add((nx, ny))
+                    queue.append(((nx, ny), path + [move]))
+    return []
+
+
+def _get_safest_move(head, current_dir, obstacles, width, height):
+    head = tuple(head)
+    opposite = {"UP": "DOWN", "DOWN": "UP", "LEFT": "RIGHT", "RIGHT": "LEFT"}
+    valid_moves = []
+    
+    for move, (dx, dy) in [("UP", (0, -1)), ("DOWN", (0, 1)), ("LEFT", (-1, 0)), ("RIGHT", (1, 0))]:
+        if move == opposite.get(current_dir):
+            continue
+        nx, ny = head[0] + dx, head[1] + dy
+        if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in obstacles:
+            valid_moves.append((move, (nx, ny)))
+            
+    if not valid_moves:
+        for move in ["UP", "DOWN", "LEFT", "RIGHT"]:
+            if move != opposite.get(current_dir):
+                return move
+                
+    best_move = valid_moves[0][0]
+    max_free_cells = -1
+    
+    for move, start_pos in valid_moves:
+        q = [start_pos]
+        vis = {start_pos}
+        cells_count = 0
+        while q and cells_count < 30:
+            curr = q.pop(0)
+            cells_count += 1
+            for _, (dx, dy) in [("UP", (0, -1)), ("DOWN", (0, 1)), ("LEFT", (-1, 0)), ("RIGHT", (1, 0))]:
+                nx, ny = curr[0] + dx, curr[1] + dy
+                if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in obstacles and (nx, ny) not in vis:
+                    vis.add((nx, ny))
+                    q.append((nx, ny))
+        if cells_count > max_free_cells:
+            max_free_cells = cells_count
+            best_move = move
+            
+    return best_move
+
+
+async def _query_snake_llm_async(agent_id: str, prompt: str, game_state: dict, provider: str, model: str, api_key: str):
+    try:
+        from ai_player import AIPlayer
+        player = AIPlayer(
+            player_id=agent_id,
+            name="LLM-Assistant",
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            agent_id=agent_id
+        )
+        
+        raw_response = await asyncio.to_thread(player._call_ai, prompt)
+        
+        cleaned = raw_response.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+            
+        try:
+            res_dict = json.loads(cleaned)
+        except Exception:
+            import re
+            match = re.search(r'(\{[\s\S]*\})', cleaned)
+            if match:
+                res_dict = json.loads(match.group(1))
+            else:
+                res_dict = {}
+                
+        target = res_dict.get("target")
+        if target and isinstance(target, list) and len(target) == 2:
+            if agent_id in SNAKE_AGENTS_CACHE:
+                SNAKE_AGENTS_CACHE[agent_id]["target"] = [int(target[0]), int(target[1])]
+                logger.info(f"Background LLM updated target for agent {agent_id} to: {target}")
+            
+    except Exception as e:
+        logger.error(f"Error in background LLM query for agent {agent_id}: {e}")
+    finally:
+        if agent_id in SNAKE_AGENTS_CACHE:
+            SNAKE_AGENTS_CACHE[agent_id]["pending_llm_call"] = False
+            SNAKE_AGENTS_CACHE[agent_id]["last_llm_call_time"] = time.time()
+
+
+
 # ── Request Models ───────────────────────────────────────────
 
 class PlayerConfig(BaseModel):
@@ -413,6 +529,88 @@ async def play_turn(req: PlayTurnRequest):
 
     provider = _infer_provider(model)
     api_key = ""  # Will be resolved dynamically by AIPlayer
+
+    # ── Check if this is the Snake Game ──
+    # If yes, use the Hybrid AI approach to run in realtime (< 5ms response time)
+    if req.game_id in ("snake", "snake_arena"):
+        if req.agent_id not in SNAKE_AGENTS_CACHE:
+            SNAKE_AGENTS_CACHE[req.agent_id] = {
+                "target": None,
+                "last_llm_call_time": 0,
+                "pending_llm_call": False
+            }
+            
+        cache = SNAKE_AGENTS_CACHE[req.agent_id]
+        
+        # Get board state parameters
+        width = req.game_state.get("board_width", 20)
+        height = req.game_state.get("board_height", 15)
+        food_list = req.game_state.get("food", [])
+        
+        # Determine player role
+        my_role = req.game_state.get("current_turn", "player_1")
+        opponent_role = "player_2" if my_role == "player_1" else "player_1"
+        
+        my_snake = req.game_state.get("snakes", {}).get(my_role)
+        opp_snake = req.game_state.get("snakes", {}).get(opponent_role)
+        
+        if not my_snake or not my_snake.get("alive"):
+            raise HTTPException(400, "Snake is dead or not found in state.")
+            
+        head = my_snake["body"][0]
+        current_dir = my_snake["direction"]
+        
+        # Build obstacle set (body segments)
+        obstacles = set()
+        for role, s in req.game_state.get("snakes", {}).items():
+            if s and s.get("alive"):
+                body = s["body"]
+                # Keep own tail out of obstacles if snake is longer than 1 to prevent self-collision errors
+                if role == my_role and len(body) > 1:
+                    body = body[:-1]
+                for part in body:
+                    obstacles.add(tuple(part))
+                    
+        # Check target validity
+        target = cache["target"]
+        if target:
+            # Check if target is still in the active food list
+            target_tuple = tuple(target)
+            if target_tuple not in [tuple(f) for f in food_list]:
+                target = None
+                cache["target"] = None
+                
+        # If no target or 5 seconds passed, launch LLM in the background
+        if not target or (time.time() - cache["last_llm_call_time"] > 5.0):
+            if not cache["pending_llm_call"]:
+                cache["pending_llm_call"] = True
+                asyncio.create_task(_query_snake_llm_async(
+                    req.agent_id, req.prompt, req.game_state, provider, model, api_key
+                ))
+                
+        # Micro pathfinding
+        move = None
+        if target:
+            path = _find_bfs_path(head, target, obstacles, width, height)
+            if path:
+                move = path[0]
+                
+        # If target path blocked, head to closest reachable food
+        if not move and food_list:
+            paths_to_food = []
+            for f in food_list:
+                p = _find_bfs_path(head, f, obstacles, width, height)
+                if p:
+                    paths_to_food.append((len(p), p[0]))
+            if paths_to_food:
+                paths_to_food.sort()
+                move = paths_to_food[0][1]
+                
+        # Ultimate fallback: safest path with maximum space
+        if not move:
+            move = _get_safest_move(head, current_dir, obstacles, width, height)
+            
+        return {"move": {"move": move}}
 
     # 3. Instantiate AIPlayer to communicate with the model
     from ai_player import AIPlayer
