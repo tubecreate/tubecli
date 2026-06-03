@@ -1878,12 +1878,12 @@
     function refreshStartButton() {
       const btn = document.getElementById('btn-start');
       if (!btn) return;
-      const slots = document.querySelectorAll('.player-slot');
+      const slots = document.querySelectorAll('#player-slots .player-slot');
       let anyChecking = false;
       let anyFail = false;
       slots.forEach(slot => {
-        const idx = slot.id.replace('slot-', '');
-        const st = document.getElementById(`pstatus-${idx}`);
+        const id = slot.id.replace('slot-', '');
+        const st = document.getElementById(`pstatus-${id}`);
         const state = st ? st.dataset.state : 'idle';
         if (state === 'checking') anyChecking = true;
         if (state === 'fail') anyFail = true;
@@ -1945,7 +1945,7 @@
 
       // Collect players
       const players = [];
-      document.querySelectorAll('.player-slot').forEach(slot => {
+      document.querySelectorAll('#player-slots .player-slot').forEach(slot => {
         const id = slot.id.replace('slot-', '');
         const agentEl = document.getElementById(`pagent-${id}`);
         players.push({
