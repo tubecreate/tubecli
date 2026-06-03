@@ -1,4 +1,4 @@
-﻿"""
+"""
 AI Arena Extension â€” Entry point.
 """
 import logging
@@ -17,7 +17,7 @@ logger = logging.getLogger("AIArenaExtension")
 class AIArenaExtension(Extension):
     name = "ai_arena"
     description = "ðŸŽ® AI Arena â€” Äáº¥u trÆ°á»ng AI: Cá» vua, Snake Arena & more"
-    version = "1.0.0"
+    version = "1.1.0"
     enabled_by_default = True
 
     def __init__(self):
@@ -44,7 +44,7 @@ class AIArenaExtension(Extension):
             import arena_routes
             if self._game_manager:
                 arena_routes.set_game_manager(self._game_manager)
-            return arena_routes.router
+            return arena_routes.main_router
         except Exception as e:
             logger.error(f"Failed to load AI Arena routes: {e}")
             import traceback

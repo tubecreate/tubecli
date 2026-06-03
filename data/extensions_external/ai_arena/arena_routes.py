@@ -12,7 +12,9 @@ from game_manager import GameManager, GAME_REGISTRY
 
 logger = logging.getLogger("AIArena.Routes")
 
+main_router = APIRouter()
 router = APIRouter(prefix="/api/v1/ai_arena", tags=["AI Arena"])
+compat_router = APIRouter(prefix="/api/v1/arena", tags=["AI Arena Compatibility"])
 
 # Will be set by extension.py
 _game_manager: Optional[GameManager] = None
@@ -410,8 +412,19 @@ async def list_arena_agents():
 
     agents = []
     for a in agent_manager.get_all():
-        model = a.model or getattr(a, "browser_ai_model", "") or ""
-        provider = _infer_provider(model)
+        raw_model = a.model or getattr(a, "browser_ai_model", "") or ""
+        provider = _infer_provider(raw_model)
+
+        # Clean model name for the UI by stripping any provider prefix
+        model = raw_model
+        for prov in ("ollama", "9router", "deepseek", "gemini", "openai", "claude", "grok", "openrouter", "github"):
+            if raw_model.lower().startswith(f"{prov}/"):
+                model = raw_model[len(prov)+1:]
+                break
+            elif raw_model.lower().startswith(f"{prov}:"):
+                model = raw_model[len(prov)+1:]
+                break
+
         agents.append({
             "id": a.id,
             "name": a.name,
@@ -438,6 +451,10 @@ def _infer_provider(model: str) -> str:
     m = (model or "").lower()
     if not m:
         return "ollama"
+    # Check if prefixed with a known provider, e.g. "9router/deepseek-chat" or "gemini/gemini-2.0-flash"
+    for prov in ("ollama", "9router", "deepseek", "gemini", "openai", "claude", "grok", "openrouter", "github"):
+        if m.startswith(f"{prov}/") or m.startswith(f"{prov}:"):
+            return prov
     if m.startswith("9router") or "/" in m and m.split("/")[0] in ("cx", "ag"):
         return "9router"
     if "claude" in m:
@@ -510,6 +527,7 @@ class PlayTurnRequest(BaseModel):
 
 
 @router.post("/play-turn")
+@compat_router.post("/play-turn")
 async def play_turn(req: PlayTurnRequest):
     """Webhook called by the Central Tournament Hub to get the agent's next move."""
     try:
@@ -528,6 +546,16 @@ async def play_turn(req: PlayTurnRequest):
         raise HTTPException(400, f"Agent {agent.name} has no configured AI model.")
 
     provider = _infer_provider(model)
+
+    # Strip prefix if it exists to pass clean model to AIPlayer
+    for prov in ("ollama", "9router", "deepseek", "gemini", "openai", "claude", "grok", "openrouter", "github"):
+        if model.lower().startswith(f"{prov}/"):
+            model = model[len(prov)+1:]
+            break
+        elif model.lower().startswith(f"{prov}:"):
+            model = model[len(prov)+1:]
+            break
+
     api_key = ""  # Will be resolved dynamically by AIPlayer
 
     # ── Check if this is the Snake Game ──
@@ -708,3 +736,151 @@ async def match_live(websocket: WebSocket, match_id: str):
             await websocket.close()
         except Exception:
             pass
+
+
+# ── Server-Sent Events (SSE) Proxy for Central Hub ──
+from fastapi.responses import StreamingResponse
+import httpx
+
+@router.get("/hub/matches/{match_id}/stream")
+async def proxy_hub_stream(match_id: str, hub_url: str = "https://tour.zeabur.app"):
+    """Server-side proxy for Central Hub SSE streams to avoid cross-origin (CORS) security blocks in browser."""
+    async def event_generator():
+        headers = {"Accept": "text/event-stream"}
+        async with httpx.AsyncClient(timeout=None) as client:
+            try:
+                async with client.stream(
+                    "GET", 
+                    f"{hub_url.rstrip('/')}/api/v1/hub/matches/{match_id}/stream", 
+                    headers=headers
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line:
+                            yield f"{line}\n"
+                        else:
+                            yield "\n"
+            except Exception as e:
+                logger.error(f"Error in SSE proxy stream for match {match_id}: {e}")
+                # Yield error event so the client knows it failed
+                err_payload = json.dumps({"event": "error", "message": f"Proxy error: {str(e)}"})
+                yield f"data: {err_payload}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/hub/matches/{match_id}")
+async def proxy_hub_match_details(match_id: str, hub_url: str = "https://tour.zeabur.app"):
+    """Proxy match details from Central Hub to local browser to avoid CORS blocks."""
+    import httpx
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(f"{hub_url.rstrip('/')}/api/v1/hub/matches/{match_id}")
+            if resp.status_code != 200:
+                raise HTTPException(resp.status_code, resp.text)
+            return resp.json()
+        except Exception as e:
+            raise HTTPException(500, f"Error calling Hub: {e}")
+
+
+# ── Cloudflare Tunnel Manager for TryCloudflare ──
+import subprocess
+import re
+import threading
+import time
+import os
+import atexit
+
+class CloudflareTunnelManager:
+    def __init__(self):
+        self.process = None
+        self.url = None
+        self.log_thread = None
+        self.lock = threading.Lock()
+
+    def start_tunnel(self, port: int = 5295) -> Optional[str]:
+        with self.lock:
+            if self.process and self.process.poll() is None:
+                if self.url:
+                    return self.url
+                # Wait a bit if it's currently starting
+                for _ in range(30):
+                    if self.url:
+                        return self.url
+                    time.sleep(0.5)
+                if self.url:
+                    return self.url
+
+            self.stop_tunnel()
+
+            cmd = ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{port}"]
+            logger.info(f"Starting cloudflared tunnel: {' '.join(cmd)}")
+            
+            # Start process
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            )
+
+            self.url = None
+            url_found_event = threading.Event()
+
+            def read_stderr():
+                # cloudflared prints tunnel info to stderr
+                pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+                for line in iter(self.process.stderr.readline, ''):
+                    if self.process is None or self.process.poll() is not None:
+                        break
+                    logger.info(f"[cloudflared] {line.strip()}")
+                    match = pattern.search(line)
+                    if match:
+                        self.url = match.group(0)
+                        url_found_event.set()
+                        logger.info(f"Cloudflare Tunnel URL found: {self.url}")
+                
+            self.log_thread = threading.Thread(target=read_stderr, daemon=True)
+            self.log_thread.start()
+
+            # Wait for URL to be parsed (up to 15 seconds)
+            success = url_found_event.wait(timeout=15.0)
+            if not success or not self.url:
+                logger.error("Failed to retrieve Cloudflare Tunnel URL within timeout.")
+                return None
+
+            return self.url
+
+    def stop_tunnel(self):
+        if self.process:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
+            self.process = None
+            self.url = None
+            self.log_thread = None
+
+tunnel_manager = CloudflareTunnelManager()
+atexit.register(tunnel_manager.stop_tunnel)
+
+@router.post("/tunnel/start")
+async def start_tunnel_api():
+    """Start cloudflared tunnel to expose local server and return trycloudflare URL."""
+    try:
+        url = await asyncio.to_thread(tunnel_manager.start_tunnel, 5295)
+        if not url:
+            raise HTTPException(500, "Could not start cloudflared tunnel or retrieve URL.")
+        return {"url": url}
+    except Exception as e:
+        raise HTTPException(500, f"Error starting tunnel: {str(e)}")
+
+
+main_router.include_router(router)
+main_router.include_router(compat_router)
+
