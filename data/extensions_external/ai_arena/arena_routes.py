@@ -695,7 +695,8 @@ async def play_turn(req: PlayTurnRequest):
                 return {
                     "move": {
                         "move": res["move"],
-                        "chat_message": res.get("chat_message", "")
+                        "chat_message": res.get("chat_message", ""),
+                        "predictions": res.get("predictions", {})
                     }
                 }
             else:

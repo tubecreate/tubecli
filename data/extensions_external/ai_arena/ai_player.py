@@ -1,10 +1,4 @@
-"""
-AI Player Adapter — Kết nối AI model với game engine.
-Hỗ trợ: Ollama, DeepSeek, Gemini, OpenAI, Claude, Grok, GitHub Models.
-Theo dõi token usage per turn.
-
-QUAN TRỌNG: Nếu AI fail hết retry → chọn nước đi ngẫu nhiên (KHÔNG forfeit).
-"""
+import json
 import logging
 import random
 import re
@@ -61,6 +55,12 @@ class AIPlayer:
         # Inject the agent's learned chess principles, if any.
         if self.skill_block:
             prompt = prompt + "\n" + self.skill_block
+            
+        if game.name == "chess":
+            prompt += "\n\nCRITICAL: In addition to your move, please predict the next 3 moves (opponent's reply and your subsequent response) assuming optimal play. Respond as a valid JSON object with the following schema:\n"
+            prompt += '{\n  "move": "your_current_move_uci",\n  "predictions": {\n    "opponent_move_1_uci": {\n      "move": "your_response_1_uci",\n      "predictions": {\n        "opponent_move_2_uci": {\n          "move": "your_response_2_uci"\n        }\n      }\n    }\n  },\n  "chat": "strategic_comment"\n}\n'
+            prompt += "All moves (both yours and predictions) MUST be legal in UCI format (e.g. e2e4, g1f3). If you cannot output JSON, just output the raw UCI move string on a single line."
+
         prompt_tokens = _estimate_tokens(prompt)
 
         last_error = None
@@ -83,14 +83,59 @@ class AIPlayer:
                 time.sleep(1)  # Small delay before retry
                 continue
 
+            # Try to parse response as JSON first
+            parsed_json = None
+            try:
+                cleaned_json = raw_response.strip()
+                cleaned_json = re.sub(r'<think>.*?</think>', '', cleaned_json, flags=re.DOTALL).strip()
+                if cleaned_json.startswith("```"):
+                    cleaned_json = cleaned_json.split("\n", 1)[1] if "\n" in cleaned_json else cleaned_json[3:]
+                if cleaned_json.endswith("```"):
+                    cleaned_json = cleaned_json[:-3]
+                cleaned_json = cleaned_json.strip()
+                if cleaned_json.startswith("json"):
+                    cleaned_json = cleaned_json[4:].strip()
+                parsed_json = json.loads(cleaned_json)
+            except Exception:
+                pass
+
+            if parsed_json and isinstance(parsed_json, dict) and "move" in parsed_json:
+                try:
+                    move = game.parse_ai_move(parsed_json["move"], state, self.player_id)
+                    predictions = parsed_json.get("predictions", {})
+                    chat_msg = parsed_json.get("chat", "") or parsed_json.get("chat_message", "")
+                    if not chat_msg:
+                        chat_msg = self._extract_chat(raw_response)
+                    logger.info(f"[{self.name}] ✅ Move parsed from JSON: {move} with predictions: {predictions}")
+                    return {
+                        "move": move,
+                        "predictions": predictions,
+                        "raw_response": raw_response[:500],
+                        "thinking_time": round(elapsed, 2),
+                        "tokens_used": turn_tokens,
+                        "prompt_tokens": prompt_tokens,
+                        "response_tokens": response_tokens,
+                        "total_tokens": self.total_tokens_used,
+                        "api_calls": self.total_api_calls,
+                        "chat_message": chat_msg,
+                        "attempt": attempt + 1,
+                    }
+                except ValueError as e:
+                    last_error = str(e)
+                    logger.warning(f"[{self.name}] JSON parsing error (attempt {attempt + 1}/{retry_count}): {e}")
+                    prompt += f"\n\n[SYSTEM: Your JSON move was invalid: {e}. Please respond with a valid move in JSON format.]\n"
+                    continue
+
+            # Fallback to regex-based parsing if not a JSON response
             try:
                 move = game.parse_ai_move(raw_response, state, self.player_id)
                 # Generate chat message from AI
                 chat_msg = self._extract_chat(raw_response)
 
-                logger.info(f"[{self.name}] ✅ Move: {move} (attempt {attempt+1})")
+                logger.info(f"[{self.name}] ✅ Move parsed from raw text: {move} (attempt {attempt+1})")
                 return {
                     "move": move,
+                    "predictions": {},
                     "raw_response": raw_response[:500],
                     "thinking_time": round(elapsed, 2),
                     "tokens_used": turn_tokens,
