@@ -38,19 +38,19 @@ class ChessGame(BaseGame):
     DEFAULT_TIME_CONTROL = "rapid"
 
     def __init__(self, time_control: str = None):
-      self.time_control = time_control or self.DEFAULT_TIME_CONTROL
-      if self.time_control not in self.TIME_CONTROLS:
-          self.time_control = self.DEFAULT_TIME_CONTROL
+        self.time_control = time_control or self.DEFAULT_TIME_CONTROL
+        if self.time_control not in self.TIME_CONTROLS:
+            self.time_control = self.DEFAULT_TIME_CONTROL
 
     def get_initial_state(self, player_ids: List[str]) -> dict:
-      if chess is None:
-          raise ValueError(
-              "Thư viện python-chess chưa được cài đặt trên máy. "
-              "Vui lòng chạy lệnh 'pip install chess' hoặc kiểm tra kết nối mạng để Extension tự động cài đặt."
-          )
-      if len(player_ids) != 2:
-          raise ValueError("Chess requires exactly 2 players")
-      tc = self.TIME_CONTROLS[self.time_control]
+        if chess is None:
+            raise ValueError(
+                "Thư viện python-chess chưa được cài đặt trên máy. "
+                "Vui lòng chạy lệnh 'pip install chess' hoặc kiểm tra kết nối mạng để Extension tự động cài đặt."
+            )
+        if len(player_ids) != 2:
+            raise ValueError("Chess requires exactly 2 players")
+        tc = self.TIME_CONTROLS[self.time_control]
         return {
             "fen": chess.STARTING_FEN,
             "players": {
