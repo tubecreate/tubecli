@@ -377,11 +377,11 @@
                     </div>
                 </div>
 
-                <!-- 📅 Calendar Card -->
+                <!-- 📅 Google Calendar & Storage Card -->
                 <div class="settings-card">
                     <div class="settings-card-header">
-                        <div class="settings-card-icon orange"><span class="material-symbols-outlined" style="font-size:18px">calendar_month</span></div>
-                        <div><h3>Google Calendar</h3><small>Default calendar for AI scheduling</small></div>
+                        <div class="settings-card-icon orange"><span class="material-symbols-outlined" style="font-size:18px">cloud</span></div>
+                        <div><h3 data-i18n="settings.google_integration">Google Integration</h3><small data-i18n="settings.google_integration_desc">Calendar & Storage accounts</small></div>
                     </div>
                     <div class="settings-field">
                         <label data-i18n="settings.default_calendar">Default Calendar Email</label>
@@ -389,6 +389,13 @@
                             <option value="">Not configured</option>
                         </select>
                         <div class="field-hint" data-i18n="settings.calendar_desc">Google account for AI to schedule events via chat commands.</div>
+                    </div>
+                    <div class="settings-field" style="margin-top: 16px;">
+                        <label data-i18n="settings.default_storage">Default Storage Email</label>
+                        <select id="set-default-storage" onchange="autoSaveSetting('default_storage_email', this.value, this)" style="width:100%;">
+                            <option value="">Not configured</option>
+                        </select>
+                        <div class="field-hint" data-i18n="settings.storage_desc">Google account used for system data storage on Google Drive.</div>
                     </div>
                 </div>
 

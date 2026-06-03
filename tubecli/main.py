@@ -6,6 +6,26 @@ Extension system auto-discovers and registers enabled extension commands.
 import os
 import sys
 
+# ── Fix Python path to prevent namespace package shadowing ────────
+# If CWD contains a folder named 'tubecli' (the git repo) without __init__.py,
+# Python might import 'tubecli' as a namespace package, resulting in:
+# ImportError: cannot import name '__version__' from 'tubecli' (unknown location)
+package_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if package_parent not in sys.path:
+    sys.path.insert(0, package_parent)
+else:
+    sys.path.remove(package_parent)
+    sys.path.insert(0, package_parent)
+
+if "tubecli" in sys.modules:
+    tubecli_mod = sys.modules["tubecli"]
+    if not hasattr(tubecli_mod, "__file__") or not hasattr(tubecli_mod, "__version__"):
+        del sys.modules["tubecli"]
+        for key in list(sys.modules.keys()):
+            if key.startswith("tubecli."):
+                del sys.modules[key]
+
+
 # ── Fix Windows Console Encoding ──────────────────────────────────
 # Ensures Vietnamese characters, box-drawing Unicode (╔═╗║), and emoji
 # display correctly in ANY CMD window, even freshly opened ones.

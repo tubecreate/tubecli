@@ -2460,6 +2460,7 @@ async function applyGlobalSettings(s) {
     loadCloudKeysInSettings();
     apiGet('/api/v1/settings/default-profile').then(bp => populateDefaultProfileDropdown(bp?.profile || 'default')).catch(() => {});
     populateDefaultCalendarDropdown(s.default_calendar_email || '').catch(() => {});
+    populateDefaultStorageDropdown(s.default_storage_email || '').catch(() => {});
 }
 
 async function loadGlobalSettings() {
@@ -2532,6 +2533,34 @@ async function changeDefaultCalendar(val) {
     // This function is triggered on UI change. We rely on saveGlobalSettings() to actually persist it 
     // to the global_settings.json together with other general settings.
     console.log("Selected Default Calendar Email pending save:", val);
+}
+
+async function populateDefaultStorageDropdown(selectedEmail) {
+    const sel = document.getElementById('set-default-storage');
+    if (!sel) return;
+    try {
+        const d = await apiGet('/api/v1/auth-manager/tokens?provider=google');
+        let html = '<option value="">Chưa cấu hình / Bỏ trống</option>';
+        if (d && d.tokens && d.tokens.length > 0) {
+            d.tokens.forEach(t => {
+                if (t.authorized_email) {
+                    html += `<option value="${esc(t.authorized_email)}">${esc(t.authorized_email)} (${esc(t.credential_name || t.token_id)})</option>`;
+                }
+            });
+        } else {
+            html = '<option value="">⚠️ Chưa có tài khoản Google trong Auth Manager</option>';
+        }
+        sel.innerHTML = html;
+        if (selectedEmail) {
+            const hasOption = Array.from(sel.options).some(opt => opt.value === selectedEmail);
+            if (!hasOption && selectedEmail !== '') {
+                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (⚠️ Đã lưu nhưng mất quyền truy cập)</option>`;
+            }
+            sel.value = selectedEmail;
+        }
+    } catch (e) {
+        console.warn('Storage credentials fetch failed:', e);
+    }
 }
 
 async function loadOllamaModels() {
@@ -2997,6 +3026,7 @@ async function saveGlobalSettings() {
         telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
         telegram_chat_id: document.getElementById('set-tg-chat')?.value || '',
         default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
+        default_storage_email: document.getElementById('set-default-storage')?.value || '',
         ext_update_notifications: document.getElementById('set-ext-update-notify')?.checked || false,
     };
     try {

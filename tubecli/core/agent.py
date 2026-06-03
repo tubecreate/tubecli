@@ -110,6 +110,9 @@ class Agent:
         self.scraper_text_limit = scraper_text_limit
         self.script_output_format = script_output_format
 
+        # AI Arena chess stats (ELO, W/L/D, learned principles) — optional.
+        self.chess_stats = kwargs.get("chess_stats", {}) or {}
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -144,6 +147,7 @@ class Agent:
             "enable_scraping": getattr(self, "enable_scraping", False),
             "scraper_text_limit": getattr(self, "scraper_text_limit", 10000),
             "script_output_format": getattr(self, "script_output_format", "json"),
+            "chess_stats": getattr(self, "chess_stats", {}),
         }
 
     @classmethod

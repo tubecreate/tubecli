@@ -54,6 +54,7 @@ def _default_settings():
         "telegram_bot_token": "",
         "telegram_chat_id": "",
         "default_calendar_email": "",
+        "default_storage_email": "",
         "ext_update_notifications": False,
         "ext_open_mode": "full_page",
     }
