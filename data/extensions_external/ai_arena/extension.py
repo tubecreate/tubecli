@@ -17,7 +17,7 @@ logger = logging.getLogger("AIArenaExtension")
 class AIArenaExtension(Extension):
     name = "ai_arena"
     description = "ðŸŽ® AI Arena â€” Äáº¥u trÆ°á»ng AI: Cá» vua, Snake Arena & more"
-    version = "2026.06.0318"
+    version = "2026.06.031845"
     enabled_by_default = True
 
     def __init__(self):

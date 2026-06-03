@@ -800,23 +800,37 @@ async def proxy_hub_stream(match_id: str, hub_url: str = "https://tour.zeabur.ap
     """Server-side proxy for Central Hub SSE streams to avoid cross-origin (CORS) security blocks in browser."""
     async def event_generator():
         headers = {"Accept": "text/event-stream"}
-        async with httpx.AsyncClient(timeout=None) as client:
+        retries = 5
+        delay = 1.0
+        
+        while retries > 0:
             try:
-                async with client.stream(
-                    "GET", 
-                    f"{hub_url.rstrip('/')}/api/v1/hub/matches/{match_id}/stream", 
-                    headers=headers
-                ) as response:
-                    async for line in response.aiter_lines():
-                        if line:
-                            yield f"{line}\n"
-                        else:
-                            yield "\n"
+                async with httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream(
+                        "GET", 
+                        f"{hub_url.rstrip('/')}/api/v1/hub/matches/{match_id}/stream", 
+                        headers=headers
+                    ) as response:
+                        # Reset retries upon successful connection/stream start
+                        retries = 5
+                        delay = 1.0
+                        async for line in response.aiter_lines():
+                            if line:
+                                yield f"{line}\n"
+                            else:
+                                yield "\n"
+                # If stream ended normally without exception
+                break
             except Exception as e:
-                logger.error(f"Error in SSE proxy stream for match {match_id}: {e}")
-                # Yield error event so the client knows it failed
-                err_payload = json.dumps({"event": "error", "message": f"Proxy error: {str(e)}"})
-                yield f"data: {err_payload}\n\n"
+                retries -= 1
+                logger.warning(f"SSE proxy stream error for match {match_id} (Retries left: {retries}): {e}")
+                if retries <= 0:
+                    logger.error(f"SSE proxy stream failed after all retries for match {match_id}: {e}")
+                    err_payload = json.dumps({"event": "error", "message": f"Proxy error: {str(e)}"})
+                    yield f"data: {err_payload}\n\n"
+                    break
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 10.0)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
