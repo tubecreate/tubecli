@@ -3456,40 +3456,16 @@
         await loadArenaAgents();
         const agent = ARENA_AGENTS.find(a => a.id === challengerId);
         const name = agent ? agent.name : "Challenger Agent";
-        let webhookUrl = document.getElementById('online-webhook-url').value.trim();
 
-        const isHubLocal = hubUrl.includes('localhost') || hubUrl.includes('127.0.0.1');
-
-        if (!isHubLocal && (!webhookUrl || webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1'))) {
-          const confirmTunnel = confirm("⚠️ Cảnh báo: Webhook URL của bạn chưa được cấu hình hoặc đang là địa chỉ cục bộ (localhost), trong khi bạn đang kết nối tới Hub từ xa.\n\nBạn có muốn hệ thống tự động kích hoạt Cloudflare Tunnel để tạo URL công khai (trycloudflare.com) thay thế không?");
-          if (confirmTunnel) {
-            await autoStartCloudflareTunnel();
-            webhookUrl = document.getElementById('online-webhook-url').value.trim();
-          }
-        }
-
-        if (!webhookUrl) {
-          alert("Vui lòng cấu hình Webhook URL công khai hoặc cục bộ hợp lệ!");
-          return;
-        }
-
-        const isWebhookLocal = webhookUrl.includes('localhost') || webhookUrl.includes('127.0.0.1') || webhookUrl.includes('192.168.') || webhookUrl.includes('10.');
-        if (!isHubLocal && isWebhookLocal) {
-          const confirmLocal = confirm("⚠️ Cảnh báo: Bạn đang sử dụng Hub từ xa nhưng Webhook URL lại là địa chỉ cục bộ (localhost/local IP). Hub từ xa sẽ KHÔNG THỂ gửi yêu cầu nước đi đến máy của bạn được.\n\nĐể khắc phục, bạn cần:\n1. Chạy Hub ở máy local (ví dụ http://localhost:8000)\nhoặc 2. Sử dụng ngrok/cloudflare tunnel để tạo URL công khai cho Webhook của bạn.\n\nBạn có muốn tiếp tục khiêu chiến không?");
-          if (!confirmLocal) {
-            return;
-          }
-        }
-
-        // Register agent
+        // Register challenger on Hub (no owner_server_url needed)
         const regRes = await fetch(`${hubUrl}/api/v1/hub/register-agent`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             agent_id: challengerId,
             name: `${name} (${selectedModel})`,
-            owner_server_url: webhookUrl,
             game_id: gameId
+            // No owner_server_url — submit-move architecture!
           })
         });
         if (!regRes.ok) {
@@ -3509,6 +3485,8 @@
         const data = await res.json();
         if (res.ok) {
           closeChallengeModal();
+          // Track our player ID so polling starts when stream opens
+          onlineMyPlayerId = challengerId;
           alert("Đã gia nhập phòng! Bắt đầu live stream.");
           startOnlineStream(data.match_id);
         } else {
