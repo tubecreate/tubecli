@@ -1566,6 +1566,11 @@
         const gameId = params.game_id || 'chess';
         const mode = params.mode || 'stream';
         if (matchId) {
+          // ⚠️ Set the game dropdown BEFORE calling startOnlineStream
+          // so renderOnlineBoard picks the right game engine
+          const gameSelect = document.getElementById('online-game');
+          if (gameSelect && gameId) gameSelect.value = gameId;
+
           if (mode === 'replay') {
             playOnlineReplay(matchId, gameId, false);
           } else {
@@ -4140,9 +4145,15 @@
     function handleOnlineStreamEvent(data) {
       const logBody = document.getElementById('online-log-body');
       const turnInd = document.getElementById('online-turn-indicator');
-      const gameId = document.getElementById('online-game').value;
+      // Use game_id from event (set by sync) or fall back to dropdown
+      let gameId = document.getElementById('online-game').value;
 
       if (data.event === 'sync') {
+        // Update game dropdown if server tells us the game type
+        if (data.game_id) {
+          const gameSelect = document.getElementById('online-game');
+          if (gameSelect) { gameSelect.value = data.game_id; gameId = data.game_id; }
+        }
         document.getElementById('online-p1-name').innerText = data.player_1;
         document.getElementById('online-p2-name').innerText = data.player_2;
         logBody.innerHTML = `<div class="chat-msg"><div class="chat-text" style="color: var(--success); font-weight:700;">⚔️ Đã kết nối giải đấu: ${data.player_1} vs ${data.player_2} (${data.status})</div></div>`;
