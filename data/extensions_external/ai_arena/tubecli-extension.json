@@ -1,8 +1,8 @@
 {
   "name": "ai_arena",
   "display_name": "AI Arena",
-  "version": "2026.06.031848",
-  "description": "🎮 AI Arena — Đấu trường AI: Cờ vua, Snake Arena, và nhiều game đối kháng AI khác",
+  "version": "2026.06.040748",
+  "description": "🎮 AI Arena — Đấu trường AI: Cờ vua, Snake Arena, và nhiều game đối kháng AI khác. Hỗ trợ đa phòng đồng thời, replay có thanh tua, thời gian suy nghĩ AI.",
   "author": "TubeCreate",
   "icon": "🎮",
   "entry": "extension.py",
