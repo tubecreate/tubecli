@@ -3249,6 +3249,106 @@
       }
     }
 
+    // ── My Room state ──────────────────────────────────────────
+    let _myRoomId = null;
+    let _myRoomMatchId = null;
+    let _myRoomGameId = null;
+    let _myRoomPollInterval = null;
+    let _myRoomCreatedAt = null;
+
+    function _updateMyRoomBanner({ statusText, progress, showWatch, matchId }) {
+      const banner = document.getElementById('my-room-banner');
+      const statusEl = document.getElementById('my-room-status-text');
+      const progressEl = document.getElementById('my-room-progress');
+      const watchBtn = document.getElementById('btn-my-room-watch');
+      const pulse = document.getElementById('my-room-pulse');
+
+      if (banner) banner.style.display = '';
+      if (statusEl) statusEl.innerText = statusText;
+      if (progressEl) progressEl.style.width = progress + '%';
+      if (watchBtn) {
+        watchBtn.style.display = showWatch ? '' : 'none';
+        if (matchId) watchBtn.dataset.matchId = matchId;
+      }
+      if (pulse) {
+        pulse.style.background = showWatch ? 'var(--success)' : 'var(--cyan)';
+        pulse.style.animation = showWatch ? 'none' : 'pulse-dot 1.2s infinite';
+      }
+    }
+
+    function watchMyRoom() {
+      const btn = document.getElementById('btn-my-room-watch');
+      const matchId = btn && btn.dataset.matchId;
+      if (!matchId) return;
+      // Stop room polling
+      if (_myRoomPollInterval) { clearInterval(_myRoomPollInterval); _myRoomPollInterval = null; }
+      // Start watching
+      onlineMyPlayerId = document.getElementById('online-agent').value || null;
+      startOnlineStream(matchId);
+    }
+
+    async function cancelMyRoom() {
+      if (!_myRoomId) return;
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+      // Stop polling
+      if (_myRoomPollInterval) { clearInterval(_myRoomPollInterval); _myRoomPollInterval = null; }
+      try {
+        await fetch(`${hubUrl}/api/v1/hub/rooms/${_myRoomId}/cancel`, { method: 'DELETE' });
+      } catch(e) {}
+      _myRoomId = null;
+      _myRoomMatchId = null;
+      // Hide banner
+      const banner = document.getElementById('my-room-banner');
+      if (banner) banner.style.display = 'none';
+      await fetchOnlineRooms();
+    }
+
+    async function _pollMyRoom() {
+      if (!_myRoomId) return;
+      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+      try {
+        const res = await fetch(`${hubUrl}/api/v1/hub/rooms/${_myRoomId}`);
+        if (!res.ok) return;
+        const room = await res.json();
+
+        const elapsed = _myRoomCreatedAt ? Math.round((Date.now() - _myRoomCreatedAt) / 1000) : 0;
+        const pct = Math.min(95, elapsed * 2); // progress fills slowly
+
+        if (room.status === 'matched' && room.match_id) {
+          // Match started!
+          _myRoomMatchId = room.match_id;
+          _updateMyRoomBanner({
+            statusText: `⚔️ Đối thủ đã vào! Trận đấu bắt đầu!`,
+            progress: 100,
+            showWatch: true,
+            matchId: room.match_id
+          });
+          // Auto-start polling for host player
+          const myAgentId = document.getElementById('online-agent').value;
+          if (myAgentId) {
+            onlineMyPlayerId = myAgentId;
+            onlineMyMatchId = room.match_id;
+          }
+          // Refresh rooms list too
+          await fetchOnlineRooms();
+          // Stop poll loop (already found match)
+          clearInterval(_myRoomPollInterval);
+          _myRoomPollInterval = null;
+        } else if (room.status === 'waiting') {
+          _updateMyRoomBanner({
+            statusText: `⏳ Đang chờ đối thủ... (${elapsed}s) — ID: ${_myRoomId.slice(0, 8)}`,
+            progress: pct,
+            showWatch: false,
+            matchId: null
+          });
+        } else {
+          _updateMyRoomBanner({ statusText: `Trạng thái: ${room.status}`, progress: pct, showWatch: false, matchId: null });
+        }
+      } catch(e) {
+        // silent
+      }
+    }
+
     async function createOnlineRoom() {
       const agentId = document.getElementById('online-agent').value;
       if (!agentId) {
@@ -3263,7 +3363,6 @@
       btn.textContent = "Đang tạo...";
 
       try {
-        // Register agent first to ensure metadata is sync'd and model is verified
         const regSuccess = await registerOnlineAgent();
         if (!regSuccess) {
           btn.disabled = false;
@@ -3281,7 +3380,26 @@
         });
         const data = await res.json();
         if (res.ok) {
-          alert(`Tạo phòng đấu thành công! ID: ${data.room_id.slice(0, 8)}`);
+          // Track room state
+          _myRoomId = data.room_id;
+          _myRoomGameId = gameId;
+          _myRoomCreatedAt = Date.now();
+
+          // Show room ID badge
+          const badge = document.getElementById('my-room-id-badge');
+          if (badge) badge.innerText = data.room_id.slice(0, 8);
+
+          // Start banner + polling
+          _updateMyRoomBanner({
+            statusText: `⏳ Đang chờ đối thủ vào phòng... — ID: ${data.room_id.slice(0, 8)}`,
+            progress: 5,
+            showWatch: false,
+            matchId: null
+          });
+
+          if (_myRoomPollInterval) clearInterval(_myRoomPollInterval);
+          _myRoomPollInterval = setInterval(_pollMyRoom, 3000);
+
           await fetchOnlineRooms();
         } else {
           alert(`Lỗi tạo phòng: ${data.detail || JSON.stringify(data)}`);
