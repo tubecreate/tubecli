@@ -3957,6 +3957,10 @@
       onlineActiveMatchId = matchId;
       showPage('online-match', false);
       
+      // ── Always hide replay toolbar in live stream mode ──
+      const toolbar = document.getElementById('replay-toolbar');
+      if (toolbar) toolbar.style.display = 'none';
+
       const chessContainer = document.getElementById('online-chess-container');
       if (chessContainer) chessContainer.innerHTML = '';
       _onlineLastChessFxKey = null;
@@ -3968,6 +3972,7 @@
       document.getElementById('online-p1-score').innerText = '0';
       document.getElementById('online-p2-score').innerText = '0';
       document.getElementById('online-turn-indicator').innerText = 'Turn 0';
+
 
       if (onlineEventSource) onlineEventSource.close();
 
