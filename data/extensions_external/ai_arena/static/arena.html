@@ -1042,7 +1042,14 @@
       </div>
     </header>
 
+    <!-- ⚡ Floating Multi-Match Dashboard -->
+    <div id="multi-match-dashboard" style="display:none; position:fixed; bottom:80px; right:20px; z-index:9999; background:rgba(10,14,26,0.95); border:1px solid rgba(99,102,241,0.4); border-radius:12px; padding:12px 14px; min-width:200px; max-width:240px; box-shadow:0 8px 32px rgba(0,0,0,0.6); backdrop-filter:blur(12px);"></div>
+
+    <!-- 🔔 Turn toast notification -->
+    <div id="match-toast" style="position:fixed; bottom:20px; right:20px; z-index:10000; background:linear-gradient(135deg,rgba(34,197,94,0.92),rgba(16,163,74,0.92)); color:#fff; font-weight:700; font-size:13px; border-radius:10px; padding:10px 18px; box-shadow:0 4px 20px rgba(34,197,94,0.4); opacity:0; transform:translateY(20px); transition:opacity 0.3s, transform 0.3s; cursor:pointer;" onclick="this.style.opacity='0'"></div>
+
     <!-- Lobby Page -->
+
     <div id="page-lobby" class="page active">
       <div class="lobby-hero">
         <h1 class="lobby-title">⚔️ AI Arena ⚔️</h1>
@@ -3042,34 +3049,156 @@
       }
     }
 
-    async function pollForMyTurn(matchId, playerId, gameId) {
-      const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url').value.trim());
-      try {
-        const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/pending-move?player_id=${encodeURIComponent(playerId)}`);
-        if (!res.ok) {
-          console.warn(`[Poll] HTTP ${res.status} for player ${playerId.slice(-8)}`);
-          return;
+    // ── Multi-Match Background Engine ────────────────────────────────────────
+    // Polls ALL active matches simultaneously, regardless of which UI is shown.
+    // Keys: "matchId:playerId" so same agent in different matches don't collide.
+    //
+    // Usage: globalMatchEngine.add(matchId, playerId, gameId)
+    //        globalMatchEngine.remove(matchId, playerId)
+    //        globalMatchEngine.removeMatch(matchId)
+    // ─────────────────────────────────────────────────────────────────────────
+    const globalMatchEngine = {
+      _slots: {},   // key: "matchId:playerId" → { matchId, playerId, gameId, intervalId, status }
+
+      add(matchId, playerId, gameId) {
+        const key = `${matchId}:${playerId}`;
+        if (this._slots[key]) return; // already tracking
+        console.log(`[Engine] +slot ${matchId.slice(-6)}:${playerId.slice(-6)} game=${gameId}`);
+        const slot = { matchId, playerId, gameId, status: 'waiting' };
+        slot.intervalId = setInterval(() => this._tick(key), 1500);
+        this._slots[key] = slot;
+        this._renderDashboard();
+      },
+
+      remove(matchId, playerId) {
+        const key = `${matchId}:${playerId}`;
+        if (this._slots[key]) {
+          clearInterval(this._slots[key].intervalId);
+          delete this._slots[key];
+          this._renderDashboard();
         }
-        const data = await res.json();
-        if (data.status === 'your_turn') {
-          // It's our turn — pause this player's poll, compute move, submit
-          clearInterval(onlinePlayerPollIntervals[playerId]);
-          delete onlinePlayerPollIntervals[playerId];
-          console.log(`%c[Poll] 🎯 TURN ${data.turn} for ${playerId.slice(-8)} — calling local AI...`, 'color: #22c55e; font-weight: bold');
-          await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId || onlineMyGame);
-          // Resume polling after submit
-          startPlayerPollLoop(matchId, playerId, gameId || onlineMyGame);
-        } else {
-          // Debug: log every 5th poll so we know it's running
-          if (!pollForMyTurn._count) pollForMyTurn._count = {};
-          pollForMyTurn._count[playerId] = (pollForMyTurn._count[playerId] || 0) + 1;
-          if (pollForMyTurn._count[playerId] % 5 === 0) {
-            console.log(`[Poll] waiting (${pollForMyTurn._count[playerId]}) for ${playerId.slice(-8)} — status: ${data.status}`);
+      },
+
+      removeMatch(matchId) {
+        Object.keys(this._slots).forEach(k => {
+          if (k.startsWith(matchId + ':')) this.remove(...k.split(':').slice(0, 2));
+          // actually need full matchId — rebuild:
+        });
+        // Safer: iterate all slots
+        for (const [key, slot] of Object.entries(this._slots)) {
+          if (slot.matchId === matchId) {
+            clearInterval(slot.intervalId);
+            delete this._slots[key];
           }
         }
-      } catch(e) {
-        console.warn('[Poll] Error:', e.message);
+        this._renderDashboard();
+      },
+
+      stopAll() {
+        Object.values(this._slots).forEach(s => clearInterval(s.intervalId));
+        this._slots = {};
+        this._renderDashboard();
+      },
+
+      async _tick(key) {
+        const slot = this._slots[key];
+        if (!slot) return;
+        const { matchId, playerId, gameId } = slot;
+        const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+        if (!hubUrl) return;
+        try {
+          const res = await fetch(`${hubUrl}/api/v1/hub/matches/${matchId}/pending-move?player_id=${encodeURIComponent(playerId)}`);
+          if (!res.ok) {
+            if (res.status === 404) { this.remove(matchId, playerId); return; }
+            return;
+          }
+          const data = await res.json();
+          if (data.status === 'your_turn') {
+            // Pause tick, compute & submit, resume
+            clearInterval(slot.intervalId);
+            slot.status = 'computing';
+            this._renderDashboard();
+            console.log(`%c[Engine] 🎯 TURN ${data.turn} → ${playerId.slice(-6)} in ${matchId.slice(-6)}`, 'color:#22c55e;font-weight:bold');
+            // Notify if not watching this match
+            this._notify(matchId, playerId, data.turn);
+            await computeAndSubmitMove(matchId, playerId, data.turn, data.state, data.prompt, gameId);
+            // Resume
+            if (this._slots[key]) {
+              slot.status = 'waiting';
+              slot.intervalId = setInterval(() => this._tick(key), 1500);
+              this._renderDashboard();
+            }
+          } else if (data.status === 'waiting') {
+            if (slot.status !== 'waiting') { slot.status = 'waiting'; this._renderDashboard(); }
+          } else if (slot.matchStatus !== data.status) {
+            slot.matchStatus = data.status;
+            if (data.status === 'finished') { this.remove(matchId, playerId); }
+          }
+        } catch(e) { /* network, ignore */ }
+      },
+
+      _notify(matchId, playerId, turn) {
+        const activeMatchId = onlineActiveMatchId;
+        if (matchId === activeMatchId) return; // user is already watching
+        // Flash dashboard badge
+        const badge = document.getElementById(`engine-badge-${matchId.slice(-6)}`);
+        if (badge) {
+          badge.style.animation = 'none';
+          badge.offsetHeight; // reflow
+          badge.style.animation = 'pulse-dot 0.4s 3';
+        }
+        // Show toast
+        _showMatchToast(matchId, playerId, turn);
+      },
+
+      _renderDashboard() {
+        const panel = document.getElementById('multi-match-dashboard');
+        if (!panel) return;
+        const slots = Object.values(this._slots);
+        if (slots.length === 0) { panel.style.display = 'none'; return; }
+        panel.style.display = '';
+        const hubUrl = resolveHubApiUrl(document.getElementById('online-hub-url')?.value?.trim() || '');
+        panel.innerHTML = `
+          <div style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;">⚡ ${slots.length} trận đang chạy</div>
+          ${slots.map(s => {
+            const statusIcon = s.status === 'computing' ? '🧠' : '⏳';
+            const statusColor = s.status === 'computing' ? '#22c55e' : 'var(--text-muted)';
+            return `<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+              <span id="engine-badge-${s.matchId.slice(-6)}" style="font-size:14px;">${statusIcon}</span>
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:11px;font-weight:700;color:${statusColor};">${s.matchId.slice(-8)}</div>
+                <div style="font-size:10px;color:var(--text-muted);">${s.gameId} · ${s.playerId.slice(-6)}</div>
+              </div>
+              <button onclick="globalMatchEngine._watchMatch('${s.matchId}','${s.gameId}')" style="font-size:10px;background:rgba(99,102,241,0.2);border:1px solid var(--accent);color:var(--accent-light);border-radius:4px;padding:2px 7px;cursor:pointer;">👁</button>
+            </div>`;
+          }).join('')}
+        `;
+      },
+
+      _watchMatch(matchId, gameId) {
+        const gameSelect = document.getElementById('online-game');
+        if (gameSelect && gameId) gameSelect.value = gameId;
+        startOnlineStream(matchId);
       }
+    };
+
+    function _showMatchToast(matchId, playerId, turn) {
+      let toast = document.getElementById('match-toast');
+      if (!toast) return;
+      toast.innerText = `🎯 Đến lượt! Trận ${matchId.slice(-6)} · Lượt ${turn}`;
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
+      clearTimeout(toast._hideTimer);
+      toast._hideTimer = setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(20px)';
+      }, 4000);
+    }
+
+    async function pollForMyTurn(matchId, playerId, gameId) {
+      // Legacy wrapper — delegate to globalMatchEngine
+      // (kept for backward compat with autoStartLocalPolling)
+      globalMatchEngine.add(matchId, playerId, gameId);
     }
 
     async function computeAndSubmitMove(matchId, playerId, turn, gameState, prompt, gameId) {
@@ -3924,17 +4053,13 @@
     }
 
     function startPlayerPollLoop(matchId, playerId, gameId) {
-      if (onlinePlayerPollIntervals[playerId]) clearInterval(onlinePlayerPollIntervals[playerId]);
-      console.log(`[Online] Polling player ${playerId} in match ${matchId}`);
-      onlinePlayerPollIntervals[playerId] = setInterval(
-        () => pollForMyTurn(matchId, playerId, gameId),
-        1500
-      );
+      // Delegate to global engine (supports multi-match)
+      globalMatchEngine.add(matchId, playerId, gameId);
+      console.log(`[Engine] Tracking ${matchId.slice(-6)}:${playerId.slice(-6)} game=${gameId}`);
     }
 
     function stopAllPlayerPolls() {
-      for (const iid of Object.values(onlinePlayerPollIntervals)) clearInterval(iid);
-      onlinePlayerPollIntervals = {};
+      globalMatchEngine.stopAll();
     }
 
     let onlineStatePollInterval = null;
