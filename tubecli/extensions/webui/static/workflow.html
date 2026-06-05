@@ -95,6 +95,10 @@
 
   <!-- ── Log Panel ───────────────────────────────────────── -->
   <div class="log-panel" id="log-panel">
+    <!-- Drag Handle -->
+    <div class="log-resize-handle" id="log-resize-handle" title="Kéo để mở rộng / thu nhỏ">
+      <div class="log-resize-dots"></div>
+    </div>
     <div class="log-header">
       <span>📋 Execution Log</span>
       <div class="toolbar-spacer"></div>
@@ -160,12 +164,15 @@
         <div class="field-group" style="flex:1">
           <label class="field-label">AI Provider</label>
           <select id="ai-provider-select" class="field-select" onchange="WF.onAiProviderChange()">
-            <option value="ollama">🤖 Ollama (Local)</option>
-            <option value="gemini">🔷 Gemini</option>
-            <option value="chatgpt">🟢 ChatGPT</option>
-            <option value="claude">🟠 Claude</option>
+            <option value="global">🌐 Global AI (mặc định)</option>
+            <option value="gemini">✨ Gemini</option>
+            <option value="chatgpt">💬 ChatGPT</option>
+            <option value="claude">🧠 Claude</option>
             <option value="grok">⚡ Grok</option>
-            <option value="9router">🔀 9Router</option>
+            <option value="deepseek">🔵 DeepSeek</option>
+            <option value="openrouter">🔀 OpenRouter</option>
+            <option value="9router">🚀 9Router</option>
+            <option value="ollama">🦙 Ollama (Local)</option>
           </select>
         </div>
         <div class="field-group" style="flex:1">
@@ -194,6 +201,62 @@
 
 <script src="/static/workflow-n8n.js"></script>
 <script src="/static/workflow.js"></script>
+
+<script>
+// ── Execution Log Resize Handle ─────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  const MIN_H    = 36;   // thu gọn (chỉ thấy header)
+  const DEFAULT_H = 150; // chiều cao mặc định
+  const MAX_H    = Math.floor(window.innerHeight * 0.65);
+
+  const panel  = document.getElementById('log-panel');
+  const handle = document.getElementById('log-resize-handle');
+  if (!panel || !handle) { console.warn('[Resize] log-panel or handle not found'); return; }
+
+  // Khôi phục chiều cao đã lưu
+  const saved = parseInt(localStorage.getItem('wf_log_height'));
+  if (saved && saved >= MIN_H && saved <= MAX_H) panel.style.height = saved + 'px';
+
+  let dragging = false, startY = 0, startH = 0;
+
+  handle.addEventListener('mousedown', function(e) {
+    dragging = true;
+    startY   = e.clientY;
+    startH   = panel.offsetHeight;
+    document.documentElement.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    handle.classList.add('dragging');
+    e.preventDefault();
+    e.stopPropagation();
+  });
+
+  window.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    const delta = startY - e.clientY;           // kéo lên → panel cao hơn
+    const newH  = Math.min(MAX_H, Math.max(MIN_H, startH + delta));
+    panel.style.height = newH + 'px';
+  });
+
+  window.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging = false;
+    document.documentElement.style.cursor = '';
+    document.body.style.userSelect = '';
+    handle.classList.remove('dragging');
+    localStorage.setItem('wf_log_height', panel.offsetHeight);
+  });
+
+  // Double-click: toggle thu gọn ↔ mở rộng
+  handle.addEventListener('dblclick', function() {
+    const h      = panel.offsetHeight;
+    const target = h <= MIN_H + 6 ? DEFAULT_H : MIN_H;
+    panel.style.transition = 'height 0.2s ease';
+    panel.style.height     = target + 'px';
+    setTimeout(function() { panel.style.transition = ''; }, 220);
+    localStorage.setItem('wf_log_height', target);
+  });
+});
+</script>
 
 </body>
 </html>

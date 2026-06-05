@@ -1284,13 +1284,8 @@ const WF = (() => {
 
     $select.innerHTML = html;
 
-    // Auto-select best provider: first cloud provider with key, or ollama
-    const bestCloud = info.cloudProviders.find(p => p.has_key);
-    if (bestCloud) {
-      $select.value = bestCloud.id;
-    } else {
-      $select.value = 'ollama';
-    }
+    // Auto-select best provider: global first, then first cloud provider with key, or ollama
+    $select.value = 'global';
     onAiProviderChange();
   }
 
@@ -1301,12 +1296,28 @@ const WF = (() => {
     const $apikey = document.getElementById('ai-apikey-input');
     const $select = document.getElementById('ai-provider-select');
 
+    // Global AI — use system-configured provider
+    if (provider === 'global') {
+      $model.value = '';
+      $model.placeholder = 'Dùng model mặc định của hệ thống';
+      $model.disabled = true;
+      $apikeyGroup.style.display = 'none';
+      return;
+    }
+    $model.disabled = false;
+
     const opt = $select.querySelector(`option[value="${provider}"]`);
     const hasCloudKey = opt?.getAttribute('data-has-key') === '1';
     const models = (opt?.getAttribute('data-models') || '').split(',').filter(Boolean);
 
-    // Set model from provider's configured models (first model) or keep current
-    if (provider === '9router') {
+    // DeepSeek models
+    if (provider === 'deepseek') {
+      $model.value = 'deepseek-chat';
+      $model.placeholder = 'deepseek-chat, deepseek-reasoner';
+    } else if (provider === 'openrouter') {
+      $model.value = 'google/gemini-2.5-flash-lite';
+      $model.placeholder = 'google/gemini-2.5-flash-lite, openai/gpt-4o-mini';
+    } else if (provider === '9router') {
       $model.value = 'deepseek-chat';
       $model.placeholder = 'deepseek-chat';
       // Attempt to load live models from local proxy in background
@@ -1329,7 +1340,7 @@ const WF = (() => {
     }
 
     // Show/hide API key field
-    if (provider === 'ollama' || hasCloudKey) {
+    if (provider === 'ollama' || provider === '9router' || hasCloudKey) {
       $apikeyGroup.style.display = 'none';
     } else {
       $apikeyGroup.style.display = 'block';
@@ -1351,13 +1362,9 @@ const WF = (() => {
     // If no manual key provided, try to fetch from Cloud API Keys extension
     const opt = $select.querySelector(`option[value="${provider}"]`);
     const hasCloudKey = opt?.getAttribute('data-has-key') === '1';
-    if (!apiKey && hasCloudKey && provider !== 'ollama') {
-      try {
-        const resp = await fetch(`/api/v1/cloud-api/keys/${provider}/active`);
-        // The active endpoint returns masked key, we need the real key from the backend
-        // So we'll pass empty string and let the backend resolve it from cloud_api
-        apiKey = '__CLOUD_API__'; // Signal to backend to use cloud_api key
-      } catch (e) { /* ignore */ }
+    // Global AI and providers with cloud keys → let backend handle key resolution
+    if (provider === 'global' || (!apiKey && hasCloudKey && provider !== 'ollama')) {
+      apiKey = '__CLOUD_API__';
     }
 
     // Show loading

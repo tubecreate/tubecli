@@ -27,6 +27,8 @@ const ROUTE_TAB_MAP = {
     'ext-video-downloader': 'ext-video-downloader',
     'ext-video_downloader': 'ext-video-downloader',
     'ext-subtitle-extractor': 'ext-subtitle-extractor',
+    'ext-workflows': 'ext-workflows',
+    'workflows': 'ext-workflows',
 };
 
 function navigateTo(tab) {
@@ -82,25 +84,42 @@ window.syncThemeToIframe = function(iframe) {
             '--bg': getVar('--bg'),
             '--bg2': getVar('--bg2'),
             '--bg3': getVar('--bg3', '--bg-secondary'),
+            '--bg-dark': getVar('--bg-dark', '--bg-canvas', '--bg'),
+            '--bg-hover': getVar('--bg-hover', '--bg3'),
+            '--bg-lighter': getVar('--bg-lighter', '--bg3'),
             '--sidebar-bg': getVar('--bg2', '--bg-secondary'),
             '--surface': getVar('--bg2', '--bg-secondary'),
-            '--hover-bg': getVar('--bg-hover', '--bg3'),
             '--text': getVar('--text'),
             '--text2': getVar('--text2', '--text-muted'),
+            '--text-muted': getVar('--text-muted', '--text2'),
             '--text3': getVar('--text-muted', '--text-subtle'),
             '--muted': getVar('--text-muted', '--text2'),
             '--border': getVar('--border'),
+            '--border-subtle': getVar('--border-subtle', '--border'),
             '--card': getVar('--bg3', '--bg2'),
             '--card2': getVar('--bg-lighter', '--bg3'),
             '--card-bg': getVar('--bg3', '--bg2'),
             '--card-border': getVar('--border', '--border-subtle'),
+            '--primary': getVar('--primary', '--accent'),
+            '--primary-hover': getVar('--primary-hover', '--accent-hover'),
+            '--primary-light': getVar('--primary-light'),
             '--accent': getVar('--accent', '--primary'),
-            '--accent2': getVar('--accent-hover', '--primary-hover'),
+            '--accent-hover': getVar('--accent-hover', '--primary-hover'),
             '--cyan': getVar('--cyan'),
+            '--purple': getVar('--purple'),
             '--red': getVar('--red'),
             '--green': getVar('--green'),
             '--orange': getVar('--orange'),
-            '--yellow': getVar('--yellow')
+            '--yellow': getVar('--yellow'),
+            /* Workflow builder internal aliases — auto-derived from above */
+            '--bg-deep':    getVar('--bg-dark', '--bg'),
+            '--bg-canvas':  getVar('--bg-dark', '--bg'),
+            '--bg-surface': getVar('--bg2'),
+            '--bg-card':    getVar('--bg3'),
+            '--bg-input':   getVar('--bg'),
+            '--border-focus': getVar('--primary', '--accent'),
+            '--text-primary':   getVar('--text'),
+            '--text-secondary': getVar('--text2'),
         };
         let cssText = ':root { ';
         for (const [k, v] of Object.entries(mappedVars)) {
@@ -296,7 +315,7 @@ const EXT_REGISTRY = [
     // core: always in nav, not groupable
     { id:'agents',    tab:'ext-agents',   icon:'smart_toy',  name:'nav.dashboard', type:'core' },
     { id:'browser',   tab:'ext-browser',  icon:'public',     name:'stat.profiles', type:'core' },
-    { id:'workflows', tab:'workflows',    icon:'sync',       name:'stat.workflows',type:'core' },
+    { id:'workflows', tab:'ext-workflows', icon:'sync',       name:'stat.workflows',type:'core', url:'/workflow' },
     { id:'skills',    tab:'skills',       icon:'bolt',       name:'stat.skills',   type:'core' },
     { id:'market',    tab:'ext-market',   icon:'storefront', name:'Marketplace',   type:'core' },
     // extension: shown when API enabled, groupable
@@ -945,6 +964,7 @@ function openExtDetail(id) {
         'video_manager': 'ext-video-manager',
         'subtitle_extractor': 'ext-subtitle-extractor',
         'cloud_api': 'ext-cloud-keys',
+        'workflows': 'ext-workflows',
     };
     if (hashRoutes[id]) { navigateTo(hashRoutes[id]); return; }
 
@@ -963,7 +983,7 @@ function openExtDetail(id) {
     stopBrowserStatusPoller();
     if (id === 'agents') renderAgentsExt(body);
     else if (id === 'browser') renderBrowserExt(body);
-    else if (id === 'workflows') renderWorkflowsExt(body);
+    else if (id === 'workflows') renderFullPageExt(body, 'Workflow Builder', 'Visual workflow automation.', '/workflow');
     else if (id === 'skills') renderSkillsExt(body);
     else if (id === 'cloud_api') renderCloudApiExt(body);
     else if (id === 'ollama') renderOllamaExt(body);

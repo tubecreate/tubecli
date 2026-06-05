@@ -1,62 +1,75 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Workflow Builder — n8n-inspired Dark Theme
+   Workflow Builder — uses same CSS variables as main dashboard theme
    ═══════════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  /* Base palette */
-  --bg-deep: #0b0d17;
-  --bg-canvas: #101225;
-  --bg-surface: #181b2e;
-  --bg-card: #1e2140;
-  --bg-hover: #262a4a;
-  --bg-input: #13152a;
+  /* ── Core backgrounds — same names as style.css so syncThemeToIframe auto-works ── */
+  --bg:          #1a1a1a;
+  --bg2:         #1e1e1e;
+  --bg3:         #262626;
+  --bg-hover:    #303030;
+  --bg-lighter:  #2e2e2e;
+  --bg-dark:     #141414;
+  --border:      #333;
+  --border-subtle: #2a2a2a;
 
-  /* Borders */
-  --border: #2a2d4a;
-  --border-focus: #6366f1;
+  /* ── Text ── */
+  --text:        #ededed;
+  --text2:       #9ca3af;
+  --text-muted:  #6b7280;
 
-  /* Text */
-  --text-primary: #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  /* ── Accent / Primary ── */
+  --primary:     #5276EB;
+  --primary-hover: #3d5fd4;
+  --primary-light: rgba(82,118,235,0.12);
+  --accent:      #5276EB;
+  --accent-hover:#3d5fd4;
+  --cyan:        #5276EB;
+  --purple:      #7c5ce7;
+  --green:       #22c55e;
+  --red:         #ef4444;
+  --orange:      #f59e0b;
+  --yellow:      #eab308;
 
-  /* Accents */
-  --accent: #6366f1;
-  --accent-hover: #818cf8;
-  --green: #22c55e;
-  --red: #ef4444;
-  --orange: #f97316;
-  --cyan: #06b6d4;
-  --purple: #a855f7;
-  --yellow: #eab308;
+  /* ── Workflow internal aliases (map to dashboard vars above) ── */
+  --bg-deep:     var(--bg-dark, #141414);
+  --bg-canvas:   var(--bg-dark, #141414);
+  --bg-surface:  var(--bg2, #1e1e1e);
+  --bg-card:     var(--bg3, #262626);
+  --bg-input:    var(--bg, #1a1a1a);
+  --border-focus: var(--primary, #5276EB);
+  --text-primary:   var(--text, #ededed);
+  --text-secondary: var(--text2, #9ca3af);
 
-  /* Node category colors */
+  /* ── Node category colors ── */
   --cat-input:       #3b82f6;
   --cat-output:      #22c55e;
   --cat-processing:  #f97316;
   --cat-logic:       #eab308;
   --cat-ai:          #a855f7;
   --cat-automation:  #06b6d4;
-  --cat-general:     #6366f1;
+  --cat-general:     var(--primary, #5276EB);
+  --cat-network:     #06b6d4;
 
-  /* Port type colors */
+  /* ── Port type colors ── */
   --port-text: #06b6d4;
   --port-json: #eab308;
   --port-file: #a855f7;
   --port-any:  #9ca3af;
 
-  /* Sizing */
+  /* ── Sizing ── */
   --sidebar-width: 260px;
-  --panel-width: 300px;
+  --panel-width:   300px;
   --toolbar-height: 50px;
-  --node-width: 160px;
+  --node-width:    160px;
   --node-min-height: 48px;
-  --port-size: 11px;
-  --radius: 10px;
-  --radius-sm: 6px;
+  --port-size:     11px;
+  --radius:        10px;
+  --radius-sm:     6px;
 }
+
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; overflow: hidden; }
@@ -605,26 +618,72 @@ body {
 /* ── Log Panel ───────────────────────────────────────────────── */
 .log-panel {
   height: 150px;
-  background: var(--bg-deep);
+  min-height: 36px;
+  background: var(--bg-deep, var(--bg, #1a1a1a));
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+  position: relative;
+  /* overflow: hidden; — removed: blocks resize handle events */
 }
+
+/* ── Drag resize handle — VS Code style ─────────────────────── */
+.log-resize-handle {
+  height: 5px;
+  flex-shrink: 0;
+  cursor: row-resize;          /* ↕ mũi tên lên xuống */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  position: relative;
+  z-index: 20;
+  user-select: none;
+  transition: background 0.1s;
+}
+
+/* Đường xanh xuất hiện khi hover */
+.log-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background 0.15s;
+  pointer-events: none;
+}
+
+.log-resize-handle:hover::before,
+.log-resize-handle.dragging::before {
+  background: var(--primary, var(--accent, #5276EB));
+}
+
+.log-resize-handle:hover,
+.log-resize-handle.dragging {
+  background: rgba(82, 118, 235, 0.08);
+}
+
+/* Ẩn dots — không cần nữa */
+.log-resize-dots { display: none; }
+
 
 .log-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 16px;
-  background: var(--bg-surface);
+  padding: 4px 16px;
+  background: var(--bg-surface, var(--bg2, #1e1e1e));
   border-bottom: 1px solid var(--border);
   font-size: 12px;
+  flex-shrink: 0;
 }
 
 .log-status {
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-secondary, var(--text2, #9ca3af));
 }
 
 .log-body {
@@ -641,7 +700,7 @@ body {
 .log-entry.completed { color: var(--green); }
 .log-entry.error { color: var(--red); }
 .log-entry .log-time { color: var(--text-muted); margin-right: 8px; }
-.log-entry .log-node { color: var(--accent); font-weight: 500; }
+.log-entry .log-node { color: var(--accent, var(--primary)); font-weight: 500; }
 
 /* ── Context Menu ────────────────────────────────────────────── */
 .context-menu {

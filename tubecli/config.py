@@ -195,6 +195,15 @@ def migrate_and_link_extensions_data():
         if link.exists():
             try:
                 if os.path.samefile(target, link):
+                    # Already linked — ensure NOT hidden (hidden files block Python writes on Windows)
+                    if os.name == 'nt':
+                        try:
+                            import ctypes
+                            attrs = ctypes.windll.kernel32.GetFileAttributesW(str(link))
+                            if attrs != -1 and (attrs & 0x02):  # FILE_ATTRIBUTE_HIDDEN
+                                ctypes.windll.kernel32.SetFileAttributesW(str(link), attrs & ~0x02)
+                        except Exception:
+                            pass
                     return
             except Exception:
                 pass
@@ -205,7 +214,8 @@ def migrate_and_link_extensions_data():
 
         try:
             os.link(str(target), str(link))
-            hide_path(link)
+            # NOTE: Do NOT hide data files — Hidden attribute causes Python open(path,'w') to
+            # fail with PermissionError on Windows when the process tries to replace the file.
         except Exception as e:
             pass
 

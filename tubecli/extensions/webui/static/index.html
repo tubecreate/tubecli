@@ -52,6 +52,7 @@
             <div class="nav-section-label" style="margin-top:16px">EXTENSIONS</div>
             <!-- Always-visible core ext -->
             <button class="nav-item" data-tab="ext-agents"><span class="material-symbols-outlined">smart_toy</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
+            <button class="nav-item" data-tab="ext-workflows"><span class="material-symbols-outlined">automation</span> <span class="nav-text">Workflow Builder</span></button>
             <button class="nav-item" data-tab="ext-browser"><span class="material-symbols-outlined">public</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
             <!-- Dynamic extension zone: buildSidebar() populates this -->
             <div id="ext-nav-zone"></div>
@@ -197,6 +198,9 @@
         </section>
         <section class="tab-panel" id="tab-ext-auth-manager">
             <div class="iframe-container"><iframe data-src="/auth-manager" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-workflows">
+            <div class="iframe-container"><iframe data-src="/workflow" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-pipeline-monitor">
             <div class="iframe-container"><iframe data-src="/pipeline-monitor?v=1003" class="ext-iframe"></iframe></div>

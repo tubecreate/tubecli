@@ -377,6 +377,41 @@
 
             <!-- Tab 2: Processing -->
             <div class="tab-panel" id="tab-process">
+
+                <!-- AI Provider Selection -->
+                <div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:10px;padding:14px;margin-bottom:14px">
+                    <div style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:10px">🤖 AI Phân tích nội dung</div>
+                    <div class="form-row">
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>AI Provider</label>
+                            <select id="f-ai-provider" onchange="onTrackerProviderChange()">
+                                <option value="global">🌐 Global AI (mặc định)</option>
+                                <option value="gemini">✨ Gemini</option>
+                                <option value="chatgpt">💬 ChatGPT</option>
+                                <option value="claude">🧠 Claude</option>
+                                <option value="grok">⚡ Grok</option>
+                                <option value="deepseek">🔵 DeepSeek</option>
+                                <option value="openrouter">🔀 OpenRouter</option>
+                                <option value="9router">🚀 9Router</option>
+                                <option value="ollama">🦙 Ollama (local)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>Model</label>
+                            <select id="f-ai-model">
+                                <option value="">⬅ Chọn provider trước</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="f-ai-apikey-group" style="display:none;margin-top:10px">
+                        <div class="form-group" style="margin-bottom:0">
+                            <label>API Key (bỏ trống nếu đã lưu trong Cloud API)</label>
+                            <input type="password" id="f-ai-apikey" placeholder="Bỏ trống để dùng key đã lưu">
+                        </div>
+                    </div>
+                    <div style="font-size:0.68rem;color:var(--text2);margin-top:8px">💡 Nếu provider gặp lỗi sẽ tự động fallback về Global AI</div>
+                </div>
+
                 <div class="form-group">
                     <label>Hiệu ứng video (chọn nhiều)</label>
                     <div class="checkbox-pills" id="effects-pills">
@@ -541,6 +576,78 @@
         let editingId = null;
         let _ytAccounts = null; // cached
         let _fbAccounts = null;
+        let _trackerProviders = null; // cached cloud AI providers
+
+        const TRACKER_AI_MODELS = {
+            'gemini':     ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro'],
+            'chatgpt':    ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+            'claude':     ['claude-sonnet-4-20250514', 'claude-3-5-haiku-20241022'],
+            'grok':       ['grok-3', 'grok-3-mini', 'grok-2'],
+            'deepseek':   ['deepseek-chat', 'deepseek-reasoner'],
+            'openrouter': ['google/gemini-2.5-flash-lite', 'openai/gpt-4o-mini', 'deepseek/deepseek-r1'],
+            '9router':    ['deepseek-chat', 'deepseek-reasoner'],
+            'ollama':     ['deepseek-r1:latest', 'llama3.2', 'mistral-nemo'],
+        };
+
+        // Load cloud-api providers once
+        async function loadTrackerAIProviders() {
+            if (_trackerProviders) return _trackerProviders;
+            try {
+                const res = await fetch('/api/v1/cloud-api/providers');
+                if (res.ok) {
+                    const data = await res.json();
+                    _trackerProviders = data.providers || [];
+                    // Update model lists from server
+                    _trackerProviders.forEach(p => {
+                        let id = p.id === 'openai' ? 'chatgpt' : p.id;
+                        if (TRACKER_AI_MODELS[id] && p.models && p.models.length)
+                            TRACKER_AI_MODELS[id] = p.models;
+                    });
+                }
+            } catch (e) { console.warn('loadTrackerAIProviders:', e); }
+            return _trackerProviders || [];
+        }
+
+        async function onTrackerProviderChange() {
+            const prov = document.getElementById('f-ai-provider').value;
+            const modelSel = document.getElementById('f-ai-model');
+            const keyGroup = document.getElementById('f-ai-apikey-group');
+
+            if (prov === 'global') {
+                keyGroup.style.display = 'none';
+                modelSel.innerHTML = '<option value="">🌐 Dùng model mặc định của hệ thống</option>';
+                return;
+            }
+
+            const needsKey = ['gemini','chatgpt','claude','grok','deepseek','openrouter','9router'].includes(prov);
+            keyGroup.style.display = needsKey ? 'block' : 'none';
+
+            if (prov === 'ollama') {
+                modelSel.innerHTML = '<option value="" disabled>⏳ Loading Ollama models...</option>';
+                try {
+                    const r = await fetch('/api/v1/ollama/models');
+                    if (r.ok) {
+                        const d = await r.json();
+                        if (d.models && d.models.length)
+                            TRACKER_AI_MODELS['ollama'] = d.models.map(m => m.name || m);
+                    }
+                } catch(e) { console.warn('Ollama models:', e); }
+            } else if (prov === '9router') {
+                modelSel.innerHTML = '<option value="" disabled>⏳ Loading 9Router models...</option>';
+                try {
+                    const r = await fetch('/api/v1/cloud-api/9router/status');
+                    if (r.ok) {
+                        const d = await r.json();
+                        if (d.models && d.models.length)
+                            TRACKER_AI_MODELS['9router'] = d.models;
+                    }
+                } catch(e) { console.warn('9Router models:', e); }
+            }
+
+            const models = TRACKER_AI_MODELS[prov] || [];
+            modelSel.innerHTML = models.map(m => `<option value="${m}">${m}</option>`).join('');
+            if (!models.length) modelSel.innerHTML = '<option value="">Không tìm thấy model</option>';
+        }
 
         // ── Fetch authorized accounts ──
         async function fetchAccounts(provider) {
@@ -768,6 +875,10 @@
             document.getElementById('f-yt-privacy').value = 'public';
             document.getElementById('f-fb-email').value = '';
             document.getElementById('f-fb-privacy').value = 'public';
+            // Reset AI provider to global
+            document.getElementById('f-ai-provider').value = 'global';
+            document.getElementById('f-ai-apikey').value = '';
+            onTrackerProviderChange();
             // Reset pills
             document.querySelectorAll('.checkbox-pill').forEach(p => {
                 p.classList.remove('checked');
@@ -797,6 +908,25 @@
             document.getElementById('f-burn-sub').checked = !!config.burn_sub;
             document.getElementById('f-translate').value = config.translate_to || 'vi';
             document.getElementById('f-tts-voice').value = config.tts_voice || 'vi-VN-HoaiMyNeural';
+
+            // Restore AI provider
+            const aiProv = config.ai_provider || 'global';
+            document.getElementById('f-ai-provider').value = aiProv;
+            document.getElementById('f-ai-apikey').value = '';
+            onTrackerProviderChange().then(() => {
+                const aiModel = config.ai_model || '';
+                if (aiModel) {
+                    const sel = document.getElementById('f-ai-model');
+                    // Try to select saved model, or add it
+                    let found = false;
+                    for (const opt of sel.options) { if (opt.value === aiModel) { sel.value = aiModel; found = true; break; } }
+                    if (!found && aiModel) {
+                        const opt = document.createElement('option');
+                        opt.value = aiModel; opt.textContent = aiModel;
+                        sel.appendChild(opt); sel.value = aiModel;
+                    }
+                }
+            });
 
             // Effects
             const effects = config.effects || [];
@@ -854,6 +984,11 @@
                 }
             });
 
+            // AI provider config
+            const aiProvider = document.getElementById('f-ai-provider').value || 'global';
+            const aiModel = document.getElementById('f-ai-model').value || '';
+            const aiApiKey = document.getElementById('f-ai-apikey')?.value?.trim() || '';
+
             return {
                 effects,
                 crop_percent: parseInt(document.getElementById('f-crop').value) || 0,
@@ -863,7 +998,20 @@
                 tts_voice: document.getElementById('f-tts-voice').value,
                 burn_sub: document.getElementById('f-burn-sub').checked,
                 upload_targets,
+                ai_provider: aiProvider,
+                ai_model: aiModel,
+                ai_api_key: aiApiKey || undefined,
             };
+        }
+
+        function extractError(err) {
+            if (!err) return 'Lỗi không xác định';
+            if (typeof err === 'string') return err;
+            // FastAPI validation errors: detail is an array
+            if (Array.isArray(err.detail)) return err.detail.map(d => d.msg || JSON.stringify(d)).join(', ');
+            if (typeof err.detail === 'string') return err.detail;
+            if (typeof err.message === 'string') return err.message;
+            return JSON.stringify(err);
         }
 
         async function submitTracker() {
@@ -871,6 +1019,20 @@
             if (!url && !editingId) return alert('Vui lòng nhập URL!');
 
             const pipeline_config = buildPipelineConfig();
+
+            // Save AI API key to cloud-api if provided
+            const aiProv = pipeline_config.ai_provider;
+            const aiApiKey = pipeline_config.ai_api_key;
+            delete pipeline_config.ai_api_key; // don't store key in pipeline_config
+            if (aiApiKey && aiProv && aiProv !== 'global' && aiProv !== 'ollama') {
+                try {
+                    let backendProv = aiProv === 'chatgpt' ? 'openai' : aiProv;
+                    await fetch('/api/v1/cloud-api/keys', {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ provider: backendProv, api_key: aiApiKey, label: 'default' })
+                    });
+                } catch(e) { console.warn('Could not save AI key:', e); }
+            }
 
             if (editingId) {
                 // Update
@@ -884,7 +1046,7 @@
                         method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
                     });
                     if (res.ok) { closeModal(); loadTrackers(); }
-                    else { const err = await res.json(); alert('Lỗi: ' + (err.detail || err.message)); }
+                    else { const err = await res.json(); alert('Lỗi: ' + extractError(err)); }
                 } catch (e) { alert('Lỗi: ' + e.message); }
             } else {
                 // Add
@@ -900,7 +1062,7 @@
                         method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body)
                     });
                     if (res.ok) { closeModal(); loadTrackers(); }
-                    else { const err = await res.json(); alert('Lỗi: ' + (err.detail || err.message)); }
+                    else { const err = await res.json(); alert('Lỗi: ' + extractError(err)); }
                 } catch (e) { alert('Lỗi: ' + e.message); }
             }
         }
