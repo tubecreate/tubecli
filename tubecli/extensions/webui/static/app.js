@@ -2252,7 +2252,87 @@ async function openEditAgent(id) {
 }
 
 async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML='<p class="text-muted">No profiles.</p>'; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
-async function populateAgentSkills(allowed) { const d=await apiGet('/api/v1/skills'); const c=document.getElementById('agent-skills-list'); if(!d?.skills?.length) { c.innerHTML='<p class="text-muted">No skills.</p>'; return; } c.innerHTML=d.skills.map(s=>`<label class="checkbox-item"><input type="checkbox" value="${s.id}" class="agent-skill-cb" ${allowed.includes(s.id)?'checked':''}>${esc(s.name)} <span class="tag" style="margin-left:auto">${esc(s.type)}</span></label>`).join(''); }
+async function populateAgentSkills(allowed) {
+    const d = await apiGet('/api/v1/skills');
+    const c = document.getElementById('agent-skills-list');
+    if (!d?.skills?.length) { c.innerHTML = '<p class="text-muted">No skills found.</p>'; return; }
+
+    // Type → color map for badges
+    const typeColor = {
+        'Skill': '#6366f1', 'Tool': '#0ea5e9', 'Automation': '#10b981',
+        'Browser': '#f59e0b', 'API': '#8b5cf6', 'AI': '#ec4899',
+    };
+    // Type → icon
+    const typeIcon = {
+        'Skill': '⚡', 'Tool': '🔧', 'Automation': '🤖',
+        'Browser': '🌐', 'API': '🔌', 'AI': '🧠',
+    };
+
+    c.innerHTML = d.skills.map(s => {
+        const isSelected = allowed.includes(s.id);
+        const color = typeColor[s.type] || '#6366f1';
+        const icon = typeIcon[s.type] || '⚡';
+        return `
+        <div class="skill-chip${isSelected ? ' selected' : ''}"
+             data-skill-id="${esc(s.id)}"
+             data-skill-name="${esc(s.name).toLowerCase()}"
+             onclick="toggleSkillChip(this)"
+             title="${esc(s.description || s.name)}"
+             style="position:relative;display:inline-flex;align-items:center;gap:7px;padding:7px 13px;
+                    border-radius:20px;cursor:pointer;font-size:.82rem;font-weight:500;
+                    border:1.5px solid ${isSelected ? color : 'var(--border)'};
+                    background:${isSelected ? color + '22' : 'var(--bg3)'};
+                    color:${isSelected ? '#fff' : 'var(--text-muted)'};
+                    transition:all .18s ease;user-select:none">
+            <span style="font-size:.9rem">${icon}</span>
+            <span>${esc(s.name)}</span>
+            <span style="font-size:.7rem;padding:1px 6px;border-radius:10px;
+                         background:${isSelected ? 'rgba(255,255,255,0.15)' : color+'33'};
+                         color:${isSelected ? '#fff' : color}">${esc(s.type)}</span>
+            <input type="checkbox" class="agent-skill-cb" value="${esc(s.id)}" ${isSelected ? 'checked' : ''}
+                   style="position:absolute;opacity:0;pointer-events:none">
+        </div>`;
+    }).join('');
+    updateSkillCount();
+}
+
+function toggleSkillChip(el) {
+    const cb = el.querySelector('input.agent-skill-cb');
+    const selected = !cb.checked;
+    cb.checked = selected;
+    el.classList.toggle('selected', selected);
+    // Get color from badge
+    const badge = el.querySelector('span:last-of-type');
+    if (selected) {
+        const colorMatch = el.style.border.match(/#[0-9a-f]{6}/i) || ['', '#6366f1'];
+        el.style.borderColor = colorMatch[0] || '#6366f1';
+        el.style.background = (colorMatch[0] || '#6366f1') + '22';
+        el.style.color = '#fff';
+        if (badge) badge.style.background = 'rgba(255,255,255,0.15)', badge.style.color = '#fff';
+    } else {
+        el.style.borderColor = 'var(--border)';
+        el.style.background = 'var(--bg3)';
+        el.style.color = 'var(--text-muted)';
+        if (badge) { badge.style.background = ''; badge.style.color = ''; }
+    }
+    updateSkillCount();
+}
+
+function updateSkillCount() {
+    const total = document.querySelectorAll('.agent-skill-cb').length;
+    const selected = document.querySelectorAll('.agent-skill-cb:checked').length;
+    const el = document.getElementById('agent-skills-count');
+    if (el) el.textContent = selected === 0 ? `${total} skills available`
+        : `${selected} / ${total} selected`;
+}
+
+function filterSkillChips(query) {
+    const q = (query || '').toLowerCase().trim();
+    document.querySelectorAll('.skill-chip').forEach(chip => {
+        const name = chip.dataset.skillName || '';
+        chip.style.display = (!q || name.includes(q)) ? '' : 'none';
+    });
+}
 
 // ─── Agent Model Selector Helpers ───────────────────────────────────────────
 // type: 'chatbot' | 'browser'
