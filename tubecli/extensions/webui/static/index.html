@@ -440,11 +440,11 @@
                     <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                         <div class="settings-field">
                             <label data-i18n="settings.bot_token">🤖 Bot Token</label>
-                            <input type="password" id="set-tg-token" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" onchange="autoSaveSetting('telegram_bot_token', this.value, this)">
+                            <input type="password" id="set-tg-token" autocomplete="new-password" placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11" onchange="autoSaveSetting('telegram_bot_token', this.value, this)">
                         </div>
                         <div class="settings-field">
                             <label data-i18n="settings.chat_id">💬 Chat ID</label>
-                            <input id="set-tg-chat" placeholder="-1001234567890" onchange="autoSaveSetting('telegram_chat_id', this.value, this)">
+                            <input id="set-tg-chat" autocomplete="off" placeholder="-1001234567890" onchange="autoSaveSetting('telegram_chat_id', this.value, this)">
                             <div class="field-hint" data-i18n="settings.chat_id_hint">Get Chat ID: send message to bot → open https://api.telegram.org/bot{TOKEN}/getUpdates</div>
                         </div>
                     </div>
@@ -545,8 +545,8 @@
                         <p class="text-muted">Loading...</p>
                     </div>
                 </div>
-                <div class="agent-tab-pane" id="atab-telegram"><h3>Telegram Bot</h3><div class="form-group"><label>Bot Token</label><input type="password" id="agent-tg-token"></div><div class="form-group"><label>Chat ID</label><input id="agent-tg-chat"></div></div>
-                <div class="agent-tab-pane" id="atab-messenger"><h3>Messenger</h3><div class="form-group"><label>Page Access Token</label><input type="password" id="agent-ms-token"></div><div class="form-group"><label>Page ID</label><input id="agent-ms-page"></div><div class="form-group"><label>Webhook URL</label><input id="agent-ms-php"></div><div class="form-group"><label>Direct Trigger Skill</label><input id="agent-ms-skill"></div></div>
+                <div class="agent-tab-pane" id="atab-telegram"><h3>Telegram Bot</h3><div class="form-group"><label>Bot Token</label><input type="password" id="agent-tg-token" autocomplete="new-password"></div><div class="form-group"><label>Chat ID</label><input id="agent-tg-chat" autocomplete="off"></div></div>
+                <div class="agent-tab-pane" id="atab-messenger"><h3>Messenger</h3><div class="form-group"><label>Page Access Token</label><input type="password" id="agent-ms-token" autocomplete="new-password"></div><div class="form-group"><label>Page ID</label><input id="agent-ms-page" autocomplete="off"></div><div class="form-group"><label>Webhook URL</label><input id="agent-ms-php" autocomplete="off"></div><div class="form-group"><label>Direct Trigger Skill</label><input id="agent-ms-skill" autocomplete="off"></div></div>
             </div>
         </div>
         <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-agent')">Cancel</button><button class="btn-primary" onclick="saveAgent()">Save Agent</button></div>
@@ -561,7 +561,7 @@
             <div class="form-row"><div class="form-group"><label>Agent Name</label><input id="agent-gen-name" placeholder="e.g. Tech Support Agent"></div><div class="form-group"><label>Tag Prefix</label><input id="agent-gen-prefix" placeholder="ev_tech"></div></div>
             <div class="form-group"><label>Description</label><textarea id="agent-gen-desc" rows="3" placeholder="A support agent who helps..."></textarea></div>
             <div class="form-row"><div class="form-group"><label>AI Provider</label><select id="agent-gen-provider" onchange="onGenProviderChange()"><option value="ollama">🖥️ Ollama</option><option value="gemini">✨ Gemini</option><option value="chatgpt">🤖 ChatGPT</option><option value="claude">🧠 Claude</option><option value="grok">⚡ Grok</option></select></div><div class="form-group"><label>Model</label><select id="agent-gen-model"></select></div></div>
-            <div class="form-group" id="agent-gen-apikey-group" style="display:none"><label>API Key</label><input type="password" id="agent-gen-apikey"></div>
+            <div class="form-group" id="agent-gen-apikey-group" style="display:none"><label>API Key</label><input type="password" id="agent-gen-apikey" autocomplete="new-password"></div>
             <hr style="border:none;border-top:1px solid var(--border);margin:20px 0">
             <div class="form-group"><label style="color:var(--purple)">🔑 Google Accounts (tab-separated)</label><textarea id="agent-gen-accounts" rows="3" style="font-family:'JetBrains Mono',monospace;font-size:.8rem;background:var(--bg2);color:#90ee90"></textarea><div style="display:flex;justify-content:space-between;font-size:.8rem;color:var(--text-muted);margin-top:4px"><span id="agent-gen-acc-count">0 accounts</span><span>1 account = 1 profile</span></div></div>
             <div class="form-group"><label style="color:var(--cyan)">📄 Preview</label><textarea id="agent-gen-preview" rows="8" style="font-family:'JetBrains Mono',monospace;font-size:.8rem" readonly></textarea><div id="agent-gen-status" style="margin-top:8px;font-size:.85rem;font-weight:600"></div></div>
@@ -611,7 +611,7 @@
     <div class="modal-content">
         <div class="modal-header"><h2>🔑 Add API Key</h2><button class="btn-close" onclick="closeModal('modal-add-key')">✕</button></div>
         <div class="form-group" style="margin-top:15px"><label>Provider</label><select id="add-key-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option><option value="grok">xAI Grok</option><option value="openrouter">OpenRouter</option><option value="everai">EverAI TTS</option><option value="9router">9Router</option></select></div>
-        <div class="form-group"><label>API Key</label><input type="password" id="add-key-value" placeholder="Paste API key..."></div>
+        <div class="form-group"><label>API Key</label><input type="password" id="add-key-value" autocomplete="new-password" placeholder="Paste API key..."></div>
         <div class="form-group"><label>Label</label><input id="add-key-label" value="default"></div>
         <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-add-key')">Cancel</button><button class="btn-primary" onclick="addApiKey()">Save Key</button></div>
     </div>

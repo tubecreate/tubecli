@@ -210,5 +210,10 @@
     "agent_modal.model_no_key": "⚠️ Chưa có API key cho {provider}. Thêm key ở phần Cloud API Keys.",
     "agent_modal.model_key_expired": "⚠️ Tất cả key của {provider} đã hết hạn. Vui lòng thêm key mới.",
     "agent_modal.filter_all": "Tất cả",
-    "agent_modal.filter_cloud": "☁️ Cloud"
+    "agent_modal.filter_cloud": "☁️ Cloud",
+    "settings.google_not_configured": "Chưa cấu hình / Để trống",
+    "settings.google_no_calendar": "⚠️ Chưa có tài khoản Calendar trong Auth Manager",
+    "settings.google_no_storage": "⚠️ Chưa có tài khoản Google trong Auth Manager",
+    "settings.google_lost_access": "⚠️ Đã lưu nhưng mất quyền truy cập",
+    "settings.default_profile_ai": "default (Mặc định AI)"
 }

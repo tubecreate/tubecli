@@ -210,5 +210,10 @@
     "agent_modal.model_no_key": "⚠️ No API key for {provider}. Add one in Cloud API Keys.",
     "agent_modal.model_key_expired": "⚠️ All keys for {provider} expired or inactive. Please add a new key.",
     "agent_modal.filter_all": "All",
-    "agent_modal.filter_cloud": "☁️ Cloud"
+    "agent_modal.filter_cloud": "☁️ Cloud",
+    "settings.google_not_configured": "Not configured / Leave empty",
+    "settings.google_no_calendar": "⚠️ No Calendar account in Auth Manager",
+    "settings.google_no_storage": "⚠️ No Google account in Auth Manager",
+    "settings.google_lost_access": "⚠️ Saved but access lost",
+    "settings.default_profile_ai": "default (AI Default)"
 }

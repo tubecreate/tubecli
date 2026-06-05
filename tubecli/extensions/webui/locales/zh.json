@@ -210,5 +210,10 @@
     "agent_modal.model_no_key": "⚠️ {provider} 尚未配置 API 密鑰，请在 Cloud API Keys 中添加。",
     "agent_modal.model_key_expired": "⚠️ {provider} 的所有密鑰均已失效，请添加新密鑰。",
     "agent_modal.filter_all": "全部",
-    "agent_modal.filter_cloud": "☁️ 云端"
+    "agent_modal.filter_cloud": "☁️ 云端",
+    "settings.google_not_configured": "未配置 / 留空",
+    "settings.google_no_calendar": "⚠️ Auth Manager 中没有 Calendar 账号",
+    "settings.google_no_storage": "⚠️ Auth Manager 中没有 Google 账号",
+    "settings.google_lost_access": "⚠️ 已保存但失去访问权限",
+    "settings.default_profile_ai": "default（AI 默认）"
 }

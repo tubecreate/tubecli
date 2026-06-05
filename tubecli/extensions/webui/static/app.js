@@ -2843,7 +2843,7 @@ async function populateDefaultProfileDropdown(selectedProfile) {
     if (!sel) return;
     try {
         const d = await apiGet('/api/v1/browser/profiles');
-        let html = '<option value="default">default (Mặc định AI)</option>';
+        let html = `<option value="default">${T('settings.default_profile_ai', 'default (AI Default)')}</option>`;
         if (d && d.profiles && d.profiles.length > 0) {
             d.profiles.forEach(p => {
                 if (p.name !== 'default') {
@@ -2874,7 +2874,7 @@ async function populateDefaultCalendarDropdown(selectedEmail) {
     if (!sel) return;
     try {
         const d = await apiGet('/api/v1/calendar/credentials');
-        let html = '<option value="">Chưa cấu hình / Bỏ trống</option>';
+        let html = `<option value="">${T('settings.google_not_configured', 'Not configured / Leave empty')}</option>`;
         if (d && d.credentials && d.credentials.length > 0) {
             d.credentials.forEach(c => {
                 if (c.email) {
@@ -2882,13 +2882,13 @@ async function populateDefaultCalendarDropdown(selectedEmail) {
                 }
             });
         } else {
-            html = '<option value="">⚠️ Chưa có tài khoản Calendar trong Auth Manager</option>';
+            html = `<option value="">${T('settings.google_no_calendar', '⚠️ No Calendar account in Auth Manager')}</option>`;
         }
         sel.innerHTML = html;
         if (selectedEmail) {
             const hasOption = Array.from(sel.options).some(opt => opt.value === selectedEmail);
             if (!hasOption && selectedEmail !== '') {
-                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (⚠️ Đã lưu nhưng mất quyền truy cập)</option>`;
+                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (${T('settings.google_lost_access', '⚠️ Saved but access lost')})</option>`;
             }
             sel.value = selectedEmail;
         }
@@ -2908,7 +2908,7 @@ async function populateDefaultStorageDropdown(selectedEmail) {
     if (!sel) return;
     try {
         const d = await apiGet('/api/v1/auth-manager/tokens?provider=google');
-        let html = '<option value="">Chưa cấu hình / Bỏ trống</option>';
+        let html = `<option value="">${T('settings.google_not_configured', 'Not configured / Leave empty')}</option>`;
         if (d && d.tokens && d.tokens.length > 0) {
             d.tokens.forEach(t => {
                 if (t.authorized_email) {
@@ -2916,13 +2916,13 @@ async function populateDefaultStorageDropdown(selectedEmail) {
                 }
             });
         } else {
-            html = '<option value="">⚠️ Chưa có tài khoản Google trong Auth Manager</option>';
+            html = `<option value="">${T('settings.google_no_storage', '⚠️ No Google account in Auth Manager')}</option>`;
         }
         sel.innerHTML = html;
         if (selectedEmail) {
             const hasOption = Array.from(sel.options).some(opt => opt.value === selectedEmail);
             if (!hasOption && selectedEmail !== '') {
-                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (⚠️ Đã lưu nhưng mất quyền truy cập)</option>`;
+                sel.innerHTML += `<option value="${esc(selectedEmail)}">${esc(selectedEmail)} (${T('settings.google_lost_access', '⚠️ Saved but access lost')})</option>`;
             }
             sel.value = selectedEmail;
         }
