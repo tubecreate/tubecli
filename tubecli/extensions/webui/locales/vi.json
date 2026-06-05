@@ -203,5 +203,12 @@
     "story.ai_success": "✅ Đã tạo kịch bản AI{note}{prov} · {count} events",
     "story.ai_error": "❌ Lỗi: {err}",
     "story.err_cannot_gen": "Không thể tạo kịch bản",
-    "story.err_conn": "❌ Lỗi kết nối: {msg}"
+    "story.err_conn": "❌ Lỗi kết nối: {msg}",
+    "agent_modal.chatbot_model": "Model Chatbot",
+    "agent_modal.browser_model": "Model Browser",
+    "agent_modal.model_default_hint": "Mặc định từ Cài đặt Toàn cục",
+    "agent_modal.model_no_key": "⚠️ Chưa có API key cho {provider}. Thêm key ở phần Cloud API Keys.",
+    "agent_modal.model_key_expired": "⚠️ Tất cả key của {provider} đã hết hạn. Vui lòng thêm key mới.",
+    "agent_modal.filter_all": "Tất cả",
+    "agent_modal.filter_cloud": "☁️ Cloud"
 }

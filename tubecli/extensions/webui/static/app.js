@@ -2160,12 +2160,300 @@ async function openChatAgent(id, name) { currentChatAgentId = id; document.getEl
 function renderChatHistory(history) { const c = document.getElementById('chat-history'); if(!history.length) { c.innerHTML='<p class="text-muted" style="text-align:center">Say hello!</p>'; return; } c.innerHTML = history.map(m => { const u=m.role==='user'; return `<div style="display:flex;justify-content:${u?'flex-end':'flex-start'};width:100%"><div style="background:${u?'var(--blue)':'var(--bg3)'};color:${u?'#fff':'var(--text)'};padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(m.content)}${m.skill_used?`<div style="font-size:.75rem;color:#10b981;margin-top:4px">⚡ ${esc(m.skill_used)}</div>`:''}</div></div>`; }).join(''); c.scrollTop=c.scrollHeight; }
 async function sendChatMessage() { if(!currentChatAgentId) return; const inp=document.getElementById('chat-input'); const msg=inp.value.trim(); if(!msg) return; inp.value=''; const c=document.getElementById('chat-history'); if(c.innerHTML.includes('Say hello')) c.innerHTML=''; c.innerHTML+=`<div style="display:flex;justify-content:flex-end;width:100%;margin-top:12px"><div style="background:var(--blue);color:#fff;padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(msg)}</div></div><div id="chat-typing" style="display:flex;justify-content:flex-start;width:100%;margin-top:12px"><div style="background:var(--bg3);color:var(--text-muted);padding:10px 14px;border-radius:8px;font-size:.9rem">Typing...</div></div>`; c.scrollTop=c.scrollHeight; const r=await apiPost('/api/v1/agents/'+currentChatAgentId+'/chat',{message:msg}); document.getElementById('chat-typing')?.remove(); if(r) renderChatHistory(r.history); }
 
-function showCreateAgent() { document.getElementById('agent-modal-title').textContent='Create Agent'; document.getElementById('agent-id').value=''; document.getElementById('agent-name').value=''; document.getElementById('agent-desc').value=''; document.getElementById('agent-prompt').value='You are a helpful AI assistant.'; document.getElementById('agent-model').value='qwen:latest'; document.getElementById('agent-browser-model').value='qwen:latest'; document.getElementById('agent-avatar-type').value='bot'; document.getElementById('agent-avatar-color').value='blue'; document.getElementById('agent-interests').value=''; document.getElementById('agent-behavior').value='{\n  "dailyRoutine": [],\n  "workHabits": {}\n}'; document.getElementById('agent-proxy-mode').value='none'; document.getElementById('agent-proxy').value=''; onProxyModeChange(); document.getElementById('agent-schedule-enable').checked=false; document.getElementById('agent-timezone').value='Asia/Ho_Chi_Minh'; document.getElementById('agent-schedule-repeat').value='daily'; document.getElementById('agent-schedule-interval').value='60'; document.getElementById('agent-schedule-start').value='08:00'; document.getElementById('agent-schedule-end').value='22:00'; document.getElementById('agent-schedule-max-runs').value='10'; document.querySelectorAll('.agent-day-cb').forEach((cb,i)=>cb.checked=i<5); onScheduleRepeatChange(); document.getElementById('agent-scraping-enable').checked=false; document.getElementById('agent-scraper-limit').value='10000'; document.getElementById('agent-scraper-format').value='json'; document.getElementById('agent-tg-token').value=''; document.getElementById('agent-tg-chat').value=''; document.getElementById('agent-ms-token').value=''; document.getElementById('agent-ms-page').value=''; document.getElementById('agent-ms-php').value=''; document.getElementById('agent-ms-skill').value=''; populateAgentProfiles([]); populateAgentSkills([]); document.querySelector('.agent-tab-btn[data-atab="identity"]').click(); document.getElementById('modal-agent').classList.remove('hidden'); }
+function showCreateAgent() {
+    document.getElementById('agent-modal-title').textContent = T('agent_modal.create_title') || 'Create Agent';
+    document.getElementById('agent-id').value='';
+    document.getElementById('agent-name').value='';
+    document.getElementById('agent-desc').value='';
+    document.getElementById('agent-prompt').value='You are a helpful AI assistant.';
+    document.getElementById('agent-avatar-type').value='bot';
+    document.getElementById('agent-avatar-color').value='blue';
+    document.getElementById('agent-interests').value='';
+    document.getElementById('agent-behavior').value='{\n  "dailyRoutine": [],\n  "workHabits": {}\n}';
+    document.getElementById('agent-proxy-mode').value='none';
+    document.getElementById('agent-proxy').value='';
+    onProxyModeChange();
+    document.getElementById('agent-schedule-enable').checked=false;
+    document.getElementById('agent-timezone').value='Asia/Ho_Chi_Minh';
+    document.getElementById('agent-schedule-repeat').value='daily';
+    document.getElementById('agent-schedule-interval').value='60';
+    document.getElementById('agent-schedule-start').value='08:00';
+    document.getElementById('agent-schedule-end').value='22:00';
+    document.getElementById('agent-schedule-max-runs').value='10';
+    document.querySelectorAll('.agent-day-cb').forEach((cb,i)=>cb.checked=i<5);
+    onScheduleRepeatChange();
+    document.getElementById('agent-scraping-enable').checked=false;
+    document.getElementById('agent-scraper-limit').value='10000';
+    document.getElementById('agent-scraper-format').value='json';
+    document.getElementById('agent-tg-token').value='';
+    document.getElementById('agent-tg-chat').value='';
+    document.getElementById('agent-ms-token').value='';
+    document.getElementById('agent-ms-page').value='';
+    document.getElementById('agent-ms-php').value='';
+    document.getElementById('agent-ms-skill').value='';
+    populateAgentProfiles([]);
+    populateAgentSkills([]);
+    document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
+    document.getElementById('modal-agent').classList.remove('hidden');
+    // Load model dropdowns with global default (async, non-blocking)
+    apiGet('/api/v1/settings').then(s => {
+        const defaultModel = s?.default_model || 'qwen:latest';
+        populateAgentModelDropdown('chatbot', defaultModel);
+        populateAgentModelDropdown('browser', defaultModel);
+    }).catch(() => {
+        populateAgentModelDropdown('chatbot', 'qwen:latest');
+        populateAgentModelDropdown('browser', 'qwen:latest');
+    });
+}
 
-async function openEditAgent(id) { const d=await apiGet('/api/v1/agents/'+id); if(!d) return alert('Failed'); document.getElementById('agent-modal-title').textContent='Edit: '+d.name; document.getElementById('agent-id').value=d.id; document.getElementById('agent-name').value=d.name||''; document.getElementById('agent-desc').value=d.description||''; document.getElementById('agent-prompt').value=d.system_prompt||''; document.getElementById('agent-model').value=d.model||'qwen:latest'; document.getElementById('agent-browser-model').value=d.browser_ai_model||'qwen:latest'; document.getElementById('agent-avatar-type').value=d.avatar_type||'bot'; document.getElementById('agent-avatar-color').value=d.avatar_color||'blue'; const p=d.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||[],workHabits:(d.routine||{}).workHabits||{}},null,2); const pp=d.proxy_provider||{mode:'none'}; document.getElementById('agent-proxy-mode').value=pp.mode||'none'; document.getElementById('agent-proxy').value=d.proxy_config||''; onProxyModeChange(); const sc=d.schedule||{}; document.getElementById('agent-schedule-enable').checked=sc.enabled||false; document.getElementById('agent-timezone').value=d.timezone||'Asia/Ho_Chi_Minh'; document.getElementById('agent-schedule-repeat').value=sc.repeat||'daily'; document.getElementById('agent-schedule-interval').value=sc.interval||60; document.getElementById('agent-schedule-start').value=sc.start_time||'08:00'; document.getElementById('agent-schedule-end').value=sc.end_time||'22:00'; document.getElementById('agent-schedule-max-runs').value=sc.max_runs||10; document.querySelectorAll('.agent-day-cb').forEach(cb=>cb.checked=(sc.active_days||['mon','tue','wed','thu','fri']).includes(cb.value)); onScheduleRepeatChange(); document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false; document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000; document.getElementById('agent-scraper-format').value=d.script_output_format||'json'; document.getElementById('agent-tg-token').value=d.telegram_token||''; document.getElementById('agent-tg-chat').value=d.telegram_chat_id||''; document.getElementById('agent-ms-token').value=d.messenger_token||''; document.getElementById('agent-ms-page').value=d.messenger_page_id||''; document.getElementById('agent-ms-php').value=d.messenger_php_url||''; document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||''; await populateAgentProfiles(d.allowed_profiles||[]); await populateAgentSkills(d.allowed_skills||[]); document.querySelector('.agent-tab-btn[data-atab="identity"]').click(); document.getElementById('modal-agent').classList.remove('hidden'); }
+async function openEditAgent(id) {
+    const d = await apiGet('/api/v1/agents/'+id);
+    if (!d) return alert('Failed');
+    document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + d.name;
+    document.getElementById('agent-id').value=d.id;
+    document.getElementById('agent-name').value=d.name||'';
+    document.getElementById('agent-desc').value=d.description||'';
+    document.getElementById('agent-prompt').value=d.system_prompt||'';
+    document.getElementById('agent-avatar-type').value=d.avatar_type||'bot';
+    document.getElementById('agent-avatar-color').value=d.avatar_color||'blue';
+    const p=d.persona||{};
+    document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
+    document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||[],workHabits:(d.routine||{}).workHabits||{}},null,2);
+    const pp=d.proxy_provider||{mode:'none'};
+    document.getElementById('agent-proxy-mode').value=pp.mode||'none';
+    document.getElementById('agent-proxy').value=d.proxy_config||'';
+    onProxyModeChange();
+    const sc=d.schedule||{};
+    document.getElementById('agent-schedule-enable').checked=sc.enabled||false;
+    document.getElementById('agent-timezone').value=d.timezone||'Asia/Ho_Chi_Minh';
+    document.getElementById('agent-schedule-repeat').value=sc.repeat||'daily';
+    document.getElementById('agent-schedule-interval').value=sc.interval||60;
+    document.getElementById('agent-schedule-start').value=sc.start_time||'08:00';
+    document.getElementById('agent-schedule-end').value=sc.end_time||'22:00';
+    document.getElementById('agent-schedule-max-runs').value=sc.max_runs||10;
+    document.querySelectorAll('.agent-day-cb').forEach(cb=>cb.checked=(sc.active_days||['mon','tue','wed','thu','fri']).includes(cb.value));
+    onScheduleRepeatChange();
+    document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false;
+    document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000;
+    document.getElementById('agent-scraper-format').value=d.script_output_format||'json';
+    document.getElementById('agent-tg-token').value=d.telegram_token||'';
+    document.getElementById('agent-tg-chat').value=d.telegram_chat_id||'';
+    document.getElementById('agent-ms-token').value=d.messenger_token||'';
+    document.getElementById('agent-ms-page').value=d.messenger_page_id||'';
+    document.getElementById('agent-ms-php').value=d.messenger_php_url||'';
+    document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||'';
+    await populateAgentProfiles(d.allowed_profiles||[]);
+    await populateAgentSkills(d.allowed_skills||[]);
+    document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
+    document.getElementById('modal-agent').classList.remove('hidden');
+    // Load model dropdowns async (non-blocking, lazy)
+    populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
+    populateAgentModelDropdown('browser', d.browser_ai_model || d.model || 'qwen:latest');
+}
 
 async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML='<p class="text-muted">No profiles.</p>'; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
 async function populateAgentSkills(allowed) { const d=await apiGet('/api/v1/skills'); const c=document.getElementById('agent-skills-list'); if(!d?.skills?.length) { c.innerHTML='<p class="text-muted">No skills.</p>'; return; } c.innerHTML=d.skills.map(s=>`<label class="checkbox-item"><input type="checkbox" value="${s.id}" class="agent-skill-cb" ${allowed.includes(s.id)?'checked':''}>${esc(s.name)} <span class="tag" style="margin-left:auto">${esc(s.type)}</span></label>`).join(''); }
+
+// ─── Agent Model Selector Helpers ───────────────────────────────────────────
+// type: 'chatbot' | 'browser'
+// selId map: chatbot → 'agent-model', browser → 'agent-browser-model'
+
+function _agentSelId(type) { return type === 'chatbot' ? 'agent-model' : 'agent-browser-model'; }
+function _agentWarnId(type) { return type === 'chatbot' ? 'agent-model-warning' : 'agent-browser-model-warning'; }
+function _agentFilterId(type) { return type === 'chatbot' ? 'agent-model-provider-filter' : 'agent-browser-model-provider-filter'; }
+
+// Cache: avoid re-fetching Ollama/9Router within same modal session
+const _agentModelCache = { cloudProviders: null, ollamaLoaded: {}, nrLoaded: {} };
+
+async function _agentLoadOllama(sel) {
+    let og = sel.querySelector('optgroup[label*="Ollama"]');
+    if (og && og.querySelector('option:not([disabled])')) return; // already loaded
+    let html = '';
+    let ok = false;
+    try {
+        const r = await apiGet('/api/v1/ollama/models');
+        if (r?.models?.length) {
+            ok = true;
+            html = '<optgroup label="🖥️ Ollama (Local)">' +
+                r.models.map(m => `<option value="${esc(m.name||m)}">${esc(m.name||m)}</option>`).join('') +
+                '</optgroup>';
+        }
+    } catch(e) {}
+    if (!ok) html = '<optgroup label="🖥️ Ollama (Local)"><option disabled style="color:#888">⚠️ Ollama not running</option></optgroup>';
+    if (og) { const tmp = document.createElement('div'); tmp.innerHTML = `<select>${html}</select>`; og.replaceWith(tmp.querySelector('optgroup')); }
+    else sel.insertAdjacentHTML('afterbegin', html);
+}
+
+async function _agentLoad9Router(sel) {
+    let og = sel.querySelector('optgroup[label*="9Router"]');
+    if (og && og.querySelector('option:not([disabled])')) return; // already loaded
+    let html = '';
+    try {
+        const nr = await apiGet('/api/v1/cloud-api/9router/status');
+        if (nr?.running && nr.models?.length) {
+            html = '<optgroup label="🔀 9Router (Local Proxy)">' +
+                nr.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('') +
+                '</optgroup>';
+        }
+    } catch(e) {}
+    if (html) {
+        if (og) { const tmp = document.createElement('div'); tmp.innerHTML = `<select>${html}</select>`; og.replaceWith(tmp.querySelector('optgroup')); }
+        else { const ollamaOg = sel.querySelector('optgroup[label*="Ollama"]'); if(ollamaOg) ollamaOg.insertAdjacentHTML('afterend', html); else sel.insertAdjacentHTML('afterbegin', html); }
+    }
+}
+
+function _agentRenderCloud(sel, cloudProviders) {
+    if (!cloudProviders?.length) return;
+    if (sel.querySelector('optgroup[label*="Gemini"], optgroup[label*="OpenAI"], optgroup[label*="Claude"]')) return;
+    let html = '';
+    cloudProviders.forEach(p => {
+        if (!p.models?.length || p.id === '9router') return;
+        const label = { gemini:'✨ Gemini', openai:'🤖 OpenAI', claude:'🧠 Claude', grok:'⚡ Grok', deepseek:'🔮 DeepSeek', openrouter:'🌐 OpenRouter' }[p.id] || p.id;
+        html += `<optgroup label="☁️ ${esc(label)}">` + p.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('') + '</optgroup>';
+    });
+    if (html) sel.insertAdjacentHTML('beforeend', html);
+}
+
+function _agentEnsureOption(sel, model) {
+    if (!model) return;
+    const exists = Array.from(sel.options).some(o => o.value === model);
+    if (!exists) sel.insertAdjacentHTML('afterbegin', `<option value="${esc(model)}" selected>${esc(model)}</option>`);
+    sel.value = model;
+}
+
+/**
+ * Populate agent model dropdown (lazy — only active provider loaded first).
+ * @param {string} type - 'chatbot' | 'browser'
+ * @param {string} selectedModel - model to pre-select
+ */
+async function populateAgentModelDropdown(type, selectedModel) {
+    const sel = document.getElementById(_agentSelId(type));
+    if (!sel) return;
+    sel.innerHTML = '<option value="" disabled selected>⏳ Loading...</option>';
+
+    // 1. Cloud providers (instant local call)
+    let cloudProviders = _agentModelCache.cloudProviders;
+    if (!cloudProviders) {
+        try {
+            const r = await apiGet('/api/v1/cloud-api/providers');
+            cloudProviders = r?.providers || [];
+            _agentModelCache.cloudProviders = cloudProviders;
+        } catch(e) { cloudProviders = []; }
+    }
+
+    // 2. Detect provider of selectedModel
+    const lower = (selectedModel || '').toLowerCase();
+    const isCloud = cloudProviders.some(p => p.models?.includes(selectedModel));
+    const is9R = lower.startsWith('9router') || lower.includes('9router');
+
+    sel.innerHTML = ''; // clear loading placeholder
+
+    // 3. Lazy-load: only active provider first
+    if (isCloud) {
+        _agentRenderCloud(sel, cloudProviders);
+    } else if (is9R) {
+        await _agentLoad9Router(sel);
+        _agentRenderCloud(sel, cloudProviders);
+    } else {
+        // Default: Ollama
+        await _agentLoadOllama(sel);
+        _agentRenderCloud(sel, cloudProviders);
+    }
+
+    // 4. Pre-select (insert if not found)
+    _agentEnsureOption(sel, selectedModel);
+}
+
+/**
+ * Filter agent model dropdown by provider chip.
+ * @param {string} type - 'chatbot' | 'browser'
+ * @param {string} provider - 'all' | 'ollama' | 'cloud' | '9router'
+ * @param {HTMLElement} chipEl
+ */
+async function agentModelFilter(type, provider, chipEl) {
+    const filterId = _agentFilterId(type);
+    const sel = document.getElementById(_agentSelId(type));
+    if (!sel) return;
+
+    // Activate chip
+    document.querySelectorAll(`#${filterId} .ext-chip`).forEach(c => c.classList.remove('active'));
+    if (chipEl) chipEl.classList.add('active');
+
+    // Lazy-load on demand
+    if (provider === 'ollama' || provider === 'all') await _agentLoadOllama(sel);
+    if (provider === '9router' || provider === 'all') await _agentLoad9Router(sel);
+    if ((provider === 'cloud' || provider === 'all') && _agentModelCache.cloudProviders) {
+        _agentRenderCloud(sel, _agentModelCache.cloudProviders);
+    }
+
+    // Filter visibility
+    const providerKeywords = { ollama:'Ollama', cloud:'☁️', '9router':'9Router' };
+    sel.querySelectorAll('optgroup').forEach(og => {
+        if (provider === 'all') {
+            og.style.display = '';
+            og.querySelectorAll('option').forEach(o => o.style.display = '');
+        } else {
+            const kw = providerKeywords[provider] || provider;
+            const match = og.label && og.label.includes(kw);
+            og.style.display = match ? '' : 'none';
+            og.querySelectorAll('option').forEach(o => o.style.display = match ? '' : 'none');
+        }
+    });
+    sel.querySelectorAll(':scope > option').forEach(o => {
+        o.style.display = (provider === 'all') ? '' : 'none';
+    });
+
+    // If current selection hidden, move to first visible
+    const cur = sel.options[sel.selectedIndex];
+    if (cur && cur.style.display === 'none') {
+        for (let i = 0; i < sel.options.length; i++) {
+            if (sel.options[i].style.display !== 'none' && !sel.options[i].disabled) { sel.selectedIndex = i; break; }
+        }
+    }
+}
+
+/**
+ * Check API key availability when a cloud model is selected (lazy, only on selection).
+ * @param {string} type - 'chatbot' | 'browser'
+ */
+async function onAgentModelChange(type) {
+    const sel = document.getElementById(_agentSelId(type));
+    const warn = document.getElementById(_agentWarnId(type));
+    if (!sel || !warn) return;
+    const opt = sel.options[sel.selectedIndex];
+    if (!opt) { warn.style.display = 'none'; return; }
+    const og = opt.closest('optgroup');
+    if (!og || !og.label.includes('☁️')) { warn.style.display = 'none'; return; }
+    // Detect provider from optgroup label
+    const providerMap = { Gemini:'gemini', OpenAI:'openai', Claude:'claude', Grok:'grok', DeepSeek:'deepseek', OpenRouter:'openrouter' };
+    let provider = '';
+    for (const [name, id] of Object.entries(providerMap)) { if (og.label.includes(name)) { provider = id; break; } }
+    if (!provider) { warn.style.display = 'none'; return; }
+    try {
+        const data = await apiGet('/api/v1/cloud-api/keys');
+        const pKeys = data?.keys?.[provider];
+        if (pKeys && Object.keys(pKeys).length > 0) {
+            const hasActive = Object.values(pKeys).some(k => k.active);
+            if (hasActive) { warn.style.display = 'none'; }
+            else {
+                warn.style.display = 'block';
+                const msg = T('agent_modal.model_key_expired') || '⚠️ All keys for {provider} expired.';
+                warn.innerHTML = msg.replace('{provider}', `<b>${provider}</b>`);
+            }
+        } else {
+            warn.style.display = 'block';
+            const msg = T('agent_modal.model_no_key') || '⚠️ No API key for {provider}.';
+            warn.innerHTML = msg.replace('{provider}', `<b>${provider}</b>`);
+        }
+    } catch(e) { warn.style.display = 'none'; }
+}
+// Reset cloud provider cache when modal closes (so fresh data next open)
+document.getElementById('modal-agent')?.addEventListener('click', e => {
+    if (e.target.classList.contains('modal') || e.target.classList.contains('btn-close')) {
+        _agentModelCache.cloudProviders = null;
+    }
+});
+
 
 function openModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }

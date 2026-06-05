@@ -203,5 +203,12 @@
     "story.ai_success": "✅ 已成功生成 AI 剧本{note}{prov} · 共 {count} 个事件",
     "story.ai_error": "❌ 错误: {err}",
     "story.err_cannot_gen": "无法生成剧本",
-    "story.err_conn": "❌ 连接错误: {msg}"
+    "story.err_conn": "❌ 连接错误: {msg}",
+    "agent_modal.chatbot_model": "聊天模型",
+    "agent_modal.browser_model": "浏览器模型",
+    "agent_modal.model_default_hint": "默认取自全局设置",
+    "agent_modal.model_no_key": "⚠️ {provider} 尚未配置 API 密鑰，请在 Cloud API Keys 中添加。",
+    "agent_modal.model_key_expired": "⚠️ {provider} 的所有密鑰均已失效，请添加新密鑰。",
+    "agent_modal.filter_all": "全部",
+    "agent_modal.filter_cloud": "☁️ 云端"
 }

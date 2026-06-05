@@ -203,5 +203,12 @@
     "story.ai_success": "✅ AI script generated{note}{prov} · {count} events",
     "story.ai_error": "❌ Error: {err}",
     "story.err_cannot_gen": "Failed to generate script",
-    "story.err_conn": "❌ Connection error: {msg}"
+    "story.err_conn": "❌ Connection error: {msg}",
+    "agent_modal.chatbot_model": "Chatbot Model",
+    "agent_modal.browser_model": "Browser Model",
+    "agent_modal.model_default_hint": "Default from Global Settings",
+    "agent_modal.model_no_key": "⚠️ No API key for {provider}. Add one in Cloud API Keys.",
+    "agent_modal.model_key_expired": "⚠️ All keys for {provider} expired or inactive. Please add a new key.",
+    "agent_modal.filter_all": "All",
+    "agent_modal.filter_cloud": "☁️ Cloud"
 }

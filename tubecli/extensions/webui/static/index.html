@@ -495,7 +495,40 @@
                     <div class="form-group"><label>Agent Name</label><input id="agent-name" placeholder="Agent Name"></div>
                     <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Agent Description"></div>
                     <div class="form-group"><label>System Prompt</label><textarea id="agent-prompt" rows="4" placeholder="You are a helpful AI assistant."></textarea></div>
-                    <div class="form-row"><div class="form-group"><label>Chatbot Model</label><input id="agent-model" value="qwen:latest"></div><div class="form-group"><label>Browser Model</label><input id="agent-browser-model" value="qwen:latest"></div></div>
+                    <!-- Chatbot Model Selector -->
+                    <div class="form-group">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                            <label data-i18n="agent_modal.chatbot_model" style="margin:0">Chatbot Model</label>
+                            <span style="font-size:0.75rem;color:var(--text-muted)" data-i18n="agent_modal.model_default_hint">Default from Global Settings</span>
+                        </div>
+                        <div id="agent-model-provider-filter" style="display:flex;gap:5px;margin-bottom:6px;flex-wrap:wrap">
+                            <button class="ext-chip active" data-amtype="chatbot" data-amprov="all" onclick="agentModelFilter('chatbot','all',this)" data-i18n="agent_modal.filter_all">All</button>
+                            <button class="ext-chip" data-amtype="chatbot" data-amprov="ollama" onclick="agentModelFilter('chatbot','ollama',this)">🖥️ Ollama</button>
+                            <button class="ext-chip" data-amtype="chatbot" data-amprov="cloud" onclick="agentModelFilter('chatbot','cloud',this)" data-i18n="agent_modal.filter_cloud">☁️ Cloud</button>
+                            <button class="ext-chip" data-amtype="chatbot" data-amprov="9router" onclick="agentModelFilter('chatbot','9router',this)">🔀 9Router</button>
+                        </div>
+                        <select id="agent-model" onchange="onAgentModelChange('chatbot')" style="width:100%">
+                            <option value="" disabled selected>⏳ Loading...</option>
+                        </select>
+                        <div id="agent-model-warning" style="display:none;margin-top:6px;padding:8px 12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.8rem;color:#f59e0b"></div>
+                    </div>
+                    <!-- Browser Model Selector -->
+                    <div class="form-group">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                            <label data-i18n="agent_modal.browser_model" style="margin:0">Browser Model</label>
+                        </div>
+                        <div id="agent-browser-model-provider-filter" style="display:flex;gap:5px;margin-bottom:6px;flex-wrap:wrap">
+                            <button class="ext-chip active" data-amtype="browser" data-amprov="all" onclick="agentModelFilter('browser','all',this)" data-i18n="agent_modal.filter_all">All</button>
+                            <button class="ext-chip" data-amtype="browser" data-amprov="ollama" onclick="agentModelFilter('browser','ollama',this)">🖥️ Ollama</button>
+                            <button class="ext-chip" data-amtype="browser" data-amprov="cloud" onclick="agentModelFilter('browser','cloud',this)" data-i18n="agent_modal.filter_cloud">☁️ Cloud</button>
+                            <button class="ext-chip" data-amtype="browser" data-amprov="9router" onclick="agentModelFilter('browser','9router',this)">🔀 9Router</button>
+                        </div>
+                        <select id="agent-browser-model" onchange="onAgentModelChange('browser')" style="width:100%">
+                            <option value="" disabled selected>⏳ Loading...</option>
+                        </select>
+                        <div id="agent-browser-model-warning" style="display:none;margin-top:6px;padding:8px 12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.8rem;color:#f59e0b"></div>
+                    </div>
+
                     <div class="form-row"><div class="form-group"><label>Avatar Type</label><select id="agent-avatar-type"><option value="bot">Bot</option><option value="human">Human</option></select></div><div class="form-group"><label>Avatar Color</label><select id="agent-avatar-color"><option value="blue">Blue</option><option value="red">Red</option><option value="green">Green</option></select></div></div>
                 </div>
                 <div class="agent-tab-pane" id="atab-behavior"><h3>Behavior & Keywords</h3><div class="form-group"><label>Keywords & Interests</label><input id="agent-interests" placeholder="AI, Technology, Automation"></div><div class="form-group"><label>Advanced Behavior (JSON)</label><textarea id="agent-behavior" rows="12" placeholder='{"dailyRoutine": [], "workHabits": {}}'></textarea></div></div>

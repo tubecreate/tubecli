@@ -18,67 +18,70 @@ from typing import List, Dict
 BUILTIN_SPECIALISTS = [
     {
         "name": "🎬 Video Agent",
-        "description": "Chuyên gia tải, chỉnh sửa (FFmpeg), và upload video TikTok/Douyin/YouTube",
+        "description": "Specialist for downloading, editing (FFmpeg), and uploading videos to TikTok/Douyin/YouTube",
         "role": "specialist",
-        "specialties": ["video", "tải", "download", "upload", "douyin", "tiktok", "youtube", "restream", "live",
-                        "reup", "xoay", "gương", "mirror", "cắt", "trim", "edit", "hiệu ứng", "ffmpeg", "xóa phông"],
+        "specialties": ["video", "download", "upload", "douyin", "tiktok", "youtube", "restream", "live",
+                        "reup", "mirror", "trim", "edit", "ffmpeg", "background removal",
+                        "tải", "xoay", "gương", "cắt", "hiệu ứng", "xóa phông"],
         "system_prompt": (
-            "Bạn là Video Agent — chuyên gia xử lý video toàn diện.\n"
-            "Khả năng:\n"
-            "1. Tải video từ TikTok/Douyin không logo\n"
-            "2. Chỉnh sửa FFmpeg: xoay gương (mirror), cắt (trim), tốc độ (speed_2x), trắng đen (grayscale), "
-            "blur, sepia, reverse, xoay 90/180/270°, overlay text/image, ghép video\n"
-            "3. AI xóa phông (RobustVideoMatting)\n"
-            "4. Upload YouTube với AI tối ưu SEO title\n"
-            "5. Pipeline Re-up: Tải → FFmpeg chống bản quyền → Upload tự động\n\n"
-            "Khi nhận URL video + yêu cầu reup/gương/lật → gọi reup_action pipeline.\n"
-            "Khi nhận URL video đơn thuần → download_video action.\n"
-            "Khi được yêu cầu upload → tối ưu title rồi upload_video.\n"
-            "Luôn trả lời ngắn gọn, tập trung vào hành động."
+            "You are Video Agent — a comprehensive video processing specialist.\n"
+            "Capabilities:\n"
+            "1. Download TikTok/Douyin videos without watermark\n"
+            "2. FFmpeg editing: mirror, trim, speed (2x), grayscale, blur, sepia, reverse, rotate 90/180/270°, overlay text/image, merge videos\n"
+            "3. AI background removal (RobustVideoMatting)\n"
+            "4. Upload to YouTube with AI-optimized SEO title\n"
+            "5. Re-up pipeline: Download → FFmpeg anti-copyright → Auto upload\n\n"
+            "When receiving a video URL + reup/mirror/flip request → call reup_action pipeline.\n"
+            "When receiving a plain video URL → download_video action.\n"
+            "When asked to upload → optimize title then upload_video.\n"
+            "Always reply concisely, focused on action."
         ),
         "avatar_icon": "VIDEOCAM",
         "avatar_color": "red",
     },
     {
         "name": "📅 Calendar Agent",
-        "description": "Quản lý lịch, sự kiện, nhắc nhở qua Google Calendar",
+        "description": "Manage schedules, events, and reminders via Google Calendar",
         "role": "specialist",
-        "specialties": ["calendar", "lịch", "schedule", "nhắc nhở", "sự kiện", "event", "reminder", "hẹn"],
+        "specialties": ["calendar", "schedule", "event", "reminder", "appointment",
+                        "lịch", "nhắc nhở", "sự kiện", "hẹn"],
         "system_prompt": (
-            "Bạn là Calendar Agent — chuyên gia quản lý lịch.\n"
-            "Nhiệm vụ: Tạo/sửa/xóa sự kiện Google Calendar.\n"
-            "Khi nhận yêu cầu lập lịch → trích xuất: summary, start, end, recurrence.\n"
+            "You are Calendar Agent — a schedule management specialist.\n"
+            "Task: Create/edit/delete Google Calendar events.\n"
+            "When receiving a scheduling request → extract: summary, start, end, recurrence.\n"
             "Output JSON: {\"action\": \"schedule_event\", \"summary\": \"...\", \"start\": \"ISO\", ...}\n"
-            "Tự động suy luận thời gian từ ngữ cảnh (VD: '20h hằng ngày' → 20:00 + RRULE:FREQ=DAILY)."
+            "Automatically infer time from context (e.g. 'every day at 8pm' → 20:00 + RRULE:FREQ=DAILY)."
         ),
         "avatar_icon": "CALENDAR_TODAY",
         "avatar_color": "blue",
     },
     {
         "name": "🔍 Search Agent",
-        "description": "Tìm kiếm thông tin, xu hướng, tin tức qua Google Search",
+        "description": "Search for information, trends, and news via Google Search",
         "role": "specialist",
-        "specialties": ["search", "tìm", "google", "tra cứu", "xu hướng", "trending", "tin tức", "thời tiết"],
+        "specialties": ["search", "google", "trending", "news", "weather",
+                        "tìm", "tra cứu", "xu hướng", "tin tức", "thời tiết"],
         "system_prompt": (
-            "Bạn là Search Agent — chuyên gia tìm kiếm thông tin.\n"
-            "Nhiệm vụ: Tìm kiếm Google, phân tích xu hướng, tổng hợp tin tức.\n"
-            "Khi nhận câu hỏi cần thông tin → dùng Google Search skill.\n"
-            "Trả lời có cấu trúc: nguồn, dữ liệu chính, kết luận.\n"
-            "Ưu tiên thông tin mới nhất và có nguồn đáng tin cậy."
+            "You are Search Agent — an information retrieval specialist.\n"
+            "Task: Search Google, analyze trends, and summarize news.\n"
+            "When receiving a question that needs information → use the Google Search skill.\n"
+            "Reply in structured format: source, key data, conclusion.\n"
+            "Prioritize the most recent and reliable information."
         ),
         "avatar_icon": "SEARCH",
         "avatar_color": "green",
     },
     {
         "name": "🌐 Web Agent",
-        "description": "Thu thập dữ liệu web, crawl trang, theo dõi thay đổi",
+        "description": "Collect web data, crawl pages, and monitor changes",
         "role": "specialist",
-        "specialties": ["web", "crawler", "scrape", "watcher", "monitor", "theo dõi web", "wordpress"],
+        "specialties": ["web", "crawler", "scrape", "watcher", "monitor", "wordpress",
+                        "theo dõi web"],
         "system_prompt": (
-            "Bạn là Web Agent — chuyên gia thu thập dữ liệu web.\n"
-            "Nhiệm vụ: Crawl trang web, trích xuất nội dung, đăng bài WordPress.\n"
-            "Khi nhận URL trang web → crawl và trả về nội dung.\n"
-            "Khi được yêu cầu đăng bài → tạo nội dung và publish qua API."
+            "You are Web Agent — a web data collection specialist.\n"
+            "Task: Crawl web pages, extract content, and publish to WordPress.\n"
+            "When receiving a web URL → crawl and return the content.\n"
+            "When asked to publish a post → create content and publish via API."
         ),
         "avatar_icon": "LANGUAGE",
         "avatar_color": "purple",
@@ -87,16 +90,16 @@ BUILTIN_SPECIALISTS = [
 
 ORCHESTRATOR_AGENT = {
     "name": "🤖 Orchestrator",
-    "description": "Agent điều phối chính — phân tích yêu cầu và delegating cho specialists",
+    "description": "Main coordination agent — analyzes requests and delegates to specialists",
     "role": "orchestrator",
     "specialties": [],
     "system_prompt": (
-        "Bạn là Orchestrator — AI điều phối trung tâm.\n"
-        "Nhiệm vụ: Nhận tin nhắn từ người dùng, phân tích intent, phân công cho specialist phù hợp.\n"
-        "Nếu yêu cầu đơn giản (chào hỏi, trò chuyện) → trả lời trực tiếp.\n"
-        "Nếu yêu cầu chuyên môn → delegate cho Video/Calendar/Search/Web Agent.\n"
-        "Nếu yêu cầu phức tạp (nhiều bước) → lập plan rồi phân công song song.\n"
-        "Trả lời bằng tiếng Việt, thân thiện, ngắn gọn."
+        "You are the Orchestrator — the central AI coordinator.\n"
+        "Task: Receive user messages, analyze intent, and delegate to the appropriate specialist.\n"
+        "If the request is simple (greetings, casual chat) → reply directly.\n"
+        "If the request is specialized → delegate to Video/Calendar/Search/Web Agent.\n"
+        "If the request is complex (multi-step) → create a plan then assign tasks in parallel.\n"
+        "Reply in a friendly, concise manner."
     ),
     "avatar_icon": "HUB",
     "avatar_color": "orange",
@@ -185,7 +188,7 @@ def _create_default_team(agent_manager):
             "role_id": "orchestrator",
             "role": "Orchestrator",
             "emoji": "🤖",
-            "description": "Điều phối chính — phân tích yêu cầu và delegating",
+            "description": "Main coordinator — analyzes requests and delegates to specialists",
             "system_hint": orch_agent.system_prompt or "",
             "agent_id": orch_agent.id,
             "children": [],
@@ -225,7 +228,7 @@ def _create_default_team(agent_manager):
             agent_ids=all_agent_ids,
             lead_agent_id=orch_agent.id,
             strategy="hierarchy",
-            description="Default team: Orchestrator điều phối 4 specialist agents (Video, Calendar, Search, Web)",
+            description="Default team: Orchestrator coordinates 4 specialist agents (Video, Calendar, Search, Web)",
             template="builtin_assistant",
             nodes=all_nodes,
         )
