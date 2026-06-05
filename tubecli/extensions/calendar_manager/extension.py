@@ -12,11 +12,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Any
 
 from tubecli.core.extension_manager import Extension
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 
 logger = logging.getLogger("CalendarManagerExtension")
 
-CALENDAR_DATA_FILE = os.path.join(DATA_DIR, "calendar_manager.json")
+CALENDAR_DATA_FILE = os.path.join(EXTENSIONS_DATA_DIR, "calendar_manager", "calendar_manager.json")
 
 # Default reminder minutes before event
 DEFAULT_REMINDER_MINUTES = 15

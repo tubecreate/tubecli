@@ -11,13 +11,14 @@ from typing import Dict, List, Optional
 logger = logging.getLogger("UniversalTracker")
 
 try:
-    from tubecli.config import DATA_DIR, get_api_port
+    from tubecli.config import DATA_DIR, get_api_port, EXTENSIONS_DATA_DIR
     TUBECLI_BASE_URL = f"http://localhost:{get_api_port()}"
 except ImportError:
     DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "data")
+    EXTENSIONS_DATA_DIR = os.path.join(DATA_DIR, "extensions_data")
     TUBECLI_BASE_URL = "http://localhost:5295"
 
-DATA_FILE = os.path.join(str(DATA_DIR), "universal_tracker_jobs.json")
+DATA_FILE = os.path.join(str(EXTENSIONS_DATA_DIR), "universal_tracker", "universal_tracker_jobs.json")
 
 # Default TTS voices per language
 DEFAULT_TTS_VOICES = {

@@ -206,8 +206,8 @@ class BrowserProcessManager:
         """Build command line arguments for browser launcher."""
         import os
         try:
-            from tubecli.config import DATA_DIR
-            profiles_dir = os.path.join(DATA_DIR, "browser_profiles")
+            from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
+            profiles_dir = os.path.join(EXTENSIONS_DATA_DIR, "browser", "browser_profiles")
         except ImportError:
             profiles_dir = os.path.join(os.path.dirname(__file__), "profiles")
         

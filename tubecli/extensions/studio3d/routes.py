@@ -7,11 +7,11 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict
 import json
 import os
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 
 router = APIRouter(prefix="/api/v1/studio3d", tags=["studio3d"])
 
-SCENES_FILE = os.path.join(DATA_DIR, "studio3d_scenes.json")
+SCENES_FILE = os.path.join(EXTENSIONS_DATA_DIR, "studio3d", "studio3d_scenes.json")
 
 # Built-in asset catalog
 ASSET_CATALOG = [

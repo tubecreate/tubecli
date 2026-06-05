@@ -9,9 +9,9 @@ import shutil
 import requests
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 
-PROFILES_DIR = os.path.join(DATA_DIR, "browser_profiles")
+PROFILES_DIR = os.path.join(EXTENSIONS_DATA_DIR, "browser", "browser_profiles")
 
 
 def ensure_profiles_dir():

@@ -13,11 +13,11 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from urllib.parse import urlencode
 from tubecli.core.extension_manager import Extension
-from tubecli.config import DATA_DIR
+from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 
 logger = logging.getLogger("AuthManagerExtension")
 
-AUTH_DATA_FILE = os.path.join(DATA_DIR, "auth_manager.json")
+AUTH_DATA_FILE = os.path.join(EXTENSIONS_DATA_DIR, "auth_manager", "auth_manager.json")
 
 # ── Supported Providers ──────────────────────────────────────────
 
