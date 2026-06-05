@@ -147,6 +147,8 @@
     "gen.failed": "❌ Thất bại",
     "gen.error": "❌ Lỗi",
     "gen.generating": "Đang tạo...",
+    "gen.apikey_placeholder_saved": "Bỏ trống để dùng key đã lưu",
+    "gen.apikey_placeholder_new": "Nhập API Key mới để lưu và sử dụng",
     "api.title": "🔌 API Manager",
     "api.desc": "System CLI REST API — TubeCLI API Server Endpoints",
     "api.status": "Trạng thái Server:",

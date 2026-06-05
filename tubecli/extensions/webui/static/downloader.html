@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,103 +8,105 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-    --bg: #060810; --bg2: #0c0e18; --card: #10121e; --card2: #161829;
-    --border: #1e2030; --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
-    --accent: #22d3ee; --accent2: #06b6d4; --accent-glow: rgba(34,211,238,0.15);
-    --red: #f43f5e; --green: #22c55e; --yellow: #f59e0b;
+    --bg: #0a0b14; --bg2: #0e0f1a; --card: #12131f; --card2: #181926;
+    --border: #1e2035; --text: #e2e8f0; --text2: #94a3b8; --text3: #64748b;
+    --accent: #6366f1; --accent2: #818cf8; --accent-glow: rgba(99,102,241,0.18);
+    --red: #f43f5e; --green: #22c55e; --yellow: #f59e0b; --cyan: #22d3ee;
     --font: 'Inter', system-ui, sans-serif;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:var(--font); background:var(--bg); color:var(--text); min-height:100vh; }
 
 /* Header */
-.header { padding:16px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; background:var(--bg2); }
-.header h1 { font-size:18px; font-weight:700; }
-.header h1 span { color:var(--accent); }
-.back-link { color:var(--text3); text-decoration:none; font-size:13px; }
+.header { padding:14px 24px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:16px; background:var(--bg2); }
+.header h1 { font-size:17px; font-weight:700; }
+.header h1 span { background:linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.back-link { color:var(--text3); text-decoration:none; font-size:13px; display:flex; align-items:center; gap:4px; transition:color .2s; }
 .back-link:hover { color:var(--accent); }
 
 /* Tabs */
-.tabs { display:flex; gap:4px; padding:16px 24px 0; }
-.tab { padding:8px 20px; border-radius:8px 8px 0 0; background:var(--card); color:var(--text3); border:1px solid var(--border); border-bottom:none; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.2s; }
-.tab.active { background:var(--card2); color:var(--accent); border-color:var(--accent); }
-.tab:hover { color:var(--text); }
+.tabs { display:flex; gap:4px; padding:16px 24px 0; border-bottom:1px solid var(--border); background:var(--bg2); }
+.tab { padding:9px 20px; border-radius:8px 8px 0 0; background:transparent; color:var(--text3); border:1px solid transparent; border-bottom:none; cursor:pointer; font-size:13px; font-weight:600; transition:all 0.2s; position:relative; bottom:-1px; }
+.tab.active { background:var(--card); color:var(--accent); border-color:var(--border); border-bottom-color:var(--card); }
+.tab:hover:not(.active) { color:var(--text2); }
 
 /* Main */
-.main { max-width:900px; margin:0 auto; padding:24px; }
+.main { max-width:920px; margin:0 auto; padding:24px; }
 .section { display:none; }
 .section.active { display:block; }
 
 /* Input Area */
-.input-area { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:20px; }
+.input-area { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:18px; }
 .input-area label { font-size:13px; font-weight:600; color:var(--text2); display:block; margin-bottom:8px; }
-.url-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:12px 16px; font-size:14px; font-family:var(--font); resize:vertical; min-height:60px; outline:none; transition:border 0.2s; }
-.url-input:focus { border-color:var(--accent); }
+.url-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:12px 16px; font-size:14px; font-family:var(--font); resize:vertical; min-height:60px; outline:none; transition:border .2s; }
+.url-input:focus { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-glow); }
 .url-input::placeholder { color:var(--text3); }
 .btn-row { display:flex; gap:10px; margin-top:12px; }
-.btn { padding:10px 24px; border-radius:8px; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); transition:all 0.2s; }
-.btn-primary { background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#000; }
-.btn-primary:hover { filter:brightness(1.1); transform:translateY(-1px); box-shadow:0 4px 16px var(--accent-glow); }
+.btn { padding:10px 22px; border-radius:8px; border:none; font-size:13px; font-weight:600; cursor:pointer; font-family:var(--font); transition:all .2s; display:inline-flex; align-items:center; gap:6px; }
+.btn-primary { background:linear-gradient(135deg, var(--accent), var(--accent2)); color:#fff; }
+.btn-primary:hover { filter:brightness(1.12); transform:translateY(-1px); box-shadow:0 4px 16px var(--accent-glow); }
 .btn-primary:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
 .btn-ghost { background:var(--card2); color:var(--text2); border:1px solid var(--border); }
 .btn-ghost:hover { border-color:var(--accent); color:var(--accent); }
 
 /* Video Cards */
 .video-cards { display:flex; flex-direction:column; gap:12px; }
-.video-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; gap:16px; transition:border 0.2s; }
+.video-card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; display:flex; gap:16px; transition:border .2s; position:relative; }
 .video-card:hover { border-color:var(--accent); }
 .video-thumb { width:160px; height:90px; border-radius:8px; object-fit:cover; background:var(--bg); flex-shrink:0; }
 .video-info { flex:1; min-width:0; }
 .video-title { font-size:14px; font-weight:600; margin-bottom:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .video-meta { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--text3); margin-bottom:10px; }
 .video-meta span { display:flex; align-items:center; gap:4px; }
-.video-actions { display:flex; gap:8px; }
+.video-actions { display:flex; gap:8px; flex-wrap:wrap; }
 .btn-sm { padding:6px 14px; font-size:12px; border-radius:6px; }
-.btn-download { background:var(--green); color:#fff; border:none; cursor:pointer; font-weight:600; font-family:var(--font); transition:all 0.2s; }
-.btn-download:hover { filter:brightness(1.15); }
-.btn-download:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-download { background:linear-gradient(135deg, var(--accent), #4f46e5); color:#fff; border:none; cursor:pointer; font-weight:600; font-family:var(--font); transition:all .2s; }
+.btn-download:hover { filter:brightness(1.12); transform:translateY(-1px); }
+.btn-download:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
 
 /* Progress */
 .progress-bar { width:100%; height:6px; background:var(--bg); border-radius:3px; overflow:hidden; margin-top:8px; }
-.progress-fill { height:100%; background:linear-gradient(90deg, var(--accent), var(--green)); border-radius:3px; transition:width 0.3s; }
+.progress-fill { height:100%; background:linear-gradient(90deg, var(--accent), var(--cyan)); border-radius:3px; transition:width .3s; }
 
 /* History */
-.history-item { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; }
-.history-item .hi-icon { font-size:24px; }
+.history-item { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 16px; display:flex; align-items:center; gap:12px; margin-bottom:8px; transition:border .2s; }
+.history-item:hover { border-color:var(--border); }
+.history-item .hi-icon { font-size:22px; }
 .history-item .hi-info { flex:1; min-width:0; }
 .history-item .hi-name { font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.history-item .hi-size { font-size:11px; color:var(--text3); }
+.history-item .hi-size { font-size:11px; color:var(--text3); margin-top:2px; }
 .history-item .hi-actions { display:flex; gap:6px; }
-.btn-icon { width:32px; height:32px; border-radius:6px; border:1px solid var(--border); background:var(--card2); color:var(--text3); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all 0.2s; }
+.btn-icon { width:32px; height:32px; border-radius:6px; border:1px solid var(--border); background:var(--card2); color:var(--text3); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; transition:all .2s; text-decoration:none; }
 .btn-icon:hover { border-color:var(--accent); color:var(--accent); }
 .btn-icon.danger:hover { border-color:var(--red); color:var(--red); }
 
 /* Settings */
 .setting-group { margin-bottom:16px; }
 .setting-group label { font-size:13px; font-weight:600; color:var(--text2); display:block; margin-bottom:6px; }
-.setting-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 14px; font-size:13px; font-family:var(--font); outline:none; }
+.setting-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding:10px 14px; font-size:13px; font-family:var(--font); outline:none; transition:border .2s; }
 .setting-input:focus { border-color:var(--accent); }
+.field-hint { font-size:11px; color:var(--text3); margin-top:4px; }
 
 /* Empty state */
-.empty-state { text-align:center; padding:48px; color:var(--text3); }
-.empty-state .emoji { font-size:48px; margin-bottom:12px; }
+.empty-state { text-align:center; padding:56px 24px; color:var(--text3); }
+.empty-state .emoji { font-size:48px; margin-bottom:14px; }
 .empty-state p { font-size:14px; }
 
 /* Toast */
 .toast-container { position:fixed; top:20px; right:20px; z-index:9999; }
-.toast { padding:10px 20px; border-radius:8px; font-size:13px; margin-bottom:8px; animation:slideIn 0.3s ease; }
-.toast.success { background:#065f46; color:#6ee7b7; }
-.toast.error { background:#7f1d1d; color:#fca5a5; }
+.toast { padding:10px 20px; border-radius:8px; font-size:13px; margin-bottom:8px; animation:slideIn .3s ease; }
+.toast.success { background:rgba(34,197,94,0.15); color:#4ade80; border:1px solid rgba(34,197,94,0.3); }
+.toast.error { background:rgba(244,63,94,0.15); color:#fb7185; border:1px solid rgba(244,63,94,0.3); }
 @keyframes slideIn { from { transform:translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
 
 /* Loading spinner */
-.spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--text3); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid rgba(255,255,255,0.3); border-top-color:#fff; border-radius:50%; animation:spin .6s linear infinite; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* Platform badge */
 .badge { padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; text-transform:uppercase; }
 .badge-douyin { background:rgba(254,44,85,0.15); color:#fe2c55; }
-.badge-tiktok { background:rgba(0,0,0,0.3); color:#fff; }
+.badge-tiktok { background:rgba(255,255,255,0.08); color:var(--text2); }
 
 /* Batch bar */
 .batch-bar { display:flex; align-items:center; gap:16px; padding:10px 16px; background:var(--card); border:1px solid var(--border); border-radius:10px; margin-bottom:12px; }
@@ -114,9 +116,8 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 
 /* Card checkbox */
 .card-checkbox { position:absolute; top:10px; left:10px; z-index:2; cursor:pointer; }
-.card-checkbox input { accent-color:var(--accent); width:18px; height:18px; cursor:pointer; border-radius:4px; }
-.video-card { position:relative; }
-.video-card:has(.video-cb:checked) { border-color:var(--accent); background:rgba(0,188,212,0.04); }
+.card-checkbox input { accent-color:var(--accent); width:18px; height:18px; cursor:pointer; }
+.video-card:has(.video-cb:checked) { border-color:var(--accent); background:rgba(99,102,241,0.04); }
 </style>
 </head>
 <body>
@@ -127,30 +128,38 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 </div>
 
 <div class="tabs">
-    <div class="tab active" onclick="switchTab('download')">📥 Tải video</div>
-    <div class="tab" onclick="switchTab('history')">📂 Lịch sử</div>
-    <div class="tab" onclick="switchTab('settings')">⚙️ Cài đặt</div>
+    <div class="tab active" id="tab-btn-download" onclick="switchTab('download',this)">📥 <span data-i18n="dl.tab_download">Download</span></div>
+    <div class="tab" id="tab-btn-history" onclick="switchTab('history',this)">📂 <span data-i18n="dl.tab_history">History</span></div>
+    <div class="tab" id="tab-btn-settings" onclick="switchTab('settings',this)">⚙️ <span data-i18n="dl.tab_settings">Settings</span></div>
 </div>
 
 <div class="main">
     <!-- Download Tab -->
     <div id="tab-download" class="section active">
         <div class="input-area">
-            <label>Dán link TikTok / Douyin vào đây</label>
-            <textarea id="url-input" class="url-input" placeholder="https://www.douyin.com/video/7439076585594339627&#10;https://www.douyin.com/user/MS4wLjABAAAA...&#10;https://www.tiktok.com/@user/video/7439076585594339627&#10;&#10;Hỗ trợ: Video link, user profile (quét kênh), hoặc video ID" rows="3"></textarea>
+            <label data-i18n="dl.paste_label">Paste TikTok / Douyin links here</label>
+            <textarea id="url-input" class="url-input"
+                placeholder="https://www.douyin.com/video/7439076585594339627&#10;https://www.douyin.com/user/MS4wLjABAAAA...&#10;https://www.tiktok.com/@user/video/7439076585594339627"
+                rows="3"></textarea>
             <div class="btn-row">
-                <button class="btn btn-primary" id="btn-parse" onclick="parseLinks()">🔍 Phân tích</button>
-                <button class="btn btn-ghost" onclick="clearAll()">🗑️ Xóa</button>
+                <button class="btn btn-primary" id="btn-parse" onclick="parseLinks()">
+                    🔍 <span data-i18n="dl.btn_analyze">Analyze</span>
+                </button>
+                <button class="btn btn-ghost" onclick="clearAll()">
+                    🗑️ <span data-i18n="dl.btn_clear">Clear</span>
+                </button>
             </div>
         </div>
 
         <div id="batch-bar" class="batch-bar" style="display:none;">
             <label class="batch-select-all">
                 <input type="checkbox" id="select-all-cb" onchange="toggleSelectAll(this.checked)">
-                <span>Chọn tất cả</span>
+                <span data-i18n="dl.select_all">Select all</span>
             </label>
-            <span id="batch-count" class="batch-count">0 đã chọn</span>
-            <button class="btn btn-sm btn-primary" id="btn-download-all" onclick="downloadSelected()" disabled>📥 Tải tất cả đã chọn</button>
+            <span id="batch-count" class="batch-count">0 selected</span>
+            <button class="btn btn-sm btn-primary" id="btn-download-all" onclick="downloadSelected()" disabled>
+                📥 <span data-i18n="dl.btn_download_selected">Download selected</span>
+            </button>
         </div>
 
         <div id="video-cards" class="video-cards"></div>
@@ -166,20 +175,24 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
         <div class="input-area">
             <div class="setting-group">
                 <label>🍪 Douyin Cookie</label>
-                <textarea id="set-cookie-douyin" class="setting-input" rows="3" placeholder='Hỗ trợ: JSON array [{"name":"key","value":"val"}], JSON {"url":"...","cookies":[...]}, hoặc chuỗi key=val; key=val'></textarea>
-                <div style="font-size:11px;color:var(--text3);margin-top:4px;">Tự động nhận dạng format: JSON export từ trình duyệt hoặc cookie string</div>
+                <textarea id="set-cookie-douyin" class="setting-input" rows="3"
+                    placeholder='JSON array [{"name":"key","value":"val"}] or cookie string key=val; key=val'></textarea>
+                <div class="field-hint" data-i18n="dl.cookie_hint">Auto-detects format: JSON export from browser extension or raw cookie string</div>
             </div>
             <div class="setting-group">
                 <label>🍪 TikTok Cookie</label>
-                <textarea id="set-cookie-tiktok" class="setting-input" rows="3" placeholder='Paste JSON hoặc cookie string...'></textarea>
-                <div style="font-size:11px;color:var(--text3);margin-top:4px;">Tự động convert JSON → cookie string khi lưu</div>
+                <textarea id="set-cookie-tiktok" class="setting-input" rows="3"
+                    placeholder="Paste JSON or cookie string..."></textarea>
+                <div class="field-hint" data-i18n="dl.cookie_convert_hint">Auto-converts JSON → cookie string when saving</div>
             </div>
             <div class="setting-group">
                 <label>🌐 Proxy</label>
                 <input type="text" id="set-proxy" class="setting-input" placeholder="http://127.0.0.1:7890">
             </div>
             <div class="btn-row">
-                <button class="btn btn-primary" onclick="saveSettings()">💾 Lưu cài đặt</button>
+                <button class="btn btn-primary" onclick="saveSettings()">
+                    💾 <span data-i18n="dl.btn_save_settings">Save Settings</span>
+                </button>
             </div>
         </div>
     </div>
@@ -190,15 +203,184 @@ body { font-family:var(--font); background:var(--bg); color:var(--text); min-hei
 <script>
 const API = '/api/v1/douyin_downloader';
 
-function switchTab(tab) {
+// ─── i18n ────────────────────────────────────────────────────────────────────
+const LOCALES = {
+    en: {
+        'dl.tab_download': 'Download',
+        'dl.tab_history': 'History',
+        'dl.tab_settings': 'Settings',
+        'dl.paste_label': 'Paste TikTok / Douyin links here',
+        'dl.paste_placeholder': 'https://www.douyin.com/video/...\nhttps://www.tiktok.com/@user/...\n\nSupports: video link, user profile (channel scan), or video ID',
+        'dl.btn_analyze': 'Analyze',
+        'dl.btn_clear': 'Clear',
+        'dl.select_all': 'Select all',
+        'dl.btn_download_selected': 'Download selected',
+        'dl.cookie_hint': 'Auto-detects: JSON array from browser extension or raw cookie string',
+        'dl.cookie_convert_hint': 'Auto-converts JSON → cookie string when saving',
+        'dl.btn_save_settings': 'Save Settings',
+        'dl.err_no_url': 'Please enter a URL first!',
+        'dl.analyzing': 'Analyzing…',
+        'dl.scanning': 'Scanning channel…',
+        'dl.found_videos': 'Found {n} videos!',
+        'dl.no_videos': 'No videos found from this channel.',
+        'dl.no_title': 'No title',
+        'dl.err_parse': 'Parse error',
+        'dl.downloading': 'Downloading…',
+        'dl.retry': '📥 Retry',
+        'dl.done': '✅ Done',
+        'dl.download': '📥 Download',
+        'dl.open_player': '▶️ Open Player',
+        'dl.no_hls': 'No HLS link available',
+        'dl.no_link': 'No {type} link',
+        'dl.copied': 'Copied!',
+        'dl.copy_success': 'Link copied!',
+        'dl.download_success': 'Download complete: {filename}',
+        'dl.complete': '✅ Done — {size}',
+        'dl.err_prefix': 'Error: {msg}',
+        'dl.error': 'Error: {msg}',
+        'dl.no_browser_support': 'Your browser does not support HLS!',
+        'dl.no_selected': 'No videos selected!',
+        'dl.downloading_n': 'Downloading {done}/{total}…',
+        'dl.batch_done': 'Downloaded {n} videos!',
+        'dl.skip_done': '✅ Done',
+        'dl.empty_history': 'No files downloaded yet',
+        'dl.err_history': 'Failed to load history',
+        'dl.delete_confirm': 'Delete file {filename}?',
+        'dl.deleted': 'Deleted',
+        'dl.err_delete': 'Delete error: {msg}',
+        'dl.download_file': 'Download file',
+        'dl.settings_saved': 'Settings saved!',
+        'dl.err_save': 'Save error: {msg}',
+        'dl.n_selected': '{n} / {total} selected',
+        'dl.likes': 'likes',
+    },
+    vi: {
+        'dl.tab_download': 'Tải video',
+        'dl.tab_history': 'Lịch sử',
+        'dl.tab_settings': 'Cài đặt',
+        'dl.paste_label': 'Dán link TikTok / Douyin vào đây',
+        'dl.paste_placeholder': 'https://www.douyin.com/video/7439076585594339627\nhttps://www.douyin.com/user/MS4wLjABAAAA...\nhttps://www.tiktok.com/@user/video/...\n\nHỗ trợ: link video, trang cá nhân (quét kênh), hoặc video ID',
+        'dl.btn_analyze': 'Phân tích',
+        'dl.btn_clear': 'Xóa',
+        'dl.select_all': 'Chọn tất cả',
+        'dl.btn_download_selected': 'Tải tất cả đã chọn',
+        'dl.cookie_hint': 'Tự nhận dạng: JSON export từ trình duyệt hoặc chuỗi cookie string',
+        'dl.cookie_convert_hint': 'Tự chuyển JSON → cookie string khi lưu',
+        'dl.btn_save_settings': 'Lưu cài đặt',
+        'dl.err_no_url': 'Nhập link trước!',
+        'dl.analyzing': 'Đang phân tích…',
+        'dl.scanning': 'Đang quét kênh…',
+        'dl.found_videos': 'Tìm thấy {n} video!',
+        'dl.no_videos': 'Không tìm thấy video nào từ kênh này.',
+        'dl.no_title': 'Không có tiêu đề',
+        'dl.err_parse': 'Lỗi phân tích',
+        'dl.downloading': 'Đang tải…',
+        'dl.retry': '📥 Thử lại',
+        'dl.done': '✅ Đã tải',
+        'dl.download': '📥 Tải xuống',
+        'dl.open_player': '▶️ Mở Player',
+        'dl.no_hls': 'Không có link HLS',
+        'dl.no_link': 'Không có link {type}',
+        'dl.copied': 'Đã copy!',
+        'dl.copy_success': 'Đã copy link!',
+        'dl.download_success': 'Tải thành công: {filename}',
+        'dl.complete': '✅ Hoàn tất — {size}',
+        'dl.err_prefix': 'Lỗi: {msg}',
+        'dl.error': 'Lỗi: {msg}',
+        'dl.no_browser_support': 'Trình duyệt không hỗ trợ HLS!',
+        'dl.no_selected': 'Chưa chọn video nào!',
+        'dl.downloading_n': 'Đang tải {done}/{total}…',
+        'dl.batch_done': 'Hoàn tất tải {n} video!',
+        'dl.skip_done': '✅ Đã tải',
+        'dl.empty_history': 'Chưa có file nào được tải',
+        'dl.err_history': 'Lỗi tải lịch sử',
+        'dl.delete_confirm': 'Xóa file {filename}?',
+        'dl.deleted': 'Đã xóa',
+        'dl.err_delete': 'Lỗi xóa: {msg}',
+        'dl.download_file': 'Tải về máy',
+        'dl.settings_saved': 'Đã lưu cài đặt!',
+        'dl.err_save': 'Lỗi lưu: {msg}',
+        'dl.n_selected': '{n} / {total} đã chọn',
+        'dl.likes': 'lượt thích',
+    },
+    zh: {
+        'dl.tab_download': '下载视频',
+        'dl.tab_history': '历史记录',
+        'dl.tab_settings': '设置',
+        'dl.paste_label': '在此粘贴 TikTok / Douyin 链接',
+        'dl.paste_placeholder': 'https://www.douyin.com/video/...\n\n支持：视频链接、用户主页（扫描频道）或视频ID',
+        'dl.btn_analyze': '解析',
+        'dl.btn_clear': '清空',
+        'dl.select_all': '全选',
+        'dl.btn_download_selected': '下载已选',
+        'dl.cookie_hint': '自动识别格式：浏览器导出的 JSON 或 Cookie 字符串',
+        'dl.cookie_convert_hint': '保存时自动将 JSON 转换为 Cookie 字符串',
+        'dl.btn_save_settings': '保存设置',
+        'dl.err_no_url': '请先输入链接！',
+        'dl.analyzing': '解析中…',
+        'dl.scanning': '扫描频道中…',
+        'dl.found_videos': '找到 {n} 个视频！',
+        'dl.no_videos': '该频道没有找到视频。',
+        'dl.no_title': '无标题',
+        'dl.err_parse': '解析错误',
+        'dl.downloading': '下载中…',
+        'dl.retry': '📥 重试',
+        'dl.done': '✅ 已下载',
+        'dl.download': '📥 下载',
+        'dl.open_player': '▶️ 打开播放器',
+        'dl.no_hls': '无 HLS 链接',
+        'dl.no_link': '无 {type} 链接',
+        'dl.copied': '已复制！',
+        'dl.copy_success': '链接已复制！',
+        'dl.download_success': '下载完成：{filename}',
+        'dl.complete': '✅ 完成 — {size}',
+        'dl.err_prefix': '错误：{msg}',
+        'dl.error': '错误：{msg}',
+        'dl.no_browser_support': '浏览器不支持 HLS！',
+        'dl.no_selected': '未选择任何视频！',
+        'dl.downloading_n': '下载中 {done}/{total}…',
+        'dl.batch_done': '已完成 {n} 个视频的下载！',
+        'dl.skip_done': '✅ 已下载',
+        'dl.empty_history': '暂无下载文件',
+        'dl.err_history': '加载历史记录失败',
+        'dl.delete_confirm': '删除文件 {filename}？',
+        'dl.deleted': '已删除',
+        'dl.err_delete': '删除失败：{msg}',
+        'dl.download_file': '下载到本地',
+        'dl.settings_saved': '设置已保存！',
+        'dl.err_save': '保存失败：{msg}',
+        'dl.n_selected': '已选 {n} / {total}',
+        'dl.likes': '点赞',
+    },
+};
+
+const _lang = (localStorage.getItem('lang') || 'en').toLowerCase().slice(0, 2);
+const _dict = LOCALES[_lang] || LOCALES['en'];
+
+function T(key, params) {
+    let s = _dict[key] || LOCALES['en'][key] || key;
+    if (params) Object.keys(params).forEach(k => { s = s.replace(new RegExp('{' + k + '}', 'g'), params[k]); });
+    return s;
+}
+
+// Apply i18n on load
+document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = T(key);
+});
+document.getElementById('url-input').placeholder = T('dl.paste_placeholder');
+
+// ─── Tabs ─────────────────────────────────────────────────────────────────────
+function switchTab(tab, btn) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-    event.target.classList.add('active');
+    if (btn) btn.classList.add('active');
     document.getElementById('tab-' + tab).classList.add('active');
     if (tab === 'history') loadHistory();
     if (tab === 'settings') loadSettings();
 }
 
+// ─── Toast ────────────────────────────────────────────────────────────────────
 function toast(msg, type = 'success') {
     const c = document.getElementById('toast-container');
     const el = document.createElement('div');
@@ -208,104 +390,93 @@ function toast(msg, type = 'success') {
     setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 3000);
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function formatSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
+    if (!bytes || bytes < 1024) return (bytes || 0) + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
 }
-
 function formatSpeed(bps) {
-    if (bps < 1024) return bps + ' B/s';
+    if (!bps || bps < 1024) return (bps || 0) + ' B/s';
     if (bps < 1048576) return (bps / 1024).toFixed(1) + ' KB/s';
     return (bps / 1048576).toFixed(1) + ' MB/s';
 }
+function formatCount(n) { if (n >= 1e6) return (n/1e6).toFixed(1)+'M'; if (n >= 1e3) return (n/1e3).toFixed(1)+'K'; return n; }
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
 
-// === Parse ===
+// ─── Parse ────────────────────────────────────────────────────────────────────
 async function parseLinks() {
     const input = document.getElementById('url-input').value.trim();
-    if (!input) { toast('Nhập link trước!', 'error'); return; }
+    if (!input) { toast(T('dl.err_no_url'), 'error'); return; }
 
     const btn = document.getElementById('btn-parse');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Đang phân tích...';
+    btn.innerHTML = `<span class="spinner"></span> ${T('dl.analyzing')}`;
 
     try {
         const urls = input.split('\n').map(u => u.trim()).filter(u => u);
         const cards = document.getElementById('video-cards');
         cards.innerHTML = '';
 
-        // Check if any URL is a user profile link
         const isUserProfile = urls.some(u => /douyin\.com\/user\//.test(u) || (u.startsWith('MS4') && u.length > 30));
 
         if (isUserProfile) {
-            // Parse as user profile
             const userUrl = urls.find(u => /douyin\.com\/user\//.test(u) || (u.startsWith('MS4') && u.length > 30));
             try {
-                btn.innerHTML = '<span class="spinner"></span> Đang quét kênh...';
+                btn.innerHTML = `<span class="spinner"></span> ${T('dl.scanning')}`;
                 const res = await fetch(`${API}/parse-user`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({url: userUrl}),
                 });
                 const data = await res.json();
                 if (data.success) {
-                    // Show user info header
-                    if (data.user) {
-                        cards.innerHTML += renderUserHeader(data.user, data.total);
-                    }
-                    // Show all videos
+                    if (data.user) cards.innerHTML += renderUserHeader(data.user, data.total);
                     if (data.videos && data.videos.length > 0) {
-                        for (const v of data.videos) {
-                            cards.innerHTML += renderVideoCard(v, `https://www.douyin.com/video/${v.id}`);
-                        }
-                        toast(`Tìm thấy ${data.total} video!`, 'success');
+                        for (const v of data.videos) cards.innerHTML += renderVideoCard(v, `https://www.douyin.com/video/${v.id}`);
+                        toast(T('dl.found_videos', {n: data.total}));
                     } else {
-                        cards.innerHTML += renderErrorCard(userUrl, 'Không tìm thấy video nào từ kênh này.');
+                        cards.innerHTML += renderErrorCard(userUrl, T('dl.no_videos'));
                     }
                 } else {
-                    cards.innerHTML += renderErrorCard(userUrl, data.detail || 'Lỗi không xác định');
+                    cards.innerHTML += renderErrorCard(userUrl, data.detail || T('dl.err_prefix', {msg: 'unknown'}));
                 }
             } catch (e) {
                 cards.innerHTML += renderErrorCard(userUrl, e.message);
             }
         } else {
-            // Parse individual video links
             for (const url of urls) {
                 try {
                     const res = await fetch(`${API}/parse`, {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({url}),
                     });
                     const data = await res.json();
-                    if (data.success && data.data) {
-                        cards.innerHTML += renderVideoCard(data.data, url);
-                    } else {
-                        cards.innerHTML += renderErrorCard(url, data.detail || 'Lỗi không xác định');
-                    }
+                    if (data.success && data.data) cards.innerHTML += renderVideoCard(data.data, url);
+                    else cards.innerHTML += renderErrorCard(url, data.detail || T('dl.err_prefix', {msg: 'unknown'}));
                 } catch (e) {
                     cards.innerHTML += renderErrorCard(url, e.message);
                 }
             }
         }
     } catch (e) {
-        toast('Lỗi: ' + e.message, 'error');
+        toast(T('dl.error', {msg: e.message}), 'error');
     }
 
     btn.disabled = false;
-    btn.innerHTML = '🔍 Phân tích';
+    btn.innerHTML = `🔍 ${T('dl.btn_analyze')}`;
     showBatchBar();
 }
 
 function renderUserHeader(user, total) {
-    return `<div class="video-card" style="border-color:var(--cyan);background:rgba(0,188,212,0.05);">
+    return `<div class="video-card" style="border-color:var(--accent);background:rgba(99,102,241,0.05);">
         ${user.avatar ? `<img src="${user.avatar}" class="video-thumb" style="border-radius:50%;width:80px;height:80px;object-fit:cover;" alt="">` : ''}
         <div class="video-info">
             <div class="video-title" style="font-size:1.1em;">👤 ${escHtml(user.nickname || 'Unknown')}</div>
             <div class="video-meta">
                 <span>🎬 ${user.aweme_count || total} video</span>
-                <span>👥 ${formatCount(user.follower_count || 0)} follower</span>
-                <span>❤️ ${formatCount(user.total_favorited || 0)} lượt thích</span>
+                <span>👥 ${formatCount(user.follower_count || 0)} followers</span>
+                <span>❤️ ${formatCount(user.total_favorited || 0)} ${T('dl.likes')}</span>
             </div>
             ${user.signature ? `<div style="font-size:12px;color:var(--text3);margin-top:4px;">${escHtml(user.signature)}</div>` : ''}
         </div>
@@ -322,51 +493,39 @@ function renderVideoCard(v, originalUrl) {
         : '<div class="video-thumb" style="display:flex;align-items:center;justify-content:center;font-size:32px;">🎬</div>';
 
     const uid = 'vc_' + Math.random().toString(36).slice(2, 8);
-
     let actionsHtml = '';
-    
+
     if (v.type === 'live') {
-        const hlsMap = v.raw_data && v.raw_data.stream_url && v.raw_data.stream_url.hls_pull_url_map ? v.raw_data.stream_url.hls_pull_url_map : {};
-        const flvMap = v.raw_data && v.raw_data.stream_url && v.raw_data.stream_url.flv_pull_url_map ? v.raw_data.stream_url.flv_pull_url_map : {};
-        
+        const hlsMap = v.raw_data?.stream_url?.hls_pull_url_map || {};
+        const flvMap = v.raw_data?.stream_url?.flv_pull_url_map || {};
         let opts = '';
         for (const [key, url] of Object.entries(hlsMap)) {
             opts += `<option value="${escAttr(url)}" data-flv="${escAttr(flvMap[key] || '')}">${key}</option>`;
         }
-        if (!opts && v.download_url) {
-            opts = `<option value="${escAttr(v.download_url)}">Mặc định</option>`;
-        }
-        
+        if (!opts && v.download_url) opts = `<option value="${escAttr(v.download_url)}">Default</option>`;
         const selId = 'sel_' + uid;
         actionsHtml = `
-            <select id="${selId}" style="background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px; font-size:12px; outline:none;">
-                ${opts}
-            </select>
-            <button class="btn btn-sm btn-primary" onclick="playLive('${selId}', '${escAttr(v.title || 'Live')}', '${escAttr(v.cover_url || '')}')">▶️ Mở Player</button>
-            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}', 'hls')" title="Copy M3U8">📋 HLS</button>
-            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}', 'flv')" title="Copy FLV">📋 FLV</button>
-        `;
+            <select id="${selId}" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px;font-size:12px;">${opts}</select>
+            <button class="btn btn-sm btn-primary" onclick="playLive('${selId}','${escAttr(v.title||'Live')}','${escAttr(v.cover_url||'')}')">${T('dl.open_player')}</button>
+            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}','hls')">📋 HLS</button>
+            <button class="btn btn-sm btn-ghost" onclick="copyStream('${selId}','flv')">📋 FLV</button>`;
     } else {
-        actionsHtml = `<button class="btn btn-sm btn-download" onclick="downloadVideo('${uid}', '${escAttr(originalUrl)}')">📥 Tải xuống</button>`;
+        actionsHtml = `<button class="btn btn-sm btn-download" onclick="downloadVideo('${uid}','${escAttr(originalUrl)}')">${T('dl.download')}</button>`;
     }
 
     return `<div class="video-card" id="${uid}" data-url="${escAttr(originalUrl)}">
-        <label class="card-checkbox">
-            <input type="checkbox" class="video-cb" onchange="updateBatchBar()">
-        </label>
+        <label class="card-checkbox"><input type="checkbox" class="video-cb" onchange="updateBatchBar()"></label>
         ${coverImg}
         <div class="video-info">
-            <div class="video-title">${badge} ${escHtml(v.title || 'Không có tiêu đề')}</div>
+            <div class="video-title">${badge} ${escHtml(v.title || T('dl.no_title'))}</div>
             <div class="video-meta">
                 <span>👤 ${escHtml(v.author || '?')}</span>
-                ${v.type === 'live' ? '<span style="color:var(--red); font-weight:bold;">🔴 LIVE</span>' : `<span>⏱️ ${v.duration || '--'}</span>`}
+                ${v.type === 'live' ? '<span style="color:var(--red);font-weight:bold;">🔴 LIVE</span>' : `<span>⏱️ ${v.duration || '--'}</span>`}
                 <span>📐 ${v.width}×${v.height}</span>
                 ${v.play_count > 0 ? `<span>👁️ ${formatCount(v.play_count)}</span>` : ''}
                 ${v.like_count > 0 ? `<span>❤️ ${formatCount(v.like_count)}</span>` : ''}
             </div>
-            <div class="video-actions">
-                ${actionsHtml}
-            </div>
+            <div class="video-actions">${actionsHtml}</div>
             <div id="prog-${uid}" style="display:none;">
                 <div class="progress-bar"><div class="progress-fill" id="fill-${uid}" style="width:0%"></div></div>
                 <div style="font-size:11px;color:var(--text3);margin-top:4px;" id="stat-${uid}"></div>
@@ -379,42 +538,37 @@ function renderErrorCard(url, error) {
     return `<div class="video-card" style="border-color:var(--red);">
         <div class="video-thumb" style="display:flex;align-items:center;justify-content:center;font-size:32px;">❌</div>
         <div class="video-info">
-            <div class="video-title" style="color:var(--red);">Lỗi phân tích</div>
+            <div class="video-title" style="color:var(--red);">${T('dl.err_parse')}</div>
             <div class="video-meta"><span>${escHtml(url)}</span></div>
             <div style="font-size:12px;color:var(--text3);">${escHtml(error)}</div>
         </div>
     </div>`;
 }
 
-function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-function escAttr(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
-function formatCount(n) { if (n >= 1e6) return (n/1e6).toFixed(1)+'M'; if (n >= 1e3) return (n/1e3).toFixed(1)+'K'; return n; }
-
-// === Download ===
+// ─── Download ─────────────────────────────────────────────────────────────────
 async function downloadVideo(uid, url) {
     const btn = document.querySelector(`#${uid} .btn-download`);
     btn.disabled = true;
-    btn.textContent = '⏳ Đang tải...';
+    btn.textContent = T('dl.downloading');
     document.getElementById('prog-' + uid).style.display = 'block';
 
     try {
         const res = await fetch(`${API}/download`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({url}),
         });
         const data = await res.json();
         if (data.success) {
             pollProgress(uid, data.task_id);
         } else {
-            toast('Lỗi: ' + (data.detail || 'unknown'), 'error');
+            toast(T('dl.error', {msg: data.detail || 'unknown'}), 'error');
             btn.disabled = false;
-            btn.textContent = '📥 Tải xuống';
+            btn.textContent = T('dl.download');
         }
     } catch (e) {
-        toast('Lỗi: ' + e.message, 'error');
+        toast(T('dl.error', {msg: e.message}), 'error');
         btn.disabled = false;
-        btn.textContent = '📥 Tải xuống';
+        btn.textContent = T('dl.download');
     }
 }
 
@@ -428,7 +582,6 @@ async function pollProgress(uid, taskId) {
             const res = await fetch(`${API}/status/${taskId}`);
             const data = await res.json();
             const t = data.data;
-
             fill.style.width = t.progress + '%';
             stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
 
@@ -436,48 +589,45 @@ async function pollProgress(uid, taskId) {
                 clearInterval(poll);
                 fill.style.width = '100%';
                 fill.style.background = 'var(--green)';
-                stat.innerHTML = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
-                btn.textContent = '✅ Đã tải';
+                stat.innerHTML = T('dl.complete', {size: formatSize(t.total_size)});
+                btn.textContent = T('dl.done');
                 btn.style.background = 'var(--green)';
-                // Add copy link & download file icons
                 const actions = document.querySelector(`#${uid} .video-actions`);
                 if (actions) {
                     const fname = encodeURIComponent(t.filename || '');
-                    actions.innerHTML += ` <button class="btn btn-sm btn-ghost" onclick="copyFileLink('${fname}')" title="Copy link file">📋</button>`;
-                    actions.innerHTML += ` <a href="${API}/file/${fname}" download class="btn btn-sm btn-ghost" title="Tải video về máy">💾</a>`;
+                    actions.innerHTML += ` <button class="btn btn-sm btn-ghost" onclick="copyFileLink('${fname}')" title="${T('dl.copied')}">📋</button>`;
+                    actions.innerHTML += ` <a href="${API}/file/${fname}" download class="btn btn-sm btn-ghost" title="${T('dl.download_file')}">💾</a>`;
                 }
-                toast('Tải thành công: ' + t.filename, 'success');
+                toast(T('dl.download_success', {filename: t.filename}));
             } else if (t.status === 'error') {
                 clearInterval(poll);
                 fill.style.background = 'var(--red)';
-                stat.textContent = `❌ Lỗi: ${t.error}`;
+                stat.textContent = `❌ ${t.error}`;
                 btn.disabled = false;
-                btn.textContent = '📥 Thử lại';
+                btn.textContent = T('dl.retry');
                 btn.style.background = '';
             }
-        } catch (e) {
-            // ignore polling errors
-        }
+        } catch (e) { /* ignore */ }
     }, 500);
 }
 
 function copyFileLink(encodedFilename) {
     const link = location.origin + `${API}/file/${encodedFilename}`;
-    navigator.clipboard.writeText(link).then(() => toast('Đã copy link file!', 'success'));
+    navigator.clipboard.writeText(link).then(() => toast(T('dl.copy_success')));
 }
 
 function copyStream(selId, type) {
     const sel = document.getElementById(selId);
     if (!sel) return;
     const url = type === 'flv' ? sel.options[sel.selectedIndex].getAttribute('data-flv') : sel.value;
-    if (!url) { toast('Không có link ' + type, 'error'); return; }
-    navigator.clipboard.writeText(url).then(() => toast(`Đã copy link ${type.toUpperCase()}`, 'success'));
+    if (!url) { toast(T('dl.no_link', {type: type.toUpperCase()}), 'error'); return; }
+    navigator.clipboard.writeText(url).then(() => toast(`📋 ${type.toUpperCase()} ${T('dl.copied')}`));
 }
 
-// Live Player logic
+// ─── Live Player ──────────────────────────────────────────────────────────────
 function playLive(selId, title, poster) {
     const sel = document.getElementById(selId);
-    if (!sel || !sel.value) return toast('Không có link HLS', 'error');
+    if (!sel || !sel.value) return toast(T('dl.no_hls'), 'error');
     const hlsUrl = sel.value;
 
     let playerModal = document.getElementById('live-player-modal');
@@ -486,48 +636,39 @@ function playLive(selId, title, poster) {
         playerModal.id = 'live-player-modal';
         playerModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.9);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;';
         playerModal.innerHTML = `
-            <div style="width:100%; max-width:800px; display:flex; justify-content:space-between; margin-bottom:10px;">
-                <h3 id="live-player-title" style="color:#fff; margin:0; font-size:16px;">Live Stream</h3>
-                <button style="background:var(--red); border:none; color:#fff; cursor:pointer; padding:4px 12px; border-radius:4px; font-weight:bold;" onclick="closeLivePlayer()">ĐÓNG</button>
+            <div style="width:100%;max-width:800px;display:flex;justify-content:space-between;margin-bottom:10px;">
+                <h3 id="live-player-title" style="color:#fff;margin:0;font-size:16px;">Live Stream</h3>
+                <button style="background:var(--red);border:none;color:#fff;cursor:pointer;padding:4px 12px;border-radius:4px;font-weight:bold;" onclick="closeLivePlayer()">✕ Close</button>
             </div>
-            <video id="live-video-el" controls autoplay style="width:100%; max-width:800px; max-height:80vh; background:#000; border-radius:8px;" poster=""></video>
-        `;
+            <video id="live-video-el" controls autoplay style="width:100%;max-width:800px;max-height:80vh;background:#000;border-radius:8px;" poster=""></video>`;
         document.body.appendChild(playerModal);
-        
-        // Load hls.js if not loaded
         if (!window.Hls) {
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/hls.js@1';
-            document.head.appendChild(script);
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1';
+            document.head.appendChild(s);
         }
     }
-    
     playerModal.style.display = 'flex';
     document.getElementById('live-player-title').textContent = title || 'Live Stream';
-    
-    // Play with hls.js
+
     const startPlay = () => {
         const video = document.getElementById('live-video-el');
         if (poster) video.poster = poster;
-        
-        if (window.hlsInstance) { window.hlsInstance.destroy(); }
-        
+        if (window.hlsInstance) window.hlsInstance.destroy();
         if (window.Hls && Hls.isSupported()) {
             const hls = new Hls();
             window.hlsInstance = hls;
             hls.loadSource(hlsUrl);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e=>console.log(e)));
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => console.log(e)));
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = hlsUrl;
-            video.addEventListener('loadedmetadata', () => video.play().catch(e=>console.log(e)));
+            video.addEventListener('loadedmetadata', () => video.play().catch(e => console.log(e)));
         } else {
-            toast('Trình duyệt không hỗ trợ HLS!', 'error');
+            toast(T('dl.no_browser_support'), 'error');
         }
     };
-    
-    if (window.Hls) startPlay();
-    else setTimeout(startPlay, 1000); // wait for script load
+    if (window.Hls) startPlay(); else setTimeout(startPlay, 1000);
 }
 
 window.closeLivePlayer = function() {
@@ -545,7 +686,7 @@ function clearAll() {
     document.getElementById('select-all-cb').checked = false;
 }
 
-// === Batch Select & Download ===
+// ─── Batch ────────────────────────────────────────────────────────────────────
 function showBatchBar() {
     const bar = document.getElementById('batch-bar');
     const cards = document.querySelectorAll('.video-cb');
@@ -562,21 +703,20 @@ function updateBatchBar() {
     const all = document.querySelectorAll('.video-cb');
     const checked = document.querySelectorAll('.video-cb:checked');
     const count = checked.length;
-    document.getElementById('batch-count').textContent = `${count} / ${all.length} đã chọn`;
+    document.getElementById('batch-count').textContent = T('dl.n_selected', {n: count, total: all.length});
     document.getElementById('btn-download-all').disabled = count === 0;
-    // Sync select-all checkbox
-    const selectAllCb = document.getElementById('select-all-cb');
-    selectAllCb.checked = all.length > 0 && count === all.length;
-    selectAllCb.indeterminate = count > 0 && count < all.length;
+    const sa = document.getElementById('select-all-cb');
+    sa.checked = all.length > 0 && count === all.length;
+    sa.indeterminate = count > 0 && count < all.length;
 }
 
 async function downloadSelected() {
     const checked = document.querySelectorAll('.video-cb:checked');
-    if (checked.length === 0) { toast('Chưa chọn video nào!', 'error'); return; }
+    if (checked.length === 0) { toast(T('dl.no_selected'), 'error'); return; }
 
     const btn = document.getElementById('btn-download-all');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Đang tải 0/' + checked.length + '...';
+    btn.innerHTML = `<span class="spinner"></span> ${T('dl.downloading_n', {done: 0, total: checked.length})}`;
 
     let done = 0;
     for (const cb of checked) {
@@ -584,34 +724,30 @@ async function downloadSelected() {
         const uid = card.id;
         const url = card.dataset.url;
         if (!url) continue;
-
-        // Skip already downloaded
         const dlBtn = card.querySelector('.btn-download');
-        if (dlBtn && dlBtn.textContent.includes('Đã tải')) { done++; continue; }
+        if (dlBtn && dlBtn.textContent.includes(T('dl.skip_done').slice(0, 4))) { done++; continue; }
 
         try {
             const res = await fetch(`${API}/download`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
+                method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({url}),
             });
             const data = await res.json();
             if (data.success) {
-                // Start progress polling
                 document.getElementById('prog-' + uid).style.display = 'block';
-                if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = '⏳ Đang tải...'; }
+                if (dlBtn) { dlBtn.disabled = true; dlBtn.textContent = T('dl.downloading'); }
                 await waitForDownload(uid, data.task_id);
             }
         } catch (e) {
-            toast(`Lỗi tải ${uid}: ${e.message}`, 'error');
+            toast(T('dl.error', {msg: e.message}), 'error');
         }
         done++;
-        btn.innerHTML = `<span class="spinner"></span> Đang tải ${done}/${checked.length}...`;
+        btn.innerHTML = `<span class="spinner"></span> ${T('dl.downloading_n', {done, total: checked.length})}`;
     }
 
     btn.disabled = false;
-    btn.innerHTML = '📥 Tải tất cả đã chọn';
-    toast(`Hoàn tất tải ${done} video!`, 'success');
+    btn.innerHTML = `📥 ${T('dl.btn_download_selected')}`;
+    toast(T('dl.batch_done', {n: done}));
 }
 
 function waitForDownload(uid, taskId) {
@@ -619,7 +755,6 @@ function waitForDownload(uid, taskId) {
         const fill = document.getElementById('fill-' + uid);
         const stat = document.getElementById('stat-' + uid);
         const btn = document.querySelector(`#${uid} .btn-download`);
-
         const poll = setInterval(async () => {
             try {
                 const res = await fetch(`${API}/status/${taskId}`);
@@ -627,19 +762,18 @@ function waitForDownload(uid, taskId) {
                 const t = data.data;
                 fill.style.width = t.progress + '%';
                 stat.textContent = `${t.progress}% — ${formatSize(t.downloaded)} / ${formatSize(t.total_size)} — ${formatSpeed(t.speed)}`;
-
                 if (t.status === 'done') {
                     clearInterval(poll);
                     fill.style.width = '100%';
                     fill.style.background = 'var(--green)';
-                    stat.textContent = `✅ Hoàn tất — ${formatSize(t.total_size)}`;
-                    if (btn) { btn.textContent = '✅ Đã tải'; btn.style.background = 'var(--green)'; }
+                    stat.textContent = T('dl.complete', {size: formatSize(t.total_size)});
+                    if (btn) { btn.textContent = T('dl.done'); btn.style.background = 'var(--green)'; }
                     resolve();
                 } else if (t.status === 'error') {
                     clearInterval(poll);
                     fill.style.background = 'var(--red)';
-                    stat.textContent = `❌ Lỗi: ${t.error}`;
-                    if (btn) { btn.disabled = false; btn.textContent = '📥 Thử lại'; }
+                    stat.textContent = `❌ ${t.error}`;
+                    if (btn) { btn.disabled = false; btn.textContent = T('dl.retry'); }
                     resolve();
                 }
             } catch (e) { /* ignore */ }
@@ -647,49 +781,46 @@ function waitForDownload(uid, taskId) {
     });
 }
 
-// === History ===
+// ─── History ──────────────────────────────────────────────────────────────────
 async function loadHistory() {
     const list = document.getElementById('history-list');
     try {
         const res = await fetch(`${API}/history`);
         const data = await res.json();
         const files = data.data || [];
-
         if (files.length === 0) {
-            list.innerHTML = '<div class="empty-state"><div class="emoji">📂</div><p>Chưa có file nào được tải</p></div>';
+            list.innerHTML = `<div class="empty-state"><div class="emoji">📂</div><p>${T('dl.empty_history')}</p></div>`;
             return;
         }
-
         list.innerHTML = files.map(f => `
             <div class="history-item">
                 <div class="hi-icon">${f.filename.endsWith('.mp4') ? '🎬' : '🖼️'}</div>
                 <div class="hi-info">
                     <div class="hi-name">${escHtml(f.filename)}</div>
-                    <div class="hi-size">${formatSize(f.size)} — ${new Date(f.modified * 1000).toLocaleString('vi')}</div>
+                    <div class="hi-size">${formatSize(f.size)} — ${new Date(f.modified * 1000).toLocaleString()}</div>
                 </div>
                 <div class="hi-actions">
-                    <a href="${API}/file/${encodeURIComponent(f.filename)}" download class="btn-icon" title="Tải về">📥</a>
-                    <button class="btn-icon danger" onclick="deleteFile('${escAttr(f.filename)}')" title="Xóa">🗑️</button>
+                    <a href="${API}/file/${encodeURIComponent(f.filename)}" download class="btn-icon" title="${T('dl.download_file')}">📥</a>
+                    <button class="btn-icon danger" onclick="deleteFile('${escAttr(f.filename)}')" title="Delete">🗑️</button>
                 </div>
-            </div>
-        `).join('');
+            </div>`).join('');
     } catch (e) {
-        list.innerHTML = '<div class="empty-state"><div class="emoji">⚠️</div><p>Lỗi tải lịch sử</p></div>';
+        list.innerHTML = `<div class="empty-state"><div class="emoji">⚠️</div><p>${T('dl.err_history')}</p></div>`;
     }
 }
 
 async function deleteFile(filename) {
-    if (!confirm('Xóa file ' + filename + '?')) return;
+    if (!confirm(T('dl.delete_confirm', {filename}))) return;
     try {
         await fetch(`${API}/history/${encodeURIComponent(filename)}`, {method: 'DELETE'});
-        toast('Đã xóa', 'success');
+        toast(T('dl.deleted'));
         loadHistory();
     } catch (e) {
-        toast('Lỗi xóa: ' + e.message, 'error');
+        toast(T('dl.err_delete', {msg: e.message}), 'error');
     }
 }
 
-// === Settings ===
+// ─── Settings ─────────────────────────────────────────────────────────────────
 async function loadSettings() {
     try {
         const res = await fetch(`${API}/settings`);
@@ -712,13 +843,12 @@ async function saveSettings() {
 
     try {
         await fetch(`${API}/settings`, {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body),
         });
-        toast('Đã lưu cài đặt!', 'success');
+        toast(T('dl.settings_saved'));
     } catch (e) {
-        toast('Lỗi: ' + e.message, 'error');
+        toast(T('dl.err_save', {msg: e.message}), 'error');
     }
 }
 </script>

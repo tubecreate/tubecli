@@ -1269,8 +1269,14 @@ async function calSaveReminder() {
 
 // ── Agents Ext ──
 async function renderAgentsExt(el) {
+    if (!el) return;
     const data = await apiGet('/api/v1/agents');
     const agents = data?.agents || [];
+    agents.sort((a, b) => {
+        const dateA = a.created_at ? new Date(a.created_at) : 0;
+        const dateB = b.created_at ? new Date(b.created_at) : 0;
+        return dateB - dateA;
+    });
     let h = `<div style="display:flex;gap:10px;margin-bottom:20px">
         <button class="btn-primary" style="background:linear-gradient(135deg,#a855f7,#ec4899)" onclick="showGenerateAgent()">${T('agents.generate_ai')}</button>
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
@@ -2541,14 +2547,148 @@ function onProxyModeChange() { const m=document.getElementById('agent-proxy-mode
 function onScheduleRepeatChange() { document.getElementById('schedule-interval-group').style.display=document.getElementById('agent-schedule-repeat').value==='interval'?'block':'none'; }
 document.getElementById('agent-schedule-repeat')?.addEventListener('change', onScheduleRepeatChange);
 
-async function saveAgent() { const name=document.getElementById('agent-name').value.trim(); if(!name) return alert('Name required'); const id=document.getElementById('agent-id').value; const interests=document.getElementById('agent-interests').value.split(',').map(s=>s.trim()).filter(s=>s); let routine={}; try { const v=document.getElementById('agent-behavior').value; if(v) routine=JSON.parse(v); } catch(e) { return alert('Invalid JSON: '+e.message); } const pm=document.getElementById('agent-proxy-mode').value; const pp={mode:pm}; if(pm==='dynamic') { pp.api_url=document.getElementById('agent-proxy-api')?.value||''; pp.api_key=document.getElementById('agent-proxy-api-key')?.value||''; pp.location=document.getElementById('agent-proxy-location')?.value||''; } const payload = { name, description:document.getElementById('agent-desc').value, system_prompt:document.getElementById('agent-prompt').value, model:document.getElementById('agent-model').value, browser_ai_model:document.getElementById('agent-browser-model').value, avatar_type:document.getElementById('agent-avatar-type').value, avatar_color:document.getElementById('agent-avatar-color').value, persona:{interests}, routine, proxy_config:pm==='static'?document.getElementById('agent-proxy').value:'', proxy_provider:pp, timezone:document.getElementById('agent-timezone').value, schedule:{ enabled:document.getElementById('agent-schedule-enable').checked, repeat:document.getElementById('agent-schedule-repeat').value, interval:parseInt(document.getElementById('agent-schedule-interval').value)||60, active_days:Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb=>cb.value), start_time:document.getElementById('agent-schedule-start').value, end_time:document.getElementById('agent-schedule-end').value, max_runs:parseInt(document.getElementById('agent-schedule-max-runs').value)||10 }, enable_scraping:document.getElementById('agent-scraping-enable').checked, scraper_text_limit:parseInt(document.getElementById('agent-scraper-limit').value)||10000, script_output_format:document.getElementById('agent-scraper-format').value, telegram_token:document.getElementById('agent-tg-token').value, telegram_chat_id:document.getElementById('agent-tg-chat').value, messenger_token:document.getElementById('agent-ms-token').value, messenger_page_id:document.getElementById('agent-ms-page').value, messenger_php_url:document.getElementById('agent-ms-php').value, direct_trigger_skill_id:document.getElementById('agent-ms-skill').value, allowed_profiles:Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb=>cb.value), allowed_skills:Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb=>cb.value) }; if(id) await apiPut('/api/v1/agents/'+id,payload); else await apiPost('/api/v1/agents',payload); closeModal('modal-agent'); renderAgentsExt(document.getElementById('ext-detail-body')); }
+async function saveAgent() { const name=document.getElementById('agent-name').value.trim(); if(!name) return alert('Name required'); const id=document.getElementById('agent-id').value; const interests=document.getElementById('agent-interests').value.split(',').map(s=>s.trim()).filter(s=>s); let routine={}; try { const v=document.getElementById('agent-behavior').value; if(v) routine=JSON.parse(v); } catch(e) { return alert('Invalid JSON: '+e.message); } const pm=document.getElementById('agent-proxy-mode').value; const pp={mode:pm}; if(pm==='dynamic') { pp.api_url=document.getElementById('agent-proxy-api')?.value||''; pp.api_key=document.getElementById('agent-proxy-api-key')?.value||''; pp.location=document.getElementById('agent-proxy-location')?.value||''; } const payload = { name, description:document.getElementById('agent-desc').value, system_prompt:document.getElementById('agent-prompt').value, model:document.getElementById('agent-model').value, browser_ai_model:document.getElementById('agent-browser-model').value, avatar_type:document.getElementById('agent-avatar-type').value, avatar_color:document.getElementById('agent-avatar-color').value, persona:{interests}, routine, proxy_config:pm==='static'?document.getElementById('agent-proxy').value:'', proxy_provider:pp, timezone:document.getElementById('agent-timezone').value, schedule:{ enabled:document.getElementById('agent-schedule-enable').checked, repeat:document.getElementById('agent-schedule-repeat').value, interval:parseInt(document.getElementById('agent-schedule-interval').value)||60, active_days:Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb=>cb.value), start_time:document.getElementById('agent-schedule-start').value, end_time:document.getElementById('agent-schedule-end').value, max_runs:parseInt(document.getElementById('agent-schedule-max-runs').value)||10 }, enable_scraping:document.getElementById('agent-scraping-enable').checked, scraper_text_limit:parseInt(document.getElementById('agent-scraper-limit').value)||10000, script_output_format:document.getElementById('agent-scraper-format').value, telegram_token:document.getElementById('agent-tg-token').value, telegram_chat_id:document.getElementById('agent-tg-chat').value, messenger_token:document.getElementById('agent-ms-token').value, messenger_page_id:document.getElementById('agent-ms-page').value, messenger_php_url:document.getElementById('agent-ms-php').value, direct_trigger_skill_id:document.getElementById('agent-ms-skill').value, allowed_profiles:Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb=>cb.value), allowed_skills:Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb=>cb.value) }; if(id) await apiPut('/api/v1/agents/'+id,payload); else await apiPost('/api/v1/agents',payload); closeModal('modal-agent'); renderAgentsExt(getAgentsBody()); }
 async function deleteAgent(id) { if(!confirm('Delete agent?')) return; await apiDelete('/api/v1/agents/'+id); }
 
 // ═══ Generate Agent ═══
-let AI_PROVIDERS = { "ollama":{models:["deepseek-r1:latest","llama3.2","mistral-nemo"],needs_api:false}, "gemini":{models:["gemini-2.5-flash","gemini-2.0-flash","gemini-2.5-pro"],needs_api:true}, "chatgpt":{models:["gpt-4o","gpt-4o-mini","gpt-4-turbo"],needs_api:true}, "claude":{models:["claude-sonnet-4-20250514","claude-3-5-haiku-20241022"],needs_api:true}, "grok":{models:["grok-3","grok-3-mini","grok-2"],needs_api:true} };
-function showGenerateAgent() { document.getElementById('agent-gen-name').value=''; document.getElementById('agent-gen-prefix').value=''; document.getElementById('agent-gen-desc').value=''; document.getElementById('agent-gen-provider').value='ollama'; document.getElementById('agent-gen-accounts').value=''; document.getElementById('agent-gen-preview').value=''; document.getElementById('agent-gen-status').textContent=''; document.getElementById('btn-apply-ai').style.display='none'; onGenProviderChange(); const ni=document.getElementById('agent-gen-name'); const nn=ni.cloneNode(true); ni.parentNode.replaceChild(nn,ni); nn.addEventListener('input',e=>{ document.getElementById('agent-gen-prefix').value=e.target.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/(^_|_$)/g,''); }); document.getElementById('modal-generate-agent').classList.remove('hidden'); apiGet('/api/v1/cloud-api/providers').then(res=>{if(res&&res.providers){res.providers.forEach(p=>{if(AI_PROVIDERS[p.id])AI_PROVIDERS[p.id].models=p.models;});onGenProviderChange();}}); }
-function onGenProviderChange() { const p=document.getElementById('agent-gen-provider').value; const i=AI_PROVIDERS[p]||AI_PROVIDERS.ollama; document.getElementById('agent-gen-model').innerHTML=i.models.map(m=>`<option value="${m}">${m}</option>`).join(''); document.getElementById('agent-gen-apikey-group').style.display=i.needs_api?'block':'none'; }
-async function generateAgentJSON() { const name=document.getElementById('agent-gen-name').value.trim(), desc=document.getElementById('agent-gen-desc').value.trim(); if(!name||!desc) return alert('Name & Description required!'); const btn=document.getElementById('btn-generate-ai'); btn.disabled=true; document.getElementById('btn-apply-ai').style.display='none'; const prov=document.getElementById('agent-gen-provider').value, model=document.getElementById('agent-gen-model').value, api_key=document.getElementById('agent-gen-apikey')?.value?.trim()||''; const st=document.getElementById('agent-gen-status'); st.style.color='var(--text)'; st.textContent=`🤖 Calling ${prov}/${model}...`; document.getElementById('agent-gen-preview').value='Generating...'; try { const r=await apiPost('/api/v1/agents/generate',{name,description:desc,provider:prov,model,api_key}); if(r?.status==='success'&&r.data) { document.getElementById('agent-gen-preview').value=JSON.stringify(r.data,null,2); st.textContent='✅ Done!'; st.style.color='var(--green)'; document.getElementById('btn-apply-ai').style.display='inline-block'; window._lastGen=r.data; } else { st.textContent='❌ Failed'; st.style.color='var(--red)'; document.getElementById('agent-gen-preview').value=JSON.stringify(r,null,2); } } catch(e) { st.textContent='❌ Error'; st.style.color='var(--red)'; } btn.disabled=false; }
+let AI_PROVIDERS = {
+    "ollama": { models: ["deepseek-r1:latest", "llama3.2", "mistral-nemo"], needs_api: false },
+    "gemini": { models: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-pro"], needs_api: true },
+    "chatgpt": { models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"], needs_api: true },
+    "claude": { models: ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"], needs_api: true },
+    "grok": { models: ["grok-3", "grok-3-mini", "grok-2"], needs_api: true },
+    "deepseek": { models: ["deepseek-chat", "deepseek-reasoner"], needs_api: true },
+    "openrouter": { models: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-r1"], needs_api: true },
+    "9router": { models: ["deepseek-chat", "deepseek-reasoner"], needs_api: true }
+};
+window.provHasKey = {};
+
+function showGenerateAgent() {
+    document.getElementById('agent-gen-name').value = '';
+    document.getElementById('agent-gen-prefix').value = '';
+    document.getElementById('agent-gen-desc').value = '';
+    document.getElementById('agent-gen-provider').value = 'ollama';
+    document.getElementById('agent-gen-accounts').value = '';
+    document.getElementById('agent-gen-preview').value = '';
+    document.getElementById('agent-gen-status').textContent = '';
+    document.getElementById('btn-apply-ai').style.display = 'none';
+    document.getElementById('agent-gen-apikey').value = '';
+    onGenProviderChange();
+    const ni = document.getElementById('agent-gen-name');
+    const nn = ni.cloneNode(true);
+    ni.parentNode.replaceChild(nn, ni);
+    nn.addEventListener('input', e => {
+        document.getElementById('agent-gen-prefix').value = e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
+    });
+    document.getElementById('modal-generate-agent').classList.remove('hidden');
+    apiGet('/api/v1/cloud-api/providers').then(res => {
+        if (res && res.providers) {
+            res.providers.forEach(p => {
+                let id = p.id;
+                if (id === 'openai') id = 'chatgpt';
+                if (AI_PROVIDERS[id]) {
+                    AI_PROVIDERS[id].models = p.models;
+                }
+                // Store has_key mapping
+                window.provHasKey[id] = p.has_key;
+            });
+            onGenProviderChange();
+        }
+    });
+}
+
+async function onGenProviderChange() {
+    const p = document.getElementById('agent-gen-provider').value;
+    const i = AI_PROVIDERS[p] || AI_PROVIDERS.ollama;
+    const modelSel = document.getElementById('agent-gen-model');
+    const apiGroup = document.getElementById('agent-gen-apikey-group');
+    const input = document.getElementById('agent-gen-apikey');
+    
+    apiGroup.style.display = i.needs_api ? 'block' : 'none';
+    
+    let backendProvId = p;
+    if (backendProvId === 'chatgpt') backendProvId = 'openai';
+    
+    const hasSavedKey = window.provHasKey && window.provHasKey[backendProvId];
+    if (hasSavedKey) {
+        input.placeholder = T('gen.apikey_placeholder_saved') || 'Bỏ trống để dùng key đã lưu';
+    } else {
+        input.placeholder = T('gen.apikey_placeholder_new') || 'Nhập API Key mới để lưu và sử dụng';
+    }
+    
+    if (p === '9router') {
+        modelSel.innerHTML = '<option value="" disabled selected>⏳ Loading 9Router models...</option>';
+        try {
+            const nr = await apiGet('/api/v1/cloud-api/9router/status');
+            if (nr && nr.running && nr.models && nr.models.length > 0) {
+                AI_PROVIDERS['9router'].models = nr.models;
+            }
+        } catch(e) {
+            console.warn('[Generate Agent] Failed to fetch 9Router models', e);
+        }
+    } else if (p === 'ollama') {
+        modelSel.innerHTML = '<option value="" disabled selected>⏳ Loading Ollama models...</option>';
+        try {
+            const r = await apiGet('/api/v1/ollama/models');
+            if (r && r.models && r.models.length > 0) {
+                AI_PROVIDERS['ollama'].models = r.models.map(m => m.name || m);
+            }
+        } catch(e) {
+            console.warn('[Generate Agent] Failed to fetch Ollama models', e);
+        }
+    }
+    
+    const activeInfo = AI_PROVIDERS[p] || AI_PROVIDERS.ollama;
+    modelSel.innerHTML = activeInfo.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+}
+
+async function generateAgentJSON() {
+    const name = document.getElementById('agent-gen-name').value.trim();
+    const desc = document.getElementById('agent-gen-desc').value.trim();
+    if (!name || !desc) return alert('Name & Description required!');
+    const btn = document.getElementById('btn-generate-ai');
+    btn.disabled = true;
+    document.getElementById('btn-apply-ai').style.display = 'none';
+    const prov = document.getElementById('agent-gen-provider').value;
+    const model = document.getElementById('agent-gen-model').value;
+    const api_key = document.getElementById('agent-gen-apikey')?.value?.trim() || '';
+    const st = document.getElementById('agent-gen-status');
+    st.style.color = 'var(--text)';
+    st.textContent = `🤖 Calling ${prov}/${model}...`;
+    document.getElementById('agent-gen-preview').value = 'Generating...';
+    
+    if (api_key) {
+        st.textContent = `🔑 Saving API Key for ${prov}...`;
+        try {
+            let backendProvId = prov;
+            if (backendProvId === 'chatgpt') backendProvId = 'openai';
+            await apiPost('/api/v1/cloud-api/keys', { provider: backendProvId, api_key: api_key, label: 'default' });
+            if (window.provHasKey) window.provHasKey[backendProvId] = true;
+        } catch(e) {
+            console.warn('Failed to update cloud API key:', e);
+        }
+    }
+    
+    st.textContent = `🤖 Calling ${prov}/${model}...`;
+    try {
+        const r = await apiPost('/api/v1/agents/generate', { name, description: desc, provider: prov, model, api_key });
+        if (r?.status === 'success' && r.data) {
+            document.getElementById('agent-gen-preview').value = JSON.stringify(r.data, null, 2);
+            st.textContent = '✅ Done!';
+            st.style.color = 'var(--green)';
+            document.getElementById('btn-apply-ai').style.display = 'inline-block';
+            window._lastGen = r.data;
+        } else {
+            st.textContent = '❌ Failed';
+            st.style.color = 'var(--red)';
+            document.getElementById('agent-gen-preview').value = JSON.stringify(r, null, 2);
+        }
+    } catch (e) {
+        st.textContent = '❌ Error';
+        st.style.color = 'var(--red)';
+    }
+    btn.disabled = false;
+}
 function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||[],workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
 
 // ═══ Browser Profile CRUD ═══

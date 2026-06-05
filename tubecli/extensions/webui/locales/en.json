@@ -147,6 +147,8 @@
     "gen.failed": "❌ Failed",
     "gen.error": "❌ Error",
     "gen.generating": "Generating...",
+    "gen.apikey_placeholder_saved": "Leave empty to use saved key",
+    "gen.apikey_placeholder_new": "Enter new API key to save and use",
     "api.title": "🔌 API Manager",
     "api.desc": "System CLI REST API — TubeCLI API Server Endpoints",
     "api.status": "Server Status:",
