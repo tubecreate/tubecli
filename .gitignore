@@ -70,3 +70,8 @@ skills_dump.json
 scratch/
 /scratch/
 
+# === EXTERNAL EXTENSIONS WITH OWN GIT REPOS ===
+# These extensions have their own separate git repositories.
+# Do NOT track them in tubecli's git — manage them via their own repos.
+data/extensions_external/ai_arena/
+

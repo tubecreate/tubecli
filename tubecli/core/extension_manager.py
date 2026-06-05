@@ -244,8 +244,22 @@ class Extension:
             git_dir = os.path.join(self.extension_dir, ".git")
             if os.path.exists(git_dir):
                 git_ver = get_git_commit_version(self.extension_dir)
+                manifest_ver = manifest.get("version", "")
                 if git_ver:
-                    self.version = git_ver
+                    # Re-read manifest version from disk (hot-reload support)
+                    try:
+                        import json as _json
+                        mf = os.path.join(self.extension_dir, "tubecli-extension.json")
+                        if os.path.exists(mf):
+                            with open(mf, "r", encoding="utf-8-sig") as _f:
+                                manifest_ver = _json.load(_f).get("version", manifest_ver)
+                    except Exception:
+                        pass
+                    # Use whichever is newer: manifest version or git commit version
+                    if manifest_ver and compare_versions(manifest_ver, git_ver) > 0:
+                        self.version = manifest_ver
+                    else:
+                        self.version = git_ver
         return {
             "name": self.name,
             "version": self.version,
@@ -452,13 +466,17 @@ class ExtensionManager:
             extension._manifest = manifest
             extension.name = manifest["name"]
             
-            # Standardize version format to YYYY.MM.DD.HHMMSS if it is a git repo
+            # Determine version: prefer manifest version if newer than git commit date
             ext_ver = manifest.get("version", "0.1.0")
             git_dir = os.path.join(extension_path, ".git")
             if os.path.exists(git_dir):
                 git_ver = get_git_commit_version(extension_path)
                 if git_ver:
-                    ext_ver = git_ver
+                    # Manifest version wins if explicitly set newer than git commit date
+                    if ext_ver and compare_versions(ext_ver, git_ver) > 0:
+                        pass  # keep ext_ver (manifest wins)
+                    else:
+                        ext_ver = git_ver
             
             extension.version = ext_ver
             extension.description = manifest.get("description", "")

@@ -1618,7 +1618,7 @@ async def package_extension(name: str):
     exclude_auto = set()
     if os.path.exists(os.path.join(ext_dir, "tubecli-extension.json")):
         try:
-            with open(os.path.join(ext_dir, "tubecli-extension.json"), "r", encoding="utf-8") as f:
+            with open(os.path.join(ext_dir, "tubecli-extension.json"), "r", encoding="utf-8-sig") as f:
                 _m = json_lib.load(f)
             for exc in _m.get("exclude_auto_deps", []):
                 exclude_auto.add(exc.lower().replace("-", "_"))
@@ -1648,7 +1648,7 @@ async def package_extension(name: str):
     read_manifest_path = os.path.join(ext_dir, "tubecli-extension.json")
     manifest = {}
     if os.path.exists(read_manifest_path):
-        with open(read_manifest_path, "r", encoding="utf-8") as f:
+        with open(read_manifest_path, "r", encoding="utf-8-sig") as f:
             manifest = json_lib.load(f)
 
     existing_deps = manifest.get("dependencies", [])
