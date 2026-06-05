@@ -70,8 +70,30 @@ skills_dump.json
 scratch/
 /scratch/
 
-# === EXTERNAL EXTENSIONS WITH OWN GIT REPOS ===
-# These extensions have their own separate git repositories.
-# Do NOT track them in tubecli's git — manage them via their own repos.
-data/extensions_external/ai_arena/
 
+# === SCREENSHOTS / MEDIA (large, not needed in code repo) ===
+screenshots/*.webp
+screenshots/*.png
+screenshots/*.jpg
+screenshots/*.gif
+# Keep: screenshots/README.md or .txt descriptions if any
+
+# === FINGERPRINT & BROWSER CACHE (runtime data, NEVER commit) ===
+fingerprint.json
+fingerprint_*.json
+**/fingerprint.json
+**/fingerprint_*.json
+**/Safe Browsing/
+**/GrShaderCache/
+**/GPUCache/
+**/Cache/
+**/Cache_Data/
+**/CertificateRevocation/
+**/WidevineCdm/
+**/ZxcvbnData/
+**/*.dll
+**/*.store.*
+**/*.crx
+
+# === EXTENSIONS DATA (runtime, varies per user) ===
+data/extensions_external/ai_arena/
