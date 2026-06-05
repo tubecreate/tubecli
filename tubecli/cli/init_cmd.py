@@ -570,6 +570,34 @@ def _run_control_panel():
         
         if choice == "0":
             console.print(t("panel.exiting"))
+            # Kill API server and all related TubeCLI processes
+            try:
+                _kill_server_on_port(port)
+            except Exception:
+                pass
+            try:
+                from tubecli.main import _kill_all_tubecli
+                _kill_all_tubecli()
+            except Exception:
+                # Fallback: taskkill uvicorn directly on Windows
+                import subprocess
+                if os.name == "nt":
+                    subprocess.run(
+                        'taskkill /F /IM python.exe /FI "WINDOWTITLE eq TubeCLI*"',
+                        shell=True, capture_output=True
+                    )
+                    # Kill any uvicorn process
+                    result = subprocess.run(
+                        'wmic process where "commandline like \'%uvicorn%\'" get processid',
+                        shell=True, capture_output=True, text=True
+                    )
+                    for line in (result.stdout or "").splitlines():
+                        line = line.strip()
+                        if line.isdigit() and int(line) != os.getpid():
+                            subprocess.run(f"taskkill /F /PID {line}", shell=True, capture_output=True)
+                else:
+                    subprocess.run(["pkill", "-f", "uvicorn"], capture_output=True)
+            console.print("[green]✓ All TubeCLI processes stopped.[/green]")
             break
             
         elif choice == "1":
