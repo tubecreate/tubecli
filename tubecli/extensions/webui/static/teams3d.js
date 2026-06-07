@@ -716,8 +716,9 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
     group.add(legR);
 
     // Name label & Status badge
+    let labelName;
     if (theme.special === 'futuristic') {
-        const labelName = agent ? agent.name : (node.role.replace(/^[^\s]+\s/, '') || 'trống');
+        labelName = agent ? agent.name : (node.role.replace(/^[^\s]+\s/, '') || 'trống');
         const statusText = agent ? 'ONLINE' : 'OFFLINE';
         const cardTex = makeHUDCardCanvas(node.role, labelName, statusText, !!agent, node.emoji);
         const cardSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardTex, transparent: true, depthTest: false }));
@@ -726,7 +727,7 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
         group.add(cardSprite);
     } else {
         // Name label
-        const labelName = agent ? agent.name : node.role.replace(/^[^\s]+\s/, '').substring(0, 20);
+        labelName = agent ? agent.name : node.role.replace(/^[^\s]+\s/, '').substring(0, 20);
         const labelTex = makeText(labelName, '#22d3ee', 30, 384, 48);
         const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false }));
         labelSprite.scale.set(1.8, 0.35, 1);
