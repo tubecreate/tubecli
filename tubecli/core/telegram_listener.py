@@ -1023,7 +1023,7 @@ class TelegramListener:
         try:
             from tubecli.extensions.cloud_api.extension import key_manager
             cloud_keys = {}
-            for provider in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter"]:
+            for provider in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"]:
                 key = key_manager.get_active_key(provider)
                 if key:
                     cloud_keys[provider] = key

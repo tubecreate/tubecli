@@ -670,12 +670,35 @@ Rules:
     @staticmethod
     def _call_llm(agent: Dict, messages: List[Dict], temperature: float = 0.7) -> str:
         model = agent.get("model") or agent.get("browser_ai_model") or "qwen:latest"
-        cloud_keys = agent.get("cloud_api_keys", {})
         
-        # OpenRouter models use 'provider/model' format (e.g. anthropic/claude-opus-4.6)
-        is_openrouter = "/" in model and not model.startswith("http")
+        # Load global keys if missing in agent dict
+        cloud_keys = dict(agent.get("cloud_api_keys", {}) or {})
+        try:
+            from tubecli.extensions.cloud_api.extension import key_manager
+            for provider_name in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"]:
+                if not cloud_keys.get(provider_name):
+                    cloud_keys[provider_name] = key_manager.get_active_key(provider_name) or ""
+        except Exception:
+            pass
         
-        if is_openrouter:
+        lower_model = model.lower()
+        is_9router = False
+        is_openrouter = False
+        
+        if "9router" in lower_model or "antigravity" in lower_model or "cx/" in lower_model:
+            is_9router = True
+        elif "/" in model and not model.startswith("http"):
+            if cloud_keys.get("9router") and not cloud_keys.get("openrouter"):
+                is_9router = True
+            else:
+                is_openrouter = True
+        
+        if is_9router:
+            result = AgentBrain._call_openai(
+                model, cloud_keys.get("9router", "") or "9router", messages,
+                base_url="http://localhost:20128/v1", temperature=temperature
+            )
+        elif is_openrouter:
             result = AgentBrain._call_openai(
                 model, cloud_keys.get("openrouter", ""), messages,
                 base_url="https://openrouter.ai/api/v1", temperature=temperature
@@ -715,8 +738,13 @@ Rules:
             
             # Detect which provider failed
             failed_provider = None
-            is_openrouter = "/" in failed_model and not failed_model.startswith("http")
-            if is_openrouter:
+            lower_failed = failed_model.lower()
+            is_9router = "9router" in lower_failed or "antigravity" in lower_failed or "cx/" in lower_failed
+            is_openrouter = "/" in failed_model and not failed_model.startswith("http") and not is_9router
+            
+            if is_9router:
+                failed_provider = "9router"
+            elif is_openrouter:
                 failed_provider = "openrouter"
             elif any(k in failed_model.lower() for k in ["gemini", "gemma"]):
                 failed_provider = "gemini"
@@ -754,6 +782,8 @@ Rules:
                         result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
                     elif failed_provider == "openrouter":
                         result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
+                    elif failed_provider == "9router":
+                        result = AgentBrain._call_openai(failed_model, new_key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
                     else:
                         result = None
                     if result and not any(e in result for e in ["429", "quota", "rate limit", "exceeded"]):
@@ -761,14 +791,16 @@ Rules:
                         return result
             
             # Step 3: Try a DIFFERENT cloud provider
-            fallback_order = ["openrouter", "gemini", "deepseek", "openai", "grok", "claude"]
+            fallback_order = ["openrouter", "gemini", "deepseek", "openai", "grok", "claude", "9router"]
             for provider in fallback_order:
                 if provider == failed_provider:
                     continue
                 alt_key = key_manager.get_active_key(provider)
-                if alt_key:
+                if alt_key or provider == "9router":
                     prov_models = PROVIDERS.get(provider, {}).get("models", [])
                     alt_model = prov_models[0] if prov_models else None
+                    if not alt_model and provider == "9router":
+                        alt_model = "deepseek-chat"
                     if not alt_model:
                         continue
                     
@@ -785,6 +817,8 @@ Rules:
                         result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
                     elif provider == "openrouter":
                         result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
+                    elif provider == "9router":
+                        result = AgentBrain._call_openai(alt_model, alt_key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
                     else:
                         continue
                     

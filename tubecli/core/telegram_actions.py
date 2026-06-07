@@ -1013,7 +1013,7 @@ async def execute_livestream_pipeline(
     try:
         from tubecli.extensions.cloud_api.extension import key_manager
         cloud_keys = agent_dict.get("cloud_api_keys", {})
-        for prov in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter"]:
+        for prov in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"]:
             if prov not in cloud_keys or not cloud_keys[prov]:
                 k = key_manager.get_active_key(prov)
                 if k:
