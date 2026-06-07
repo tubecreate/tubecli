@@ -6,36 +6,114 @@
 
 const _fm = (c, opts = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: opts.r || 0.5, metalness: opts.m || 0.1, ...opts });
 
+let futuristicScreenTexture = null;
+function getFuturisticScreenTexture() {
+    if (futuristicScreenTexture) return futuristicScreenTexture;
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#07071c';
+    ctx.fillRect(0, 0, 256, 128);
+    // Draw grid line chart
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(10, 100);
+    ctx.lineTo(50, 40);
+    ctx.lineTo(100, 70);
+    ctx.lineTo(160, 20);
+    ctx.lineTo(210, 50);
+    ctx.lineTo(246, 10);
+    ctx.stroke();
+    // Draw database boxes
+    ctx.fillStyle = 'rgba(168, 85, 247, 0.45)';
+    ctx.fillRect(20, 105, 30, 20);
+    ctx.fillRect(60, 110, 30, 15);
+    ctx.fillStyle = 'rgba(34, 211, 238, 0.45)';
+    ctx.fillRect(100, 95, 40, 30);
+    ctx.fillRect(150, 100, 40, 25);
+    // Glowing text logs
+    ctx.fillStyle = '#22c55e';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText('STATUS: ACTIVE', 12, 24);
+    ctx.fillText('LOAD: 34.2%', 12, 42);
+    ctx.fillStyle = '#22d3ee';
+    ctx.fillText('PING: 2ms', 140, 24);
+    ctx.fillText('LIVE_OPS', 140, 42);
+    futuristicScreenTexture = new THREE.CanvasTexture(canvas);
+    futuristicScreenTexture.needsUpdate = true;
+    return futuristicScreenTexture;
+}
+
 // ── Desk (modern / wood) ─────────────────────────────────
 function buildHQDesk(g, def) {
-    const wood = _fm(def.color || '#f0ebe4');
-    const metal = _fm('#444444', { r: 0.3, m: 0.6 });
-    const accent = _fm('#333333', { r: 0.4, m: 0.3 });
+    const isFuturistic = window.currentTheme && window.currentTheme.special === 'futuristic';
+    const wood = isFuturistic ? _fm('#161633', { r: 0.5, m: 0.25 }) : _fm(def.color || '#f0ebe4');
+    const metal = isFuturistic ? _fm('#22d3ee', { r: 0.4, m: 0.3 }) : _fm('#444444', { r: 0.3, m: 0.6 });
+    const accent = isFuturistic ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.0 }) : _fm('#333333', { r: 0.4, m: 0.3 });
+    
     // Table top
     const top = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.85), wood);
     top.position.y = 0.72; top.castShadow = true; top.receiveShadow = true; g.add(top);
+    
     // Edge trim
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
-    trim.position.set(0, 0.74, 0.42); g.add(trim);
-    // 4 Metal legs with foot pads
-    [[-0.72, -0.36], [-0.72, 0.36], [0.72, -0.36], [0.72, 0.36]].forEach(([lx, lz]) => {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.72, 6), metal);
-        leg.position.set(lx, 0.36, lz); leg.castShadow = true; g.add(leg);
-        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), metal);
-        pad.position.set(lx, 0.01, lz); g.add(pad);
-    });
-    // Drawer unit (right side)
-    const drawer = _fm('#ddd5c8', { r: 0.6 });
-    const dBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.6), drawer);
-    dBox.position.set(0.5, 0.55, 0); dBox.castShadow = true; g.add(dBox);
-    // Drawer handles
-    for (let dy of [0.48, 0.6]) {
-        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.02), metal);
-        handle.position.set(0.5, dy, 0.31); g.add(handle);
+    if (isFuturistic) {
+        // Glowing outline on all 4 sides
+        const trimB = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trimB.position.set(0, 0.74, -0.43); g.add(trimB);
+        const trimF = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trimF.position.set(0, 0.74, 0.43); g.add(trimF);
+        const trimL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.86), accent);
+        trimL.position.set(-0.81, 0.74, 0); g.add(trimL);
+        const trimR = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.86), accent);
+        trimR.position.set(0.81, 0.74, 0); g.add(trimR);
+    } else {
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trim.position.set(0, 0.74, 0.42); g.add(trim);
     }
-    // Cross support bar
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.03), metal);
-    bar.position.set(0, 0.15, 0); g.add(bar);
+
+    if (isFuturistic) {
+        // Futuristic C/Z-frame support legs
+        [[-0.72], [0.72]].forEach(([lx]) => {
+            const runner = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.78), metal);
+            runner.position.set(lx, 0.02, 0); g.add(runner);
+            const col = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.05), metal);
+            col.position.set(lx, 0.36, -0.05); col.rotation.x = 0.1;
+            col.castShadow = true; g.add(col);
+            const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.76), metal);
+            topRail.position.set(lx, 0.69, 0); g.add(topRail);
+        });
+
+        // Add a CPU tower suspended under the desk
+        const cpu = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.44), _fm('#090918', { r: 0.5, m: 0.2 }));
+        cpu.position.set(-0.4, 0.48, -0.1); cpu.castShadow = true; g.add(cpu);
+        const fanGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.01, 8),
+            new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.2 }));
+        fanGlow.position.set(-0.4, 0.48, 0.121); fanGlow.rotation.x = Math.PI / 2; g.add(fanGlow);
+        const fanGrill = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.005, 8), _fm('#111', { r: 0.5 }));
+        fanGrill.position.set(-0.4, 0.48, 0.125); fanGrill.rotation.x = Math.PI / 2; g.add(fanGrill);
+    } else {
+        // 4 Metal legs with foot pads
+        [[-0.72, -0.36], [-0.72, 0.36], [0.72, -0.36], [0.72, 0.36]].forEach(([lx, lz]) => {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.72, 6), metal);
+            leg.position.set(lx, 0.36, lz); leg.castShadow = true; g.add(leg);
+            const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), metal);
+            pad.position.set(lx, 0.01, lz); g.add(pad);
+        });
+
+        // Drawer unit (right side)
+        const drawer = _fm('#ddd5c8', { r: 0.6 });
+        const dBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.6), drawer);
+        dBox.position.set(0.5, 0.55, 0); dBox.castShadow = true; g.add(dBox);
+        // Drawer handles
+        for (let dy of [0.48, 0.6]) {
+            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.02), metal);
+            handle.position.set(0.5, dy, 0.31); g.add(handle);
+        }
+        // Cross support bar
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.03), metal);
+        bar.position.set(0, 0.15, 0); g.add(bar);
+    }
 }
 
 // ── Round Table ──────────────────────────────────────────
@@ -66,25 +144,59 @@ function buildHQRoundTable(g, def) {
 
 // ── Chair (office swivel) ────────────────────────────────
 function buildHQChair(g, def) {
-    const fabric = _fm(def.color || '#2d3250');
-    const metal = _fm('#555555', { r: 0.3, m: 0.7 });
-    const darkFab = _fm('#1a1e35');
+    const isFuturistic = window.currentTheme && window.currentTheme.special === 'futuristic';
+    const fabric = isFuturistic ? _fm('#141430', { r: 0.3, m: 0.4 }) : _fm(def.color || '#2d3250');
+    const metal = isFuturistic ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.0 }) : _fm('#555555', { r: 0.3, m: 0.7 });
+    const purpleGlow = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.8 });
+    const darkFab = isFuturistic ? _fm('#0a0a1a') : _fm('#1a1e35');
+    
     // Seat cushion
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), fabric);
     seat.position.y = 0.46; seat.castShadow = true; g.add(seat);
-    // Backrest
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.05), fabric);
-    back.position.set(0, 0.74, -0.22); g.add(back);
-    // Backrest top curve
-    const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.06), darkFab);
-    topCurve.position.set(0, 0.99, -0.22); g.add(topCurve);
-    // Armrests (both sides)
-    for (let side of [-0.26, 0.26]) {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.3), metal);
-        arm.position.set(side, 0.56, -0.04); g.add(arm);
-        const armV = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.12, 6), metal);
-        armV.position.set(side, 0.50, 0.1); g.add(armV);
+    
+    if (isFuturistic) {
+        // Glowing side accents for seat
+        const seatNeonL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.48), metal);
+        seatNeonL.position.set(-0.25, 0.46, 0); g.add(seatNeonL);
+        const seatNeonR = seatNeonL.clone(); seatNeonR.position.x = 0.25; g.add(seatNeonR);
+
+        // Ergonomic high backrest with hollow/mesh center
+        const backFrame = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.52, 0.04), darkFab);
+        backFrame.position.set(0, 0.75, -0.22); backFrame.castShadow = true; g.add(backFrame);
+        
+        // Glowing inner mesh panel
+        const meshPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.44), purpleGlow);
+        meshPanel.position.set(0, 0.75, -0.198); g.add(meshPanel);
+
+        // Headrest (oval cushion on post)
+        const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.05), fabric);
+        headrest.position.set(0, 1.08, -0.22); headrest.castShadow = true; g.add(headrest);
+        const headrestTrim = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.02, 0.06), metal);
+        headrestTrim.position.set(0, 1.14, -0.22); g.add(headrestTrim);
+
+        // Ergonomic curved armrests
+        for (let side of [-0.26, 0.26]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.32), darkFab);
+            arm.position.set(side, 0.58, -0.04); g.add(arm);
+            const armSupport = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.04), metal);
+            armSupport.position.set(side, 0.50, 0.06); g.add(armSupport);
+        }
+    } else {
+        // Backrest
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.05), fabric);
+        back.position.set(0, 0.74, -0.22); g.add(back);
+        // Backrest top curve
+        const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.06), darkFab);
+        topCurve.position.set(0, 0.99, -0.22); g.add(topCurve);
+        // Armrests (both sides)
+        for (let side of [-0.26, 0.26]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.3), metal);
+            arm.position.set(side, 0.56, -0.04); g.add(arm);
+            const armV = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.12, 6), metal);
+            armV.position.set(side, 0.50, 0.1); g.add(armV);
+        }
     }
+    
     // Central pillar
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), metal);
     pillar.position.set(0, 0.25, 0); g.add(pillar);
@@ -263,15 +375,17 @@ function buildHQLowWall(g, def) {
     const d = def.size[2] || 0.15;
     const color = def.color || '#a0a5b5';
     
+    const isFuturistic = window.currentTheme && window.currentTheme.special === 'futuristic';
     // Main solid wall body
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), _fm(color, { r: 0.9 }));
+    const wallMat = isFuturistic ? _fm('#141430', { r: 0.2, m: 0.8, emissive: 0x141430, emissiveIntensity: 0.1 }) : _fm(color, { r: 0.9 });
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
     wall.position.y = h / 2;
     wall.castShadow = true;
     wall.receiveShadow = true;
     g.add(wall);
     
     // Outer protective rim (slightly wider and darker)
-    const rimMat = _fm('#7f869a', { r: 0.6, m: 0.2 });
+    const rimMat = isFuturistic ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.8 }) : _fm('#7f869a', { r: 0.6, m: 0.2 });
     const rim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.04, d + 0.04), rimMat);
     rim.position.y = h + 0.02;
     g.add(rim);
@@ -279,13 +393,17 @@ function buildHQLowWall(g, def) {
     // If it is a glass partition, add glass on top
     if (def.id && def.id.includes('glass')) {
         const gh = 0.4; // 40cm height for glass
-        const glassMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.3, roughness: 0.1 });
+        const glassMat = isFuturistic 
+            ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.35, roughness: 0.05, emissive: 0x22d3ee, emissiveIntensity: 0.3 }) 
+            : new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.3, roughness: 0.1 });
         const glass = new THREE.Mesh(new THREE.BoxGeometry(w, gh, 0.03), glassMat);
         glass.position.y = h + 0.04 + gh / 2;
         g.add(glass);
         
         // Aluminum top frame for the glass
-        const alumMat = _fm('#cccccc', { r: 0.2, m: 0.8 });
+        const alumMat = isFuturistic 
+            ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.9 }) 
+            : _fm('#cccccc', { r: 0.2, m: 0.8 });
         const alumTop = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, 0.04), alumMat);
         alumTop.position.y = h + 0.04 + gh + 0.01;
         g.add(alumTop);
@@ -301,54 +419,134 @@ function buildHQLowWall(g, def) {
 
 // ── Workstation (all-in-one: desk + chair + monitor + accessories) ──
 function buildHQWorkstation(g, def) {
-    const wood = _fm(def.color || '#f0ebe4');
-    const metal = _fm('#444444', { r: 0.3, m: 0.6 });
-    const accent = _fm('#333333', { r: 0.4, m: 0.3 });
-    const darkFab = _fm('#1a1e35');
-    const fabric = _fm('#2d3250');
+    const isFuturistic = window.currentTheme && window.currentTheme.special === 'futuristic';
+    const wood = isFuturistic ? _fm('#161633', { r: 0.5, m: 0.25 }) : _fm(def.color || '#f0ebe4');
+    const metal = isFuturistic ? _fm('#22d3ee', { r: 0.4, m: 0.3 }) : _fm('#444444', { r: 0.3, m: 0.6 });
+    const accent = isFuturistic ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.0 }) : _fm('#333333', { r: 0.4, m: 0.3 });
+    const darkFab = isFuturistic ? _fm('#0a0a1a') : _fm('#1a1e35');
+    const fabric = isFuturistic ? _fm('#141430') : _fm('#2d3250');
+    const purpleGlow = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.8 });
 
     // ═══ DESK ═══
     // Table top
     const top = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.85), wood);
     top.position.y = 0.72; top.castShadow = true; top.receiveShadow = true; g.add(top);
-    // Edge trim (back edge — away from person)
-    const trim = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
-    trim.position.set(0, 0.74, -0.42); g.add(trim);
-    // 4 Metal legs
-    [[-0.72, -0.36], [-0.72, 0.36], [0.72, -0.36], [0.72, 0.36]].forEach(([lx, lz]) => {
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.72, 6), metal);
-        leg.position.set(lx, 0.36, lz); leg.castShadow = true; g.add(leg);
-        const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), metal);
-        pad.position.set(lx, 0.01, lz); g.add(pad);
-    });
-    // Drawer unit (right side)
-    const drawer = _fm('#ddd5c8', { r: 0.6 });
-    const dBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.6), drawer);
-    dBox.position.set(0.5, 0.55, 0); dBox.castShadow = true; g.add(dBox);
-    for (let dy of [0.48, 0.6]) {
-        const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.02), metal);
-        handle.position.set(0.5, dy, 0.31); g.add(handle);
+    
+    // Edge trim
+    if (isFuturistic) {
+        // Glowing outline on all 4 sides
+        const trimB = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trimB.position.set(0, 0.74, -0.43); g.add(trimB);
+        const trimF = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trimF.position.set(0, 0.74, 0.43); g.add(trimF);
+        const trimL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.86), accent);
+        trimL.position.set(-0.81, 0.74, 0); g.add(trimL);
+        const trimR = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.86), accent);
+        trimR.position.set(0.81, 0.74, 0); g.add(trimR);
+    } else {
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.02, 0.02), accent);
+        trim.position.set(0, 0.74, -0.42); g.add(trim);
     }
-    // Cross support bar
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.03), metal);
-    bar.position.set(0, 0.15, 0); g.add(bar);
+
+    if (isFuturistic) {
+        // Futuristic C/Z-frame support legs
+        [[-0.72], [0.72]].forEach(([lx]) => {
+            const runner = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.78), metal);
+            runner.position.set(lx, 0.02, 0); g.add(runner);
+            const col = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.05), metal);
+            col.position.set(lx, 0.36, -0.05); col.rotation.x = 0.1;
+            col.castShadow = true; g.add(col);
+            const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.04, 0.76), metal);
+            topRail.position.set(lx, 0.69, 0); g.add(topRail);
+        });
+
+        // Suspended CPU tower under the desk
+        const cpu = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.42, 0.44), _fm('#090918', { r: 0.5, m: 0.2 }));
+        cpu.position.set(-0.4, 0.48, -0.1); cpu.castShadow = true; g.add(cpu);
+        const fanGlow = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.01, 8),
+            new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.2 }));
+        fanGlow.position.set(-0.4, 0.48, 0.121); fanGlow.rotation.x = Math.PI / 2; g.add(fanGlow);
+        const fanGrill = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.005, 8), _fm('#111', { r: 0.5 }));
+        fanGrill.position.set(-0.4, 0.48, 0.125); fanGrill.rotation.x = Math.PI / 2; g.add(fanGrill);
+    } else {
+        // 4 Metal legs
+        [[-0.72, -0.36], [-0.72, 0.36], [0.72, -0.36], [0.72, 0.36]].forEach(([lx, lz]) => {
+            const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.72, 6), metal);
+            leg.position.set(lx, 0.36, lz); leg.castShadow = true; g.add(leg);
+            const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.02, 6), metal);
+            pad.position.set(lx, 0.01, lz); g.add(pad);
+        });
+        
+        // Drawer unit (right side)
+        const drawer = _fm('#ddd5c8', { r: 0.6 });
+        const dBox = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.3, 0.6), drawer);
+        dBox.position.set(0.5, 0.55, 0); dBox.castShadow = true; g.add(dBox);
+        for (let dy of [0.48, 0.6]) {
+            const handle = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.015, 0.02), metal);
+            handle.position.set(0.5, dy, 0.31); g.add(handle);
+        }
+        // Cross support bar
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.03, 0.03), metal);
+        bar.position.set(0, 0.15, 0); g.add(bar);
+    }
 
     // ═══ MONITOR (on desk, screen faces +Z towards person) ═══
     const black = _fm('#1a1a2e', { r: 0.2, m: 0.4 });
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.48, 0.03), black);
-    panel.position.set(0, 1.05, -0.2); panel.castShadow = true; g.add(panel);
-    // Screen glow (faces +Z)
-    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.38),
-        new THREE.MeshBasicMaterial({ color: 0x1a3a5a, transparent: true, opacity: 0.6 }));
-    scr.position.set(0, 1.05, -0.184); g.add(scr);
-    // Bezel
-    const bTop = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.015, 0.035), _fm('#111'));
-    bTop.position.set(0, 1.29, -0.2); g.add(bTop);
-    // Stand
-    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), _fm('#333', { m: 0.5 }));
-    neck.position.set(0, 0.89, -0.2); g.add(neck);
-    const standBase = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.15), _fm('#333', { m: 0.5 }));
-    standBase.position.set(0, 0.77, -0.18); g.add(standBase);
+    if (isFuturistic) {
+        // Curved ultrawide monitor (two panels angled slightly inward)
+        const monitorGroup = new THREE.Group();
+        monitorGroup.position.set(0, 1.05, -0.2);
+        
+        const panelWidth = 0.52;
+        const angle = 0.18; // slight curve inward
+        
+        const leftPanel = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, 0.42, 0.025), black);
+        leftPanel.position.set(-panelWidth/2 * Math.cos(angle), 0, panelWidth/2 * Math.sin(angle));
+        leftPanel.rotation.y = angle; leftPanel.castShadow = true; monitorGroup.add(leftPanel);
+        
+        const rightPanel = new THREE.Mesh(new THREE.BoxGeometry(panelWidth, 0.42, 0.025), black);
+        rightPanel.position.set(panelWidth/2 * Math.cos(angle), 0, -panelWidth/2 * Math.sin(angle));
+        rightPanel.rotation.y = -angle; rightPanel.castShadow = true; monitorGroup.add(rightPanel);
+        
+        // Screen glows (faces +Z)
+        const scrMat = new THREE.MeshBasicMaterial({ map: getFuturisticScreenTexture(), transparent: true, opacity: 0.95 });
+        const leftScr = new THREE.Mesh(new THREE.PlaneGeometry(panelWidth - 0.02, 0.38), scrMat);
+        leftScr.position.set(-panelWidth/2 * Math.cos(angle), 0, panelWidth/2 * Math.sin(angle) + 0.014);
+        leftScr.rotation.y = angle; monitorGroup.add(leftScr);
+        
+        const rightScr = new THREE.Mesh(new THREE.PlaneGeometry(panelWidth - 0.02, 0.38), scrMat);
+        rightScr.position.set(panelWidth/2 * Math.cos(angle), 0, -panelWidth/2 * Math.sin(angle) + 0.014);
+        rightScr.rotation.y = -angle; monitorGroup.add(rightScr);
+        
+        // Stand neck
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), _fm('#222', { m: 0.5 }));
+        neck.position.set(0, -0.16, -0.05); monitorGroup.add(neck);
+        
+        // Base
+        const standBase = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.015, 8), _fm('#222', { m: 0.5 }));
+        standBase.position.set(0, -0.27, 0.02); monitorGroup.add(standBase);
+        
+        // Soundbar under screen
+        const soundbar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.06), _fm('#0f0f1c', { r: 0.3 }));
+        soundbar.position.set(0, -0.23, 0.04); monitorGroup.add(soundbar);
+        
+        g.add(monitorGroup);
+    } else {
+        const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.48, 0.03), black);
+        panel.position.set(0, 1.05, -0.2); panel.castShadow = true; g.add(panel);
+        // Screen glow (faces +Z)
+        const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.38),
+            new THREE.MeshBasicMaterial({ color: 0x1a3a5a, transparent: true, opacity: 0.6 }));
+        scr.position.set(0, 1.05, -0.184); g.add(scr);
+        // Bezel
+        const bTop = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.015, 0.035), _fm('#111'));
+        bTop.position.set(0, 1.29, -0.2); g.add(bTop);
+        // Stand
+        const neck = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.22, 0.04), _fm('#333', { m: 0.5 }));
+        neck.position.set(0, 0.89, -0.2); g.add(neck);
+        const standBase = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.15), _fm('#333', { m: 0.5 }));
+        standBase.position.set(0, 0.77, -0.18); g.add(standBase);
+    }
 
     // ═══ KEYBOARD & MOUSE (on desk, in front of monitor) ═══
     const kb = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.015, 0.14), _fm('#2a2a2a'));
@@ -359,34 +557,89 @@ function buildHQWorkstation(g, def) {
     const mouse = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.018, 0.08), _fm('#222'));
     mouse.position.set(0.3, 0.77, 0.12); g.add(mouse);
 
+    if (isFuturistic) {
+        // Keyboard RGB backlight
+        const kbGlow = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.16),
+            new THREE.MeshBasicMaterial({ color: 0xa855f7, transparent: true, opacity: 0.35 }));
+        kbGlow.position.set(0, 0.752, 0.1); kbGlow.rotation.x = -Math.PI / 2; g.add(kbGlow);
+    }
+
     // ═══ CHAIR (in front of desk at +Z, rotated 180° to face desk) ═══
     const chairGroup = new THREE.Group();
-    // Seat
-    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), fabric);
-    seat.position.y = 0.46; seat.castShadow = true; chairGroup.add(seat);
-    // Backrest
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.05), fabric);
-    back.position.set(0, 0.74, -0.22); chairGroup.add(back);
-    const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.06), darkFab);
-    topCurve.position.set(0, 0.99, -0.22); chairGroup.add(topCurve);
-    // Armrests
-    for (let side of [-0.26, 0.26]) {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.3), metal);
-        arm.position.set(side, 0.56, -0.04); chairGroup.add(arm);
+    if (isFuturistic) {
+        // Seat cushion with neon side trims
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), fabric);
+        seat.position.y = 0.46; seat.castShadow = true; chairGroup.add(seat);
+        
+        const seatNeonL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.48), metal);
+        seatNeonL.position.set(-0.25, 0.46, 0); chairGroup.add(seatNeonL);
+        const seatNeonR = seatNeonL.clone(); seatNeonR.position.x = 0.25; chairGroup.add(seatNeonR);
+        
+        // Ergonomic high backrest (hollow/mesh design + headrest)
+        const backFrame = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.52, 0.04), darkFab);
+        backFrame.position.set(0, 0.75, -0.22); backFrame.castShadow = true; chairGroup.add(backFrame);
+        
+        // Glowing inner mesh panel
+        const meshPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.44), purpleGlow);
+        meshPanel.position.set(0, 0.75, -0.198); chairGroup.add(meshPanel);
+        
+        // Headrest (ergonomic oval)
+        const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.12, 0.05), fabric);
+        headrest.position.set(0, 1.08, -0.22); headrest.castShadow = true; chairGroup.add(headrest);
+        const headrestTrim = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.02, 0.06), metal);
+        headrestTrim.position.set(0, 1.14, -0.22); chairGroup.add(headrestTrim);
+        
+        // Ergonomic curved armrests
+        for (let side of [-0.26, 0.26]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.32), darkFab);
+            arm.position.set(side, 0.58, -0.04); chairGroup.add(arm);
+            const armSupport = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.12, 0.04), metal);
+            armSupport.position.set(side, 0.50, 0.06); chairGroup.add(armSupport);
+        }
+        
+        // Pillar & Base
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), metal);
+        pillar.position.set(0, 0.25, 0); chairGroup.add(pillar);
+        
+        // Star base with wheels
+        for (let i = 0; i < 5; i++) {
+            const angle = (i / 5) * Math.PI * 2;
+            const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.035), metal);
+            spoke.position.set(Math.sin(angle) * 0.13, 0.06, Math.cos(angle) * 0.13);
+            spoke.rotation.y = -angle; chairGroup.add(spoke);
+            const wheel = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), _fm('#222'));
+            wheel.position.set(Math.sin(angle) * 0.26, 0.025, Math.cos(angle) * 0.26);
+            chairGroup.add(wheel);
+        }
+    } else {
+        // Seat
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.07, 0.46), fabric);
+        seat.position.y = 0.46; seat.castShadow = true; chairGroup.add(seat);
+        // Backrest
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.05), fabric);
+        back.position.set(0, 0.74, -0.22); chairGroup.add(back);
+        const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.04, 0.06), darkFab);
+        topCurve.position.set(0, 0.99, -0.22); chairGroup.add(topCurve);
+        // Armrests
+        for (let side of [-0.26, 0.26]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, 0.3), metal);
+            arm.position.set(side, 0.56, -0.04); chairGroup.add(arm);
+        }
+        // Pillar
+        const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), metal);
+        pillar.position.set(0, 0.25, 0); chairGroup.add(pillar);
+        // Star base with wheels
+        for (let i = 0; i < 5; i++) {
+            const angle = (i / 5) * Math.PI * 2;
+            const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.035), metal);
+            spoke.position.set(Math.sin(angle) * 0.13, 0.06, Math.cos(angle) * 0.13);
+            spoke.rotation.y = -angle; chairGroup.add(spoke);
+            const wheel = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), _fm('#222'));
+            wheel.position.set(Math.sin(angle) * 0.26, 0.025, Math.cos(angle) * 0.26);
+            chairGroup.add(wheel);
+        }
     }
-    // Pillar
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.35, 8), metal);
-    pillar.position.set(0, 0.25, 0); chairGroup.add(pillar);
-    // Star base with wheels
-    for (let i = 0; i < 5; i++) {
-        const angle = (i / 5) * Math.PI * 2;
-        const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.025, 0.035), metal);
-        spoke.position.set(Math.sin(angle) * 0.13, 0.06, Math.cos(angle) * 0.13);
-        spoke.rotation.y = -angle; chairGroup.add(spoke);
-        const wheel = new THREE.Mesh(new THREE.SphereGeometry(0.025, 6, 4), _fm('#222'));
-        wheel.position.set(Math.sin(angle) * 0.26, 0.025, Math.cos(angle) * 0.26);
-        chairGroup.add(wheel);
-    }
+    
     // Position chair: in front of desk (+Z), rotated 180° to face desk
     chairGroup.position.set(0, 0, 0.75);
     chairGroup.rotation.y = Math.PI; // Face -Z (towards desk)
@@ -1436,27 +1689,59 @@ function _buildLaptopOnDesk(g, x, y, z, faceAngle) {
 
 // ── Shared: Swivel chair for meeting tables ──────────────
 function _buildMeetingSwivelChair(g, x, z, faceAngle) {
-    const fabric = _fm('#2d3250');
-    const metal = _fm('#555555', { r: 0.3, m: 0.7 });
-    const darkFab = _fm('#1a1e35');
+    const isFuturistic = window.currentTheme && window.currentTheme.special === 'futuristic';
+    const fabric = isFuturistic ? _fm('#141430', { r: 0.3, m: 0.4 }) : _fm('#2d3250');
+    const metal = isFuturistic ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.0 }) : _fm('#555555', { r: 0.3, m: 0.7 });
+    const purpleGlow = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.8 });
+    const darkFab = isFuturistic ? _fm('#0a0a1a') : _fm('#1a1e35');
 
     const cg = new THREE.Group();
     // Seat cushion
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.44), fabric);
     seat.position.y = 0.46; seat.castShadow = true; cg.add(seat);
-    // Backrest
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.45, 0.04), fabric);
-    back.position.set(0, 0.72, -0.21); cg.add(back);
-    // Backrest top curve
-    const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.035, 0.05), darkFab);
-    topCurve.position.set(0, 0.95, -0.21); cg.add(topCurve);
-    // Armrests (both sides)
-    for (let side of [-0.25, 0.25]) {
-        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.025, 0.22), metal);
-        arm.position.set(side, 0.54, -0.04); cg.add(arm);
-        const armV = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.10, 6), metal);
-        armV.position.set(side, 0.49, 0.06); cg.add(armV);
+    
+    if (isFuturistic) {
+        // Glowing side accents for seat
+        const seatNeonL = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.04, 0.46), metal);
+        seatNeonL.position.set(-0.24, 0.46, 0); cg.add(seatNeonL);
+        const seatNeonR = seatNeonL.clone(); seatNeonR.position.x = 0.24; cg.add(seatNeonR);
+
+        // Ergonomic backrest with glowing mesh
+        const backFrame = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.48, 0.04), darkFab);
+        backFrame.position.set(0, 0.72, -0.21); backFrame.castShadow = true; cg.add(backFrame);
+        
+        const meshPanel = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.4), purpleGlow);
+        meshPanel.position.set(0, 0.72, -0.188); cg.add(meshPanel);
+
+        // Headrest
+        const headrest = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.1, 0.05), fabric);
+        headrest.position.set(0, 1.02, -0.21); headrest.castShadow = true; cg.add(headrest);
+        const headrestTrim = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.02, 0.06), metal);
+        headrestTrim.position.set(0, 1.07, -0.21); cg.add(headrestTrim);
+
+        // Armrests
+        for (let side of [-0.25, 0.25]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.025, 0.24), darkFab);
+            arm.position.set(side, 0.56, -0.04); cg.add(arm);
+            const armSupport = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.1, 0.04), metal);
+            armSupport.position.set(side, 0.49, 0.06); cg.add(armSupport);
+        }
+    } else {
+        // Backrest
+        const back = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.45, 0.04), fabric);
+        back.position.set(0, 0.72, -0.21); cg.add(back);
+        // Backrest top curve
+        const topCurve = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.035, 0.05), darkFab);
+        topCurve.position.set(0, 0.95, -0.21); cg.add(topCurve);
+        // Armrests (both sides)
+        for (let side of [-0.25, 0.25]) {
+            const arm = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.025, 0.22), metal);
+            arm.position.set(side, 0.54, -0.04); cg.add(arm);
+            const armV = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.10, 6), metal);
+            armV.position.set(side, 0.49, 0.06); cg.add(armV);
+        }
     }
+    
     // Central pillar
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.35, 8), metal);
     pillar.position.set(0, 0.25, 0); cg.add(pillar);
@@ -1665,6 +1950,142 @@ function buildHQMeetingTableLarge(g, def) {
     });
 }
 
+// ── Cyber Server (Rack with blinking lights) ──────────────
+function buildHQCyberServer(g, def) {
+    const frameMat = _fm('#0a0a14', { r: 0.4, m: 0.3 });
+    const glowMat = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.8 });
+    const pGlowMat = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.8 });
+    
+    // Outer cabinet frame
+    const cabinet = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.8, 0.7), frameMat);
+    cabinet.position.y = 0.9;
+    cabinet.castShadow = true;
+    g.add(cabinet);
+    
+    // Shelves / blades with indicator lights
+    for (let dy = 0.2; dy < 1.7; dy += 0.15) {
+        const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.04, 0.02), _fm('#1e1e2f'));
+        shelf.position.set(0, dy, 0.352);
+        g.add(shelf);
+        
+        // Horizontal row of small blinking LEDs
+        for (let dx = -0.2; dx <= 0.2; dx += 0.1) {
+            const active = Math.random() < 0.7;
+            const cMat = active ? (Math.random() < 0.5 ? glowMat : pGlowMat) : _fm('#222');
+            const led = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 4), cMat);
+            led.position.set(dx, dy, 0.364);
+            g.add(led);
+        }
+    }
+}
+
+// ── Cyber Pod (Capsule soundproof booth) ──────────────────
+function buildHQCyberPod(g, def) {
+    const frameColor = '#22d3ee';
+    const frameMat = _fm('#0c0c1c', { r: 0.4, m: 0.3, emissive: '#0c0c1c' });
+    const neonMat = new THREE.MeshStandardMaterial({ color: frameColor, emissive: frameColor, emissiveIntensity: 1.0 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.2, roughness: 0.05, metalness: 0.4 });
+    const purpleGlow = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 0.5 });
+    
+    const w = 1.6, h = 2.4, d = 1.2;
+    
+    // Base & Roof
+    const bottom = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), frameMat);
+    bottom.position.y = 0.04; g.add(bottom);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(w, 0.08, d), frameMat);
+    top.position.y = h - 0.04; g.add(top);
+    
+    // Corner posts
+    [[-w/2+0.04, -d/2+0.04], [-w/2+0.04, d/2-0.04], [w/2-0.04, -d/2+0.04], [w/2-0.04, d/2-0.04]].forEach(([px, pz]) => {
+        const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.08, h, 0.08), frameMat);
+        pillar.position.set(px, h/2, pz); g.add(pillar);
+    });
+    
+    // Neon trims
+    const rimB = new THREE.Mesh(new THREE.BoxGeometry(w + 0.02, 0.02, 0.02), neonMat);
+    rimB.position.set(0, h - 0.08, d/2 + 0.01); g.add(rimB);
+    const rimB2 = rimB.clone(); rimB2.position.z = -d/2 - 0.01; g.add(rimB2);
+    
+    // Translucent glass panels
+    const gBack = new THREE.Mesh(new THREE.BoxGeometry(w - 0.08, h - 0.16, 0.02), glassMat);
+    gBack.position.set(0, h/2, -d/2 + 0.04); g.add(gBack);
+    const gSideL = new THREE.Mesh(new THREE.BoxGeometry(0.02, h - 0.16, d - 0.08), glassMat);
+    gSideL.position.set(-w/2 + 0.04, h/2, 0); g.add(gSideL);
+    const gSideR = gSideL.clone(); gSideR.position.x = w/2 - 0.04; g.add(gSideR);
+    
+    // Interior desk and stool
+    const intDesk = new THREE.Mesh(new THREE.BoxGeometry(w - 0.2, 0.04, 0.4), _fm('#161633', { r: 0.2, m: 0.7 }));
+    intDesk.position.set(0, 0.75, -0.2); g.add(intDesk);
+    const intStool = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.45, 8), purpleGlow);
+    intStool.position.set(0, 0.225, 0.2); g.add(intStool);
+    
+    // Interior screen panel
+    const intScr = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.2), new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.7 }));
+    intScr.position.set(0, 0.95, -0.38); g.add(intScr);
+    
+    const light = new THREE.PointLight(0xa855f7, 0.5, 4);
+    light.position.set(0, h - 0.2, 0); g.add(light);
+}
+
+// ── Cyber Core (Spinning reactor/energy core) ─────────────
+function buildHQCyberCore(g, def) {
+    const neonCyan = new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 1.0 });
+    const neonPurple = new THREE.MeshStandardMaterial({ color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 1.0 });
+    const metalMat = _fm('#121225', { r: 0.4, m: 0.25 });
+    
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 0.15, 12), metalMat);
+    base.position.y = 0.075; g.add(base);
+    const support = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 0.4, 8), metalMat);
+    support.position.y = 0.35; g.add(support);
+    
+    const coreMesh = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 12), neonPurple);
+    coreMesh.position.y = 0.8; g.add(coreMesh);
+    
+    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.02, 6, 24), neonCyan);
+    ring1.position.y = 0.8; ring1.rotation.x = Math.PI / 2; g.add(ring1);
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.015, 6, 24), neonPurple);
+    ring2.position.y = 0.8; ring2.rotation.y = Math.PI / 4; g.add(ring2);
+    
+    const light = new THREE.PointLight(0xa855f7, 0.8, 6);
+    light.position.y = 0.8; g.add(light);
+    
+    // Save pointers for animation in teams3d.js
+    coreMesh.name = "core_center";
+    ring1.name = "core_ring1";
+    ring2.name = "core_ring2";
+}
+
+// ── Lounge Area (Couch & coffee table) ─────────────────────
+function buildHQLoungeArea(g, def) {
+    const fabric = _fm('#141430', { r: 0.5 });
+    const wood = _fm('#3a2510', { r: 0.8 });
+    
+    // Sofa L shape / curved lounge
+    const base = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.15, 0.85), fabric);
+    base.position.set(0, 0.15, 0); g.add(base);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.45, 0.15), fabric);
+    back.position.set(0, 0.425, -0.35); g.add(back);
+    
+    // Coffee table
+    const tableBase = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.25, 0.5), wood);
+    tableBase.position.set(0, 0.125, 0.8); g.add(tableBase);
+    const glassTop = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.02, 0.7), new THREE.MeshStandardMaterial({ color: 0xadd8e6, transparent: true, opacity: 0.35, roughness: 0.05, metalness: 0.3 }));
+    glassTop.position.set(0, 0.26, 0.8); g.add(glassTop);
+}
+
+// ── Glowing Panel (Wall mounted displays) ──────────────────
+function buildHQGlowingPanel(g, def) {
+    const w = (def && def.size) ? def.size[0] : 1.8;
+    const h = (def && def.size) ? def.size[1] : 1.2;
+    const frameMat = _fm('#0e0e1a', { r: 0.2, m: 0.8 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.65 });
+    
+    const board = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.06), frameMat);
+    board.position.y = 1.5; g.add(board);
+    const display = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.1, h - 0.1), glowMat);
+    display.position.set(0, 1.5, 0.032); g.add(display);
+}
+
 // ── Master registry ──────────────────────────────────────
 const HQ_BUILDERS = {
     desk_modern: buildHQDesk,
@@ -1701,6 +2122,11 @@ const HQ_BUILDERS = {
     wall_partition_1m: buildHQLowWall,
     wall_partition_glass_1m: buildHQLowWall,
     workstation: buildHQWorkstation,
+    cyber_server: buildHQCyberServer,
+    cyber_pod: buildHQCyberPod,
+    cyber_core: buildHQCyberCore,
+    lounge_area: buildHQLoungeArea,
+    wall_panel_glowing: buildHQGlowingPanel,
 };
 
 /**
@@ -1716,3 +2142,4 @@ function createHQFurniture(assetId, def) {
     builder(g, def);
     return g;
 }
+

@@ -395,90 +395,132 @@ export class BrowserManager {
         // Resolve browser engine version FIRST (needed for fingerprint UA patching)
         let targetChromiumVer = null;
         let targetBasVer = null;
+        let shardxExePath = null;
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
                 targetChromiumVer = conf.browser_version;
                 
-                const ENGINE_MAP = {
-                    '30.0.0': '147.0.7727.56',
-                    '29.9.2': '146.0.7680.80',
-                    '29.8.1': '145.0.7632.46',
-                    '29.7.0': '144.0.7559.60',
-                    '29.5.0': '142.0.7444.60',
-                    '28.3.1': '138.0.7333.45',
-                    '28.2.0': '137.0.7222.35'
-                };
-                
-                const REVERSE_MAP = Object.fromEntries(Object.entries(ENGINE_MAP).map(([k, v]) => [v, k]));
-                
-                // If not set or default, find the latest downloaded engine
-                if (!targetChromiumVer || targetChromiumVer === 'default' || targetChromiumVer === 'latest') {
-                    const __dirname = path.dirname(fileURLToPath(import.meta.url));
-                    const scriptDir = path.join(__dirname, 'data', 'script');
-                    if (await fs.pathExists(scriptDir)) {
-                        const dirs = await fs.readdir(scriptDir);
-                        const versions = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-                        if (versions.length > 0) {
-                            targetBasVer = versions[0];
-                            targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer; // Fallback to raw if unknown
-                            console.log(`[Launch] Auto-detected installed BAS engine: ${targetBasVer} (Chromium ${targetChromiumVer})`);
+                let isShardX = false;
+                if (targetChromiumVer && targetChromiumVer.includes('ShardX')) {
+                    isShardX = true;
+                    const versionNum = targetChromiumVer.replace('ShardX', '').replace('-', '').trim();
+                    const appdata = process.env.APPDATA;
+                    if (appdata) {
+                        let p1 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, `ShardX-Windows-${versionNum}`, 'chrome.exe');
+                        let p2 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, 'chrome.exe');
+                        let p3 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, 'ShardX-Windows', 'chrome.exe');
+                        if (await fs.pathExists(p1)) {
+                            shardxExePath = p1;
+                        } else if (await fs.pathExists(p2)) {
+                            shardxExePath = p2;
+                        } else if (await fs.pathExists(p3)) {
+                            shardxExePath = p3;
                         }
                     }
-                } else {
-                    // Try to resolve targetBasVer from config's chromium version
-                    targetBasVer = REVERSE_MAP[targetChromiumVer];
                     
-                    // Verify this engine version is actually installed
-                    if (targetBasVer) {
-                        const __dirname = path.dirname(fileURLToPath(import.meta.url));
-                        const requestedEngineDir = path.join(__dirname, 'data', 'script', targetBasVer);
-                        const isInstalled = await fs.pathExists(requestedEngineDir) &&
-                            await fs.pathExists(path.join(requestedEngineDir, 'FastExecuteScript.exe'));
-                        
-                        if (!isInstalled) {
-                            console.warn(`[Launch] ⚠️ Requested engine ${targetBasVer} (Chrome ${targetChromiumVer}) is NOT installed!`);
-                            // Fall back to latest installed engine
-                            const scriptDir = path.join(__dirname, 'data', 'script');
-                            if (await fs.pathExists(scriptDir)) {
-                                const dirs = await fs.readdir(scriptDir);
-                                const candidates = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d))
-                                    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-                                let fallbackBas = null;
-                                for (const d of candidates) {
-                                    const exePath = path.join(scriptDir, d, 'FastExecuteScript.exe');
-                                    if (await fs.pathExists(exePath)) { fallbackBas = d; break; }
-                                }
-                                if (fallbackBas) {
-                                    targetBasVer = fallbackBas;
-                                    targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer;
-                                    console.warn(`[Launch] ↩️ Falling back to latest installed engine: ${targetBasVer} (Chrome ${targetChromiumVer})`);
-                                }
+                    if (!shardxExePath) {
+                        // macOS support fallback
+                        const home = process.env.HOME || process.env.USERPROFILE;
+                        if (home) {
+                            let pMac = path.join(home, 'Library', 'Application Support', 'shardx-launcher', 'runtime', 'engines', versionNum, `ShardX-Mac-arm64-${versionNum}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX');
+                            if (await fs.pathExists(pMac)) {
+                                shardxExePath = pMac;
                             }
-                        } else {
-                            console.log(`[Launch] ✅ Verified engine ${targetBasVer} is installed.`);
                         }
                     }
+                    
+                    if (!shardxExePath) {
+                        throw new Error(`ShardX browser engine (${versionNum}) not found. Please install it in ShardBrowser first.`);
+                    }
+                    
+                    targetChromiumVer = versionNum;
+                    targetBasVer = null;
+                    console.log(`[Launch] Resolved ShardX engine version: ${versionNum} at ${shardxExePath}`);
                 }
-
-                if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
-                    console.log(`[Launch] Using browser version: ${targetChromiumVer}`);
-                    plugin.useBrowserVersion(targetChromiumVer);
+                
+                if (!isShardX) {
+                    const ENGINE_MAP = {
+                        '30.1.0': '148.0.7778.97',
+                        '30.0.0': '147.0.7727.56',
+                        '29.9.2': '146.0.7680.80',
+                        '29.8.1': '145.0.7632.46',
+                        '29.7.0': '144.0.7559.60',
+                        '29.5.0': '142.0.7444.60',
+                        '28.3.1': '138.0.7333.45',
+                        '28.2.0': '137.0.7222.35'
+                    };
                     
-                    // CRITICAL HOTFIX: The plugin's engine.js ignores useBrowserVersion() when 
-                    // deciding which FastExecuteScript.exe to spawn, relying on project.xml instead.
-                    // We must dynamically rewrite its project.xml to match our target BAS version!
-                    if (targetBasVer) {
-                        try {
-                            const __dirname = path.dirname(fileURLToPath(import.meta.url));
-                            const projectXmlPath = path.join(__dirname, 'node_modules', 'browser-with-fingerprints', 'project.xml');
-                            if (await fs.pathExists(projectXmlPath)) {
-                                let xmlContent = await fs.readFile(projectXmlPath, 'utf8');
-                                xmlContent = xmlContent.replace(/<EngineVersion>.*?<\/EngineVersion>/, `<EngineVersion>${targetBasVer}</EngineVersion>`);
-                                await fs.writeFile(projectXmlPath, xmlContent, 'utf8');
-                                console.log(`[Launch] Hotfixed plugin project.xml engine version to ${targetBasVer}`);
+                    const REVERSE_MAP = Object.fromEntries(Object.entries(ENGINE_MAP).map(([k, v]) => [v, k]));
+                    
+                    // If not set or default, find the latest downloaded engine
+                    if (!targetChromiumVer || targetChromiumVer === 'default' || targetChromiumVer === 'latest') {
+                        const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                        const scriptDir = path.join(__dirname, 'data', 'script');
+                        if (await fs.pathExists(scriptDir)) {
+                            const dirs = await fs.readdir(scriptDir);
+                            const versions = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+                            if (versions.length > 0) {
+                                targetBasVer = versions[0];
+                                targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer; // Fallback to raw if unknown
+                                console.log(`[Launch] Auto-detected installed BAS engine: ${targetBasVer} (Chromium ${targetChromiumVer})`);
                             }
-                        } catch (err) {
-                            console.warn('[Launch] Failed to apply project.xml hotfix:', err.message);
+                        }
+                    } else {
+                        // Try to resolve targetBasVer from config's chromium version
+                        targetBasVer = REVERSE_MAP[targetChromiumVer];
+                        
+                        // Verify this engine version is actually installed
+                        if (targetBasVer) {
+                            const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                            const requestedEngineDir = path.join(__dirname, 'data', 'script', targetBasVer);
+                            const isInstalled = await fs.pathExists(requestedEngineDir) &&
+                                await fs.pathExists(path.join(requestedEngineDir, 'FastExecuteScript.exe'));
+                            
+                            if (!isInstalled) {
+                                console.warn(`[Launch] ⚠️ Requested engine ${targetBasVer} (Chrome ${targetChromiumVer}) is NOT installed!`);
+                                // Fall back to latest installed engine
+                                const scriptDir = path.join(__dirname, 'data', 'script');
+                                if (await fs.pathExists(scriptDir)) {
+                                    const dirs = await fs.readdir(scriptDir);
+                                    const candidates = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d))
+                                        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
+                                    let fallbackBas = null;
+                                    for (const d of candidates) {
+                                        const exePath = path.join(scriptDir, d, 'FastExecuteScript.exe');
+                                        if (await fs.pathExists(exePath)) { fallbackBas = d; break; }
+                                    }
+                                    if (fallbackBas) {
+                                        targetBasVer = fallbackBas;
+                                        targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer;
+                                        console.warn(`[Launch] ↩️ Falling back to latest installed engine: ${targetBasVer} (Chrome ${targetChromiumVer})`);
+                                    }
+                                }
+                            } else {
+                                console.log(`[Launch] ✅ Verified engine ${targetBasVer} is installed.`);
+                            }
+                        }
+                    }
+    
+                    if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
+                        console.log(`[Launch] Using browser version: ${targetChromiumVer}`);
+                        plugin.useBrowserVersion(targetChromiumVer);
+                        
+                        // CRITICAL HOTFIX: The plugin's engine.js ignores useBrowserVersion() when 
+                        // deciding which FastExecuteScript.exe to spawn, relying on project.xml instead.
+                        // We must dynamically rewrite its project.xml to match our target BAS version!
+                        if (targetBasVer) {
+                            try {
+                                const __dirname = path.dirname(fileURLToPath(import.meta.url));
+                                const projectXmlPath = path.join(__dirname, 'node_modules', 'browser-with-fingerprints', 'project.xml');
+                                if (await fs.pathExists(projectXmlPath)) {
+                                    let xmlContent = await fs.readFile(projectXmlPath, 'utf8');
+                                    xmlContent = xmlContent.replace(/<EngineVersion>.*?<\/EngineVersion>/, `<EngineVersion>${targetBasVer}</EngineVersion>`);
+                                    await fs.writeFile(projectXmlPath, xmlContent, 'utf8');
+                                    console.log(`[Launch] Hotfixed plugin project.xml engine version to ${targetBasVer}`);
+                                }
+                            } catch (err) {
+                                console.warn('[Launch] Failed to apply project.xml hotfix:', err.message);
+                            }
                         }
                     }
                 }
@@ -564,7 +606,8 @@ export class BrowserManager {
                     headless,
                     args: launchArgs,
                     userDataDir: profilePath,
-                    ignoreDefaultArgs: ['--enable-automation']
+                    ignoreDefaultArgs: ['--enable-automation'],
+                    ...(shardxExePath ? { executablePath: shardxExePath } : {})
                 });
                 return context;
             } catch (e) {

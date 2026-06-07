@@ -8,6 +8,10 @@ let officeGroup;
 let agentCharacters = []; // { group, roleId, agentId, state, targetPos, walkTimer, limbs }
 let particlesMesh;
 let studioSceneData = null; // Saved studio layout
+let connectionLinesGroup = null;
+let spinningObjects = [];
+let sharedLineMaterial = null;
+let sharedCylinderGeometry = null;
 
 // Built-in studio asset catalog (same as studio.html)
 const STUDIO_ASSETS = [
@@ -48,6 +52,11 @@ const STUDIO_ASSETS = [
     {id:"wall_partition_glass",name:"Vách kính 2m",category:"structure",mesh:"box",size:[2.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"wall_partition_1m",name:"Vách ngăn 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
     {id:"wall_partition_glass_1m",name:"Vách kính 1m",category:"structure",mesh:"box",size:[1.0,1.2,0.15],color:"#a0a5b5",yOffset:0.6},
+    {id:"cyber_server",name:"Tủ server viễn thông",category:"furniture",mesh:"box",size:[0.7,1.8,0.7],color:"#0a0a14",yOffset:0.9},
+    {id:"cyber_pod",name:"Cabin cuộc gọi",category:"furniture",mesh:"box",size:[1.6,2.4,1.2],color:"#0c0c1c",yOffset:1.2},
+    {id:"cyber_core",name:"Lõi năng lượng",category:"decoration",mesh:"cylinder",size:[0.8,1.2,0.8],color:"#22d3ee",yOffset:0.6},
+    {id:"lounge_area",name:"Khu vực nghỉ ngơi",category:"furniture",mesh:"box",size:[2.0,0.6,1.5],color:"#141430",yOffset:0.3},
+    {id:"wall_panel_glowing",name:"Bảng thông số",category:"decoration",mesh:"box",size:[1.8,1.2,0.06],color:"#0e0e1a",yOffset:1.5},
 ];
 
 const CHAR_COLORS = [0xf43f5e, 0xa855f7, 0x22d3ee, 0x22c55e, 0xf59e0b, 0x3b82f6, 0xec4899, 0x14b8a6, 0xf97316, 0x8b5cf6, 0x06b6d4, 0x10b981];
@@ -116,8 +125,11 @@ const DESK_POS = [
 function init3DOffice(containerEl, teamData, agentsList) {
     if (renderer3d) { renderer3d.dispose(); containerEl.innerHTML = ''; }
     agentCharacters = [];
+    spinningObjects = [];
 
     const theme = OFFICE_THEMES[teamData.template] || DEFAULT_THEME;
+    window.currentTheme = theme;
+    currentTeamData3d = teamData;
     const W = containerEl.clientWidth;
     const H = Math.max(500, containerEl.clientHeight);
 
@@ -195,8 +207,12 @@ function init3DOffice(containerEl, teamData, agentsList) {
 
 // ── Lighting ──
 function setupLighting(theme) {
-    scene3d.add(new THREE.AmbientLight(0x667788, 0.7));
-    const sun = new THREE.DirectionalLight(0xffeedd, 0.9);
+    const isFuturistic = theme.special === 'futuristic';
+    const ambientColor = isFuturistic ? 0x3a4266 : 0x667788;
+    const ambientIntensity = isFuturistic ? 1.5 : 0.7;
+    scene3d.add(new THREE.AmbientLight(ambientColor, ambientIntensity));
+    
+    const sun = new THREE.DirectionalLight(isFuturistic ? 0xd0d8ff : 0xffeedd, isFuturistic ? 1.2 : 0.9);
     sun.position.set(10, 15, 8);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
@@ -205,15 +221,65 @@ function setupLighting(theme) {
     sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
     scene3d.add(sun);
 
-    const p1 = new THREE.PointLight(theme.accent1, 0.5, 25);
+    const p1 = new THREE.PointLight(theme.accent1, isFuturistic ? 2.2 : 0.5, 25);
     p1.position.set(-6, 4, 5);
     scene3d.add(p1);
-    const p2 = new THREE.PointLight(theme.accent2, 0.4, 25);
+    const p2 = new THREE.PointLight(theme.accent2, isFuturistic ? 1.8 : 0.4, 25);
     p2.position.set(6, 4, -5);
     scene3d.add(p2);
-    const p3 = new THREE.PointLight(theme.accent3, 0.3, 18);
+    const p3 = new THREE.PointLight(theme.accent3, isFuturistic ? 1.5 : 0.3, 18);
     p3.position.set(0, 5, 0);
     scene3d.add(p3);
+}
+
+function makeFuturisticFloorTexture(rW, rD) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 1024;
+    canvas.height = 1024;
+    const ctx = canvas.getContext('2d');
+
+    // Dark slate/blue gradient background
+    const grad = ctx.createRadialGradient(512, 512, 50, 512, 512, 600);
+    grad.addColorStop(0, '#0f0f23');
+    grad.addColorStop(1, '#050512');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1024, 1024);
+
+    // Grid lines (cyber blue/cyan)
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.18;
+    const steps = 32;
+    for (let x = 0; x <= 1024; x += steps) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, 1024);
+        ctx.stroke();
+    }
+    for (let y = 0; y <= 1024; y += steps) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(1024, y);
+        ctx.stroke();
+    }
+
+    // Glow outer borders (neon purple/magenta)
+    ctx.globalAlpha = 1.0;
+    ctx.shadowColor = '#a855f7';
+    ctx.shadowBlur = 15;
+    ctx.strokeStyle = '#a855f7';
+    ctx.lineWidth = 14;
+    ctx.strokeRect(10, 10, 1004, 1004);
+
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 4;
+    ctx.shadowColor = '#22d3ee';
+    ctx.shadowBlur = 8;
+    ctx.strokeRect(22, 22, 980, 980);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
 }
 
 // ── Room ──
@@ -225,9 +291,24 @@ function setupRoom(theme, teamName) {
     const rW = (studioSceneData && studioSceneData.room_width) || 16;
     const rD = (studioSceneData && studioSceneData.room_depth) || 12;
 
-    const floorMat = new THREE.MeshStandardMaterial({ color: theme.floor, roughness: theme.floorRough, metalness: 0.05 });
-    const wallMat = new THREE.MeshStandardMaterial({ color: theme.wall, roughness: theme.wallRough, metalness: 0.05 });
-    const trimMat = new THREE.MeshStandardMaterial({ color: theme.trim, roughness: 0.4, metalness: 0.2 });
+    const isFuturistic = theme.special === 'futuristic';
+    let floorMat;
+    if (isFuturistic) {
+        const floorTex = makeFuturisticFloorTexture(rW, rD);
+        floorMat = new THREE.MeshStandardMaterial({
+            map: floorTex,
+            roughness: 0.6,
+            metalness: 0.1
+        });
+    } else {
+        floorMat = new THREE.MeshStandardMaterial({ color: theme.floor, roughness: theme.floorRough, metalness: 0.05 });
+    }
+    const wallMat = isFuturistic 
+        ? new THREE.MeshStandardMaterial({ color: 0x070718, roughness: 0.5, metalness: 0.15, emissive: 0x050510 })
+        : new THREE.MeshStandardMaterial({ color: theme.wall, roughness: theme.wallRough, metalness: 0.05 });
+    const trimMat = isFuturistic
+        ? new THREE.MeshStandardMaterial({ color: 0x22d3ee, emissive: 0x22d3ee, emissiveIntensity: 0.8 })
+        : new THREE.MeshStandardMaterial({ color: theme.trim, roughness: 0.4, metalness: 0.2 });
 
     // Floor
     const floor = new THREE.Mesh(new THREE.BoxGeometry(rW, 0.15, rD), floorMat);
@@ -365,6 +446,13 @@ function renderStudioAssets(sceneAssets) {
                 hqGroup.rotation.y = item.rotation || 0;
                 hqGroup.scale.setScalar(item.scale || 1);
                 officeGroup.add(hqGroup);
+                
+                // Save pointers for spin animation (optimizes away heavy traverse call)
+                hqGroup.traverse(child => {
+                    if (child.name && child.name.startsWith("core_")) {
+                        spinningObjects.push(child);
+                    }
+                });
                 return;
             }
         }
@@ -627,31 +715,43 @@ function buildRobloxCharacter(pos, color, agent, node, theme) {
     const legR = legL.clone(); legR.position.x = 0.1;
     group.add(legR);
 
-    // Name label
-    const labelName = agent ? agent.name : node.role.replace(/^[^\s]+\s/, '').substring(0, 20);
-    const labelTex = makeText(labelName, '#22d3ee', 30, 384, 48);
-    const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false }));
-    labelSprite.scale.set(1.8, 0.35, 1);
-    labelSprite.position.y = 1.55;
-    group.add(labelSprite);
+    // Name label & Status badge
+    if (theme.special === 'futuristic') {
+        const labelName = agent ? agent.name : (node.role.replace(/^[^\s]+\s/, '') || 'trống');
+        const statusText = agent ? 'ONLINE' : 'OFFLINE';
+        const cardTex = makeHUDCardCanvas(node.role, labelName, statusText, !!agent, node.emoji);
+        const cardSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cardTex, transparent: true, depthTest: false }));
+        cardSprite.scale.set(2.4, 1.2, 1);
+        cardSprite.position.y = 1.8;
+        group.add(cardSprite);
+    } else {
+        // Name label
+        const labelName = agent ? agent.name : node.role.replace(/^[^\s]+\s/, '').substring(0, 20);
+        const labelTex = makeText(labelName, '#22d3ee', 30, 384, 48);
+        const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTex, transparent: true, depthTest: false }));
+        labelSprite.scale.set(1.8, 0.35, 1);
+        labelSprite.position.y = 1.55;
+        group.add(labelSprite);
 
-    // Status badge
-    const statusColor = agent ? '#22c55e' : '#666677';
-    const statusText = agent ? '● online' : '○ trống';
-    const statusTex = makeText(statusText, statusColor, 22, 192, 32);
-    const statusSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: statusTex, transparent: true, depthTest: false }));
-    statusSprite.scale.set(1.0, 0.2, 1);
-    statusSprite.position.y = 1.35;
-    group.add(statusSprite);
+        // Status badge
+        const statusColor = agent ? '#22c55e' : '#666677';
+        const statusText = agent ? '● online' : '○ trống';
+        const statusTex = makeText(statusText, statusColor, 22, 192, 32);
+        const statusSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: statusTex, transparent: true, depthTest: false }));
+        statusSprite.scale.set(1.0, 0.2, 1);
+        statusSprite.position.y = 1.35;
+        group.add(statusSprite);
 
-    // Emoji badge
-    const emojiTex = makeText(node.emoji || '🤖', '#ffffff', 36, 64, 64);
-    const emojiSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex, transparent: true, depthTest: false }));
-    emojiSprite.scale.set(0.4, 0.4, 1);
-    emojiSprite.position.y = 1.75;
-    group.add(emojiSprite);
+        // Emoji badge
+        const emojiTex = makeText(node.emoji || '🤖', '#ffffff', 36, 64, 64);
+        const emojiSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: emojiTex, transparent: true, depthTest: false }));
+        emojiSprite.scale.set(0.4, 0.4, 1);
+        emojiSprite.position.y = 1.75;
+        group.add(emojiSprite);
+    }
 
     return {
+        node,
         group,
         roleId: node.role_id,
         agentId: node.agent_id || '',
@@ -883,6 +983,21 @@ function animate3d() {
 
     if (particlesMesh) particlesMesh.rotation.y = t * 0.015;
 
+    // Spin core and rings if present (optimized loop over specific assets instead of scene graph traverse)
+    spinningObjects.forEach(child => {
+        if (child.name === "core_center") {
+            child.rotation.y += dt * 1.5;
+            child.rotation.x += dt * 0.5;
+        } else if (child.name === "core_ring1") {
+            child.rotation.z += dt * 0.8;
+        } else if (child.name === "core_ring2") {
+            child.rotation.x += dt * 1.0;
+        }
+    });
+
+    // Draw active links between characters
+    updateConnectionLines();
+
     // Story player animation hook — walks, chats, animations during playback
     if (typeof storyAnimateUpdate === 'function' && typeof storyPlayer !== 'undefined') {
         storyAnimateUpdate(dt, t, storyPlayer);
@@ -894,6 +1009,66 @@ function animate3d() {
     }
 
     renderer3d.render(scene3d, camera3d);
+}
+
+function updateConnectionLines() {
+    if (!scene3d || !officeGroup) return;
+    if (!connectionLinesGroup) {
+        connectionLinesGroup = new THREE.Group();
+        officeGroup.add(connectionLinesGroup);
+    }
+    
+    // Clear old lines
+    while (connectionLinesGroup.children.length > 0) {
+        const obj = connectionLinesGroup.children[0];
+        connectionLinesGroup.remove(obj);
+    }
+    
+    if (!currentTeamData3d || !window.currentTheme || window.currentTheme.special !== 'futuristic') return;
+    
+    if (!sharedLineMaterial) {
+        sharedLineMaterial = new THREE.MeshBasicMaterial({
+            color: 0x22d3ee,
+            transparent: true,
+            opacity: 0.75
+        });
+    }
+    if (!sharedCylinderGeometry) {
+        sharedCylinderGeometry = new THREE.CylinderGeometry(0.015, 0.015, 1.0, 6);
+    }
+    
+    const activeChars = agentCharacters.filter(c => c.hasAgent);
+    activeChars.forEach(char => {
+        if (!char.node || !char.node.parent) return;
+        // Find parent character
+        const parentChar = activeChars.find(c => c.roleId === char.node.parent);
+        if (!parentChar) return;
+        
+        // Draw connecting line
+        const p1 = new THREE.Vector3().setFromMatrixPosition(char.group.matrixWorld);
+        const p2 = new THREE.Vector3().setFromMatrixPosition(parentChar.group.matrixWorld);
+        
+        // Convert to local coordinates in officeGroup
+        officeGroup.worldToLocal(p1);
+        officeGroup.worldToLocal(p2);
+        
+        p1.y += 0.85; // raise to chest level
+        p2.y += 0.85;
+        
+        const dist = p1.distanceTo(p2);
+        if (dist < 0.15) return;
+        
+        const lineMesh = new THREE.Mesh(sharedCylinderGeometry, sharedLineMaterial);
+        
+        // Position, scale, and rotate
+        lineMesh.position.copy(p1).add(p2).multiplyScalar(0.5);
+        lineMesh.scale.set(1, dist, 1);
+        
+        const direction = new THREE.Vector3().subVectors(p2, p1).normalize();
+        lineMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+        
+        connectionLinesGroup.add(lineMesh);
+    });
 }
 
 // Helper: check if position (px, pz) with radius collides with any furniture
@@ -973,6 +1148,80 @@ function setupParticles(theme) {
     const mat = new THREE.PointsMaterial({ color: theme.accent1, size: 0.04, transparent: true, opacity: 0.3 });
     particlesMesh = new THREE.Points(geo, mat);
     scene3d.add(particlesMesh);
+}
+
+// ── HUD Card texture ──
+function makeHUDCardCanvas(roleName, subText, statusText, isOnline, emoji, w = 384, h = 192) {
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+
+    const radius = 18;
+    
+    // Draw background (glassmorphic translucent dark slate)
+    ctx.fillStyle = 'rgba(12, 16, 28, 0.9)';
+    
+    const rx = 4, ry = 4, rw = w - 8, rh = h - 8;
+    ctx.beginPath();
+    ctx.moveTo(rx + radius, ry);
+    ctx.lineTo(rx + rw - radius, ry);
+    ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + radius);
+    ctx.lineTo(rx + rw, ry + rh - radius);
+    ctx.quadraticCurveTo(rx + rw, ry + rh, rx + rw - radius, ry + rh);
+    ctx.lineTo(rx + radius, ry + rh);
+    ctx.quadraticCurveTo(rx, ry + rh, rx, ry + rh - radius);
+    ctx.lineTo(rx, ry + radius);
+    ctx.quadraticCurveTo(rx, ry, rx + radius, ry);
+    ctx.closePath();
+    
+    ctx.shadowColor = 'rgba(34, 211, 238, 0.5)';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+
+    // Border (neon cyan/blue outline)
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.4)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Accent pills (Top Left)
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(24, 24, 20, 10, 5); else ctx.rect(24, 24, 20, 10);
+    ctx.fill();
+    
+    ctx.fillStyle = '#f43f5e';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(48, 24, 20, 10, 5); else ctx.rect(48, 24, 20, 10);
+    ctx.fill();
+
+    // Emoji icon (Top Right)
+    ctx.font = '32px Arial, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'top';
+    ctx.fillText(emoji || '🤖', w - 24, 18);
+
+    // Role Name (Title)
+    ctx.font = 'bold 26px "Inter", Arial, sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(roleName, 24, 52);
+
+    // Agent Name / Subtext
+    ctx.font = '500 20px "Inter", Arial, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(subText, 24, 92);
+
+    // Status / Bottom Tag
+    ctx.font = 'bold 15px "Inter", Arial, sans-serif';
+    ctx.fillStyle = isOnline ? '#22c55e' : '#64748b';
+    ctx.fillText(statusText, 24, 134);
+
+    const tex = new THREE.CanvasTexture(c);
+    tex.needsUpdate = true;
+    return tex;
 }
 
 // ── Text texture ──

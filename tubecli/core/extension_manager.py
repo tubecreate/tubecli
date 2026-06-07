@@ -102,6 +102,21 @@ def get_git_commit_version(dir_path: str, remote: bool = False, branch: str = "m
     return None
 
 
+def get_git_remote_url(dir_path: str) -> Optional[str]:
+    """Get remote origin URL for the git repository."""
+    import subprocess
+    try:
+        res = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=dir_path, capture_output=True, text=True, timeout=5
+        )
+        if res.returncode == 0:
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return None
+
+
 EXTENSIONS_CONFIG_FILE = os.path.join(DATA_DIR, "extensions.json")
 
 # ── Extension Manifest Schema ────────────────────────────────────────
@@ -240,9 +255,11 @@ class Extension:
 
     def to_dict(self) -> dict:
         manifest = self._manifest or {}
+        git_url = None
         if self.extension_dir:
             git_dir = os.path.join(self.extension_dir, ".git")
             if os.path.exists(git_dir):
+                git_url = get_git_remote_url(self.extension_dir)
                 git_ver = get_git_commit_version(self.extension_dir)
                 manifest_ver = manifest.get("version", "")
                 if git_ver:
@@ -281,6 +298,7 @@ class Extension:
             "license": manifest.get("license", ""),
             "homepage": manifest.get("homepage", ""),
             "donate": manifest.get("donate", ""),
+            "git_url": git_url,
         }
 
 

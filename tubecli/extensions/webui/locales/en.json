@@ -217,5 +217,7 @@
     "settings.google_no_calendar": "⚠️ No Calendar account in Auth Manager",
     "settings.google_no_storage": "⚠️ No Google account in Auth Manager",
     "settings.google_lost_access": "⚠️ Saved but access lost",
-    "settings.default_profile_ai": "default (AI Default)"
+    "settings.default_profile_ai": "default (AI Default)",
+    "profile.window_size": "📐 Browser Window Size",
+    "profile.window_size_hint": "Chrome window size upon startup (1600×900 or higher recommended)"
 }

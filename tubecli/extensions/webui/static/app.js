@@ -141,12 +141,30 @@ window.syncThemeToIframe = function(iframe) {
 };
 
 function handleRoute() {
-    const hash = window.location.hash.replace('#/', '') || 'dashboard';
+    let hash = window.location.hash.replace('#/', '') || 'dashboard';
+
+    // Support deep linking to extension details
+    if (hash.startsWith('extensions/detail/')) {
+        const extId = hash.substring('extensions/detail/'.length);
+        activateTab('extensions', true);
+        setTimeout(() => {
+            const ext = EXT_REGISTRY.find(e => e.id === extId);
+            if (ext) openExtDetail(extId);
+            else openExternalExtDetail(extId);
+        }, 150);
+        return;
+    }
+    if (hash === 'skills' || hash === 'ext-skills') {
+        activateTab('extensions', true);
+        setTimeout(() => openExtDetail('skills'), 150);
+        return;
+    }
+
     const tab = ROUTE_TAB_MAP[hash] || (hash.startsWith('ext-') ? hash : 'dashboard');
     activateTab(tab);
 }
 
-function activateTab(tab) {
+function activateTab(tab, skipCloseDetail) {
     // Update sidebar active state
     document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
     const navBtn = document.querySelector(`.nav-item[data-tab="${tab}"]`);
@@ -165,7 +183,9 @@ function activateTab(tab) {
     if (panel) panel.classList.add('active');
 
     // Close extension detail overlay if switching main tabs
-    closeExtDetail();
+    if (!skipCloseDetail) {
+        closeExtDetail(true);
+    }
 
     // Lazy-load iframes: only set src when first activated
     if (tab.startsWith('ext-')) {
@@ -613,6 +633,17 @@ async function openExternalExtDetail(name) {
     const overlay = document.getElementById('ext-detail-overlay');
     const title = document.getElementById('ext-detail-title');
     const body = document.getElementById('ext-detail-body');
+    const isAlreadyOpen = !overlay.classList.contains('hidden') && title.dataset.currentExtId === name;
+    if (isAlreadyOpen) return;
+    title.dataset.currentExtId = name;
+
+    if (window.location.hash !== '#/extensions/detail/' + name) {
+        window.location.hash = '#/extensions/detail/' + name;
+    }
+
+    const urlContainer = document.getElementById('ext-detail-url-container');
+    if (urlContainer) urlContainer.innerHTML = '';
+
     title.textContent = '📦 ' + name;
     body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
     overlay.classList.remove('hidden');
@@ -624,7 +655,12 @@ async function openExternalExtDetail(name) {
     const isEnabled = info.enabled;
     const icon = manifest.icon || '📦';
     const apiPrefix = manifest.api_prefix || '';
-    title.textContent = icon + ' ' + (manifest.name || name);
+    title.textContent = icon + ' ' + (manifest.display_name || manifest.name || name);
+
+    const gitUrl = info.git_url || info.homepage || manifest.homepage || '';
+    if (urlContainer && gitUrl) {
+        urlContainer.innerHTML = `<a href="${esc(gitUrl)}" target="_blank" style="color:var(--cyan); text-decoration:none; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:16px;">link</span> ${esc(gitUrl)}</a>`;
+    }
 
     // Determine if this extension has a download-like API
     const hasDownload = apiPrefix && (apiPrefix.includes('ytdl') || apiPrefix.includes('download'));
@@ -973,12 +1009,30 @@ function openExtDetail(id) {
     const overlay = document.getElementById('ext-detail-overlay');
     const title = document.getElementById('ext-detail-title');
     const body = document.getElementById('ext-detail-body');
+    const isAlreadyOpen = !overlay.classList.contains('hidden') && title.dataset.currentExtId === id;
+    if (isAlreadyOpen) return;
+    title.dataset.currentExtId = id;
+
+    if (window.location.hash !== '#/extensions/detail/' + id) {
+        window.location.hash = '#/extensions/detail/' + id;
+    }
+
+    const urlContainer = document.getElementById('ext-detail-url-container');
+    if (urlContainer) urlContainer.innerHTML = '';
     const tabExt = document.getElementById('tab-extensions');
     if (tabExt) tabExt.style.display = 'none';
 
-    title.textContent = ext.icon + ' ' + ext.name;
+    title.textContent = ext.icon + ' ' + (typeof window.T === 'function' ? T(ext.name) : ext.name);
     body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
     overlay.classList.remove('hidden');
+
+    // Display URL if extension info is available in allAvailableExtensions
+    const dbExt = (typeof allAvailableExtensions !== 'undefined' ? allAvailableExtensions : []).find(e => e.name === id);
+    const gitUrl = dbExt?.git_url || dbExt?.homepage || '';
+    if (urlContainer && gitUrl) {
+        urlContainer.innerHTML = `<a href="${esc(gitUrl)}" target="_blank" style="color:var(--cyan); text-decoration:none; display:flex; align-items:center; gap:4px;"><span class="material-symbols-outlined" style="font-size:16px;">link</span> ${esc(gitUrl)}</a>`;
+    }
+
     // Route to detail renderer
     stopBrowserStatusPoller();
     if (id === 'agents') renderAgentsExt(body);
@@ -989,10 +1043,21 @@ function openExtDetail(id) {
     else if (id === 'ollama') renderOllamaExt(body);
     else if (id === 'video_editor') renderFullPageExt(body, 'Video Editor', 'AI-powered Video Editor with Timeline & FFmpeg Processing.', '/video-editor');
 }
-function closeExtDetail() { 
+function closeExtDetail(skipHashReset) { 
     document.getElementById('ext-detail-overlay').classList.add('hidden'); 
     const tabExt = document.getElementById('tab-extensions');
     if (tabExt) tabExt.style.display = '';
+    const urlContainer = document.getElementById('ext-detail-url-container');
+    if (urlContainer) urlContainer.innerHTML = '';
+    const title = document.getElementById('ext-detail-title');
+    if (title) delete title.dataset.currentExtId;
+    
+    if (!skipHashReset) {
+        const hash = window.location.hash;
+        if (hash.includes('/detail/') || hash === '#/skills' || hash === '#/ext-skills') {
+            window.location.hash = '#/extensions';
+        }
+    }
 }
 
 function renderFullPageExt(el, name, desc, url) {
@@ -1336,13 +1401,13 @@ async function renderBrowserExt(el) {
     const runningProfiles = runningInstances.map(i => i.profile);
     _lastRunningProfiles = runningProfiles.slice().sort().join(',');
     startBrowserStatusPoller(el);
-    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">Browser Engines</button></div>`;
+    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button></div>`;
     if (runningInstances.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${runningInstances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
         const hasGA = p.google_account && p.google_account.email;
-        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="Settings">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? '🧬 FP OK' : `<span style="color:var(--orange)">⚠️ No FP</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="Run Command" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="${T('browser.run_command', 'Run Command')}" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }
@@ -1383,26 +1448,45 @@ async function renderSkillsExt(el) {
     const skills = data?.skills || [];
     _loadedSkills = skills; // cache
     
+    let html = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:16px;">
+        <div style="display:flex; gap:10px; align-items:center;">
+            <input type="text" id="skills-search-input" class="input" placeholder="🔍 Tìm kiếm skill..." oninput="filterSkillsList()" style="width:250px; padding:8px 12px; margin:0;">
+        </div>
+        <button class="btn-primary" onclick="openCreateSkillModal()" style="display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, var(--accent), #7c3aed); font-weight:600; padding:10px 18px; border-radius:8px;">
+            <span class="material-symbols-outlined" style="font-size:20px;">add_circle</span> Tạo Skill Mới
+        </button>
+    </div>
+    <div id="skills-list-container">
+    `;
+    
     if (skills.length === 0) { 
-        el.innerHTML = `<p class="text-muted">${T('skills.no_skills')}</p>`; 
+        html += `<p class="text-muted" style="padding: 20px 0;">${T('skills.no_skills') || 'Không có skill nào. Hãy click nút phía trên để tạo.'}</p></div>`; 
+        el.innerHTML = html;
         return; 
     }
     
-    let html = '<div class="cards-grid">';
+    html += '<div class="cards-grid" id="skills-cards-grid">';
     
     skills.forEach(s => {
         const cat = categorizeSkill(s);
         
         let actionsHtml = `<button class="btn-sm" onclick="showSkillMarkdown('${s.id}')" title="Xem JSON Schema & Context mà LLM nhận được">📄 Xem Markdown</button>`;
         
+        // Add Edit manual skill button
+        actionsHtml += `<button class="btn-sm" onclick="openEditSkillModal('${s.id}')" title="Chỉnh sửa metadata và logic Skill">✏️ Sửa</button>`;
+        
         if (cat.cat === 'workflow' || cat.cat === 'browser' || cat.cat === 'general' || cat.cat === 'api' || cat.cat === 'ai') {
             actionsHtml += `<button class="btn-sm" onclick="window.open('/workflow?skill_id=${s.id}', '_blank')" title="Chỉnh sửa luồng chạy nghiệm của Skill này">🔧 Sửa Workflow</button>`;
         }
         
         actionsHtml += `<button class="btn-sm" style="background:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent;" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')" title="Thực thi trực tiếp nhập liệu">▶ Chạy Test</button>`;
+        
+        // Add delete button
+        actionsHtml += `<button class="btn-danger btn-sm" onclick="deleteSkill('${s.id}')" title="Xóa Skill này" style="padding: 6px 10px;">🗑️ Xóa</button>`;
 
         html += `
-        <div class="card" style="display:flex; flex-direction:column;">
+        <div class="card skill-item-card" data-name="${esc(s.name.toLowerCase())}" data-desc="${esc((s.description||'').toLowerCase())}" style="display:flex; flex-direction:column;">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
                 <div class="card-icon" style="margin:0; width:40px; height:40px; border-radius:10px; font-size:1.2rem; background:rgba(0,0,0,0.2); box-shadow:0 4px 10px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;">${cat.icon}</div>
                 <span class="tag" style="background:${cat.color}20; color:${cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span>
@@ -1418,8 +1502,381 @@ async function renderSkillsExt(el) {
         </div>`;
     });
     
-    html += '</div>';
+    html += '</div></div>';
     el.innerHTML = html;
+}
+
+function filterSkillsList() {
+    const q = document.getElementById('skills-search-input').value.trim().toLowerCase();
+    document.querySelectorAll('#skills-cards-grid .skill-item-card').forEach(card => {
+        const name = card.dataset.name || '';
+        const desc = card.dataset.desc || '';
+        if (name.includes(q) || desc.includes(q)) {
+            card.style.display = 'flex';
+        } else {
+            card.style.display = 'none';
+        }
+    });
+}
+
+async function deleteSkill(skillId) {
+    if (!confirm('Bạn có chắc chắn muốn xóa Skill này? Hành động này không thể hoàn tác.')) return;
+    try {
+        const res = await apiDelete(`/api/v1/skills/${skillId}`);
+        if (res && res.status === 'deleted') {
+            // Reload list
+            const body = document.getElementById('ext-detail-body');
+            renderSkillsExt(body);
+        } else {
+            alert('Lỗi xóa skill: ' + (res?.message || res?.error || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('Lỗi kết nối: ' + e.message);
+    }
+}
+
+function switchSkillCreateTab(tabName) {
+    const manualBtn = document.getElementById('btn-tab-skill-manual');
+    const aiBtn = document.getElementById('btn-tab-skill-ai');
+    const manualPane = document.getElementById('tab-skill-manual');
+    const aiPane = document.getElementById('tab-skill-ai');
+    
+    if (tabName === 'manual') {
+        manualBtn.classList.add('active');
+        aiBtn.classList.remove('active');
+        manualPane.classList.add('active');
+        aiPane.classList.remove('active');
+    } else {
+        manualBtn.classList.remove('active');
+        aiBtn.classList.add('active');
+        manualPane.classList.remove('active');
+        aiPane.classList.add('active');
+    }
+}
+
+function toggleManualSkillFields() {
+    const type = document.getElementById('skill-type-select').value;
+    const markdownGroup = document.getElementById('group-skill-markdown');
+    if (type === 'Markdown') {
+        markdownGroup.style.display = 'block';
+    } else {
+        markdownGroup.style.display = 'none';
+    }
+}
+
+function openCreateSkillModal() {
+    document.getElementById('skill-modal-title').textContent = '✨ Tạo Skill Mới';
+    document.getElementById('skill-edit-id').value = '';
+    
+    document.getElementById('skill-name-input').value = '';
+    document.getElementById('skill-type-select').value = 'Markdown';
+    document.getElementById('skill-desc-input').value = '';
+    document.getElementById('skill-trigger-input').value = '';
+    document.getElementById('skill-markdown-input').value = '';
+    
+    document.getElementById('skill-ai-prompt').value = '';
+    document.getElementById('skill-ai-name').value = '';
+    document.getElementById('skill-ai-desc').value = '';
+    document.getElementById('skill-ai-trigger').value = '';
+    document.getElementById('skill-ai-markdown').value = '';
+    
+    document.getElementById('skill-ai-preview-container').style.display = 'none';
+    document.getElementById('skill-ai-loading').style.display = 'none';
+    
+    toggleManualSkillFields();
+    switchSkillCreateTab('manual');
+    loadSkillAIModels();
+    
+    openModal('modal-create-skill');
+}
+
+function openEditSkillModal(skillId) {
+    const skill = _loadedSkills.find(s => s.id === skillId);
+    if (!skill) return;
+    
+    document.getElementById('skill-modal-title').textContent = '✏️ Chỉnh sửa Skill';
+    document.getElementById('skill-edit-id').value = skill.id;
+    
+    document.getElementById('skill-name-input').value = skill.name || '';
+    document.getElementById('skill-type-select').value = skill.skill_type || 'Markdown';
+    document.getElementById('skill-desc-input').value = skill.description || '';
+    document.getElementById('skill-trigger-input').value = (skill.commands || []).join(', ');
+    document.getElementById('skill-markdown-input').value = skill.workflow_data?.markdown || '';
+    
+    document.getElementById('skill-ai-prompt').value = '';
+    document.getElementById('skill-ai-name').value = '';
+    document.getElementById('skill-ai-desc').value = '';
+    document.getElementById('skill-ai-trigger').value = '';
+    document.getElementById('skill-ai-markdown').value = '';
+    
+    document.getElementById('skill-ai-preview-container').style.display = 'none';
+    document.getElementById('skill-ai-loading').style.display = 'none';
+    
+    toggleManualSkillFields();
+    switchSkillCreateTab('manual');
+    loadSkillAIModels();
+    
+    openModal('modal-create-skill');
+}
+
+async function loadSkillAIModels() {
+    const provider = document.getElementById('skill-ai-provider').value;
+    const modelSel = document.getElementById('skill-ai-model');
+    if (!modelSel) return;
+    
+    modelSel.innerHTML = '<option value="">⏳ Đang tải các model...</option>';
+    
+    try {
+        if (provider === 'ollama') {
+            const ollama = await apiGet('/api/v1/ollama/models');
+            if (ollama && ollama.models && ollama.models.length > 0) {
+                modelSel.innerHTML = ollama.models.map(m => `<option value="${esc(m.name || m)}">${esc(m.name || m)}</option>`).join('');
+            } else {
+                modelSel.innerHTML = '<option value="qwen:latest">qwen:latest (Mặc định)</option><option disabled>⚠️ Ollama chưa chạy</option>';
+            }
+        } else if (provider === '9router') {
+            const nrStatus = await apiGet('/api/v1/cloud-api/9router/status');
+            if (nrStatus?.running && nrStatus.models && nrStatus.models.length > 0) {
+                modelSel.innerHTML = nrStatus.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+            } else {
+                modelSel.innerHTML = '<option value="deepseek-chat">deepseek-chat (Mặc định)</option><option disabled>⚠️ 9Router chưa chạy</option>';
+            }
+        } else {
+            const cloud = await apiGet('/api/v1/cloud-api/providers');
+            if (cloud && cloud.providers) {
+                const mappedProv = provider === 'chatgpt' ? 'openai' : provider;
+                const match = cloud.providers.find(p => p.id === mappedProv);
+                if (match && match.models && match.models.length > 0) {
+                    modelSel.innerHTML = match.models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+                } else {
+                    const fallbacks = {
+                        'gemini': ['gemini-2.0-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+                        'chatgpt': ['gpt-4o-mini', 'gpt-4o', 'o1-mini', 'gpt-3.5-turbo'],
+                        'claude': ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
+                        'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+                        'grok': ['grok-2-1212', 'grok-beta']
+                    };
+                    const models = fallbacks[provider] || ['default'];
+                    modelSel.innerHTML = models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+                }
+            } else {
+                const fallbacks = {
+                    'gemini': ['gemini-2.0-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+                    'chatgpt': ['gpt-4o-mini', 'gpt-4o', 'o1-mini', 'gpt-3.5-turbo'],
+                    'claude': ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
+                    'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+                    'grok': ['grok-2-1212', 'grok-beta']
+                };
+                const models = fallbacks[provider] || ['default'];
+                modelSel.innerHTML = models.map(m => `<option value="${esc(m)}">${esc(m)}</option>`).join('');
+            }
+        }
+    } catch(e) {
+        console.warn('Failed to fetch models for provider:', provider, e);
+        modelSel.innerHTML = '<option value="">Chọn model...</option>';
+    }
+}
+
+async function generateSkillWithAI() {
+    const prompt = document.getElementById('skill-ai-prompt').value.trim();
+    if (!prompt) {
+        alert('Vui lòng nhập yêu cầu thiết kế Skill.');
+        return;
+    }
+    
+    const provider = document.getElementById('skill-ai-provider').value;
+    const model = document.getElementById('skill-ai-model').value;
+    
+    const loadingDiv = document.getElementById('skill-ai-loading');
+    const previewContainer = document.getElementById('skill-ai-preview-container');
+    const generateBtn = document.getElementById('btn-generate-skill-ai');
+    
+    loadingDiv.style.display = 'block';
+    previewContainer.style.display = 'none';
+    generateBtn.disabled = true;
+    
+    try {
+        const payload = {
+            prompt: prompt,
+            provider: provider,
+            model: model,
+            api_key: '__CLOUD_API__'
+        };
+        
+        const res = await apiPost('/api/v1/skills/generate-ai', payload);
+        
+        if (res && res.status === 'success' && res.skill) {
+            const skill = res.skill;
+            
+            document.getElementById('skill-ai-name').value = skill.name || '';
+            document.getElementById('skill-ai-type').value = skill.skill_type || 'Markdown';
+            document.getElementById('skill-ai-desc').value = skill.description || '';
+            document.getElementById('skill-ai-trigger').value = (skill.commands || []).join(', ');
+            
+            const groupMd = document.getElementById('group-skill-ai-markdown');
+            const groupWf = document.getElementById('group-skill-ai-workflow');
+            
+            window._generatedAISkillWorkflow = skill.workflow_data || {};
+            
+            if (skill.skill_type === 'Markdown') {
+                groupMd.style.display = 'block';
+                groupWf.style.display = 'none';
+                document.getElementById('skill-ai-markdown').value = skill.workflow_data?.markdown || '';
+            } else {
+                groupMd.style.display = 'none';
+                groupWf.style.display = 'block';
+                const nodeCount = (skill.workflow_data?.nodes || []).length;
+                const connCount = (skill.workflow_data?.connections || []).length;
+                document.getElementById('skill-ai-workflow-summary').innerHTML = 
+                    `Số lượng Node: <strong style="color:var(--cyan);">${nodeCount}</strong> | Số lượng Kết nối: <strong style="color:var(--cyan);">${connCount}</strong>.`;
+            }
+            
+            previewContainer.style.display = 'block';
+        } else {
+            alert('Lỗi thiết kế Skill: ' + (res?.error || res?.message || 'Không có kết quả trả về. Vui lòng kiểm tra API Key/Ollama.'));
+        }
+    } catch(e) {
+        alert('Lỗi kết nối: ' + e.message);
+    } finally {
+        loadingDiv.style.display = 'none';
+        generateBtn.disabled = false;
+    }
+}
+
+async function saveCreatedSkill() {
+    const isManual = document.getElementById('btn-tab-skill-manual').classList.contains('active');
+    
+    let id, name, description, trigger, skill_type, workflow_data;
+    
+    if (isManual) {
+        id = document.getElementById('skill-edit-id').value;
+        name = document.getElementById('skill-name-input').value.trim();
+        skill_type = document.getElementById('skill-type-select').value;
+        description = document.getElementById('skill-desc-input').value.trim();
+        trigger = document.getElementById('skill-trigger-input').value.trim();
+        
+        if (!name) {
+            alert('Vui lòng nhập Tên Skill.');
+            return;
+        }
+        
+        if (skill_type === 'Markdown') {
+            const markdown = document.getElementById('skill-markdown-input').value;
+            workflow_data = {
+                markdown: markdown,
+                nodes: [],
+                connections: []
+            };
+        } else {
+            let existingNodes = [];
+            let existingConns = [];
+            if (id) {
+                const existing = _loadedSkills.find(s => s.id === id);
+                if (existing && existing.workflow_data) {
+                    existingNodes = existing.workflow_data.nodes || [];
+                    existingConns = existing.workflow_data.connections || [];
+                }
+            }
+            
+            if (existingNodes.length === 0) {
+                const OFFSET = 25000;
+                existingNodes = [
+                    {
+                        id: "node_1",
+                        type: "text_input",
+                        label: "Input Prompt",
+                        x: OFFSET + 100,
+                        y: OFFSET + 150,
+                        config: { text: "" }
+                    },
+                    {
+                        id: "node_2",
+                        type: "output",
+                        label: "Output",
+                        x: OFFSET + 450,
+                        y: OFFSET + 150,
+                        config: {}
+                    }
+                ];
+                existingConns = [
+                    {
+                        from_node_id: "node_1",
+                        from_port_id: "content",
+                        to_node_id: "node_2",
+                        to_port_id: "data"
+                    }
+                ];
+            }
+            
+            workflow_data = {
+                markdown: '',
+                nodes: existingNodes,
+                connections: existingConns
+            };
+        }
+    } else {
+        const previewContainer = document.getElementById('skill-ai-preview-container');
+        if (previewContainer.style.display === 'none') {
+            alert('Vui lòng thực hiện thiết kế Skill bằng AI trước khi lưu.');
+            return;
+        }
+        
+        id = '';
+        name = document.getElementById('skill-ai-name').value.trim();
+        skill_type = document.getElementById('skill-ai-type').value;
+        description = document.getElementById('skill-ai-desc').value.trim();
+        trigger = document.getElementById('skill-ai-trigger').value.trim();
+        
+        if (!name) {
+            alert('Vui lòng nhập Tên Skill.');
+            return;
+        }
+        
+        if (skill_type === 'Markdown') {
+            const markdown = document.getElementById('skill-ai-markdown').value;
+            workflow_data = {
+                markdown: markdown,
+                nodes: [],
+                connections: []
+            };
+        } else {
+            workflow_data = window._generatedAISkillWorkflow || { nodes: [], connections: [], markdown: '' };
+        }
+    }
+    
+    const payload = {
+        name: name,
+        description: description,
+        skill_type: skill_type,
+        trigger: trigger,
+        workflow_data: workflow_data
+    };
+    
+    const saveBtn = document.getElementById('btn-save-created-skill');
+    saveBtn.disabled = true;
+    saveBtn.textContent = '⏳ Đang lưu...';
+    
+    try {
+        let res;
+        if (id) {
+            res = await apiPut(`/api/v1/skills/${id}`, payload);
+        } else {
+            res = await apiPost('/api/v1/skills', payload);
+        }
+        
+        if (res && (res.status === 'created' || res.status === 'updated')) {
+            closeModal('modal-create-skill');
+            const body = document.getElementById('ext-detail-body');
+            renderSkillsExt(body);
+        } else {
+            alert('Lỗi lưu skill: ' + (res?.message || res?.error || 'Unknown error'));
+        }
+    } catch(e) {
+        alert('Lỗi kết nối: ' + e.message);
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '💾 Lưu Skill';
+    }
 }
 
 function showSkillMarkdown(skillId) {
@@ -2745,27 +3202,35 @@ async function showCreateProfile() {
 async function loadEngineVersionsDropdown(selId, currentVersion) {
     const sel = document.getElementById(selId);
     if (!sel) return;
-    const prev = sel.value || currentVersion || 'default';
-    sel.innerHTML = '<option value="default">⏳ Loading...</option>';
+    const prev = currentVersion || sel.value || 'default';
+    sel.innerHTML = '<option value="default">⏳ ' + T('browser.loading', 'Loading...') + '</option>';
     try {
         const r = await apiGet('/api/v1/browser/engine/versions');
         if (r && r.success && r.versions) {
             const installed = r.versions.filter(v => v.downloaded);
             if (installed.length === 0) {
-                sel.innerHTML = '<option value="default">Default Latest (no engine installed)</option>';
+                sel.innerHTML = `<option value="default">${T('browser.default_latest_no_engine', 'Default Latest (no engine installed)')}</option>`;
                 return;
             }
-            sel.innerHTML = '<option value="default">Default Latest</option>' +
+            sel.innerHTML = `<option value="default">${T('browser.default_latest', 'Default Latest')}</option>` +
                 installed.map(v => {
                     const nm  = typeof v === 'object' ? (v.browser_version || v.name) : v;
                     const bas = typeof v === 'object' ? v.bas_version : '';
-                    const label = bas ? `${nm} (BAS ${bas})` : nm;
+                    const isShardX = typeof v === 'object' ? v.is_shardx : false;
+                    
+                    let label = nm;
+                    if (isShardX) {
+                        const verNum = nm.replace('ShardX', '').trim();
+                        label = `${verNum} (ShardX)`;
+                    } else if (bas) {
+                        label = `${nm} (BAS)`;
+                    }
                     return `<option value="${esc(nm)}">${esc(label)}</option>`;
                 }).join('');
             // Restore previously selected version
-            if (prev && prev !== 'default') {
+            if (prev) {
                 sel.value = prev;
-                if (!sel.value || sel.value === 'default') {
+                if (prev !== 'default' && (!sel.value || sel.value === 'default')) {
                     // Version not in list — add it
                     const opt = document.createElement('option');
                     opt.value = prev; opt.textContent = prev;
@@ -2774,17 +3239,19 @@ async function loadEngineVersionsDropdown(selId, currentVersion) {
                 }
             }
         } else {
-            sel.innerHTML = '<option value="default">Default Latest</option>';
+            sel.innerHTML = `<option value="default">${T('browser.default_latest', 'Default Latest')}</option>`;
+            if (prev) sel.value = prev;
         }
     } catch (e) {
-        sel.innerHTML = '<option value="default">Default Latest</option>';
+        sel.innerHTML = `<option value="default">${T('browser.default_latest', 'Default Latest')}</option>`;
+        if (prev) sel.value = prev;
         console.warn('[Engine dropdown] fetch failed:', e);
     }
 }
 async function showBrowserEnginesModal() {
     document.getElementById('modal-engines').classList.remove('hidden');
     const container = document.getElementById('engines-list-container');
-    container.innerHTML = '<p class="text-muted">Fetching available engines...</p>';
+    container.innerHTML = `<p class="text-muted">${T('browser.fetching_engines', 'Fetching available engines...')}</p>`;
     
     try {
         const r = await apiGet('/api/v1/browser/engine/versions');
@@ -2802,21 +3269,21 @@ async function showBrowserEnginesModal() {
                         ${isBas ? '<span style="font-size:0.65rem;background:var(--purple);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">BAS APP</span>' : ''}
                         ${v.is_private ? '<span style="font-size:0.65rem;background:var(--green);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">PRIVATE</span>' : ''}
                     </td>
-                    <td style="color:${installed ? 'var(--green)' : 'var(--red)'}">${installed ? '✅ Installed' : '❌ Missing'}</td>
+                    <td style="color:${installed ? 'var(--green)' : 'var(--red)'}">${installed ? T('browser.installed', '✅ Installed') : T('browser.missing', '❌ Missing')}</td>
                     <td style="font-size:0.75rem;color:var(--text-muted);word-break:break-all">${esc(path)}</td>
                     <td style="text-align:right">
-                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(v.bas_version || name)}', '${esc(downloadUrl)}')">Install</button>`}
+                        ${installed ? '' : `<button class="btn-install" style="padding:2px 10px;font-size:0.8rem" onclick="installEngineVersionProgress('${esc(v.bas_version || name)}', '${esc(downloadUrl)}')">${T('browser.btn_install', 'Install')}</button>`}
                     </td>
                 </tr>`;
             }).join('');
             
             container.innerHTML = `<table class="data-table">
-                <thead><tr><th>Version</th><th>Status</th><th>Path</th><th style="text-align:right">Action</th></tr></thead>
+                <thead><tr><th>${T('browser.hdr_version', 'Version')}</th><th>${T('browser.hdr_status', 'Status')}</th><th>${T('browser.hdr_path', 'Path')}</th><th style="text-align:right">${T('browser.hdr_action', 'Action')}</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
             // Show warning if using fallback
             if (r.warning) {
-                container.innerHTML = `<div style="background:rgba(255,165,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.85rem">⚠️ ${esc(r.warning)} — Showing fallback versions list.</div>` + container.innerHTML;
+                container.innerHTML = `<div style="background:rgba(255,165,0,0.1);border:1px solid var(--orange);border-radius:8px;padding:10px;margin-bottom:12px;font-size:0.85rem">⚠️ ${esc(r.warning)}</div>` + container.innerHTML;
             }
         } else {
             const errMsg = r?.error || r?.message || 'Unknown error';
@@ -2858,7 +3325,7 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
     const percentText = document.getElementById('download-percent');
     const titleText = document.getElementById('download-title');
     
-    titleText.textContent = `Installing ${version}...`;
+    titleText.textContent = T('browser.installing_version', {version: version});
     progressBar.style.width = '0%';
     percentText.textContent = '0%';
     overlay.classList.remove('hidden');
@@ -2871,9 +3338,9 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
         });
         if (start && start.status === 'already_downloading') {
             // Another tab already started this download - just poll progress
-            titleText.textContent = `Downloading ${version}... (resuming)`;
+            titleText.textContent = T('browser.downloading_version_resume', {version: version});
         } else if (!start || start.error) {
-            alert('Failed to start download: ' + (start?.error || 'Unknown error'));
+            alert(T('browser.download_start_failed', 'Failed to start download: ') + (start?.error || 'Unknown error'));
             overlay.classList.add('hidden');
             return;
         }
@@ -2900,19 +3367,19 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
                 done = true;
                 progressBar.style.width = '100%';
                 percentText.textContent = '100%';
-                titleText.textContent = 'Installation Complete!';
+                titleText.textContent = T('browser.install_complete', 'Installation Complete!');
                 setTimeout(() => {
                     overlay.classList.add('hidden');
                     showBrowserEnginesModal(); // refresh list
                 }, 1000);
             } else if (status.status === 'error') {
                 done = true;
-                alert('Installation failed: ' + (status.error || 'Unknown error'));
+                alert(T('browser.install_failed', 'Installation failed: ') + (status.error || 'Unknown error'));
                 overlay.classList.add('hidden');
             }
         }
     } catch (e) {
-        alert('Request failed: ' + e.message);
+        alert(T('browser.request_failed', 'Request failed: ') + e.message);
         overlay.classList.add('hidden');
     }
 }
@@ -2921,7 +3388,7 @@ async function createProfile() {
     const name = document.getElementById('profile-name').value.trim();
     if (!name) return;
     btn.disabled = true;
-    btn.textContent = 'Creating...';
+    btn.textContent = T('browser.creating', 'Creating...');
     const width  = parseInt(document.getElementById('profile-win-width')?.value)  || 1920;
     const height = parseInt(document.getElementById('profile-win-height')?.value) || 1080;
     await apiPost('/api/v1/browser/profiles', {
@@ -2932,7 +3399,7 @@ async function createProfile() {
         window_size: { width, height },
     });
     btn.disabled = false;
-    btn.textContent = 'Create & Fetch Fingerprint';
+    btn.textContent = T('browser.create_fetch', 'Create & Fetch Fingerprint');
     closeModal('modal-profile');
     document.getElementById('profile-name').value = '';
     document.getElementById('profile-proxy').value = '';
@@ -2940,16 +3407,16 @@ async function createProfile() {
     if (document.getElementById('profile-win-height')) document.getElementById('profile-win-height').value = '1080';
     renderBrowserExt(getBrowserBody());
 }
-async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(getBrowserBody());if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = 'Failed to launch: ' + (r?.error || r?.detail || 'Unknown error'); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
+async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(getBrowserBody());if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = T('browser.launch_failed', 'Failed to launch: ') + (r?.error || r?.detail || T('browser.err_unknown', 'Unknown error')); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(getBrowserBody()),1000); }
-async function deleteProfile(name) { if(!confirm('Delete '+name+'?')) return; await apiDelete('/api/v1/browser/profiles/'+name); }
+async function deleteProfile(name) { if(!confirm(T('browser.delete_confirm_prompt', {name: name}))) return; await apiDelete('/api/v1/browser/profiles/'+name); }
 async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name)); if (!r || r.error) { alert('No log available: ' + (r?.error || 'Unknown')); return; } let msg = '📋 Browser Log for: ' + name; msg += '\n\nStatus: ' + (r.status || '-'); msg += '\nCommand: ' + (r.command || '-'); msg += '\nLog file: ' + (r.log_file || '-'); if (r.debug) { const d = r.debug; if (d.node_version) msg += '\nNode: ' + d.node_version; if (d.open_js_exists !== undefined) msg += '\nopen.js: ' + (d.open_js_exists ? '✅' : '❌'); if (d.node_modules_exists !== undefined) msg += '\nnode_modules: ' + (d.node_modules_exists ? '✅' : '❌'); if (d.launcher_dir) msg += '\nLauncher: ' + d.launcher_dir; } msg += '\n\n─── LOG OUTPUT ───\n' + (r.log || '(empty)'); alert(msg); }
 
 // ═══ Browser Command ═══
 let _cmdProfile = '';
 function showProfileCommand(name) { _cmdProfile = name; document.getElementById('cmd-profile-name').textContent = name; document.getElementById('cmd-input').value = ''; document.getElementById('modal-command').classList.remove('hidden'); setTimeout(() => document.getElementById('cmd-input').focus(), 100); }
 function setCommand(cmd) { document.getElementById('cmd-input').value = cmd; document.getElementById('cmd-input').focus(); }
-async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert('Vui lòng nhập lệnh!'); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ Đang chạy...'; const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 Chạy lệnh'; if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(getBrowserBody()); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = 'Lỗi: ' + (r?.error || r?.detail || 'Unknown'); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
+async function executeProfileCommand() { const cmd = document.getElementById('cmd-input').value.trim(); if (!cmd) return alert(T('browser.alert_enter_command', 'Please enter a command!')); const aiModel = document.getElementById('cmd-ai-model').value; const btn = document.getElementById('btn-run-command'); btn.disabled = true; btn.textContent = '⏳ ' + T('browser.running', 'Running...'); const r = await apiPost('/api/v1/browser/launch', { profile: _cmdProfile, prompt: cmd, manual: false, ai_model: aiModel }); btn.disabled = false; btn.textContent = '🚀 ' + T('browser.run_command', 'Run Command'); if (r && !r.error && r.status !== 'error') { closeModal('modal-command'); let n = 0; const iv = setInterval(async () => { await renderBrowserExt(getBrowserBody()); if (++n >= 3) clearInterval(iv); }, 2000); } else { let msg = T('browser.alert_error', 'Error: ') + (r?.error || r?.detail || T('browser.err_unknown', 'Unknown error')); if (r?.log_output) msg += '\n\n' + r.log_output; alert(msg); } }
 function searchMarket() { const q=(document.getElementById('market-search')?.value||'').toLowerCase(); document.querySelectorAll('#market-list .card').forEach(c=>{ c.style.display=c.textContent.toLowerCase().includes(q)?'':'none'; }); }
 
 // ═══ Global Settings ═══
@@ -3716,15 +4183,245 @@ function toggleSidebar() { document.getElementById('sidebar').classList.toggle('
 // ═══ Utility ═══
 function esc(s) { if(!s) return ''; const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
 
-// ═══ Profile Settings ═══
+// ═══ Profile Settings & Cookies ═══
 let _settingsProfileName = '';
+let _settingsAccounts = { google: '', facebook: '', tiktok: '', x: '', discord: '', telegram: '' };
+let _settingsActiveService = 'google';
+let _loadedCookies = [];
+
+function switchSettingsTab(tabId, btn) {
+    // remove active class from all settings-tab-btn
+    document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.remove('active'));
+    // hide all settings-tab-pane
+    document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.remove('active'));
+    
+    // add active class to clicked button
+    if (btn) btn.classList.add('active');
+    else {
+        // Fallback: search for button by click text or target
+        const buttons = document.querySelectorAll('.settings-tab-btn');
+        for (const b of buttons) {
+            if (b.getAttribute('onclick') && b.getAttribute('onclick').includes(`'${tabId}'`)) {
+                b.classList.add('active');
+                break;
+            }
+        }
+    }
+    
+    // show target pane
+    const targetPane = document.getElementById('settings-tab-' + tabId);
+    if (targetPane) {
+        targetPane.classList.add('active');
+    }
+}
+
+async function loadProfileCookies(name) {
+    const countEl = document.getElementById('settings-cookies-count');
+    const dataEl = document.getElementById('settings-cookies-data');
+    if (countEl) countEl.textContent = '⏳';
+    if (dataEl) dataEl.value = T('browser.loading_cookies', 'Loading cookies...');
+    
+    _loadedCookies = [];
+    try {
+        const res = await apiGet(`/api/v1/browser/profiles/${name}/cookies`);
+        if (res && Array.isArray(res.cookies)) {
+            _loadedCookies = res.cookies;
+        } else if (res && res.cookies && Array.isArray(res.cookies.cookies)) {
+            _loadedCookies = res.cookies.cookies;
+        }
+    } catch (e) {
+        console.error('Lỗi tải cookies:', e);
+    }
+    
+    updateCookieCountDisplay();
+    const formatSelect = document.getElementById('settings-cookies-format');
+    const format = formatSelect ? formatSelect.value : 'json';
+    displayCookies(format);
+}
+
+function updateCookieCountDisplay() {
+    const countEl = document.getElementById('settings-cookies-count');
+    if (countEl) {
+        countEl.textContent = _loadedCookies ? _loadedCookies.length : 0;
+    }
+}
+
+function displayCookies(format) {
+    const textarea = document.getElementById('settings-cookies-data');
+    if (!textarea) return;
+    
+    if (!_loadedCookies || _loadedCookies.length === 0) {
+        textarea.value = '';
+        return;
+    }
+    
+    if (format === 'json') {
+        textarea.value = JSON.stringify(_loadedCookies, null, 2);
+    } else if (format === 'string') {
+        const parts = _loadedCookies.map(c => `${c.name || c.key || ''}=${c.value || ''}`);
+        textarea.value = parts.join('; ');
+    }
+}
+
+function onCookieFormatChange() {
+    const select = document.getElementById('settings-cookies-format');
+    if (select) {
+        displayCookies(select.value);
+    }
+}
+
+async function importCookies() {
+    const text = document.getElementById('settings-cookies-data').value.trim();
+    let defaultDomain = document.getElementById('settings-cookies-domain').value.trim() || '.google.com';
+    if (!text) {
+        alert(T('browser.alert_empty_cookies', 'Please enter cookie content first!'));
+        return;
+    }
+    
+    let cookiesList = [];
+    try {
+        // Try parsing JSON first
+        const parsed = JSON.parse(text);
+        if (Array.isArray(parsed)) {
+            cookiesList = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+            if (Array.isArray(parsed.cookies)) {
+                cookiesList = parsed.cookies;
+            } else {
+                cookiesList = [parsed];
+            }
+        }
+    } catch (e) {
+        // Fallback to plain string parsing (name=value; name2=value2)
+        const pairs = text.split(';');
+        for (let pair of pairs) {
+            pair = pair.trim();
+            if (!pair) continue;
+            const eqIdx = pair.indexOf('=');
+            if (eqIdx === -1) continue;
+            const name = pair.substring(0, eqIdx).trim();
+            const value = pair.substring(eqIdx + 1).trim();
+            if (name) {
+                cookiesList.push({
+                    name: name,
+                    value: value,
+                    domain: defaultDomain,
+                    path: '/',
+                    secure: true,
+                    httpOnly: false
+                });
+            }
+        }
+    }
+    
+    if (cookiesList.length === 0) {
+        alert(T('browser.alert_invalid_cookies', 'No valid cookies found to import!'));
+        return;
+    }
+    
+    // Normalize properties
+    cookiesList = cookiesList.map(c => {
+        if (c.key && !c.name) c.name = c.key;
+        if (!c.name && c.Name) c.name = c.Name;
+        if (!c.value && c.Value) c.value = c.Value;
+        if (!c.domain && c.Domain) c.domain = c.Domain;
+        if (!c.path && c.Path) c.path = c.Path;
+        if (!c.secure && c.Secure !== undefined) c.secure = c.Secure;
+        if (!c.httpOnly && c.HttpOnly !== undefined) c.httpOnly = c.HttpOnly;
+        
+        if (!c.name) c.name = '';
+        if (!c.value) c.value = '';
+        if (!c.domain) c.domain = defaultDomain;
+        if (!c.path) c.path = '/';
+        if (c.secure === undefined) c.secure = true;
+        if (c.httpOnly === undefined) c.httpOnly = false;
+        return c;
+    }).filter(c => c.name);
+    
+    try {
+        const result = await apiPost(`/api/v1/browser/profiles/${_settingsProfileName}/cookies`, cookiesList);
+        if (result && result.status === 'imported') {
+            alert(T('browser.alert_import_success', {count: result.count || cookiesList.length}));
+            _loadedCookies = cookiesList;
+            updateCookieCountDisplay();
+            const formatSelect = document.getElementById('settings-cookies-format');
+            displayCookies(formatSelect ? formatSelect.value : 'json');
+            
+            const el = getBrowserBody();
+            if (el) renderBrowserExt(el);
+        } else {
+            alert(T('browser.alert_save_failed', 'Save failed: ') + JSON.stringify(result));
+        }
+    } catch (err) {
+        console.error('Import cookie failed:', err);
+        alert(T('browser.alert_error', 'Error: ') + err.message);
+    }
+}
+
+function copyCookiesToClipboard() {
+    const textarea = document.getElementById('settings-cookies-data');
+    if (!textarea || !textarea.value.trim()) {
+        alert(T('browser.alert_no_cookies_copy', 'No cookie data to copy!'));
+        return;
+    }
+    navigator.clipboard.writeText(textarea.value).then(() => {
+        const toast = document.createElement('div');
+        toast.textContent = T('browser.alert_copied_clipboard', 'Cookies copied to clipboard!');
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#22c55e;color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:fadeIn .3s';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }).catch(err => {
+        console.error('Copy failed:', err);
+        alert(T('browser.alert_error', 'Error: ') + err.message);
+    });
+}
+
+function downloadCookiesFile() {
+    if (!_loadedCookies || _loadedCookies.length === 0) {
+        alert(T('browser.alert_no_cookies_download', 'No cookie data to download!'));
+        return;
+    }
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(_loadedCookies, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", `${_settingsProfileName}_cookies.json`);
+    dlAnchorElem.click();
+}
+
+async function clearProfileCookies() {
+    if (!confirm(T('browser.confirm_clear_cookies', 'Are you sure you want to clear all cookies for this profile? This will delete cookies.json.'))) {
+        return;
+    }
+    try {
+        const result = await apiDelete(`/api/v1/browser/profiles/${_settingsProfileName}/cookies`);
+        if (result && (result.status === 'deleted' || result.status === 'not_found')) {
+            alert(T('browser.alert_clear_success', 'Cookies cleared successfully!'));
+            _loadedCookies = [];
+            updateCookieCountDisplay();
+            const textarea = document.getElementById('settings-cookies-data');
+            if (textarea) textarea.value = '';
+            
+            const el = getBrowserBody();
+            if (el) renderBrowserExt(el);
+        } else {
+            alert(T('browser.alert_error', 'Error: ') + JSON.stringify(result));
+        }
+    } catch (err) {
+        console.error('Clear cookies failed:', err);
+        alert(T('browser.alert_error', 'Error: ') + err.message);
+    }
+}
 
 async function showProfileSettings(name) {
     _settingsProfileName = name;
     document.getElementById('settings-profile-name').textContent = name;
+    
+    // Reset tab to general
+    switchSettingsTab('general');
+    
     // Reset fingerprint status
     const fpStatus = document.getElementById('settings-fp-status');
-    if (fpStatus) fpStatus.textContent = 'Đang tải...';
+    if (fpStatus) fpStatus.textContent = T('browser.loading_fp', 'Loading fingerprint...');
 
     // Load profile data then populate dropdown with correct selection
     try {
@@ -3745,36 +4442,216 @@ async function showProfileSettings(name) {
             const ws = data.window_size || { width: 1920, height: 1080 };
             if (document.getElementById('settings-win-width'))  document.getElementById('settings-win-width').value  = ws.width  || 1920;
             if (document.getElementById('settings-win-height')) document.getElementById('settings-win-height').value = ws.height || 1080;
-            // Google account
-            const ga = data.google_account;
-            if (ga && ga.email) {
-                const parts = [ga.email, ga.password || '', ga.recoveryEmail || '', ga.twoFactorCodes || ''].filter(p => p);
-                document.getElementById('settings-google-account').value = parts.join('|');
-            } else {
-                document.getElementById('settings-google-account').value = '';
-            }
-            previewGoogleAccount();
+            
+            // Service accounts
+            _settingsActiveService = 'google';
+            const selectEl = document.getElementById('settings-account-service');
+            if (selectEl) selectEl.value = 'google';
+
+            const services = ['google', 'facebook', 'tiktok', 'x', 'discord', 'telegram'];
+            services.forEach(s => {
+                const acc = data[s + '_account'];
+                if (acc && acc.email) {
+                    const parts = [acc.email, acc.password || '', acc.recoveryEmail || '', acc.twoFactorCodes || ''];
+                    let endIdx = parts.length - 1;
+                    while (endIdx >= 0 && !parts[endIdx]) {
+                        endIdx--;
+                    }
+                    _settingsAccounts[s] = parts.slice(0, endIdx + 1).join('|');
+                } else {
+                    _settingsAccounts[s] = '';
+                }
+            });
+
+            const dataEl = document.getElementById('settings-account-data');
+            if (dataEl) dataEl.value = _settingsAccounts.google;
+            updateAccountServiceUI();
+
             // Fingerprint status
-            if (fpStatus) fpStatus.textContent = data.has_fingerprint ? '✅ Đã có fingerprint' : '⚠️ Chưa có fingerprint';
+            if (fpStatus) fpStatus.textContent = data.has_fingerprint ? T('browser.fp_loaded_indicator', '✅ Fingerprint loaded') : T('browser.fp_missing_indicator', '⚠️ Fingerprint missing');
+            
+            // Default cookies domain based on OS/service or just default to .google.com
+            const cookieDomainInput = document.getElementById('settings-cookies-domain');
+            if (cookieDomainInput) {
+                cookieDomainInput.value = '.google.com';
+            }
+            
+            // Load cookies
+            loadProfileCookies(name);
         }
     } catch (e) {
         console.error('Failed to load profile:', e);
-        if (fpStatus) fpStatus.textContent = '❌ Lỗi tải profile';
+        if (fpStatus) fpStatus.textContent = T('browser.err_loading_profile', '❌ Error loading profile');
     }
     
     openModal('modal-settings');
 }
 
-function previewGoogleAccount() {
-    const raw = document.getElementById('settings-google-account').value.trim();
+const ACCOUNT_TEMPLATES = {
+    google: {
+        placeholder_key: "browser.google_placeholder",
+        placeholder: "email@gmail.com|password|recovery@gmail.com|2FA_secret",
+        help: "browser.google_help",
+        default_help: "Format: email|password|recovery_email|2FA_secret",
+        preview: {
+            email: "browser.google_lbl_email",
+            default_email: "📧 Email:",
+            pass: "browser.google_lbl_pass",
+            default_pass: "🔑 Password:",
+            recovery: "browser.google_lbl_recovery",
+            default_recovery: "📩 Recovery Email:",
+            twofa: "browser.google_lbl_2fa",
+            default_twofa: "🔢 2FA Secret:"
+        }
+    },
+    facebook: {
+        placeholder_key: "browser.fb_placeholder",
+        placeholder: "uid_or_email|password|recovery_email_or_empty|2FA_secret",
+        help: "browser.facebook_help",
+        default_help: "Format: UID/Email|Password|Recovery/Empty|2FA_secret",
+        preview: {
+            email: "browser.fb_lbl_email",
+            default_email: "👤 UID / Email:",
+            pass: "browser.fb_lbl_pass",
+            default_pass: "🔑 Password:",
+            recovery: "browser.fb_lbl_recovery",
+            default_recovery: "📩 Email/Other:",
+            twofa: "browser.fb_lbl_2fa",
+            default_twofa: "🔢 2FA Secret:"
+        }
+    },
+    tiktok: {
+        placeholder_key: "browser.tiktok_placeholder",
+        placeholder: "username_or_email|password|recovery_email_or_empty|2FA_secret",
+        help: "browser.tiktok_help",
+        default_help: "Format: Username/Email|Password|Recovery/Empty|2FA_secret",
+        preview: {
+            email: "browser.tiktok_lbl_email",
+            default_email: "👤 Username / Email:",
+            pass: "browser.tiktok_lbl_pass",
+            default_pass: "🔑 Password:",
+            recovery: "browser.tiktok_lbl_recovery",
+            default_recovery: "📩 Email/Other:",
+            twofa: "browser.tiktok_lbl_2fa",
+            default_twofa: "🔢 2FA Secret:"
+        }
+    },
+    x: {
+        placeholder_key: "browser.x_placeholder",
+        placeholder: "username_or_email|password|recovery_email_or_empty|2FA_secret",
+        help: "browser.x_help",
+        default_help: "Format: Username/Email|Password|Recovery/Empty|2FA_secret",
+        preview: {
+            email: "browser.x_lbl_email",
+            default_email: "👤 Username / Email:",
+            pass: "browser.x_lbl_pass",
+            default_pass: "🔑 Password:",
+            recovery: "browser.x_lbl_recovery",
+            default_recovery: "📩 Recovery Email:",
+            twofa: "browser.x_lbl_2fa",
+            default_twofa: "🔢 2FA Secret:"
+        }
+    },
+    discord: {
+        placeholder_key: "browser.discord_placeholder",
+        placeholder: "token_or_email|password|recovery_email_or_empty|2FA_secret",
+        help: "browser.discord_help",
+        default_help: "Format: Token or Email|Password|Recovery/Empty|2FA_secret",
+        preview: {
+            email: "browser.discord_lbl_email",
+            default_email: "👤 Token / Email:",
+            pass: "browser.discord_lbl_pass",
+            default_pass: "🔑 Password (if using email):",
+            recovery: "browser.discord_lbl_recovery",
+            default_recovery: "📩 Email/Other:",
+            twofa: "browser.discord_lbl_2fa",
+            default_twofa: "🔢 2FA Secret:"
+        }
+    },
+    telegram: {
+        placeholder_key: "browser.tg_placeholder",
+        placeholder: "phone_number|2fa_password|recovery_email_or_empty|2FA_secret",
+        help: "browser.telegram_help",
+        default_help: "Format: Phone number|2FA Password|Recovery/Empty|2FA_secret (if any)",
+        preview: {
+            email: "browser.tg_lbl_email",
+            default_email: "📞 Phone Number:",
+            pass: "browser.tg_lbl_pass",
+            default_pass: "🔑 2FA Password:",
+            recovery: "browser.tg_lbl_recovery",
+            default_recovery: "📩 Email/Other:",
+            twofa: "browser.tg_lbl_2fa",
+            default_twofa: "🔢 2FA Secret (if any):"
+        }
+    }
+};
+
+function updateAccountServiceUI() {
+    const select = document.getElementById('settings-account-service');
+    const dataEl = document.getElementById('settings-account-data');
+    const helpEl = document.getElementById('settings-account-help');
+    
+    if (!select || !dataEl) return;
+    const service = select.value;
+    const tpl = ACCOUNT_TEMPLATES[service] || ACCOUNT_TEMPLATES.google;
+    
+    dataEl.placeholder = T(tpl.placeholder_key, tpl.placeholder);
+    if (helpEl) {
+        helpEl.innerHTML = `${T('browser.separate_by', 'Separate using | or Tab.')} ${T(tpl.help, tpl.default_help)}`;
+    }
+    
+    previewActiveAccount();
+}
+
+function switchAccountService() {
+    const select = document.getElementById('settings-account-service');
+    if (!select) return;
+    const nextService = select.value;
+    
+    // Save current input to active service
+    const dataEl = document.getElementById('settings-account-data');
+    if (dataEl) {
+        _settingsAccounts[_settingsActiveService] = dataEl.value.trim();
+    }
+    
+    // Load next service data
+    _settingsActiveService = nextService;
+    if (dataEl) {
+        dataEl.value = _settingsAccounts[nextService] || '';
+    }
+    updateAccountServiceUI();
+}
+
+function previewActiveAccount() {
+    const select = document.getElementById('settings-account-service');
+    const raw = document.getElementById('settings-account-data').value.trim();
     const previewEl = document.getElementById('settings-account-preview');
     if (!raw) { previewEl.style.display = 'none'; return; }
     
+    const service = select ? select.value : 'google';
+    const tpl = ACCOUNT_TEMPLATES[service] || ACCOUNT_TEMPLATES.google;
     const parts = raw.includes('|') ? raw.split('|') : raw.split('\t');
-    document.getElementById('preview-email').textContent = (parts[0] || '').trim();
-    document.getElementById('preview-pass').textContent = (parts[1] || '').trim() ? '••••••••' : '(empty)';
-    document.getElementById('preview-recovery').textContent = (parts[2] || '').trim() || '(none)';
-    document.getElementById('preview-2fa').textContent = (parts[3] || '').trim() || '(none)';
+    
+    const emailLbl = document.getElementById('preview-lbl-email');
+    const passLbl = document.getElementById('preview-lbl-pass');
+    const recoveryLbl = document.getElementById('preview-lbl-recovery');
+    const twofaLbl = document.getElementById('preview-lbl-2fa');
+    
+    if (emailLbl) emailLbl.textContent = T(tpl.preview.email, tpl.preview.default_email);
+    if (passLbl) passLbl.textContent = T(tpl.preview.pass, tpl.preview.default_pass);
+    if (recoveryLbl) recoveryLbl.textContent = T(tpl.preview.recovery, tpl.preview.default_recovery);
+    if (twofaLbl) twofaLbl.textContent = T(tpl.preview.twofa, tpl.preview.default_twofa);
+    
+    const emailSpan = document.getElementById('preview-email');
+    const passSpan = document.getElementById('preview-pass');
+    const recoverySpan = document.getElementById('preview-recovery');
+    const twofaSpan = document.getElementById('preview-2fa');
+    
+    if (emailSpan) emailSpan.textContent = (parts[0] || '').trim() || T('browser.preview_empty', '(empty)');
+    if (passSpan) passSpan.textContent = (parts[1] || '').trim() ? '••••••••' : T('browser.preview_empty', '(empty)');
+    if (recoverySpan) recoverySpan.textContent = (parts[2] || '').trim() || T('browser.preview_none', '(none)');
+    if (twofaSpan) twofaSpan.textContent = (parts[3] || '').trim() || T('browser.preview_none', '(none)');
+    
     previewEl.style.display = 'block';
 }
 
@@ -3783,10 +4660,15 @@ async function saveProfileSettings() {
     const os = document.getElementById('settings-fp-os').value;
     const browser = document.getElementById('settings-fp-browser').value;
     const browserVersion = document.getElementById('settings-version')?.value || 'default';
-    const googleRaw = document.getElementById('settings-google-account').value.trim();
     const width  = parseInt(document.getElementById('settings-win-width')?.value)  || 1920;
     const height = parseInt(document.getElementById('settings-win-height')?.value) || 1080;
     
+    // Save active service input to in-memory accounts first
+    const dataEl = document.getElementById('settings-account-data');
+    if (dataEl) {
+        _settingsAccounts[_settingsActiveService] = dataEl.value.trim();
+    }
+
     const payload = {
         proxy: proxy,
         tags: [os, browser],
@@ -3794,12 +4676,11 @@ async function saveProfileSettings() {
         window_size: { width, height },
     };
     
-    // Send google_account as raw string — backend will parse it
-    if (googleRaw) {
-        payload.google_account = googleRaw;
-    } else {
-        payload.google_account = '';
-    }
+    // Add all service accounts to payload
+    const services = ['google', 'facebook', 'tiktok', 'x', 'discord', 'telegram'];
+    services.forEach(s => {
+        payload[s + '_account'] = _settingsAccounts[s] || '';
+    });
     
     try {
         console.log('[Settings] Saving:', _settingsProfileName, payload);
@@ -3809,7 +4690,7 @@ async function saveProfileSettings() {
             closeModal('modal-settings');
             // Show inline toast
             const toast = document.createElement('div');
-            toast.textContent = '✅ Settings saved!';
+            toast.textContent = T('browser.alert_save_success', '✅ Settings saved!');
             toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#22c55e;color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:fadeIn .3s';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 2500);
@@ -3817,11 +4698,11 @@ async function saveProfileSettings() {
             const el = getBrowserBody();
             if (el) renderBrowserExt(el);
         } else {
-            alert('❌ Save failed: ' + JSON.stringify(result));
+            alert(T('browser.alert_save_failed', 'Save failed: ') + JSON.stringify(result));
         }
     } catch (e) {
         console.error('[Settings] Error:', e);
-        alert('❌ Error: ' + e.message);
+        alert(T('browser.alert_error', 'Error: ') + e.message);
     }
 }
 
@@ -3829,14 +4710,14 @@ async function refreshFingerprint() {
     const btn = document.getElementById('btn-refresh-fp');
     const fpStatus = document.getElementById('settings-fp-status');
     if (!_settingsProfileName) return;
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang lấy...'; }
-    if (fpStatus) fpStatus.textContent = '⏳ Đang lấy fingerprint mới...';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ ' + T('browser.loading', 'Loading...'); }
+    if (fpStatus) fpStatus.textContent = '⏳ ' + T('browser.loading_fp', 'Loading fingerprint...');
     try {
         const result = await apiPost(`/api/v1/browser/profiles/${_settingsProfileName}/fingerprint/refresh`, {});
         if (result && result.status === 'refreshed') {
-            if (fpStatus) fpStatus.textContent = '✅ Fingerprint mới đã được lấy thành công!';
+            if (fpStatus) fpStatus.textContent = T('browser.fp_refresh_success', '✅ New fingerprint fetched successfully!');
             const toast = document.createElement('div');
-            toast.textContent = '🧬 Fingerprint đã được làm mới!';
+            toast.textContent = T('browser.fp_refreshed_toast', '🧬 Fingerprint refreshed!');
             toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff;padding:12px 24px;border-radius:8px;z-index:99999;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,0.3);animation:fadeIn .3s';
             document.body.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
@@ -3844,14 +4725,14 @@ async function refreshFingerprint() {
             const el = getBrowserBody();
             if (el) renderBrowserExt(el);
         } else {
-            if (fpStatus) fpStatus.textContent = '❌ Lỗi: ' + JSON.stringify(result);
-            alert('❌ Refresh fingerprint thất bại: ' + JSON.stringify(result));
+            if (fpStatus) fpStatus.textContent = T('browser.alert_error', 'Error: ') + JSON.stringify(result);
+            alert(T('browser.fp_refresh_failed', '❌ Fingerprint refresh failed: ') + JSON.stringify(result));
         }
     } catch (e) {
-        if (fpStatus) fpStatus.textContent = '❌ Lỗi kết nối: ' + e.message;
-        alert('❌ Error: ' + e.message);
+        if (fpStatus) fpStatus.textContent = T('browser.fp_refresh_conn_error', '❌ Connection error: ') + e.message;
+        alert(T('browser.alert_error', 'Error: ') + e.message);
     } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '🔄 Làm mới vân tay'; }
+        if (btn) { btn.disabled = false; btn.textContent = T('browser.fp_refresh_label', '🔄 Refresh Fingerprint'); }
     }
 }
 

@@ -217,5 +217,7 @@
     "settings.google_no_calendar": "⚠️ Chưa có tài khoản Calendar trong Auth Manager",
     "settings.google_no_storage": "⚠️ Chưa có tài khoản Google trong Auth Manager",
     "settings.google_lost_access": "⚠️ Đã lưu nhưng mất quyền truy cập",
-    "settings.default_profile_ai": "default (Mặc định AI)"
+    "settings.default_profile_ai": "default (Mặc định AI)",
+    "profile.window_size": "📐 Kích thước trình duyệt",
+    "profile.window_size_hint": "Kích thước cửa sổ Chrome khi khởi động (khuyến nghị tối thiểu 1600×900)"
 }

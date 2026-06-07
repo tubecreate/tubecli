@@ -38,10 +38,47 @@ def list_profiles() -> List[Dict[str, Any]]:
                 "has_cookies": os.path.exists(os.path.join(profile_path, "cookies.json")),
                 "has_fingerprint": os.path.exists(os.path.join(profile_path, "fingerprint.json")),
                 "google_account": config.get("google_account", None),
+                "facebook_account": config.get("facebook_account", None),
+                "tiktok_account": config.get("tiktok_account", None),
+                "x_account": config.get("x_account", None),
+                "discord_account": config.get("discord_account", None),
+                "telegram_account": config.get("telegram_account", None),
             })
     # Sort newest first
     profiles.sort(key=lambda p: p.get("created_at", ""), reverse=True)
     return profiles
+
+
+def resolve_default_browser_version() -> str:
+    """Resolve 'default' or 'latest' to the actual latest installed browser engine version."""
+    try:
+        ext_dir = os.path.dirname(__file__)
+        script_dir = os.path.join(ext_dir, "data", "script")
+        if os.path.isdir(script_dir):
+            dirs = [d for d in os.listdir(script_dir) if os.path.isdir(os.path.join(script_dir, d))]
+            import re
+            ver_dirs = [d for d in dirs if re.match(r'^\d+\.\d+\.\d+$', d)]
+            if ver_dirs:
+                # Sort versions descending
+                try:
+                    ver_dirs.sort(key=lambda s: list(map(int, s.split('.'))), reverse=True)
+                except Exception:
+                    pass
+                
+                latest_bas = ver_dirs[0]
+                # Map BAS version to Chromium version
+                ENGINE_MAP = {
+                    '30.1.0': '148.0.7778.97',
+                    '30.0.0': '147.0.7727.56',
+                    '29.9.2': '146.0.7680.80',
+                    '29.8.1': '145.0.7632.46',
+                    '29.7.0': '144.0.7559.60',
+                    '29.5.0': '142.0.7444.60',
+                }
+                return ENGINE_MAP.get(latest_bas, '148.0.7778.97')
+    except Exception as e:
+        print(f"[resolve_default_browser_version] Error: {e}")
+    return "148.0.7778.97"
 
 
 def create_profile(name: str, proxy: str = "", browser_version: str = "latest", tags: List[str] = None,
@@ -55,6 +92,9 @@ def create_profile(name: str, proxy: str = "", browser_version: str = "latest", 
         raise ValueError(f"Profile '{safe_name}' already exists")
 
     os.makedirs(profile_path)
+
+    if browser_version in ("default", "latest"):
+        browser_version = resolve_default_browser_version()
 
     config = {
         "created_at": datetime.now().isoformat(),
@@ -132,7 +172,9 @@ def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
     if not os.path.isdir(profile_path):
         return None
     config = _load_config(name)
-    for key in ("tags", "proxy", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account"):
+    if "browser_version" in kwargs and kwargs["browser_version"] in ("default", "latest"):
+        kwargs["browser_version"] = resolve_default_browser_version()
+    for key in ("tags", "proxy", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
         if key in kwargs and kwargs[key] is not None:
             config[key] = kwargs[key]
     _save_config(name, config)

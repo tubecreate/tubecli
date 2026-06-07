@@ -37,6 +37,11 @@ class ProfileUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     notes: Optional[str] = None
     google_account: Optional[Any] = None  # Can be raw string or dict
+    facebook_account: Optional[Any] = None
+    tiktok_account: Optional[Any] = None
+    x_account: Optional[Any] = None
+    discord_account: Optional[Any] = None
+    telegram_account: Optional[Any] = None
     window_size: Optional[dict] = None   # {"width": int, "height": int}
     chrome_version: Optional[str] = None
 
@@ -92,21 +97,22 @@ async def api_update_profile(name: str, req: ProfileUpdateRequest):
     if "version" in data and "browser_version" not in data:
         data["browser_version"] = data.pop("version")
     
-    # Parse google_account string -> JSON if needed
-    if "google_account" in data and isinstance(data["google_account"], str):
-        raw = data["google_account"].strip()
-        if raw:
-            # Split by pipe or tab
-            parts = raw.split("|") if "|" in raw else raw.split("\t")
-            parts = [p.strip() for p in parts if p.strip()]
-            data["google_account"] = {
-                "email": parts[0] if len(parts) > 0 else "",
-                "password": parts[1] if len(parts) > 1 else "",
-                "recoveryEmail": parts[2] if len(parts) > 2 else "",
-                "twoFactorCodes": parts[3] if len(parts) > 3 else "",
-            }
-        else:
-            data["google_account"] = None
+    # Parse account strings -> JSON if needed
+    for act_key in ("google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
+        if act_key in data and isinstance(data[act_key], str):
+            raw = data[act_key].strip()
+            if raw:
+                # Split by pipe or tab
+                parts = raw.split("|") if "|" in raw else raw.split("\t")
+                parts = [p.strip() for p in parts if p.strip()]
+                data[act_key] = {
+                    "email": parts[0] if len(parts) > 0 else "",
+                    "password": parts[1] if len(parts) > 1 else "",
+                    "recoveryEmail": parts[2] if len(parts) > 2 else "",
+                    "twoFactorCodes": parts[3] if len(parts) > 3 else "",
+                }
+            else:
+                data[act_key] = None
     
     profile = await asyncio.to_thread(update_profile, name, **data)
     if not profile:
@@ -311,6 +317,8 @@ async def api_get_engine_versions():
 
             # 2. Add local fallback versions if they are not in the list
             fallback_versions = [
+                {"bas_version": "30.1.0", "browser_version": "148.0.7778.97",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.1.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "30.0.0", "browser_version": "147.0.7727.56",
                  "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.0.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "29.9.2", "browser_version": "146.0.7680.80",
@@ -337,6 +345,24 @@ async def api_get_engine_versions():
                         "path": "-"
                     })
 
+            # 2b. Add ShardX versions (for ShardBrowser compatibility)
+            shardx_versions = [
+                {"bas_version": "ShardX-148.0.7778.97", "browser_version": "ShardX 148.0.7778.97", "download_url": ""},
+                {"bas_version": "ShardX-148.0.7778.216", "browser_version": "ShardX 148.0.7778.216", "download_url": ""},
+            ]
+            for sv in shardx_versions:
+                versions.append({
+                    "name": sv["browser_version"],
+                    "browser_version": sv["browser_version"],
+                    "bas_version": sv["bas_version"],
+                    "downloaded": False,
+                    "download_url": sv["download_url"],
+                    "is_private": False,
+                    "is_fallback": True,
+                    "is_shardx": True,
+                    "path": "-"
+                })
+
             # 3. Check local install status — data/script/{bas_version}/
             # plugin.setWorkingFolder(__dirname) in open.js makes plugin look here
             for v in versions:
@@ -344,13 +370,41 @@ async def api_get_engine_versions():
                 if not bas_ver:
                     continue
                 
-                script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
-                is_installed = os.path.isdir(script_dir) and os.path.isfile(
-                    os.path.join(script_dir, "FastExecuteScript.exe")
-                )
-                
-                v["downloaded"] = is_installed
-                v["path"] = script_dir if is_installed else "-"
+                if v.get("is_shardx"):
+                    # Check ShardX local installation in AppData
+                    version_num = bas_ver.replace("ShardX-", "")
+                    appdata = os.environ.get("APPDATA")
+                    is_installed = False
+                    chrome_path = ""
+                    if appdata:
+                        # Path: %APPDATA%/shardx-launcher/runtime/engines/<version>/ShardX-Windows-<version>/chrome.exe
+                        chrome_path = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, f"ShardX-Windows-{version_num}", "chrome.exe")
+                        is_installed = os.path.isfile(chrome_path)
+                        
+                        # Fallback check for flat layout
+                        if not is_installed:
+                            chrome_path_alt = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, "chrome.exe")
+                            is_installed = os.path.isfile(chrome_path_alt)
+                            if is_installed:
+                                chrome_path = chrome_path_alt
+                        
+                        # Fallback check for Windows folder without version
+                        if not is_installed:
+                            chrome_path_alt2 = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, "ShardX-Windows", "chrome.exe")
+                            is_installed = os.path.isfile(chrome_path_alt2)
+                            if is_installed:
+                                chrome_path = chrome_path_alt2
+                                
+                    v["downloaded"] = is_installed
+                    v["path"] = os.path.dirname(chrome_path) if is_installed else "-"
+                else:
+                    script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
+                    is_installed = os.path.isdir(script_dir) and os.path.isfile(
+                        os.path.join(script_dir, "FastExecuteScript.exe")
+                    )
+                    
+                    v["downloaded"] = is_installed
+                    v["path"] = script_dir if is_installed else "-"
             
             # Sort: newest first
             versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
@@ -376,28 +430,12 @@ async def api_download_engine(version: str, request: Request):
     except:
         body = {}
     
-    download_url = body.get("download_url", "")
-    bas_version = body.get("bas_version") or version
-    
     # Check if already downloading this version
     if version in download_processes:
         return {"status": "already_downloading", "version": version}
     
-    # If no download_url provided, construct Security Browser URL
-    if not download_url:
-        download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
-    
-    # Extract to data/script/ — plugin.setWorkingFolder(__dirname) in open.js
-    # makes the plugin look here for engines
-    target_dir = os.path.join(ext_dir, "data", "script", bas_version)
     progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
-    
-    # Ensure directories exist
-    # CRITICAL: We MUST create the data/engine/{bas_version} directory
-    # The plugin checks for its existence to skip downloading
-    engine_dir = os.path.join(ext_dir, "data", "engine", bas_version)
-    os.makedirs(engine_dir, exist_ok=True)
-    os.makedirs(target_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
     def write_progress(status, percent=0, error=""):
         import json as _json
@@ -412,6 +450,98 @@ async def api_download_engine(version: str, request: Request):
         except:
             pass
     
+    # Write initial progress immediately to prevent startup flicker
+    write_progress("downloading", 0, "Initializing download...")
+    
+    if version.startswith("ShardX-"):
+        version_num = version.replace("ShardX-", "").replace("ShardX ", "").strip()
+        appdata = os.environ.get("APPDATA")
+        if not appdata:
+            appdata = os.path.expanduser("~\\AppData\\Roaming")
+        target_dir = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num)
+        os.makedirs(target_dir, exist_ok=True)
+        
+        def download_and_extract_shardx():
+            import zipfile
+            import requests
+            
+            url = f"https://cf-r2-worker.tubecli.workers.dev/ShardX-Windows-{version_num}.zip"
+            try:
+                write_progress("downloading", 3, f"Connecting to Cloudflare R2 worker...")
+                
+                resp = requests.get(url, stream=True, timeout=300, verify=False)
+                if resp.status_code != 200:
+                    write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
+                    return
+                
+                total_size = int(resp.headers.get("content-length", 0))
+                downloaded = 0
+                
+                write_progress("downloading", 5, "Downloading ShardX engine...")
+                
+                tmp_zip = os.path.join(ext_dir, "data", "engine", f"{version}.zip")
+                with open(tmp_zip, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=1024 * 256):
+                        if chunk:
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                pct = int((downloaded / total_size) * 80) + 5
+                                write_progress("downloading", min(pct, 85))
+                
+                write_progress("extracting", 90, "Extracting ShardX engine...")
+                
+                try:
+                    with zipfile.ZipFile(tmp_zip, "r") as zf:
+                        zf.extractall(target_dir)
+                except zipfile.BadZipFile:
+                    try:
+                        os.remove(tmp_zip)
+                    except:
+                        pass
+                    write_progress("error", 0, "Downloaded ShardX zip file is corrupt")
+                    return
+                
+                try:
+                    os.remove(tmp_zip)
+                except:
+                    pass
+                
+                write_progress("completed", 100)
+                return
+                
+            except Exception as e:
+                write_progress("error", 0, f"Download failed: {str(e)[:300]}")
+                return
+        
+        def run_bg_shardx():
+            download_processes[version] = True
+            try:
+                download_and_extract_shardx()
+            finally:
+                download_processes.pop(version, None)
+        
+        threading.Thread(target=run_bg_shardx, daemon=True).start()
+        return {"status": "started", "version": version}
+
+    download_url = body.get("download_url", "")
+    bas_version = body.get("bas_version") or version
+    
+    # If no download_url provided, construct Security Browser URL
+    if not download_url:
+        download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
+    
+    # Extract to data/script/ — plugin.setWorkingFolder(__dirname) in open.js
+    # makes the plugin look here for engines
+    target_dir = os.path.join(ext_dir, "data", "script", bas_version)
+    
+    # Ensure directories exist
+    # CRITICAL: We MUST create the data/engine/{bas_version} directory
+    # The plugin checks for its existence to skip downloading
+    engine_dir = os.path.join(ext_dir, "data", "engine", bas_version)
+    os.makedirs(engine_dir, exist_ok=True)
+    os.makedirs(target_dir, exist_ok=True)
+    
     # Build fallback Security Browser URL
     fallback_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
     
@@ -419,10 +549,16 @@ async def api_download_engine(version: str, request: Request):
         import zipfile
         import requests
         
-        # Try local_url first, then fallback to Security Browser CDN
+        # Try local_url first, then Cloudflare R2 proxy, then fallback to Bablosoft
         urls_to_try = []
         if download_url and download_url != fallback_url:
             urls_to_try.append(("local", download_url))
+            
+        # Cloudflare R2 proxy worker domain (uses user's workers.dev subdomain)
+        cf_subdomain = "tubecli"
+        cf_proxy_url = f"https://cf-r2-worker.{cf_subdomain}.workers.dev/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
+        urls_to_try.append(("cloudflare_r2", cf_proxy_url))
+        
         urls_to_try.append(("security_browser", fallback_url))
         
         for url_label, url in urls_to_try:
@@ -432,7 +568,10 @@ async def api_download_engine(version: str, request: Request):
                 resp = requests.get(url, stream=True, timeout=300, verify=False)
                 if resp.status_code != 200:
                     if url_label == "local":
-                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to Security Browser CDN...")
+                        write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to Cloudflare R2 proxy...")
+                        continue
+                    elif url_label == "cloudflare_r2":
+                        write_progress("downloading", 3, f"Cloudflare R2 proxy returned {resp.status_code}, switching to Security Browser CDN...")
                         continue
                     write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
                     return
@@ -463,7 +602,10 @@ async def api_download_engine(version: str, request: Request):
                     except:
                         pass
                     if url_label == "local":
-                        write_progress("downloading", 3, "Local file corrupt, switching to Security Browser CDN...")
+                        write_progress("downloading", 3, "Local file corrupt, switching to Cloudflare R2 proxy...")
+                        continue
+                    elif url_label == "cloudflare_r2":
+                        write_progress("downloading", 3, "Cloudflare R2 file corrupt, switching to Security Browser CDN...")
                         continue
                     write_progress("error", 0, "Downloaded file is not a valid ZIP archive")
                     return
@@ -478,15 +620,15 @@ async def api_download_engine(version: str, request: Request):
                 
             except Exception as e:
                 if url_label == "local":
-                    write_progress("downloading", 3, f"Local server failed, switching to Security Browser CDN...")
+                    write_progress("downloading", 3, f"Local server failed, switching to Cloudflare R2 proxy...")
+                    continue
+                elif url_label == "cloudflare_r2":
+                    write_progress("downloading", 3, f"Cloudflare R2 proxy failed, switching to Security Browser CDN...")
                     continue
                 write_progress("error", 0, str(e)[:300])
                 return
         
         write_progress("error", 0, "All download servers failed")
-    
-    # Write initial progress immediately to prevent startup flicker
-    write_progress("downloading", 0, "Initializing download...")
     
     # Run download in background thread
     def run_bg():

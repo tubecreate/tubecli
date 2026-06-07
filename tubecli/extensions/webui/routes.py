@@ -50,7 +50,7 @@ def _default_settings():
         "default_model": "qwen:latest",
         "api_port": port,
         "api_base_url": f"http://localhost:{port}",
-        "language": "vi",
+        "language": "en",
         "telegram_bot_token": "",
         "telegram_chat_id": "",
         "default_calendar_email": "",

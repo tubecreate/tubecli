@@ -504,3 +504,124 @@ def _assign_coordinates(nodes: list):
             nd["y"] = y_base
         elif nd["y"] < OFFSET:
             nd["y"] += OFFSET
+
+
+def build_skill_system_prompt(available_nodes: list, skill_mds: list) -> str:
+    """
+    Build system prompt to generate a new Skill (either Workflow-based or Markdown-based).
+    """
+    prompt = (
+        "You are an AI Skill Architect for TubeCLI.\n"
+        "Your task is to convert a user request into a structured Skill definition JSON.\n\n"
+        "A Skill can be one of two types:\n"
+        "1. **Workflow Skill** (skill_type='Workflow Skill'): Requires executing a graph of nodes. Set this type if the task requires sequential operations (e.g. scrape a URL, save to Sheets, run a local command, loop, etc.).\n"
+        "2. **Markdown Skill** (skill_type='Markdown'): A prompt-based/static SOP instruction set. Set this type if the task is a prompt, translation template, writing guide, or reasoning task where no active node execution is required.\n\n"
+    )
+
+    # Available nodes
+    prompt += "## AVAILABLE WORKFLOW NODES (Use these ONLY for Workflow Skills):\n\n"
+    for node in available_nodes:
+        ntype = node.get("type", "")
+        name = node.get("name", ntype)
+        desc = node.get("description", "")
+        inputs = node.get("inputs", [])
+        outputs = node.get("outputs", [])
+        prompt += f"- **{ntype}** ({name}): {desc}\n"
+        if inputs:
+            prompt += f"  Inputs: {', '.join(inputs)}\n"
+        if outputs:
+            prompt += f"  Outputs: {', '.join(outputs)}\n"
+
+    # Python fallback instruction
+    prompt += "\n## PYTHON CODE FALLBACK\n"
+    prompt += (
+        "If no existing node can handle a task, use a `python_code` node in Workflow Skills.\n"
+        "Set config.code to valid Python. Assign final value to `result`.\n\n"
+    )
+
+    # Extension context
+    if skill_mds:
+        prompt += "## AVAILABLE SYSTEM EXTENSION CONTEXTS (How to interact with installed extensions):\n\n"
+        for ext in skill_mds:
+            prompt += f"### Extension: {ext.get('extension')} (v{ext.get('version')})\n"
+            prompt += f"{ext.get('skill_md')}\n\n"
+
+    # Format instruction
+    prompt += "## OUTPUT FORMAT (STRICT JSON ONLY)\n"
+    prompt += "Return a single JSON object with this exact structure:\n"
+    prompt += "```json\n"
+    prompt += json.dumps({
+        "name": "Creative name with emoji",
+        "description": "Short description of what the skill does",
+        "skill_type": "Workflow Skill",
+        "commands": ["command trigger 1", "command trigger 2"],
+        "workflow_data": {
+            "markdown": "(Only for 'Markdown' type) The detailed markdown prompt/SOP instructions.",
+            "nodes": [
+                {
+                    "id": "node_1",
+                    "type": "text_input",
+                    "label": "Input URL",
+                    "x": 100, "y": 150,
+                    "config": {"text": ""}
+                }
+            ],
+            "connections": [
+                {"from_node_id": "node_1", "from_port_id": "content", "to_node_id": "node_2", "to_port_id": "text_input"}
+            ]
+        }
+    }, indent=2, ensure_ascii=False)
+    prompt += "\n```\n\n"
+
+    # Rules
+    prompt += "## CRITICAL RULES\n"
+    prompt += "1. For Workflow Skills: nodes and connections must be fully configured. Set skill_type='Workflow Skill'. Set workflow_data.markdown=''.\n"
+    prompt += "2. For Markdown Skills: workflow_data.nodes=[] and workflow_data.connections=[]. Set skill_type='Markdown'. Write the full logic in workflow_data.markdown.\n"
+    prompt += "3. Trigger keywords in `commands` array must be relevant and in lowercase.\n"
+    prompt += "4. JSON ONLY: No markdown fences (except the json block itself), no comments, no intro. Pure JSON.\n"
+    return prompt
+
+
+def generate_skill_with_ai(prompt: str, provider: str = "ollama", model: str = "", api_key: str = "") -> dict:
+    """
+    Generate a complete Skill (metadata + workflow/markdown) using AI.
+    """
+    if api_key == "__CLOUD_API__" and provider != "ollama":
+        api_key = _resolve_cloud_api_key(provider)
+
+    from tubecli.nodes.registry import list_available_nodes
+    from tubecli.core.extension_manager import extension_manager
+
+    available_nodes = list_available_nodes()
+    skill_mds = extension_manager.get_all_skill_mds()
+
+    system_prompt = build_skill_system_prompt(available_nodes, skill_mds)
+    raw_response = call_llm(system_prompt, f"Generate a skill for the following request:\n{prompt}", provider, model, api_key)
+    
+    skill_data = _parse_json_response(raw_response)
+    
+    # Validation/fallback defaults
+    skill_data.setdefault("name", "New AI Skill")
+    skill_data.setdefault("description", "")
+    skill_data.setdefault("skill_type", "Markdown")
+    skill_data.setdefault("commands", [])
+    
+    wf = skill_data.setdefault("workflow_data", {})
+    nodes = wf.setdefault("nodes", [])
+    connections = wf.setdefault("connections", [])
+    wf.setdefault("markdown", "")
+
+    if skill_data["skill_type"] == "Workflow Skill" and nodes:
+        valid_types = {n["type"] for n in available_nodes}
+        for nd in nodes:
+            if nd.get("type") not in valid_types:
+                nd["type"] = "python_code"
+        _assign_coordinates(nodes)
+        
+        port_defs = _build_port_defs()
+        if connections:
+            wf["connections"] = resolve_port_connections(nodes, connections, port_defs)
+        else:
+            wf["connections"] = auto_connect_sequential(nodes, port_defs)
+            
+    return skill_data

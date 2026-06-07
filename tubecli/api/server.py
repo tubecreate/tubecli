@@ -169,6 +169,14 @@ class SkillCreateRequest(BaseModel):
     description: str = ""
     workflow_data: Dict = {}
     skill_type: str = "Skill"
+    commands: Optional[List[str]] = []
+    trigger: Optional[str] = ""
+
+class SkillGenerateRequest(BaseModel):
+    prompt: str
+    provider: str = "ollama"
+    model: str = ""
+    api_key: str = ""
 
 class WorkflowGenerateRequest(BaseModel):
     prompt: str
@@ -525,9 +533,53 @@ async def localai_chat_completions(req: Request):
         model = get_setting("default_model", "qwen:latest")
     lower_model = model.lower()
 
-    # Determine provider from model name
+    # Load cloud API keys
+    cloud_keys_file = _os.path.join(str(DATA_DIR), "cloud_api_keys.json")
+    cloud_keys = {}
+    if _os.path.exists(cloud_keys_file):
+        try:
+            with open(cloud_keys_file, "r", encoding="utf-8") as f:
+                cloud_keys = _json.load(f)
+        except Exception:
+            pass
+
+    # Check if 9router is running and query its models list
+    nr_running = False
+    nr_models = []
+    try:
+        nr_key = ""
+        if "9router" in cloud_keys:
+            val = cloud_keys["9router"]
+            if isinstance(val, str) and val:
+                nr_key = val
+            elif isinstance(val, dict):
+                for label, info in val.items():
+                    if isinstance(info, dict) and info.get("active", True):
+                        nr_key = info.get("key", "") or info.get("api_key", "")
+                        if nr_key:
+                            break
+        headers = {}
+        if nr_key:
+            headers["Authorization"] = f"Bearer {nr_key}"
+        resp = _requests.get("http://localhost:20128/v1/models", headers=headers, timeout=0.5)
+        if resp.status_code == 200:
+            nr_running = True
+            data = resp.json()
+            if isinstance(data, dict) and "data" in data:
+                nr_models = [m.get("id", m.get("name", "")) for m in data["data"] if isinstance(m, dict)]
+    except Exception:
+        pass
+
+    # Determine provider from model name and 9router running state
     provider = "ollama"
-    if "gemini" in lower_model:
+    if "9router" in lower_model or "antigravity" in lower_model or "cx/" in lower_model:
+        provider = "9router"
+    elif "/" in lower_model:
+        # Models with slashes like 'deepseek/deepseek-r1' are 9Router/OpenRouter models
+        provider = "9router"
+    elif nr_running and (model in nr_models or lower_model in [m.lower() for m in nr_models]):
+        provider = "9router"
+    elif "gemini" in lower_model:
         provider = "gemini"
     elif "gpt" in lower_model or "o1" in lower_model or "o3" in lower_model:
         provider = "chatgpt"
@@ -537,17 +589,15 @@ async def localai_chat_completions(req: Request):
         provider = "deepseek"
     elif "grok" in lower_model:
         provider = "grok"
+    else:
+        # Fallback to 9router if it's running on port 20128, otherwise ollama
+        if nr_running:
+            provider = "9router"
+        else:
+            provider = "ollama"
 
-    # Get first active API key for provider from cloud_api_keys.json
+    # Get first active API key for selected provider
     api_key = ""
-    cloud_keys_file = _os.path.join(str(DATA_DIR), "cloud_api_keys.json")
-    cloud_keys = {}
-    if _os.path.exists(cloud_keys_file):
-        try:
-            with open(cloud_keys_file, "r", encoding="utf-8") as f:
-                cloud_keys = _json.load(f)
-        except Exception:
-            pass
     if provider in cloud_keys:
         val = cloud_keys[provider]
         if isinstance(val, str) and val:
@@ -643,6 +693,22 @@ async def localai_chat_completions(req: Request):
                 response_content = resp.json()["choices"][0]["message"]["content"]
             else:
                 raise Exception(f"Grok {resp.status_code}: {resp.text[:300]}")
+
+        elif provider == "9router":
+            # 9Router local proxy (OpenAI compatible on port 20128)
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            resp = _requests.post(
+                "http://localhost:20128/v1/chat/completions",
+                headers=headers,
+                json={"model": model or "qwen2.5:7b", "messages": messages, "temperature": 0.5},
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                response_content = resp.json()["choices"][0]["message"]["content"]
+            else:
+                raise Exception(f"9Router {resp.status_code}: {resp.text[:300]}")
 
         else:
             # Ollama (local)
@@ -1074,8 +1140,47 @@ async def get_skill(skill_id: str):
 @app.post("/api/v1/skills")
 async def create_skill(req: SkillCreateRequest):
     from tubecli.core.skill import skill_manager
-    skill = skill_manager.create(**req.model_dump())
+    data = req.model_dump()
+    commands = data.get("commands") or []
+    trigger = data.pop("trigger", "")
+    if trigger and not commands:
+        commands = [c.strip() for c in trigger.split(",") if c.strip()]
+    data["commands"] = commands
+    skill = skill_manager.create(**data)
     return {"status": "created", "skill": skill.to_dict()}
+
+@app.put("/api/v1/skills/{skill_id}")
+async def update_skill_endpoint(skill_id: str, req: SkillCreateRequest):
+    from tubecli.core.skill import skill_manager
+    data = req.model_dump()
+    commands = data.get("commands") or []
+    trigger = data.pop("trigger", "")
+    if trigger and not commands:
+        commands = [c.strip() for c in trigger.split(",") if c.strip()]
+    data["commands"] = commands
+    
+    # Remove id/created_at if passed in updates
+    data.pop("id", None)
+    data.pop("created_at", None)
+    
+    skill = skill_manager.update(skill_id, **data)
+    if not skill:
+        raise HTTPException(404, f"Skill {skill_id} not found")
+    return {"status": "updated", "skill": skill.to_dict()}
+
+@app.post("/api/v1/skills/generate-ai")
+async def generate_skill_ai_endpoint(req: SkillGenerateRequest):
+    from tubecli.core.ai_workflow_builder import generate_skill_with_ai
+    try:
+        result = generate_skill_with_ai(
+            prompt=req.prompt,
+            provider=req.provider,
+            model=req.model,
+            api_key=req.api_key
+        )
+        return {"status": "success", "skill": result}
+    except Exception as e:
+        raise HTTPException(500, f"Skill AI generation failed: {str(e)}")
 
 @app.delete("/api/v1/skills/{skill_id}")
 async def delete_skill(skill_id: str):
@@ -1966,7 +2071,7 @@ async def get_aggregated_i18n(lang: str):
 
     # Sanitize lang
     if not re.match(r'^[a-z]{2}(-[A-Z]{2})?$', lang):
-        lang = "zh"
+        lang = "en"
 
     merged = {}
 

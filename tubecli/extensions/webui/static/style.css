@@ -177,15 +177,15 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 
 .agent-tabs-container { display: flex; flex: 1; overflow: hidden; margin-top: 16px; border: 1px solid var(--border); border-radius: 8px; }
 .agent-tabs-nav { width: 170px; background: var(--bg3); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
-.agent-tab-btn { padding: 14px 16px; border: none; border-bottom: 1px solid var(--border); background: none; color: var(--text2); text-align: left; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
-.agent-tab-btn:hover { background: var(--bg-hover); color: var(--text); }
-.agent-tab-btn.active { background: var(--bg); color: var(--cyan); border-left: 3px solid var(--cyan); }
+.agent-tab-btn, .settings-tab-btn { padding: 14px 16px; border: none; border-bottom: 1px solid var(--border); background: none; color: var(--text2); text-align: left; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
+.agent-tab-btn:hover, .settings-tab-btn:hover { background: var(--bg-hover); color: var(--text); }
+.agent-tab-btn.active, .settings-tab-btn.active { background: var(--bg); color: var(--cyan); border-left: 3px solid var(--cyan); }
 
 .agent-tabs-content { flex: 1; padding: 24px; overflow-y: auto; background: var(--bg); }
-.agent-tab-pane { display: none; }
-.agent-tab-pane.active { display: block; animation: fadeIn 0.3s; }
-.agent-tab-pane h3 { margin-bottom: 16px; font-size: 1.1rem; color: var(--cyan); }
-.agent-tab-pane h4 { margin: 20px 0 10px; font-size: 0.95rem; color: var(--purple); }
+.agent-tab-pane, .settings-tab-pane { display: none; }
+.agent-tab-pane.active, .settings-tab-pane.active { display: block; animation: fadeIn 0.3s; }
+.agent-tab-pane h3, .settings-tab-pane h3 { margin-bottom: 16px; font-size: 1.1rem; color: var(--cyan); }
+.agent-tab-pane h4, .settings-tab-pane h4 { margin: 20px 0 10px; font-size: 0.95rem; color: var(--purple); }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
 
@@ -224,11 +224,11 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .ext-info-card .info-label { font-size: 0.75rem; color: var(--text-muted); margin-top: 4px; }
 
 /* ─── Extension Detail Overlay ─── */
-.ext-detail-overlay { position: absolute; inset: 0; background: transparent; z-index: 50; overflow: hidden; padding: 0; display: flex; flex-direction: column; }
+.ext-detail-overlay { position: absolute; inset: 0; background: var(--bg); z-index: 50; overflow: hidden; padding: 20px; display: flex; flex-direction: column; }
 .ext-detail-overlay.hidden { display: none; }
-.ext-detail-header { display: none; }
-.ext-detail-header h2 { font-size: 1.4rem; font-weight: 700; }
-.ext-detail-body { animation: fadeIn 0.3s; flex: 1; overflow: hidden; }
+.ext-detail-header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); padding-bottom: 16px; margin-bottom: 20px; gap: 16px; }
+.ext-detail-header h2 { font-size: 1.4rem; font-weight: 700; margin: 0; }
+.ext-detail-body { animation: fadeIn 0.3s; flex: 1; overflow-y: auto; }
 
 /* ─── Status Mini Cards ─── */
 .status-cards-grid { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
