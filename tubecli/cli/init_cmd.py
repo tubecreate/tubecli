@@ -976,9 +976,17 @@ def _run_update_check():
             pass
 
     try:
+        # Provide temporary Git identity via env vars so pull never fails with "Committer identity unknown"
+        env = os.environ.copy()
+        env["GIT_AUTHOR_NAME"] = "TubeCLI Updater"
+        env["GIT_AUTHOR_EMAIL"] = "updater@tubecli.local"
+        env["GIT_COMMITTER_NAME"] = "TubeCLI Updater"
+        env["GIT_COMMITTER_EMAIL"] = "updater@tubecli.local"
+
         r_pull = subprocess.run(
             ["git", "pull", "origin", current_branch or "main"],
             cwd=project_root, capture_output=True, text=True, timeout=60,
+            env=env,
         )
         if r_pull.returncode != 0:
             # Recreate the deleted bat file if pull failed so the user is not left without it
