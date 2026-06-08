@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — 오픈 소스 AI 에이전트 CLI 시스템
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@
 ### 옵션 1: 원클릭 자동 설치 (사용자 권장)
 **Windows:** **PowerShell** (관리자 권한으로 실행)을 열고 다음 명령을 붙여넣습니다:
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ko.ps1 | iex"
 ```
 
 **Linux / MacOS:** 터미널을 열고 다음을 실행합니다:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ko.sh | bash
 ```
 
 Python, Git (없는 경우)을 자동으로 설치하고 리포지토리를 클론하여 모든 설정을 완료합니다.

@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — Sistema CLI de Agentes de IA de Código Abierto
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@ El sistema ha evolucionado hacia una arquitectura completa de 10 subsistemas:
 ### Opción 1: Instalación Automática en un Clic (Recomendado para Usuarios)
 **Para Windows:** Abra **PowerShell** (Ejecutar como Administrador) y pegue el siguiente comando:
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_es.ps1 | iex"
 ```
 
 **Para Linux / MacOS:** Abra su terminal y ejecute:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_es.sh | bash
 ```
 
 Instalará automáticamente Python, Git (si falta), clonará el repositorio y configurará todo de la A a la Z.

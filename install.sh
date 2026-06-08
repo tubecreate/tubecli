@@ -6,6 +6,23 @@ set -euo pipefail
 REPO_URL="https://github.com/tubecreate/tubecli.git"
 BRANCH="main"
 INSTALL_DIR="${HOME}/tubecli"
+LANG_VAL="en"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --lang)
+      LANG_VAL="$2"
+      shift 2
+      ;;
+    *)
+      if [[ "$1" =~ ^[a-zA-Z-]{2,5}$ ]]; then
+        LANG_VAL="$1"
+      fi
+      shift
+      ;;
+  esac
+done
 
 BOLD='\033[1m'
 CYAN='\033[38;5;51m'
@@ -167,7 +184,7 @@ fi
 if command_exists tubecli; then
     echo -e "${GREEN}[OK] TubeCLI installed successfully!${NC}"
     echo -e "${YELLOW}[*] Initializing TubeCLI Workspace...${NC}"
-    if tubecli init --lang en --port 5295; then
+    if tubecli init --lang "$LANG_VAL" --port 5295; then
         echo -e "${GREEN}[OK] Workspace Initialized.${NC}"
     else
         echo -e "${YELLOW}[!] Failed to run 'tubecli init'. You may need to run it manually.${NC}"

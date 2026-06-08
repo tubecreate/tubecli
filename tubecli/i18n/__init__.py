@@ -18,6 +18,24 @@ def load_language(lang: str):
     elif lang == "zh":
         from tubecli.i18n import zh
         _TRANSLATIONS = dict(zh.MESSAGES)
+    elif lang == "zh-TW":
+        from tubecli.i18n import zh_tw
+        _TRANSLATIONS = dict(zh_tw.MESSAGES)
+    elif lang == "ja":
+        from tubecli.i18n import ja
+        _TRANSLATIONS = dict(ja.MESSAGES)
+    elif lang == "ko":
+        from tubecli.i18n import ko
+        _TRANSLATIONS = dict(ko.MESSAGES)
+    elif lang == "es":
+        from tubecli.i18n import es
+        _TRANSLATIONS = dict(es.MESSAGES)
+    elif lang == "tr":
+        from tubecli.i18n import tr
+        _TRANSLATIONS = dict(tr.MESSAGES)
+    elif lang == "ru":
+        from tubecli.i18n import ru
+        _TRANSLATIONS = dict(ru.MESSAGES)
     else:
         from tubecli.i18n import en
         _TRANSLATIONS = dict(en.MESSAGES)

@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — Açık Kaynak Yapay Zeka Ajanı CLI Sistemi
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@ Sistem, 10 alt sistemden oluşan kapsamlı bir mimariye dönüşmüştür:
 ### Seçenek 1: Tek Tıkla Otomatik Kurulum (Kullanıcılar için Önerilen)
 **Windows için:** **PowerShell**'i (Yönetici olarak çalıştırın) açın ve aşağıdaki komutu yapıştırın:
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_tr.ps1 | iex"
 ```
 
 **Linux / MacOS için:** Terminalinizi açın ve çalıştırın:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_tr.sh | bash
 ```
 
 Python, Git (eksikse) otomatik olarak yüklenecek, depo klonlanacak ve A'dan Z'ye her şey sizin için kurulacaktır.

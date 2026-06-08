@@ -2,7 +2,8 @@
 param(
     [string]$RepoUrl = "https://github.com/tubecreate/tubecli.git",
     [string]$Branch = "main",
-    [string]$InstallDir
+    [string]$InstallDir,
+    [string]$Lang = "en"
 )
 
 $ErrorActionPreference = "Stop"
@@ -513,9 +514,9 @@ Write-Host ""
 # ── Run init LAST (blocks with interactive menu) ──
 Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
 if ($tubecliCmd) {
-    tubecli init --lang en --port 5295
+    tubecli init --lang $Lang --port 5295
 } else {
-    python -m tubecli.main init --lang en --port 5295
+    python -m tubecli.main init --lang $Lang --port 5295
 }
 
 Complete-Install -Succeeded:$true

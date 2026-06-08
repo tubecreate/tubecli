@@ -1,0 +1,17 @@
+{
+  "ollama.models": "📦 모델",
+  "ollama.loaded": "🔥 로드됨",
+  "ollama.not_running": "Ollama가 실행 중이 아닙니다.",
+  "ollama.no_models": "모델이 없습니다. 아래에서 가져오세요.",
+  "ollama.pull": "📥 가져오기",
+  "ollama.enter_model": "모델 이름을 입력하세요.",
+  "ollama.pulling": "\"{name}\" 가져오는 중...",
+  "ollama.done": "완료!",
+  "ollama.failed": "실패:",
+  "ollama.remove_confirm": "\"{name}\"을(를) 제거하시겠습니까?",
+  "ollama.model_col": "모델",
+  "ollama.size_col": "크기",
+  "ollama.modified_col": "수정됨",
+  "ollama.status_col": "상태",
+  "ollama.actions_col": "작업"
+}

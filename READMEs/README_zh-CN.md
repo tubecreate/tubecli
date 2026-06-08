@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — 开源 AI Agent CLI 系统
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <b>简体中文</b> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@
 ### 选项 1: 一键自动安装（推荐用户使用）
 **Windows系统：** 打开 **PowerShell** (以管理员身份运行) 并粘贴以下命令：
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_zh.ps1 | iex"
 ```
 
 **Linux / MacOS系统：** 打开终端并运行：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_zh.sh | bash
 ```
 
 它会自动安装 Python, Git（若缺失），克隆仓库并为您从 A-Z 设置好一切。

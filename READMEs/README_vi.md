@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — Hệ thống CLI Agent AI mã nguồn mở
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@ Hệ thống đã phát triển thành một kiến trúc hoàn chỉnh gồm 10
 ### Tùy chọn 1: Cài đặt tự động bằng một cú nhấp chuột (Khuyên dùng cho Người dùng)
 **Dành cho Windows:** Mở **PowerShell** (Chạy với quyền Administrator) và dán lệnh sau:
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_vi.ps1 | iex"
 ```
 
 **Dành cho Linux / MacOS:** Mở terminal và chạy:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_vi.sh | bash
 ```
 
 Hệ thống sẽ tự động cài đặt Python, Git (nếu thiếu), clone repo và thiết lập mọi thứ cho bạn từ A-Z.

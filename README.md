@@ -2,14 +2,14 @@
 
 <p align="center">
   <b>English</b> | 
-  <a href="README_zh-CN.md">简体中文</a> | 
-  <a href="README_zh-TW.md">繁體中文</a> | 
-  <a href="README_ja.md">日本語</a> | 
-  <a href="README_ko.md">한국어</a> | 
-  <a href="README_es.md">Español</a> | 
-  <a href="README_tr.md">Türkçe</a> | 
-  <a href="README_ru.md">Русский</a> | 
-  <a href="README_vi.md">Tiếng Việt</a>
+  <a href="READMEs/README_zh-CN.md">简体中文</a> | 
+  <a href="READMEs/README_zh-TW.md">繁體中文</a> | 
+  <a href="READMEs/README_ja.md">日本語</a> | 
+  <a href="READMEs/README_ko.md">한국어</a> | 
+  <a href="READMEs/README_es.md">Español</a> | 
+  <a href="READMEs/README_tr.md">Türkçe</a> | 
+  <a href="READMEs/README_ru.md">Русский</a> | 
+  <a href="READMEs/README_vi.md">Tiếng Việt</a>
 </p>
 
 <p align="center">
@@ -65,10 +65,18 @@ The system has evolved into a full-fledged 10-subsystem architecture:
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
 ```
+*Note: To install with a specific language (e.g. `vi`, `zh-TW`, `ja`), use:*
+```powershell
+powershell -c "&([ScriptBlock]::Create((irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1))) -Lang vi"
+```
 
 **For Linux / MacOS:** Open your terminal and run:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+```
+*Note: To install with a specific language (e.g. `vi`, `zh-TW`, `ja`), use:*
+```bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash -s -- --lang vi
 ```
 
 It will automatically install Python, Git (if missing), clone the repo, and set up everything for you from A-Z.

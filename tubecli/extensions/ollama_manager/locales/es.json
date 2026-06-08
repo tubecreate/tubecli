@@ -1,0 +1,17 @@
+{
+  "ollama.models": "📦 Modelos",
+  "ollama.loaded": "🔥 Cargado",
+  "ollama.not_running": "Ollama no se está ejecutando.",
+  "ollama.no_models": "No hay modelos. Tire de uno a continuación.",
+  "ollama.pull": "📥 Descargar",
+  "ollama.enter_model": "Introduzca el nombre del modelo.",
+  "ollama.pulling": "Descargando \"{name}\"...",
+  "ollama.done": "¡Hecho!",
+  "ollama.failed": "Falló:",
+  "ollama.remove_confirm": "¿Eliminar \"{name}\"?",
+  "ollama.model_col": "Modelo",
+  "ollama.size_col": "Tamaño",
+  "ollama.modified_col": "Modificado",
+  "ollama.status_col": "Estado",
+  "ollama.actions_col": "Acciones"
+}

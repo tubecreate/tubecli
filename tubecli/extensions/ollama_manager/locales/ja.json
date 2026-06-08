@@ -1,0 +1,17 @@
+{
+  "ollama.models": "📦 モデル",
+  "ollama.loaded": "🔥 ロード済み",
+  "ollama.not_running": "Ollamaが実行されていません。",
+  "ollama.no_models": "モデルがありません。以下からプルしてください。",
+  "ollama.pull": "📥 プル",
+  "ollama.enter_model": "モデル名を入力してください。",
+  "ollama.pulling": "\"{name}\"をプル中...",
+  "ollama.done": "完了！",
+  "ollama.failed": "失敗しました：",
+  "ollama.remove_confirm": "\"{name}\"を削除しますか？",
+  "ollama.model_col": "モデル",
+  "ollama.size_col": "サイズ",
+  "ollama.modified_col": "変更日時",
+  "ollama.status_col": "ステータス",
+  "ollama.actions_col": "アクション"
+}

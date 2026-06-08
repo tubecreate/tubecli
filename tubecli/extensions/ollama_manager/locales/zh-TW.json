@@ -1,0 +1,17 @@
+{
+  "ollama.models": "📦 模型",
+  "ollama.loaded": "🔥 已載入",
+  "ollama.not_running": "Ollama 未運行。",
+  "ollama.no_models": "沒有模型。請從下方拉取一個。",
+  "ollama.pull": "📥 拉取",
+  "ollama.enter_model": "輸入模型名稱。",
+  "ollama.pulling": "正在拉取 \"{name}\"...",
+  "ollama.done": "完成！",
+  "ollama.failed": "失敗：",
+  "ollama.remove_confirm": "移除 \"{name}\"？",
+  "ollama.model_col": "模型",
+  "ollama.size_col": "大小",
+  "ollama.modified_col": "修改日期",
+  "ollama.status_col": "狀態",
+  "ollama.actions_col": "操作"
+}

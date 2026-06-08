@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — Открытая CLI-система агентов ИИ
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <a href="README_ja.md">日本語</a> | 
@@ -63,12 +63,12 @@
 ### Вариант 1: Автоматическая установка в один клик (рекомендуется для пользователей)
 **Для Windows:** Откройте **PowerShell** (запуск от имени администратора) и вставьте следующую команду:
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ru.ps1 | iex"
 ```
 
 **Для Linux / MacOS:** Откройте терминал и выполните:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ru.sh | bash
 ```
 
 Скрипт автоматически установит Python, Git (если отсутствуют), клонирует репозиторий и настроит всё под ключ.

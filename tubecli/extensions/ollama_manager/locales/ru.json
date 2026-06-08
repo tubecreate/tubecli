@@ -1,0 +1,17 @@
+{
+  "ollama.models": "📦 Модели",
+  "ollama.loaded": "🔥 Загружено",
+  "ollama.not_running": "Ollama не запущена.",
+  "ollama.no_models": "Нет моделей. Загрузите одну ниже.",
+  "ollama.pull": "📥 Загрузить",
+  "ollama.enter_model": "Введите имя модели.",
+  "ollama.pulling": "Загрузка \"{name}\"...",
+  "ollama.done": "Готово!",
+  "ollama.failed": "Ошибка:",
+  "ollama.remove_confirm": "Удалить \"{name}\"?",
+  "ollama.model_col": "Модель",
+  "ollama.size_col": "Размер",
+  "ollama.modified_col": "Изменено",
+  "ollama.status_col": "Статус",
+  "ollama.actions_col": "Действия"
+}

@@ -1,7 +1,7 @@
 # ⚡ TubeCLI — オープンソース AI Agent CLI システム
 
 <p align="center">
-  <a href="README.md">English</a> | 
+  <a href="../README.md">English</a> | 
   <a href="README_zh-CN.md">简体中文</a> | 
   <a href="README_zh-TW.md">繁體中文</a> | 
   <b>日本語</b> | 
@@ -63,12 +63,12 @@
 ### オプション 1: ワンクリック自動インストール (ユーザー向け推奨)
 **Windowsの場合:** **PowerShell** (管理者として実行) を開き、次のコマンドを貼り付けます：
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1 | iex"
+powershell -c "irm https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ja.ps1 | iex"
 ```
 
 **Linux / MacOSの場合:** ターミナルを開き、次を実行します：
 ```bash
-curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install/install_ja.sh | bash
 ```
 
 Python、Git (ない場合) を自動的にインストールし、リポジトリをクローンして、すべてを自動的にセットアップします。
