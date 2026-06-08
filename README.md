@@ -1,6 +1,18 @@
 # ⚡ TubeCLI — Open Source AI Agent CLI System
 
 <p align="center">
+  <b>English</b> | 
+  <a href="README_zh-CN.md">简体中文</a> | 
+  <a href="README_zh-TW.md">繁體中文</a> | 
+  <a href="README_ja.md">日本語</a> | 
+  <a href="README_ko.md">한국어</a> | 
+  <a href="README_es.md">Español</a> | 
+  <a href="README_tr.md">Türkçe</a> | 
+  <a href="README_ru.md">Русский</a> | 
+  <a href="README_vi.md">Tiếng Việt</a>
+</p>
+
+<p align="center">
     <a href="https://github.com/tubecreate/tubecli">
         <img src="https://img.shields.io/github/stars/tubecreate/tubecli?style=for-the-badge&color=2a2a2a&labelColor=1a1a1a" alt="Stars" />
     </a>
