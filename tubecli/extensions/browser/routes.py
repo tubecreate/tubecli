@@ -1,7 +1,7 @@
 """
 Browser Extension — API routes.
 """
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, File, UploadFile
 from pydantic import BaseModel
 from typing import Optional, List, Any
 import os
@@ -48,7 +48,7 @@ class ProfileUpdateRequest(BaseModel):
 class LaunchRequest(BaseModel):
     profile: str
     prompt: str = ""
-    url: str = ""
+    url: str = "https://google.com"
     headless: bool = False
     manual: bool = True
     ai_model: str = "qwen:latest"
@@ -210,25 +210,112 @@ async def api_delete_cookies(name: str):
     return {"status": "not_found"}
 
 
+_launching_profiles = set()
+_launching_lock = asyncio.Lock()
+
+def is_profile_running(profile_name: str) -> bool:
+    from .process_manager import browser_process_manager
+    # Check normal running profiles
+    for inst in browser_process_manager.list_all():
+        if inst.get("profile") == profile_name and inst.get("status") == "running":
+            return True
+            
+    # Check preview running profiles
+    dead_sessions = []
+    is_running = False
+    for session_id, info in list(_preview_processes.items()):
+        proc = info.get("proc")
+        if proc and proc.poll() is not None:
+            dead_sessions.append(session_id)
+        elif info.get("profile") == profile_name:
+            is_running = True
+            
+    for session_id in dead_sessions:
+        _preview_processes.pop(session_id, None)
+        
+    return is_running
+
 @router.post("/launch")
 async def api_launch_browser(req: LaunchRequest):
-    from .process_manager import browser_process_manager
-    result = browser_process_manager.spawn(
-        profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual, ai_model=req.ai_model
-    )
-    return result
+    async with _launching_lock:
+        if req.profile in _launching_profiles or is_profile_running(req.profile):
+            raise HTTPException(400, f"Profile '{req.profile}' is already running or opening.")
+        _launching_profiles.add(req.profile)
+        
+    try:
+        from .process_manager import browser_process_manager
+        result = browser_process_manager.spawn(
+            profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual, ai_model=req.ai_model
+        )
+        return result
+    finally:
+        async with _launching_lock:
+            _launching_profiles.discard(req.profile)
 
 @router.post("/stop")
 async def api_stop_browser(req: StopRequest):
     from .process_manager import browser_process_manager
+    stopped = False
+    
+    # 1. Stop normal browser process
     if browser_process_manager.stop_by_profile(req.profile):
+        stopped = True
+        
+    # 2. Stop preview browser process
+    dead_sessions = []
+    for session_id, info in list(_preview_processes.items()):
+        if info.get("profile") == req.profile:
+            proc = info.get("proc")
+            if proc:
+                try:
+                    import platform
+                    import subprocess
+                    if platform.system() == "Windows":
+                        subprocess.run(
+                            ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                            capture_output=True, timeout=5
+                        )
+                    else:
+                        proc.terminate()
+                except Exception:
+                    pass
+            _preview_processes.pop(session_id, None)
+            stopped = True
+            
+    if stopped:
         return {"status": "stopped", "profile": req.profile}
-    raise HTTPException(404, "No running browser for this profile")
+    raise HTTPException(404, f"No running browser for profile '{req.profile}'")
 
 @router.get("/status")
 async def api_browser_status():
     from .process_manager import browser_process_manager
-    return {"instances": browser_process_manager.list_all()}
+    instances = browser_process_manager.list_all()
+    
+    # Add preview processes to the instances list so the frontend knows they are running
+    dead_sessions = []
+    for session_id, info in list(_preview_processes.items()):
+        proc = info.get("proc")
+        if proc and proc.poll() is not None:
+            dead_sessions.append(session_id)
+        else:
+            exists = False
+            for inst in instances:
+                if inst.get("profile") == info.get("profile") and inst.get("status") == "running":
+                    exists = True
+                    break
+            if not exists:
+                instances.append({
+                    "instance_id": session_id,
+                    "profile": info.get("profile"),
+                    "status": "running",
+                    "manual": True,
+                    "is_preview": True
+                })
+                
+    for session_id in dead_sessions:
+        _preview_processes.pop(session_id, None)
+        
+    return {"instances": instances}
 
 @router.get("/log/{profile}")
 async def api_browser_log(profile: str):
@@ -784,4 +871,248 @@ async def api_get_result(token: str, command_id: str):
             res = browser_extensions[token]["results"].pop(command_id) # Consume result
             return {"ready": True, **res}
     return {"ready": False}
+
+
+# ── Browser Preview (WebSocket & Canvas proxy) ──
+
+import logging
+_preview_processes = {}
+preview_logger = logging.getLogger("Browser.Preview")
+
+@router.post("/preview/launch")
+async def launch_preview(request: Request):
+    """Launch a browser for preview/element picking."""
+    body = await request.json()
+    profile = body.get("profile", "")
+    url = body.get("url", "https://google.com")
+    if not url or url == "about:blank":
+        url = "https://google.com"
+
+    async with _launching_lock:
+        if profile in _launching_profiles or is_profile_running(profile):
+            raise HTTPException(400, f"Profile '{profile}' is already running or opening.")
+        _launching_profiles.add(profile)
+
+    try:
+        ext_dir = os.path.dirname(os.path.abspath(__file__))
+        preview_path = os.path.join(ext_dir, "preview_server.cjs")
+
+        # Find available port
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(("", 0))
+        port = sock.getsockname()[1]
+        sock.close()
+
+        # Build environment and NODE_PATH
+        env = os.environ.copy()
+        browser_ext_nm = os.path.join(ext_dir, "node_modules")
+        if os.path.isdir(browser_ext_nm):
+            existing = env.get("NODE_PATH", "")
+            env["NODE_PATH"] = browser_ext_nm + (";" + existing if existing else "")
+
+        from .profile_manager import PROFILES_DIR
+        proc = subprocess.Popen(
+            ["node", preview_path, "--profile", profile or "default",
+             "--url", url, "--port", str(port),
+             "--profiles-dir", PROFILES_DIR],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            cwd=ext_dir, encoding="utf-8", errors="replace",
+            env=env,
+        )
+        
+        import threading
+        def log_proc_output(p, name):
+            try:
+                for line in p.stdout:
+                    print(f"[PreviewServer][{name}] {line.rstrip()}", flush=True)
+            except Exception as e:
+                print(f"[PreviewServer][{name}] Error reading stdout: {e}", flush=True)
+            finally:
+                try: p.stdout.close()
+                except: pass
+                
+        t = threading.Thread(target=log_proc_output, args=(proc, profile), daemon=True)
+        t.start()
+
+        session_id = f"preview_{int(time.time())}"
+        _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile}
+        return {"status": "launched", "session_id": session_id, "port": port}
+    finally:
+        async with _launching_lock:
+            _launching_profiles.discard(profile)
+
+@router.post("/preview/stop")
+async def stop_preview(request: Request):
+    body = await request.json()
+    session_id = body.get("session_id", "")
+    info = _preview_processes.pop(session_id, None)
+    if info:
+        try:
+            # Kill process tree on Windows/Linux
+            import platform
+            proc = info["proc"]
+            if platform.system() == "Windows":
+                subprocess.run(
+                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                    capture_output=True, timeout=5
+                )
+            else:
+                proc.terminate()
+        except Exception:
+            pass
+        return {"status": "stopped"}
+    return {"status": "not_found"}
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+@router.websocket("/preview/ws/{port}")
+async def ws_preview_proxy(websocket: WebSocket, port: int):
+    """Proxy WebSocket connection to the local preview server."""
+    await websocket.accept()
+    preview_logger.info(f"[WS Proxy] Client connected, proxying to localhost:{port}")
+    
+    local_ws = None
+    try:
+        import aiohttp
+        session = aiohttp.ClientSession()
+        
+        # Retry connection to local preview server up to 20 times (10 seconds)
+        retries = 20
+        for attempt in range(retries):
+            try:
+                local_ws = await session.ws_connect(f"http://localhost:{port}", timeout=5)
+                break
+            except (aiohttp.ClientConnectorError, aiohttp.WSServerHandshakeError) as e:
+                if attempt == retries - 1:
+                    preview_logger.error(f"[WS Proxy] Failed to connect to localhost:{port} after {retries} attempts: {e}")
+                    raise e
+                await asyncio.sleep(0.5)
+                
+        preview_logger.info(f"[WS Proxy] Connected to local preview server on port {port}")
+        
+        async def forward_to_local():
+            """Client → Local preview server"""
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    await local_ws.send_str(data)
+            except (WebSocketDisconnect, Exception):
+                pass
+        
+        async def forward_to_client():
+            """Local preview server → Client"""
+            try:
+                async for msg in local_ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        await websocket.send_text(msg.data)
+                    elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
+            except Exception:
+                pass
+        
+        async def heartbeat():
+            """Keep connection alive through reverse proxies"""
+            try:
+                while True:
+                    await asyncio.sleep(15)
+                    try:
+                        await local_ws.ping()
+                    except Exception:
+                        break
+            except asyncio.CancelledError:
+                pass
+        
+        done, pending = await asyncio.wait(
+            [asyncio.create_task(forward_to_local()),
+             asyncio.create_task(forward_to_client()),
+             asyncio.create_task(heartbeat())],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+    except ImportError:
+        preview_logger.error("[WS Proxy] aiohttp not installed.")
+        try:
+            await websocket.close(code=1011, reason="aiohttp not installed on server")
+        except Exception:
+            pass
+    except Exception as e:
+        preview_logger.error(f"[WS Proxy] Error: {e}")
+        try:
+            await websocket.close(code=1011, reason=str(e)[:120])
+        except Exception:
+            pass
+    finally:
+        if local_ws:
+            await local_ws.close()
+            await session.close()
+
+@router.get("/preview/screenshot/{port}")
+async def proxy_screenshot(port: int):
+    """Proxy screenshot from local preview server for remote access."""
+    import asyncio
+    try:
+        import requests as _requests
+        resp = await asyncio.to_thread(
+            _requests.get, f"http://localhost:{port}/screenshot", timeout=10
+        )
+        if resp.status_code == 200:
+            from fastapi.responses import Response
+            return Response(content=resp.content, media_type="image/jpeg")
+    except Exception as e:
+        preview_logger.error(f"[Screenshot Proxy] Error: {e}")
+    raise HTTPException(502, "Preview server unavailable")
+
+
+@router.post("/preview/upload/{port}")
+async def api_preview_upload_files(port: int, files: List[UploadFile] = File(...)):
+    """Upload files for the file chooser dialog of browser at port."""
+    import uuid
+    import shutil
+    import requests
+    
+    ext_dir = os.path.dirname(os.path.abspath(__file__))
+    temp_dir = os.path.join(ext_dir, "data", "temp_uploads")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    # Create unique directory for this upload batch
+    upload_id = str(uuid.uuid4())
+    batch_dir = os.path.join(temp_dir, upload_id)
+    os.makedirs(batch_dir, exist_ok=True)
+    
+    file_paths = []
+    try:
+        for file in files:
+            safe_filename = os.path.basename(file.filename)
+            dest_path = os.path.join(batch_dir, safe_filename)
+            
+            with open(dest_path, "wb") as buffer:
+                while chunk := await file.read(1024 * 1024):
+                    buffer.write(chunk)
+            file_paths.append(dest_path)
+            
+        node_url = f"http://localhost:{port}/upload-files"
+        response = await asyncio.to_thread(
+            requests.post,
+            node_url,
+            json={"filePaths": file_paths},
+            timeout=300
+        )
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text}")
+    except Exception as e:
+        if os.path.exists(batch_dir):
+            try:
+                shutil.rmtree(batch_dir)
+            except Exception:
+                pass
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(500, f"File upload failed: {str(e)}")
+
+
 

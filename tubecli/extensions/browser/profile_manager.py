@@ -14,6 +14,43 @@ from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 PROFILES_DIR = os.path.join(EXTENSIONS_DATA_DIR, "browser", "browser_profiles")
 
 
+def extract_raw_key(json_str, key):
+    import re
+    pattern = rf'"{re.escape(key)}"\s*:'
+    match = re.search(pattern, json_str)
+    if not match:
+        return None
+    start_idx = match.end()
+    while start_idx < len(json_str) and json_str[start_idx].isspace():
+        start_idx += 1
+    
+    brace_count = 0
+    in_string = False
+    escape = False
+    
+    for i in range(start_idx, len(json_str)):
+        char = json_str[i]
+        if escape:
+            escape = False
+            continue
+        if char == '\\':
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            continue
+        if not in_string:
+            if char in ('{', '['):
+                brace_count += 1
+            elif char in ('}', ']'):
+                brace_count -= 1
+                if brace_count == 0:
+                    return json_str[start_idx:i+1]
+            elif brace_count == 0 and char in (',', '}'):
+                return json_str[start_idx:i]
+    return None
+
+
 def ensure_profiles_dir():
     os.makedirs(PROFILES_DIR, exist_ok=True)
 
@@ -198,12 +235,14 @@ def get_fingerprint(name: str) -> Optional[dict]:
     if not os.path.isdir(profile_path):
         return None
 
-    fp_path = os.path.join(profile_path, "fingerprint.json")
+    fp_path = os.path.join(profile_path, "fingerprint_saved.json")
+    legacy_fp_path = os.path.join(profile_path, "fingerprint.json")
     
     # Try reading existing
-    if os.path.exists(fp_path):
+    target_path = fp_path if os.path.exists(fp_path) else legacy_fp_path
+    if os.path.exists(target_path):
         try:
-            with open(fp_path, "r", encoding="utf-8") as f:
+            with open(target_path, "r", encoding="utf-8") as f:
                 fp = json.load(f)
                 if fp and isinstance(fp, dict) and len(fp) > 5:
                     return fp
@@ -235,27 +274,31 @@ def get_fingerprint(name: str) -> Optional[dict]:
         def _do_fetch(params):
             resp = requests.get("https://api.tubecreate.com/api/fingerprints/getfinger.php", params=params, timeout=180.0)
             resp.raise_for_status()
+            raw_text = resp.text
             data = resp.json()
             
             if data and data.get("status") == "success":
                 fp_data = None
+                fp_raw_string = None
                 # New format: fingerprint inline
                 if data.get("fingerprint"):
                     fp_data = data["fingerprint"]
+                    fp_raw_string = extract_raw_key(raw_text, "fingerprint")
                 # Old format: download via file_path
                 elif data.get("file_path"):
                     fp_url = f"https://api.tubecreate.com/{data['file_path']}"
                     fp_resp = requests.get(fp_url, timeout=120.0)
                     fp_resp.raise_for_status()
                     fp_data = fp_resp.json()
+                    fp_raw_string = fp_resp.text
                 
                 # Validate: check for {valid: false}
                 if fp_data and isinstance(fp_data, dict) and fp_data.get("valid") is False:
                     print(f"[Fingerprint] Security Browser returned valid=false: {fp_data.get('message', '?')}")
-                    return None
+                    return None, None
                     
-                return fp_data
-            return None
+                return fp_data, fp_raw_string
+            return None, None
 
         # Attempt 1: with size ranges
         params = {"tags": tags_param}
@@ -268,7 +311,7 @@ def get_fingerprint(name: str) -> Optional[dict]:
             params["min_height"] = max(h - 200, 600)
             params["max_height"] = h + 200
 
-        fp_data = _do_fetch(params)
+        fp_data, fp_raw_string = _do_fetch(params)
         
         # Attempt 2: without size
         if not fp_data and window_size:
@@ -276,16 +319,18 @@ def get_fingerprint(name: str) -> Optional[dict]:
             params2 = {"tags": tags_param}
             if min_browser_version:
                 params2["min_browser_version"] = min_browser_version
-            fp_data = _do_fetch(params2)
+            fp_data, fp_raw_string = _do_fetch(params2)
         
         # Attempt 3: without version
         if not fp_data and min_browser_version:
             print("[Fingerprint] Retrying without version constraint...")
-            fp_data = _do_fetch({"tags": tags_param})
+            fp_data, fp_raw_string = _do_fetch({"tags": tags_param})
 
-        if fp_data:
+        if fp_data and fp_raw_string:
             with open(fp_path, "w", encoding="utf-8") as f:
-                json.dump(fp_data, f)
+                f.write(fp_raw_string)
+            with open(legacy_fp_path, "w", encoding="utf-8") as f:
+                f.write(fp_raw_string)
             return fp_data
             
     except Exception as e:
@@ -297,14 +342,17 @@ def get_fingerprint(name: str) -> Optional[dict]:
 def reset_fingerprint(name: str) -> bool:
     """Delete the existing fingerprint so it gets re-fetched next time."""
     profile_path = os.path.join(PROFILES_DIR, name)
-    fp_path = os.path.join(profile_path, "fingerprint.json")
-    if os.path.exists(fp_path):
-        try:
-            os.remove(fp_path)
-            return True
-        except OSError:
-            pass
-    return False
+    fp_path = os.path.join(profile_path, "fingerprint_saved.json")
+    legacy_fp_path = os.path.join(profile_path, "fingerprint.json")
+    removed = False
+    for p in (fp_path, legacy_fp_path):
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+                removed = True
+            except OSError:
+                pass
+    return removed
 
 
 def refresh_fingerprint(name: str) -> Optional[dict]:
@@ -312,13 +360,15 @@ def refresh_fingerprint(name: str) -> Optional[dict]:
     profile_path = os.path.join(PROFILES_DIR, name)
     if not os.path.isdir(profile_path):
         return None
-    fp_path = os.path.join(profile_path, "fingerprint.json")
+    fp_path = os.path.join(profile_path, "fingerprint_saved.json")
+    legacy_fp_path = os.path.join(profile_path, "fingerprint.json")
     # Remove existing fingerprint to force fresh fetch
-    try:
-        if os.path.exists(fp_path):
-            os.remove(fp_path)
-    except OSError:
-        pass
+    for p in (fp_path, legacy_fp_path):
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+        except OSError:
+            pass
     return get_fingerprint(name)
 
 

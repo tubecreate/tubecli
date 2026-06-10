@@ -180,7 +180,7 @@ async function checkProfileHasSession(profileName, profilesDir = './profiles') {
     // Check for signs of an active browser session:
     // Playwright stores profile data in subdirectories like Default/
     const contents = await fs.readdir(profilePath);
-    const hasData = contents.some(f => ['Default', 'Cookies', 'Local Storage', 'fingerprint.json', 'stats.json'].includes(f));
+    const hasData = contents.some(f => ['Default', 'Cookies', 'Local Storage', 'fingerprint.json', 'fingerprint_saved.json', 'stats.json'].includes(f));
     if (hasData) {
       console.log(`[Auth] Profile '${profileName}' has existing session data — skipping login.`);
       return true;
@@ -886,25 +886,28 @@ async function main() {
       }
 
       let fingerprint;
-      const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+      const fingerprintPath = path.join(profilePath, 'fingerprint_saved.json');
+      const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
       const configPath = path.join(profilePath, 'config.json');
 
-      if (await fs.pathExists(fingerprintPath)) {
+      const targetPath = await fs.pathExists(fingerprintPath) ? fingerprintPath : legacyFingerprintPath;
+      if (await fs.pathExists(targetPath)) {
           console.log('Loading saved fingerprint...');
           try {
-              const fingerprintData = await fs.readFile(fingerprintPath, 'utf8');
+              const fingerprintData = await fs.readFile(targetPath, 'utf8');
               if (fingerprintData && fingerprintData.length > 20) {
-                  // Parse fingerprint if it's a JSON string
+                  // Check signature wrapper format without modifying the raw string
                   try {
-                      fingerprint = typeof fingerprintData === 'string' ? JSON.parse(fingerprintData) : fingerprintData;
+                      const parsed = typeof fingerprintData === 'string' ? JSON.parse(fingerprintData) : fingerprintData;
                       
                       // Security Browser v5 fingerprints use a wrapper structure:
                       // { canvas: ..., webgl: ..., audio: ..., fingerprint: { ua, tags, ... } }
                       // The wrapper contains canvas/webgl noise data needed for spoofing.
-                      // DO NOT extract the inner 'fingerprint' key — pass the FULL object to the engine.
-                      if (fingerprint && fingerprint.fingerprint) {
-                          console.log('Detected Security Browser wrapper fingerprint. Using full object to prevent engine format errors.');
+                      // DO NOT extract the inner 'fingerprint' key — pass the FULL object/string to the engine.
+                      if (parsed && parsed.fingerprint) {
+                          console.log('Detected Security Browser wrapper fingerprint. Using full raw string to prevent engine signature verification and format errors.');
                       }
+                      fingerprint = fingerprintData; // Keep raw string to preserve signature order
                   } catch (e) {
                       fingerprint = fingerprintData; // Use as-is if not JSON
                   }
@@ -1808,8 +1811,10 @@ async function main() {
         console.error('\n>>> Retrying with fresh fingerprint (Fatal Error Detected)...');
         // Force delete fingerprint
         try {
-             const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+             const fingerprintPath = path.join(profilePath, 'fingerprint_saved.json');
+             const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
              await fs.remove(fingerprintPath);
+             await fs.remove(legacyFingerprintPath);
         } catch (e) {}
         attempt++;
       } else if ((error.message.includes('Failed to get proxy ip') ||

@@ -1,0 +1,5 @@
+exclude data
+recursive-exclude data *
+recursive-exclude data/edu_video_studio *
+recursive-exclude __pycache__ *
+recursive-exclude *.egg-info *

@@ -5,6 +5,50 @@ import path from 'path';
 import axios from 'axios';
 import { fileURLToPath } from 'url';
 
+function extractRawKey(jsonString, key) {
+    const searchStr = `"${key}":`;
+    const startIdx = jsonString.indexOf(searchStr);
+    if (startIdx === -1) return null;
+    
+    let valStart = startIdx + searchStr.length;
+    while (valStart < jsonString.length && /\s/.test(jsonString[valStart])) {
+        valStart++;
+    }
+    
+    let braceCount = 0;
+    let inString = false;
+    let escape = false;
+    
+    for (let i = valStart; i < jsonString.length; i++) {
+        const char = jsonString[i];
+        if (escape) {
+            escape = false;
+            continue;
+        }
+        if (char === '\\') {
+            escape = true;
+            continue;
+        }
+        if (char === '"') {
+            inString = !inString;
+            continue;
+        }
+        if (!inString) {
+            if (char === '{' || char === '[') {
+                braceCount++;
+            } else if (char === '}' || char === ']') {
+                braceCount--;
+                if (braceCount === 0) {
+                    return jsonString.slice(valStart, i + 1);
+                }
+            } else if (braceCount === 0 && (char === ',' || char === '}')) {
+                return jsonString.slice(valStart, i);
+            }
+        }
+    }
+    return null;
+}
+
 export class BrowserManager {
     constructor(config = {}) {
         this.baseDir = config.baseDir || './profiles';
@@ -61,16 +105,18 @@ export class BrowserManager {
 
     async getFingerprint(profileName, options = {}) {
         const profilePath = await this.ensureProfile(profileName);
-        const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+        const fingerprintPath = path.join(profilePath, 'fingerprint_saved.json');
+        const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
         const configPath = path.join(profilePath, 'config.json');
 
         let fingerprint;
 
         // 1. Try to load existing
-        if (await fs.pathExists(fingerprintPath)) {
+        if (await fs.pathExists(fingerprintPath) || await fs.pathExists(legacyFingerprintPath)) {
             console.log('Loading saved fingerprint...');
             try {
-                const data = await fs.readFile(fingerprintPath, 'utf8');
+                const targetFpPath = await fs.pathExists(fingerprintPath) ? fingerprintPath : legacyFingerprintPath;
+                const data = await fs.readFile(targetFpPath, 'utf8');
                 // Check if it's a plugin.fetch() string token (not JSON object)
                 if (data && data.length > 20) {
                     try {
@@ -129,23 +175,26 @@ export class BrowserManager {
                 
                 const resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { 
                     params,
+                    responseType: 'text',
                     timeout: 180000,
                     maxContentLength: 50 * 1024 * 1024,
                     maxBodyLength: 50 * 1024 * 1024
                 });
-                const data = resp.data;
+                const rawText = resp.data;
+                const data = JSON.parse(rawText);
                 
                 if (data && data.status === 'success') {
                     // New format: fingerprint included directly in response
                     if (data.fingerprint) {
                         console.log(`Got fingerprint directly from API response.`);
-                        fingerprint = data.fingerprint;
+                        // Extract RAW JSON string to preserve exact cryptographic signature and key order
+                        fingerprint = extractRawKey(rawText, 'fingerprint') || JSON.stringify(data.fingerprint);
                     } 
                     // Old format: download via file_path
                     else if (data.file_path) {
                         const fpUrl = `https://api.tubecreate.com/${data.file_path}`;
                         console.log(`Downloading fingerprint from API...`);
-                        const fpResp = await axios.get(fpUrl, { timeout: 120000 });
+                        const fpResp = await axios.get(fpUrl, { responseType: 'text', timeout: 120000 });
                         fingerprint = fpResp.data;
                     } else {
                         throw new Error('No fingerprint data in API response');
@@ -170,7 +219,8 @@ export class BrowserManager {
                     // Save it
                     const toSave = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
                     await fs.outputFile(fingerprintPath, toSave, 'utf8');
-                    return fingerprint;
+                    await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+                    return toSave;
                 } else {
                     throw new Error('Invalid response from getfinger.php');
                 }
@@ -529,9 +579,12 @@ export class BrowserManager {
         }
 
         // Patch fingerprint User-Agent to match actual engine version
+        // Bypassed to prevent fingerprint signature corruption causing 'Incorrect format' errors
+        /*
         if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
             fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
         }
+        */
 
         // Apply fingerprint with retry logic
         if (fingerprint) {
@@ -539,37 +592,25 @@ export class BrowserManager {
              while (fpAttempts < 2) {
                  try {
 
-                    // plugin.useFingerprint accepts either the fingerprint object or the token string
-                    // BUT in practice it often requires the JSON string if fetched as string
                     if (fingerprint) {
-                        try {
-                            // The plugin often expects the JSON string for raw fingerprints
-                            const fpToUse = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
-                            plugin.useFingerprint(fpToUse);
-                        } catch (err) {
-                             console.warn(`[BrowserManager] Initial fingerprint application failed: ${err.message}. Retrying with direct object...`);
-                             try {
-                                 const parsed = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
-                                 plugin.useFingerprint(parsed);
-                             } catch (finalErr) {
-                                 throw err; // Throw original error if both fail
-                             }
-                        }
-                        break; // Success
-                    } else {
-                        throw new Error('Fingerprint is empty');
+                        // Pass stringified JSON or raw token to plugin.useFingerprint (always string)
+                        const fpString = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                        plugin.useFingerprint(fpString);
                     }
+                    break; // Success
                  } catch (e) {
                      console.error(`Error applying fingerprint (Attempt ${fpAttempts + 1}/2):`, e.message);
                      if (fpAttempts === 0) {
                          console.warn('Fingerprint might be corrupted. Deleting and re-fetching...');
                          try {
-                             const fingerprintPath = path.join(profilePath, 'fingerprint.json');
-                             await fs.remove(fingerprintPath);
-                             // Fetch new one
-                             fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
-                         } catch (err) {
-                             console.error('Failed to refresh fingerprint:', err.message);
+                              const fingerprintPath = path.join(profilePath, 'fingerprint_saved.json');
+                              const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
+                              await fs.remove(fingerprintPath);
+                              await fs.remove(legacyFingerprintPath);
+                              // Fetch new one
+                              fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
+                          } catch (err) {
+                              console.error('Failed to refresh fingerprint:', err.message);
                          }
                      } else {
                          throw e; // Fail on second attempt
@@ -628,15 +669,20 @@ export class BrowserManager {
                     console.warn(`[Launch] ⚠️ Fingerprint rejected by engine: ${e.message}`);
                     console.warn(`[Launch] Deleting old fingerprint and fetching a fresh one...`);
                     try {
-                        const fingerprintPath = path.join(profilePath, 'fingerprint.json');
+                        const fingerprintPath = path.join(profilePath, 'fingerprint_saved.json');
+                        const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
                         await fs.remove(fingerprintPath);
+                        await fs.remove(legacyFingerprintPath);
                         fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
+                        // User-Agent patching is bypassed to prevent cryptographic signature corruption
+                        /*
                         if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
                             fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
                         }
-                        // Re-apply fingerprint
-                        const fpToUse = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
-                        plugin.useFingerprint(fpToUse);
+                        */
+                        // Re-apply fingerprint directly (always stringified if object)
+                        const fpString = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                        plugin.useFingerprint(fpString);
                         console.log('[Launch] Fresh fingerprint applied. Retrying launch...');
                     } catch (refreshErr) {
                         console.error('[Launch] Failed to refresh fingerprint:', refreshErr.message);

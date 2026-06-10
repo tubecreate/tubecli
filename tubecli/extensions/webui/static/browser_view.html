@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>Live Browser Stream — TubeCLI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
+    <style>
+        :root {
+            --bg: #0b0c10;
+            --bg-secondary: #1f2833;
+            --primary: #66fcf1;
+            --primary-hover: #45f3e5;
+            --accent: #45a29e;
+            --text: #c5c6c7;
+            --text-light: #ffffff;
+            --border: #2f3e46;
+            --red: #ff4d4d;
+            --green: #2ecc71;
+            --orange: #e67e22;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* Header / Toolbar */
+        .toolbar {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 100;
+        }
+
+        .btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-light);
+            cursor: pointer;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            color: #000;
+            font-weight: 600;
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            color: #000;
+            box-shadow: 0 0 10px rgba(102, 252, 241, 0.3);
+        }
+
+        .btn-danger {
+            background: rgba(255, 77, 77, 0.1);
+            color: var(--red);
+            border-color: rgba(255, 77, 77, 0.3);
+        }
+
+        .btn-danger:hover {
+            background: var(--red);
+            color: #fff;
+            box-shadow: 0 0 10px rgba(255, 77, 77, 0.3);
+        }
+
+        .btn-icon {
+            padding: 8px;
+            border-radius: 50%;
+        }
+
+        .url-bar-container {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px 12px;
+            gap: 8px;
+            transition: border-color 0.2s ease;
+        }
+
+        .url-bar-container:focus-within {
+            border-color: var(--primary);
+        }
+
+        .url-bar-container input {
+            background: transparent;
+            border: none;
+            color: var(--text-light);
+            width: 100%;
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .url-bar-container .material-symbols-outlined {
+            color: var(--accent);
+            font-size: 1.2rem;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(0, 0, 0, 0.25);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: 1px solid var(--border);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--orange);
+            display: inline-block;
+        }
+
+        .status-dot.active {
+            background-color: var(--green);
+            box-shadow: 0 0 8px var(--green);
+        }
+
+        .status-dot.offline {
+            background-color: var(--red);
+            box-shadow: 0 0 8px var(--red);
+        }
+
+        /* Main View Container */
+        .container {
+            flex: 1;
+            position: relative;
+            background-color: #08080c;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        #previewCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            background: #000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+            outline: none;
+        }
+
+        #previewImg {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            display: none;
+        }
+
+        /* Element Inspect Overlay overlays on the canvas relative positions */
+        #inspectOverlay {
+            position: absolute;
+            pointer-events: none;
+            border: 2px solid var(--primary);
+            background: rgba(102, 252, 241, 0.15);
+            display: none;
+            z-index: 10;
+            box-shadow: 0 0 8px rgba(102, 252, 241, 0.3);
+            border-radius: 2px;
+            transition: all 0.05s ease;
+        }
+
+        #inspectInfo {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid var(--border);
+            color: var(--text-light);
+            font-size: 0.85rem;
+            padding: 10px 16px;
+            border-radius: 8px;
+            z-index: 20;
+            display: none;
+            max-width: 80%;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Log Panel */
+        .log-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            width: 300px;
+            max-height: 150px;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 11px;
+            color: #88c0d0;
+            padding: 8px 12px;
+            overflow-y: auto;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .log-line {
+            line-height: 1.4;
+            word-break: break-all;
+        }
+        .log-line.success { color: var(--green); }
+        .log-line.error { color: var(--red); }
+
+        .loader-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: var(--bg);
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(102, 252, 241, 0.1);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="/static/i18n.js"></script>
+</head>
+<body>
+
+    <!-- Loading Indicator -->
+    <div id="loader" class="loader-overlay">
+        <div class="spinner"></div>
+        <div data-i18n="browser.initializing" style="font-size: 1.1rem; color: var(--text-light); font-weight: 500;">Initializing browser...</div>
+        <div id="loader-subtext" data-i18n="browser.please_wait" style="font-size: 0.85rem; color: var(--accent);">Please wait a moment</div>
+    </div>
+
+    <!-- Top Navigation / URL Bar -->
+    <div class="toolbar">
+        <button class="btn btn-icon" onclick="navigateAction('back')" title="Back">
+            <span class="material-symbols-outlined">arrow_back</span>
+        </button>
+        <button class="btn btn-icon" onclick="navigateAction('forward')" title="Forward">
+            <span class="material-symbols-outlined">arrow_forward</span>
+        </button>
+        <button class="btn btn-icon" onclick="navigateAction('reload')" title="Reload">
+            <span class="material-symbols-outlined">refresh</span>
+        </button>
+
+        <div class="url-bar-container">
+            <span class="material-symbols-outlined">language</span>
+            <input type="text" id="urlInput" data-i18n-placeholder="browser.url_placeholder" placeholder="Enter URL address..." onkeydown="if(event.key==='Enter') navigateToUrl()">
+        </div>
+
+        <button id="btnPicker" class="btn" onclick="toggleElementPicker()" title="Select element">
+            <span class="material-symbols-outlined">target</span> <span data-i18n="browser.select_element">Select Element</span>
+        </button>
+
+        <button class="btn" onclick="takeScreenshot()" title="Take Screenshot">
+            <span class="material-symbols-outlined">screenshot_keyboard</span> <span data-i18n="browser.take_screenshot">Take Screenshot</span>
+        </button>
+
+        <div class="status-badge">
+            <span id="statusDot" class="status-dot"></span>
+            <span id="statusText">Connecting</span>
+        </div>
+
+        <button class="btn btn-danger" onclick="stopBrowser()" title="Turn Off">
+            <span class="material-symbols-outlined">power_settings_new</span> <span data-i18n="browser.turn_off">Turn Off</span>
+        </button>
+    </div>
+
+    <!-- Main Live Screen Stream -->
+    <div class="container" id="screenContainer">
+        <canvas id="previewCanvas" style="cursor: default;"></canvas>
+        <img id="previewImg" alt="Fallback Screenshot Pool">
+
+        <!-- Element Highlights -->
+        <div id="inspectOverlay"></div>
+        <div id="inspectInfo"></div>
+    </div>
+
+    <!-- Floating Logs -->
+    <div class="log-panel" id="logPanel">
+        <div class="log-line success" data-i18n="browser.init_ws_control">Initializing WebSocket Control...</div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        const params = new URLSearchParams(window.location.search);
+        const profile = params.get('profile') || 'default';
+        const startUrl = params.get('url') || 'https://google.com';
+
+        let ws = null;
+        let previewSession = null;
+        let pickerActive = false;
+        let scaleX = 1;
+        let scaleY = 1;
+        let cssViewport = null;
+        let isWSConnected = false;
+        let screenshotInterval = null;
+
+        const canvas = document.getElementById('previewCanvas');
+        const ctx = canvas.getContext('2d');
+        const imgFallback = document.getElementById('previewImg');
+        const loader = document.getElementById('loader');
+        const loaderSub = document.getElementById('loader-subtext');
+        const statusText = document.getElementById('statusText');
+        const statusDot = document.getElementById('statusDot');
+        const urlInput = document.getElementById('urlInput');
+        const btnPicker = document.getElementById('btnPicker');
+        const overlay = document.getElementById('inspectOverlay');
+        const infoBox = document.getElementById('inspectInfo');
+        const logPanel = document.getElementById('logPanel');
+
+        function appendLog(msg, type = 'info') {
+            const el = document.createElement('div');
+            el.className = `log-line ${type}`;
+            el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logPanel.appendChild(el);
+            logPanel.scrollTop = logPanel.scrollHeight;
+        }
+
+        // Initialize & Launch Browser via API
+        async function initBrowser() {
+            try {
+                appendLog(T('browser.sending_launch_req', { profile: profile }));
+                const res = await fetch(`${API_BASE}/api/v1/browser/preview/launch`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ profile, url: startUrl })
+                });
+                
+                const data = await res.json();
+                if (data.status === 'launched' && data.port) {
+                    previewSession = data;
+                    appendLog(T('browser.started_on_port', { port: data.port }), 'success');
+                    connectWebSocket(data.port);
+                } else {
+                    throw new Error(data.error || T('browser.cannot_launch'));
+                }
+            } catch (e) {
+                appendLog(T('browser.launch_error', { error: e.message }), 'error');
+                loaderSub.textContent = T('browser.error', { error: e.message });
+                loaderSub.style.color = 'var(--red)';
+                statusDot.className = 'status-dot offline';
+                statusText.textContent = 'Launch Error';
+            }
+        }
+
+        // Connect WebSocket Proxy
+        function connectWebSocket(port) {
+            if (ws) {
+                try { ws.close(); } catch(e) {}
+                ws = null;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/api/v1/browser/preview/ws/${port}`;
+            
+            appendLog(T('browser.init_ws_control') + ' ' + wsUrl + '...');
+            ws = new WebSocket(wsUrl);
+
+            // Timeout fallback to screenshots if WS fails to establish within 5s
+            const wsTimeout = setTimeout(() => {
+                if (ws && ws.readyState !== WebSocket.OPEN) {
+                    appendLog(T('browser.ws_timeout_fallback'), 'error');
+                    try { ws.close(); } catch(e) {}
+                    ws = null;
+                    startScreenshotStream(port);
+                }
+            }, 5000);
+
+            ws.onopen = () => {
+                clearTimeout(wsTimeout);
+                isWSConnected = true;
+                statusDot.className = 'status-dot active';
+                statusText.textContent = 'Initializing...';
+                appendLog(T('browser.ws_connected_success'), 'success');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    
+                    if (msg.type === 'status_log') {
+                        loaderSub.textContent = msg.message;
+                        appendLog(`[Browser] ${msg.message}`);
+                    }
+                    else if (msg.type === 'browser_ready') {
+                        statusText.textContent = 'Live (WS)';
+                        loader.style.opacity = 0;
+                        setTimeout(() => loader.style.display = 'none', 500);
+                        appendLog(T('browser.ready_success'), 'success');
+                    }
+                    else if (msg.type === 'frame') {
+                        // Hide loader if still visible when receiving frames
+                        if (loader.style.display !== 'none') {
+                            statusText.textContent = 'Live (WS)';
+                            loader.style.opacity = 0;
+                            setTimeout(() => loader.style.display = 'none', 500);
+                        }
+                        
+                        if (msg.viewport) {
+                            cssViewport = msg.viewport;
+                        }
+                        
+                        const img = new Image();
+                        img.onload = () => {
+                            if (canvas.width !== img.width || canvas.height !== img.height) {
+                                canvas.width = img.width;
+                                canvas.height = img.height;
+                            }
+                            ctx.drawImage(img, 0, 0);
+                            
+                            // Re-calculate scales
+                            const rect = canvas.getBoundingClientRect();
+                            scaleX = img.width / rect.width;
+                            scaleY = img.height / rect.height;
+                        };
+                        img.src = 'data:image/jpeg;base64,' + msg.data;
+                    } 
+                    else if (msg.type === 'url_changed') {
+                        urlInput.value = msg.url || '';
+                    }
+                    else if (msg.type === 'inspect') {
+                        // Element highlights
+                        if (cssViewport && canvas.width) {
+                            const rect = canvas.getBoundingClientRect();
+                            const displayAspect = rect.width / rect.height;
+                            const canvasAspect = canvas.width / canvas.height;
+                            
+                            let renderW, renderH, offsetX, offsetY;
+                            if (canvasAspect > displayAspect) {
+                                renderW = rect.width;
+                                renderH = rect.width / canvasAspect;
+                                offsetX = 0;
+                                offsetY = (rect.height - renderH) / 2;
+                            } else {
+                                renderH = rect.height;
+                                renderW = rect.height * canvasAspect;
+                                offsetX = (rect.width - renderW) / 2;
+                                offsetY = 0;
+                            }
+                            
+                            const pctX = msg.rect.x / cssViewport.width;
+                            const pctY = msg.rect.y / cssViewport.height;
+                            const pctW = msg.rect.w / cssViewport.width;
+                            const pctH = msg.rect.h / cssViewport.height;
+                            
+                            overlay.style.display = 'block';
+                            overlay.style.left = (offsetX + pctX * renderW) + 'px';
+                            overlay.style.top = (offsetY + pctY * renderH) + 'px';
+                            overlay.style.width = (pctW * renderW) + 'px';
+                            overlay.style.height = (pctH * renderH) + 'px';
+                        }
+                        infoBox.style.display = 'block';
+                        infoBox.textContent = `<${msg.tag}${msg.id ? '#' + msg.id : ''}${msg.classes ? '.' + msg.classes.split(' ')[0] : ''}> ${msg.text}`;
+                    }
+                    else if (msg.type === 'picked') {
+                        appendLog(T('browser.select_element') + ': ' + msg.selector, 'success');
+                        // Copy to clipboard
+                        navigator.clipboard.writeText(msg.selector).then(() => {
+                            appendLog(T('browser.copied_selector'), 'info');
+                        });
+                        toggleElementPicker(false);
+                    }
+                    else if (msg.type === 'file_chooser_open') {
+                        appendLog(T('browser.upload_request'), 'info');
+                        const fileInput = document.createElement('input');
+                        fileInput.type = 'file';
+                        fileInput.style.display = 'none';
+                        fileInput.multiple = msg.multiple;
+                        document.body.appendChild(fileInput);
+
+                        fileInput.onchange = async () => {
+                            const files = fileInput.files;
+                            if (files.length === 0) {
+                                ws.send(JSON.stringify({ type: 'file_cancel' }));
+                                document.body.removeChild(fileInput);
+                                return;
+                            }
+
+                            appendLog(T('browser.uploading_files', { count: files.length }));
+                            try {
+                                const formData = new FormData();
+                                for (const file of files) {
+                                    formData.append('files', file);
+                                }
+
+                                const response = await fetch(`${API_BASE}/api/v1/browser/preview/upload/${previewSession.port}`, {
+                                    method: 'POST',
+                                    body: formData
+                                });
+
+                                if (!response.ok) {
+                                    const errData = await response.json().catch(() => ({}));
+                                    throw new Error(errData.detail || errData.error || `HTTP ${response.status}`);
+                                }
+
+                                appendLog(T('browser.uploaded_success', { count: files.length }), 'success');
+                            } catch (err) {
+                                appendLog(T('browser.upload_error', { error: err.message }), 'error');
+                                ws.send(JSON.stringify({ type: 'file_cancel' }));
+                            }
+                            document.body.removeChild(fileInput);
+                        };
+
+                        fileInput.click();
+                    }
+                } catch(e) {}
+            };
+
+            ws.onclose = () => {
+                isWSConnected = false;
+                statusDot.className = 'status-dot offline';
+                statusText.textContent = 'Disconnected';
+                appendLog(T('browser.ws_disconnected'), 'error');
+                // Clean close fallback
+                startScreenshotStream(port);
+            };
+
+            ws.onerror = (e) => {
+                appendLog(T('browser.ws_error'), 'error');
+            };
+        }
+
+        // Fallback Screenshot Loop
+        function startScreenshotStream(port) {
+            if (screenshotInterval) return;
+            appendLog(T('browser.starting_fallback_screenshots'), 'info');
+            
+            canvas.style.display = 'none';
+            imgFallback.style.display = 'block';
+            
+            loader.style.opacity = 0;
+            setTimeout(() => loader.style.display = 'none', 500);
+            
+            let loading = false;
+            screenshotInterval = setInterval(() => {
+                if (loading) return;
+                loading = true;
+                
+                const img = new Image();
+                img.onload = () => {
+                    imgFallback.src = img.src;
+                    loading = false;
+                };
+                img.onerror = () => {
+                    loading = false;
+                };
+                img.src = `${API_BASE}/api/v1/browser/preview/screenshot/${port}?t=${Date.now()}`;
+            }, 1000);
+        }
+
+        function stopScreenshotStream() {
+            if (screenshotInterval) {
+                clearInterval(screenshotInterval);
+                screenshotInterval = null;
+            }
+        }
+
+        // Convert UI click/coordinates back to real browser coordinates
+        function translateCoordinates(e) {
+            const rect = canvas.getBoundingClientRect();
+            const cw = canvas.width;
+            const ch = canvas.height;
+            const displayAspect = rect.width / rect.height;
+            const canvasAspect = cw / ch;
+            
+            let renderW, renderH, offsetX, offsetY;
+            if (canvasAspect > displayAspect) {
+                renderW = rect.width;
+                renderH = rect.width / canvasAspect;
+                offsetX = 0;
+                offsetY = (rect.height - renderH) / 2;
+            } else {
+                renderH = rect.height;
+                renderW = rect.height * canvasAspect;
+                offsetX = (rect.width - renderW) / 2;
+                offsetY = 0;
+            }
+            
+            const localX = e.clientX - rect.left - offsetX;
+            const localY = e.clientY - rect.top - offsetY;
+            const pctX = Math.max(0, Math.min(1, localX / renderW));
+            const pctY = Math.max(0, Math.min(1, localY / renderH));
+            
+            if (cssViewport) {
+                return {
+                    x: pctX * cssViewport.width,
+                    y: pctY * cssViewport.height
+                };
+            }
+            return {
+                x: pctX * cw,
+                y: pctY * ch
+            };
+        }
+
+        // Forward Interactions to server
+        let isMouseDown = false;
+
+        canvas.addEventListener('mousedown', (e) => {
+            if (!ws || !isWSConnected || pickerActive) return;
+            isMouseDown = true;
+            const { x, y } = translateCoordinates(e);
+            
+            ws.send(JSON.stringify({ type: 'mouse', action: 'move', x, y }));
+            ws.send(JSON.stringify({ type: 'mouse', action: 'down' }));
+        });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!ws || !isWSConnected) return;
+            const { x, y } = translateCoordinates(e);
+            
+            if (pickerActive) {
+                ws.send(JSON.stringify({ type: 'hover_inspect', x, y }));
+                return;
+            }
+            
+            if (isMouseDown) {
+                ws.send(JSON.stringify({ type: 'mouse', action: 'move', x, y }));
+            }
+        });
+
+        canvas.addEventListener('mouseup', (e) => {
+            if (!ws || !isWSConnected || pickerActive) return;
+            isMouseDown = false;
+            const { x, y } = translateCoordinates(e);
+            
+            ws.send(JSON.stringify({ type: 'mouse', action: 'move', x, y }));
+            ws.send(JSON.stringify({ type: 'mouse', action: 'up' }));
+        });
+
+        canvas.addEventListener('dblclick', (e) => {
+            if (!ws || !isWSConnected || pickerActive) return;
+            const { x, y } = translateCoordinates(e);
+            ws.send(JSON.stringify({ type: 'mouse', action: 'dblclick', x, y }));
+        });
+
+        canvas.addEventListener('click', (e) => {
+            if (!ws || !isWSConnected) return;
+            const { x, y } = translateCoordinates(e);
+            
+            if (pickerActive) {
+                ws.send(JSON.stringify({ type: 'pick_element', x, y }));
+            }
+        });
+
+        canvas.addEventListener('mouseleave', () => {
+            overlay.style.display = 'none';
+            infoBox.style.display = 'none';
+        });
+
+        canvas.addEventListener('wheel', (e) => {
+            if (!ws || !isWSConnected) return;
+            e.preventDefault();
+            ws.send(JSON.stringify({ type: 'scroll', deltaX: e.deltaX, deltaY: e.deltaY }));
+        }, { passive: false });
+
+        // Keyboard inputs (ensure canvas is focused)
+        canvas.setAttribute('tabindex', '0');
+        canvas.addEventListener('keydown', (e) => {
+            if (!ws || !isWSConnected) return;
+            e.preventDefault();
+            
+            const modifierKeys = ['Control', 'Shift', 'Alt', 'Meta'];
+            if (modifierKeys.includes(e.key)) {
+                return; // Ignore raw modifier keys to prevent duplicate actions
+            }
+            
+            const modifiers = [];
+            if (e.ctrlKey) modifiers.push('Control');
+            if (e.shiftKey) modifiers.push('Shift');
+            if (e.altKey) modifiers.push('Alt');
+            if (e.metaKey) modifiers.push('Meta');
+            
+            let keyName = e.key;
+            if (keyName === ' ') keyName = 'Space';
+            
+            if (modifiers.length > 0) {
+                const combo = modifiers.join('+') + '+' + keyName;
+                ws.send(JSON.stringify({ type: 'keyboard', action: 'press', key: combo }));
+            } else {
+                if (e.key.length === 1) {
+                    ws.send(JSON.stringify({ type: 'keyboard', action: 'type', text: e.key }));
+                } else {
+                    ws.send(JSON.stringify({ type: 'keyboard', action: 'press', key: e.key }));
+                }
+            }
+        });
+
+        // Trigger Navigations
+        async function navigateToUrl() {
+            let url = urlInput.value.trim();
+            if (!url) return;
+            if (!/^https?:\/\//i.test(url) && url !== 'about:blank') {
+                url = 'https://' + url;
+                urlInput.value = url;
+            }
+            
+            appendLog(T('browser.navigating_to', { url: url }));
+            if (ws && isWSConnected) {
+                ws.send(JSON.stringify({ type: 'navigate', url }));
+            } else if (previewSession) {
+                try {
+                    await fetch(`http://localhost:${previewSession.port}/navigate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url })
+                    });
+                } catch(e) {}
+            }
+        }
+
+        function navigateAction(action) {
+            if (ws && isWSConnected) {
+                ws.send(JSON.stringify({ type: 'nav', action }));
+                appendLog(T('browser.sending_nav_command', { action: action }));
+            }
+        }
+
+        // Toggles Element Picker
+        async function toggleElementPicker(forcedState) {
+            pickerActive = (forcedState !== undefined) ? forcedState : !pickerActive;
+            
+            if (pickerActive) {
+                btnPicker.classList.add('btn-primary');
+                canvas.style.cursor = 'crosshair';
+                appendLog(T('browser.picker_on'), 'info');
+                
+                // Let node server start picker
+                if (previewSession) {
+                    try {
+                        await fetch(`http://localhost:${previewSession.port}/pick/start`);
+                    } catch(e) {}
+                }
+            } else {
+                btnPicker.classList.remove('btn-primary');
+                canvas.style.cursor = 'default';
+                overlay.style.display = 'none';
+                infoBox.style.display = 'none';
+                appendLog(T('browser.picker_off'), 'info');
+                
+                // Let node server stop picker
+                if (previewSession) {
+                    try {
+                        await fetch(`http://localhost:${previewSession.port}/pick/stop`);
+                    } catch(e) {}
+                }
+            }
+        }
+
+        function takeScreenshot() {
+            if (previewSession) {
+                window.open(`${API_BASE}/api/v1/browser/preview/screenshot/${previewSession.port}`, '_blank');
+            }
+        }
+
+        // Close Browser / Clean Up
+        async function stopBrowser() {
+            if (!previewSession) return;
+            appendLog(T('browser.stopping'));
+            try {
+                await fetch(`${API_BASE}/api/v1/browser/preview/stop`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: previewSession.session_id })
+                });
+                ws = null;
+                isWSConnected = false;
+                statusDot.className = 'status-dot offline';
+                statusText.textContent = 'Offline';
+                appendLog(T('browser.stopped_success'), 'success');
+                alert(T('browser.stopped_clean'));
+                window.close();
+            } catch(e) {
+                appendLog(T('browser.stop_error', { error: e.message }), 'error');
+            }
+        }
+
+        // Clean up on tab close
+        window.addEventListener('beforeunload', () => {
+            if (previewSession) {
+                // Async send fire-and-forget beacon to stop preview
+                navigator.sendBeacon(`${API_BASE}/api/v1/browser/preview/stop`, JSON.stringify({ session_id: previewSession.session_id }));
+            }
+        });
+
+        // Auto init
+        window.onload = async () => {
+            try {
+                await loadI18nFromApi();
+            } catch (e) {
+                console.warn("Failed to load i18n:", e);
+            }
+            initBrowser();
+        };
+    </script>
+</body>
+</html>

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tubecli"
-version = "2026.06.08.1"
+version = "2026.06.10.1"
 description = "Open Source AI Agent CLI System — Install, manage, and orchestrate AI agents, skills, and workflows from the command line."
 readme = "README.md"
 license = {text = "MIT"}
@@ -38,3 +38,15 @@ tubecli = "tubecli.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["."]
+exclude = [
+    "data*",
+    "data.*",
+    "*.data",
+    "node_modules*",
+    "dist*",
+    "__pycache__*",
+    "*.egg-info*",
+]
+
+[tool.setuptools.package-data]
+"*" = []

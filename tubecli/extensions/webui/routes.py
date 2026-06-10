@@ -206,6 +206,16 @@ async def auth_manager_page():
     return {"error": "Auth Manager page not found"}
 
 
+@router.get("/browser/view")
+async def browser_view_page():
+    """Serve the Browser WebSocket View page."""
+    view_file = os.path.join(STATIC_DIR, "browser_view.html")
+    if os.path.exists(view_file):
+        return FileResponse(view_file)
+    return {"error": "Browser View page not found"}
+
+
+
 @router.get("/tracker")
 async def tracker_page():
     """Serve the Content Tracker management page."""

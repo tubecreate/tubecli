@@ -645,7 +645,12 @@ async function openExternalExtDetail(name) {
     if (urlContainer) urlContainer.innerHTML = '';
 
     title.textContent = '📦 ' + name;
-    body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
+    body.innerHTML = `
+        <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+            <div class="iframe-loader-spinner"></div>
+            <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("chat.loading", "Loading...") : "Loading..."}</div>
+        </div>
+    `;
     overlay.classList.remove('hidden');
 
     const info = await apiGet(`/api/v1/extensions/${encodeURIComponent(name)}/info`);
@@ -1023,7 +1028,12 @@ function openExtDetail(id) {
     if (tabExt) tabExt.style.display = 'none';
 
     title.textContent = ext.icon + ' ' + (typeof window.T === 'function' ? T(ext.name) : ext.name);
-    body.innerHTML = `<p class="text-muted">${T('chat.loading')}</p>`;
+    body.innerHTML = `
+        <div class="iframe-loader" style="position:relative; min-height:400px; background:transparent;">
+            <div class="iframe-loader-spinner"></div>
+            <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("chat.loading", "Loading...") : "Loading..."}</div>
+        </div>
+    `;
     overlay.classList.remove('hidden');
 
     // Display URL if extension info is available in allAvailableExtensions
@@ -1086,7 +1096,12 @@ function renderFullPageExt(el, name, desc, url) {
 let _calCredId = '';
 
 async function renderCalendarManagerExt(el) {
-    el.innerHTML = `<p class="text-muted">Đang tải Calendar Manager...</p>`;
+    el.innerHTML = `
+        <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+            <div class="iframe-loader-spinner"></div>
+            <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("cal.loading", "Loading Calendar Manager...") : "Loading Calendar Manager..."}</div>
+        </div>
+    `;
 
     // Step 1: Load credentials
     let creds = [];
@@ -1355,6 +1370,15 @@ async function calSaveReminder() {
 // ── Agents Ext ──
 async function renderAgentsExt(el) {
     if (!el) return;
+    const isPoller = el.querySelector('.cards-grid') || el.querySelector('.text-muted');
+    if (!isPoller) {
+        el.innerHTML = `
+            <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+                <div class="iframe-loader-spinner"></div>
+                <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("chat.loading", "Loading...") : "Loading..."}</div>
+            </div>
+        `;
+    }
     const data = await apiGet('/api/v1/agents');
     const agents = data?.agents || [];
     agents.sort((a, b) => {
@@ -1394,6 +1418,16 @@ function stopBrowserStatusPoller() {
 }
 
 async function renderBrowserExt(el) {
+    if (!el) return;
+    const isPoller = el.querySelector('.cards-grid') || el.querySelector('.text-muted');
+    if (!isPoller) {
+        el.innerHTML = `
+            <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+                <div class="iframe-loader-spinner"></div>
+                <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("chat.loading", "Loading...") : "Loading..."}</div>
+            </div>
+        `;
+    }
     const data = await apiGet('/api/v1/browser/profiles');
     const profiles = data?.profiles || [];
     const status = await apiGet('/api/v1/browser/status');
@@ -1407,7 +1441,7 @@ async function renderBrowserExt(el) {
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
         const hasGA = p.google_account && p.google_account.email;
-        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="showProfileCommand('${esc(p.name)}')" title="${T('browser.run_command', 'Run Command')}" style="background:linear-gradient(135deg,#8b5cf6,#06b6d4)">🚀</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }
@@ -1443,7 +1477,12 @@ function categorizeSkill(skill) {
 }
 
 async function renderSkillsExt(el) {
-    el.innerHTML = `<p class="text-muted">Đang tải cấu trúc Skills...</p>`;
+    el.innerHTML = `
+        <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+            <div class="iframe-loader-spinner"></div>
+            <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("skills.loading", "Loading Skills...") : "Loading Skills..."}</div>
+        </div>
+    `;
     const data = await apiGet('/api/v1/skills');
     const skills = data?.skills || [];
     _loadedSkills = skills; // cache
@@ -1972,6 +2011,16 @@ function renderMarketExt(el) {
 
 // ── Cloud API Ext ──
 async function renderCloudApiExt(el) {
+    if (!el) return;
+    const isPoller = el.querySelector('.cards-grid') || el.querySelector('.table-container') || el.querySelector('.text-muted');
+    if (!isPoller) {
+        el.innerHTML = `
+            <div class="iframe-loader" style="position:relative; min-height:300px; background:transparent;">
+                <div class="iframe-loader-spinner"></div>
+                <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? T("chat.loading", "Loading...") : "Loading..."}</div>
+            </div>
+        `;
+    }
     const [provData, keysData] = await Promise.all([apiGet('/api/v1/cloud-api/providers'), apiGet('/api/v1/cloud-api/keys')]);
     const providers = provData?.providers || [];
     const keys = keysData?.keys || {};
@@ -3409,6 +3458,7 @@ async function createProfile() {
 }
 async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(getBrowserBody());if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = T('browser.launch_failed', 'Failed to launch: ') + (r?.error || r?.detail || T('browser.err_unknown', 'Unknown error')); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(getBrowserBody()),1000); }
+function openWSProfile(name) { window.open('/browser/view?profile=' + encodeURIComponent(name), '_blank'); }
 async function deleteProfile(name) { if(!confirm(T('browser.delete_confirm_prompt', {name: name}))) return; await apiDelete('/api/v1/browser/profiles/'+name); }
 async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name)); if (!r || r.error) { alert('No log available: ' + (r?.error || 'Unknown')); return; } let msg = '📋 Browser Log for: ' + name; msg += '\n\nStatus: ' + (r.status || '-'); msg += '\nCommand: ' + (r.command || '-'); msg += '\nLog file: ' + (r.log_file || '-'); if (r.debug) { const d = r.debug; if (d.node_version) msg += '\nNode: ' + d.node_version; if (d.open_js_exists !== undefined) msg += '\nopen.js: ' + (d.open_js_exists ? '✅' : '❌'); if (d.node_modules_exists !== undefined) msg += '\nnode_modules: ' + (d.node_modules_exists ? '✅' : '❌'); if (d.launcher_dir) msg += '\nLauncher: ' + d.launcher_dir; } msg += '\n\n─── LOG OUTPUT ───\n' + (r.log || '(empty)'); alert(msg); }
 
