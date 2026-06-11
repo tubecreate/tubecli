@@ -170,11 +170,20 @@ def migrate_and_link_extensions_data():
     # Helper to create directory junction (Windows) or symlink (Unix)
     def create_dir_link(target: Path, link: Path):
         if link.exists():
-            # If it's already a junction or symlink, skip
-            if os.path.islink(str(link)) or (os.name == 'nt' and is_junction(link)):
-                return
-            # If it's a real directory, don't overwrite it to avoid data loss
-            if link.is_dir():
+            try:
+                if os.path.realpath(str(link)) == os.path.realpath(str(target)):
+                    return
+            except Exception:
+                pass
+            if os.path.islink(str(link)) or (os.name == 'nt' and is_junction(link)) or link.is_file():
+                try:
+                    if os.name == 'nt' and is_junction(link):
+                        os.rmdir(str(link))
+                    else:
+                        os.remove(str(link))
+                except Exception:
+                    pass
+            elif link.is_dir():
                 return
 
         try:
@@ -247,7 +256,21 @@ def migrate_and_link_extensions_data():
         folders_to_link = folder_mapping.get(ext_name, [ext_name])
         for folder_name in folders_to_link:
             old_folder_path = DATA_DIR / folder_name
-            new_folder_path = EXTENSIONS_DATA_DIR / ext_name / folder_name
+            if folder_name == ext_name:
+                new_folder_path = EXTENSIONS_DATA_DIR / ext_name
+                # Migration: if nested folder_name exists under new_folder_path, move its files up
+                nested_path = new_folder_path / folder_name
+                if nested_path.exists() and nested_path.is_dir() and not os.path.islink(str(nested_path)) and not is_junction(nested_path):
+                    try:
+                        new_folder_path.mkdir(parents=True, exist_ok=True)
+                        for entry in os.listdir(nested_path):
+                            shutil.move(str(nested_path / entry), str(new_folder_path / entry))
+                        shutil.rmtree(str(nested_path), ignore_errors=True)
+                        print(f"[Migration] Cleaned up nested folder for {ext_name}")
+                    except Exception as e:
+                        print(f"[Migration] Error cleaning up nested folder for {ext_name}: {e}")
+            else:
+                new_folder_path = EXTENSIONS_DATA_DIR / ext_name / folder_name
 
             # If old folder exists and is a real directory (not link/junction), move it to new
             if old_folder_path.exists() and old_folder_path.is_dir() and not os.path.islink(str(old_folder_path)) and not is_junction(old_folder_path):

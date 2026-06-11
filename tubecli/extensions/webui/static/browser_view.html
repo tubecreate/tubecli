@@ -379,12 +379,12 @@
                 });
                 
                 const data = await res.json();
-                if (data.status === 'launched' && data.port) {
+                if (res.ok && data.status === 'launched' && data.port) {
                     previewSession = data;
                     appendLog(T('browser.started_on_port', { port: data.port }), 'success');
                     connectWebSocket(data.port);
                 } else {
-                    throw new Error(data.error || T('browser.cannot_launch'));
+                    throw new Error(data.error || data.detail || T('browser.cannot_launch'));
                 }
             } catch (e) {
                 appendLog(T('browser.launch_error', { error: e.message }), 'error');
