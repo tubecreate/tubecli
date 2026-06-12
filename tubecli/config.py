@@ -129,7 +129,8 @@ def ensure_data_dirs():
     """Create all required data directories."""
     for d in [DATA_DIR, WORKFLOWS_DIR, LOGS_DIR, EXTENSIONS_EXTERNAL_DIR,
               MEMORY_DIR, AGENT_MEMORY_DIR, TEAM_MEMORY_DIR, EXTENSIONS_DATA_DIR]:
-        d.mkdir(parents=True, exist_ok=True)
+        if not os.path.lexists(str(d)):
+            d.mkdir(parents=True, exist_ok=True)
     
     try:
         migrate_and_link_extensions_data()
@@ -163,26 +164,31 @@ def migrate_and_link_extensions_data():
     # Helper to check if a directory path is a junction on Windows
     def is_junction(path: Path) -> bool:
         try:
-            return path.is_dir() and os.path.abspath(path) != os.path.realpath(path)
+            return os.path.lexists(str(path)) and os.path.abspath(str(path)) != os.path.realpath(str(path))
         except Exception:
             return False
 
     # Helper to create directory junction (Windows) or symlink (Unix)
     def create_dir_link(target: Path, link: Path):
-        if link.exists():
+        if os.path.lexists(str(link)):
             try:
                 if os.path.realpath(str(link)) == os.path.realpath(str(target)):
                     return
             except Exception:
                 pass
-            if os.path.islink(str(link)) or (os.name == 'nt' and is_junction(link)) or link.is_file():
+            if os.path.islink(str(link)) or (os.name == 'nt' and is_junction(link)) or link.is_file() or not os.path.exists(str(link)):
                 try:
                     if os.name == 'nt' and is_junction(link):
                         os.rmdir(str(link))
                     else:
                         os.remove(str(link))
                 except Exception:
-                    pass
+                    # Fallback: force remove junction using Windows shell if os.rmdir fails
+                    if os.name == 'nt':
+                        try:
+                            subprocess.run(["cmd.exe", "/c", "rmdir", str(link)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except Exception:
+                            pass
             elif link.is_dir():
                 return
 

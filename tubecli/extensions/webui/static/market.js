@@ -310,6 +310,7 @@ async function renderItems(items) {
 }
 
 const EXTENSION_FEATURES = {
+    'ai_arena': { tagline: 'AI Chess & Game Battle Arena', features: ['♟️ Chess AI', '🐍 Snake Arena', '🏆 ELO Ranking'] },
     'pod_studio': { tagline: 'AI Video & Podcast Studio', features: ['🎙️ Record', '🎬 Gen AI Video', '✂️ Edit'] },
     'tts_vibevoice': { tagline: 'Ultra-realistic Text to Speech', features: ['🗣️ 100+ Voices', '🎚️ Pitch Control', '🌍 Multi-lang'] },
     'browser_scripts': { tagline: 'Automate Browser Tasks', features: ['🌐 Auto Web', '🖱️ Clicker', '📝 Scrape'] },
