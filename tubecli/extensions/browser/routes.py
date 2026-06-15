@@ -380,8 +380,11 @@ async def api_get_engine_versions():
                             if not pv_name:
                                 pv_name = "Unknown"
                                 
+                            display_name = pv_name
+                            if not display_name.startswith("ShardX") and not display_name.startswith("BAS"):
+                                display_name = f"BAS {display_name}"
                             versions.append({
-                                "name": pv_name,
+                                "name": display_name,
                                 "browser_version": pv.get("browser_version", pv_name),
                                 "bas_version": pv.get("bas_version", ""),
                                 "downloaded": False,
@@ -421,8 +424,11 @@ async def api_get_engine_versions():
             existing_bas_versions = set(v.get("bas_version") for v in versions)
             for fv in fallback_versions:
                 if fv["bas_version"] not in existing_bas_versions:
+                    display_name = fv["browser_version"]
+                    if not display_name.startswith("ShardX") and not display_name.startswith("BAS"):
+                        display_name = f"BAS {display_name}"
                     versions.append({
-                        "name": fv["browser_version"],
+                        "name": display_name,
                         "browser_version": fv["browser_version"],
                         "bas_version": fv["bas_version"],
                         "downloaded": False,
@@ -511,6 +517,7 @@ async def api_get_engine_versions():
 @router.post("/engine/download/{version}")
 async def api_download_engine(version: str, request: Request):
     ext_dir = os.path.dirname(__file__)
+    version = version.replace("BAS ", "").replace("BAS-", "").strip()
     
     try:
         body = await request.json()
@@ -730,6 +737,7 @@ async def api_download_engine(version: str, request: Request):
 
 @router.post("/engine/cancel/{version}")
 async def api_cancel_engine(version: str):
+    version = version.replace("BAS ", "").replace("BAS-", "").strip()
     if version in download_processes:
         proc = download_processes[version]
         try:
@@ -751,6 +759,7 @@ async def api_engine_status(version: str):
     import json
     
     ext_dir = os.path.dirname(__file__)
+    version = version.replace("BAS ", "").replace("BAS-", "").strip()
     # Find bas_version from the name if needed, but UI sends the same name
     # We check if a .progress.json exists in data/engine/BAS_VERSION or just data/engine/
     # But bas_version is unknown here unless we fetch from engine/versions again.
