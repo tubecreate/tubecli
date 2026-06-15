@@ -8,6 +8,10 @@
 </head>
 <body>
 
+<!-- Dummy inputs to prevent browser autofill -->
+<input type="text" name="fakeusernameremembered" style="display:none">
+<input type="password" name="fakepasswordremembered" style="display:none">
+
 <div id="app">
   <!-- ── Toolbar ─────────────────────────────────────────── -->
   <div class="toolbar">
@@ -49,7 +53,7 @@
     <div class="palette" id="palette">
       <div class="palette-header" data-i18n="wf.nodes">📦 Nodes</div>
       <div class="palette-search">
-        <input type="text" id="palette-search" placeholder="Search nodes..." data-i18n-placeholder="wf.search_nodes" oninput="WF.filterPalette(this.value)">
+        <input type="text" id="palette-search" placeholder="Search nodes..." data-i18n-placeholder="wf.search_nodes" oninput="WF.filterPalette(this.value)" autocomplete="off">
       </div>
       <div class="palette-list" id="palette-list">
         <!-- Dynamically populated -->
@@ -177,13 +181,13 @@
         </div>
         <div class="field-group" style="flex:1">
           <label class="field-label" data-i18n="wf.ai_model">Model</label>
-          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name" list="ai-model-list">
+          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name" list="ai-model-list" autocomplete="off">
           <datalist id="ai-model-list"></datalist>
         </div>
       </div>
       <div class="field-group" id="ai-apikey-group" style="display:none">
         <label class="field-label" data-i18n="wf.ai_apikey">API Key</label>
-        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here" data-i18n-placeholder="wf.ai_apikey_ph">
+        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here" data-i18n-placeholder="wf.ai_apikey_ph" autocomplete="new-password">
       </div>
       <div id="ai-gen-status" style="display:none; padding:12px 0; text-align:center">
         <div class="ai-spinner"></div>
