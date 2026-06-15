@@ -1,0 +1,26 @@
+{
+    "name": "browser_scripts",
+    "display_name": "Browser Scripts",
+    "version": "2026.06.07.1",
+    "description": "Script Studio — Visual browser automation script editor & manager",
+    "author": "TubeCreate",
+    "entry": "extension.py",
+    "extension_class": "BrowserScriptsExtension",
+    "icon": "integration_instructions",
+    "dependencies": [],
+    "nodes": [],
+    "skill_md": "SKILL.md",
+    "ui_static": "static",
+    "api_prefix": "/api/v1/scripts",
+    "page_url": "/script-studio",
+    "min_tubecli_version": "0.3.0",
+    "category": "extension",
+    "tags": [
+        "browser",
+        "automation",
+        "script",
+        "playwright",
+        "visual editor"
+    ],
+    "license": "MIT"
+}

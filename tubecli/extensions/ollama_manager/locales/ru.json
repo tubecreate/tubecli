@@ -2,7 +2,7 @@
   "ollama.models": "📦 Модели",
   "ollama.loaded": "🔥 Загружено",
   "ollama.not_running": "Ollama не запущена.",
-  "ollama.no_models": "Нет моделей. Загрузите одну ниже.",
+  "ollama.no_models": "Моделей нет. Загрузите одну ниже.",
   "ollama.pull": "📥 Загрузить",
   "ollama.enter_model": "Введите имя модели.",
   "ollama.pulling": "Загрузка \"{name}\"...",

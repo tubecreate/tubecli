@@ -2,7 +2,7 @@
   "cloud_api.add_key": "+ Añadir clave",
   "cloud_api.stored_keys": "🔐 Claves almacenadas",
   "cloud_api.no_keys": "No hay claves almacenadas.",
-  "cloud_api.active": "✅ Activo",
+  "cloud_api.active": "✅ Activa",
   "cloud_api.no_key": "❌ Sin clave",
   "cloud_api.add": "+ Añadir",
   "cloud_api.test": "🧪 Probar",
@@ -18,7 +18,7 @@
   "add_key.label": "Etiqueta",
   "add_key.cancel": "Cancelar",
   "add_key.save": "Guardar clave",
-  "add_key.required": "Se requiere clave.",
-  "add_key.added": "¡Añadido!",
+  "add_key.required": "Clave requerida.",
+  "add_key.added": "¡Añadida!",
   "add_key.failed": "Falló."
 }

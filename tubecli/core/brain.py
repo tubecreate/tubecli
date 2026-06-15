@@ -478,6 +478,25 @@ class AgentBrain:
     ) -> str:
         """Run an autonomous ReAct loop or linear workflow execution."""
         
+        # 🟢 If it's a browser script skill
+        wf_data = skill.get("workflow_data", {})
+        if skill.get("skill_format") == "browser_script" or wf_data.get("action") == "execute_script_sync":
+            try:
+                import asyncio
+                from tubecli.extensions.browser_scripts.script_routes import run_script_sync
+                script_id = wf_data.get("script_id")
+                if not script_id:
+                    return "Error: Missing script_id in workflow_data."
+                
+                print(f"[Brain] Running browser script '{skill.get('name')}' (id: {script_id})...")
+                result_vars = await asyncio.to_thread(
+                    run_script_sync, script_id=script_id, variables={"prompt": message}, headless=True
+                )
+                import json as _json
+                return f"✅ Script completed.\n```json\n{_json.dumps(result_vars, ensure_ascii=False, indent=2)}\n```"
+            except Exception as e:
+                return f"❌ Error running browser script: {e}"
+
         # 🟢 If it's a standard Skill with a workflow, run it linearly for 100% reliability
         if skill.get("skill_type") == "Skill":
             try:

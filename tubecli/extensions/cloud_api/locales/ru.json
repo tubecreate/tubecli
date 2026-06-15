@@ -2,7 +2,7 @@
   "cloud_api.add_key": "+ Добавить ключ",
   "cloud_api.stored_keys": "🔐 Сохраненные ключи",
   "cloud_api.no_keys": "Ключи не сохранены.",
-  "cloud_api.active": "✅ Активно",
+  "cloud_api.active": "✅ Активный",
   "cloud_api.no_key": "❌ Нет ключа",
   "cloud_api.add": "+ Добавить",
   "cloud_api.test": "🧪 Тест",
@@ -18,7 +18,7 @@
   "add_key.label": "Метка",
   "add_key.cancel": "Отмена",
   "add_key.save": "Сохранить ключ",
-  "add_key.required": "Требуется ключ.",
+  "add_key.required": "Ключ обязателен.",
   "add_key.added": "Добавлено!",
-  "add_key.failed": "Ошибка."
+  "add_key.failed": "Не удалось."
 }

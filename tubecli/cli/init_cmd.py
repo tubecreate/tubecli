@@ -238,7 +238,7 @@ def _wizard_step_ai(t):
         if is_ollama_installed():
             models = get_installed_models()
             if models:
-                console.print("\n[bold cyan]  Mô hình Ollama đã cài đặt:[/bold cyan]")
+                console.print(f"\n[bold cyan]  {t('wizard.ollama_installed_models')}[/bold cyan]")
                 for i, m in enumerate(models, 1):
                     console.print(f"  [bold yellow]{i}.[/bold yellow] {m}")
                 console.print(f"  [bold yellow]0.[/bold yellow] {t('wizard.skip_step')}\n")
@@ -268,15 +268,15 @@ def _wizard_step_ai(t):
                                 for agent in agent_manager.get_all():
                                     agent_manager.update(agent.id, model=selected_model)
                                     
-                                console.print(f"[green]Đã tự động đặt AI mặc định: [bold]{selected_model}[/bold] cho tất cả agents.[/green]")
+                                console.print(f"[green]{t('wizard.auto_set_ai', model=selected_model)}[/green]")
                             except Exception as e:
-                                console.print(f"[red]Lỗi khi lưu cấu hình: {e}[/red]")
+                                console.print(f"[red]{t('wizard.config_save_error', error=e)}[/red]")
                         else:
                             console.print(t("panel.invalid_selection"))
                     except ValueError:
                         console.print(t("wizard.step_skipped"))
             else:
-                console.print("[yellow]Ollama đã được cài đặt nhưng chưa có mô hình nào.[/yellow]")
+                console.print(f"[yellow]{t('wizard.ollama_no_models')}[/yellow]")
                 console.print(t("wizard.ollama_ready"))
         else:
             console.print(t("wizard.ollama_not_ready"))
@@ -322,9 +322,9 @@ def _auto_set_agent_model(provider_id: str, key: str):
                 model=model,
                 cloud_api_keys=cloud_keys,
             )
-        console.print(f"[green]  Đã tự động đặt AI mặc định: [bold]{model}[/bold] cho tất cả agents.[/green]")
+        console.print(f"[green]  {t('wizard.auto_set_ai', model=model)}[/green]")
     except Exception as e:
-        console.print(f"[yellow]  Không thể tự động cập nhật agent model: {e}[/yellow]")
+        console.print(f"[yellow]  {t('wizard.auto_set_ai_error', error=e)}[/yellow]")
 
 
 def _t_safe(key):
@@ -538,7 +538,7 @@ def _run_control_panel():
         pass
 
     if server_already_running:
-        console.print(f"  [green]API server đang chạy tại port {port}[/green]")
+        console.print(f"  [green]{t('panel.api_running', port=port)}[/green]")
     else:
         console.print(t("panel.api_starting", port=port))
         _start_api(quiet=True)
@@ -605,23 +605,23 @@ def _run_control_panel():
             try:
                 import webbrowser
                 import requests as _req
-                dashboard_url = f"http://localhost:{port}/dashboard"
+                dashboard_url = f"http://127.0.0.1:{port}/dashboard"
                 
                 # Health check: ensure API server is actually running
                 server_alive = False
                 try:
-                    resp = _req.get(f"http://localhost:{port}/api/v1/health", timeout=2)
+                    resp = _req.get(f"http://127.0.0.1:{port}/api/v1/health", timeout=2)
                     server_alive = resp.status_code == 200
                 except Exception:
                     pass
                 
                 if not server_alive:
-                    console.print("[yellow]  API server chưa sẵn sàng. Đang khởi động lại...[/yellow]")
+                    console.print(f"[yellow]  {t('panel.api_not_ready')}[/yellow]")
                     _start_api(quiet=True)
-                    # Wait for server to be ready (up to 8 seconds)
-                    for _ in range(8):
+                    # Wait for server to be ready (up to 30 seconds)
+                    for _ in range(30):
                         try:
-                            resp = _req.get(f"http://localhost:{port}/api/v1/health", timeout=1)
+                            resp = _req.get(f"http://127.0.0.1:{port}/api/v1/health", timeout=1)
                             if resp.status_code == 200:
                                 server_alive = True
                                 break
@@ -630,12 +630,12 @@ def _run_control_panel():
                         time.sleep(1)
                     
                     if not server_alive:
-                        console.print("[red]  API server không thể khởi động. Vui lòng kiểm tra lỗi.[/red]")
-                        console.print(f"[yellow]  Thử chạy: tubecli api start --lang vi (trong CMD riêng) để xem log lỗi chi tiết.[/yellow]")
+                        console.print(f"[red]  {t('panel.api_start_error')}[/red]")
+                        console.print(f"[yellow]  {t('panel.api_start_tip')}[/yellow]")
                         time.sleep(3)
                         continue
                     
-                    console.print("[green]  API server đã sẵn sàng![/green]")
+                    console.print(f"[green]  {t('panel.api_ready')}[/green]")
                 
                 webbrowser.open(dashboard_url)
                 console.print(t("panel.dashboard_opened", url=dashboard_url))

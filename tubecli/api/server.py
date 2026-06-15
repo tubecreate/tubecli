@@ -1253,6 +1253,32 @@ async def run_skill(skill_id: str, input_text: str = ""):
     if not skill:
         raise HTTPException(404, f"Skill {skill_id} not found")
 
+    import datetime
+    skill_manager.update(skill_id, last_run=datetime.datetime.now().isoformat())
+
+    if getattr(skill, "skill_format", "workflow") == "browser_script":
+        # Temporary payload for browser_script format (pass to runner)
+        # Assuming the browser_scripts extension exposes an endpoint or function.
+        # For now, return a placeholder result telling the agent/UI to route to script runner.
+        return {
+            "status": "success", 
+            "message": "Browser script triggered", 
+            "action": "run_browser_script", 
+            "script_id": skill.workflow_data.get("script_id"),
+            "data": input_text
+        }
+        
+    elif getattr(skill, "skill_format", "workflow") == "markdown":
+        # Markdown SOP simply returns its content for LLM context
+        return {
+            "status": "success",
+            "message": "Markdown SOP loaded",
+            "action": "load_sop",
+            "sop_content": skill.workflow_data.get("markdown_content", ""),
+            "data": input_text
+        }
+
+    # Default to Workflow Execution
     wf = skill.workflow_data
     nodes_data = wf.get("nodes", [])
     connections = wf.get("connections", [])
@@ -1272,10 +1298,6 @@ async def run_skill(skill_id: str, input_text: str = ""):
 
     engine = WorkflowEngine(nodes=nodes, connections=connections)
     result = await engine.run()
-
-    # Update last_run
-    import datetime
-    skill_manager.update(skill_id, last_run=datetime.datetime.now().isoformat())
 
     # Collect error guidance from node results for AI agents
     errors = []

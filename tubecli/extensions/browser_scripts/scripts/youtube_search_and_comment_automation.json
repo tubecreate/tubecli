@@ -1,0 +1,199 @@
+{
+  "name": "YouTube Search and Comment Automation",
+  "slug": "youtube_search_and_comment_automation",
+  "description": "Tìm kiếm 'vipnhat reblox' trên YouTube, xem video 5 phút và comment theo tiêu đề",
+  "category": "general",
+  "target_url": "https://www.youtube.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Go to YouTube",
+      "selector": "",
+      "params": {
+        "url": "https://www.youtube.com"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 1
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search box",
+      "selector": "input#search",
+      "params": {
+        "state": "visible",
+        "timeout": 10000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "type",
+      "label": "Type search query",
+      "selector": "input#search",
+      "params": {
+        "text": "vipnhat reblox",
+        "clear_first": true,
+        "delay": 100
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 1
+    },
+    {
+      "type": "keyboard",
+      "label": "Press Enter to search",
+      "selector": "",
+      "params": {
+        "key": "Enter"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 1
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search results",
+      "selector": "ytd-video-renderer",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "click",
+      "label": "Click first video result",
+      "selector": "ytd-video-renderer:nth-child(1) a#video-title",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "wait",
+      "label": "Wait for video player",
+      "selector": "video",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "sleep",
+      "label": "Watch video for 5 minutes",
+      "selector": "",
+      "params": {
+        "ms": 300000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "extract",
+      "label": "Extract video title",
+      "selector": "h1.ytd-video-primary-info-renderer yt-formatted-string",
+      "params": {
+        "attribute": "innerText",
+        "save_as": "video_title"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "click",
+      "label": "Scroll to comment section",
+      "selector": "ytd-comments#comments",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 1
+    },
+    {
+      "type": "evaluate",
+      "label": "Scroll to comments",
+      "selector": "",
+      "params": {
+        "code": "document.querySelector('ytd-comments#comments').scrollIntoView({ behavior: 'smooth', block: 'center' });",
+        "save_as": ""
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for comments to load",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click comment box",
+      "selector": "ytd-comment-simplebox-renderer #placeholder-area",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 2
+    },
+    {
+      "type": "type",
+      "label": "Type comment based on title",
+      "selector": "ytd-comment-simplebox-renderer #contenteditable-root",
+      "params": {
+        "text": "Video '{{video_title}}' rất hay và thú vị! Cảm ơn bạn đã chia sẻ.",
+        "clear_first": true,
+        "delay": 50
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 1
+    },
+    {
+      "type": "click",
+      "label": "Submit comment",
+      "selector": "ytd-comment-simplebox-renderer #submit-button",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 1
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for confirmation",
+      "selector": "",
+      "params": {
+        "ms": 5000
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "video_title",
+      "default": "Unknown Video",
+      "description": "Tiêu đề video được trích xuất"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-04 02:18:49",
+  "updated_at": "2026-05-04 02:18:49"
+}

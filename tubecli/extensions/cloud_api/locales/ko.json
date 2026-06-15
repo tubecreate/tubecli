@@ -18,7 +18,7 @@
   "add_key.label": "라벨",
   "add_key.cancel": "취소",
   "add_key.save": "키 저장",
-  "add_key.required": "키가 필요합니다.",
+  "add_key.required": "키는 필수입니다.",
   "add_key.added": "추가되었습니다!",
   "add_key.failed": "실패했습니다."
 }

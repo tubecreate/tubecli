@@ -1,0 +1,148 @@
+{
+  "name": "Lấy API Key từ Google AI Studio",
+  "slug": "lấy_api_key_từ_google_ai_studio",
+  "description": "Tự động truy cập Google AI Studio, đăng nhập và lấy API key",
+  "category": "general",
+  "target_url": "https://aistudio.google.com/",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Đi tới Google AI Studio",
+      "selector": "",
+      "params": {
+        "url": "https://aistudio.google.com/"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "wait",
+      "label": "Chờ trang tải xong",
+      "selector": "body",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "click",
+      "label": "Nhấn nút Get API Key",
+      "selector": "a[href*='api-key']",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 1
+    },
+    {
+      "type": "wait",
+      "label": "Chờ trang API key",
+      "selector": "div[role='main']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 2
+    },
+    {
+      "type": "extract",
+      "label": "Lấy API key",
+      "selector": "code",
+      "params": {
+        "attribute": "innerText",
+        "save_as": "api_key"
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 1
+    },
+    {
+      "type": "condition",
+      "label": "Kiểm tra nếu không có API key",
+      "selector": "",
+      "params": {
+        "check": "typeof {{api_key}} === 'undefined' || {{api_key}} === ''",
+        "then_steps": [
+          {
+            "type": "wait",
+            "label": "Chờ thêm hoặc tìm lại",
+            "selector": "input[type='text'], textarea",
+            "params": {
+              "state": "visible",
+              "timeout": 10000
+            },
+            "enabled": true,
+            "on_error": "continue",
+            "retry_count": 1
+          },
+          {
+            "type": "extract",
+            "label": "Thử lấy từ input",
+            "selector": "input[type='text'], textarea",
+            "params": {
+              "attribute": "value",
+              "save_as": "api_key"
+            },
+            "enabled": true,
+            "on_error": "continue",
+            "retry_count": 1
+          }
+        ],
+        "else_steps": []
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    },
+    {
+      "type": "evaluate",
+      "label": "Ghi log API key",
+      "selector": "",
+      "params": {
+        "code": "console.log('API Key:', {{api_key}});",
+        "save_as": ""
+      },
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "api_key",
+      "default": "",
+      "description": "API key lấy được từ Google AI Studio"
+    },
+    {
+      "name": "google_email",
+      "type": "string",
+      "default": "membarulshekh997@gmail.com"
+    },
+    {
+      "name": "google_password",
+      "type": "string",
+      "default": "jw2hA2o*ua"
+    },
+    {
+      "name": "google_recovery",
+      "type": "string",
+      "default": "sdgsghngocminh0707@naver.com"
+    },
+    {
+      "name": "google_2fa",
+      "type": "string",
+      "default": "q74k gm2q 66eg f4dd qpta xg53 ypu3 qmds"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-04 02:15:40",
+  "updated_at": "2026-06-07T08:00:28.590733"
+}

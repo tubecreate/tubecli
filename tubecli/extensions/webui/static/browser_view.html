@@ -319,12 +319,11 @@
 
     <!-- Main Live Screen Stream -->
     <div class="container" id="screenContainer">
-        <canvas id="previewCanvas" style="cursor: default;"></canvas>
-        <img id="previewImg" alt="Fallback Screenshot Pool">
-
-        <!-- Element Highlights -->
-        <div id="inspectOverlay"></div>
-        <div id="inspectInfo"></div>
+        <div id="canvasWrapper" style="position:relative; display:inline-block; max-width:100%; max-height:100%; line-height:0;">
+            <canvas id="previewCanvas" style="cursor: default; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8); outline: none; border-radius: 2px;"></canvas>
+            <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid #ff3366;background:rgba(255,51,102,0.15);display:none;z-index:10;box-sizing:border-box;"></div>
+        </div>
+        <div id="inspectInfo" style="position:absolute;bottom:15px;left:15px;background:rgba(10,10,15,0.9);color:#fff;padding:12px;border-radius:8px;font:13px monospace;z-index:10;pointer-events:none;display:none;border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 30px rgba(0,0,0,0.5);"></div>
     </div>
 
     <!-- Floating Logs -->
@@ -474,8 +473,10 @@
                         // Element highlights
                         if (cssViewport && canvas.width) {
                             const rect = canvas.getBoundingClientRect();
+                            const cw = canvas.width;
+                            const ch = canvas.height;
                             const displayAspect = rect.width / rect.height;
-                            const canvasAspect = canvas.width / canvas.height;
+                            const canvasAspect = cw / ch;
                             
                             let renderW, renderH, offsetX, offsetY;
                             if (canvasAspect > displayAspect) {
@@ -492,8 +493,8 @@
                             
                             const pctX = msg.rect.x / cssViewport.width;
                             const pctY = msg.rect.y / cssViewport.height;
-                            const pctW = msg.rect.w / cssViewport.width;
-                            const pctH = msg.rect.h / cssViewport.height;
+                            const pctW = (msg.rect.width || msg.rect.w) / cssViewport.width;
+                            const pctH = (msg.rect.height || msg.rect.h) / cssViewport.height;
                             
                             overlay.style.display = 'block';
                             overlay.style.left = (offsetX + pctX * renderW) + 'px';

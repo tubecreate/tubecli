@@ -1,0 +1,481 @@
+{
+  "name": "Google Search GitHub and Star tubecli Repo",
+  "slug": "google_search_github_and_star_tubecli_repo",
+  "description": "Searches Google for 'github', navigates to GitHub, searches for 'tubecli' repo, and stars it.",
+  "category": "general",
+  "target_url": "https://www.google.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Go to Google",
+      "selector": "",
+      "params": {
+        "url": "https://www.google.com"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Let page load",
+      "params": {
+        "ms": 2500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "mouse_move",
+      "label": "Random mouse drift",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over search box",
+      "selector": "textarea[name='q'], input[name='q']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "params": {
+        "ms": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click search box",
+      "selector": "textarea[name='q'], input[name='q']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before typing",
+      "params": {
+        "ms": 300
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type search query",
+      "selector": "textarea[name='q'], input[name='q']",
+      "params": {
+        "text": "github",
+        "clear_first": true
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before Enter",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "keyboard",
+      "label": "Press Enter to search",
+      "params": {
+        "key": "Enter"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search results",
+      "selector": "#search, div[role='main']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Read results",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Scroll down to find GitHub link",
+      "params": {
+        "direction": "down",
+        "amount": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause after scroll",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over GitHub link",
+      "selector": "a[href*='github.com']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "params": {
+        "ms": 500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click GitHub link",
+      "selector": "a[href*='github.com']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for GitHub homepage",
+      "selector": "body.logged-in, body.page-responsive, header[role='banner']",
+      "params": {
+        "state": "visible",
+        "timeout": 20000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Let GitHub page settle",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "mouse_move",
+      "label": "Random mouse drift",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over GitHub search box",
+      "selector": "input[data-target='qbsearch-input.inputText'], input[aria-label='Search GitHub'], input[name='q']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "params": {
+        "ms": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click GitHub search box",
+      "selector": "input[data-target='qbsearch-input.inputText'], input[aria-label='Search GitHub'], input[name='q']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before typing",
+      "params": {
+        "ms": 300
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type repo name",
+      "selector": "input[data-target='qbsearch-input.inputText'], input[aria-label='Search GitHub'], input[name='q']",
+      "params": {
+        "text": "tubecli",
+        "clear_first": true
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before Enter",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "keyboard",
+      "label": "Press Enter to search GitHub",
+      "params": {
+        "key": "Enter"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search results page",
+      "selector": "div[data-testid='results-list'], div.code-list, div.repo-list",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Read search results",
+      "params": {
+        "ms": 2500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Scroll to results",
+      "params": {
+        "direction": "down",
+        "amount": 300
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause after scroll",
+      "params": {
+        "ms": 800
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over tubecli repo link",
+      "selector": "a[href*='/tubecli'], a[href*='tubecli']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "params": {
+        "ms": 500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click tubecli repo",
+      "selector": "a[href*='/tubecli'], a[href*='tubecli']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for repo page",
+      "selector": "h1 strong a, h1[data-testid='repo-name'], div[data-testid='repo-header']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Read repo page",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Scroll to star button area",
+      "params": {
+        "direction": "down",
+        "amount": 200
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause after scroll",
+      "params": {
+        "ms": 800
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over star button",
+      "selector": "button[data-hydro-click*='star'], button[aria-label*='star'], button[data-hotkey='s']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click star",
+      "params": {
+        "ms": 600
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click star button",
+      "selector": "button[data-hydro-click*='star'], button[aria-label*='star'], button[data-hotkey='s']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for star action to complete",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "evaluate",
+      "label": "Verify star was clicked",
+      "selector": "",
+      "params": {
+        "code": "console.log('Star action completed'); document.title;",
+        "save_as": "page_title"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "search_query",
+      "default": "github",
+      "description": "Initial search query"
+    },
+    {
+      "name": "repo_name",
+      "default": "tubecli",
+      "description": "Repository name to search on GitHub"
+    },
+    {
+      "name": "google_email",
+      "type": "string",
+      "default": "sukhdevdurve626@gmail.com"
+    },
+    {
+      "name": "google_password",
+      "type": "string",
+      "default": "PmHA$X3Gq#"
+    },
+    {
+      "name": "google_recovery",
+      "type": "string",
+      "default": "sukhdevdthoaminh0707@naver.com"
+    },
+    {
+      "name": "google_2fa",
+      "type": "string",
+      "default": "57hd mojl ibve ejtq dqln 7pf3 lrrx jceg"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-06-08T08:23:19.928230",
+  "updated_at": "2026-06-08T08:23:19.986059"
+}

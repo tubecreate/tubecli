@@ -6,7 +6,7 @@
     <title>Auth Manager — TubeCLI</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=6">
-    <link rel="stylesheet" href="/static/auth_manager.css?v=9">
+    <link rel="stylesheet" href="/static/auth_manager.css?v=11">
 </head>
 <body>
 <div id="app" class="am-app">
@@ -15,11 +15,11 @@
         <!-- Top Bar -->
         <header class="am-header">
             <div class="am-header-left">
-                <a href="/dashboard#/dashboard" target="_top" class="am-back-btn">← Dashboard</a>
+                <a href="/dashboard#/dashboard" target="_top" class="am-back-btn">← <span data-i18n="auth.title.dashboard">Dashboard</span></a>
                 <h1 class="am-title">🔐 Auth Manager</h1>
             </div>
             <div class="am-header-right">
-                <button class="btn-primary" onclick="openAddCredentialModal()">+ Add Credential</button>
+                <button class="btn-primary" onclick="openAddCredentialModal()">+ <span data-i18n="auth.btn_add_cred">Add Credential</span></button>
             </div>
         </header>
 
@@ -27,7 +27,7 @@
         <div class="am-content">
             <!-- Provider Cards (horizontal row) -->
             <section class="am-section">
-                <h2 class="am-section-title">OAuth Providers</h2>
+                <h2 class="am-section-title"><span data-i18n="auth.section.providers">OAuth Providers</span></h2>
                 <div id="providers-grid" class="am-providers-grid">
                     <div class="am-loading">Loading providers...</div>
                 </div>
@@ -36,9 +36,9 @@
             <!-- Credentials Table (full width) -->
             <section class="am-section">
                 <div class="am-section-header">
-                    <h2 class="am-section-title">🔑 Credentials</h2>
+                    <h2 class="am-section-title">🔑 <span data-i18n="auth.section.credentials">Credentials</span></h2>
                     <select id="filter-provider" onchange="loadCredentials()">
-                        <option value="">All Providers</option>
+                        <option value="" data-i18n="auth.filter.all">All Providers</option>
                         <option value="google">Google</option>
                         <option value="facebook">Facebook</option>
                         <option value="tiktok">TikTok</option>
@@ -49,15 +49,15 @@
                         <thead>
                             <tr>
                                 <th>ID</th>
-                                <th>Provider</th>
-                                <th>Name</th>
-                                <th>Client ID</th>
-                                <th>Token</th>
-                                <th>Actions</th>
+                                <th><span data-i18n="auth.th.provider">Provider</span></th>
+                                <th><span data-i18n="auth.th.name">Name</span></th>
+                                <th><span data-i18n="auth.th.client_id">Client ID</span></th>
+                                <th><span data-i18n="auth.th.token">Token</span></th>
+                                <th><span data-i18n="auth.th.actions">Actions</span></th>
                             </tr>
                         </thead>
                         <tbody id="credentials-tbody">
-                            <tr><td colspan="6" class="am-empty">Loading...</td></tr>
+                            <tr><td colspan="6" class="am-empty"><span data-i18n="auth.msg.loading">Loading...</span></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -65,22 +65,22 @@
 
             <!-- Authorized Tokens (full width) -->
             <section class="am-section">
-                <h2 class="am-section-title">🎫 Authorized Tokens</h2>
+                <h2 class="am-section-title">🎫 <span data-i18n="auth.section.tokens">Authorized Tokens</span></h2>
                 <div id="tokens-table-wrap" class="am-table-wrap">
                     <table class="am-table">
                         <thead>
                             <tr>
-                                <th>Credential</th>
-                                <th>Provider</th>
-                                <th>Email</th>
-                                <th>Browser Profile</th>
-                                <th>Scopes</th>
-                                <th>Status</th>
-                                <th>Actions</th>
+                                <th><span data-i18n="auth.th.cred">Credential</span></th>
+                                <th><span data-i18n="auth.th.provider">Provider</span></th>
+                                <th><span data-i18n="auth.th.email">Email</span></th>
+                                <th><span data-i18n="auth.th.browser">Browser Profile</span></th>
+                                <th><span data-i18n="auth.th.scopes">Scopes</span></th>
+                                <th><span data-i18n="auth.th.status">Status</span></th>
+                                <th><span data-i18n="auth.th.actions">Actions</span></th>
                             </tr>
                         </thead>
                         <tbody id="tokens-tbody">
-                            <tr><td colspan="7" class="am-empty">Loading...</td></tr>
+                            <tr><td colspan="7" class="am-empty"><span data-i18n="auth.msg.loading">Loading...</span></td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -93,14 +93,14 @@
 <div id="modal-credential" class="modal hidden">
     <div class="modal-content">
         <div class="modal-header">
-            <h2 id="credential-modal-title">Add Credential</h2>
+            <h2 id="credential-modal-title" data-i18n="auth.modal_title">Add Credential</h2>
             <button class="btn-close" onclick="closeModal('modal-credential')">✕</button>
         </div>
 
         <!-- STEP 1: Basic Info & Services -->
         <div id="cred-step-1">
             <div class="form-group" style="margin-top:12px">
-                <label>Provider</label>
+                <label data-i18n="auth.lbl_provider">Provider</label>
                 <select id="cred-provider" onchange="onProviderChange()">
                     <option value="google">🔵 Google</option>
                     <option value="facebook">📘 Facebook / Meta</option>
@@ -109,20 +109,20 @@
             </div>
     
             <div class="form-group">
-                <label>Name (gợi nhớ)</label>
-                <input id="cred-name" placeholder="VD: My YouTube App">
+                <label><label data-i18n="auth.lbl_name">Name</label></label>
+                <input id="cred-name" data-i18n-placeholder="auth.ph_name" placeholder="Ex: My YouTube App">
             </div>
     
             <!-- Service Selection -->
             <div class="form-group">
-                <label>📦 Chọn dịch vụ sẽ sử dụng</label>
-                <small class="am-hint" style="margin-top:0;margin-bottom:8px">Chọn dịch vụ để hệ thống tổng hợp các quyền (scopes) cần thiết ở bước sau</small>
+                <label data-i18n="auth.lbl_services">📦 Select services to use</label>
+                <small class="am-hint" style="margin-top:0;margin-bottom:8px" data-i18n="auth.hint_services">Select services so the system can aggregate required scopes in the next step.</small>
                 <div id="cred-services-list" class="am-services-grid"></div>
             </div>
 
             <div class="modal-actions" style="justify-content: flex-end;">
-                <button class="btn-secondary" onclick="closeModal('modal-credential')">Cancel</button>
-                <button class="btn-primary" onclick="goToCredStep(2)">Tiếp theo ➔</button>
+                <button class="btn-secondary" onclick="closeModal('modal-credential')" data-i18n="auth.btn_cancel"><span data-i18n="auth.btn_cancel">Cancel</span></button>
+                <button class="btn-primary" onclick="goToCredStep(2)" data-i18n="auth.btn_next">Next ➔</button>
             </div>
         </div>
 
@@ -130,16 +130,16 @@
         <div id="cred-step-2" style="display: none;">
             <div class="am-required-scopes-box">
                 <div class="am-scopes-box-header" style="margin-bottom: 12px; font-size: 1rem;">
-                    <i class="fas fa-server"></i> Thông số cấu hình App
+                    <i class="fas fa-server"></i> <span data-i18n="auth.step2.title_app_config">App Configuration Params</span>
                 </div>
                 
                 <!-- 1. Required APIs (Dynamic) -->
                 <div id="cred-setup-apis-container" style="display:none; margin-bottom:16px;">
                     <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:4px">
-                        1. Kích hoạt APIs (API Library):
+                        <span data-i18n="auth.step2.enable_apis">1. Enable APIs (API Library):</span>
                     </div>
                     <div class="am-scopes-box-desc" style="margin-bottom:8px">
-                        ⚡ Quan trọng: Bắt buộc phải tìm và nhấn "Enable" các API sau trong Google Cloud API Library để tránh lỗi 403 Forbidden:
+                        <span data-i18n="auth.step2.enable_apis_desc">⚡ Important: Must find and click "Enable" for the following APIs in Google Cloud API Library to avoid 403 Forbidden:</span>
                     </div>
                     <div id="cred-required-apis" class="am-scopes-list"></div>
                     <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
@@ -147,10 +147,10 @@
 
                 <!-- 2. Scopes -->
                 <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:4px">
-                    2. OAuth Scopes yêu cầu:
+                    <span data-i18n="auth.step2.req_scopes">2. Required OAuth Scopes:</span>
                 </div>
                 <div class="am-scopes-box-desc">
-                    Vui lòng copy các scopes dưới đây và cấp quyền trên OAuth Consent Screen:
+                    <span data-i18n="auth.step2.req_scopes_desc">Please copy the scopes below and grant permissions on OAuth Consent Screen:</span>
                 </div>
                 <div id="cred-required-scopes" class="am-scopes-list" style="margin-bottom:16px;"></div>
 
@@ -158,67 +158,67 @@
 
                 <!-- 3. Redirect URI -->
                 <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:6px">
-                    3. Authorized Redirect URI:
+                    <span data-i18n="auth.step2.redirect_uri">3. Authorized Redirect URI:</span>
                 </div>
                 <div class="am-scope-row" style="margin-bottom:8px">
                     <code class="am-scope-key" id="cred-setup-redirect-uri" style="user-select:all; cursor:pointer;" onclick="copyAmText(this.textContent)" title="Click to copy"></code>
-                    <span class="am-scope-desc" style="font-size:0.7rem">(Tại tab Credentials > OAuth Client ID)</span>
+                    <span class="am-scope-desc" style="font-size:0.7rem"><span data-i18n="auth.step2.redirect_uri_desc">(In Credentials > OAuth Client ID tab)</span></span>
                 </div>
             </div>
     
             <!-- Tabs: OAuth Client | Service Account | Manual Setup -->
             <div class="am-tabs" id="cred-tabs">
-                <button class="am-tab active" data-tab="oauth" id="tab-btn-oauth" onclick="switchCredTab('oauth')">OAuth Client</button>
-                <button class="am-tab" data-tab="json" id="tab-btn-json" onclick="switchCredTab('json')">Service Account JSON</button>
-                <button class="am-tab" data-tab="manual" id="tab-btn-manual" onclick="switchCredTab('manual')">Manual Setup</button>
+                <button class="am-tab active" data-tab="oauth" id="tab-btn-oauth" onclick="switchCredTab('oauth')"><span data-i18n="auth.tabs.oauth">OAuth Client</span></button>
+                <button class="am-tab" data-tab="json" id="tab-btn-json" onclick="switchCredTab('json')"><span data-i18n="auth.tabs.json">Service Account JSON</span></button>
+                <button class="am-tab" data-tab="manual" id="tab-btn-manual" onclick="switchCredTab('manual')"><span data-i18n="auth.tabs.manual">Manual Setup</span></button>
             </div>
     
             <div id="cred-tab-oauth" class="am-tab-pane active">
                 <div class="form-group">
-                    <label>Client ID</label>
+                    <label><span data-i18n="auth.creds.client_id">Client ID</span></label>
                     <input id="cred-client-id" placeholder="xxx.apps.googleusercontent.com">
                 </div>
                 <div class="form-group">
-                    <label>Client Secret</label>
+                    <label><span data-i18n="auth.creds.client_secret">Client Secret</span></label>
                     <input id="cred-client-secret" type="password" placeholder="GOCSPX-xxx">
                 </div>
             </div>
     
             <div id="cred-tab-json" class="am-tab-pane">
                 <div class="form-group">
-                    <label>Upload JSON File</label>
-                    <button class="btn-secondary" onclick="document.getElementById('cred-json-file').click()">📁 Choose File</button>
+                    <label><span data-i18n="auth.creds.upload_json">Upload JSON File</span></label>
+                    <button class="btn-secondary" onclick="document.getElementById('cred-json-file').click()"><span data-i18n="auth.creds.choose_file">📁 Choose File</span></button>
                     <input type="file" id="cred-json-file" accept=".json" style="display:none" onchange="handleJsonUpload(event)">
                     <span id="cred-json-filename" class="am-filename"></span>
                 </div>
                 <div class="form-group">
-                    <label>Service Account Email</label>
+                    <label><span data-i18n="auth.creds.sa_email">Service Account Email</span></label>
                     <input id="cred-sa-email" placeholder="xxx@project.iam.gserviceaccount.com">
                 </div>
             </div>
 
             <div id="cred-tab-manual" class="am-tab-pane">
                 <div class="form-group">
-                    <label>Target ID / Nhận diện phụ (Không bắt buộc)</label>
-                    <input id="cred-manual-id" placeholder="Tùy chọn: Nhập mã hoặc tên gợi nhớ phụ nếu cần...">
+                    <label><span data-i18n="auth.manual.lbl_target_id">Target ID / Sub Identifier (Optional)</span></label>
+                    <input id="cred-manual-id" data-i18n-placeholder="auth.manual.ph_target_id" placeholder="Optional: Enter sub ID or alias if needed...">
                 </div>
                 <div class="form-group">
-                    <label>Long-lived Access Token</label>
-                    <input id="cred-manual-token" type="password" placeholder="EAAQ... (Nhập Token lấy thủ công)">
+                    <label><span data-i18n="auth.creds.manual_token">Long-lived Access Token</span></label>
+                    <input id="cred-manual-token" type="password" data-i18n-placeholder="auth.manual.ph_token" placeholder="EAAQ... (Enter manually obtained Token)">
                 </div>
                 <div style="background:rgba(82,118,235,0.1); border-left:3px solid var(--primary); padding:10px; border-radius:4px; font-size:0.8rem; line-height:1.4;">
-                    <strong>Dành cho Tool Nội bộ:</strong><br>
-                    Không cần setup App. Lấy Token từ Trình khám phá Graph API và dán vào đây để cấp quyền sử dụng hệ thống tự động hóa ngay lập tức.
+                    <strong data-i18n="auth.manual.internal_tool_title">For Internal Tools:</strong><br>
+                    <span data-i18n="auth.manual.internal_tool_desc">No App setup needed. Get Token from Graph API Explorer and paste here to grant automation access immediately.</span>
                 </div>
             </div>
     
             <input type="hidden" id="cred-edit-id">
     
             <div class="modal-actions" style="justify-content: space-between;">
-                <button class="btn-back" onclick="goToCredStep(1)">⬅ Quay lại</button>
+                <button class="btn-back" onclick="goToCredStep(1)"><span data-i18n="auth.btn_back">⬅ Back</span></button>
                 <div>
-                    <button class="btn-secondary" onclick="closeModal('modal-credential')">Cancel</button>
-                    <button class="btn-primary" onclick="saveCredential()">💾 Save</button>
+                    <button class="btn-secondary" onclick="closeModal('modal-credential')" data-i18n="auth.btn_cancel"><span data-i18n="auth.btn_cancel">Cancel</span></button>
+                    <button class="btn-primary" onclick="saveCredential()" data-i18n="auth.btn_save">💾 Save</button>
                 </div>
             </div>
         </div>
@@ -229,21 +229,21 @@
 <div id="modal-authorize" class="modal hidden">
     <div class="modal-content" style="max-width:520px">
         <div class="modal-header">
-            <h2>🔓 Authorize Access</h2>
+            <h2><span data-i18n="auth.authz.title">🔓 Authorize Access</span></h2>
             <button class="btn-close" onclick="closeModal('modal-authorize')">✕</button>
         </div>
 
         <!-- Credential Info -->
         <div class="am-auth-info">
-            <p>Credential: <strong id="auth-cred-name"></strong></p>
-            <p>Provider: <strong id="auth-cred-provider"></strong></p>
+            <p><span data-i18n="auth.authz.cred">Credential:</span> <strong id="auth-cred-name"></strong></p>
+            <p><span data-i18n="auth.authz.provider">Provider:</span> <strong id="auth-cred-provider"></strong></p>
         </div>
 
         <!-- Scopes (read-only, from credential config) -->
         <div class="form-group" style="margin-top:12px">
-            <label>📦 Quyền sẽ được cấp <span style="color:#64748b;font-weight:400;font-size:0.8rem">(đã cấu hình khi tạo credential)</span></label>
+            <label><span data-i18n="auth.authz.lbl_scopes">📦 Scopes to be granted</span> <span style="color:#64748b;font-weight:400;font-size:0.8rem"><span data-i18n="auth.authz.lbl_scopes_hint">(configured when creating credential)</span></span></label>
             <div id="auth-scopes-chips" class="am-scopes-chips"></div>
-            <small class="am-hint" style="margin-top:6px">💡 Muốn thay đổi scopes? Tạo credential mới với quyền khác.</small>
+            <small class="am-hint" style="margin-top:6px"><span data-i18n="auth.authz.change_scopes_hint">💡 Want to change scopes? Create a new credential with different permissions.</span></small>
         </div>
 
         <!-- Auto Renew -->
@@ -251,37 +251,37 @@
             <div class="am-auto-renew-header">
                 <span class="am-auto-renew-icon">🔄</span>
                 <div>
-                    <div class="am-auto-renew-title">Auto Renew Token</div>
-                    <div class="am-auto-renew-desc">Token sẽ tự động làm mới khi hết hạn, không cần cấp quyền lại</div>
+                    <div class="am-auto-renew-title"><span data-i18n="auth.authz.auto_renew">Auto Renew Token</span></div>
+                    <div class="am-auto-renew-desc"><span data-i18n="auth.authz.auto_renew_desc">Token will automatically renew when expired, no need to authorize again</span></div>
                 </div>
                 <span class="am-auto-renew-status">✅ Enabled</span>
             </div>
         </div>
 
         <div class="am-redirect-info">
-            <strong>Redirect URI:</strong>
+            <strong><span data-i18n="auth.authz.redirect_uri">Redirect URI:</span></strong>
             <code id="auth-redirect-uri"></code>
-            <small>Thêm URI này vào cấu hình OAuth trên Google Cloud / Facebook / TikTok</small>
+            <small><span data-i18n="auth.authz.redirect_uri_hint">Add this URI to the OAuth config on Google Cloud / Facebook / TikTok</span></small>
         </div>
 
         <div style="border-top:1px dotted rgba(255,255,255,0.1); margin: 16px 0;"></div>
 
         <!-- Browser Profile -->
         <div class="form-group">
-            <label>🌐 Tự động mở trình duyệt (Tùy chọn)</label>
+            <label><span data-i18n="auth.authz.lbl_browser">🌐 Auto open browser (Optional)</span></label>
             <select id="auth-browser-profile">
-                <option value="">Default Browser</option>
+                <option value=""><span data-i18n="auth.authz.browser_default">Default Browser</span></option>
             </select>
-            <small class="am-hint">Để trống nếu bạn muốn tự mở bằng trình duyệt có sẵn</small>
+            <small class="am-hint"><span data-i18n="auth.authz.browser_hint">Leave blank if you want to open manually in existing browser</span></small>
         </div>
 
         <input type="hidden" id="auth-cred-id">
 
         <div class="modal-actions" style="justify-content: flex-end; gap: 8px;">
-            <button class="btn-secondary" onclick="closeModal('modal-authorize')">Cancel</button>
-            <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:#1e293b; color:#cbd5e1; white-space: nowrap;" title="Copy URL để tự dán vào trình duyệt đang mở">📋 Copy Link</button>
+            <button class="btn-secondary" onclick="closeModal('modal-authorize')"><span data-i18n="auth.btn_cancel">Cancel</span></button>
+            <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:#1e293b; color:#cbd5e1; white-space: nowrap;" data-i18n-title="auth.authz.btn_copy_title" title="Copy URL to paste into an open browser"><span data-i18n="auth.authz.btn_copy">📋 Copy Link</span></button>
             <button class="btn-primary" onclick="startAuthorize('open')" style="white-space: nowrap;">
-                🚀 Authorize
+                <span data-i18n="auth.authz.btn_auth">🚀 Authorize</span>
             </button>
         </div>
     </div>
@@ -294,26 +294,26 @@
             <i class="fas fa-circle-notch fa-spin" style="color:var(--cyan)"></i>
             <span style="font-size:2rem; margin-left:10px;">⏳</span>
         </div>
-        <h2 style="margin-bottom:8px">Đang chờ xác thực...</h2>
+        <h2 style="margin-bottom:8px"><span data-i18n="auth.waiting.title">Waiting for authorization...</span></h2>
         <p id="am-waiting-message" style="color:var(--text2); margin-bottom:16px; font-size:0.95rem;">
-            Vui lòng hoàn tất màn hình cấp quyền trên trình duyệt. Cửa sổ này sẽ tự đóng khi quá trình hoàn tất.
+            <span data-i18n="auth.waiting.desc">Please complete the authorization screen in the browser. This window will auto-close when done.</span>
         </p>
         
         <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:16px; text-align:left; font-size:0.85rem; margin-bottom:24px;">
-            <strong style="color:#f59e0b; display:block; margin-bottom:8px;">⚠️ Hướng dẫn xử lý lỗi thường gặp (Google):</strong>
+            <strong style="color:#f59e0b; display:block; margin-bottom:8px;"><span data-i18n="auth.waiting.troubleshoot_title">⚠️ Common error troubleshooting (Google):</span></strong>
             <ul style="margin:0; padding-left:20px; color:var(--text2); line-height:1.5;">
-                <li style="margin-bottom:6px">Báo lỗi <strong>Access blocked: Authorization Error</strong>:<br>Vào Google Cloud $\rightarrow$ mục <em>OAuth consent screen</em> $\rightarrow$ cuộn xuống phần <strong>Test users</strong> và THÊM email bạn đang dùng vào.</li>
-                <li>Cảnh báo đỏ <strong>Google hasn’t verified this app</strong>:<br>Hãy nhấn dòng chữ nhỏ <strong>"Advanced" (Nâng cao)</strong> ở dưới cùng, sau đó bấm <strong>"Go to ... (unsafe)"</strong> để tiếp tục.</li>
+                <li style="margin-bottom:6px"><span data-i18n="auth.waiting.ts_error_1">Error:</span> <strong>Access blocked: Authorization Error</strong>:<br><span data-i18n="auth.waiting.ts_sol_1">Go to Google Cloud $\rightarrow$ <em>OAuth consent screen</em> $\rightarrow$ scroll to <strong>Test users</strong> and ADD the email you are using.</span></li>
+                <li><span data-i18n="auth.waiting.ts_error_2">Red warning</span> <strong>Google hasn’t verified this app</strong>:<br><span data-i18n="auth.waiting.ts_sol_2">Click the small text <strong>"Advanced"</strong> at the bottom, then click <strong>"Go to ... (unsafe)"</strong> to continue.</span></li>
             </ul>
         </div>
 
         <div class="modal-actions" style="justify-content:center; gap:8px;">
-            <button class="btn-secondary" onclick="cancelPolling()">Bỏ qua / Hủy chờ</button>
-            <button id="am-waiting-copy-btn" class="btn-secondary hidden" style="background:#1e293b; color:#cbd5e1; border-color:transparent;" onclick="copyAmText(window._currentAuthUrl)">📋 Copy lại Link</button>
+            <button class="btn-secondary" onclick="cancelPolling()"><span data-i18n="auth.waiting.btn_cancel">Skip / Cancel waiting</span></button>
+            <button id="am-waiting-copy-btn" class="btn-secondary hidden" style="background:#1e293b; color:#cbd5e1; border-color:transparent;" onclick="copyAmText(window._currentAuthUrl)"><span data-i18n="auth.waiting.btn_copy">📋 Copy Link Again</span></button>
         </div>
     </div>
 </div>
 
-<script src="/static/auth_manager.js?v=10"></script>
+<script src="/static/auth_manager.js?v=23"></script>
 </body>
 </html>

@@ -17,19 +17,16 @@ DEFAULT_SKILLS: List[Dict] = [
         "description": "Quản lý Google Sheets toàn diện: Tạo Sheet mới, Đọc dữ liệu, Ghi/Append dữ liệu, Đồng bộ metadata. Dùng: tubecli skill run \"Google Sheets\"",
         "skill_type": "API Integration",
         "commands": [
-            "create sheet", "tạo sheet", "new spreadsheet",
-            "read sheet", "đọc sheet", "read google sheet",
-            "write sheet", "ghi sheet", "append sheet",
-            "sync sheet", "đồng bộ sheet", "sync data to sheet",
+            "create sheet", "new spreadsheet", "read sheet", "read google sheet", "write sheet", "append sheet", "sync sheet", "sync data to sheet",
         ],
         "workflow_data": {"nodes": [], "connections": []},
     },
     {
         "name": "🔍 Google Search",
-        "description": "Tìm kiếm Google nhanh bằng HTTP + AI tóm tắt kết quả. Không cần mở browser. Dùng: tubecli skill run 'Google Search' --input 'từ khóa'",
+        "description": "Quick Google Search via HTTP + AI summary of results. No browser required. Usage: tubecli skill run 'Google Search' --input 'keyword'",
         "skill_type": "Skill",
         "commands": [
-            "google search", "tìm kiếm google", "search google", "tìm google",
+            "google search", "search google",
         ],
         "workflow_data": {
             "name": "Google Search",
@@ -37,7 +34,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "search_query",
                     "type": "text_input",
-                    "label": "🔍 Từ khóa tìm kiếm",
+                    "label": "🔍 Search Keyword",
                     "config": {"text": ""},
                 },
                 {
@@ -49,10 +46,10 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "ai_summarize",
                     "type": "model_agent",
-                    "label": "🤖 AI Tóm tắt",
+                    "label": "🤖 AI Summarizer",
                     "config": {
                         "provider": "auto",
-                        "system_prompt": "Bạn là trợ lý AI. Người dùng đã tìm kiếm Google, dưới đây là kết quả. Hãy tóm tắt ngắn gọn, rõ ràng bằng ngôn ngữ của người dùng. Nếu có thông tin thời tiết, tin tức, hoặc dữ liệu cụ thể, hãy trình bày rõ ràng. Trả lời tự nhiên, thân thiện.",
+                        "system_prompt": "You are an AI assistant. The user has performed a Google search, and the results are below. Please summarize them briefly and clearly in the user's language. If there is weather information, news, or specific data, present it clearly. Answer naturally and in a friendly manner.",
                         "max_tokens": 1024,
                         "temperature": 0.5,
                     },
@@ -60,7 +57,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True},
                 },
             ],
@@ -88,10 +85,9 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "📧 Gmail Login",
-        "description": "Mở trình duyệt và yêu cầu AI tự động truy cập Gmail để đăng nhập hoặc kiểm tra hòm thư.",
+        "description": "Open browser and ask AI to automatically access Gmail to log in or check the inbox.",
         "skill_type": "Skill",
-        "commands": ["gmail login", "đăng nhập gmail", "check mail", "vào gmail", "login gmail",
-                     "mở gmail", "vào mail", "check gmail", "đăng nhập mail"],
+        "commands": ["gmail login", "check mail", "login gmail", "check gmail"],
         "workflow_data": {
             "name": "Gmail Login",
             "nodes": [
@@ -125,12 +121,10 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "👥 Quick Team Creator",
-        "description": "Tạo team AI tự động: mô tả team bằng ngôn ngữ tự nhiên → AI phân tích → tạo agents + cấu trúc team + sơ đồ tổ chức. VD: 'tạo team developer 4 người: 1 leader, 2 dev, 1 tester'",
+        "description": "Create AI team automatically: describe team in natural language → AI analyzes → creates agents + team structure + org chart. Ex: 'create a developer team of 4: 1 leader, 2 devs, 1 tester'",
         "skill_type": "Skill",
         "commands": [
-            "tạo team", "create team", "tạo nhóm", "tạo đội",
-            "build team", "new team", "thành lập team", "xây dựng team",
-            "tạo team mới", "lập team"
+            "create team", "build team", "new team"
         ],
         "workflow_data": {
             "name": "Quick Team Creator",
@@ -138,7 +132,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "team_desc",
                     "type": "text_input",
-                    "label": "📝 Mô tả Team",
+                    "label": "📝 Team Description",
                     "config": {"text": ""},
                 },
                 {
@@ -152,7 +146,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "create_api",
                     "type": "api_request",
-                    "label": "⚡ Gọi API tạo Team",
+                    "label": "⚡ Call Create Team API",
                     "config": {
                         "url": "http://localhost:5295/api/v1/studio3d/quick-team",
                         "method": "POST",
@@ -162,7 +156,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True},
                 },
             ],
@@ -190,11 +184,10 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "📥 Douyin/TikTok Downloader",
-        "description": "Tải video chuyên biệt từ TikTok/Douyin không logo bằng Douyin Downloader API. AI tự tải và gửi file. Dùng: gửi link TikTok hoặc Douyin.",
+        "description": "Dedicated video downloader for TikTok/Douyin without watermark using Douyin Downloader API. AI auto-downloads and sends the file. Usage: send TikTok or Douyin link.",
         "skill_type": "Skill",
         "commands": [
-            "tải video tiktok", "download tiktok", "tải tiktok", 
-            "tải douyin", "download douyin", "tải video douyin",
+            "download tiktok", "download douyin",
         ],
         "workflow_data": {
             "name": "Douyin/TikTok Downloader",
@@ -228,7 +221,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True},
                 },
             ],
@@ -256,11 +249,10 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "🌍 Universal Video Downloader",
-        "description": "Tải video đa nền tảng (YouTube, Facebook, Twitter/X...) sử dụng yt-dlp. AI tự động tải và gửi file. Dùng: gửi link kèm dòng lệnh 'tải youtube' hoặc 'tải video'.",
+        "description": "Multi-platform video downloader (YouTube, Facebook, Twitter/X...) using yt-dlp. AI auto-downloads and sends the file. Usage: send link with command 'download youtube' or 'download video'.",
         "skill_type": "Skill",
         "commands": [
-            "tải youtube", "download youtube", "tải video", "download video",
-            "tải facebook", "tải twitter", "tải đa nền tảng", "tải video youtube"
+            "download youtube", "download video", "download facebook", "download twitter", "cross-platform download"
         ],
         "workflow_data": {
             "name": "Universal Video Downloader",
@@ -274,7 +266,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "parse_video",
                     "type": "api_request",
-                    "label": "🔍 Lấy thông tin video",
+                    "label": "🔍 Get Video Info",
                     "config": {
                         "url": "http://localhost:5295/api/v1/ytdl/info",
                         "method": "POST",
@@ -284,7 +276,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "download_video",
                     "type": "api_request",
-                    "label": "📥 Tải xuống (yt-dlp)",
+                    "label": "📥 Download (yt-dlp)",
                     "config": {
                         "url": "http://localhost:5295/api/v1/ytdl/download",
                         "method": "POST",
@@ -294,7 +286,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True},
                 },
             ],
@@ -322,12 +314,10 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "📅 Calendar Scheduler",
-        "description": "Lập lịch sự kiện Google Calendar — hỗ trợ recurring events cho livestream hằng ngày, meeting, reminder. Dùng: tubecli skill run 'Calendar Scheduler' --input 'Meeting tomorrow 10am'",
+        "description": "Schedule Google Calendar events — supports recurring events for daily livestreams, meetings, reminders. Usage: tubecli skill run 'Calendar Scheduler' --input 'Meeting tomorrow 10am'",
         "skill_type": "Skill",
         "commands": [
-            "lập lịch", "tạo lịch", "schedule", "create event",
-            "thêm sự kiện", "đặt lịch", "lịch hẹn", "lên lịch livestream",
-            "nhắc nhở", "reminder", "đặt hẹn", "lịch họp",
+            "schedule", "create event", "add event", "book appointment", "set reminder",
         ],
         "workflow_data": {
             "name": "Calendar Scheduler",
@@ -383,10 +373,10 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "🔴 Livestream Restreamer",
-        "description": "Tạo phiên livestream (restream) từ link Douyin/TikTok lên YouTube. Dùng khi user yêu cầu: 'tạo phiên live', 'restream'. Cứ thấy douyin link kèm 'tạo live' thì dùng skill này KHÔNG dùng downloader.",
+        "description": "Create a livestream session (restream) from a Douyin/TikTok link to YouTube. Use when user asks to 'restream' or 'start live'. If you see a douyin link with 'start live', use this skill, NOT the downloader.",
         "skill_type": "Skill",
         "commands": [
-            "tạo phiên live", "tạo phiên livestream", "restream", "phát live", "phát trực tiếp"
+            "create live session", "start livestream", "restream", "broadcast live"
         ],
         "workflow_data": {
             "name": "Livestream Restreamer",
@@ -394,7 +384,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "input_cmd",
                     "type": "text_input",
-                    "label": "📝 Đầu vào",
+                    "label": "📝 Input",
                     "config": {"text": ""},
                 },
                 {
@@ -402,13 +392,13 @@ DEFAULT_SKILLS: List[Dict] = [
                     "type": "python_code",
                     "label": "🐍 Run Live API",
                     "config": {
-                        "code": "import requests, re, json\n# text_input contains the whole user command\nlink_match = re.search(r'https?://[^\\s]+', text_input)\nlink = link_match.group(0) if link_match else ''\nemail_match = re.search(r'[\\w\\.-]+@[\\w\\.-]+\\.\\w+', text_input)\nemail = email_match.group(0) if email_match else ''\n\npayload = {'title': 'Live Restream', 'input_source': link}\nif email:\n    payload['token_id'] = email\nelse:\n    payload['token_id'] = ''\n\ntry:\n    resp = requests.post('http://localhost:5295/api/v1/livestream/auto-live', json=payload, timeout=30)\n    if resp.status_code == 200:\n        r_data = resp.json()\n        if r_data.get('status') == 'success':\n            result = f\"✅ Tạo phiên Live thành công!\\n🔗 Link phát: {link}\\n📺 Stream Key: {r_data.get('broadcast', {}).get('stream_key')}\\nID phiên: {r_data.get('ffmpeg_session_id')}\"\n        else:\n            result = f\"❌ Lỗi tạo live: {r_data.get('message', 'Không rõ lỗi')}\"\n    else:\n        result = f\"❌ Lỗi hệ thống ({resp.status_code}): {resp.text}\"\nexcept Exception as e:\n    result = f\"❌ Exception: {str(e)}\"\n"
+                        "code": "import requests, re, json\n# text_input contains the whole user command\nlink_match = re.search(r'https?://[^\\s]+', text_input)\nlink = link_match.group(0) if link_match else ''\nemail_match = re.search(r'[\\w\\.-]+@[\\w\\.-]+\\.\\w+', text_input)\nemail = email_match.group(0) if email_match else ''\n\npayload = {'title': 'Live Restream', 'input_source': link}\nif email:\n    payload['token_id'] = email\nelse:\n    payload['token_id'] = ''\n\ntry:\n    resp = requests.post('http://localhost:5295/api/v1/livestream/auto-live', json=payload, timeout=30)\n    if resp.status_code == 200:\n        r_data = resp.json()\n        if r_data.get('status') == 'success':\n            result = f\"✅ Live session created successfully!\\n🔗 Stream Link: {link}\\n📺 Stream Key: {r_data.get('broadcast', {}).get('stream_key')}\\nSession ID: {r_data.get('ffmpeg_session_id')}\"\n        else:\n            result = f\"❌ Error creating live: {r_data.get('message', 'Unknown error')}\"\n    else:\n        result = f\"❌ System error ({resp.status_code}): {resp.text}\"\nexcept Exception as e:\n    result = f\"❌ Exception: {str(e)}\"\n"
                     },
                 },
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True},
                 },
             ],
@@ -430,16 +420,16 @@ DEFAULT_SKILLS: List[Dict] = [
     },
     {
         "name": "🕷️ Web Crawler & Watcher",
-        "description": "Cào dữ liệu từ một trang web, lấy nội dung bài viết, tiêu đề, ảnh. Hoặc thiết lập theo dõi trang liên tục. Dùng: nhập URL cần cào.",
+        "description": "Crawl data from a website, extract article content, titles, images. Or set up continuous page monitoring. Usage: enter the URL to crawl.",
         "skill_type": "Extension",
-        "commands": ["cào dữ liệu", "scrape", "đọc web", "crawl", "theo dõi trang", "watch page"],
+        "commands": ["scrape", "crawl", "watch page", "scrape website"],
         "workflow_data": {
             "name": "Web Crawler",
             "nodes": [
                 {
                     "id": "input_cmd",
                     "type": "text_input",
-                    "label": "📝 Lệnh (URL hoặc Yêu cầu)",
+                    "label": "📝 Command (URL or Request)",
                     "config": {"text": ""}
                 },
                 {
@@ -455,7 +445,7 @@ DEFAULT_SKILLS: List[Dict] = [
                 {
                     "id": "result_output",
                     "type": "output",
-                    "label": "📤 Kết quả",
+                    "label": "📤 Result",
                     "config": {"print": True}
                 }
             ],

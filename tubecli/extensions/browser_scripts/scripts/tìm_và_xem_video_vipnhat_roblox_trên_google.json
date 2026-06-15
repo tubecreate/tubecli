@@ -1,0 +1,241 @@
+{
+  "name": "Tìm và xem video VIPNhat Roblox trên Google",
+  "slug": "tìm_và_xem_video_vipnhat_roblox_trên_google",
+  "description": "Tìm kiếm kênh VIPNhat Roblox trên Google, vào kênh và xem video trong 5 phút",
+  "category": "general",
+  "target_url": "https://www.google.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở Google",
+      "selector": "",
+      "params": {
+        "url": "https://www.google.com"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ trang tải",
+      "selector": "",
+      "params": {
+        "ms": 2500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "mouse_move",
+      "label": "Di chuyển chuột tự nhiên",
+      "selector": "",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click vào ô tìm kiếm",
+      "selector": "textarea[name='q']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ một chút",
+      "selector": "",
+      "params": {
+        "ms": 800
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Nhập từ khóa tìm kiếm",
+      "selector": "textarea[name='q']",
+      "params": {
+        "text": "vipnhat roblox",
+        "clear_first": true
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ trước khi Enter",
+      "selector": "",
+      "params": {
+        "ms": 1200
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "keyboard",
+      "label": "Nhấn Enter để tìm",
+      "selector": "",
+      "params": {
+        "key": "Enter"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ kết quả tìm kiếm",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xuống kết quả",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Nghỉ ngơi",
+      "selector": "",
+      "params": {
+        "ms": 1500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Di chuột đến kết quả đầu tiên",
+      "selector": "a[href*='youtube.com']",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ một chút",
+      "selector": "",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click vào kết quả YouTube",
+      "selector": "a[href*='youtube.com']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 1
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ YouTube tải",
+      "selector": "",
+      "params": {
+        "ms": 4000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xuống kênh",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 300
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ xem nội dung",
+      "selector": "",
+      "params": {
+        "ms": 2000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click video đầu tiên",
+      "selector": "#video-title",
+      "params": {},
+      "enabled": true,
+      "on_error": "continue",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ video phát",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn nhẹ xem mô tả",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 250
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Xem video 5 phút",
+      "selector": "",
+      "params": {
+        "ms": 300000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-04 08:51:20",
+  "updated_at": "2026-05-04 08:51:20"
+}

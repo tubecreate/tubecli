@@ -20,6 +20,7 @@ class Skill:
         name: str,
         workflow_data: Dict = None,
         skill_type: str = "General",
+        skill_format: str = "workflow",
         description: str = "",
         commands: List[str] = None,
         schedule_enabled: bool = False,
@@ -36,6 +37,13 @@ class Skill:
         self.name = name
         self.workflow_data = workflow_data or {"nodes": [], "connections": []}
         self.skill_type = skill_type
+        
+        # Backward compatibility for old skills that might not have skill_format
+        if "skill_format" in kwargs:
+            self.skill_format = kwargs["skill_format"]
+        else:
+            self.skill_format = skill_format
+
         self.description = description
         self.commands = commands or []
         self.schedule_enabled = schedule_enabled
@@ -52,6 +60,7 @@ class Skill:
             "name": self.name,
             "workflow_data": self.workflow_data,
             "skill_type": self.skill_type,
+            "skill_format": self.skill_format,
             "description": self.description,
             "commands": self.commands,
             "schedule_enabled": self.schedule_enabled,

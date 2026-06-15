@@ -11,30 +11,30 @@
 <div id="app">
   <!-- ── Toolbar ─────────────────────────────────────────── -->
   <div class="toolbar">
-    <span class="toolbar-brand">⚡ Workflow Builder</span>
+    <span class="toolbar-brand" data-i18n="wf.title">⚡ Workflow Builder</span>
     <div class="toolbar-sep"></div>
 
-    <button class="btn btn-default" onclick="WF.newWorkflow()" title="New">📄 New</button>
-    <button class="btn btn-default" onclick="WF.saveWorkflow()" title="Save">💾 Save</button>
-    <button class="btn btn-default" onclick="WF.loadWorkflow()" title="Load">📂 Load</button>
-
-    <div class="toolbar-sep"></div>
-
-    <button class="btn btn-primary" onclick="WF.importN8n()" title="Import n8n JSON">📥 n8n Import</button>
-    <button class="btn btn-default" onclick="WF.exportN8n()" title="Export n8n JSON">📤 n8n Export</button>
+    <button class="btn btn-default" onclick="WF.newWorkflow()" data-i18n-title="wf.btn_new" data-i18n="wf.btn_new">📄 New</button>
+    <button class="btn btn-default" onclick="WF.saveWorkflow()" data-i18n-title="wf.btn_save" data-i18n="wf.btn_save">💾 Save</button>
+    <button class="btn btn-default" onclick="WF.loadWorkflow()" data-i18n-title="wf.btn_load" data-i18n="wf.btn_load">📂 Load</button>
 
     <div class="toolbar-sep"></div>
 
-    <button class="btn btn-success" onclick="WF.saveAsSkill()" title="Save workflow as a reusable Skill for Agents">💾 Save as Skill</button>
+    <button class="btn btn-primary" onclick="WF.importN8n()" data-i18n-title="wf.btn_import" data-i18n="wf.btn_import">📥 n8n Import</button>
+    <button class="btn btn-default" onclick="WF.exportN8n()" data-i18n-title="wf.btn_export" data-i18n="wf.btn_export">📤 n8n Export</button>
 
     <div class="toolbar-sep"></div>
 
-    <button class="btn btn-ai" onclick="WF.openAiGenerate()" title="Generate workflow from prompt using AI">✨ AI Generate</button>
+    <button class="btn btn-success" onclick="WF.saveAsSkill()" data-i18n-title="wf.btn_save_skill" data-i18n="wf.btn_save_skill">💾 Save as Skill</button>
+
+    <div class="toolbar-sep"></div>
+
+    <button class="btn btn-ai" onclick="WF.openAiGenerate()" data-i18n-title="wf.btn_ai_gen" data-i18n="wf.btn_ai_gen">✨ AI Generate</button>
 
     <div class="toolbar-spacer"></div>
 
-    <button class="btn btn-default" onclick="WF.undo()" title="Undo">↩️ Undo</button>
-    <button class="btn btn-default" id="btn-fullscreen" onclick="window.open('/workflow', '_blank')" title="Open Fullscreen">🔲 Fullscreen</button>
+    <button class="btn btn-default" onclick="WF.undo()" data-i18n-title="wf.btn_undo" data-i18n="wf.btn_undo">↩️ Undo</button>
+    <button class="btn btn-default" id="btn-fullscreen" onclick="window.open('/workflow', '_blank')" data-i18n-title="wf.btn_fullscreen" data-i18n="wf.btn_fullscreen">🔲 Fullscreen</button>
     <script>if(window.self === window.top) setTimeout(()=>document.getElementById('btn-fullscreen').style.display='none', 10);</script>
     <span id="zoom-label" class="zoom-label" style="padding:0 8px">100%</span>
     <button class="btn btn-icon" onclick="WF.zoomIn()">➕</button>
@@ -47,9 +47,9 @@
 
     <!-- Left: Node Palette -->
     <div class="palette" id="palette">
-      <div class="palette-header">📦 Nodes</div>
+      <div class="palette-header" data-i18n="wf.nodes">📦 Nodes</div>
       <div class="palette-search">
-        <input type="text" id="palette-search" placeholder="Search nodes..." oninput="WF.filterPalette(this.value)">
+        <input type="text" id="palette-search" placeholder="Search nodes..." data-i18n-placeholder="wf.search_nodes" oninput="WF.filterPalette(this.value)">
       </div>
       <div class="palette-list" id="palette-list">
         <!-- Dynamically populated -->
@@ -81,12 +81,12 @@
     <!-- Right: Property Panel -->
     <div class="property-panel" id="property-panel">
       <div class="panel-header">
-        <span id="panel-title">⚙️ Properties</span>
+        <span id="panel-title" data-i18n="wf.properties">⚙️ Properties</span>
       </div>
       <div class="panel-body" id="panel-body">
         <div class="panel-empty">
           <div class="panel-empty-icon">🖱️</div>
-          <span>Click a node to edit</span>
+          <span data-i18n="wf.click_edit">Click a node to edit</span>
         </div>
       </div>
     </div>
@@ -96,14 +96,14 @@
   <!-- ── Log Panel ───────────────────────────────────────── -->
   <div class="log-panel" id="log-panel">
     <!-- Drag Handle -->
-    <div class="log-resize-handle" id="log-resize-handle" title="Kéo để mở rộng / thu nhỏ">
+    <div class="log-resize-handle" id="log-resize-handle" title="Drag to resize" data-i18n-title="wf.drag_resize">
       <div class="log-resize-dots"></div>
     </div>
     <div class="log-header">
-      <span>📋 Execution Log</span>
+      <span data-i18n="wf.exec_log">📋 Execution Log</span>
       <div class="toolbar-spacer"></div>
-      <span class="log-status" id="log-status">⏸️ Ready</span>
-      <button class="btn btn-icon" onclick="WF.clearLogs()" title="Clear Logs">🗑️</button>
+      <span class="log-status" id="log-status" data-i18n="wf.ready">⏸️ Ready</span>
+      <button class="btn btn-icon" onclick="WF.clearLogs()" title="Clear Logs" data-i18n-title="wf.clear_logs">🗑️</button>
     </div>
     <div class="log-body" id="log-body"></div>
   </div>
@@ -111,8 +111,8 @@
 
 <!-- Context Menu -->
 <div class="context-menu" id="context-menu">
-  <div class="context-menu-item" onclick="WF.deleteSelected()">🗑️ Delete</div>
-  <div class="context-menu-item" onclick="WF.duplicateSelected()">📋 Duplicate</div>
+  <div class="context-menu-item" onclick="WF.deleteSelected()" data-i18n="wf.delete">🗑️ Delete</div>
+  <div class="context-menu-item" onclick="WF.duplicateSelected()" data-i18n="wf.duplicate">📋 Duplicate</div>
 </div>
 
 <!-- Hidden file inputs -->
@@ -123,27 +123,27 @@
 <div class="modal-overlay" id="save-skill-modal">
   <div class="modal">
     <div class="modal-header">
-      <span>💾 Save as Skill</span>
+      <span data-i18n="wf.skill_modal_title">💾 Save as Skill</span>
       <button class="btn btn-icon" onclick="document.getElementById('save-skill-modal').classList.remove('visible')">✖</button>
     </div>
     <div class="modal-body">
       <div class="field-group">
-        <label class="field-label">Skill Name <span style="color:var(--red)">*</span></label>
+        <label class="field-label"><span data-i18n="wf.skill_name">Skill Name</span> <span style="color:var(--red)">*</span></label>
         <input type="text" id="skill-name-input" class="field-input" placeholder="e.g. Write to Google Sheets">
       </div>
       <div class="field-group">
-        <label class="field-label">Trigger Command (Optional)</label>
+        <label class="field-label" data-i18n="wf.skill_trigger">Trigger Command (Optional)</label>
         <input type="text" id="skill-trigger-input" class="field-input" placeholder="e.g. luu du lieu vao sheet">
-        <small style="color:var(--text-muted); font-size:11px; display:block; margin-top:4px;">Agents will run this skill when they detect this command.</small>
+        <small style="color:var(--text-muted); font-size:11px; display:block; margin-top:4px;" data-i18n="wf.skill_trigger_hint">Agents will run this skill when they detect this command.</small>
       </div>
       <div class="field-group">
-        <label class="field-label">Description (Optional)</label>
-        <textarea id="skill-desc-input" class="field-textarea" placeholder="Explain what this skill does..."></textarea>
+        <label class="field-label" data-i18n="wf.skill_desc">Description (Optional)</label>
+        <textarea id="skill-desc-input" class="field-textarea" placeholder="Explain what this skill does..." data-i18n-placeholder="wf.skill_desc_ph"></textarea>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-default" onclick="document.getElementById('save-skill-modal').classList.remove('visible')">Cancel</button>
-      <button class="btn btn-success" onclick="WF.submitSaveSkill()">Save Skill</button>
+      <button class="btn btn-default" onclick="document.getElementById('save-skill-modal').classList.remove('visible')" data-i18n="wf.btn_cancel">Cancel</button>
+      <button class="btn btn-success" onclick="WF.submitSaveSkill()" data-i18n="wf.btn_save_skill_submit">Save Skill</button>
     </div>
   </div>
 </div>
@@ -152,19 +152,19 @@
 <div class="modal-overlay" id="ai-generate-modal">
   <div class="modal" style="max-width:600px">
     <div class="modal-header">
-      <span>✨ Tạo Workflow bằng AI</span>
+      <span data-i18n="wf.ai_modal_title">✨ AI Workflow Generator</span>
       <button class="btn btn-icon" onclick="document.getElementById('ai-generate-modal').classList.remove('visible')">✖</button>
     </div>
     <div class="modal-body">
       <div class="field-group">
-        <label class="field-label">Mô tả workflow bạn muốn tạo</label>
-        <textarea id="ai-prompt-input" class="field-textarea" rows="5" placeholder="Ví dụ: Tải 5 video trên douyin https://www.douyin.com/user/MS4wLj... lưu danh sách vào Google Sheet trả về link sheet"></textarea>
+        <label class="field-label" data-i18n="wf.ai_prompt">Describe the workflow you want</label>
+        <textarea id="ai-prompt-input" class="field-textarea" rows="5" placeholder="Example: Download 5 videos from douyin..." data-i18n-placeholder="wf.ai_prompt_ph"></textarea>
       </div>
       <div style="display:flex; gap:12px; align-items:flex-end">
         <div class="field-group" style="flex:1">
-          <label class="field-label">AI Provider</label>
+          <label class="field-label" data-i18n="wf.ai_provider">AI Provider</label>
           <select id="ai-provider-select" class="field-select" onchange="WF.onAiProviderChange()">
-            <option value="global">🌐 Global AI (mặc định)</option>
+            <option value="global" data-i18n="wf.ai_global">🌐 Global AI (mặc định)</option>
             <option value="gemini">✨ Gemini</option>
             <option value="chatgpt">💬 ChatGPT</option>
             <option value="claude">🧠 Claude</option>
@@ -176,28 +176,37 @@
           </select>
         </div>
         <div class="field-group" style="flex:1">
-          <label class="field-label">Model</label>
-          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name">
+          <label class="field-label" data-i18n="wf.ai_model">Model</label>
+          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name" list="ai-model-list">
+          <datalist id="ai-model-list"></datalist>
         </div>
       </div>
       <div class="field-group" id="ai-apikey-group" style="display:none">
-        <label class="field-label">API Key</label>
-        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here">
+        <label class="field-label" data-i18n="wf.ai_apikey">API Key</label>
+        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here" data-i18n-placeholder="wf.ai_apikey_ph">
       </div>
       <div id="ai-gen-status" style="display:none; padding:12px 0; text-align:center">
         <div class="ai-spinner"></div>
-        <div style="margin-top:8px; color:var(--text-muted); font-size:13px" id="ai-gen-status-text">AI đang phân tích và tạo workflow...</div>
+        <div style="margin-top:8px; color:var(--text-muted); font-size:13px" id="ai-gen-status-text" data-i18n="wf.ai_generating">AI is analyzing and generating workflow...</div>
       </div>
       <div style="margin-top:8px">
-        <small style="color:var(--text-muted); font-size:11px">💡 Gợi ý: "Tải video từ YouTube channel, lưu danh sách vào Google Sheet" • "Gọi API lấy data, lọc JSON, ghi vào file"</small>
+        <small style="color:var(--text-muted); font-size:11px" data-i18n="wf.ai_hint">💡 Gợi ý: "Tải video từ YouTube channel, lưu danh sách vào Google Sheet" • "Gọi API lấy data, lọc JSON, ghi vào file"</small>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-default" onclick="document.getElementById('ai-generate-modal').classList.remove('visible')">Hủy</button>
-      <button class="btn btn-ai" id="btn-ai-generate" onclick="WF.submitAiGenerate()">✨ Tạo tự động</button>
+      <button class="btn btn-default" onclick="document.getElementById('ai-generate-modal').classList.remove('visible')" data-i18n="wf.btn_cancel">Hủy</button>
+      <button class="btn btn-ai" id="btn-ai-generate" onclick="WF.submitAiGenerate()" data-i18n="wf.ai_submit">✨ Tạo tự động</button>
     </div>
   </div>
 </div>
+
+<script src="/static/i18n.js"></script>
+<script>
+  // Initialize i18n inside the iframe
+  window.addEventListener('DOMContentLoaded', async () => {
+    if (typeof loadI18nFromApi === 'function') await loadI18nFromApi();
+  });
+</script>
 
 <script src="/static/workflow-n8n.js"></script>
 <script src="/static/workflow.js"></script>

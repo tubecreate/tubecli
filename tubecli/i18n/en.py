@@ -248,4 +248,15 @@ MESSAGES = {
     "update.restart_note": "Restart TubeCLI (tubecli init) to apply changes.",
     "update.auto_restart": "TubeCLI will restart automatically...",
     "update.press_enter": "\n  Press Enter to continue...",
+    "panel.api_not_ready": "API server is not ready. Restarting...",
+    "panel.api_start_error": "API server failed to start. Please check the errors.",
+    "panel.api_start_tip": "Try running: tubecli api start --lang en (in a separate CMD) to see detailed error logs.",
+    "panel.api_ready": "API server is ready!",
+    "panel.api_running": "API server is running at port {port}",
+    "wizard.ollama_installed_models": "Installed Ollama models:",
+    "wizard.ollama_no_models": "Ollama is installed but has no models.",
+    "wizard.auto_set_ai": "Automatically set default AI: {model} for all agents.",
+    "wizard.config_save_error": "Error saving config: {error}",
+    "wizard.auto_set_ai_error": "Could not auto update agent model: {error}",
+
 }

@@ -1,0 +1,456 @@
+{
+  "name": "AI Generated Script",
+  "slug": "ai_generated_script",
+  "description": "Login into Google account with 2FA using TOTP",
+  "category": "general",
+  "target_url": "https://accounts.google.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Go to Google",
+      "selector": "",
+      "params": {
+        "url": "https://www.google.com"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for page load",
+      "selector": "",
+      "params": {
+        "ms": 2500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Scroll down slightly",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 200
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over Sign in button",
+      "selector": "a[href*='SignIn'], a[href*='signin'], a[href*='login'], header a[href*='accounts']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "selector": "",
+      "params": {
+        "ms": 600
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click Sign in button",
+      "selector": "a[href*='SignIn'], a[href*='signin'], a[href*='login'], header a[href*='accounts']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for email input",
+      "selector": "input[type='email'], input[name='identifier']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before typing email",
+      "selector": "",
+      "params": {
+        "ms": 2000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over email field",
+      "selector": "input[type='email'], input[name='identifier']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "selector": "",
+      "params": {
+        "ms": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click email field",
+      "selector": "input[type='email'], input[name='identifier']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type email",
+      "selector": "input[type='email'], input[name='identifier']",
+      "params": {
+        "text": "matchediabate2017@gmail.com",
+        "clear_first": true
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before Next",
+      "selector": "",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over Next button",
+      "selector": "button[jsname='LgbsSe'], button[type='button']:has(span:contains('Next')), #identifierNext button",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "selector": "",
+      "params": {
+        "ms": 500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click Next after email",
+      "selector": "button[jsname='LgbsSe'], button[type='button']:has(span:contains('Next')), #identifierNext button",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for password input",
+      "selector": "input[type='password'], input[name='Passwd']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before typing password",
+      "selector": "",
+      "params": {
+        "ms": 2000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over password field",
+      "selector": "input[type='password'], input[name='Passwd']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "selector": "",
+      "params": {
+        "ms": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click password field",
+      "selector": "input[type='password'], input[name='Passwd']",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type password",
+      "selector": "input[type='password'], input[name='Passwd']",
+      "params": {
+        "text": "Teamtunghotube@123",
+        "clear_first": true
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before Next",
+      "selector": "",
+      "params": {
+        "ms": 1200
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Hover over Next button after password",
+      "selector": "button[jsname='LgbsSe'], button[type='button']:has(span:contains('Next')), #passwordNext button",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Pause before click",
+      "selector": "",
+      "params": {
+        "ms": 500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click Next after password",
+      "selector": "button[jsname='LgbsSe'], button[type='button']:has(span:contains('Next')), #passwordNext button",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for 2FA or next page",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "condition",
+      "label": "Check if 2FA input appears",
+      "params": {
+        "check": "document.querySelector('input#totpPin, input[name=\"totpPin\"], input[type=\"tel\"], input[autocomplete=\"one-time-code\"]') !== null",
+        "then_steps": [
+          {
+            "type": "fetch_otp",
+            "label": "Get 2FA code",
+            "selector": "",
+            "params": {
+              "secret": "{{totp_secret}}",
+              "save_as": "otp_code"
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "sleep",
+            "label": "Pause before typing OTP",
+            "selector": "",
+            "params": {
+              "ms": 1000
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "hover",
+            "label": "Hover over 2FA input",
+            "selector": "input#totpPin, input[name='totpPin'], input[type='tel'], input[autocomplete='one-time-code']",
+            "params": {},
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "sleep",
+            "label": "Pause before click",
+            "selector": "",
+            "params": {
+              "ms": 400
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "click",
+            "label": "Click 2FA input",
+            "selector": "input#totpPin, input[name='totpPin'], input[type='tel'], input[autocomplete='one-time-code']",
+            "params": {},
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "type",
+            "label": "Enter 2FA code",
+            "selector": "input#totpPin, input[name='totpPin'], input[type='tel'], input[autocomplete='one-time-code']",
+            "params": {
+              "text": "{{otp_code}}",
+              "clear_first": true
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "sleep",
+            "label": "Pause before Next",
+            "selector": "",
+            "params": {
+              "ms": 1000
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "hover",
+            "label": "Hover over Next after 2FA",
+            "selector": "#totpNext button, button[jsname='LgbsSe']",
+            "params": {},
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "sleep",
+            "label": "Pause before click",
+            "selector": "",
+            "params": {
+              "ms": 500
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          },
+          {
+            "type": "click",
+            "label": "Click Next after 2FA",
+            "selector": "#totpNext button, button[jsname='LgbsSe']",
+            "params": {},
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          }
+        ],
+        "else_steps": [
+          {
+            "type": "sleep",
+            "label": "No 2FA detected, continue",
+            "selector": "",
+            "params": {
+              "ms": 1000
+            },
+            "enabled": true,
+            "on_error": "abort",
+            "retry_count": 0
+          }
+        ]
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for login success (Google account icon)",
+      "selector": "a[href*='myaccount'], a[href*='signout'], img[alt*='profile'], a[aria-label*='Google Account']",
+      "params": {
+        "state": "visible",
+        "timeout": 20000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Final pause after login",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "totp_secret",
+      "default": "f56m slbb mq72 ujyx d4ys 7v5j fss2 2lgk",
+      "description": "TOTP/2FA secret key (base32) for matchediabate2017@gmail.com"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-05 05:10:53",
+  "updated_at": "2026-05-05 05:10:53"
+}

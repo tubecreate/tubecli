@@ -2,7 +2,7 @@
   "ollama.models": "📦 Modeller",
   "ollama.loaded": "🔥 Yüklendi",
   "ollama.not_running": "Ollama çalışmıyor.",
-  "ollama.no_models": "Model yok. Aşağıdan bir tane çekin.",
+  "ollama.no_models": "Model yok. Aşağıdan birini çekin.",
   "ollama.pull": "📥 Çek",
   "ollama.enter_model": "Model adını girin.",
   "ollama.pulling": "\"{name}\" çekiliyor...",
@@ -11,7 +11,7 @@
   "ollama.remove_confirm": "\"{name}\" kaldırılsın mı?",
   "ollama.model_col": "Model",
   "ollama.size_col": "Boyut",
-  "ollama.modified_col": "Değiştirilme",
+  "ollama.modified_col": "Değiştirildi",
   "ollama.status_col": "Durum",
   "ollama.actions_col": "Eylemler"
 }

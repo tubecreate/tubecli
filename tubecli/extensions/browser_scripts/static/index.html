@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Script Studio — Browser Automation</title>
+    <meta name="description" content="Visual browser automation script editor for TubeCLI">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
+    <link rel="stylesheet" href="/script-studio/styles.css?v=20260505">
+</head>
+<body>
+    <div id="app">
+        <!-- Top Bar -->
+        <header id="topbar">
+            <div class="topbar-left">
+                <span class="logo">🤖</span>
+                <h1 data-i18n="script_studio.title">Script Studio</h1>
+            </div>
+            <div class="topbar-center">
+                <span id="currentScriptName" class="script-badge">No Script Selected</span>
+            </div>
+            <div class="topbar-right">
+                <button id="btnAIGenerate" class="btn btn-accent" title="AI Generate Script">
+                    <span class="material-symbols-outlined">auto_awesome</span> AI Generate
+                </button>
+                <button id="btnImportScript" class="btn btn-ghost" title="Import JSON">
+                    <span class="material-symbols-outlined">upload_file</span>
+                </button>
+                <button id="btnNewScript" class="btn btn-primary">
+                    <span class="material-symbols-outlined">add</span> New Script
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div id="main-layout">
+            <!-- Sidebar: Script List -->
+            <aside id="sidebar">
+                <div class="sidebar-header">
+                    <input type="text" id="searchScripts" placeholder="Search scripts..." class="search-input">
+                </div>
+                <div id="scriptCategories" class="category-list">
+                    <div class="category-item active" data-category="" data-i18n="script_studio.all_scripts">All Scripts</div>
+                    <div class="category-item" data-category="video" data-i18n="script_studio.category_video">🎬 Video</div>
+                    <div class="category-item" data-category="image" data-i18n="script_studio.category_image">🖼️ Image</div>
+                    <div class="category-item" data-category="audio" data-i18n="script_studio.category_audio">🎵 Audio</div>
+                    <div class="category-item" data-category="scraping" data-i18n="script_studio.category_scraping">🕷️ Scraping</div>
+                    <div class="category-item" data-category="general" data-i18n="script_studio.category_general">📄 General</div>
+                </div>
+                <div id="scriptList" class="script-list">
+                    <div class="empty-state">
+                        <span class="material-symbols-outlined">code_off</span>
+                        <p data-i18n="script_studio.no_scripts">No scripts yet</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Resize handle -->
+            <div class="resize-handle" id="sidebarResize"></div>
+
+            <!-- Center: Step Editor -->
+            <section id="editor-panel">
+                <!-- Browser Config Bar (moved to top for better visibility) -->
+                <div class="exec-config-bar" style="display:flex; align-items:center; gap:8px; padding:8px 16px; border-bottom:1px solid var(--border); background:var(--bg-surface)">
+                    <span style="font-size:12px; font-weight:500; color:var(--text-muted)">Engine:</span>
+                    <select id="execEngine" class="form-input form-input-sm" title="Browser engine" style="max-width:160px">
+                        <option value="playwright">⚡ ShardX</option>
+                        <option value="bablosoft">🛡️ BAS</option>
+                    </select>
+                    <span style="font-size:12px; font-weight:500; color:var(--text-muted); margin-left:8px">Profile:</span>
+                    <select id="execProfile" class="form-input form-input-sm" style="max-width:200px">
+                        <option value="">Select Profile...</option>
+                    </select>
+                    <button id="btnAddProfile" class="btn btn-sm btn-icon" onclick="showCreateProfileDialog()" title="Create new profile">
+                        <span class="material-symbols-outlined" style="font-size:16px">add</span>
+                    </button>
+                    <label class="exec-toggle" title="Show Browser: mở cửa sổ riêng" style="display:flex; align-items:center; gap:4px; cursor:pointer; margin-left:8px">
+                        <input type="checkbox" id="showBrowserToggle" style="cursor:pointer">
+                        <span class="material-symbols-outlined" style="font-size:16px">desktop_windows</span>
+                        <span style="font-size:12px">Show</span>
+                    </label>
+                </div>
+                <div class="editor-toolbar">
+                    <div class="editor-tabs">
+                        <button class="tab active" data-tab="steps" data-i18n="script_studio.tab_steps">Steps</button>
+                        <button class="tab" data-tab="variables" data-i18n="script_studio.tab_variables">Variables</button>
+                        <button class="tab" data-tab="settings" data-i18n="script_studio.tab_settings">Settings</button>
+                        <button class="tab" data-tab="history" data-i18n="script_studio.tab_history">History</button>
+                    </div>
+                    <div class="editor-actions">
+                        <button id="btnAddStep" class="btn btn-sm btn-ghost" title="Add Step">
+                            <span class="material-symbols-outlined">add_circle</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Steps Tab -->
+                <div id="tabSteps" class="tab-content active">
+                    <div id="stepsList" class="steps-list">
+                        <div class="empty-state">
+                            <span class="material-symbols-outlined">list_alt</span>
+                            <p data-i18n="script_studio.add_steps_hint">Add steps to start building your script</p>
+                            <button class="btn btn-primary btn-sm" onclick="addStep()">
+                                <span class="material-symbols-outlined">add</span> <span data-i18n="script_studio.btn_add_first_step">Add First Step</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Variables Tab -->
+                <div id="tabVariables" class="tab-content">
+                    <div class="variables-panel">
+                        <div class="panel-header">
+                            <h3 data-i18n="script_studio.script_variables">Script Variables</h3>
+                            <button class="btn btn-sm btn-ghost" onclick="addVariable()">
+                                <span class="material-symbols-outlined">add</span>
+                            </button>
+                        </div>
+                        <div id="variablesList" class="variables-list"></div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="tabSettings" class="tab-content">
+                    <div class="settings-panel">
+                        <div class="form-group">
+                            <label data-i18n="script_studio.script_name">Script Name</label>
+                            <input type="text" id="settingName" class="form-input" placeholder="Script name" data-i18n-placeholder="script_studio.script_name">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="script_studio.slug">Slug (API ID)</label>
+                            <input type="text" id="settingSlug" class="form-input" placeholder="veo3_generate_video" data-i18n-placeholder="script_studio.slug">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="script_studio.description">Description</label>
+                            <textarea id="settingDesc" class="form-input" rows="3" placeholder="Describe what this script does..." data-i18n-placeholder="script_studio.description"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="script_studio.category">Category</label>
+                            <select id="settingCategory" class="form-input">
+                                <option value="video" data-i18n="script_studio.category_video">🎬 Video</option>
+                                <option value="image" data-i18n="script_studio.category_image">🖼️ Image</option>
+                                <option value="audio" data-i18n="script_studio.category_audio">🎵 Audio</option>
+                                <option value="scraping" data-i18n="script_studio.category_scraping">🕷️ Scraping</option>
+                                <option value="general" data-i18n="script_studio.category_general">📄 General</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="script_studio.target_url">Target URL</label>
+                            <input type="text" id="settingUrl" class="form-input" placeholder="https://..." data-i18n-placeholder="script_studio.target_url">
+                        </div>
+                        <div class="form-group" style="margin-top:16px;padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius)">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:0">
+                                <input type="checkbox" id="settingIsFunction" style="accent-color:var(--success);width:16px;height:16px;cursor:pointer">
+                                <span class="material-symbols-outlined" style="font-size:18px;color:var(--success)">functions</span>
+                                <span style="font-size:0.85rem;font-weight:500" data-i18n="script_studio.mark_as_function">Mark as Function</span>
+                            </label>
+                            <p style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;margin-left:28px" data-i18n="script_studio.mark_as_function_desc">
+                                Functions can be called from other scripts via the <code style="background:rgba(88,166,255,0.1);padding:1px 4px;border-radius:3px">call_function</code> step. When enabled, this script will appear in the "Insert Call Function" menu.
+                            </p>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveSettings()">
+                            <span class="material-symbols-outlined">save</span> <span data-i18n="script_studio.btn_save_settings">Save Settings</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- History Tab -->
+                <div id="tabHistory" class="tab-content">
+                    <div id="executionHistory" class="history-list">
+                        <div class="empty-state">
+                            <span class="material-symbols-outlined">history</span>
+                            <p data-i18n="script_studio.no_history">No execution history</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Bottom Execution Bar -->
+                <div id="execBar">
+                    <div class="exec-left">
+                        <!-- Moved browser config to top -->
+                    </div>
+                    <div class="exec-right">
+                        <button id="btnRun" class="btn btn-success" onclick="runScript()">
+                            <span class="material-symbols-outlined">play_arrow</span> <span data-i18n="script_studio.btn_run">Run</span>
+                        </button>
+                        <button id="btnPause" class="btn btn-warning" onclick="togglePauseScript()" disabled>
+                            <span class="material-symbols-outlined">pause</span> <span data-i18n="script_studio.btn_pause">Pause</span>
+                        </button>
+                        <button id="btnStop" class="btn btn-danger" onclick="stopScript()" disabled>
+                            <span class="material-symbols-outlined">stop</span> <span data-i18n="script_studio.btn_stop">Stop</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Resize handle -->
+            <div class="resize-handle" id="editorResize"></div>
+
+            <!-- Right: Browser Preview -->
+            <section id="preview-panel">
+                <div class="preview-toolbar">
+                    <div class="preview-url-bar">
+                        <button class="btn btn-sm btn-ghost nav-btn" onclick="navAction('back')" title="Back">
+                            <span class="material-symbols-outlined" style="font-size:18px">arrow_back</span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost nav-btn" onclick="navAction('forward')" title="Forward">
+                            <span class="material-symbols-outlined" style="font-size:18px">arrow_forward</span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost nav-btn" id="btnReload" onclick="navAction('reload')" title="Reload">
+                            <span class="material-symbols-outlined" style="font-size:18px">refresh</span>
+                        </button>
+                        <input type="text" id="previewUrl" class="form-input form-input-sm" placeholder="Enter URL..." value="about:blank" onkeydown="if(event.key==='Enter')navigatePreview()" data-i18n-placeholder="script_studio.enter_url">
+                        <button class="btn btn-sm btn-ghost" onclick="navigatePreview()" title="Go">
+                            <span class="material-symbols-outlined">arrow_forward</span>
+                        </button>
+                    </div>
+                    <div class="preview-actions">
+                        <button id="btnLaunchPreview" class="btn btn-sm btn-accent" onclick="launchPreview()">
+                            <span class="material-symbols-outlined">open_in_browser</span> <span data-i18n="script_studio.btn_launch">Launch</span>
+                        </button>
+                        <button id="btnProfileSettings" class="btn btn-sm btn-ghost" onclick="showProfileSettings()" title="Profile Settings">
+                            <span class="material-symbols-outlined">settings</span>
+                        </button>
+                        <button id="btnPicker" class="btn btn-sm btn-ghost" onclick="togglePicker()" title="Element Picker">
+                            <span class="material-symbols-outlined">my_location</span>
+                        </button>
+                        <button class="btn btn-sm btn-ghost" onclick="takeScreenshot()" title="Screenshot">
+                            <span class="material-symbols-outlined">screenshot_monitor</span>
+                        </button>
+                    </div>
+                </div>
+                <div id="previewContainer" class="preview-container">
+                    <div class="empty-state">
+                        <span class="material-symbols-outlined">web</span>
+                        <p data-i18n="script_studio.launch_preview_hint">Click "Launch" to open browser preview</p>
+                        <p class="text-sm" data-i18n="script_studio.run_preview_hint">Or run a script to see it in action</p>
+                    </div>
+                </div>
+                <!-- Execution Log -->
+                <div id="logPanel" class="log-panel">
+                    <div class="log-header">
+                        <span data-i18n="script_studio.console">Console</span>
+                        <button class="btn btn-sm btn-ghost" onclick="clearLog()">
+                            <span class="material-symbols-outlined">delete_sweep</span>
+                        </button>
+                    </div>
+                    <div id="logContent" class="log-content"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <!-- Chat Bot Toggle -->
+    <button id="chatToggle" class="chat-toggle-btn" onclick="toggleChat()" title="AI Assistant">
+        <span class="material-symbols-outlined">smart_toy</span>
+    </button>
+
+    <!-- Chat Panel (Floating Drawer) -->
+    <div id="chatPanel" class="chat-panel" style="display:none">
+        <div class="chat-header">
+            <span class="material-symbols-outlined" style="color:var(--accent)">smart_toy</span>
+            <span data-i18n="script_studio.assistant_title">Script Assistant</span>
+            <div style="flex:1"></div>
+            <button class="btn btn-sm btn-ghost" onclick="clearChat()" title="Clear chat">
+                <span class="material-symbols-outlined">delete_sweep</span>
+            </button>
+            <button class="btn btn-sm btn-ghost" onclick="toggleChat()">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div id="chatMessages" class="chat-messages">
+            <div class="chat-msg bot">
+                <div class="chat-bubble" data-i18n="script_studio.assistant_welcome">Hello! I can help you edit scripts, generate dynamic content, or fix bugs. Ask me anything!</div>
+            </div>
+        </div>
+        <div class="chat-input-bar">
+            <input type="text" id="chatInput" class="form-input" placeholder="Ask AI about the script..." onkeydown="if(event.key==='Enter')sendChat()" data-i18n-placeholder="script_studio.assistant_placeholder">
+            <button class="btn btn-accent btn-sm" onclick="sendChat()">
+                <span class="material-symbols-outlined">send</span>
+            </button>
+        </div>
+    </div>
+    <!-- Step Type Selector Modal -->
+    <div id="stepTypeModal" class="modal" style="display:none">
+        <div class="modal-backdrop" onclick="closeStepTypeModal()"></div>
+        <div class="modal-content">
+            <h3>Add Step</h3>
+            <div class="step-type-grid">
+                <button class="step-type-btn" onclick="insertStep('navigate')">
+                    <span class="material-symbols-outlined">language</span>Navigate
+                </button>
+                <button class="step-type-btn" onclick="insertStep('click')">
+                    <span class="material-symbols-outlined">ads_click</span>Click
+                </button>
+                <button class="step-type-btn" onclick="insertStep('type')">
+                    <span class="material-symbols-outlined">keyboard</span>Type
+                </button>
+                <button class="step-type-btn" onclick="insertStep('wait')">
+                    <span class="material-symbols-outlined">hourglass_empty</span>Wait
+                </button>
+                <button class="step-type-btn" onclick="insertStep('wait_network_response')">
+                    <span class="material-symbols-outlined">network_check</span>Wait Network
+                </button>
+                <button class="step-type-btn" onclick="insertStep('sleep')">
+                    <span class="material-symbols-outlined">timer</span>Sleep
+                </button>
+                <button class="step-type-btn" onclick="insertStep('ai_generate')">
+                    <span class="material-symbols-outlined">auto_awesome</span>AI Text
+                </button>
+                <button class="step-type-btn" onclick="insertStep('evaluate')">
+                    <span class="material-symbols-outlined">code</span>Evaluate
+                </button>
+                <button class="step-type-btn" onclick="insertStep('extract')">
+                    <span class="material-symbols-outlined">content_copy</span>Extract
+                </button>
+                <button class="step-type-btn" onclick="insertStep('screenshot')">
+                    <span class="material-symbols-outlined">screenshot_monitor</span>Screenshot
+                </button>
+                <button class="step-type-btn" onclick="insertStep('download')">
+                    <span class="material-symbols-outlined">download</span>Download
+                </button>
+                <button class="step-type-btn" onclick="insertStep('condition')">
+                    <span class="material-symbols-outlined">call_split</span>Condition
+                </button>
+                <button class="step-type-btn" onclick="insertStep('loop')">
+                    <span class="material-symbols-outlined">loop</span>Loop
+                </button>
+                <button class="step-type-btn" onclick="insertStep('keyboard')">
+                    <span class="material-symbols-outlined">keyboard_return</span>Key Press
+                </button>
+                <button class="step-type-btn" onclick="insertStep('scroll')">
+                    <span class="material-symbols-outlined">swap_vert</span>Scroll
+                </button>
+                <button class="step-type-btn" onclick="insertStep('mouse_move')">
+                    <span class="material-symbols-outlined">mouse</span>Mouse Move
+                </button>
+                <button class="step-type-btn" onclick="insertStep('hover')">
+                    <span class="material-symbols-outlined">near_me</span>Hover
+                </button>
+                <button class="step-type-btn" onclick="insertStep('call_function')" style="border-color:var(--accent)">
+                    <span class="material-symbols-outlined">functions</span>Call Function
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New Script Modal -->
+    <div id="newScriptModal" class="modal" style="display:none">
+        <div class="modal-backdrop" onclick="closeNewScriptModal()"></div>
+        <div class="modal-content">
+            <h3>Create New Script</h3>
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="newScriptName" class="form-input" placeholder="My Automation Script">
+            </div>
+            <div class="form-group">
+                <label>Category</label>
+                <select id="newScriptCategory" class="form-input">
+                    <option value="general">📄 General</option>
+                    <option value="video">🎬 Video</option>
+                    <option value="image">🖼️ Image</option>
+                    <option value="audio">🎵 Audio</option>
+                    <option value="scraping">🕷️ Scraping</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Target URL</label>
+                <input type="text" id="newScriptUrl" class="form-input" placeholder="https://...">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeNewScriptModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="createNewScript()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Generate Modal -->
+    <div id="aiGenerateModal" class="modal" style="display:none">
+        <div class="modal-backdrop" onclick="closeModal('aiGenerateModal')"></div>
+        <div class="modal-content" style="max-width:560px">
+            <h3><span class="material-symbols-outlined" style="vertical-align:middle;color:var(--accent)">auto_awesome</span> <span data-i18n="script_studio.ai_generate_title">AI Generate Script</span></h3>
+            <p style="color:var(--text-muted);font-size:0.85rem;margin-bottom:12px" data-i18n="script_studio.ai_generate_desc">Describe the action you want to automate, and AI will generate the script for you.</p>
+            <div class="form-group">
+                <label data-i18n="script_studio.automation_description">Automation Description</label>
+                <textarea id="aiPrompt" class="form-input" rows="4" placeholder="e.g. Open Veo3 on Google AI Studio, enter video prompt, click Generate, wait for render, then download video" data-i18n-placeholder="script_studio.ai_generate_placeholder"></textarea>
+                <!-- Prompt suggestion chips -->
+                <div class="prompt-chips" style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <span class="ext-chip" onclick="applyPromptTemplate('gmail')" style="font-size:0.75rem; padding:4px 10px;" data-i18n="script_studio.gmail_login">🔑 Gmail Login</span>
+                    <span class="ext-chip" onclick="applyPromptTemplate('youtube_scrape')" style="font-size:0.75rem; padding:4px 10px;" data-i18n="script_studio.youtube_scrape">🎬 Youtube Scrape</span>
+                    <span class="ext-chip" onclick="applyPromptTemplate('auto_comment')" style="font-size:0.75rem; padding:4px 10px;" data-i18n="script_studio.auto_comment">💬 Auto Comment</span>
+                    <span class="ext-chip" onclick="applyPromptTemplate('download_file')" style="font-size:0.75rem; padding:4px 10px;" data-i18n="script_studio.download_file">📥 Download File</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label data-i18n="script_studio.target_url_optional">Target URL (optional)</label>
+                <input type="text" id="aiTargetUrl" class="form-input" placeholder="https://aistudio.google.com/..." data-i18n-placeholder="script_studio.target_url_optional">
+            </div>
+            <div class="form-group">
+                <label data-i18n="script_studio.ai_provider_status">AI Provider (API Key Status)</label>
+                <div id="aiProviderChips" style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <span style="font-size: 0.8rem; color: var(--text-muted);" data-i18n="script_studio.loading_config">Loading configuration...</span>
+                </div>
+            </div>
+            <div class="form-group" id="aiModelGroup" style="display:none">
+                <label data-i18n="script_studio.ai_model">AI Model</label>
+                <select id="aiModelSelect" class="form-input"></select>
+            </div>
+            <div id="aiGenerateStatus" style="display:none;padding:8px 12px;border-radius:8px;background:var(--surface-2);margin-bottom:12px;font-size:0.85rem">
+                <span class="material-symbols-outlined" style="animation:spin 1s linear infinite;vertical-align:middle">progress_activity</span>
+                <span id="aiGenerateStatusText" data-i18n="script_studio.generating_script">Generating script using AI...</span>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeModal('aiGenerateModal')" data-i18n="script_studio.btn_cancel">Cancel</button>
+                <button id="btnDoAIGenerate" class="btn btn-accent" onclick="doAIGenerate()">
+                    <span class="material-symbols-outlined">auto_awesome</span> <span data-i18n="script_studio.btn_generate">Generate</span>
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- Create Profile Modal -->
+    <div id="createProfileModal" class="modal" style="display:none">
+        <div class="modal-backdrop" onclick="closeModal('createProfileModal')"></div>
+        <div class="modal-content" style="max-width:420px">
+            <h3 style="display:flex;align-items:center;gap:8px">
+                <span class="material-symbols-outlined">person_add</span> Create New Profile
+            </h3>
+            <div class="form-group">
+                <label>Profile Name <span style="color:var(--accent)">*</span></label>
+                <input type="text" id="newProfileName" class="form-input" placeholder="e.g. profile_youtube_01" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Proxy <span style="color:var(--text-muted)">(optional)</span></label>
+                <input type="text" id="newProfileProxy" class="form-input" placeholder="http://user:pass@host:port">
+            </div>
+            <div class="form-group">
+                <label>OS / Browser Tags</label>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:4px">
+                    <label class="tag-check"><input type="checkbox" name="profileTag" value="Windows" checked> <span>Windows</span></label>
+                    <label class="tag-check"><input type="checkbox" name="profileTag" value="macOS"> <span>macOS</span></label>
+                    <label class="tag-check"><input type="checkbox" name="profileTag" value="Chrome" checked> <span>Chrome</span></label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>Window Size</label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input type="number" id="newProfileWidth" class="form-input" value="1920" style="width:100px" min="800" max="3840">
+                    <span style="color:var(--text-muted)">×</span>
+                    <input type="number" id="newProfileHeight" class="form-input" value="1080" style="width:100px" min="600" max="2160">
+                </div>
+            </div>
+            <div id="createProfileError" style="color:var(--danger);font-size:13px;margin-bottom:8px;display:none"></div>
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeModal('createProfileModal')">Cancel</button>
+                <button id="btnDoCreateProfile" class="btn btn-primary" onclick="doCreateProfile()">
+                    <span class="material-symbols-outlined">add</span> Create Profile
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Settings Modal -->
+    <div id="profileSettingsModal" class="modal" style="display:none">
+        <div class="modal-backdrop" onclick="closeModal('profileSettingsModal')"></div>
+        <div class="modal-content" style="max-width:480px">
+            <h3 style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                <span class="material-symbols-outlined">settings</span>
+                <span data-i18n="script_studio.profile_settings">Profile Settings</span>
+            </h3>
+            <div id="profileSettingsName" style="font-size:0.82rem;color:var(--accent);margin-bottom:16px;font-weight:500"></div>
+
+            <!-- Proxy -->
+            <div class="settings-section">
+                <label class="settings-label">
+                    <span class="material-symbols-outlined" style="font-size:16px">vpn_key</span> <span data-i18n="script_studio.proxy">Proxy</span>
+                </label>
+                <input type="text" id="settingsProxy" class="form-input" placeholder="http://user:pass@host:port">
+            </div>
+
+            <!-- Window Size -->
+            <div class="settings-section">
+                <label class="settings-label">
+                    <span class="material-symbols-outlined" style="font-size:16px">aspect_ratio</span> <span data-i18n="script_studio.window_size">Window Size</span>
+                </label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input type="number" id="settingsWidth" class="form-input" style="width:100px" min="800" max="3840">
+                    <span style="color:var(--text-muted)">×</span>
+                    <input type="number" id="settingsHeight" class="form-input" style="width:100px" min="600" max="2160">
+                </div>
+            </div>
+
+            <!-- Fingerprint -->
+            <div class="settings-section">
+                <label class="settings-label">
+                    <span class="material-symbols-outlined" style="font-size:16px">fingerprint</span> <span data-i18n="script_studio.fingerprint">Fingerprint</span>
+                </label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <span id="fingerprintStatus" style="font-size:0.8rem;color:var(--text-muted)">—</span>
+                    <button class="btn btn-sm btn-ghost" onclick="refreshFingerprint()" id="btnRefreshFP">
+                        <span class="material-symbols-outlined" style="font-size:16px">refresh</span> <span data-i18n="script_studio.btn_refresh">Refresh</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cookies -->
+            <div class="settings-section">
+                <label class="settings-label">
+                    <span class="material-symbols-outlined" style="font-size:16px">cookie</span> <span data-i18n="script_studio.cookies">Cookies</span>
+                </label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <span id="cookiesStatus" style="font-size:0.8rem;color:var(--text-muted)">—</span>
+                    <button class="btn btn-sm btn-ghost" onclick="exportCookies()">
+                        <span class="material-symbols-outlined" style="font-size:16px">download</span> <span data-i18n="script_studio.btn_export">Export</span>
+                    </button>
+                    <label class="btn btn-sm btn-ghost" style="cursor:pointer;margin:0">
+                        <span class="material-symbols-outlined" style="font-size:16px">upload</span> <span data-i18n="script_studio.btn_import">Import</span>
+                        <input type="file" id="importCookiesFile" accept=".json" style="display:none" onchange="importCookies(this)">
+                    </label>
+                    <button class="btn btn-sm btn-ghost" onclick="deleteCookies()" style="color:var(--danger)">
+                        <span class="material-symbols-outlined" style="font-size:16px">delete</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="profileSettingsError" style="color:var(--danger);font-size:13px;margin-top:8px;display:none"></div>
+            <div id="profileSettingsSuccess" style="color:var(--success);font-size:13px;margin-top:8px;display:none"></div>
+
+            <div class="modal-actions">
+                <button class="btn btn-ghost" onclick="closeModal('profileSettingsModal')" data-i18n="script_studio.btn_cancel">Close</button>
+                <button class="btn btn-primary" onclick="saveProfileSettings()">
+                    <span class="material-symbols-outlined">save</span> <span data-i18n="script_studio.btn_save">Save</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu (dynamically populated) -->
+    <div id="contextMenu" class="context-menu" style="display:none"></div>
+
+    <!-- Quick AI Generate Mini Modal -->
+    <div id="quickAIModal" style="display:none">
+        <div class="mini-modal-backdrop" onclick="closeMiniModal('quickAIModal')"></div>
+        <div class="mini-modal" style="top:50%;left:50%;transform:translate(-50%,-50%)">
+            <h4>
+                <span class="material-symbols-outlined" style="color:var(--purple)">auto_awesome</span>
+                <span data-i18n="script_studio.quick_ai_title">AI Generate Steps</span>
+            </h4>
+            <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:10px" data-i18n="script_studio.quick_ai_desc">
+                Describe the steps you want AI to generate. Steps will be inserted at the selected position.
+            </p>
+            <div class="form-group">
+                <label data-i18n="script_studio.action_description">Action Description</label>
+                <textarea id="quickAIPrompt" class="form-input" rows="3" placeholder="e.g. Hover and click the Subscribe button, wait 2 seconds, then click notification bell" data-i18n-placeholder="script_studio.quick_ai_placeholder"></textarea>
+                <!-- Prompt suggestion chips -->
+                <div class="prompt-chips" style="display:flex; gap:6px; margin-top:8px; flex-wrap:wrap;">
+                    <span class="ext-chip" onclick="applyQuickPromptTemplate('click_button')" style="font-size:0.72rem; padding:3px 8px;" data-i18n="script_studio.click_button">🖱️ Click Button</span>
+                    <span class="ext-chip" onclick="applyQuickPromptTemplate('fill_form')" style="font-size:0.72rem; padding:3px 8px;" data-i18n="script_studio.fill_form">✍️ Fill Form</span>
+                    <span class="ext-chip" onclick="applyQuickPromptTemplate('scroll_page')" style="font-size:0.72rem; padding:3px 8px;" data-i18n="script_studio.scroll_page">📜 Scroll & Wait</span>
+                    <span class="ext-chip" onclick="applyQuickPromptTemplate('extract_data')" style="font-size:0.72rem; padding:3px 8px;" data-i18n="script_studio.extract_data">🕸️ Extract Data</span>
+                </div>
+            </div>
+            <div id="quickAIStatus" style="display:none;padding:6px 10px;border-radius:8px;background:var(--surface-2);margin-bottom:8px;font-size:0.8rem">
+                <span class="material-symbols-outlined" style="animation:spin 1s linear infinite;vertical-align:middle;font-size:16px">progress_activity</span>
+                <span id="quickAIStatusText" data-i18n="script_studio.generating_steps">Generating steps using AI...</span>
+            </div>
+            <div class="mini-modal-actions">
+                <button class="btn btn-ghost btn-sm" onclick="closeMiniModal('quickAIModal')" data-i18n="script_studio.btn_cancel">Cancel</button>
+                <button id="btnDoQuickAI" class="btn btn-accent btn-sm" onclick="doQuickAIGenerate()">
+                    <span class="material-symbols-outlined" style="font-size:16px">auto_awesome</span> <span data-i18n="script_studio.btn_generate">Generate</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Variable Mini Modal -->
+    <div id="createVarModal" style="display:none">
+        <div class="mini-modal-backdrop" onclick="closeMiniModal('createVarModal')"></div>
+        <div class="mini-modal" style="top:50%;left:50%;transform:translate(-50%,-50%)">
+            <h4>
+                <span class="material-symbols-outlined" style="color:var(--accent)">data_object</span>
+                <span data-i18n="script_studio.create_var_title">Create New Variable</span>
+            </h4>
+            <div class="form-group">
+                <label data-i18n="script_studio.var_name">Variable Name</label>
+                <input type="text" id="quickVarName" class="form-input" placeholder="e.g. username, search_query" oninput="updateVarPreview()" data-i18n-placeholder="script_studio.var_name_placeholder">
+            </div>
+            <div class="form-group">
+                <label data-i18n="script_studio.type">Type</label>
+                <select id="quickVarType" class="form-input">
+                    <option value="string">String</option>
+                    <option value="number">Number</option>
+                    <option value="boolean">Boolean</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label data-i18n="script_studio.default_value">Default Value</label>
+                <input type="text" id="quickVarDefault" class="form-input" placeholder="Default value..." data-i18n-placeholder="script_studio.default_value_placeholder">
+            </div>
+            <div id="varPreview" class="var-preview" style="display:none">
+                {{<span id="varPreviewName"></span>}}
+            </div>
+            <div class="mini-modal-actions">
+                <button class="btn btn-ghost btn-sm" onclick="closeMiniModal('createVarModal')" data-i18n="script_studio.btn_cancel">Cancel</button>
+                <button class="btn btn-primary btn-sm" onclick="doCreateVariable()">
+                    <span class="material-symbols-outlined" style="font-size:16px">add</span> <span data-i18n="script_studio.btn_create">Create</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Insert Function Modal -->
+    <div id="insertFunctionModal" style="display:none">
+        <div class="mini-modal-backdrop" onclick="closeMiniModal('insertFunctionModal')"></div>
+        <div class="mini-modal" style="top:50%;left:50%;transform:translate(-50%,-50%);width:440px">
+            <h4>
+                <span class="material-symbols-outlined" style="color:var(--success)">functions</span>
+                <span data-i18n="script_studio.insert_fn_title">Insert Call Function</span>
+            </h4>
+            <p style="color:var(--text-muted);font-size:0.78rem;margin-bottom:12px" data-i18n="script_studio.insert_fn_desc">
+                Select function to insert as a <code>call_function</code> step
+            </p>
+            <div id="fnListContainer" class="fn-list">
+                <div class="empty-state" style="padding:20px">
+                    <span class="material-symbols-outlined" style="font-size:2rem;opacity:0.3">functions</span>
+                    <p style="font-size:0.8rem" data-i18n="script_studio.loading_functions">Loading functions list...</p>
+                </div>
+            </div>
+            <div class="mini-modal-actions">
+                <button class="btn btn-ghost btn-sm" onclick="closeMiniModal('insertFunctionModal')" data-i18n="script_studio.btn_cancel">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/i18n.js?v=2026"></script>
+    <script>document.write('<scr'+'ipt src="/script-studio/app.js?v='+Date.now()+'"><\/scr'+'ipt>')</script>
+    <script src="/static/ext-footer.js"></script>
+</body>
+</html>

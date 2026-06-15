@@ -19,6 +19,11 @@ mimetypes.add_type("application/json", ".json")
 router = APIRouter(tags=["webui"])
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
 
+@router.get("/favicon.ico")
+async def get_favicon():
+    return FileResponse(os.path.join(STATIC_DIR, "favicon.ico"), media_type="image/x-icon")
+
+
 # ── Include Story API ───────────────────────────────────────────────
 from .story_api import story_router
 router.include_router(story_router)

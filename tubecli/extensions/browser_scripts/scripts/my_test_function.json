@@ -1,0 +1,30 @@
+{
+  "name": "My Test Function",
+  "slug": "my_test_function",
+  "description": "",
+  "category": "general",
+  "target_url": "",
+  "tags": [],
+  "steps": [
+    {
+      "id": "step_1778030308656",
+      "type": "call_function",
+      "label": "Call: Gmail Login with 2FA",
+      "enabled": true,
+      "selector": "",
+      "params": {
+        "function_slug": "gmail_login_with_2fa",
+        "inputs": {},
+        "outputs": {}
+      },
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-06T01:16:45.613619",
+  "updated_at": "2026-05-06T01:18:28.658609"
+}

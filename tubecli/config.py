@@ -270,7 +270,10 @@ def migrate_and_link_extensions_data():
                     try:
                         new_folder_path.mkdir(parents=True, exist_ok=True)
                         for entry in os.listdir(nested_path):
-                            shutil.move(str(nested_path / entry), str(new_folder_path / entry))
+                            src_path = nested_path / entry
+                            dest_path = new_folder_path / entry
+                            if src_path.resolve() != dest_path.resolve() and dest_path.resolve() != nested_path.resolve():
+                                shutil.move(str(src_path), str(dest_path))
                         shutil.rmtree(str(nested_path), ignore_errors=True)
                         print(f"[Migration] Cleaned up nested folder for {ext_name}")
                     except Exception as e:

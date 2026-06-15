@@ -2,7 +2,7 @@
   "ollama.models": "📦 Modelos",
   "ollama.loaded": "🔥 Cargado",
   "ollama.not_running": "Ollama no se está ejecutando.",
-  "ollama.no_models": "No hay modelos. Tire de uno a continuación.",
+  "ollama.no_models": "No hay modelos. Descargue uno a continuación.",
   "ollama.pull": "📥 Descargar",
   "ollama.enter_model": "Introduzca el nombre del modelo.",
   "ollama.pulling": "Descargando \"{name}\"...",

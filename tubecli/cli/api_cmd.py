@@ -60,7 +60,7 @@ def status():
 
     port = get_api_port()
     try:
-        resp = requests.get(f"http://localhost:{port}/api/v1/health", timeout=3)
+        resp = requests.get(f"http://127.0.0.1:{port}/api/v1/health", timeout=3)
         if resp.status_code == 200:
             console.print(f"\n[bold green][OK][/bold green] [green]API server is running[/green] on port {port}\n")
         else:

@@ -30,6 +30,9 @@ function applyI18n() {
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         el.placeholder = T(el.getAttribute('data-i18n-placeholder'));
     });
+    document.querySelectorAll('[data-i18n-title]').forEach(el => {
+        el.title = T(el.getAttribute('data-i18n-title'));
+    });
     // Update html lang attribute
     document.documentElement.lang = _lang;
 }

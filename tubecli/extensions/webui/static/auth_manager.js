@@ -1,6 +1,11 @@
 /**
  * Auth Manager — Frontend Logic
  */
+const T = window.T || (window.parent && window.parent.T) || ((k, v) => {
+    let s = k;
+    if(v && typeof v === 'object') { Object.keys(v).forEach(x => s = s.replace(new RegExp('\\{' + x + '\\}', 'g'), v[x])); }
+    return s;
+});
 
 const API_BASE = '/api/v1/auth-manager';
 
@@ -11,8 +16,18 @@ let tokensData = [];
 let profilesData = [];
 let _jsonContent = '';
 
+function applyI18n() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        el.textContent = T(el.getAttribute('data-i18n'));
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        el.placeholder = T(el.getAttribute('data-i18n-placeholder'));
+    });
+}
+
 // ── Init ────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
+    applyI18n();
     loadProviders();
     loadCredentials();
     loadTokens();
@@ -55,14 +70,14 @@ async function loadProviders() {
         providersData = data.providers || [];
         renderProviders();
     } catch (e) {
-        document.getElementById('providers-grid').innerHTML = `<div class="am-empty">Failed to load providers: ${e.message}</div>`;
+        document.getElementById('providers-grid').innerHTML = `<div class="am-empty">${T("auth.msg.failed_providers")}: ${e.message}</div>`;
     }
 }
 
 function renderProviders() {
     const grid = document.getElementById('providers-grid');
     if (!providersData.length) {
-        grid.innerHTML = '<div class="am-empty">No providers configured</div>';
+        grid.innerHTML = `<div class="am-empty">${T("auth.msg.no_providers")}</div>`;
         return;
     }
 
@@ -82,11 +97,11 @@ function renderProviders() {
             <div class="am-provider-stats">
                 <div class="am-stat">
                     <span class="am-stat-value">${p.credential_count}</span>
-                    <span class="am-stat-label">Credentials</span>
+                    <span class="am-stat-label">${T("auth.stat.credentials")}</span>
                 </div>
                 <div class="am-stat">
                     <span class="am-stat-value">${p.token_count}</span>
-                    <span class="am-stat-label">Tokens</span>
+                    <span class="am-stat-label">${T("auth.stat.tokens")}</span>
                 </div>
             </div>
             <div class="am-provider-scopes">${scopeChips}${moreScopes}</div>
@@ -109,7 +124,7 @@ async function loadCredentials() {
         renderCredentials();
     } catch (e) {
         document.getElementById('credentials-tbody').innerHTML =
-            `<tr><td colspan="6" class="am-empty">Failed to load: ${e.message}</td></tr>`;
+            `<tr><td colspan="6" class="am-empty">${T("auth.msg.failed_load")}: ${e.message}</td></tr>`;
     }
 }
 
@@ -123,10 +138,10 @@ function renderCredentials() {
     tbody.innerHTML = credentialsData.map(c => {
         const provBadge = `<span class="am-badge am-badge-${c.provider}">${c.provider}</span>`;
         const tokenBadge = {
-            active: '<span class="am-badge am-badge-active">✅ Active</span>',
-            expired: '<span class="am-badge am-badge-expired">⏰ Expired</span>',
-            none: '<span class="am-badge am-badge-none">— None</span>',
-            revoked: '<span class="am-badge am-badge-revoked">❌ Revoked</span>',
+            active: `<span class="am-badge am-badge-active">✅ ${T("auth.badge.active")}</span>`,
+            expired: `<span class="am-badge am-badge-expired">⏰ ${T("auth.badge.expired")}</span>`,
+            none: `<span class="am-badge am-badge-none">— ${T("auth.badge.none")}</span>`,
+            revoked: `<span class="am-badge am-badge-revoked">❌ ${T("auth.badge.revoked")}</span>`,
         }[c.token_status] || '<span class="am-badge am-badge-none">—</span>';
 
         const hasJson = c.has_json ? '<span class="am-badge am-badge-active" title="Service Account JSON">📄 JSON</span>' : '';
@@ -138,7 +153,7 @@ function renderCredentials() {
             <td><code style="font-size:0.78rem">${c.client_id || '—'}</code></td>
             <td>${tokenBadge}</td>
             <td class="am-actions">
-                <button class="am-btn-sm" onclick="openAuthorizeModal('${c.id}')">🔓 Authorize</button>
+                <button class="am-btn-sm" onclick="openAuthorizeModal('${c.id}')">🔓 ${T("auth.btn_authorize")}</button>
                 <button class="am-btn-sm" onclick="editCredential('${c.id}')">✏️</button>
                 <button class="am-btn-sm danger" onclick="deleteCredential('${c.id}', '${c.name}')">🗑</button>
             </td>
@@ -154,23 +169,23 @@ async function loadTokens() {
         renderTokens();
     } catch (e) {
         document.getElementById('tokens-tbody').innerHTML =
-            `<tr><td colspan="7" class="am-empty">Failed to load: ${e.message}</td></tr>`;
+            `<tr><td colspan="7" class="am-empty">${T("auth.msg.failed_load")}: ${e.message}</td></tr>`;
     }
 }
 
 function renderTokens() {
     const tbody = document.getElementById('tokens-tbody');
     if (!tokensData.length) {
-        tbody.innerHTML = '<tr><td colspan="7" class="am-empty">No authorized tokens yet. Authorize a credential to get started.</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="7" class="am-empty">${T("auth.msg.no_tokens")}</td></tr>`;
         return;
     }
 
     tbody.innerHTML = tokensData.map(t => {
         const provBadge = `<span class="am-badge am-badge-${t.provider}">${t.provider}</span>`;
         const statusBadge = {
-            active: '<span class="am-badge am-badge-active">✅ Active</span>',
-            expired: '<span class="am-badge am-badge-expired">⏰ Expired</span>',
-            revoked: '<span class="am-badge am-badge-revoked">❌ Revoked</span>',
+            active: `<span class="am-badge am-badge-active">✅ ${T("auth.badge.active")}</span>`,
+            expired: `<span class="am-badge am-badge-expired">⏰ ${T("auth.badge.expired")}</span>`,
+            revoked: `<span class="am-badge am-badge-revoked">❌ ${T("auth.badge.revoked")}</span>`,
         }[t.status] || '<span class="am-badge am-badge-none">?</span>';
 
         const scopes = (t.scopes || []).join(', ');
@@ -187,8 +202,8 @@ function renderTokens() {
             <td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis">${scopes}</td>
             <td>${statusBadge}</td>
             <td class="am-actions">
-                ${t.has_refresh ? `<button class="am-btn-sm" onclick="refreshToken('${t.token_id}')">🔄 Refresh</button>` : ''}
-                <button class="am-btn-sm danger" onclick="revokeToken('${t.token_id}')">❌ Revoke</button>
+                ${t.has_refresh ? `<button class="am-btn-sm" onclick="refreshToken('${t.token_id}')">🔄 ${T("auth.btn_refresh")}</button>` : ''}
+                <button class="am-btn-sm danger" onclick="revokeToken('${t.token_id}')">❌ ${T("auth.btn_revoke")}</button>
             </td>
         </tr>`;
     }).join('');
@@ -207,7 +222,7 @@ async function loadBrowserProfiles() {
 
 // ── Add Credential Modal ────────────────────────────────────────
 function openAddCredentialModal() {
-    document.getElementById('credential-modal-title').textContent = 'Add Credential';
+    document.getElementById('credential-modal-title').textContent = T('auth.modal_title_add') || 'Add Credential';
     document.getElementById('cred-edit-id').value = '';
     document.getElementById('cred-provider').value = 'google';
     document.getElementById('cred-name').value = '';
@@ -230,7 +245,7 @@ function editCredential(credId) {
     const cred = credentialsData.find(c => c.id === credId);
     if (!cred) return;
 
-    document.getElementById('credential-modal-title').textContent = 'Edit Credential';
+    document.getElementById('credential-modal-title').textContent = T('auth.modal_title_edit') || 'Edit Credential';
     document.getElementById('cred-edit-id').value = credId;
     document.getElementById('cred-provider').value = cred.provider;
     document.getElementById('cred-name').value = cred.name;
@@ -303,8 +318,8 @@ function renderCredServiceCards(providerKey, selectedScopes = []) {
                     ${checkedAttr}
                     onclick="event.stopPropagation()">
                 <div class="am-service-info">
-                    <div class="am-service-label">${svc.label}</div>
-                    <div class="am-service-desc">${svc.description || ''}</div>
+                    <div class="am-service-label">${T('auth.svc.' + svcId + '.label')}</div>
+                    <div class="am-service-desc">${T('auth.svc.' + svcId + '.desc')}</div>
                 </div>
             </div>
         </div>`;
@@ -325,8 +340,8 @@ function renderCredServiceCards(providerKey, selectedScopes = []) {
         <div class="am-service-row">
             <input type="checkbox" class="am-service-check am-custom-check" ${hasCustom ? 'checked' : ''} onclick="event.stopPropagation()">
             <div class="am-service-info">
-                <div class="am-service-label">➕ Thêm Scope Tùy Chỉnh</div>
-                <div class="am-service-desc">Tuỳ biến nhập thêm các URL API Scope khác</div>
+                <div class="am-service-label">${T('auth.svc.custom.label')}</div>
+                <div class="am-service-desc">${T('auth.svc.custom.desc')}</div>
             </div>
         </div>
         <div class="am-custom-body" style="display:${hasCustom ? 'block' : 'none'}; padding-top:12px">
@@ -354,7 +369,7 @@ function goToCredStep(step) {
         
         // Reset title
         const editId = document.getElementById('cred-edit-id').value;
-        document.getElementById('credential-modal-title').textContent = editId ? 'Edit Credential' : 'Add Credential';
+        document.getElementById('credential-modal-title').textContent = editId ? (T('auth.modal_title_edit') || 'Edit Credential') : (T('auth.modal_title_add') || 'Add Credential');
     } else if (step === 2) {
         // Collect required scopes
         const scopes = getSelectedCredScopes();
@@ -394,7 +409,7 @@ function goToCredStep(step) {
         
         const scopesContainer = document.getElementById('cred-required-scopes');
         if (scopes.length === 0) {
-            scopesContainer.innerHTML = '<div class="am-empty am-scope-row" style="color:var(--text2)">ℹ️ Không có quyền nào được yêu cầu</div>';
+            scopesContainer.innerHTML = `<div class="am-empty am-scope-row" style="color:var(--text2)">${T('auth.step2.no_scopes')}</div>`;
         } else {
             scopesContainer.innerHTML = scopes.map(s => `
                 <div class="am-scope-row">
@@ -436,8 +451,8 @@ function goToCredStep(step) {
         document.getElementById('cred-step-2').style.display = 'block';
         
         // Update Title
-        const name = document.getElementById('cred-name').value || 'New App';
-        document.getElementById('credential-modal-title').innerHTML = `Setup API: <span style="color:var(--cyan)">${name}</span>`;
+        const name = document.getElementById('cred-name').value || T('auth.new_app');
+        document.getElementById('credential-modal-title').innerHTML = `${T('auth.setup_api')}: <span style="color:var(--cyan)">${name}</span>`;
     }
 }
 
@@ -666,7 +681,7 @@ function openAuthorizeModal(credId) {
             return `<span class="am-scope-chip-readonly">${label}</span>`;
         }).join('');
     } else {
-        chipsContainer.innerHTML = '<span style="color:#ef4444;font-size:0.85rem">⚠️ Chưa cấu hình scopes. Chỉnh sửa credential để thêm quyền.</span>';
+        chipsContainer.innerHTML = `<span style="color:#ef4444;font-size:0.85rem">${T('auth.authz.no_scopes')}</span>`;
     }
 
     // Load browser profiles
@@ -689,7 +704,7 @@ async function startAuthorize(action = 'open') {
     const scopes = cred?.scopes || [];
 
     if (!scopes.length) {
-        showToast('Credential chưa có scopes. Hãy chỉnh sửa credential và chọn dịch vụ trước.', 'error');
+        showToast(T('auth.toast_no_scopes'), 'error');
         return;
     }
 

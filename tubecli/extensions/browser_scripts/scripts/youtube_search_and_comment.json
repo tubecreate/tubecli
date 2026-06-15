@@ -1,0 +1,181 @@
+{
+  "name": "YouTube Search and Comment",
+  "slug": "youtube_search_and_comment",
+  "description": "Tìm kiếm 'vipnhat roblox' trên YouTube, xem video đầu tiên và để lại bình luận",
+  "category": "general",
+  "target_url": "https://www.youtube.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Go to YouTube",
+      "selector": "",
+      "params": {
+        "url": "https://www.youtube.com"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search box",
+      "selector": "input#search",
+      "params": {
+        "state": "visible",
+        "timeout": 10000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click search box",
+      "selector": "input#search",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type search query",
+      "selector": "input#search",
+      "params": {
+        "text": "vipnhat roblox",
+        "clear_first": true,
+        "delay": 50
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "keyboard",
+      "label": "Press Enter to search",
+      "selector": "",
+      "params": {
+        "key": "Enter"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for search results",
+      "selector": "ytd-video-renderer",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click first video",
+      "selector": "ytd-video-renderer:nth-child(1) a#video-title",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for video to load",
+      "selector": "video",
+      "params": {
+        "state": "visible",
+        "timeout": 20000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for video to play a bit",
+      "selector": "",
+      "params": {
+        "ms": 5000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Wait for comment section",
+      "selector": "ytd-comments#comments",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click comment box",
+      "selector": "#simplebox-placeholder",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Wait for comment editor",
+      "selector": "",
+      "params": {
+        "ms": 2000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "type",
+      "label": "Type comment",
+      "selector": "#contenteditable-root",
+      "params": {
+        "text": "Video hay quá anh ơi!",
+        "clear_first": true,
+        "delay": 100
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Submit comment",
+      "selector": "#submit-button",
+      "params": {},
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "search_query",
+      "default": "vipnhat roblox",
+      "description": "Từ khóa tìm kiếm trên YouTube"
+    },
+    {
+      "name": "comment_text",
+      "default": "Video hay quá anh ơi!",
+      "description": "Nội dung bình luận"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-05-04 02:52:06",
+  "updated_at": "2026-05-04 02:52:06"
+}

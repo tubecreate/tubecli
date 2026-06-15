@@ -996,9 +996,10 @@ const WF = (() => {
 
   // ── Save / Load ────────────────────────────────────────────────
   async function saveWorkflow() {
-    const data = toJSON();
-    const name = prompt('Workflow name:', 'my_workflow');
+    if (state.nodes.length === 0) return;
+    const name = prompt(T('wf.js_name_prompt') || 'Workflow name:', 'my_workflow');
     if (!name) return;
+    const data = toJSON();
     try {
       const resp = await fetch('/api/v1/workflows', {
         method: 'POST',
@@ -1040,9 +1041,9 @@ const WF = (() => {
   }
 
   function newWorkflow() {
-    if (state.nodes.length > 0 && !confirm('Clear current workflow?')) return;
+    if (state.nodes.length > 0 && !confirm(T('wf.js_clear_confirm') || 'Clear current workflow?')) return;
     clearAll();
-    toast('📄 New workflow', 'info');
+    toast(T('wf.js_new_toast') || '📄 New workflow', 'info');
   }
 
   // ── n8n Import / Export ────────────────────────────────────────
@@ -1100,7 +1101,7 @@ const WF = (() => {
     const description = document.getElementById('skill-desc-input').value.trim();
 
     if (!name) {
-      toast('Skill Name is required', 'error');
+      toast(T('wf.js_skill_req') || 'Skill Name is required', 'error');
       return;
     }
 
@@ -1133,7 +1134,7 @@ const WF = (() => {
     if (state.nodes.length === 0) { toast('No nodes to run', 'error'); return; }
     state.isRunning = true;
     $logStatus.textContent = '🔄 Running...';
-    addLog('engine', 'Workflow Engine', 'started', 'Starting workflow...');
+    addLog('engine', T('wf.js_engine') || 'Workflow Engine', 'started', T('wf.js_starting') || 'Starting workflow...');
 
     // Mark all nodes as pending
     state.nodes.forEach(n => {
@@ -1176,7 +1177,7 @@ const WF = (() => {
         }
       }
       $logStatus.textContent = result.status === 'completed' ? '✅ Done' : '⚠️ ' + result.status;
-      toast('Workflow finished', result.status === 'completed' ? 'success' : 'error');
+      toast(T('wf.js_finished') || 'Workflow finished', result.status === 'completed' ? 'success' : 'error');
     } catch (e) {
       addLog('engine', 'Error', 'error', e.message);
       $logStatus.textContent = '❌ Error';
@@ -1292,6 +1293,7 @@ const WF = (() => {
   function onAiProviderChange() {
     const provider = document.getElementById('ai-provider-select').value;
     const $model = document.getElementById('ai-model-input');
+    const $datalist = document.getElementById('ai-model-list');
     const $apikeyGroup = document.getElementById('ai-apikey-group');
     const $apikey = document.getElementById('ai-apikey-input');
     const $select = document.getElementById('ai-provider-select');
@@ -1301,6 +1303,7 @@ const WF = (() => {
       $model.value = '';
       $model.placeholder = 'Dùng model mặc định của hệ thống';
       $model.disabled = true;
+      if ($datalist) $datalist.innerHTML = '';
       $apikeyGroup.style.display = 'none';
       return;
     }
@@ -1308,26 +1311,31 @@ const WF = (() => {
 
     const opt = $select.querySelector(`option[value="${provider}"]`);
     const hasCloudKey = opt?.getAttribute('data-has-key') === '1';
-    const models = (opt?.getAttribute('data-models') || '').split(',').filter(Boolean);
+    let models = (opt?.getAttribute('data-models') || '').split(',').filter(Boolean);
 
     // DeepSeek models
     if (provider === 'deepseek') {
-      $model.value = 'deepseek-chat';
-      $model.placeholder = 'deepseek-chat, deepseek-reasoner';
+      models = ['deepseek-chat', 'deepseek-reasoner'];
+      $model.value = models[0];
+      $model.placeholder = models.join(', ');
     } else if (provider === 'openrouter') {
-      $model.value = 'google/gemini-2.5-flash-lite';
-      $model.placeholder = 'google/gemini-2.5-flash-lite, openai/gpt-4o-mini';
+      models = ['google/gemini-2.5-flash-lite', 'openai/gpt-4o-mini'];
+      $model.value = models[0];
+      $model.placeholder = models.join(', ');
     } else if (provider === '9router') {
-      $model.value = 'deepseek-chat';
-      $model.placeholder = 'deepseek-chat';
+      models = ['deepseek-chat'];
+      $model.value = models[0];
+      $model.placeholder = models.join(', ');
       // Attempt to load live models from local proxy in background
       fetch('/api/v1/cloud-api/9router/status')
         .then(r => r.json())
         .then(data => {
-          if (data.status === 'running' && data.models && data.models.length > 0) {
-            $model.placeholder = data.models.join(', ');
+          if (data.running && data.models && data.models.length > 0) {
+            models = data.models;
+            $model.placeholder = models.join(', ');
+            if ($datalist) $datalist.innerHTML = models.map(m => `<option value="${m}">`).join('');
             if ($model.value === 'deepseek-chat') {
-              $model.value = data.models[0];
+              $model.value = models[0];
             }
           }
         }).catch(err => console.log('9Router status check failed:', err));
@@ -1337,6 +1345,10 @@ const WF = (() => {
     } else {
       $model.value = '';
       $model.placeholder = 'Model name';
+    }
+
+    if ($datalist) {
+      $datalist.innerHTML = models.map(m => `<option value="${m}">`).join('');
     }
 
     // Show/hide API key field
@@ -1395,14 +1407,14 @@ const WF = (() => {
       const workflowData = result.workflow_data;
 
       if (!workflowData || !workflowData.nodes || workflowData.nodes.length === 0) {
-        throw new Error('AI returned empty workflow');
+        throw new Error(T('wf.js_ai_empty') || 'AI returned empty workflow');
       }
 
       // Close modal and load workflow
       document.getElementById('ai-generate-modal').classList.remove('visible');
       fromJSON(workflowData);
       setTimeout(zoomFit, 200);
-      toast(`✨ Tạo thành công ${workflowData.nodes.length} nodes!`, 'success');
+      toast(T('wf.js_ai_success', {count: workflowData.nodes.length}) || `✨ Tạo thành công ${workflowData.nodes.length} nodes!`, 'success');
 
     } catch (e) {
       $statusText.textContent = '❌ Lỗi: ' + e.message;

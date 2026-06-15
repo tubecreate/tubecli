@@ -1,10 +1,4 @@
-"""
-Vietnamese (vi) translation catalog for TubeCLI.
-All user-facing messages in Vietnamese.
-"""
-
 MESSAGES = {
-    # ── init_cmd ──────────────────────────────────────────────
     "init.initializing": "[bold cyan]Đang khởi tạo TubeCLI workspace...[/bold cyan]\n",
     "init.data_dir": "  Thư mục dữ liệu: [green]{path}[/green]",
     "init.installing_skills": "  Đang cài đặt kỹ năng mặc định...",
@@ -18,8 +12,6 @@ MESSAGES = {
     "init.workspace_ready": "\n[bold green]TubeCLI workspace đã khởi tạo thành công![/bold green]\n",
     "init.lang_prompt": "Chọn ngôn ngữ / Choose language",
     "init.lang_saved": "  Ngôn ngữ: [green]{lang}[/green]",
-
-    # ── Control Panel ─────────────────────────────────────────
     "panel.title": "[bold white]TubeCLI Workspace Sẵn Sàng[/bold white]",
     "panel.dashboard": "Mở Dashboard trên trình duyệt",
     "panel.api_keys": "Cấu hình API Keys (Gemini/OpenAI)",
@@ -53,7 +45,7 @@ MESSAGES = {
     "panel.browser_help": "\n[yellow]Chạy 'tubecli browser launch <tên-profile>' để mở trình duyệt.[/yellow]",
     "panel.documentation": "\n[cyan]Tài liệu:[/cyan]",
     "panel.docs_not_found": "[yellow]Không tìm thấy tệp tài liệu.[/yellow]",
-    "panel.api_running": "\n[green]API server đang chạy trên cổng {port}.[/green]",
+    "panel.api_running": "API server đang chạy tại port {port}",
     "panel.api_starting": "\n[cyan]Đang khởi động API Server trên cổng {port}...[/cyan]",
     "panel.api_started": "[green]API Server đã khởi động ngầm.[/green]",
     "panel.cloud_api_error": "[red]Không thể tải extension cloud_api. Hãy đảm bảo nó đã được kích hoạt.[/red]",
@@ -66,8 +58,6 @@ MESSAGES = {
     "panel.logs_off": "TT",
     "panel.toggle_logs_msg": "Đã chuyển chế độ log API",
     "panel.api_restarting": "[cyan]Đang khởi động lại API server...[/cyan]",
-
-    # ── Setup Wizard ─────────────────────────────────────────
     "wizard.welcome_title": "[bold white]Chào mừng đến TubeCLI![/bold white]",
     "wizard.welcome_body": "Đây là lần đầu bạn khởi chạy TubeCLI.\nHãy thiết lập nhanh [bold]3 bước[/bold] để bắt đầu sử dụng:\n\n  [cyan]Bước 1:[/cyan] Thiết lập AI Chat (API Key hoặc Ollama)\n  [cyan]Bước 2:[/cyan] Kết nối Telegram Bot\n  [cyan]Bước 3:[/cyan] Xem tổng kết",
     "wizard.skip_all": "Bỏ qua tất cả → vào Dashboard (tự thiết lập sau trong Settings)",
@@ -75,8 +65,6 @@ MESSAGES = {
     "wizard.skipped_all": "[yellow]Đã bỏ qua thiết lập. Bạn có thể cấu hình bất cứ lúc nào từ Dashboard → Settings hoặc nhấn 7 trên menu.[/yellow]",
     "wizard.skip_step": "Bỏ qua bước này",
     "wizard.step_skipped": "[yellow]Đã bỏ qua. Bạn có thể thiết lập sau.[/yellow]",
-
-    # Step 1: AI
     "wizard.ai_title": "[bold white]Bước 1/3 — Thiết lập AI Chat[/bold white]",
     "wizard.ai_body": "Chọn cách sử dụng AI cho chatbot:\n\n  [green]Gemini API[/green] — Miễn phí, nhanh, khuyên dùng cho người mới\n  [blue]OpenAI / Claude / DeepSeek[/blue] — Dùng key riêng, mạnh hơn\n  [yellow]Ollama[/yellow] — Chạy offline trên máy, cần GPU (tùy chọn nâng cao)",
     "wizard.ai_gemini": "Gemini API (miễn phí, nhập API key)",
@@ -87,8 +75,6 @@ MESSAGES = {
     "wizard.key_saved": "đã lưu thành công!",
     "wizard.ollama_ready": "[green]Ollama đã cài đặt sẵn. Bạn có thể chọn model từ menu chính (mục 4).[/green]",
     "wizard.ollama_not_ready": "[yellow]Ollama chưa cài đặt. Chọn mục 4 trên menu chính sau để cài.[/yellow]",
-
-    # Step 2: Telegram
     "wizard.telegram_title": "[bold white]Bước 2/3 — Kết nối Telegram[/bold white]",
     "wizard.telegram_body": "Kết nối Telegram để điều khiển TubeCLI bằng tin nhắn.\nBạn có thể chat ra lệnh, tải video, theo dõi trang web,\nquản lý lịch... tất cả qua Telegram!",
     "wizard.telegram_start": "Bắt đầu kết nối Telegram",
@@ -98,12 +84,8 @@ MESSAGES = {
     "wizard.telegram_connected": "Bot [bold]{name}[/bold] (@{username}) đã kết nối thành công!",
     "wizard.telegram_next_step": "Mở Telegram → tìm [bold]@{username}[/bold] → gửi \"xin chào\" để test!",
     "wizard.telegram_test_fail": "Không thể kết nối bot",
-
-    # Step 3: Summary
     "wizard.summary_title": "[bold white]Bước 3/3 — Thiết lập hoàn tất![/bold white]",
     "wizard.summary_tip": "Mở Telegram → gửi \"xin chào\" cho @{username} để bắt đầu!",
-
-    # ── agent_cmd ─────────────────────────────────────────────
     "agent.created": "\nAgent đã tạo: [bold green]{name}[/bold green]",
     "agent.id_label": "   ID: [dim]{id}[/dim]\n",
     "agent.no_agents": "\n[yellow]Không tìm thấy agent nào. Chạy:[/yellow] [cyan]tubecli init[/cyan]\n",
@@ -116,8 +98,6 @@ MESSAGES = {
     "agent.not_found": "\n[red]Không tìm thấy agent:[/red] {id}\n",
     "agent.deleted": "\nĐã xóa agent: [red]{name}[/red]\n",
     "agent.delete_confirm": "Bạn có chắc muốn xóa agent này?",
-
-    # ── skill_cmd ─────────────────────────────────────────────
     "skill.no_skills": "\n[yellow]Không tìm thấy kỹ năng nào. Chạy:[/yellow] [cyan]tubecli init[/cyan]\n",
     "skill.table_title": "Kỹ năng",
     "skill.col_id": "ID",
@@ -131,8 +111,6 @@ MESSAGES = {
     "skill.completed": "\n[green]Kỹ năng đã hoàn thành[/green]\n",
     "skill.finished_status": "\n[yellow]Kỹ năng kết thúc với trạng thái: {status}[/yellow]\n",
     "skill.node_error": "[red]Lỗi khi tạo nodes:[/red] {error}\n",
-
-    # ── workflow_cmd ──────────────────────────────────────────
     "workflow.load_error": "\n[red]Lỗi khi tải workflow:[/red] {error}\n",
     "workflow.no_nodes": "[red]Không tìm thấy nodes trong file workflow.[/red]\n",
     "workflow.running": "\nĐang chạy workflow: [bold cyan]{name}[/bold cyan]",
@@ -143,8 +121,6 @@ MESSAGES = {
     "workflow.no_dir": "\n[yellow]Không tìm thấy thư mục workflows. Chạy:[/yellow] [cyan]tubecli init[/cyan]\n",
     "workflow.no_files": "\n[yellow]Không tìm thấy file workflow nào.[/yellow]\n",
     "workflow.saved_title": "\n[bold]Workflows đã lưu:[/bold]",
-
-    # ── extension_cmd ─────────────────────────────────────────
     "ext.no_extensions": "[dim]Không tìm thấy extension nào.[/dim]",
     "ext.table_title": "Extensions",
     "ext.col_name": "Tên",
@@ -165,8 +141,6 @@ MESSAGES = {
     "ext.cloning": "Đang clone repository...",
     "ext.uninstall_confirm": "Bạn có chắc muốn gỡ extension này?",
     "ext.not_found": "[red]Extension '{name}' không tìm thấy.[/red]",
-
-    # ── brain.py (user-facing replies only) ───────────────────
     "brain.running_skill": "Đang triển khai kỹ năng: **{name}**...",
     "brain.creating_skill": "✨ Tôi đang tự thiết kế kỹ năng mới: {name}...",
     "brain.creating_skill_generic": "✨ Đang tự thiết kế kỹ năng mới...",
@@ -178,8 +152,6 @@ MESSAGES = {
     "brain.summarize_prompt": "Summarize friendly in Vietnamese.",
     "brain.max_steps": "Đã đạt giới hạn bước tối đa.",
     "brain.workflow_error_guidance": "Workflow gặp lỗi. Kiểm tra: (1) credentials đã đúng chưa, (2) spreadsheet_id có tồn tại không, (3) các API đã bật chưa.",
-
-    # ── ollama_utils ──────────────────────────────────────────
     "ollama.auto_install_windows_only": "[yellow]Cài tự động hiện chỉ hỗ trợ Windows.[/yellow]",
     "ollama.manual_install": "Vui lòng cài đặt Ollama thủ công từ: https://ollama.com/download",
     "ollama.downloading": "\n[bold cyan]Đang tải OllamaSetup.exe...[/bold cyan]",
@@ -195,8 +167,6 @@ MESSAGES = {
     "ollama.pull_failed": "\n[bold red]Tải model '{name}' thất bại.[/bold red]",
     "ollama.pull_hint": "[yellow]Gợi ý: Kiểm tra kết nối internet hoặc dịch vụ Ollama đang chạy.[/yellow]",
     "ollama.pull_error": "\n[bold red]Lỗi khi chạy lệnh pull:[/bold red] {error}",
-
-    # Model descriptions
     "model.qwen_05b": "Khoảng 400MB - Cực nhẹ, chạy tốt trên mọi máy",
     "model.tinyllama": "Khoảng 650MB - Rất nhẹ, model 1.1B params",
     "model.deepseek_15b": "Khoảng 1.1GB - Model R1 nhẹ của DeepSeek",
@@ -209,8 +179,6 @@ MESSAGES = {
     "model.deepseek_14b": "Khoảng 9.0GB - DeepSeek R1 14B",
     "model.gemma4_4b": "~3.3GB - Google Gemma 4 mới nhất, nhẹ và nhanh",
     "model.gemma4_12b": "~7.9GB - Google Gemma 4 12B, hỗ trợ ảnh đa phương thức",
-
-    # ── Update Checker ───────────────────────────────────────
     "update.title": "[bold white]Cập Nhật TubeCLI[/bold white]",
     "update.checking_body": "Đang kiểm tra phiên bản mới từ GitHub...",
     "update.current_version": "Phiên bản hiện tại:",
@@ -248,4 +216,13 @@ MESSAGES = {
     "update.restart_note": "Khởi động lại TubeCLI (tubecli init) để áp dụng thay đổi.",
     "update.auto_restart": "TubeCLI sẽ tự khởi động lại...",
     "update.press_enter": "\n  Nhấn Enter để tiếp tục...",
+    "panel.api_not_ready": "API server chưa sẵn sàng. Đang khởi động lại...",
+    "panel.api_start_error": "API server không thể khởi động. Vui lòng kiểm tra lỗi.",
+    "panel.api_start_tip": "Thử chạy: tubecli api start --lang vi (trong CMD riêng) để xem log lỗi chi tiết.",
+    "panel.api_ready": "API server đã sẵn sàng!",
+    "wizard.ollama_installed_models": "Mô hình Ollama đã cài đặt:",
+    "wizard.ollama_no_models": "Ollama đã được cài đặt nhưng chưa có mô hình nào.",
+    "wizard.auto_set_ai": "Đã tự động đặt AI mặc định: {model} cho tất cả agents.",
+    "wizard.config_save_error": "Lỗi khi lưu cấu hình: {error}",
+    "wizard.auto_set_ai_error": "Không thể tự động cập nhật agent model: {error}",
 }

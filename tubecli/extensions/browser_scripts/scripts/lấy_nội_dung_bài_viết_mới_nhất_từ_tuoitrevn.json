@@ -1,0 +1,209 @@
+{
+  "name": "Lấy nội dung bài viết mới nhất từ tuoitre.vn",
+  "slug": "lấy_nội_dung_bài_viết_mới_nhất_từ_tuoitrevn",
+  "description": "Vào tuoitre.vn, tìm bài viết mới nhất trên trang chủ và lấy nội dung chi tiết.",
+  "category": "scraping",
+  "target_url": "https://tuoitre.vn",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Đi đến tuoitre.vn",
+      "selector": "",
+      "params": {
+        "url": "https://tuoitre.vn"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Chờ trang chủ tải xong",
+      "selector": "body",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Đọc trang chủ",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn nhẹ xuống để thấy bài viết mới",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 400
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Dừng một chút",
+      "selector": "",
+      "params": {
+        "ms": 1500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "extract",
+      "label": "Lấy đường dẫn bài viết đầu tiên",
+      "selector": "article a[href]:first-of-type",
+      "params": {
+        "attribute": "href",
+        "save_as": "first_article_url"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "hover",
+      "label": "Di chuột đến link bài viết đầu tiên",
+      "selector": "article a[href]:first-of-type",
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ trước khi click",
+      "selector": "",
+      "params": {
+        "ms": 600
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "click",
+      "label": "Click vào bài viết đầu tiên",
+      "selector": "article a[href]:first-of-type",
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "wait",
+      "label": "Chờ trang bài viết tải",
+      "selector": "article, .detail-content, .content-detail, main",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Đọc bài viết",
+      "selector": "",
+      "params": {
+        "ms": 3000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xuống để lấy nội dung",
+      "selector": "",
+      "params": {
+        "direction": "down",
+        "amount": 500
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ nội dung hiện ra",
+      "selector": "",
+      "params": {
+        "ms": 2000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "extract",
+      "label": "Lấy tiêu đề bài viết",
+      "selector": "h1, .article-title, [data-role='title'], .detail-title",
+      "params": {
+        "attribute": "innerText",
+        "save_as": "article_title"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "extract",
+      "label": "Lấy nội dung bài viết",
+      "selector": ".detail-content, .content-detail, article p, [data-role='content']",
+      "params": {
+        "attribute": "innerText",
+        "save_as": "article_content"
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    },
+    {
+      "type": "sleep",
+      "label": "Kết thúc",
+      "selector": "",
+      "params": {
+        "ms": 1000
+      },
+      "enabled": true,
+      "on_error": "abort",
+      "retry_count": 0
+    }
+  ],
+  "variables": [
+    {
+      "name": "first_article_url",
+      "default": "",
+      "description": "Đường dẫn bài viết đầu tiên"
+    },
+    {
+      "name": "article_title",
+      "default": "",
+      "description": "Tiêu đề bài viết"
+    },
+    {
+      "name": "article_content",
+      "default": "",
+      "description": "Nội dung bài viết"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-06-14T01:52:43.469019",
+  "updated_at": "2026-06-14T01:52:43.469048"
+}
