@@ -43,6 +43,7 @@
             <div class="nav-section-label" data-i18n="nav.main">MAIN</div>
             <button class="nav-item active" data-tab="dashboard"><span class="material-symbols-outlined">dashboard</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
             <button class="nav-item" data-tab="extensions" id="nav-extensions"><span class="material-symbols-outlined">extension</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span><span id="ext-update-badge" style="display:none;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;margin-left:auto;padding:0 5px;animation:pulse 2s infinite"></span></button>
+            <button class="nav-item" onclick="window.location.hash='#/extensions/detail/skills'; setTimeout(() => { document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active')); this.classList.add('active'); }, 200);" id="nav-skills"><span class="material-symbols-outlined">bolt</span> <span class="nav-text" data-i18n="stat.skills">Skills</span></button>
             <button class="nav-item" data-tab="api-manager"><span class="material-symbols-outlined">api</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
             <button class="nav-item" data-tab="ext-auth-manager"><span class="material-symbols-outlined">lock</span> <span class="nav-text" data-i18n="nav.auth_manager">Auth Manager</span></button>
             <button class="nav-item" data-tab="ext-cloud-keys"><span class="material-symbols-outlined">cloud</span> <span class="nav-text" data-i18n="nav.cloud_keys">Cloud API Keys</span></button>
@@ -54,6 +55,7 @@
             <button class="nav-item" data-tab="ext-agents"><span class="material-symbols-outlined">smart_toy</span> <span class="nav-text" data-i18n="nav.agents">Manage Agents</span></button>
             <button class="nav-item" data-tab="ext-workflows"><span class="material-symbols-outlined">automation</span> <span class="nav-text">Workflow Builder</span></button>
             <button class="nav-item" data-tab="ext-browser"><span class="material-symbols-outlined">public</span> <span class="nav-text" data-i18n="nav.browser">Browser Profiles</span></button>
+            <button class="nav-item" data-tab="ext-browser-scripts"><span class="material-symbols-outlined">integration_instructions</span> <span class="nav-text">Browser Scripts</span></button>
             <!-- Dynamic extension zone: buildSidebar() populates this -->
             <div id="ext-nav-zone"></div>
         </nav>
@@ -68,17 +70,13 @@
     <!-- Hidden button pool: buildSidebar() moves these into ext-nav-zone -->
     <div id="ext-btn-pool" style="display:none">
         <!-- Optional ext: shown only when API says enabled -->
-        <button class="nav-item" data-ext="web_crawler" data-tab="ext-web-crawler"><span class="material-symbols-outlined">travel_explore</span> <span class="nav-text">Web Crawler</span></button>
         <button class="nav-item" data-ext="sheets_manager" data-tab="ext-sheets"><span class="material-symbols-outlined">table_chart</span> <span class="nav-text">Sheets</span></button>
         <button class="nav-item" data-ext="calendar_manager" data-tab="ext-calendar"><span class="material-symbols-outlined">calendar_month</span> <span class="nav-text">Calendar</span></button>
         <button class="nav-item" data-ext="douyin_downloader" data-tab="ext-douyin-downloader"><span class="material-symbols-outlined">download</span> <span class="nav-text">Douyin Downloader</span></button>
         <button class="nav-item" data-ext="livestream" data-tab="ext-livestream"><span class="material-symbols-outlined">cast</span> <span class="nav-text">Livestream</span></button>
         <button class="nav-item" data-ext="multi_agents" data-tab="ext-teams"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
-        <button class="nav-item" data-ext="video_editor" data-tab="ext-video-editor"><span class="material-symbols-outlined">video_settings</span> <span class="nav-text">Video Editor</span></button>
-        <button class="nav-item" data-ext="video_editor" data-tab="ext-video-processing"><span class="material-symbols-outlined">auto_fix_high</span> <span class="nav-text">AI Background</span></button>
         <button class="nav-item" data-ext="video_manager" data-tab="ext-video-manager"><span class="material-symbols-outlined">video_library</span> <span class="nav-text">Video Manager</span></button>
-        <button class="nav-item" data-ext="subtitle_extractor" data-tab="ext-subtitle-extractor"><span class="material-symbols-outlined">subtitles</span> <span class="nav-text">Subtitle Extractor</span></button>
-        <button class="nav-item" data-ext="ai_arena" data-tab="ext-ai-arena"><span class="material-symbols-outlined">sports_esports</span> <span class="nav-text">AI Arena</span></button>
+        <button class="nav-item" data-ext="browser_scripts" data-tab="ext-browser-scripts"><span class="material-symbols-outlined">integration_instructions</span> <span class="nav-text">Script Studio</span></button>
         <!-- Static ext: always shown, also groupable -->
         <button class="nav-item" data-ext="story_engine" data-ext-static="true" data-tab="ext-story"><span class="material-symbols-outlined">movie</span> <span class="nav-text">Story Engine</span></button>
         <button class="nav-item" data-ext="studio_3d" data-ext-static="true" data-tab="ext-studio"><span class="material-symbols-outlined">palette</span> <span class="nav-text">3D Studio</span></button>
@@ -149,12 +147,15 @@
             <div id="calendar-ext-body"></div>
         </section>
         <section class="tab-panel" id="tab-ext-agents">
-            <div class="panel-header"><h1>🤖 Manage Agents</h1></div>
+            <div class="panel-header"><h1><span class="material-symbols-outlined" style="vertical-align:middle;margin-right:8px;font-size:28px">smart_toy</span>Manage Agents</h1></div>
             <div id="agents-ext-body"></div>
         </section>
         <section class="tab-panel" id="tab-ext-browser">
             <div class="panel-header"><h1 data-i18n="browser.profiles_title">🌐 Browser Profiles</h1></div>
             <div id="browser-ext-body"></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-browser-scripts">
+            <div class="iframe-container"><iframe data-src="/script-studio" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-cloud-keys">
             <div class="panel-header"><h1>☁️ Cloud API Keys</h1></div>
@@ -250,7 +251,10 @@
 
             <!-- Search -->
             <div style="margin:16px 0;">
-                <input id="api-search" type="text" class="input" placeholder="🔍 Tìm API endpoint... (VD: agents, download, skills)" oninput="filterApiEndpoints()" style="width:100%;max-width:500px;">
+                <div style="position: relative; display: flex; align-items: center; max-width: 500px;">
+                <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: var(--text-muted); font-size: 20px;">search</span>
+                <input id="api-search" type="text" class="input" placeholder="Search API endpoint... (e.g. agents, download, skills)" oninput="filterApiEndpoints()" style="width:100%; padding:10px 12px 10px 40px; margin:0; border-radius: 20px; background: var(--bg2); border: 1px solid var(--border); box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: all 0.3s; font-size: 0.9rem;" onfocus="this.style.boxShadow='0 0 0 2px var(--accent)';" onblur="this.style.boxShadow='0 2px 5px rgba(0,0,0,0.05)';">
+            </div>
             </div>
 
             <!-- Endpoints grouped -->
@@ -492,20 +496,23 @@
         <div class="modal-header"><h2 id="agent-modal-title">Create Agent</h2><button class="btn-close" onclick="closeModal('modal-agent')">✕</button></div>
         <div class="agent-tabs-container">
             <div class="agent-tabs-nav">
-                <button class="agent-tab-btn active" data-atab="identity">👤 Identity</button>
-                <button class="agent-tab-btn" data-atab="behavior">🧠 Behavior</button>
-                <button class="agent-tab-btn" data-atab="browser">🌐 Browser</button>
-                <button class="agent-tab-btn" data-atab="schedule">⏰ Schedule</button>
-                <button class="agent-tab-btn" data-atab="history">📜 History</button>
-                <button class="agent-tab-btn" data-atab="skills">⚡ Skills</button>
-                <button class="agent-tab-btn" data-atab="telegram">✈️ Telegram</button>
-                <button class="agent-tab-btn" data-atab="messenger">💬 Messenger</button>
+                <button class="agent-tab-btn active" data-atab="identity" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">person</span> Identity</button>
+                <button class="agent-tab-btn" data-atab="behavior" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">psychology</span> Behavior</button>
+                <button class="agent-tab-btn" data-atab="browser" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">public</span> Browser</button>
+                <button class="agent-tab-btn" data-atab="schedule" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">schedule</span> Schedule</button>
+                <button class="agent-tab-btn" data-atab="history" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">history</span> History</button>
+                <button class="agent-tab-btn" data-atab="skills" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">bolt</span> Skills</button>
+                <button class="agent-tab-btn" data-atab="telegram" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">send</span> Telegram</button>
+                <button class="agent-tab-btn" data-atab="messenger" style="display:flex;align-items:center;"><span class="material-symbols-outlined" style="margin-right:8px;font-size:18px">chat</span> Messenger</button>
             </div>
             <div class="agent-tabs-content">
                 <div class="agent-tab-pane active" id="atab-identity">
                     <h3>Identity & Options</h3>
                     <input type="hidden" id="agent-id">
-                    <div class="form-group"><label>Agent Name</label><input id="agent-name" placeholder="Agent Name"></div>
+                    <div style="display:flex;gap:10px;">
+                        <div class="form-group" style="width:120px;"><label>Icon/Emoji</label><input id="agent-icon" placeholder="smart_toy" value="smart_toy" style="text-align:center;font-size:16px;"></div>
+                        <div class="form-group" style="flex:1;"><label>Agent Name</label><input id="agent-name" placeholder="Agent Name"></div>
+                    </div>
                     <div class="form-group"><label>Description</label><input id="agent-desc" placeholder="Agent Description"></div>
                     <div class="form-group"><label>System Prompt</label><textarea id="agent-prompt" rows="4" placeholder="You are a helpful AI assistant."></textarea></div>
                     <!-- Chatbot Model Selector -->
@@ -802,17 +809,17 @@
 <div id="modal-skill-run" class="modal hidden">
     <div class="modal-content" style="max-width:600px; display: flex; flex-direction: column;">
         <div class="modal-header">
-            <h2>▶ Chạy Kiểm Thử Skill</h2>
+            <h2 data-i18n="skills.run.title">▶ Chạy Kiểm Thử Skill</h2>
             <button class="btn-close" onclick="closeModal('modal-skill-run')">✕</button>
         </div>
         <p style="color:var(--text-muted);margin:8px 0 16px;font-size:.9rem">
-            Thực thi trực tiếp: <strong id="skill-run-name" style="color:var(--cyan)"></strong>
+            <span data-i18n="skills.run.exec_direct">Thực thi trực tiếp:</span> <strong id="skill-run-name" style="color:var(--cyan)"></strong>
         </p>
         <input type="hidden" id="skill-run-id">
         <div class="form-group">
-            <label>Tham số đầu vào (Input Prompt)</label>
-            <textarea id="skill-run-input" class="input" rows="3" placeholder="Ví dụ: mô tả team hoặc từ khóa tìm kiếm... Nếu workflow không yêu cầu input thì để trống." style="width:100%;resize:vertical;font-family:inherit;padding:12px;"></textarea>
-            <small style="color:var(--text-muted);font-size:.75rem">Nội dung này sẽ được pass vào input của system prompt (hoặc node đầu tiên nếu là workflow)</small>
+            <label data-i18n="skills.run.input_prompt">Tham số đầu vào (Input Prompt)</label>
+            <textarea id="skill-run-input" class="input" rows="3" data-i18n-placeholder="skills.run.input_placeholder" placeholder="Ví dụ: mô tả team hoặc từ khóa tìm kiếm... Nếu workflow không yêu cầu input thì để trống." style="width:100%;resize:vertical;font-family:inherit;padding:12px;"></textarea>
+            <small style="color:var(--text-muted);font-size:.75rem"><span data-i18n="skills.run.input_hint">Nội dung này sẽ được pass vào input của system prompt (hoặc node đầu tiên nếu là workflow)</span></small>
         </div>
         
         <div id="skill-run-result-container" style="display:none; margin-top:16px;">
@@ -823,9 +830,9 @@
         </div>
 
         <div class="modal-actions" style="margin-top:20px;">
-            <button class="btn-secondary" onclick="closeModal('modal-skill-run')">Đóng</button>
+            <button class="btn-secondary" onclick="closeModal('modal-skill-run')" data-i18n="skills.run.btn_close">Đóng</button>
             <button class="btn-primary" id="btn-execute-skill" onclick="executeSkillRun()" style="background:linear-gradient(135deg,#10b981,#22c55e);font-weight:700">
-                🚀 Thực thi
+                <span data-i18n="skills.run.btn_execute">🚀 Thực thi</span>
             </button>
         </div>
     </div>
@@ -1019,14 +1026,14 @@
 <div id="modal-create-skill" class="modal hidden">
     <div class="modal-content modal-lg" style="max-width: 800px;">
         <div class="modal-header">
-            <h2 id="skill-modal-title">✨ Tạo Skill Mới</h2>
+            <h2 id="skill-modal-title" data-i18n="skill.modal_title">✨ Tạo Skill Mới</h2>
             <button class="btn-close" onclick="closeModal('modal-create-skill')">✕</button>
         </div>
         
         <div class="agent-tabs-container" style="flex: 1; margin-top: 16px;">
             <div class="agent-tabs-nav">
-                <button class="agent-tab-btn active" id="btn-tab-skill-manual" onclick="switchSkillCreateTab('manual')">✍️ Thủ công</button>
-                <button class="agent-tab-btn" id="btn-tab-skill-ai" onclick="switchSkillCreateTab('ai')">🤖 Tạo bằng AI</button>
+                <button class="agent-tab-btn skill-tab-btn active" id="btn-tab-skill-manual" onclick="switchSkillCreateTab('manual')" data-i18n="skill.tab_manual">✍️ Thủ công</button>
+                <button class="agent-tab-btn skill-tab-btn" id="btn-tab-skill-ai" onclick="switchSkillCreateTab('ai')" data-i18n="skill.tab_ai">🤖 Tạo bằng AI</button>
             </div>
             
             <div class="agent-tabs-content">
@@ -1035,47 +1042,47 @@
                     <input type="hidden" id="skill-edit-id">
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                         <div class="form-group">
-                            <label>Tên Skill <span style="color:var(--red)">*</span></label>
-                            <input id="skill-name-input" type="text" class="input" placeholder="Ví dụ: 🎬 Tải Video Tiktok">
+                            <label><span data-i18n="skills.create.lbl_name">Tên Skill</span> <span style="color:var(--red)">*</span></label>
+                            <input id="skill-name-input" type="text" class="input" data-i18n-placeholder="skills.create.ph_name" placeholder="Ví dụ: 🎬 Tải Video Tiktok">
                         </div>
                         <div class="form-group">
-                            <label>Loại Skill</label>
+                            <label data-i18n="skill.type">Loại Skill</label>
                             <select id="skill-type-select" class="input" style="width:100%; height:42px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding: 0 10px;" onchange="toggleManualSkillFields()">
-                                <option value="Markdown">Markdown (Prompt / SOP / Static)</option>
-                                <option value="Workflow Skill">Workflow Skill (Executable Graph)</option>
+                                <option value="Markdown" data-i18n="skill.type_markdown">Markdown (Prompt / SOP / Static)</option>
+                                <option value="Workflow Skill" data-i18n="skill.type_workflow">Workflow Skill (Executable Graph)</option>
                             </select>
                         </div>
                     </div>
 
                     <div class="form-group" style="margin-bottom: 16px;">
-                        <label>Mô tả Skill</label>
-                        <input id="skill-desc-input" type="text" class="input" placeholder="Mô tả công việc skill này thực hiện cho Agent hiểu...">
+                        <label data-i18n="skill.desc">Mô tả Skill</label>
+                        <input id="skill-desc-input" type="text" class="input" placeholder="Mô tả công việc skill này thực hiện cho Agent hiểu..." data-i18n-placeholder="skill.desc_placeholder">
                     </div>
 
                     <div class="form-group" style="margin-bottom: 16px;">
-                        <label>Từ khóa kích hoạt (Triggers)</label>
-                        <input id="skill-trigger-input" type="text" class="input" placeholder="ví dụ: tai video tiktok, download douyin">
-                        <small style="color:var(--text-muted); font-size:0.75rem;">Khi người dùng chat chứa các từ khóa này, Agent sẽ tự kích hoạt skill (phân cách bằng dấu phẩy).</small>
+                        <label data-i18n="skill.triggers">Từ khóa kích hoạt (Triggers)</label>
+                        <input id="skill-trigger-input" type="text" class="input" placeholder="ví dụ: tai video tiktok, download douyin" data-i18n-placeholder="skill.triggers_placeholder">
+                        <small style="color:var(--text-muted); font-size:0.75rem;" data-i18n="skill.triggers_hint">Khi người dùng chat chứa các từ khóa này, Agent sẽ tự kích hoạt skill (phân cách bằng dấu phẩy).</small>
                     </div>
 
                     <div class="form-group" id="group-skill-markdown" style="margin-bottom: 16px;">
-                        <label>Nội dung Logic / Hướng dẫn (SOP / Markdown Prompt)</label>
-                        <textarea id="skill-markdown-input" class="input" rows="8" placeholder="# Hướng dẫn thực hiện...\n1. Bước 1: ...\n2. Bước 2: ..." style="width:100%; font-family:var(--font-mono, monospace); padding:12px; resize:vertical; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);"></textarea>
-                        <small style="color:var(--text-muted); font-size:0.75rem;">Ghi hướng dẫn bằng Markdown. Nếu chọn Workflow, bạn sẽ vẽ sơ đồ graph sau khi lưu.</small>
+                        <label data-i18n="skill.markdown">Nội dung Logic / Hướng dẫn (SOP / Markdown Prompt)</label>
+                        <textarea id="skill-markdown-input" class="input" rows="8" placeholder="# Hướng dẫn thực hiện...\n1. Bước 1: ...\n2. Bước 2: ..." style="width:100%; font-family:var(--font-mono, monospace); padding:12px; resize:vertical; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);" data-i18n-placeholder="skill.markdown_placeholder"></textarea>
+                        <small style="color:var(--text-muted); font-size:0.75rem;" data-i18n="skill.markdown_hint">Ghi hướng dẫn bằng Markdown. Nếu chọn Workflow, bạn sẽ vẽ sơ đồ graph sau khi lưu.</small>
                     </div>
                 </div>
 
                 <!-- TAB 2: AI-Powered Generation -->
                 <div class="agent-tab-pane" id="tab-skill-ai">
                     <div class="form-group" style="margin-bottom: 16px;">
-                        <label>Yêu cầu thiết kế Skill (Prompt)</label>
-                        <textarea id="skill-ai-prompt" class="input" rows="4" placeholder="Ví dụ: 'Tự động lấy thông tin thời tiết Hà Nội và gửi mail báo cáo hàng ngày.'" style="width:100%; padding:12px; resize:vertical; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);"></textarea>
-                        <small style="color:var(--text-muted); font-size:0.75rem;">AI sẽ phân tích các Node có sẵn trong hệ thống và SKILL.md để cấu trúc hóa skill tự động.</small>
+                        <label data-i18n="skill.ai_prompt">Yêu cầu thiết kế Skill (Prompt)</label>
+                        <textarea id="skill-ai-prompt" class="input" rows="4" placeholder="Ví dụ: 'Tự động lấy thông tin thời tiết Hà Nội và gửi mail báo cáo hàng ngày.'" style="width:100%; padding:12px; resize:vertical; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text);" data-i18n-placeholder="skill.ai_prompt_placeholder"></textarea>
+                        <small style="color:var(--text-muted); font-size:0.75rem;" data-i18n="skill.ai_prompt_hint">AI sẽ phân tích các Node có sẵn trong hệ thống và SKILL.md để cấu trúc hóa skill tự động.</small>
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                         <div class="form-group">
-                            <label>AI Provider</label>
+                            <label data-i18n="skill.ai_provider">AI Provider</label>
                             <select id="skill-ai-provider" class="input" style="width:100%; height:42px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding: 0 10px;" onchange="loadSkillAIModels()">
                                 <option value="ollama">🖥️ Ollama (Local)</option>
                                 <option value="gemini">✨ Gemini (Google)</option>
@@ -1087,7 +1094,7 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label>AI Model</label>
+                            <label data-i18n="skill.ai_model">AI Model</label>
                             <select id="skill-ai-model" class="input" style="width:100%; height:42px; background:var(--bg); border:1px solid var(--border); border-radius:8px; color:var(--text); padding: 0 10px;">
                                 <option value="">⏳ Đang tải model...</option>
                             </select>
@@ -1095,7 +1102,7 @@
                     </div>
 
                     <div style="margin-bottom: 20px; display: flex; justify-content: flex-end;">
-                        <button class="btn-primary" id="btn-generate-skill-ai" onclick="generateSkillWithAI()" style="background: linear-gradient(135deg, var(--purple), #8b5cf6); font-weight: 700;">
+                        <button class="btn-primary" id="btn-generate-skill-ai" onclick="generateSkillWithAI()" style="background: linear-gradient(135deg, var(--purple), #8b5cf6); font-weight: 700;" data-i18n="skill.btn_generate_ai">
                             🤖 Bắt đầu thiết kế với AI
                         </button>
                     </div>
@@ -1114,7 +1121,7 @@
                         
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 12px;">
                             <div class="form-group">
-                                <label>Tên Skill gợi ý</label>
+                                <label data-i18n="skills.create.lbl_name_ai">Tên Skill gợi ý</label>
                                 <input id="skill-ai-name" type="text" class="input">
                             </div>
                             <div class="form-group">
@@ -1152,8 +1159,8 @@
         </div>
 
         <div class="modal-actions" style="margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px;">
-            <button class="btn-secondary" onclick="closeModal('modal-create-skill')">Đóng</button>
-            <button class="btn-primary" id="btn-save-created-skill" onclick="saveCreatedSkill()" style="background: linear-gradient(135deg, #10b981, #22c55e); font-weight:700;">
+            <button class="btn-secondary" onclick="closeModal('modal-create-skill')" data-i18n="skill.btn_close">Đóng</button>
+            <button class="btn-primary" id="btn-save-created-skill" onclick="saveCreatedSkill()" style="background: linear-gradient(135deg, #10b981, #22c55e); font-weight:700;" data-i18n="skill.btn_save">
                 💾 Lưu Skill
             </button>
         </div>
