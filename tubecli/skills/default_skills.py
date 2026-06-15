@@ -472,37 +472,140 @@ def register_default_skills():
     """Register default skills if not already present."""
     try:
         from tubecli.core.skill import skill_manager
+        from tubecli.config import get_language
 
         existing = {s.name: s for s in skill_manager.get_all()}
         added = 0
 
         # Resolve current base URL to replace hardcoded localhost:5295
         base_url = _base_url()
+        lang = get_language()
+
+        translations = {
+            "vi": {
+                "📊 Google Sheets": {
+                    "description": "Quản lý Google Sheets toàn diện: Tạo Sheet mới, Đọc dữ liệu, Ghi/Append dữ liệu, Đồng bộ metadata. Dùng: tubecli skill run \"Google Sheets\"",
+                    "commands": ["create sheet", "new spreadsheet", "read sheet", "read google sheet", "write sheet", "append sheet", "sync sheet", "sync data to sheet"],
+                },
+                "🔍 Google Search": {
+                    "description": "Tìm kiếm Google nhanh bằng HTTP + AI tóm tắt kết quả. Không cần mở browser. Dùng: tubecli skill run 'Google Search' --input 'từ khóa'",
+                    "commands": ["google search", "tìm kiếm google", "search google", "tìm google"],
+                },
+                "📧 Gmail Login": {
+                    "description": "Mở trình duyệt và yêu cầu AI tự động truy cập Gmail để đăng nhập hoặc kiểm tra hộp thư.",
+                    "commands": ["gmail login", "đăng nhập gmail", "vào mail", "login gmail", "mở gmail", "vào gmail", "check gmail", "đăng nhập mail"],
+                },
+                "👥 Quick Team Creator": {
+                    "description": "Tạo team AI tự động: mô tả team bằng ngôn ngữ tự nhiên -> AI phân tích -> tạo agents + cấu trúc team + sơ đồ tổ chức. VD: 'tạo team developer 4 người: 1 leader, 2 dev, 1 tester'",
+                    "commands": ["tạo team", "create team", "tạo nhóm", "tạo đội", "build team", "new team", "thành lập team", "xây dựng team", "tạo team mới", "lập team"],
+                },
+                "📥 Douyin/TikTok Downloader": {
+                    "description": "Tải video chuyên biệt từ TikTok/Douyin không logo bằng Douyin Downloader API. AI tự tải và gửi file. Dùng: gửi link TikTok hoặc Douyin.",
+                    "commands": ["tải video tiktok", "download tiktok", "tải tiktok", "tải douyin", "download douyin", "tải video douyin"],
+                },
+                "🌍 Universal Video Downloader": {
+                    "description": "Tải video đa nền tảng (YouTube, Facebook, Twitter/X...) sử dụng yt-dlp. AI tự động tải và gửi file. Dùng: gửi link kèm dòng lệnh 'tải youtube' hoặc 'tải video'.",
+                    "commands": ["tải youtube", "download youtube", "tải video", "download video", "tải facebook", "download facebook", "tải twitter", "tải đa nền tảng", "tải video youtube"],
+                },
+                "📅 Calendar Scheduler": {
+                    "description": "Lập lịch sự kiện Google Calendar – hỗ trợ recurring events cho livestream hàng ngày, meeting, reminder. Dùng: tubecli skill run \"Calendar Scheduler\" --input \"Meeting tomorrow 10am\"",
+                    "commands": ["lập lịch", "tạo lịch", "schedule", "create event", "thêm sự kiện", "đặt lịch", "lịch hẹn", "lên lịch livestream", "nhắc nhở", "reminder", "đặt hẹn", "lịch họp"],
+                },
+                "🔴 Livestream Restreamer": {
+                    "description": "Tạo phiên livestream (restream) từ link Douyin/TikTok lên YouTube. Dùng khi user yêu cầu: 'tạo phiên live', 'restream'. Cứ thấy douyin link kèm 'tạo live' thì dùng skill này KHÔNG dùng downloader.",
+                    "commands": ["tạo phiên live", "restream", "phát live", "phát trực tiếp"],
+                },
+                "🕷️ Web Crawler & Watcher": {
+                    "description": "Cào dữ liệu từ một trang web, lấy nội dung bài viết, tiêu đề, ảnh. Hoặc thiết lập theo dõi trang liên tục. Dùng: nhập URL cần cào.",
+                    "commands": ["cào dữ liệu", "scrape", "đọc web", "crawl", "theo dõi trang", "watch page"],
+                }
+            },
+            "en": {
+                "📊 Google Sheets": {
+                    "description": "Comprehensive Google Sheets management: Create new Sheet, Read data, Write/Append data, Sync metadata. Usage: tubecli skill run \"Google Sheets\"",
+                    "commands": ["create sheet", "new spreadsheet", "read sheet", "read google sheet", "write sheet", "append sheet", "sync sheet", "sync data to sheet"],
+                },
+                "🔍 Google Search": {
+                    "description": "Quick Google Search via HTTP + AI summary of results. No browser required. Usage: tubecli skill run 'Google Search' --input 'keyword'",
+                    "commands": ["google search", "search google"],
+                },
+                "📧 Gmail Login": {
+                    "description": "Open browser and ask AI to automatically access Gmail to log in or check the inbox.",
+                    "commands": ["gmail login", "check mail", "login gmail", "check gmail"],
+                },
+                "👥 Quick Team Creator": {
+                    "description": "Create AI team automatically: describe team in natural language -> AI analyzes -> creates agents + team structure + org chart. Ex: 'create a developer team of 4: 1 leader, 2 devs, 1 tester'",
+                    "commands": ["create team", "build team", "new team"],
+                },
+                "📥 Douyin/TikTok Downloader": {
+                    "description": "Dedicated video downloader for TikTok/Douyin without watermark using Douyin Downloader API. AI auto-downloads and sends the file. Usage: send TikTok or Douyin link.",
+                    "commands": ["download tiktok", "download douyin"],
+                },
+                "🌍 Universal Video Downloader": {
+                    "description": "Multi-platform video downloader (YouTube, Facebook, Twitter/X...) using yt-dlp. AI auto-downloads and sends the file. Usage: send link with command 'download youtube' or 'download video'.",
+                    "commands": ["download youtube", "download video", "download facebook", "download twitter", "cross-platform download"],
+                },
+                "📅 Calendar Scheduler": {
+                    "description": "Schedule Google Calendar events — supports recurring events for daily livestreams, meetings, reminders. Usage: tubecli skill run 'Calendar Scheduler' --input 'Meeting tomorrow 10am'",
+                    "commands": ["schedule", "create event", "add event", "book appointment", "set reminder"],
+                },
+                "🔴 Livestream Restreamer": {
+                    "description": "Create a livestream session (restream) from a Douyin/TikTok link to YouTube. Use when user asks to 'restream' or 'start live'. If you see a douyin link with 'start live', use this skill, NOT the downloader.",
+                    "commands": ["create live session", "start livestream", "restream", "broadcast live"],
+                },
+                "🕷️ Web Crawler & Watcher": {
+                    "description": "Crawl data from a website, extract article content, titles, images. Or set up continuous page monitoring. Usage: enter the URL to crawl.",
+                    "commands": ["scrape", "crawl", "watch page", "scrape website"],
+                }
+            }
+        }
 
         for skill_def in DEFAULT_SKILLS:
             name = skill_def["name"]
-            if name not in existing:
-                import copy, json
-                wf = copy.deepcopy(skill_def["workflow_data"])
-                # Replace hardcoded URLs in workflow nodes
-                wf_json = json.dumps(wf)
-                wf_json = wf_json.replace("http://localhost:5295", base_url)
-                wf = json.loads(wf_json)
+            import copy, json
+            wf = copy.deepcopy(skill_def["workflow_data"])
+            # Replace hardcoded URLs in workflow nodes
+            wf_json = json.dumps(wf)
+            wf_json = wf_json.replace("http://localhost:5295", base_url)
+            wf = json.loads(wf_json)
 
+            # Fallback to defaults in code
+            desc = skill_def.get("description", "")
+            cmds = skill_def.get("commands", [])
+
+            # Select translation if exists
+            if lang in translations and name in translations[lang]:
+                desc = translations[lang][name].get("description", desc)
+                cmds = translations[lang][name].get("commands", cmds)
+
+            if name not in existing:
                 skill_manager.create(
                     name=name,
                     workflow_data=wf,
                     skill_type=skill_def.get("skill_type", "Skill"),
-                    description=skill_def.get("description", ""),
-                    commands=skill_def.get("commands", []),
+                    description=desc,
+                    commands=cmds,
                 )
                 added += 1
                 print(f"  ✅ Added skill: {name}")
+            else:
+                existing_skill = existing[name]
+                skill_manager.update(
+                    existing_skill.id,
+                    description=desc,
+                    commands=cmds,
+                    workflow_data=wf,
+                )
+                # Check if it actually changed to log it
+                if existing_skill.description != desc or existing_skill.commands != cmds:
+                    logger_msg = f"Updated default skill '{name}' to lang '{lang}'"
+                    # Try to log it or print it
+                    print(f"  ⚡ Updated skill: {name} ({lang})")
 
         if added > 0:
             print(f"  📦 Registered {added} default skills")
         else:
-            print(f"  ✓ All {len(DEFAULT_SKILLS)} default skills already installed")
+            print(f"  ✓ All {len(DEFAULT_SKILLS)} default skills synced/installed")
 
     except Exception as e:
         print(f"  ❌ Error registering skills: {e}")

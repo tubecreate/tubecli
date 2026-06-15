@@ -90,6 +90,14 @@ def init_cmd(lang, port):
     for ext in extension_manager.get_all():
         if ext.extension_type == "system":
             extension_manager.enable(ext.name)
+    
+    # 4b. Re-trigger skill registration for all enabled extensions to ensure correct language
+    for ext in extension_manager.get_enabled():
+        if hasattr(ext, "_register_skill"):
+            try:
+                ext._register_skill()
+            except Exception as e:
+                pass
     console.print(t("init.extensions_enabled"))
 
     # 5. Ollama check — silently skip (optional, user can install via menu option 4)

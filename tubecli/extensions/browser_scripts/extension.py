@@ -55,36 +55,74 @@ class BrowserScriptsExtension(Extension):
         """Register Script Studio skill for chatbot routing."""
         try:
             from tubecli.core.skill import skill_manager
-            existing = skill_manager.find_by_name("Script Studio")
-            if existing:
-                return
+            from tubecli.config import get_language
 
-            skill_manager.create(
-                name="Script Studio",
-                description=(
+            existing = skill_manager.find_by_name("Script Studio")
+
+            lang = get_language()
+
+            if lang == "vi":
+                desc = (
                     "Script Studio — Quản lý & chỉnh sửa trực quan các script điều khiển browser. "
                     "Tạo/chỉnh sửa kịch bản tự động hóa browser bằng giao diện kéo-thả. "
                     "Hỗ trợ Playwright, element picker, biến động, retry logic."
-                ),
-                skill_type="Extension Skill",
-                commands=[
+                )
+                cmds = [
                     "script studio", "browser script", "automation script",
                     "tạo script", "quản lý script", "chỉnh sửa script",
                     "browser automation", "playwright script",
-                ],
-                workflow_data={
-                    "extension": "browser_scripts",
-                    "action": "open_studio",
-                    "sop": (
-                        "1. Mở Script Studio tại /script-studio\n"
-                        "2. Tạo script mới hoặc import từ file .js\n"
-                        "3. Thêm/chỉnh sửa steps bằng visual editor\n"
-                        "4. Dùng Element Picker để chọn element trên browser\n"
-                        "5. Test từng step hoặc chạy toàn bộ script"
-                    ),
-                },
-            )
-            logger.info("✅ Script Studio skill registered.")
+                ]
+                sop = (
+                    "1. Mở Script Studio tại /script-studio\n"
+                    "2. Tạo script mới hoặc import từ file .js\n"
+                    "3. Thêm/chỉnh sửa steps bằng visual editor\n"
+                    "4. Dùng Element Picker để chọn element trên browser\n"
+                    "5. Test từng step hoặc chạy toàn bộ script"
+                )
+            else:
+                desc = (
+                    "Script Studio — Visual browser automation script manager and editor. "
+                    "Create/edit browser automation scripts using drag-and-drop interface. "
+                    "Supports Playwright, element picker, variables, retry logic."
+                )
+                cmds = [
+                    "script studio", "browser script", "automation script",
+                    "create script", "manage script", "edit script",
+                    "browser automation", "playwright script",
+                ]
+                sop = (
+                    "1. Open Script Studio at /script-studio\n"
+                    "2. Create a new script or import from a .js file\n"
+                    "3. Add/edit steps using the visual editor\n"
+                    "4. Use Element Picker to select elements on browser\n"
+                    "5. Test individual steps or run the entire script"
+                )
+
+            if not existing:
+                skill_manager.create(
+                    name="Script Studio",
+                    description=desc,
+                    skill_type="Extension Skill",
+                    commands=cmds,
+                    workflow_data={
+                        "extension": "browser_scripts",
+                        "action": "open_studio",
+                        "sop": sop,
+                    },
+                )
+                logger.info("✅ Script Studio skill registered.")
+            else:
+                skill_manager.update(
+                    existing.id,
+                    description=desc,
+                    commands=cmds,
+                    workflow_data={
+                        "extension": "browser_scripts",
+                        "action": "open_studio",
+                        "sop": sop,
+                    },
+                )
+                logger.info("⚡ Script Studio skill updated/synced.")
         except Exception as e:
             logger.warning(f"Could not register Script Studio skill: {e}")
 
