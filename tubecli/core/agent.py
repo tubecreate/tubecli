@@ -170,9 +170,40 @@ class AgentManager:
                 with open(self.agents_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.agents = {item["id"]: Agent.from_dict(item) for item in data}
+                # Run migration to clean default agent names & Orchestrator icon
+                if self._migrate_default_agents():
+                    self._save()
             except Exception as e:
                 print(f"[AgentManager] Error loading agents: {e}")
                 self.agents = {}
+
+    def _migrate_default_agents(self) -> bool:
+        renamed = False
+        name_mapping = {
+            "🎬 Video Agent": "Video Agent",
+            "📅 Calendar Agent": "Calendar Agent",
+            "🔍 Search Agent": "Search Agent",
+            "🌐 Web Agent": "Web Agent",
+            "🤖 Orchestrator": "Orchestrator",
+        }
+        for agent in self.agents.values():
+            old_name = agent.name
+            if old_name in name_mapping:
+                agent.name = name_mapping[old_name]
+                renamed = True
+            else:
+                for emoji in ["🎬", "📅", "🔍", "🌐", "🤖", "🛡️", "🔵"]:
+                    if old_name.startswith(emoji):
+                        trimmed = old_name[len(emoji):].strip()
+                        if trimmed in ["Video Agent", "Calendar Agent", "Search Agent", "Web Agent", "Orchestrator"]:
+                            agent.name = trimmed
+                            renamed = True
+                            break
+            # Adjust Orchestrator icon to "hub"
+            if agent.name == "Orchestrator" and agent.avatar_icon != "hub":
+                agent.avatar_icon = "hub"
+                renamed = True
+        return renamed
 
     def _save(self):
         try:

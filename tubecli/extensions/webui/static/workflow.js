@@ -772,7 +772,7 @@ const WF = (() => {
     html += `
       <div class="field-group">
         <label class="field-label">Node Label</label>
-        <input class="field-input" type="text" value="${node.label || ''}" onchange="WF.updateConfig('${nodeId}', '_label', this.value)">
+        <input class="field-input" type="text" autocomplete="new-password" data-lpignore="true" value="${node.label || ''}" onchange="WF.updateConfig('${nodeId}', '_label', this.value)">
       </div>
     `;
 
@@ -792,9 +792,9 @@ const WF = (() => {
         });
         html += '</select>';
       } else if (f.type === 'number') {
-        html += `<input class="field-input" type="number" value="${val}" onchange="WF.updateConfig('${nodeId}', '${f.name}', Number(this.value))">`;
+        html += `<input class="field-input" type="number" autocomplete="new-password" data-lpignore="true" value="${val}" onchange="WF.updateConfig('${nodeId}', '${f.name}', Number(this.value))">`;
       } else {
-        html += `<input class="field-input" type="text" value="${val}" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">`;
+        html += `<input class="field-input" type="text" autocomplete="new-password" data-lpignore="true" value="${val}" onchange="WF.updateConfig('${nodeId}', '${f.name}', this.value)">`;
       }
       html += '</div>';
     });

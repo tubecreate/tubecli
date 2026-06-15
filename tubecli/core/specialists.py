@@ -17,7 +17,7 @@ from typing import List, Dict
 
 BUILTIN_SPECIALISTS = [
     {
-        "name": "🎬 Video Agent",
+        "name": "Video Agent",
         "description": "Specialist for downloading, editing (FFmpeg), and uploading videos to TikTok/Douyin/YouTube",
         "role": "specialist",
         "specialties": ["video", "download", "upload", "douyin", "tiktok", "youtube", "restream", "live",
@@ -40,7 +40,7 @@ BUILTIN_SPECIALISTS = [
         "avatar_color": "red",
     },
     {
-        "name": "📅 Calendar Agent",
+        "name": "Calendar Agent",
         "description": "Manage schedules, events, and reminders via Google Calendar",
         "role": "specialist",
         "specialties": ["calendar", "schedule", "event", "reminder", "appointment",
@@ -56,7 +56,7 @@ BUILTIN_SPECIALISTS = [
         "avatar_color": "blue",
     },
     {
-        "name": "🔍 Search Agent",
+        "name": "Search Agent",
         "description": "Search for information, trends, and news via Google Search",
         "role": "specialist",
         "specialties": ["search", "google", "trending", "news", "weather",
@@ -72,7 +72,7 @@ BUILTIN_SPECIALISTS = [
         "avatar_color": "green",
     },
     {
-        "name": "🌐 Web Agent",
+        "name": "Web Agent",
         "description": "Collect web data, crawl pages, and monitor changes",
         "role": "specialist",
         "specialties": ["web", "crawler", "scrape", "watcher", "monitor", "wordpress",
@@ -89,7 +89,7 @@ BUILTIN_SPECIALISTS = [
 ]
 
 ORCHESTRATOR_AGENT = {
-    "name": "🤖 Orchestrator",
+    "name": "Orchestrator",
     "description": "Main coordination agent — analyzes requests and delegates to specialists",
     "role": "orchestrator",
     "specialties": [],
@@ -101,7 +101,7 @@ ORCHESTRATOR_AGENT = {
         "If the request is complex (multi-step) → create a plan then assign tasks in parallel.\n"
         "Reply in a friendly, concise manner."
     ),
-    "avatar_icon": "HUB",
+    "avatar_icon": "hub",
     "avatar_color": "orange",
 }
 

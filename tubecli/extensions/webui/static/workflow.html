@@ -53,7 +53,7 @@
     <div class="palette" id="palette">
       <div class="palette-header" data-i18n="wf.nodes">📦 Nodes</div>
       <div class="palette-search">
-        <input type="text" id="palette-search" placeholder="Search nodes..." data-i18n-placeholder="wf.search_nodes" oninput="WF.filterPalette(this.value)" autocomplete="off">
+        <input type="text" id="palette-search" placeholder="Search nodes..." data-i18n-placeholder="wf.search_nodes" oninput="WF.filterPalette(this.value)" autocomplete="new-password" data-lpignore="true">
       </div>
       <div class="palette-list" id="palette-list">
         <!-- Dynamically populated -->
@@ -133,11 +133,11 @@
     <div class="modal-body">
       <div class="field-group">
         <label class="field-label"><span data-i18n="wf.skill_name">Skill Name</span> <span style="color:var(--red)">*</span></label>
-        <input type="text" id="skill-name-input" class="field-input" placeholder="e.g. Write to Google Sheets">
+        <input type="text" id="skill-name-input" class="field-input" placeholder="e.g. Write to Google Sheets" autocomplete="new-password" data-lpignore="true">
       </div>
       <div class="field-group">
         <label class="field-label" data-i18n="wf.skill_trigger">Trigger Command (Optional)</label>
-        <input type="text" id="skill-trigger-input" class="field-input" placeholder="e.g. luu du lieu vao sheet">
+        <input type="text" id="skill-trigger-input" class="field-input" placeholder="e.g. luu du lieu vao sheet" autocomplete="new-password" data-lpignore="true">
         <small style="color:var(--text-muted); font-size:11px; display:block; margin-top:4px;" data-i18n="wf.skill_trigger_hint">Agents will run this skill when they detect this command.</small>
       </div>
       <div class="field-group">
@@ -181,13 +181,13 @@
         </div>
         <div class="field-group" style="flex:1">
           <label class="field-label" data-i18n="wf.ai_model">Model</label>
-          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name" list="ai-model-list" autocomplete="off">
+          <input id="ai-model-input" type="text" class="field-input" value="qwen:latest" placeholder="Model name" list="ai-model-list" autocomplete="new-password" data-lpignore="true">
           <datalist id="ai-model-list"></datalist>
         </div>
       </div>
       <div class="field-group" id="ai-apikey-group" style="display:none">
         <label class="field-label" data-i18n="wf.ai_apikey">API Key</label>
-        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here" data-i18n-placeholder="wf.ai_apikey_ph" autocomplete="new-password">
+        <input id="ai-apikey-input" type="password" class="field-input" placeholder="Paste API key here" data-i18n-placeholder="wf.ai_apikey_ph" autocomplete="new-password" data-lpignore="true">
       </div>
       <div id="ai-gen-status" style="display:none; padding:12px 0; text-align:center">
         <div class="ai-spinner"></div>

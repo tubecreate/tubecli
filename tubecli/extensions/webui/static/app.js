@@ -1412,7 +1412,7 @@ async function renderAgentsExt(el) {
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
     if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (a.avatar_icon.length <= 4 ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (!/^[a-zA-Z_0-9-]+$/.test(a.avatar_icon) ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon.toLowerCase()) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
@@ -5522,6 +5522,74 @@ function selectGroupIcon(iconName) {
     if (dropdown) dropdown.style.display = 'none';
 }
 
+let _agentIconPickerInit = false;
+
+function toggleAgentIconPicker() {
+    const dropdown = document.getElementById('agent-icon-picker-dropdown');
+    if (!dropdown) return;
+
+    if (!_agentIconPickerInit) {
+        const grid = document.getElementById('agent-icon-picker-grid');
+        if (grid) {
+            grid.innerHTML = ICON_PICKER_LIST.map(item => `
+                <div class="icon-picker-item" title="${item.label}"
+                    onclick="selectAgentIcon('${item.icon}')"
+                    style="display:flex; align-items:center; justify-content:center;
+                        padding:8px; border-radius:8px; cursor:pointer; transition:all 0.15s ease;
+                        border:1px solid transparent;">
+                    <span class="material-symbols-outlined" style="font-size:22px; color:var(--text-secondary)">${item.icon}</span>
+                </div>
+            `).join('');
+        }
+        _agentIconPickerInit = true;
+    }
+
+    const isOpen = dropdown.style.display !== 'none';
+    dropdown.style.display = isOpen ? 'none' : 'block';
+
+    if (!isOpen) {
+        // Close when clicking outside
+        setTimeout(() => {
+            function closeHandler(e) {
+                const trigger = document.getElementById('agent-icon-trigger');
+                if (!dropdown.contains(e.target) && (!trigger || !trigger.contains(e.target))) {
+                    dropdown.style.display = 'none';
+                    document.removeEventListener('click', closeHandler);
+                }
+            }
+            document.addEventListener('click', closeHandler);
+        }, 10);
+    }
+}
+
+function selectAgentIcon(iconName) {
+    const input = document.getElementById('agent-icon');
+    if (input) input.value = iconName;
+    const dropdown = document.getElementById('agent-icon-picker-dropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+
+function updateAgentIconPreview(val) {
+    const preview = document.getElementById('agent-icon-preview');
+    if (!preview) return;
+    
+    if (!val) {
+        preview.className = 'material-symbols-outlined';
+        preview.textContent = 'smart_toy';
+        preview.style.fontSize = '24px';
+    } else if (!/^[a-zA-Z_0-9-]+$/.test(val)) {
+        // It's an emoji
+        preview.className = '';
+        preview.textContent = val;
+        preview.style.fontSize = '22px';
+    } else {
+        // It's a Material Symbol
+        preview.className = 'material-symbols-outlined';
+        preview.textContent = val.toLowerCase();
+        preview.style.fontSize = '24px';
+    }
+}
+
 function createExtensionGroup() {
     const name = document.getElementById('set-ext-group-name').value.trim();
     const icon = document.getElementById('set-ext-group-icon').value.trim();
@@ -5586,6 +5654,23 @@ async function saveExtensionGroups() {
 
 // ═══ Init ═══
 document.addEventListener('DOMContentLoaded', async () => {
+    // Setup getter/setter on #agent-icon for visual preview updates
+    const agentIconEl = document.getElementById('agent-icon');
+    if (agentIconEl) {
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        Object.defineProperty(agentIconEl, 'value', {
+            get() {
+                return descriptor.get.call(this);
+            },
+            set(val) {
+                descriptor.set.call(this, val);
+                updateAgentIconPreview(val);
+            }
+        });
+        // Initial sync
+        updateAgentIconPreview(agentIconEl.value);
+    }
+
     await loadI18nFromApi();
     loadVersionInfo();
     // Parallel: fetch extensions + settings in one round trip
