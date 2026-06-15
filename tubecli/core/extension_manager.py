@@ -315,6 +315,7 @@ class ExtensionManager:
         "tubecli.extensions.ollama_manager",
         "tubecli.extensions.multi_agents",
         "tubecli.extensions.browser",
+        "tubecli.extensions.browser_scripts",
         "tubecli.extensions.studio3d",
         "tubecli.extensions.douyin_downloader",
         "tubecli.extensions.auth_manager",
@@ -365,6 +366,10 @@ class ExtensionManager:
                             getattr(mod, "__file__", "")
                         )
                     self.register(extension)
+                    # Auto-enable newly discovered built-in extensions
+                    if extension.name not in self._config:
+                        logger.info(f"Auto-enabling new built-in extension: {extension.name}")
+                        self.enable(extension.name)
             except ImportError as e:
                 logger.debug(f"Extension {module_path} not available: {e}")
             except Exception as e:
