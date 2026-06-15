@@ -147,6 +147,14 @@ function handleRoute() {
     if (hash.startsWith('extensions/detail/')) {
         const extId = hash.substring('extensions/detail/'.length);
         activateTab('extensions', true);
+        
+        // Highlight Skills nav item if opening skills
+        if (extId === 'skills') {
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            const skillsBtn = document.getElementById('nav-skills');
+            if (skillsBtn) skillsBtn.classList.add('active');
+        }
+        
         setTimeout(() => {
             const ext = EXT_REGISTRY.find(e => e.id === extId);
             if (ext) openExtDetail(extId);
@@ -156,6 +164,9 @@ function handleRoute() {
     }
     if (hash === 'skills' || hash === 'ext-skills') {
         activateTab('extensions', true);
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        const skillsBtn = document.getElementById('nav-skills');
+        if (skillsBtn) skillsBtn.classList.add('active');
         setTimeout(() => openExtDetail('skills'), 150);
         return;
     }
@@ -245,8 +256,9 @@ window.addEventListener('hashchange', handleRoute);
 // Agent Modal Tabs
 document.querySelectorAll('.agent-tab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-        document.querySelectorAll('.agent-tab-btn').forEach(b => b.classList.remove('active'));
-        document.querySelectorAll('.agent-tab-pane').forEach(p => p.classList.remove('active'));
+        if (!btn.dataset.atab) return;
+        document.querySelectorAll('#modal-agent .agent-tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('#modal-agent .agent-tab-pane').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('atab-' + btn.dataset.atab).classList.add('active');
     });
@@ -349,6 +361,7 @@ const EXT_REGISTRY = [
     { id:'sheets_manager',     tab:'ext-sheets',             icon:'table_chart',    name:'Google Sheets',       type:'extension' },
     { id:'calendar_manager',   tab:'ext-calendar',           icon:'calendar_month', name:'Calendar Manager',    type:'extension' },
     { id:'web_crawler',        tab:'ext-web-crawler',        icon:'travel_explore', name:'Web Crawler',         type:'extension' },
+    { id:'browser_scripts',    tab:'ext-browser-scripts',    icon:'integration_instructions', name:'Script Studio', type:'extension' },
     { id:'livestream',         tab:'ext-livestream',         icon:'cast',           name:'Livestream',          type:'extension' },
     { id:'ai_arena',           tab:'ext-ai-arena',           icon:'sports_esports', name:'AI Arena',            type:'extension' },
     // static: always shown, groupable (no API gate)
@@ -660,7 +673,13 @@ async function openExternalExtDetail(name) {
     const isEnabled = info.enabled;
     const icon = manifest.icon || '📦';
     const apiPrefix = manifest.api_prefix || '';
-    title.textContent = icon + ' ' + (manifest.display_name || manifest.name || name);
+    let iconHtmlExt = icon;
+    if (icon && icon.length > 2) {
+        iconHtmlExt = `<span class="material-symbols-outlined" style="font-size: 28px; vertical-align: bottom; margin-right: 4px;">${icon}</span>`;
+    } else {
+        iconHtmlExt = `<span style="font-size: 24px; vertical-align: bottom; margin-right: 4px;">${icon}</span>`;
+    }
+    title.innerHTML = iconHtmlExt + (manifest.display_name || manifest.name || name);
 
     const gitUrl = info.git_url || info.homepage || manifest.homepage || '';
     if (urlContainer && gitUrl) {
@@ -1027,7 +1046,13 @@ function openExtDetail(id) {
     const tabExt = document.getElementById('tab-extensions');
     if (tabExt) tabExt.style.display = 'none';
 
-    title.textContent = ext.icon + ' ' + (typeof window.T === 'function' ? T(ext.name) : ext.name);
+    let iconHtml = ext.icon;
+    if (ext.icon && ext.icon.length > 2) {
+        iconHtml = `<span class="material-symbols-outlined" style="font-size: 28px; vertical-align: bottom; margin-right: 4px;">${ext.icon}</span>`;
+    } else {
+        iconHtml = `<span style="font-size: 24px; vertical-align: bottom; margin-right: 4px;">${ext.icon}</span>`;
+    }
+    title.innerHTML = iconHtml + (typeof window.T === 'function' ? T(ext.name) : ext.name);
     body.innerHTML = `
         <div class="iframe-loader" style="position:relative; min-height:400px; background:transparent;">
             <div class="iframe-loader-spinner"></div>
@@ -1391,7 +1416,7 @@ async function renderAgentsExt(el) {
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
     if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card"><div class="card-icon">🤖</div><h3>${esc(a.name)}</h3><p class="card-meta">${esc(a.model||'default')}</p><p class="card-desc">${esc(a.description||'')}</p><div class="card-footer"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (a.avatar_icon.length <= 4 ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
@@ -1459,21 +1484,21 @@ function categorizeSkill(skill) {
     const nodeTypes = nodes.map(n => n.type);
     
     if (skill.skill_type === 'Markdown' || nodes.length === 0) 
-        return { cat: 'markdown', label: '📝 Prompt / Khái niệm', color: '#ec4899', icon: '📝' };
+        return { cat: 'markdown', label: T('skills.cat_markdown'), color: '#ec4899', icon: '📝' };
         
     if (skill.skill_type === 'Workflow Skill' || nodes.some(n => n.type === 'google_sheets' || n.type === 'google_auth'))
-        return { cat: 'workflow', label: '🔧 Workflow Đầu-Cuối', color: '#a855f7', icon: '🔧' };
+        return { cat: 'workflow', label: T('skills.cat_workflow'), color: '#a855f7', icon: '🔧' };
         
     if (nodeTypes.includes('browser_action'))
-        return { cat: 'browser', label: '🌐 Browser Automation', color: '#22d3ee', icon: '🌐' };
+        return { cat: 'browser', label: T('skills.cat_browser'), color: '#22d3ee', icon: '🌐' };
         
     if (nodeTypes.includes('api_request'))
-        return { cat: 'api', label: '⚡ API Integration', color: '#ef4444', icon: '⚡' };
+        return { cat: 'api', label: T('skills.cat_api'), color: '#ef4444', icon: '⚡' };
         
     if (nodeTypes.includes('ai_node'))
-        return { cat: 'ai', label: '🧠 AI Chuyên biệt', color: '#22c55e', icon: '🧠' };
+        return { cat: 'ai', label: T('skills.cat_ai'), color: '#22c55e', icon: '🧠' };
         
-    return { cat: 'general', label: '⚡ General', color: '#f59e0b', icon: '⚡' };
+    return { cat: 'general', label: T('skills.cat_general'), color: '#f59e0b', icon: '⚡' };
 }
 
 async function renderSkillsExt(el) {
@@ -1489,18 +1514,19 @@ async function renderSkillsExt(el) {
     
     let html = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; gap:16px;">
-        <div style="display:flex; gap:10px; align-items:center;">
-            <input type="text" id="skills-search-input" class="input" placeholder="🔍 Tìm kiếm skill..." oninput="filterSkillsList()" style="width:250px; padding:8px 12px; margin:0;">
+        <div style="position: relative; display: flex; align-items: center;">
+            <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: var(--text-muted); font-size: 20px;">search</span>
+            <input type="text" id="skills-search-input" class="input" placeholder="${T('skills.search')}" oninput="filterSkillsList()" style="width:320px; padding:10px 12px 10px 40px; margin:0; border-radius: 20px; background: var(--bg2); border: 1px solid var(--border); box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: all 0.3s; font-size: 0.9rem;" onfocus="this.style.boxShadow='0 0 0 2px var(--accent)';" onblur="this.style.boxShadow='0 2px 5px rgba(0,0,0,0.05)';">
         </div>
         <button class="btn-primary" onclick="openCreateSkillModal()" style="display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, var(--accent), #7c3aed); font-weight:600; padding:10px 18px; border-radius:8px;">
-            <span class="material-symbols-outlined" style="font-size:20px;">add_circle</span> Tạo Skill Mới
+            <span class="material-symbols-outlined" style="font-size:20px;">add_circle</span> ${T('skills.btn_create_new').replace('add_circle ', '')}
         </button>
     </div>
     <div id="skills-list-container">
     `;
     
     if (skills.length === 0) { 
-        html += `<p class="text-muted" style="padding: 20px 0;">${T('skills.no_skills') || 'Không có skill nào. Hãy click nút phía trên để tạo.'}</p></div>`; 
+        html += `<p class="text-muted" style="padding: 20px 0;">${T('skills.no_skills')}</p></div>`; 
         el.innerHTML = html;
         return; 
     }
@@ -1510,19 +1536,19 @@ async function renderSkillsExt(el) {
     skills.forEach(s => {
         const cat = categorizeSkill(s);
         
-        let actionsHtml = `<button class="btn-sm" onclick="showSkillMarkdown('${s.id}')" title="Xem JSON Schema & Context mà LLM nhận được">📄 Xem Markdown</button>`;
-        
-        // Add Edit manual skill button
-        actionsHtml += `<button class="btn-sm" onclick="openEditSkillModal('${s.id}')" title="Chỉnh sửa metadata và logic Skill">✏️ Sửa</button>`;
+        let actionsHtml = `<div style="display: flex; width: 100%; justify-content: space-between; align-items: center; padding-top: 4px;">`;
+        actionsHtml += `<button class="btn-sm" style="background:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent; display: flex; align-items: center; gap: 4px; padding: 6px 14px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 6px rgba(16,185,129,0.2);" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')">${T('skills.btn_run_test')}</button>`;
+
+        actionsHtml += `<div style="display: flex; gap: 6px; align-items: center;">`;
+        actionsHtml += `<button class="btn-icon btn-sm" onclick="showSkillMarkdown('${s.id}')" title="${T('skills.title_view_md')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">visibility</span></button>`;
+        actionsHtml += `<button class="btn-icon btn-sm" onclick="openEditSkillModal('${s.id}')" title="${T('skills.title_edit')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">edit</span></button>`;
         
         if (cat.cat === 'workflow' || cat.cat === 'browser' || cat.cat === 'general' || cat.cat === 'api' || cat.cat === 'ai') {
-            actionsHtml += `<button class="btn-sm" onclick="window.open('/workflow?skill_id=${s.id}', '_blank')" title="Chỉnh sửa luồng chạy nghiệm của Skill này">🔧 Sửa Workflow</button>`;
+            actionsHtml += `<button class="btn-icon btn-sm" onclick="window.open('/workflow?skill_id=${s.id}', '_blank')" title="${T('skills.title_edit_wf')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">account_tree</span></button>`;
         }
         
-        actionsHtml += `<button class="btn-sm" style="background:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent;" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')" title="Thực thi trực tiếp nhập liệu">▶ Chạy Test</button>`;
-        
-        // Add delete button
-        actionsHtml += `<button class="btn-danger btn-sm" onclick="deleteSkill('${s.id}')" title="Xóa Skill này" style="padding: 6px 10px;">🗑️ Xóa</button>`;
+        actionsHtml += `<button class="btn-icon btn-sm btn-danger-icon" onclick="deleteSkill('${s.id}')" title="${T('skills.title_delete')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px; color: var(--danger);"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>`;
+        actionsHtml += `</div></div>`;
 
         html += `
         <div class="card skill-item-card" data-name="${esc(s.name.toLowerCase())}" data-desc="${esc((s.description||'').toLowerCase())}" style="display:flex; flex-direction:column;">
@@ -1533,7 +1559,7 @@ async function renderSkillsExt(el) {
             <h3 style="margin-bottom:8px; font-size:1.05rem;">${esc(s.name)}</h3>
             <p class="card-desc" style="flex:1; margin-bottom:16px;">${esc(s.description||'')}</p>
             <div style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px; background:var(--bg2); padding:6px 10px; border-radius:6px; font-family:'JetBrains Mono', monospace; word-break:break-all;">
-                <strong style="color:var(--text)">Input Schema:</strong> ${s.commands && s.commands.length > 0 ? "['" + esc(s.commands.join("', '")) + "']" : "Text Prompt"}
+                <strong style="color:var(--text)">${T('skills.lbl_input_schema')}</strong> ${s.commands && s.commands.length > 0 ? "['" + esc(s.commands.join("', '")) + "']" : T('skills.val_text_prompt')}
             </div>
             <div class="card-footer" style="padding-top:12px; border-top:1px solid var(--border); display:flex; gap:6px; flex-wrap:wrap;">
                 ${actionsHtml}
@@ -1596,7 +1622,7 @@ function switchSkillCreateTab(tabName) {
 function toggleManualSkillFields() {
     const type = document.getElementById('skill-type-select').value;
     const markdownGroup = document.getElementById('group-skill-markdown');
-    if (type === 'Markdown') {
+    if (type === 'Markdown' || type === 'Extension Skill' || type === 'Extension') {
         markdownGroup.style.display = 'block';
     } else {
         markdownGroup.style.display = 'none';
@@ -1604,7 +1630,7 @@ function toggleManualSkillFields() {
 }
 
 function openCreateSkillModal() {
-    document.getElementById('skill-modal-title').textContent = '✨ Tạo Skill Mới';
+    document.getElementById('skill-modal-title').innerHTML = T('skills.create.title', '✨ Tạo Skill Mới');
     document.getElementById('skill-edit-id').value = '';
     
     document.getElementById('skill-name-input').value = '';
@@ -1640,7 +1666,7 @@ function openEditSkillModal(skillId) {
     document.getElementById('skill-type-select').value = skill.skill_type || 'Markdown';
     document.getElementById('skill-desc-input').value = skill.description || '';
     document.getElementById('skill-trigger-input').value = (skill.commands || []).join(', ');
-    document.getElementById('skill-markdown-input').value = skill.workflow_data?.markdown || '';
+    document.getElementById('skill-markdown-input').value = skill.workflow_data?.markdown || skill.workflow_data?.sop || '';
     
     document.getElementById('skill-ai-prompt').value = '';
     document.getElementById('skill-ai-name').value = '';
@@ -1795,27 +1821,31 @@ async function saveCreatedSkill() {
         trigger = document.getElementById('skill-trigger-input').value.trim();
         
         if (!name) {
-            alert('Vui lòng nhập Tên Skill.');
+            alert(T('skills.create.alert_no_name', 'Vui lòng nhập Tên Skill.'));
             return;
         }
         
-        if (skill_type === 'Markdown') {
-            const markdown = document.getElementById('skill-markdown-input').value;
-            workflow_data = {
-                markdown: markdown,
-                nodes: [],
-                connections: []
-            };
-        } else {
-            let existingNodes = [];
-            let existingConns = [];
-            if (id) {
-                const existing = _loadedSkills.find(s => s.id === id);
-                if (existing && existing.workflow_data) {
-                    existingNodes = existing.workflow_data.nodes || [];
-                    existingConns = existing.workflow_data.connections || [];
-                }
+        let baseWfData = {};
+        if (id) {
+            const existing = _loadedSkills.find(s => s.id === id);
+            if (existing && existing.workflow_data) {
+                baseWfData = { ...existing.workflow_data };
             }
+        }
+        
+        if (skill_type === 'Markdown' || skill_type === 'Extension Skill' || skill_type === 'Extension') {
+            const markdown = document.getElementById('skill-markdown-input').value;
+            workflow_data = { ...baseWfData };
+            if (skill_type === 'Markdown') {
+                workflow_data.markdown = markdown;
+            } else {
+                workflow_data.sop = markdown;
+            }
+            workflow_data.nodes = workflow_data.nodes || [];
+            workflow_data.connections = workflow_data.connections || [];
+        } else {
+            let existingNodes = baseWfData.nodes || [];
+            let existingConns = baseWfData.connections || [];
             
             if (existingNodes.length === 0) {
                 const OFFSET = 25000;
@@ -1848,7 +1878,7 @@ async function saveCreatedSkill() {
             }
             
             workflow_data = {
-                markdown: '',
+                ...baseWfData,
                 nodes: existingNodes,
                 connections: existingConns
             };
@@ -1867,7 +1897,7 @@ async function saveCreatedSkill() {
         trigger = document.getElementById('skill-ai-trigger').value.trim();
         
         if (!name) {
-            alert('Vui lòng nhập Tên Skill.');
+            alert(T('skills.create.alert_no_name', 'Vui lòng nhập Tên Skill.'));
             return;
         }
         
@@ -1939,9 +1969,15 @@ function showSkillMarkdown(skillId) {
     md += `**Type:** ${cat.label}\n`;
     md += `**Trigger Keywords:** ${(skill.commands || []).join(', ') || 'N/A'}\n\n`;
     md += `--- \n\n## Cấu trúc logic (Internal Workflow)\n`;
+    if (skill.workflow_data?.sop) {
+        md += `\n### Hướng dẫn thao tác (SOP)\n${skill.workflow_data.sop}\n`;
+        if (skill.workflow_data.extension) {
+            md += `\n**Extension:** ${skill.workflow_data.extension} | **Action:** ${skill.workflow_data.action || 'N/A'}\n`;
+        }
+    }
     if (nodes) {
         md += `\n${nodes}\n\n### Chuyển giao dữ liệu (Connections)\n${connections}`;
-    } else {
+    } else if (!skill.workflow_data?.sop) {
         md += `\n*Không có workflow định nghĩa (Skill tĩnh/Prompt-based).*`;
     }
     
@@ -1956,7 +1992,7 @@ function openRunSkillModal(skillId, skillName) {
     
     document.getElementById('skill-run-result-container').style.display = 'none';
     document.getElementById('btn-execute-skill').disabled = false;
-    document.getElementById('btn-execute-skill').textContent = '🚀 Thực thi';
+    document.getElementById('btn-execute-skill').innerHTML = T('skills.run.btn_execute', '🚀 Thực thi');
     
     openModal('modal-skill-run');
 }
@@ -1994,7 +2030,7 @@ async function executeSkillRun() {
     
     setTimeout(() => {
         btn.disabled = false;
-        btn.textContent = '🚀 Thực thi lại';
+        btn.innerHTML = T('skills.run.btn_execute_again', '🚀 Thực thi lại');
     }, 2000);
 }
 
@@ -2307,7 +2343,7 @@ async function installExtension() {
 // Group config: icon, label, description (vi/en)
 const API_GROUPS = {
     'health': { icon: '💓', label: 'Health', desc_vi: 'Kiểm tra trạng thái server', desc_en: 'Server health check' },
-    'agents': { icon: '🤖', label: 'Agents', desc_vi: 'Quản lý AI agents, tạo, sửa, xóa, chat', desc_en: 'Manage AI agents — create, edit, delete, chat' },
+    'agents': { icon: 'smart_toy', label: 'Agents', desc_vi: 'Quản lý AI agents, tạo, sửa, xóa, chat', desc_en: 'Manage AI agents — create, edit, delete, chat' },
     'skills': { icon: '⚡', label: 'Skills', desc_vi: 'Quản lý kỹ năng agent, chạy skill', desc_en: 'Manage agent skills, run skills' },
     'workflows': { icon: '🔄', label: 'Workflows', desc_vi: 'Tạo và quản lý workflow tự động', desc_en: 'Create and manage automated workflows' },
     'nodes': { icon: '🧩', label: 'Nodes', desc_vi: 'Danh sách node workflow khả dụng', desc_en: 'List available workflow nodes' },
@@ -2698,8 +2734,7 @@ function showCreateAgent() {
     document.getElementById('agent-name').value='';
     document.getElementById('agent-desc').value='';
     document.getElementById('agent-prompt').value='You are a helpful AI assistant.';
-    document.getElementById('agent-avatar-type').value='bot';
-    document.getElementById('agent-avatar-color').value='blue';
+    document.getElementById('agent-icon').value='smart_toy';
     document.getElementById('agent-interests').value='';
     document.getElementById('agent-behavior').value='{\n  "dailyRoutine": [],\n  "workHabits": {}\n}';
     document.getElementById('agent-proxy-mode').value='none';
@@ -2746,8 +2781,9 @@ async function openEditAgent(id) {
     document.getElementById('agent-name').value=d.name||'';
     document.getElementById('agent-desc').value=d.description||'';
     document.getElementById('agent-prompt').value=d.system_prompt||'';
-    document.getElementById('agent-avatar-type').value=d.avatar_type||'bot';
-    document.getElementById('agent-avatar-color').value=d.avatar_color||'blue';
+    let iconVal = d.avatar_icon || 'smart_toy';
+    if (iconVal === 'SMART_TOY' || iconVal === 'smart_toy') iconVal = 'smart_toy';
+    document.getElementById('agent-icon').value = iconVal;
     const p=d.persona||{};
     document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
     document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||[],workHabits:(d.routine||{}).workHabits||{}},null,2);
@@ -2774,8 +2810,10 @@ async function openEditAgent(id) {
     document.getElementById('agent-ms-page').value=d.messenger_page_id||'';
     document.getElementById('agent-ms-php').value=d.messenger_php_url||'';
     document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||'';
-    await populateAgentProfiles(d.allowed_profiles||[]);
-    await populateAgentSkills(d.allowed_skills||[]);
+    await Promise.all([
+        populateAgentProfiles(d.allowed_profiles||[]),
+        populateAgentSkills(d.allowed_skills||[])
+    ]);
     document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
     document.getElementById('modal-agent').classList.remove('hidden');
     // Load model dropdowns async (non-blocking, lazy)
@@ -3073,7 +3111,7 @@ function onProxyModeChange() { const m=document.getElementById('agent-proxy-mode
 function onScheduleRepeatChange() { document.getElementById('schedule-interval-group').style.display=document.getElementById('agent-schedule-repeat').value==='interval'?'block':'none'; }
 document.getElementById('agent-schedule-repeat')?.addEventListener('change', onScheduleRepeatChange);
 
-async function saveAgent() { const name=document.getElementById('agent-name').value.trim(); if(!name) return alert('Name required'); const id=document.getElementById('agent-id').value; const interests=document.getElementById('agent-interests').value.split(',').map(s=>s.trim()).filter(s=>s); let routine={}; try { const v=document.getElementById('agent-behavior').value; if(v) routine=JSON.parse(v); } catch(e) { return alert('Invalid JSON: '+e.message); } const pm=document.getElementById('agent-proxy-mode').value; const pp={mode:pm}; if(pm==='dynamic') { pp.api_url=document.getElementById('agent-proxy-api')?.value||''; pp.api_key=document.getElementById('agent-proxy-api-key')?.value||''; pp.location=document.getElementById('agent-proxy-location')?.value||''; } const payload = { name, description:document.getElementById('agent-desc').value, system_prompt:document.getElementById('agent-prompt').value, model:document.getElementById('agent-model').value, browser_ai_model:document.getElementById('agent-browser-model').value, avatar_type:document.getElementById('agent-avatar-type').value, avatar_color:document.getElementById('agent-avatar-color').value, persona:{interests}, routine, proxy_config:pm==='static'?document.getElementById('agent-proxy').value:'', proxy_provider:pp, timezone:document.getElementById('agent-timezone').value, schedule:{ enabled:document.getElementById('agent-schedule-enable').checked, repeat:document.getElementById('agent-schedule-repeat').value, interval:parseInt(document.getElementById('agent-schedule-interval').value)||60, active_days:Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb=>cb.value), start_time:document.getElementById('agent-schedule-start').value, end_time:document.getElementById('agent-schedule-end').value, max_runs:parseInt(document.getElementById('agent-schedule-max-runs').value)||10 }, enable_scraping:document.getElementById('agent-scraping-enable').checked, scraper_text_limit:parseInt(document.getElementById('agent-scraper-limit').value)||10000, script_output_format:document.getElementById('agent-scraper-format').value, telegram_token:document.getElementById('agent-tg-token').value, telegram_chat_id:document.getElementById('agent-tg-chat').value, messenger_token:document.getElementById('agent-ms-token').value, messenger_page_id:document.getElementById('agent-ms-page').value, messenger_php_url:document.getElementById('agent-ms-php').value, direct_trigger_skill_id:document.getElementById('agent-ms-skill').value, allowed_profiles:Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb=>cb.value), allowed_skills:Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb=>cb.value) }; if(id) await apiPut('/api/v1/agents/'+id,payload); else await apiPost('/api/v1/agents',payload); closeModal('modal-agent'); renderAgentsExt(getAgentsBody()); }
+async function saveAgent() { const name=document.getElementById('agent-name').value.trim(); if(!name) return alert('Name required'); const id=document.getElementById('agent-id').value; const interests=document.getElementById('agent-interests').value.split(',').map(s=>s.trim()).filter(s=>s); let routine={}; try { const v=document.getElementById('agent-behavior').value; if(v) routine=JSON.parse(v); } catch(e) { return alert('Invalid JSON: '+e.message); } const pm=document.getElementById('agent-proxy-mode').value; const pp={mode:pm}; if(pm==='dynamic') { pp.api_url=document.getElementById('agent-proxy-api')?.value||''; pp.api_key=document.getElementById('agent-proxy-api-key')?.value||''; pp.location=document.getElementById('agent-proxy-location')?.value||''; } const payload = { name, description:document.getElementById('agent-desc').value, system_prompt:document.getElementById('agent-prompt').value, model:document.getElementById('agent-model').value, browser_ai_model:document.getElementById('agent-browser-model').value, avatar_icon:document.getElementById('agent-icon').value, persona:{interests}, routine, proxy_config:pm==='static'?document.getElementById('agent-proxy').value:'', proxy_provider:pp, timezone:document.getElementById('agent-timezone').value, schedule:{ enabled:document.getElementById('agent-schedule-enable').checked, repeat:document.getElementById('agent-schedule-repeat').value, interval:parseInt(document.getElementById('agent-schedule-interval').value)||60, active_days:Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb=>cb.value), start_time:document.getElementById('agent-schedule-start').value, end_time:document.getElementById('agent-schedule-end').value, max_runs:parseInt(document.getElementById('agent-schedule-max-runs').value)||10 }, enable_scraping:document.getElementById('agent-scraping-enable').checked, scraper_text_limit:parseInt(document.getElementById('agent-scraper-limit').value)||10000, script_output_format:document.getElementById('agent-scraper-format').value, telegram_token:document.getElementById('agent-tg-token').value, telegram_chat_id:document.getElementById('agent-tg-chat').value, messenger_token:document.getElementById('agent-ms-token').value, messenger_page_id:document.getElementById('agent-ms-page').value, messenger_php_url:document.getElementById('agent-ms-php').value, direct_trigger_skill_id:document.getElementById('agent-ms-skill').value, allowed_profiles:Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb=>cb.value), allowed_skills:Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb=>cb.value) }; if(id) await apiPut('/api/v1/agents/'+id,payload); else await apiPost('/api/v1/agents',payload); closeModal('modal-agent'); renderAgentsExt(getAgentsBody()); }
 async function deleteAgent(id) { if(!confirm('Delete agent?')) return; await apiDelete('/api/v1/agents/'+id); }
 
 // ═══ Generate Agent ═══
