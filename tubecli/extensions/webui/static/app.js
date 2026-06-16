@@ -190,7 +190,19 @@ function activateTab(tab, skipCloseDetail) {
 
     // Switch tab panels
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    const panel = document.getElementById('tab-' + tab);
+    let panel = document.getElementById('tab-' + tab);
+    
+    // Auto-create panel for dynamic extensions if missing
+    if (!panel && tab.startsWith('ext-')) {
+        const extName = tab.replace('ext-', '');
+        panel = document.createElement('section');
+        panel.className = 'tab-panel';
+        panel.id = 'tab-' + tab;
+        panel.innerHTML = '<div class="iframe-container"><iframe data-src="/' + extName + '" class="ext-iframe"></iframe></div>';
+        const contentArea = document.querySelector('.content');
+        if (contentArea) contentArea.appendChild(panel);
+    }
+
     if (panel) panel.classList.add('active');
 
     // Close extension detail overlay if switching main tabs
