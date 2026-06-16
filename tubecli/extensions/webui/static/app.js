@@ -36,16 +36,19 @@ function navigateTo(tab) {
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
         const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys', 'ext-market'];
         if (!excludeTabs.includes(tab)) {
+            let url = null;
             const panel = document.getElementById('tab-' + tab);
             if (panel) {
                 const iframe = panel.querySelector('iframe.ext-iframe[data-src]');
                 if (iframe) {
-                    const url = iframe.getAttribute('data-src');
-                    if (url) {
-                        window.open(url, '_blank');
-                        return;
-                    }
+                    url = iframe.getAttribute('data-src');
                 }
+            } else {
+                url = '/' + tab.replace('ext-', '');
+            }
+            if (url) {
+                window.open(url, '_blank');
+                return;
             }
         }
     }
