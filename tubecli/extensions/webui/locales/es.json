@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "JSON Inválido: ",
   "agent_modal.test_triggered_bg": "Prueba de rutina iniciada en segundo plano. ¡Observe la apertura del navegador!",
   "agent_modal.test_failed": "Error al iniciar rutina: ",
-  "agent_modal.unknown_error": "Error desconocido"
+  "agent_modal.unknown_error": "Error desconocido",
+  "settings.version_desc": "Buscar actualizaciones y gestionar versiones",
+  "settings.general_desc": "Configuración central del sistema",
+  "settings.ai_config": "🤖 Configuración de IA",
+  "settings.ai_config_desc": "Claves de modelo y API",
+  "settings.lang_browser": "🌐 Idioma y navegador",
+  "settings.lang_browser_desc": "Localización y perfil predeterminado",
+  "settings.ext_groups": "🧩 Grupos de extensiones",
+  "settings.ext_groups_desc": "Agrupar extensiones en la barra lateral",
+  "settings.new_group_name_placeholder": "Nombre del nuevo grupo (ej. Proveedores de medios)",
+  "settings.icon_placeholder": "Icono",
+  "settings.add_group_btn": "+ Añadir grupo"
 }

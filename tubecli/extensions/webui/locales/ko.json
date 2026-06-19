@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "유효하지 않은 JSON: ",
   "agent_modal.test_triggered_bg": "백그라운드에서 테스트가 시작되었습니다. 브라우저가 실행되는지 확인하십시오!",
   "agent_modal.test_failed": "테스트 시작 실패: ",
-  "agent_modal.unknown_error": "알 수 없는 오류"
+  "agent_modal.unknown_error": "알 수 없는 오류",
+  "settings.version_desc": "업데이트 확인 및 버전 관리",
+  "settings.general_desc": "핵심 시스템 구성",
+  "settings.ai_config": "🤖 AI 설정",
+  "settings.ai_config_desc": "모델 및 API 키",
+  "settings.lang_browser": "🌐 언어 및 브라우저",
+  "settings.lang_browser_desc": "로컬라이제이션 및 기본 프로필",
+  "settings.ext_groups": "🧩 확장 프로그램 그룹",
+  "settings.ext_groups_desc": "사이드바의 확장 프로그램 그룹화",
+  "settings.new_group_name_placeholder": "새 그룹 이름 (예: 미디어 제공업체)",
+  "settings.icon_placeholder": "아이콘",
+  "settings.add_group_btn": "+ 그룹 추가"
 }

@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "Неверный JSON: ",
   "agent_modal.test_triggered_bg": "Запущен тест в фоновом режиме. Ожидайте открытия браузера!",
   "agent_modal.test_failed": "Не удалось запустить тест: ",
-  "agent_modal.unknown_error": "Неизвестная ошибка"
+  "agent_modal.unknown_error": "Неизвестная ошибка",
+  "settings.version_desc": "Проверка обновлений и управление версиями",
+  "settings.general_desc": "Базовая конфигурация системы",
+  "settings.ai_config": "🤖 Конфигурация ИИ",
+  "settings.ai_config_desc": "Модель и API ключи",
+  "settings.lang_browser": "🌐 Язык и браузер",
+  "settings.lang_browser_desc": "Локализация и профиль по умолчанию",
+  "settings.ext_groups": "🧩 Группы расширений",
+  "settings.ext_groups_desc": "Группировка расширений на боковой панели",
+  "settings.new_group_name_placeholder": "Имя новой группы (например, Медиа-провайдеры)",
+  "settings.icon_placeholder": "Иконка",
+  "settings.add_group_btn": "+ Добавить группу"
 }

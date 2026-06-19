@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "JSON 格式無效: ",
   "agent_modal.test_triggered_bg": "已在背景觸發測試。請觀察瀏覽器啟動！",
   "agent_modal.test_failed": "啟動日程測試失敗: ",
-  "agent_modal.unknown_error": "未知錯誤"
+  "agent_modal.unknown_error": "未知錯誤",
+  "settings.version_desc": "檢查更新並管理版本",
+  "settings.general_desc": "核心系統設定",
+  "settings.ai_config": "🤖 AI 設定",
+  "settings.ai_config_desc": "模型與 API 金鑰",
+  "settings.lang_browser": "🌐 語言與瀏覽器",
+  "settings.lang_browser_desc": "在地化與預設設定檔",
+  "settings.ext_groups": "🧩 擴充功能分組",
+  "settings.ext_groups_desc": "在側邊欄中對擴充功能進行分組",
+  "settings.new_group_name_placeholder": "新分組名稱（如：媒體服務商）",
+  "settings.icon_placeholder": "圖標",
+  "settings.add_group_btn": "+ 新增分組"
 }

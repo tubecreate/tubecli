@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "Geçersiz JSON: ",
   "agent_modal.test_triggered_bg": "Arka planda test başlatıldı. Tarayıcının açılmasını bekleyin!",
   "agent_modal.test_failed": "Test başlatılamadı: ",
-  "agent_modal.unknown_error": "Bilinmeyen hata"
+  "agent_modal.unknown_error": "Bilinmeyen hata",
+  "settings.version_desc": "Güncellemeleri kontrol et ve sürümleri yönet",
+  "settings.general_desc": "Çekirdek sistem yapılandırması",
+  "settings.ai_config": "🤖 Yapay Zeka Yapılandırması",
+  "settings.ai_config_desc": "Model ve API anahtarları",
+  "settings.lang_browser": "🌐 Dil ve Tarayıcı",
+  "settings.lang_browser_desc": "Yerelleştirme ve varsayılan profil",
+  "settings.ext_groups": "🧩 Uzantı Grupları",
+  "settings.ext_groups_desc": "Uzantıları kenar çubuğunda grupla",
+  "settings.new_group_name_placeholder": "Yeni Grup Adı (örn. Medya Sağlayıcıları)",
+  "settings.icon_placeholder": "Simge",
+  "settings.add_group_btn": "+ Grup Ekle"
 }

@@ -485,5 +485,16 @@
   "agent_modal.invalid_json": "JSON 格式无效: ",
   "agent_modal.test_triggered_bg": "已在后台触发测试。请观察浏览器启动！",
   "agent_modal.test_failed": "启动日程测试失败: ",
-  "agent_modal.unknown_error": "未知错误"
+  "agent_modal.unknown_error": "未知错误",
+  "settings.version_desc": "检查更新并管理版本",
+  "settings.general_desc": "核心系统配置",
+  "settings.ai_config": "🤖 AI 配置",
+  "settings.ai_config_desc": "模型与 API 密钥",
+  "settings.lang_browser": "🌐 语言与浏览器",
+  "settings.lang_browser_desc": "本地化与默认配置文件",
+  "settings.ext_groups": "🧩 扩展分组",
+  "settings.ext_groups_desc": "在侧边栏中对扩展进行分组",
+  "settings.new_group_name_placeholder": "新分组名称（如：媒体服务商）",
+  "settings.icon_placeholder": "图标",
+  "settings.add_group_btn": "+ 添加分组"
 }
