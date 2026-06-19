@@ -618,8 +618,8 @@ async function loadExtensions() {
             }
 
             cards += `<div class="card ext-card" onclick="openExternalExtDetail('${esc(ext.name)}')" style="${!isEnabled ? 'opacity:0.5' : ''}">
-                <div class="card-icon">${esc(ext.icon || '\ud83d\udce6')}</div>
-                <h3>${esc(ext.name)}</h3>
+                <div class="card-icon">${renderExtIcon(ext.icon, 32)}</div>
+                <h3>${esc(ext.display_name || ext.name)}</h3>
                 <p class="card-meta">v${esc(ext.version || '-')} · external</p>
                 ${updateBtnHtml}
                 <p class="card-desc">${esc(ext.description || '')}</p>
