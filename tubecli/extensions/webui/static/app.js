@@ -1430,7 +1430,7 @@ async function renderAgentsExt(el) {
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
     if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (!/^[a-zA-Z_0-9-]+$/.test(a.avatar_icon) ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon.toLowerCase()) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}')">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (!/^[a-zA-Z_0-9-]+$/.test(a.avatar_icon) ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon.toLowerCase()) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}', this)">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
@@ -2794,132 +2794,145 @@ function showCreateAgent() {
     });
 }
 
-async function openEditAgent(id) {
-    const d = await apiGet('/api/v1/agents/'+id);
-    if (!d) return alert('Failed');
-    document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + d.name;
-    document.getElementById('agent-id').value=d.id;
-    document.getElementById('agent-name').value=d.name||'';
-    document.getElementById('agent-desc').value=d.description||'';
-    document.getElementById('agent-prompt').value=d.system_prompt||'';
-    let iconVal = d.avatar_icon || 'smart_toy';
-    if (iconVal === 'SMART_TOY' || iconVal === 'smart_toy') iconVal = 'smart_toy';
-    document.getElementById('agent-icon').value = iconVal;
-    const p=d.persona||{};
-    document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
-    document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||{},workHabits:(d.routine||{}).workHabits||{}},null,2);
-    const pp=d.proxy_provider||{mode:'none'};
-    document.getElementById('agent-proxy-mode').value=pp.mode||'none';
-    document.getElementById('agent-proxy').value=d.proxy_config||'';
-    onProxyModeChange();
-    const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
-    const schedule_repeat = d.schedule_repeat || (d.schedule && d.schedule.repeat) || 'daily';
-    const schedule_active_days = d.schedule_active_days || (d.schedule && d.schedule.active_days) || ['mon','tue','wed','thu','fri'];
-    const schedule_start_time = d.schedule_start_time || (d.schedule && d.schedule.start_time) || '08:00';
-    const schedule_end_time = d.schedule_end_time || (d.schedule && d.schedule.end_time) || '22:00';
-    const schedule_max_runs = d.schedule_max_runs || (d.schedule && d.schedule.max_runs) || 10;
+async function openEditAgent(id, btn) {
+    let originalHtml = '';
+    if (btn) {
+        btn.disabled = true;
+        originalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;border-width:2px;display:inline-block;margin-right:4px;"></span>' + (originalHtml.includes('span') ? '' : ' ') + originalHtml;
+    }
+    try {
+        const d = await apiGet('/api/v1/agents/'+id);
+        if (!d) return alert('Failed');
+        document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + d.name;
+        document.getElementById('agent-id').value=d.id;
+        document.getElementById('agent-name').value=d.name||'';
+        document.getElementById('agent-desc').value=d.description||'';
+        document.getElementById('agent-prompt').value=d.system_prompt||'';
+        let iconVal = d.avatar_icon || 'smart_toy';
+        if (iconVal === 'SMART_TOY' || iconVal === 'smart_toy') iconVal = 'smart_toy';
+        document.getElementById('agent-icon').value = iconVal;
+        const p=d.persona||{};
+        document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
+        document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||{},workHabits:(d.routine||{}).workHabits||{}},null,2);
+        const pp=d.proxy_provider||{mode:'none'};
+        document.getElementById('agent-proxy-mode').value=pp.mode||'none';
+        document.getElementById('agent-proxy').value=d.proxy_config||'';
+        onProxyModeChange();
+        const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
+        const schedule_repeat = d.schedule_repeat || (d.schedule && d.schedule.repeat) || 'daily';
+        const schedule_active_days = d.schedule_active_days || (d.schedule && d.schedule.active_days) || ['mon','tue','wed','thu','fri'];
+        const schedule_start_time = d.schedule_start_time || (d.schedule && d.schedule.start_time) || '08:00';
+        const schedule_end_time = d.schedule_end_time || (d.schedule && d.schedule.end_time) || '22:00';
+        const schedule_max_runs = d.schedule_max_runs || (d.schedule && d.schedule.max_runs) || 10;
 
-    document.getElementById('agent-schedule-enable').checked = schedule_enabled;
-    document.getElementById('agent-timezone').value = d.timezone || 'Asia/Ho_Chi_Minh';
-    document.getElementById('agent-schedule-repeat').value = schedule_repeat;
-    document.getElementById('agent-schedule-interval').value = (d.schedule && d.schedule.interval) || 60;
-    document.getElementById('agent-schedule-start').value = schedule_start_time;
-    document.getElementById('agent-schedule-end').value = schedule_end_time;
-    document.getElementById('agent-schedule-max-runs').value = schedule_max_runs;
-    document.querySelectorAll('.agent-day-cb').forEach(cb => cb.checked = schedule_active_days.includes(cb.value));
-    onScheduleRepeatChange();
-    document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false;
-    document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000;
-    document.getElementById('agent-scraper-format').value=d.script_output_format||'json';
-    document.getElementById('agent-tg-token').value=d.telegram_token||'';
-    document.getElementById('agent-tg-chat').value=d.telegram_chat_id||'';
-    document.getElementById('agent-ms-token').value=d.messenger_token||'';
-    document.getElementById('agent-ms-page').value=d.messenger_page_id||'';
-    document.getElementById('agent-ms-php').value=d.messenger_php_url||'';
-    document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||'';
-    await Promise.all([
-        populateAgentProfiles(d.allowed_profiles||[]),
-        populateAgentSkills(d.allowed_skills||[])
-    ]);
-    document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
+        document.getElementById('agent-schedule-enable').checked = schedule_enabled;
+        document.getElementById('agent-timezone').value = d.timezone || 'Asia/Ho_Chi_Minh';
+        document.getElementById('agent-schedule-repeat').value = schedule_repeat;
+        document.getElementById('agent-schedule-interval').value = (d.schedule && d.schedule.interval) || 60;
+        document.getElementById('agent-schedule-start').value = schedule_start_time;
+        document.getElementById('agent-schedule-end').value = schedule_end_time;
+        document.getElementById('agent-schedule-max-runs').value = schedule_max_runs;
+        document.querySelectorAll('.agent-day-cb').forEach(cb => cb.checked = schedule_active_days.includes(cb.value));
+        onScheduleRepeatChange();
+        document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false;
+        document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000;
+        document.getElementById('agent-scraper-format').value=d.script_output_format||'json';
+        document.getElementById('agent-tg-token').value=d.telegram_token||'';
+        document.getElementById('agent-tg-chat').value=d.telegram_chat_id||'';
+        document.getElementById('agent-ms-token').value=d.messenger_token||'';
+        document.getElementById('agent-ms-page').value=d.messenger_page_id||'';
+        document.getElementById('agent-ms-php').value=d.messenger_php_url||'';
+        document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||'';
+        await Promise.all([
+            populateAgentProfiles(d.allowed_profiles||[]),
+            populateAgentSkills(d.allowed_skills||[])
+        ]);
+        document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
 
-    // Populate Automated Schedule Status Panel
-    const statusPanel = document.getElementById('schedule-status-panel');
-    if (statusPanel) {
-        statusPanel.style.display = 'block';
-        
-        // Next run countdown calculation
-        if (schedule_enabled && d.schedule_next_run) {
-            const nextRun = new Date(d.schedule_next_run);
-            const now = new Date();
-            const diffMs = nextRun - now;
-            let timeStr = nextRun.toLocaleString(_lang || 'en');
-            if (diffMs > 0) {
-                const diffMins = Math.floor(diffMs / 60000);
-                const hours = Math.floor(diffMins / 60);
-                const mins = diffMins % 60;
-                if (hours > 0) {
-                    timeStr += ' ' + T('agent_modal.in_hours_mins', {hours, mins});
+        // Populate Automated Schedule Status Panel
+        const statusPanel = document.getElementById('schedule-status-panel');
+        if (statusPanel) {
+            statusPanel.style.display = 'block';
+            
+            // Next run countdown calculation
+            if (schedule_enabled && d.schedule_next_run) {
+                const nextRun = new Date(d.schedule_next_run);
+                const now = new Date();
+                const diffMs = nextRun - now;
+                let timeStr = nextRun.toLocaleString(_lang || 'en');
+                if (diffMs > 0) {
+                    const diffMins = Math.floor(diffMs / 60000);
+                    const hours = Math.floor(diffMins / 60);
+                    const mins = diffMins % 60;
+                    if (hours > 0) {
+                        timeStr += ' ' + T('agent_modal.in_hours_mins', {hours, mins});
+                    } else {
+                        timeStr += ' ' + T('agent_modal.in_mins', {mins});
+                    }
                 } else {
-                    timeStr += ' ' + T('agent_modal.in_mins', {mins});
+                    timeStr += ' ' + T('agent_modal.running_or_overdue');
                 }
+                document.getElementById('sched-next-run-val').textContent = timeStr;
+                document.getElementById('sched-next-run-val').style.color = 'var(--green)';
             } else {
-                timeStr += ' ' + T('agent_modal.running_or_overdue');
+                document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
+                document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
             }
-            document.getElementById('sched-next-run-val').textContent = timeStr;
-            document.getElementById('sched-next-run-val').style.color = 'var(--green)';
-        } else {
-            document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
-            document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
+
+            // Daily keywords check
+            const now = new Date();
+            const yyyy = now.getFullYear();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            const todayStr = `${yyyy}-${mm}-${dd}`;
+
+            const dk = d.routine?.daily_keywords;
+            const isToday = dk && dk.date === todayStr;
+
+            if (isToday) {
+                const usedMeta = d.routine?.used_keywords_today;
+                const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
+
+                const renderKwList = (period) => {
+                    const keywords = dk[period] || [];
+                    const usedList = usedToday[period] || [];
+                    if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
+                    return keywords.map(kw => {
+                        const isUsed = usedList.includes(kw);
+                        return isUsed
+                            ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
+                            : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
+                    }).join('');
+                };
+
+                document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
+                document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
+                document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
+                document.getElementById('kw-night-val').innerHTML = renderKwList('night');
+            } else {
+                const placeholder = T('agent_modal.not_generated_today') || 'Not generated yet today';
+                document.getElementById('kw-morning-val').textContent = placeholder;
+                document.getElementById('kw-afternoon-val').textContent = placeholder;
+                document.getElementById('kw-evening-val').textContent = placeholder;
+                document.getElementById('kw-night-val').textContent = placeholder;
+            }
+
         }
 
-        // Daily keywords check
-        const now = new Date();
-        const yyyy = now.getFullYear();
-        const mm = String(now.getMonth() + 1).padStart(2, '0');
-        const dd = String(now.getDate()).padStart(2, '0');
-        const todayStr = `${yyyy}-${mm}-${dd}`;
-
-        const dk = d.routine?.daily_keywords;
-        const isToday = dk && dk.date === todayStr;
-
-        if (isToday) {
-            const usedMeta = d.routine?.used_keywords_today;
-            const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
-
-            const renderKwList = (period) => {
-                const keywords = dk[period] || [];
-                const usedList = usedToday[period] || [];
-                if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
-                return keywords.map(kw => {
-                    const isUsed = usedList.includes(kw);
-                    return isUsed
-                        ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
-                        : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
-                }).join('');
-            };
-
-            document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
-            document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
-            document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
-            document.getElementById('kw-night-val').innerHTML = renderKwList('night');
-        } else {
-            const placeholder = T('agent_modal.not_generated_today') || 'Not generated yet today';
-            document.getElementById('kw-morning-val').textContent = placeholder;
-            document.getElementById('kw-afternoon-val').textContent = placeholder;
-            document.getElementById('kw-evening-val').textContent = placeholder;
-            document.getElementById('kw-night-val').textContent = placeholder;
+        if (document.getElementById('btn-test-agent')) {
+            document.getElementById('btn-test-agent').style.display = 'inline-block';
         }
-
+        document.getElementById('modal-agent').classList.remove('hidden');
+        // Load model dropdowns async (non-blocking, lazy)
+        populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
+        populateAgentModelDropdown('browser', d.browser_ai_model || d.model || 'qwen:latest');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
     }
-
-    if (document.getElementById('btn-test-agent')) {
-        document.getElementById('btn-test-agent').style.display = 'inline-block';
-    }
-    document.getElementById('modal-agent').classList.remove('hidden');
-    // Load model dropdowns async (non-blocking, lazy)
-    populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
-    populateAgentModelDropdown('browser', d.browser_ai_model || d.model || 'qwen:latest');
 }
 
 async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML=`<p class="text-muted">${T('agent_modal.no_profiles') || 'No profiles.'}</p>`; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
