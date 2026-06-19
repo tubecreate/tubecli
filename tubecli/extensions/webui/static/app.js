@@ -276,6 +276,9 @@ document.querySelectorAll('.agent-tab-btn').forEach(btn => {
         document.querySelectorAll('#modal-agent .agent-tab-pane').forEach(p => p.classList.remove('active'));
         btn.classList.add('active');
         document.getElementById('atab-' + btn.dataset.atab).classList.add('active');
+        if (btn.dataset.atab === 'history') {
+            loadAgentHistory();
+        }
     });
 });
 
@@ -2740,6 +2743,13 @@ function renderChatHistory(history) { const c = document.getElementById('chat-hi
 async function sendChatMessage() { if(!currentChatAgentId) return; const inp=document.getElementById('chat-input'); const msg=inp.value.trim(); if(!msg) return; inp.value=''; const c=document.getElementById('chat-history'); if(c.innerHTML.includes('Say hello')) c.innerHTML=''; c.innerHTML+=`<div style="display:flex;justify-content:flex-end;width:100%;margin-top:12px"><div style="background:var(--blue);color:#fff;padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(msg)}</div></div><div id="chat-typing" style="display:flex;justify-content:flex-start;width:100%;margin-top:12px"><div style="background:var(--bg3);color:var(--text-muted);padding:10px 14px;border-radius:8px;font-size:.9rem">Typing...</div></div>`; c.scrollTop=c.scrollHeight; const r=await apiPost('/api/v1/agents/'+currentChatAgentId+'/chat',{message:msg}); document.getElementById('chat-typing')?.remove(); if(r) renderChatHistory(r.history); }
 
 function showCreateAgent() {
+    if (document.getElementById('btn-test-agent')) {
+        document.getElementById('btn-test-agent').style.display = 'none';
+    }
+    const statusPanel = document.getElementById('schedule-status-panel');
+    if (statusPanel) {
+        statusPanel.style.display = 'none';
+    }
     document.getElementById('agent-modal-title').textContent = T('agent_modal.create_title') || 'Create Agent';
     document.getElementById('agent-id').value='';
     document.getElementById('agent-name').value='';
@@ -2747,7 +2757,7 @@ function showCreateAgent() {
     document.getElementById('agent-prompt').value='You are a helpful AI assistant.';
     document.getElementById('agent-icon').value='smart_toy';
     document.getElementById('agent-interests').value='';
-    document.getElementById('agent-behavior').value='{\n  "dailyRoutine": [],\n  "workHabits": {}\n}';
+    document.getElementById('agent-behavior').value='{\n  "dailyRoutine": {},\n  "workHabits": {}\n}';
     document.getElementById('agent-proxy-mode').value='none';
     document.getElementById('agent-proxy').value='';
     onProxyModeChange();
@@ -2797,20 +2807,26 @@ async function openEditAgent(id) {
     document.getElementById('agent-icon').value = iconVal;
     const p=d.persona||{};
     document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
-    document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||[],workHabits:(d.routine||{}).workHabits||{}},null,2);
+    document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||{},workHabits:(d.routine||{}).workHabits||{}},null,2);
     const pp=d.proxy_provider||{mode:'none'};
     document.getElementById('agent-proxy-mode').value=pp.mode||'none';
     document.getElementById('agent-proxy').value=d.proxy_config||'';
     onProxyModeChange();
-    const sc=d.schedule||{};
-    document.getElementById('agent-schedule-enable').checked=sc.enabled||false;
-    document.getElementById('agent-timezone').value=d.timezone||'Asia/Ho_Chi_Minh';
-    document.getElementById('agent-schedule-repeat').value=sc.repeat||'daily';
-    document.getElementById('agent-schedule-interval').value=sc.interval||60;
-    document.getElementById('agent-schedule-start').value=sc.start_time||'08:00';
-    document.getElementById('agent-schedule-end').value=sc.end_time||'22:00';
-    document.getElementById('agent-schedule-max-runs').value=sc.max_runs||10;
-    document.querySelectorAll('.agent-day-cb').forEach(cb=>cb.checked=(sc.active_days||['mon','tue','wed','thu','fri']).includes(cb.value));
+    const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
+    const schedule_repeat = d.schedule_repeat || (d.schedule && d.schedule.repeat) || 'daily';
+    const schedule_active_days = d.schedule_active_days || (d.schedule && d.schedule.active_days) || ['mon','tue','wed','thu','fri'];
+    const schedule_start_time = d.schedule_start_time || (d.schedule && d.schedule.start_time) || '08:00';
+    const schedule_end_time = d.schedule_end_time || (d.schedule && d.schedule.end_time) || '22:00';
+    const schedule_max_runs = d.schedule_max_runs || (d.schedule && d.schedule.max_runs) || 10;
+
+    document.getElementById('agent-schedule-enable').checked = schedule_enabled;
+    document.getElementById('agent-timezone').value = d.timezone || 'Asia/Ho_Chi_Minh';
+    document.getElementById('agent-schedule-repeat').value = schedule_repeat;
+    document.getElementById('agent-schedule-interval').value = (d.schedule && d.schedule.interval) || 60;
+    document.getElementById('agent-schedule-start').value = schedule_start_time;
+    document.getElementById('agent-schedule-end').value = schedule_end_time;
+    document.getElementById('agent-schedule-max-runs').value = schedule_max_runs;
+    document.querySelectorAll('.agent-day-cb').forEach(cb => cb.checked = schedule_active_days.includes(cb.value));
     onScheduleRepeatChange();
     document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false;
     document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000;
@@ -2826,6 +2842,80 @@ async function openEditAgent(id) {
         populateAgentSkills(d.allowed_skills||[])
     ]);
     document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
+
+    // Populate Automated Schedule Status Panel
+    const statusPanel = document.getElementById('schedule-status-panel');
+    if (statusPanel) {
+        statusPanel.style.display = 'block';
+        
+        // Next run countdown calculation
+        if (schedule_enabled && d.schedule_next_run) {
+            const nextRun = new Date(d.schedule_next_run);
+            const now = new Date();
+            const diffMs = nextRun - now;
+            let timeStr = nextRun.toLocaleString();
+            if (diffMs > 0) {
+                const diffMins = Math.floor(diffMs / 60000);
+                const hours = Math.floor(diffMins / 60);
+                const mins = diffMins % 60;
+                if (hours > 0) {
+                    timeStr += ` (in ~${hours}h ${mins}m)`;
+                } else {
+                    timeStr += ` (in ~${mins}m)`;
+                }
+            } else {
+                timeStr += ` (running or overdue)`;
+            }
+            document.getElementById('sched-next-run-val').textContent = timeStr;
+            document.getElementById('sched-next-run-val').style.color = 'var(--green)';
+        } else {
+            document.getElementById('sched-next-run-val').textContent = 'Not scheduled';
+            document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
+        }
+
+        // Daily keywords check
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${yyyy}-${mm}-${dd}`;
+
+        const dk = d.routine?.daily_keywords;
+        const isToday = dk && dk.date === todayStr;
+
+        if (isToday) {
+            const usedMeta = d.routine?.used_keywords_today;
+            const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
+
+            const renderKwList = (period) => {
+                const keywords = dk[period] || [];
+                const usedList = usedToday[period] || [];
+                if (!keywords.length) return '<span style="color:var(--text-muted)">None</span>';
+                return keywords.map(kw => {
+                    const isUsed = usedList.includes(kw);
+                    return isUsed
+                        ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
+                        : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
+                }).join('');
+            };
+
+            document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
+            document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
+            document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
+            document.getElementById('kw-night-val').innerHTML = renderKwList('night');
+        } else {
+            const placeholder = 'Not generated yet today';
+            document.getElementById('kw-morning-val').textContent = placeholder;
+            document.getElementById('kw-afternoon-val').textContent = placeholder;
+            document.getElementById('kw-evening-val').textContent = placeholder;
+            document.getElementById('kw-night-val').textContent = placeholder;
+        }
+
+    }
+
+    if (document.getElementById('btn-test-agent')) {
+        document.getElementById('btn-test-agent').style.display = 'inline-block';
+    }
     document.getElementById('modal-agent').classList.remove('hidden');
     // Load model dropdowns async (non-blocking, lazy)
     populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
@@ -3122,7 +3212,403 @@ function onProxyModeChange() { const m=document.getElementById('agent-proxy-mode
 function onScheduleRepeatChange() { document.getElementById('schedule-interval-group').style.display=document.getElementById('agent-schedule-repeat').value==='interval'?'block':'none'; }
 document.getElementById('agent-schedule-repeat')?.addEventListener('change', onScheduleRepeatChange);
 
-async function saveAgent() { const name=document.getElementById('agent-name').value.trim(); if(!name) return alert('Name required'); const id=document.getElementById('agent-id').value; const interests=document.getElementById('agent-interests').value.split(',').map(s=>s.trim()).filter(s=>s); let routine={}; try { const v=document.getElementById('agent-behavior').value; if(v) routine=JSON.parse(v); } catch(e) { return alert('Invalid JSON: '+e.message); } const pm=document.getElementById('agent-proxy-mode').value; const pp={mode:pm}; if(pm==='dynamic') { pp.api_url=document.getElementById('agent-proxy-api')?.value||''; pp.api_key=document.getElementById('agent-proxy-api-key')?.value||''; pp.location=document.getElementById('agent-proxy-location')?.value||''; } const payload = { name, description:document.getElementById('agent-desc').value, system_prompt:document.getElementById('agent-prompt').value, model:document.getElementById('agent-model').value, browser_ai_model:document.getElementById('agent-browser-model').value, avatar_icon:document.getElementById('agent-icon').value, persona:{interests}, routine, proxy_config:pm==='static'?document.getElementById('agent-proxy').value:'', proxy_provider:pp, timezone:document.getElementById('agent-timezone').value, schedule:{ enabled:document.getElementById('agent-schedule-enable').checked, repeat:document.getElementById('agent-schedule-repeat').value, interval:parseInt(document.getElementById('agent-schedule-interval').value)||60, active_days:Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb=>cb.value), start_time:document.getElementById('agent-schedule-start').value, end_time:document.getElementById('agent-schedule-end').value, max_runs:parseInt(document.getElementById('agent-schedule-max-runs').value)||10 }, enable_scraping:document.getElementById('agent-scraping-enable').checked, scraper_text_limit:parseInt(document.getElementById('agent-scraper-limit').value)||10000, script_output_format:document.getElementById('agent-scraper-format').value, telegram_token:document.getElementById('agent-tg-token').value, telegram_chat_id:document.getElementById('agent-tg-chat').value, messenger_token:document.getElementById('agent-ms-token').value, messenger_page_id:document.getElementById('agent-ms-page').value, messenger_php_url:document.getElementById('agent-ms-php').value, direct_trigger_skill_id:document.getElementById('agent-ms-skill').value, allowed_profiles:Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb=>cb.value), allowed_skills:Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb=>cb.value) }; if(id) await apiPut('/api/v1/agents/'+id,payload); else await apiPost('/api/v1/agents',payload); closeModal('modal-agent'); renderAgentsExt(getAgentsBody()); }
+async function saveAgent() {
+    const name = document.getElementById('agent-name').value.trim();
+    if (!name) return alert('Name required');
+    const id = document.getElementById('agent-id').value;
+    const interests = document.getElementById('agent-interests').value.split(',').map(s => s.trim()).filter(s => s);
+    let routine = {};
+    try {
+        const v = document.getElementById('agent-behavior').value;
+        if (v) routine = JSON.parse(v);
+    } catch (e) {
+        return alert('Invalid JSON: ' + e.message);
+    }
+    const pm = document.getElementById('agent-proxy-mode').value;
+    const pp = { mode: pm };
+    if (pm === 'dynamic') {
+        pp.api_url = document.getElementById('agent-proxy-api')?.value || '';
+        pp.api_key = document.getElementById('agent-proxy-api-key')?.value || '';
+        pp.location = document.getElementById('agent-proxy-location')?.value || '';
+    }
+
+    const schedule_enabled = document.getElementById('agent-schedule-enable').checked;
+    const schedule_repeat = document.getElementById('agent-schedule-repeat').value;
+    const schedule_active_days = Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb => cb.value);
+    const schedule_start_time = document.getElementById('agent-schedule-start').value;
+    const schedule_end_time = document.getElementById('agent-schedule-end').value;
+    const schedule_max_runs = parseInt(document.getElementById('agent-schedule-max-runs').value) || 10;
+
+    const payload = {
+        name,
+        description: document.getElementById('agent-desc').value,
+        system_prompt: document.getElementById('agent-prompt').value,
+        model: document.getElementById('agent-model').value,
+        browser_ai_model: document.getElementById('agent-browser-model').value,
+        avatar_icon: document.getElementById('agent-icon').value,
+        persona: { interests },
+        routine,
+        proxy_config: pm === 'static' ? document.getElementById('agent-proxy').value : '',
+        proxy_provider: pp,
+        timezone: document.getElementById('agent-timezone').value,
+
+        // Include flat fields for backend API
+        schedule_enabled,
+        schedule_repeat,
+        schedule_active_days,
+        schedule_start_time,
+        schedule_end_time,
+        schedule_max_runs,
+
+        // Include nested schedule for backward compatibility / other uses
+        schedule: {
+            enabled: schedule_enabled,
+            repeat: schedule_repeat,
+            interval: parseInt(document.getElementById('agent-schedule-interval').value) || 60,
+            active_days: schedule_active_days,
+            start_time: schedule_start_time,
+            end_time: schedule_end_time,
+            max_runs: schedule_max_runs
+        },
+
+        enable_scraping: document.getElementById('agent-scraping-enable').checked,
+        scraper_text_limit: parseInt(document.getElementById('agent-scraper-limit').value) || 10000,
+        script_output_format: document.getElementById('agent-scraper-format').value,
+        telegram_token: document.getElementById('agent-tg-token').value,
+        telegram_chat_id: document.getElementById('agent-tg-chat').value,
+        messenger_token: document.getElementById('agent-ms-token').value,
+        messenger_page_id: document.getElementById('agent-ms-page').value,
+        messenger_php_url: document.getElementById('agent-ms-php').value,
+        direct_trigger_skill_id: document.getElementById('agent-ms-skill').value,
+        allowed_profiles: Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb => cb.value),
+        allowed_skills: Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb => cb.value)
+    };
+
+    let response;
+    if (id) {
+        response = await apiPut('/api/v1/agents/' + id, payload);
+    } else {
+        response = await apiPost('/api/v1/agents', payload);
+    }
+
+    if (response && (response.status === 'success' || response.status === 'updated' || response.status === 'created' || !response.error)) {
+        alert('Lưu thành công!');
+        // Update the id field if a new agent was created, so subsequent saves are updates
+        if (!id && response.agent && response.agent.id) {
+            document.getElementById('agent-id').value = response.agent.id;
+            document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + response.agent.name;
+        }
+    } else {
+        alert('Có lỗi xảy ra: ' + (response?.error || 'Không thể lưu agent'));
+    }
+
+    renderAgentsExt(getAgentsBody());
+}
+
+async function testAgentRoutine() {
+    const id = document.getElementById('agent-id').value;
+    if (!id) return alert('Save the agent first before testing.');
+    const name = document.getElementById('agent-name').value.trim();
+    if (!name) return alert('Name required');
+    const btn = document.getElementById('btn-test-agent');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = 'Testing...';
+    const interests = document.getElementById('agent-interests').value.split(',').map(s => s.trim()).filter(s => s);
+    let routine = {};
+    try {
+        const v = document.getElementById('agent-behavior').value;
+        if (v) routine = JSON.parse(v);
+    } catch (e) {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        return alert('Invalid JSON: ' + e.message);
+    }
+    const pm = document.getElementById('agent-proxy-mode').value;
+    const pp = { mode: pm };
+    if (pm === 'dynamic') {
+        pp.api_url = document.getElementById('agent-proxy-api')?.value || '';
+        pp.api_key = document.getElementById('agent-proxy-api-key')?.value || '';
+        pp.location = document.getElementById('agent-proxy-location')?.value || '';
+    }
+    const payload = {
+        name,
+        description: document.getElementById('agent-desc').value,
+        system_prompt: document.getElementById('agent-prompt').value,
+        model: document.getElementById('agent-model').value,
+        browser_ai_model: document.getElementById('agent-browser-model').value,
+        avatar_icon: document.getElementById('agent-icon').value,
+        persona: { interests },
+        routine,
+        proxy_config: pm === 'static' ? document.getElementById('agent-proxy').value : '',
+        proxy_provider: pp,
+        timezone: document.getElementById('agent-timezone').value,
+        schedule: {
+            enabled: document.getElementById('agent-schedule-enable').checked,
+            repeat: document.getElementById('agent-schedule-repeat').value,
+            interval: parseInt(document.getElementById('agent-schedule-interval').value) || 60,
+            active_days: Array.from(document.querySelectorAll('.agent-day-cb:checked')).map(cb => cb.value),
+            start_time: document.getElementById('agent-schedule-start').value,
+            end_time: document.getElementById('agent-schedule-end').value,
+            max_runs: parseInt(document.getElementById('agent-schedule-max-runs').value) || 10
+        },
+        enable_scraping: document.getElementById('agent-scraping-enable').checked,
+        scraper_text_limit: parseInt(document.getElementById('agent-scraper-limit').value) || 10000,
+        script_output_format: document.getElementById('agent-scraper-format').value,
+        telegram_token: document.getElementById('agent-tg-token').value,
+        telegram_chat_id: document.getElementById('agent-tg-chat').value,
+        messenger_token: document.getElementById('agent-ms-token').value,
+        messenger_page_id: document.getElementById('agent-ms-page').value,
+        messenger_php_url: document.getElementById('agent-ms-php').value,
+        direct_trigger_skill_id: document.getElementById('agent-ms-skill').value,
+        allowed_profiles: Array.from(document.querySelectorAll('.agent-profile-cb:checked')).map(cb => cb.value),
+        allowed_skills: Array.from(document.querySelectorAll('.agent-skill-cb:checked')).map(cb => cb.value)
+    };
+    try {
+        await apiPut('/api/v1/agents/' + id, payload);
+        renderAgentsExt(getAgentsBody());
+        const res = await apiPost('/api/v1/agents/' + id + '/test_routine', {});
+        if (res && !res.error) {
+            alert('Triggered routine test in background. Look for browser spawning!');
+        } else {
+            alert('Failed to launch routine: ' + (res?.error || 'Unknown error'));
+        }
+    } catch (err) {
+        alert('Error: ' + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+function getHistoryCategory(url) {
+    const urlLower = (url || '').toLowerCase();
+    if (['facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'reddit.com', 'pinterest.com'].some(d => urlLower.includes(d))) {
+        return "Social";
+    }
+    if (['google.com/search', 'bing.com', 'yahoo.com', 'duckduckgo.com'].some(d => urlLower.includes(d))) {
+        return "Search";
+    }
+    if (['youtube.com', 'youtu.be', 'vimeo.com', 'twitch.tv', 'dailymotion.com', 'netflix.com'].some(d => urlLower.includes(d))) {
+        return "Video";
+    }
+    if (['cnn.com', 'bbc.co', 'nytimes.com', 'foxnews.com', 'reuters.com', 'bloomberg.com', 'news.google.com', 'vnexpress.net', 'dantri.com.vn', 'tuoitre.vn'].some(d => urlLower.includes(d))) {
+        return "News";
+    }
+    if (['github.com', 'gitlab.com', 'stackoverflow.com', 'slack.com', 'notion.so', 'trello.com', 'asana.com', 'docs.google.com'].some(d => urlLower.includes(d))) {
+        return "Work";
+    }
+    if (urlLower.includes('google.com')) {
+        return "Search";
+    }
+    return "Other website";
+}
+
+let currentAgentHistory = [];
+let currentHistoryPage = 1;
+const historyPageSize = 10;
+let historySearchQuery = '';
+
+function getLocalDateString(scrapedAt) {
+    if (!scrapedAt) return 'Unknown Date';
+    try {
+        const d = new Date(scrapedAt);
+        const today = new Date();
+        const yesterday = new Date();
+        yesterday.setDate(today.getDate() - 1);
+        
+        if (d.toDateString() === today.toDateString()) {
+            return 'Today';
+        } else if (d.toDateString() === yesterday.toDateString()) {
+            return 'Yesterday';
+        } else {
+            return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }
+    } catch(e) {
+        return 'Unknown Date';
+    }
+}
+
+function renderHistoryPage() {
+    const listDiv = document.getElementById('agent-history-list');
+    const paginationDiv = document.getElementById('agent-history-pagination');
+    
+    // Filter history based on search query
+    let filtered = currentAgentHistory;
+    if (historySearchQuery) {
+        const q = historySearchQuery.toLowerCase();
+        filtered = currentAgentHistory.filter(item => {
+            const title = (item.title || '').toLowerCase();
+            const url = (item.url || '').toLowerCase();
+            const profile = (item._profile || '').toLowerCase();
+            return title.includes(q) || url.includes(q) || profile.includes(q);
+        });
+    }
+    
+    if (!filtered || !filtered.length) {
+        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">No matching history entries.</p>';
+        paginationDiv.style.display = 'none';
+        return;
+    }
+    
+    // Calculate pagination
+    const totalItems = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalItems / historyPageSize));
+    if (currentHistoryPage > totalPages) {
+        currentHistoryPage = totalPages;
+    }
+    if (currentHistoryPage < 1) {
+        currentHistoryPage = 1;
+    }
+    
+    const startIndex = (currentHistoryPage - 1) * historyPageSize;
+    const endIndex = Math.min(startIndex + historyPageSize, totalItems);
+    const pageItems = filtered.slice(startIndex, endIndex);
+    
+    // Render items grouped by date
+    let lastDateGroup = null;
+    let html = '';
+    
+    pageItems.forEach(item => {
+        const title = item.title || 'Untitled';
+        const url = item.url || '';
+        const profile = item._profile || 'default';
+        const dateGroup = getLocalDateString(item.scrapedAt);
+        
+        if (dateGroup !== lastDateGroup) {
+            lastDateGroup = dateGroup;
+            html += `
+                <div class="history-date-group-header">
+                    <span class="material-symbols-outlined" style="font-size:16px;">calendar_month</span>
+                    <span>${esc(dateGroup)}</span>
+                </div>
+            `;
+        }
+        
+        let timeStr = 'Unknown time';
+        if (item.scrapedAt) {
+            try {
+                timeStr = new Date(item.scrapedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+            } catch (e) {}
+        }
+        const category = getHistoryCategory(url);
+        
+        let statusHtml = '';
+        if (item.isScraped) {
+            statusHtml = `
+                <span style="color:#10b981; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">image</span> ${item.imageCount || 0}
+                </span>
+                <span style="color:#10b981; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; margin-left:8px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">description</span> ${item.contentLength || 0}
+                </span>
+                <span class="history-item-status-scraped">Scraped</span>
+            `;
+        } else {
+            const ip = item.ip || 'Unknown IP';
+            statusHtml = `
+                <span style="color:var(--text-muted); display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">visibility</span> Visited | IP: ${esc(ip)}
+                </span>
+            `;
+        }
+        
+        html += `
+            <div class="history-item-card">
+                <div class="history-item-title" title="${esc(title)}">
+                    ${esc(title)}
+                </div>
+                <div class="history-item-meta">
+                    <span class="history-item-profile">[${esc(profile)}]</span>
+                    <a href="${esc(url)}" target="_blank" class="history-item-url" title="${esc(url)}">
+                        ${esc(url)}
+                    </a>
+                </div>
+                <div class="history-item-footer">
+                    <div class="history-item-time-info">
+                        <span class="material-symbols-outlined" style="font-size:14px;">schedule</span>
+                        <span>${esc(timeStr)}</span>
+                        <span class="history-item-category">
+                            ${category}
+                        </span>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        ${statusHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    listDiv.innerHTML = html;
+    
+    // Update pagination UI
+    paginationDiv.style.display = 'flex';
+    document.getElementById('agent-history-page-info').textContent = `Showing ${startIndex + 1}-${endIndex} of ${totalItems}`;
+    document.getElementById('agent-history-page-num').textContent = `Page ${currentHistoryPage} of ${totalPages}`;
+    
+    const prevBtn = document.getElementById('agent-history-btn-prev');
+    const nextBtn = document.getElementById('agent-history-btn-next');
+    
+    prevBtn.disabled = (currentHistoryPage === 1);
+    nextBtn.disabled = (currentHistoryPage === totalPages);
+    
+    // Adjust visual states of prev/next buttons
+    prevBtn.style.opacity = prevBtn.disabled ? '0.5' : '1';
+    prevBtn.style.cursor = prevBtn.disabled ? 'not-allowed' : 'pointer';
+    nextBtn.style.opacity = nextBtn.disabled ? '0.5' : '1';
+    nextBtn.style.cursor = nextBtn.disabled ? 'not-allowed' : 'pointer';
+}
+
+function changeHistoryPage(dir) {
+    currentHistoryPage += dir;
+    renderHistoryPage();
+}
+
+function onHistorySearch() {
+    const searchVal = document.getElementById('agent-history-search')?.value || '';
+    historySearchQuery = searchVal;
+    currentHistoryPage = 1;
+    renderHistoryPage();
+}
+
+async function loadAgentHistory() {
+    const id = document.getElementById('agent-id').value;
+    const listDiv = document.getElementById('agent-history-list');
+    const paginationDiv = document.getElementById('agent-history-pagination');
+    
+    if (!id) {
+        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">Save agent first to view history.</p>';
+        paginationDiv.style.display = 'none';
+        return;
+    }
+    
+    listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">⏳ Loading history...</p>';
+    paginationDiv.style.display = 'none';
+    
+    // Reset page and search query on reload
+    currentHistoryPage = 1;
+    historySearchQuery = '';
+    const searchInput = document.getElementById('agent-history-search');
+    if (searchInput) searchInput.value = '';
+    
+    const res = await apiGet('/api/v1/agents/' + id + '/history');
+    if (res && res.error) {
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:#ef4444;">❌ Error: ${esc(res.error)}</p>`;
+        return;
+    }
+    
+    if (!res || !res.length) {
+        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">No history entries.</p>';
+        currentAgentHistory = [];
+        return;
+    }
+    
+    currentAgentHistory = res;
+    renderHistoryPage();
+}
+
+
 async function deleteAgent(id) { if(!confirm('Delete agent?')) return; await apiDelete('/api/v1/agents/'+id); }
 
 // ═══ Generate Agent ═══
@@ -3264,7 +3750,7 @@ async function generateAgentJSON() {
     }
     btn.disabled = false;
 }
-function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||[],workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
+function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||{},workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
 
 // ═══ Browser Profile CRUD ═══
 async function showCreateProfile() { 

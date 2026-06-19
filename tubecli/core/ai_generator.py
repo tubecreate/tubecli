@@ -19,7 +19,12 @@ The JSON must follow this EXACT structure (fill in realistic values based on the
     "interests": ["interest1", "interest2", "interest3", "interest4", "interest5", "interest6"]
   }},
   "routine": {{
-    "dailyRoutine": ["action1", "action2", "action3", "action4"],
+    "dailyRoutine": {{
+      "morning":   {{"action1": true, "action2": true, "action3": true, "action4": false}},
+      "afternoon": {{"action1": true, "action2": true, "action3": true, "action4": false}},
+      "evening":   {{"action1": true, "action2": true, "action3": false}},
+      "night":     {{"action1": true, "action2": false}}
+    }},
     "workHabits": {{
       "preferredSites": ["site1.com", "site2.com", "site3.com", "site4.com", "site5.com"],
       "focusAreas": ["Area 1", "Area 2", "Area 3", "Area 4"],

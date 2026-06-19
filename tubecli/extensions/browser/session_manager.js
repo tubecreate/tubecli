@@ -437,6 +437,20 @@ async loadBlacklist() {
    */
   async recordPageVisit(url, title, page = null) {
     if (!this.profileName || !url || url === 'about:blank') return;
+    
+    // Filter out Cloudflare / DDOS Guard / Captcha block pages
+    const lowerTitle = (title || '').toLowerCase().trim();
+    const isSecurityPage = [
+      'just a moment', 'checking your browser', 'access denied',
+      'attention required', 'one more step', 'ddos-guard', 'cloudflare',
+      'nur einen moment', 'chờ một chút', 'checking request',
+      'security check', 'human verification', 'robot check'
+    ].some(term => lowerTitle.includes(term));
+    if (isSecurityPage) {
+      console.log(`[SessionManager] 🛡️ Skipping recording security block page: "${title}"`);
+      return;
+    }
+
     try {
       const ipAddress = page ? await this.getCurrentIp(page) : (this.currentIp || 'Unknown');
       const historyPath = path.resolve('./scraped_data', this.profileName, 'history.json');
@@ -516,16 +530,25 @@ async loadBlacklist() {
         // Popup / Blocking Element Detection
         const potentialPopups = [];
         const dismissTerms = [
-          'not interested', 'no thanks', 'close', 'accept', 'agree', 'got it', 
+          'not interested', 'no thanks', 'close', 'accept', 'agree', 'got it',
           'maybe later', 'dismiss', 'i agree', 'allow', 'ok', 'not now',
-          'no', 'reject', 'decline', 'cookie', 'consent', 'i understand'
+          'no', 'reject', 'decline', 'cookie', 'consent', 'i understand',
+          'confirm', 'do not proceed', 'continue', 'proceed', 'yes', 'i accept',
+          'i consent', 'allow all', 'accept all', 'deny', 'block', 'refuse',
+          'save settings', 'save preferences', 'essential only'
         ];
         
         const allInteractive = document.querySelectorAll('a[href], button, input[type="submit"], [role="button"]');
         
         // 1. Find Popup Containers (Modals, Dialogs, Overlays)
         let blockingPopup = null;
-        const containers = document.querySelectorAll('[role="dialog"], [role="alertdialog"], .modal, .popup, .overlay');
+        const containers = document.querySelectorAll(
+              '[role="dialog"], [role="alertdialog"], .modal, .popup, .overlay, ' +
+              '[class*="gdpr"], [class*="consent"], [class*="cookie"], ' +
+              '[id*="gdpr"], [id*="consent"], [id*="cookie"], ' +
+              '[class*="notice"], [class*="banner"], [class*="wall"], ' +
+              '[class*="gate"], [class*="paywall"], [class*="blocker"]'
+            );
         for (const container of containers) {
             const rect = container.getBoundingClientRect();
             if (rect.width > 200 && rect.height > 100) { // Safety: ignore tiny ones
@@ -547,7 +570,39 @@ async loadBlacklist() {
             }
         }
 
+        // Fallback: detect full-page overlay/wall (GDPR, paywall, age-gate)
+        // that doesn't use standard role/class selectors
+        if (!blockingPopup) {
+            const vw = window.innerWidth || 800;
+            const vh = window.innerHeight || 600;
+            const allDivs = document.querySelectorAll('div, section');
+            for (const el of allDivs) {
+                const rect = el.getBoundingClientRect();
+                const coverW = Math.min(rect.right, vw) - Math.max(rect.left, 0);
+                const coverH = Math.min(rect.bottom, vh) - Math.max(rect.top, 0);
+                if (coverW <= 0 || coverH <= 0) continue;
+                const coverage = (coverW * coverH) / (vw * vh);
+                if (coverage < 0.20) continue;
+                const style = window.getComputedStyle(el);
+                const zIdx = parseInt(style.zIndex) || 0;
+                const isOverlay = (style.position === 'fixed' || style.position === 'absolute') && zIdx > 5;
+                if (!isOverlay) continue;
+                const btns = el.querySelectorAll('button, [role="button"], a[href], input[type="submit"]');
+                const buttons = Array.from(btns).map(b => ({
+                    text: (b.innerText || b.textContent || b.getAttribute('aria-label') || '').trim(),
+                    tag: b.tagName.toLowerCase()
+                })).filter(b => b.text.length > 0);
+                if (buttons.length === 0) continue;
+                blockingPopup = {
+                    selector: el.id ? ('#' + el.id) : (el.className ? ('.' + el.className.split(' ')[0]) : 'overlay-fallback'),
+                    buttons: buttons
+                };
+                break;
+            }
+        }
+
         for (const el of allInteractive) {
+
           const text = el.innerText?.trim() || el.textContent?.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '';
           const lowerText = text.toLowerCase();
           
@@ -613,6 +668,15 @@ async loadBlacklist() {
           hasCommentSection: document.querySelectorAll('[class*="comment" i], [id*="comment" i]').length > 0,
           // Content page detection for extract_content action
           isContentPage: (() => {
+            const title = (document.title || '').toLowerCase().trim();
+            const isSecurity = [
+              'just a moment', 'checking your browser', 'access denied',
+              'attention required', 'one more step', 'ddos-guard', 'cloudflare',
+              'nur einen moment', 'chờ một chút', 'checking request',
+              'security check', 'human verification', 'robot check'
+            ].some(term => title.includes(term));
+            if (isSecurity) return false;
+
             const ogType = document.querySelector('meta[property="og:type"]')?.content || '';
             const hasArticleTag = document.querySelectorAll('article, [role="article"]').length > 0;
             const h1 = document.querySelector('h1');
@@ -717,10 +781,13 @@ async loadBlacklist() {
       hasSearchBox: pageContent?.hasSearchBox || false,
       isContentPage: pageContent?.isContentPage || false,
       alreadyScraped: pageContent?.isContentPage ? this.scrapedUrls.has(this.currentContext.url) : false,
+      // Track if the session has already performed a search — AI must not search again
+      alreadySearched: this.actionHistory.some(a => a.action === 'search' && a.status === 'success'),
       currentActivity: this.agentContext?.current_activity || 'browse',
       remainingMinutes,
       recentHistory: this.actionHistory.slice(-5).map(a => `${a.action} on ${a.url} -> ${a.status}${a.error ? ` (Error: ${a.error})` : ''}`)
     };
+
 
     // Build Prompt
     const prompt = this._buildAIPrompt(context, '', false, '', pageContent?.potentialPopups || []);
@@ -1034,9 +1101,10 @@ INSTRUCTIONS:
 6. PRIORITIZE browsing and exploring content (click_result, browse, watch) over extract_content.
 7. Only use extract_content ONCE per article page. If "alreadyScraped" is true, DO NOT use extract_content — just browse normally.
 8. After extract_content, ALWAYS continue with browse or click_link to keep exploring.
+9. DO NOT perform another search if the session has already searched once. If you need more content, use click_link or browse on the current page. The user goal already specified what to search — DO NOT repeat it.
 
 Allowed Abstract Actions:
-- search { "intent": "what to search for" } -> ONLY use if no relevant results are on page.
+- search { "intent": "what to search for" } -> ONLY use if the session has NOT yet searched AND there are no results on the current page.
 - click_result { "criteria": "description of result to click", "limit": 1 } -> Target CONTENT (articles, videos).
 - click_link { "criteria": "text/topic to look for" } -> Target SPECIFIC internal/external links.
 - browse { "iterations": 5 } -> Use to explore content.
@@ -1053,8 +1121,9 @@ Example Output:
 CRITICAL RULES:
 1. OUTPUT ONLY RAW JSON.
 2. NO COMMENTS.
-3. If search fails to find results, try a DIFFERENT keyword or navigate to a different site.
+3. If search fails to find results, try a DIFFERENT keyword or navigate to a different site — but ONLY on the very first search.
 4. BE DECISIVE.
+5. NEVER search again once the session has already completed a search. Use browse or click_link instead.
 `;
   }
 

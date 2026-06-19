@@ -19,7 +19,12 @@ class Scheduler:
         self._thread: Optional[threading.Thread] = None
         self._stop_flag = threading.Event()
         self._runner_callback: Optional[Callable] = None
+        self._agent_runner_callback: Optional[Callable] = None
         ensure_data_dirs()
+
+    def set_agent_runner(self, callback: Callable):
+        """Set callback function for triggering agent behavior."""
+        self._agent_runner_callback = callback
 
     def set_runner(self, callback: Callable):
         """Set callback function for triggering skill execution."""
@@ -83,6 +88,75 @@ class Scheduler:
                     self._log_history(skill.name, skill.id)
             except ValueError:
                 pass
+
+        # Check Agents
+        from tubecli.core.agent import agent_manager
+        
+        for agent in agent_manager.get_all():
+            if not getattr(agent, "schedule_enabled", False):
+                continue
+
+            day_name = now.strftime("%a")
+            active_days = getattr(agent, "schedule_active_days", []) or ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+            
+            if day_name not in active_days:
+                continue
+
+            start_time = getattr(agent, "schedule_start_time", "00:00")
+            end_time = getattr(agent, "schedule_end_time", "23:59")
+            current_time_str = now.strftime("%H:%M")
+
+            runs_today = getattr(agent, "schedule_runs_today", 0)
+            last_run = getattr(agent, "schedule_last_run", None)
+
+            if last_run:
+                try:
+                    last_run_date = datetime.datetime.fromisoformat(last_run).date()
+                    if last_run_date < now.date():
+                        runs_today = 0
+                        agent.schedule_runs_today = 0
+                except ValueError:
+                    pass
+
+            max_runs = getattr(agent, "schedule_max_runs", 10)
+
+            # If inside time window and not maxed out
+            if start_time <= current_time_str <= end_time and runs_today < max_runs:
+                # Need to enforce interval/next_run logic
+                next_run_str = getattr(agent, "schedule_next_run", None)
+                should_run = False
+                
+                if not next_run_str:
+                    should_run = True
+                else:
+                    try:
+                        next_run = datetime.datetime.fromisoformat(next_run_str)
+                        if now >= next_run:
+                            should_run = True
+                    except ValueError:
+                        should_run = True
+                
+                if should_run:
+                    print(f"[Scheduler] Triggering Agent: {agent.name}")
+                    if self._agent_runner_callback:
+                        self._agent_runner_callback(agent.id)
+
+                    agent.schedule_last_run = now.isoformat()
+                    agent.schedule_runs_today = runs_today + 1
+                    
+                    # Next run depends on repeat strategy (e.g. interval)
+                    repeat = getattr(agent, "schedule_repeat", "Daily")
+                    if repeat == "Daily":
+                        # If daily, maybe run every 1 hour during the active window
+                        agent.schedule_next_run = (now + datetime.timedelta(minutes=60)).isoformat()
+                    elif repeat == "interval":
+                        # e.g., every 30 mins
+                        agent.schedule_next_run = (now + datetime.timedelta(minutes=30)).isoformat()
+                    else:
+                        agent.schedule_next_run = (now + datetime.timedelta(minutes=60)).isoformat()
+
+                    agent_manager._save()
+                    self._log_history(f"Agent: {agent.name}", agent.id)
 
     def _calc_next_run(self, skill) -> Optional[str]:
         """Calculate next run time."""

@@ -44,6 +44,9 @@ class BrowserProcessManager:
         manual: bool = True,
         ai_model: str = "qwen:latest",
         url: str = "",
+        context: Optional[Dict[str, Any]] = None,
+        max_duration: Optional[int] = None,
+        session_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Spawn a new browser process.
@@ -53,7 +56,7 @@ class BrowserProcessManager:
         debug_info = {}
 
         # Build command — expects browser-launcher in PATH or data dir
-        args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id)
+        args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes)
         cmd_str = " ".join(args)
         logger.info(f"[Browser] Spawning: {cmd_str}")
         debug_info["command"] = cmd_str
@@ -180,8 +183,8 @@ class BrowserProcessManager:
             with self._instances_lock:
                 self._instances[instance_id] = instance_info
 
-            # Background monitor
-            t = threading.Thread(target=self._monitor, args=(instance_id,), daemon=True)
+            # Background monitor (with optional hard timeout)
+            t = threading.Thread(target=self._monitor, args=(instance_id, max_duration), daemon=True)
             t.start()
 
             result = {k: v for k, v in instance_info.items() if not k.startswith("_")}
@@ -202,7 +205,7 @@ class BrowserProcessManager:
             debug_info["exception"] = str(e)
             raise
 
-    def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id):
+    def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id, context=None, session_minutes=None):
         """Build command line arguments for browser launcher."""
         import os
         try:
@@ -217,9 +220,24 @@ class BrowserProcessManager:
             "--instance-id", instance_id,
             "--profiles-dir", profiles_dir
         ]
+
+        if context:
+            try:
+                import json as _json
+                temp_dir = DATA_DIR / "temp"
+                temp_dir.mkdir(parents=True, exist_ok=True)
+                temp_file = temp_dir / f"context_{instance_id}.json"
+                with open(temp_file, "w", encoding="utf-8") as f:
+                    _json.dump(context, f, indent=2, ensure_ascii=False)
+                args.extend(["--context-file", str(temp_file)])
+                logger.info(f"[Browser] Injected context file: {temp_file}")
+            except Exception as e:
+                logger.warning(f"[Browser] Failed to write context file: {e}")
         if prompt:
             args.extend(["--prompt", prompt])
-            args.extend(["--session", "--session-duration", "10"])
+            # Use dynamic session_minutes, clamped between 2-10 minutes; default 5
+            duration_min = max(2, min(10, int(session_minutes))) if session_minutes else 5
+            args.extend(["--session", "--session-duration", str(duration_min)])
         elif manual:
             args.append("--manual")
         if url:
@@ -249,20 +267,45 @@ class BrowserProcessManager:
         
         return args
 
-    def _monitor(self, instance_id: str):
+    def _monitor(self, instance_id: str, timeout_seconds: Optional[int] = None):
+        """Monitor a browser process. Auto-kills it after timeout_seconds if still running."""
         with self._instances_lock:
             instance = self._instances.get(instance_id)
             if not instance:
                 return
             process = instance.get("_process")
 
-        if process:
-            return_code = process.wait()
-            with self._instances_lock:
-                if instance_id in self._instances:
-                    self._instances[instance_id]["status"] = "completed" if return_code == 0 else "error"
-                    self._instances[instance_id]["return_code"] = return_code
-                    self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
+        if not process:
+            return
+
+        if timeout_seconds and timeout_seconds > 0:
+            import time
+            deadline = time.time() + timeout_seconds
+            while time.time() < deadline:
+                if process.poll() is not None:
+                    break
+                time.sleep(5)
+            else:
+                # Deadline reached and process still running — force kill
+                logger.warning(
+                    f"[Browser] Instance {instance_id} exceeded max duration ({timeout_seconds}s). Force killing."
+                )
+                print(
+                    f"[Browser] Instance {instance_id} exceeded max duration ({timeout_seconds}s). Force killing."
+                )
+                self._kill_tree(process)
+                with self._instances_lock:
+                    if instance_id in self._instances:
+                        self._instances[instance_id]["status"] = "timeout_killed"
+                        self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
+                return
+
+        return_code = process.wait()
+        with self._instances_lock:
+            if instance_id in self._instances:
+                self._instances[instance_id]["status"] = "completed" if return_code == 0 else "error"
+                self._instances[instance_id]["return_code"] = return_code
+                self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
 
     def get_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         with self._instances_lock:

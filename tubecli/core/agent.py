@@ -62,6 +62,16 @@ class Agent:
         enable_scraping: bool = False,
         scraper_text_limit: int = 10000,
         script_output_format: str = "json",
+        # Schedule Settings
+        schedule_enabled: bool = False,
+        schedule_repeat: str = "Daily",
+        schedule_active_days: List[str] = None,
+        schedule_start_time: str = "08:00",
+        schedule_end_time: str = "22:00",
+        schedule_max_runs: int = 10,
+        schedule_next_run: str = None,
+        schedule_last_run: str = None,
+        schedule_runs_today: int = 0,
         **kwargs,
     ):
         self.id = id or str(_uuid7())
@@ -110,6 +120,17 @@ class Agent:
         self.scraper_text_limit = scraper_text_limit
         self.script_output_format = script_output_format
 
+        # Schedule
+        self.schedule_enabled = schedule_enabled
+        self.schedule_repeat = schedule_repeat
+        self.schedule_active_days = schedule_active_days or ["Mon", "Tue", "Wed", "Thu", "Fri"]
+        self.schedule_start_time = schedule_start_time
+        self.schedule_end_time = schedule_end_time
+        self.schedule_max_runs = schedule_max_runs
+        self.schedule_next_run = schedule_next_run
+        self.schedule_last_run = schedule_last_run
+        self.schedule_runs_today = schedule_runs_today
+
         # AI Arena chess stats (ELO, W/L/D, learned principles) — optional.
         self.chess_stats = kwargs.get("chess_stats", {}) or {}
 
@@ -147,6 +168,15 @@ class Agent:
             "enable_scraping": getattr(self, "enable_scraping", False),
             "scraper_text_limit": getattr(self, "scraper_text_limit", 10000),
             "script_output_format": getattr(self, "script_output_format", "json"),
+            "schedule_enabled": getattr(self, "schedule_enabled", False),
+            "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
+            "schedule_active_days": getattr(self, "schedule_active_days", []),
+            "schedule_start_time": getattr(self, "schedule_start_time", "08:00"),
+            "schedule_end_time": getattr(self, "schedule_end_time", "22:00"),
+            "schedule_max_runs": getattr(self, "schedule_max_runs", 10),
+            "schedule_next_run": getattr(self, "schedule_next_run", None),
+            "schedule_last_run": getattr(self, "schedule_last_run", None),
+            "schedule_runs_today": getattr(self, "schedule_runs_today", 0),
             "chess_stats": getattr(self, "chess_stats", {}),
         }
 

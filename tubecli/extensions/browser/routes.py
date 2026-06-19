@@ -52,6 +52,7 @@ class LaunchRequest(BaseModel):
     headless: bool = False
     manual: bool = True
     ai_model: str = "qwen:latest"
+    context: Optional[dict] = None
 
 class StopRequest(BaseModel):
     profile: str
@@ -245,7 +246,7 @@ async def api_launch_browser(req: LaunchRequest):
     try:
         from .process_manager import browser_process_manager
         result = browser_process_manager.spawn(
-            profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual, ai_model=req.ai_model
+            profile=req.profile, prompt=req.prompt, url=req.url, headless=req.headless, manual=req.manual, ai_model=req.ai_model, context=req.context
         )
         return result
     finally:

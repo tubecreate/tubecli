@@ -47,6 +47,19 @@ export async function extract_content(page, params = {}) {
   const currentUrl = page.url();
   console.log(`[EXTRACT_CONTENT] Starting extraction on: ${currentUrl}`);
 
+  const pageTitle = await page.title();
+  const lowerTitle = (pageTitle || '').toLowerCase().trim();
+  const isSecurityPage = [
+    'just a moment', 'checking your browser', 'access denied',
+    'attention required', 'one more step', 'ddos-guard', 'cloudflare',
+    'nur einen moment', 'chờ một chút', 'checking request',
+    'security check', 'human verification', 'robot check'
+  ].some(term => lowerTitle.includes(term));
+  if (isSecurityPage) {
+      console.log(`[EXTRACT_CONTENT] ⛔ Skipping security block page: "${pageTitle}"`);
+      return null;
+  }
+
   if (enable_scraping === false) {
       console.log(`[EXTRACT_CONTENT] ⛔ Web scraping is disabled for this agent. Skipping extraction.`);
       return null;

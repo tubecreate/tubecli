@@ -1556,6 +1556,17 @@ async function main() {
                     if (!afterGoogle.isErrorPage) {
                         console.log('[Session] ✅ Google loaded. Resuming session from Google.');
                         session.updateContext(page.url());
+                        // Auto-search the original keyword to continue the task
+                        try {
+                            const recoveryKeyword = session.context?.keyword || session.context?.task || '';
+                            if (recoveryKeyword) {
+                                console.log(`[Session] Auto-searching keyword after recovery: "${recoveryKeyword}"`);
+                                const searchFn = ACTION_REGISTRY['search'];
+                                if (searchFn) await searchFn(page, { keyword: recoveryKeyword });
+                            }
+                        } catch (recovErr) {
+                            console.warn('[Session] Auto-search after recovery failed:', recovErr.message);
+                        }
                         continue; // Resume session loop
                     }
                 } catch (e) {
@@ -1573,7 +1584,14 @@ async function main() {
                 console.log(`[Session] Blocking popup detected: ${pageContent.blockingPopup.selector}. Attempting dismissal...`);
                 let popupCleared = false;
                 let attempts = 0;
-                const dismissTerms = ['close', 'not now', 'dismiss', 'no thanks', 'maybe later', 'deny', 'block', 'reject'];
+                const dismissTerms = [
+                    'close', 'not now', 'dismiss', 'no thanks', 'maybe later',
+                    'deny', 'block', 'reject', 'decline', 'refuse',
+                    // Affirmative dismiss (GDPR confirm, proceed, etc.)
+                    'confirm', 'do not proceed', 'continue', 'proceed', 'yes',
+                    'i accept', 'i consent', 'i agree', 'accept all', 'allow all',
+                    'essential only', 'necessary only', 'save settings'
+                ];
 
                 while (attempts < 5) {
                     attempts++;

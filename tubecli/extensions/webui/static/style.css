@@ -492,3 +492,110 @@ body.dragging-active .ext-group-card * {
 }
 #icon-picker-dropdown::-webkit-scrollbar { width: 4px; }
 #icon-picker-dropdown::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* ─── Agent History Styles ─── */
+.history-date-group-header {
+    margin: 16px 0 8px 0;
+    padding-bottom: 4px;
+    border-bottom: 1px dashed var(--border);
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--cyan);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+}
+.history-item-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.history-item-card:hover {
+    border-color: var(--cyan);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-warm);
+}
+.history-item-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text);
+    text-overflow: ellipsis;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+}
+.history-item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.history-item-profile {
+    color: var(--cyan);
+    font-size: 0.72rem;
+    font-weight: 600;
+    background: rgba(82, 118, 235, 0.1);
+    padding: 2px 6px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+}
+.history-item-url {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    text-decoration: none;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+    transition: color 0.2s;
+}
+.history-item-url:hover {
+    color: var(--cyan);
+    text-decoration: underline;
+}
+.history-item-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    padding-top: 6px;
+    margin-top: 4px;
+}
+.history-item-time-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+}
+.history-item-category {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    margin-left: 6px;
+    font-weight: 500;
+    background: rgba(255, 255, 255, 0.02);
+}
+.history-item-status-scraped {
+    background: var(--green);
+    color: #fff;
+    font-size: 0.65rem;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}

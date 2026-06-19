@@ -36,6 +36,429 @@ app.add_middleware(
 )
 
 
+def check_and_generate_daily_keywords(agent, now_dt):
+    """Checks if daily evolved keywords exist for the current date. Generates them via LLM if not."""
+    import json
+    from pathlib import Path
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.brain import AgentBrain
+    from tubecli.core.ai_generator import extract_json
+
+    date_str = now_dt.strftime("%Y-%m-%d")
+    routine = agent.routine or {}
+    daily_keywords = routine.get("daily_keywords") or {}
+
+    if daily_keywords.get("date") == date_str:
+        return daily_keywords
+
+    print(f"[Scheduler Callback] Daily keywords stale or missing for {date_str}. Generating evolved keywords via AI...")
+
+    # 1. Retrieve recent history titles
+    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    recent_history_titles = []
+    allowed_profiles = getattr(agent, "allowed_profiles", []) or []
+    for profile in allowed_profiles:
+        history_path = scraped_data_dir / profile / "history.json"
+        if history_path.exists():
+            try:
+                with open(history_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    articles = data.get("scrapedArticles", [])
+                    for a in articles[:15]:
+                        if a.get("title") and a.get("title") != "Untitled":
+                            recent_history_titles.append(f"- {a.get('title')} ({a.get('url', '')})")
+            except Exception:
+                pass
+
+    # 2. Build interests list
+    persona = agent.persona or {}
+    interests = persona.get("interests", []) or routine.get("interests", []) or []
+    work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
+    focus_areas = work_habits.get("focusAreas", []) or []
+    combined_topics = list(dict.fromkeys([str(t) for t in interests + focus_areas if t]))
+
+    history_text = "\n".join(recent_history_titles[:15]) if recent_history_titles else "No history yet (First day running)."
+
+    prompt = f"""You are the core intelligence of the agent '{agent.name}'.
+Description / Profession of the agent:
+"{agent.description}"
+
+Agent's interests and focus topics:
+{json.dumps(combined_topics, ensure_ascii=False)}
+
+Here is the agent's recent web browsing history (last visited pages):
+{history_text}
+
+Your task is to generate a progressive and evolved set of search queries/keywords for today: {date_str}.
+Rules for evolution and progression:
+1. Progress from basic/foundational concepts to more advanced, specific, and deeper concepts based on what has been browsed.
+2. Avoid repeating exactly the same queries or topics already found in the recent history.
+3. Align the topics with the agent's profession and specific interest areas.
+4. Provide exactly 5 distinct search queries for each of the following time periods: "morning", "afternoon", "evening", "night".
+5. Return the result in raw JSON format matching this EXACT structure (output ONLY the JSON block, no explanations):
+{{
+  "morning": ["query 1", "query 2", "query 3", "query 4", "query 5"],
+  "afternoon": ["query 1", "query 2", "query 3", "query 4", "query 5"],
+  "evening": ["query 1", "query 2", "query 3", "query 4", "query 5"],
+  "night": ["query 1", "query 2", "query 3", "query 4", "query 5"]
+}}
+"""
+    messages = [
+        {"role": "system", "content": "You are a precise JSON keyword generator. Output only valid JSON."},
+        {"role": "user", "content": prompt}
+    ]
+
+    try:
+        raw_response = AgentBrain._call_llm(agent.to_dict(), messages, temperature=0.7)
+        json_str = extract_json(raw_response)
+        evolved_data = json.loads(json_str)
+        if all(k in evolved_data for k in ["morning", "afternoon", "evening", "night"]):
+            new_keywords = {
+                "date": date_str,
+                "morning": evolved_data["morning"],
+                "afternoon": evolved_data["afternoon"],
+                "evening": evolved_data["evening"],
+                "night": evolved_data["night"]
+            }
+            # Deep-reload routine from agent to avoid overwriting updates
+            agent = agent_manager.get(agent.id)
+            routine = agent.routine or {}
+            routine["daily_keywords"] = new_keywords
+            agent_manager.update(agent.id, routine=routine)
+            print(f"[Scheduler Callback] Successfully saved daily evolved keywords: {new_keywords}")
+            return new_keywords
+    except Exception as e:
+        print(f"[Scheduler Callback] Evolved daily keywords generation failed: {e}. Falling back to default interests.")
+
+    return {}
+
+
+def run_agent_routine(agent_id: str):
+    """Callback for running an agent's daily behavior routine on schedule."""
+    import random
+    import datetime
+    from tubecli.core.agent import agent_manager
+    
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        print(f"[Scheduler Callback] Agent {agent_id} not found")
+        return
+        
+    print(f"\n[Scheduler Callback] >>> Executing scheduled behavior routine for agent '{agent.name}' ({agent.id}) <<<")
+    
+    # 1. Resolve Profile Name
+    profile_name = "default"
+    if agent.allowed_profiles:
+        selected = random.choice(agent.allowed_profiles)
+        if isinstance(selected, dict):
+            profile_name = selected.get("name", "default")
+        else:
+            profile_name = str(selected)
+        print(f"[Scheduler Callback] Selected profile '{profile_name}' from allowed_profiles: {agent.allowed_profiles}")
+    else:
+        try:
+            from tubecli.extensions.browser.profile_manager import list_profiles
+            profiles = list_profiles()
+            if profiles:
+                selected = random.choice([p for p in profiles if (p.get("name") if isinstance(p, dict) else p) != "default"] or ["default"])
+                if isinstance(selected, dict):
+                    profile_name = selected.get("name", "default")
+                else:
+                    profile_name = str(selected)
+                print(f"[Scheduler Callback] No profile assigned, selected random local profile '{profile_name}'")
+        except Exception as e:
+            print(f"[Scheduler Callback] Profile check warning: {e}")
+            
+    # 2. Determine Time of Day in Agent's Timezone
+    tz_str = getattr(agent, "timezone", None)
+    now = datetime.datetime.now()
+    if tz_str:
+        try:
+            from zoneinfo import ZoneInfo
+            now = datetime.datetime.now(ZoneInfo(tz_str))
+        except ImportError:
+            try:
+                import pytz
+                now = datetime.datetime.now(pytz.timezone(tz_str))
+            except ImportError:
+                pass
+                
+    hour = now.hour
+    time_period = "night"
+    if 5 <= hour < 12:
+        time_period = "morning"
+    elif 12 <= hour < 17:
+        time_period = "afternoon"
+    elif 17 <= hour < 22:
+        time_period = "evening"
+        
+    print(f"[Scheduler Callback] Period: {time_period} (hour: {hour}, timezone: {tz_str or 'local'})")
+    
+    # Check and generate daily keywords via AI
+    daily_keywords = check_and_generate_daily_keywords(agent, now)
+    if daily_keywords:
+        agent = agent_manager.get(agent_id)
+        
+    # 3. Resolve Persona / Routine behavior configurations
+    routine = agent.routine or {}
+    persona = agent.persona or {}
+    
+    daily_routine = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
+    work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
+    
+    period_tasks = daily_routine.get(time_period, {})
+    active_tasks = [task for task, enabled in period_tasks.items() if enabled]
+    
+    behavior = "browse"
+    if active_tasks:
+        chosen_task = random.choice(active_tasks)
+        print(f"[Scheduler Callback] Selected task '{chosen_task}' from active tasks: {active_tasks}")
+        task_lower = chosen_task.lower()
+        if any(x in task_lower for x in ["email", "mail"]):
+            behavior = "checkEmails"
+        elif any(x in task_lower for x in ["news", "headline", "calendar"]):
+            behavior = "morningCheck"
+        elif any(x in task_lower for x in ["video", "youtube"]):
+            behavior = "watchVideos"
+        elif any(x in task_lower for x in ["study", "learn", "course", "read"]):
+            behavior = "study"
+        elif any(x in task_lower for x in ["analyze", "research", "stock", "chart", "company"]):
+            behavior = "work"
+        else:
+            behavior = "work"
+    else:
+        behavior = random.choice(["work", "research", "study", "morningCheck"])
+        print(f"[Scheduler Callback] No active tasks. Using fallback behavior: {behavior}")
+        
+    # 4. Generate Diverse Prompt
+    import hashlib
+    interests = persona.get("interests", []) or routine.get("interests", []) or []
+    focus_areas = work_habits.get("focusAreas", []) or []
+    combined_topics = list(dict.fromkeys([str(t) for t in interests + focus_areas if t]))
+    
+    hour_slot = now.strftime('%Y%m%d%H')
+    seed_str = f"{profile_name}|{agent.name}|{hour_slot}"
+    seed_int = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
+    rng = random.Random(seed_int)
+    
+    fmt_templates = {
+        "work": [
+            "how to {topic}",
+            "{topic} best practices 2026",
+            "latest {topic} news",
+            "{topic} tutorial for professionals",
+            "{topic} tips and tricks",
+            "top {topic} tools 2026",
+            "{topic} case study",
+        ],
+        "research": [
+            "latest research on {topic}",
+            "{topic} future trends",
+            "what is {topic} explained",
+            "{topic} in-depth analysis",
+            "breakthroughs in {topic}",
+        ],
+        "study": [
+            "learn {topic} from scratch",
+            "{topic} for beginners",
+            "{topic} complete guide",
+            "{topic} online course free",
+            "how to master {topic}",
+        ],
+        "morningCheck": [
+            "{topic} news today",
+            "breaking {topic} updates",
+            "latest {topic} headlines",
+        ],
+        "entertainment": [
+            "top {topic} 2026",
+            "{topic} highlights",
+            "best {topic} videos",
+        ],
+        "watchVideos": [
+            "best {topic} youtube",
+            "{topic} video review",
+            "{topic} documentary",
+        ],
+        "relax": [
+            "{topic} life style tips",
+            "{topic} wellness guide",
+        ],
+        "checkEmails": [
+            "gmail", "outlook mail", "email inbox",
+        ],
+    }
+    
+    fmts = fmt_templates.get(behavior, ["{topic} news", "about {topic}"])
+    
+    base_query = ""
+    today_keywords = daily_keywords.get(time_period, []) if daily_keywords else []
+    if today_keywords:
+        # --- Used-keyword tracking: pick next unused keyword, reset daily ---
+        today_date = now.strftime('%Y-%m-%d')
+        routine_data = agent.routine or {}
+        used_meta = routine_data.get("used_keywords_today", {})
+
+        # Reset if it's a new day
+        if used_meta.get("date") != today_date:
+            used_meta = {"date": today_date, "used": {}}
+
+        period_used = used_meta.get("used", {}).get(time_period, [])
+
+        # Find first unused keyword (cycle back when all used)
+        available = [kw for kw in today_keywords if kw not in period_used]
+        if not available:
+            print(f"[Scheduler Callback] All keywords used for '{time_period}' today. Resetting cycle.")
+            period_used = []
+            available = list(today_keywords)
+
+        base_query = available[0]  # pick the first unused one
+        print(f"[Scheduler Callback] Selected evolved query for period '{time_period}': '{base_query}'")
+
+        # Mark as used and persist
+        period_used.append(base_query)
+        if "used" not in used_meta:
+            used_meta["used"] = {}
+        used_meta["used"][time_period] = period_used
+        routine_data["used_keywords_today"] = used_meta
+        try:
+            from tubecli.core.agent import agent_manager
+            agent.routine = routine_data
+            agent_manager.update(agent.id, {"routine": routine_data})
+            print(f"[Scheduler Callback] Marked '{base_query}' as used for '{time_period}'. "
+                  f"Remaining: {[kw for kw in today_keywords if kw not in period_used]}")
+        except Exception as _e:
+            print(f"[Scheduler Callback] Warning: could not persist used_keywords_today: {_e}")
+
+    elif combined_topics:
+        topic_idx = seed_int % len(combined_topics)
+        topic = combined_topics[topic_idx]
+        if len(combined_topics) > 1 and rng.random() < 0.3:
+            topic2_idx = (topic_idx + 1) % len(combined_topics)
+            topic2 = combined_topics[topic2_idx]
+            combiner = rng.choice([f"{topic} vs {topic2}", f"{topic} and {topic2}", f"{topic} {topic2}"])
+            base_query = rng.choice(fmts).replace("{topic}", combiner)
+        else:
+            base_query = rng.choice(fmts).replace("{topic}", topic)
+    else:
+        fallbacks = {
+            "checkEmails": ["gmail", "outlook"],
+            "morningCheck": ["breaking news today", "world news"],
+            "work": ["github trending", "technology news"],
+            "research": ["AI advancements 2026", "science news"],
+            "study": ["free coding tutorials", "learning resources"],
+            "watchVideos": ["youtube trending", "interesting tech videos"],
+        }
+        choices = fallbacks.get(behavior, ["latest news", "technology trends"])
+        base_query = choices[seed_int % len(choices)]
+        
+    # Estimate browsing time based on keywords
+    import random
+    query_lower = base_query.lower()
+    is_deep_topic = any(w in query_lower for w in ["tutorial", "guide", "learn", "how", "analysis", "study", "research", "documentation", "course", "master", "practice"])
+    is_quick_topic = any(w in query_lower for w in ["weather", "price", "stock", "today", "news", "headline", "breaking"])
+    
+    if is_deep_topic:
+        read_time = random.randint(180, 360)
+    elif is_quick_topic:
+        read_time = random.randint(45, 90)
+    else:
+        read_time = random.randint(90, 180)
+        
+    # Suffix templates — single-flow, NO going back to search
+    # (Pattern 4 removed: "go back to search" caused double-search behavior)
+    suffix_options = [
+        # Pattern 1: Click result → read page
+        f", then click the most relevant result, and read/scroll through the page for {read_time} seconds. Do NOT search again.",
+
+        # Pattern 2: Click result → read → click an internal link on the same site
+        f", then click a result, read it for {read_time // 2} seconds, then click an internal link within the SAME site and read for another {read_time // 2} seconds. Do NOT return to search.",
+
+        # Pattern 3: Click result → watch/scroll media on the page
+        f", then click a result, scroll through or watch any media on the page for {read_time} seconds. Stay on the page. Do NOT search again.",
+    ]
+
+    if behavior in ["watchVideos", "entertainment"]:
+        prompt_suffix = f", then click a video result, and watch it for {random.randint(120, min(read_time, 300))} seconds. Do NOT search again."
+    elif behavior == "checkEmails":
+        prompt_suffix = f", then open the first email option, and browse/check emails for {random.randint(60, 120)} seconds. Do NOT search again."
+    else:
+        prompt_suffix = random.choice(suffix_options)
+        
+    prompt = f"Search for '{base_query}'" + prompt_suffix
+    print(f"[Scheduler Callback] Generated prompt: \"{prompt}\"")
+    
+
+    context = {
+        "agent_name": agent.name,
+        "time_period": time_period,
+        "current_activity": behavior,
+        "interests": combined_topics,
+        "routine_tasks": period_tasks,
+        "schedule_name": f"Scheduled Routine ({time_period})",
+        "proxy_provider": agent.proxy_provider,
+        "avatar_type": agent.avatar_type,
+        "avatar_color": agent.avatar_color,
+        "enable_scraping": agent.enable_scraping,
+        "scraper_text_limit": getattr(agent, "scraper_text_limit", 10000),
+    }
+    
+    if agent.auth:
+        context["auth"] = agent.auth
+        
+    # Session time: average 5 min, max 10 min. Clamp read_time to 120-480s.
+    read_time = max(120, min(480, read_time))   # 2-8 min
+    # session_minutes = ceil(read_time / 60), capped to 10, floors at 2
+    import math
+    session_minutes = max(2, min(10, math.ceil(read_time / 60)))
+    # Hard watchdog = session_minutes * 60 + 60s grace
+    max_session_seconds = session_minutes * 60 + 60
+    print(f"[Scheduler Callback] Session timing: read_time={read_time}s, "
+          f"session_minutes={session_minutes}min, max_watchdog={max_session_seconds}s")
+
+    def _do_launch():
+        try:
+            from tubecli.extensions.browser.process_manager import browser_process_manager
+
+            # --- Kill any stale running sessions for this profile ---
+            running = browser_process_manager.list_running()
+            for inst in running:
+                if inst.get("profile") == profile_name:
+                    print(
+                        f"[Scheduler Callback] Killing stale session {inst['instance_id']} "
+                        f"for profile '{profile_name}' before spawning new one."
+                    )
+                    browser_process_manager.terminate(inst["instance_id"])
+
+            print(
+                f"[Scheduler Callback] Spawning browser profile '{profile_name}' "
+                f"for agent '{agent.name}' (max {max_session_seconds}s)..."
+            )
+            result = browser_process_manager.spawn(
+                profile=profile_name,
+                prompt=prompt,
+                headless=False,
+                manual=False,
+                ai_model=getattr(agent, "browser_ai_model", "qwen:latest"),
+                context=context,
+                max_duration=max_session_seconds,
+                session_minutes=session_minutes,
+            )
+            instance_id = result.get("instance_id", "")
+            spawn_status = result.get("status", "unknown")
+            print(
+                f"[Scheduler Callback] Spawn result: {spawn_status} "
+                f"(PID: {result.get('pid')}, instance: {instance_id})"
+            )
+            if spawn_status == "error":
+                print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
+        except Exception as e:
+            print(f"[Scheduler Callback] Error launching browser: {e}")
+
+    import threading
+    threading.Thread(target=_do_launch, daemon=True).start()
+
+
 @app.on_event("startup")
 async def startup_event():
     import sys
@@ -65,8 +488,39 @@ async def startup_event():
     except Exception as e:
         print(f"[Startup] PageWatcher not available: {e}")
 
+    # Start the core background scheduler daemon
+    try:
+        from tubecli.core.scheduler import scheduler
+        scheduler.set_agent_runner(run_agent_routine)
+        
+        def _run_skill_bg(skill_id):
+            import asyncio
+            async def _run():
+                try:
+                    print(f"[Scheduler] Executing scheduled skill {skill_id}...")
+                    await run_skill(skill_id)
+                except Exception as e:
+                    print(f"[Scheduler] Error running scheduled skill {skill_id}: {e}")
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(_run())
+            except RuntimeError:
+                asyncio.run(_run())
+                
+        scheduler.set_runner(_run_skill_bg)
+        scheduler.start(interval_sec=30)
+        print("[Startup] Core background scheduler daemon started successfully")
+    except Exception as e:
+        print(f"[Startup] Failed to start Core background scheduler: {e}")
+
 @app.on_event("shutdown")
 async def shutdown_event():
+    try:
+        from tubecli.core.scheduler import scheduler
+        scheduler.stop()
+        print("[Shutdown] Core background scheduler daemon stopped")
+    except Exception:
+        pass
     from tubecli.core.telegram_listener import telegram_listener
     await telegram_listener.stop()
 
@@ -123,6 +577,15 @@ class AgentCreateRequest(BaseModel):
     enable_scraping: Optional[bool] = False
     scraper_text_limit: Optional[int] = 10000
     script_output_format: Optional[str] = "json"
+    schedule_enabled: Optional[bool] = False
+    schedule_repeat: Optional[str] = "Daily"
+    schedule_active_days: Optional[List[str]] = []
+    schedule_start_time: Optional[str] = "08:00"
+    schedule_end_time: Optional[str] = "22:00"
+    schedule_max_runs: Optional[int] = 10
+    schedule_next_run: Optional[str] = None
+    schedule_last_run: Optional[str] = None
+    schedule_runs_today: Optional[int] = 0
 
 class AgentGenerateRequest(BaseModel):
     name: str = ""
@@ -163,6 +626,15 @@ class AgentUpdateRequest(BaseModel):
     enable_scraping: Optional[bool] = None
     scraper_text_limit: Optional[int] = None
     script_output_format: Optional[str] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_repeat: Optional[str] = None
+    schedule_active_days: Optional[List[str]] = None
+    schedule_start_time: Optional[str] = None
+    schedule_end_time: Optional[str] = None
+    schedule_max_runs: Optional[int] = None
+    schedule_next_run: Optional[str] = None
+    schedule_last_run: Optional[str] = None
+    schedule_runs_today: Optional[int] = None
 
 class SkillCreateRequest(BaseModel):
     name: str
@@ -496,6 +968,53 @@ async def delete_agent(agent_id: str):
     if not agent_manager.delete(agent_id):
         raise HTTPException(404, f"Agent {agent_id} not found")
     return {"status": "deleted", "agent_id": agent_id}
+
+@app.post("/api/v1/agents/{agent_id}/test_routine")
+async def test_agent_routine(agent_id: str):
+    from tubecli.core.agent import agent_manager
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    try:
+        run_agent_routine(agent_id)
+        return {"status": "success", "message": f"Triggered behavior routine for agent '{agent.name}'"}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to run behavior routine: {str(e)}")
+
+
+@app.get("/api/v1/agents/{agent_id}/history")
+async def get_agent_history(agent_id: str):
+    from tubecli.core.agent import agent_manager
+    import json
+    from pathlib import Path
+    
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+        
+    allowed_profiles = getattr(agent, "allowed_profiles", []) or []
+    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    
+    all_articles = []
+    for profile in allowed_profiles:
+        history_path = scraped_data_dir / profile / "history.json"
+        if history_path.exists():
+            try:
+                with open(history_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    articles = data.get("scrapedArticles", [])
+                    for a in articles:
+                        a_copy = dict(a)
+                        a_copy["_profile"] = profile
+                        all_articles.append(a_copy)
+            except Exception as e:
+                print(f"Error reading scraper history for {profile}: {e}")
+                
+    # Sort by scrapedAt desc
+    all_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
+    return all_articles
+
+
 
 
 # ── Agent Chat ───────────────────────────────────────────────────
