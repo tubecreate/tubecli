@@ -2853,23 +2853,23 @@ async function openEditAgent(id) {
             const nextRun = new Date(d.schedule_next_run);
             const now = new Date();
             const diffMs = nextRun - now;
-            let timeStr = nextRun.toLocaleString();
+            let timeStr = nextRun.toLocaleString(_lang || 'en');
             if (diffMs > 0) {
                 const diffMins = Math.floor(diffMs / 60000);
                 const hours = Math.floor(diffMins / 60);
                 const mins = diffMins % 60;
                 if (hours > 0) {
-                    timeStr += ` (in ~${hours}h ${mins}m)`;
+                    timeStr += ' ' + T('agent_modal.in_hours_mins', {hours, mins});
                 } else {
-                    timeStr += ` (in ~${mins}m)`;
+                    timeStr += ' ' + T('agent_modal.in_mins', {mins});
                 }
             } else {
-                timeStr += ` (running or overdue)`;
+                timeStr += ' ' + T('agent_modal.running_or_overdue');
             }
             document.getElementById('sched-next-run-val').textContent = timeStr;
             document.getElementById('sched-next-run-val').style.color = 'var(--green)';
         } else {
-            document.getElementById('sched-next-run-val').textContent = 'Not scheduled';
+            document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
             document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
         }
 
@@ -2890,7 +2890,7 @@ async function openEditAgent(id) {
             const renderKwList = (period) => {
                 const keywords = dk[period] || [];
                 const usedList = usedToday[period] || [];
-                if (!keywords.length) return '<span style="color:var(--text-muted)">None</span>';
+                if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
                 return keywords.map(kw => {
                     const isUsed = usedList.includes(kw);
                     return isUsed
@@ -2904,7 +2904,7 @@ async function openEditAgent(id) {
             document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
             document.getElementById('kw-night-val').innerHTML = renderKwList('night');
         } else {
-            const placeholder = 'Not generated yet today';
+            const placeholder = T('agent_modal.not_generated_today') || 'Not generated yet today';
             document.getElementById('kw-morning-val').textContent = placeholder;
             document.getElementById('kw-afternoon-val').textContent = placeholder;
             document.getElementById('kw-evening-val').textContent = placeholder;
@@ -2922,11 +2922,11 @@ async function openEditAgent(id) {
     populateAgentModelDropdown('browser', d.browser_ai_model || d.model || 'qwen:latest');
 }
 
-async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML='<p class="text-muted">No profiles.</p>'; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
+async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML=`<p class="text-muted">${T('agent_modal.no_profiles') || 'No profiles.'}</p>`; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
 async function populateAgentSkills(allowed) {
     const d = await apiGet('/api/v1/skills');
     const c = document.getElementById('agent-skills-list');
-    if (!d?.skills?.length) { c.innerHTML = '<p class="text-muted">No skills found.</p>'; return; }
+    if (!d?.skills?.length) { c.innerHTML = `<p class="text-muted">${T('agent_modal.no_skills_found') || 'No skills found.'}</p>`; return; }
 
     // Type → color map for badges
     const typeColor = {
@@ -2993,8 +2993,7 @@ function updateSkillCount() {
     const total = document.querySelectorAll('.agent-skill-cb').length;
     const selected = document.querySelectorAll('.agent-skill-cb:checked').length;
     const el = document.getElementById('agent-skills-count');
-    if (el) el.textContent = selected === 0 ? `${total} skills available`
-        : `${selected} / ${total} selected`;
+    if (el) el.textContent = selected === 0 ? T('agent_modal.skills_available', {total}) : T('agent_modal.skills_selected', {selected, total});
 }
 
 function filterSkillChips(query) {
@@ -3214,7 +3213,7 @@ document.getElementById('agent-schedule-repeat')?.addEventListener('change', onS
 
 async function saveAgent() {
     const name = document.getElementById('agent-name').value.trim();
-    if (!name) return alert('Name required');
+    if (!name) return alert(T('agent_modal.name_required') || 'Name required');
     const id = document.getElementById('agent-id').value;
     const interests = document.getElementById('agent-interests').value.split(',').map(s => s.trim()).filter(s => s);
     let routine = {};
@@ -3222,7 +3221,7 @@ async function saveAgent() {
         const v = document.getElementById('agent-behavior').value;
         if (v) routine = JSON.parse(v);
     } catch (e) {
-        return alert('Invalid JSON: ' + e.message);
+        return alert((T('agent_modal.invalid_json') || 'Invalid JSON: ') + e.message);
     }
     const pm = document.getElementById('agent-proxy-mode').value;
     const pp = { mode: pm };
@@ -3292,14 +3291,14 @@ async function saveAgent() {
     }
 
     if (response && (response.status === 'success' || response.status === 'updated' || response.status === 'created' || !response.error)) {
-        alert('Lưu thành công!');
+        alert(T('agent_modal.save_success') || 'Saved successfully!');
         // Update the id field if a new agent was created, so subsequent saves are updates
         if (!id && response.agent && response.agent.id) {
             document.getElementById('agent-id').value = response.agent.id;
             document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + response.agent.name;
         }
     } else {
-        alert('Có lỗi xảy ra: ' + (response?.error || 'Không thể lưu agent'));
+        alert((T('agent_modal.save_error') || 'An error occurred: ') + (response?.error || T('agent_modal.cannot_save_agent') || 'Cannot save agent'));
     }
 
     renderAgentsExt(getAgentsBody());
@@ -3307,13 +3306,13 @@ async function saveAgent() {
 
 async function testAgentRoutine() {
     const id = document.getElementById('agent-id').value;
-    if (!id) return alert('Save the agent first before testing.');
+    if (!id) return alert(T('agent_modal.save_first_test') || 'Save the agent first before testing.');
     const name = document.getElementById('agent-name').value.trim();
-    if (!name) return alert('Name required');
+    if (!name) return alert(T('agent_modal.name_required') || 'Name required');
     const btn = document.getElementById('btn-test-agent');
     const originalText = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = 'Testing...';
+    btn.innerHTML = T('agent_modal.testing_btn') || 'Testing...';
     const interests = document.getElementById('agent-interests').value.split(',').map(s => s.trim()).filter(s => s);
     let routine = {};
     try {
@@ -3322,7 +3321,7 @@ async function testAgentRoutine() {
     } catch (e) {
         btn.disabled = false;
         btn.innerHTML = originalText;
-        return alert('Invalid JSON: ' + e.message);
+        return alert((T('agent_modal.invalid_json') || 'Invalid JSON: ') + e.message);
     }
     const pm = document.getElementById('agent-proxy-mode').value;
     const pp = { mode: pm };
@@ -3369,12 +3368,12 @@ async function testAgentRoutine() {
         renderAgentsExt(getAgentsBody());
         const res = await apiPost('/api/v1/agents/' + id + '/test_routine', {});
         if (res && !res.error) {
-            alert('Triggered routine test in background. Look for browser spawning!');
+            alert(T('agent_modal.test_triggered_bg') || 'Triggered routine test in background. Look for browser spawning!');
         } else {
-            alert('Failed to launch routine: ' + (res?.error || 'Unknown error'));
+            alert((T('agent_modal.test_failed') || 'Failed to launch routine: ') + (res?.error || T('agent_modal.unknown_error') || 'Unknown error'));
         }
     } catch (err) {
-        alert('Error: ' + err.message);
+        alert((T('agent_modal.error_prefix') || 'Error') + ': ' + err.message);
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
@@ -3384,24 +3383,24 @@ async function testAgentRoutine() {
 function getHistoryCategory(url) {
     const urlLower = (url || '').toLowerCase();
     if (['facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'linkedin.com', 'tiktok.com', 'reddit.com', 'pinterest.com'].some(d => urlLower.includes(d))) {
-        return "Social";
+        return T('agent_modal.category_social') || "Social";
     }
     if (['google.com/search', 'bing.com', 'yahoo.com', 'duckduckgo.com'].some(d => urlLower.includes(d))) {
-        return "Search";
+        return T('agent_modal.category_search') || "Search";
     }
     if (['youtube.com', 'youtu.be', 'vimeo.com', 'twitch.tv', 'dailymotion.com', 'netflix.com'].some(d => urlLower.includes(d))) {
-        return "Video";
+        return T('agent_modal.category_video') || "Video";
     }
     if (['cnn.com', 'bbc.co', 'nytimes.com', 'foxnews.com', 'reuters.com', 'bloomberg.com', 'news.google.com', 'vnexpress.net', 'dantri.com.vn', 'tuoitre.vn'].some(d => urlLower.includes(d))) {
-        return "News";
+        return T('agent_modal.category_news') || "News";
     }
     if (['github.com', 'gitlab.com', 'stackoverflow.com', 'slack.com', 'notion.so', 'trello.com', 'asana.com', 'docs.google.com'].some(d => urlLower.includes(d))) {
-        return "Work";
+        return T('agent_modal.category_work') || "Work";
     }
     if (urlLower.includes('google.com')) {
-        return "Search";
+        return T('agent_modal.category_search') || "Search";
     }
-    return "Other website";
+    return T('agent_modal.category_other') || "Other website";
 }
 
 let currentAgentHistory = [];
@@ -3410,7 +3409,7 @@ const historyPageSize = 10;
 let historySearchQuery = '';
 
 function getLocalDateString(scrapedAt) {
-    if (!scrapedAt) return 'Unknown Date';
+    if (!scrapedAt) return T('agent_modal.unknown_date') || 'Unknown Date';
     try {
         const d = new Date(scrapedAt);
         const today = new Date();
@@ -3418,14 +3417,14 @@ function getLocalDateString(scrapedAt) {
         yesterday.setDate(today.getDate() - 1);
         
         if (d.toDateString() === today.toDateString()) {
-            return 'Today';
+            return T('agent_modal.history_today') || 'Today';
         } else if (d.toDateString() === yesterday.toDateString()) {
-            return 'Yesterday';
+            return T('agent_modal.history_yesterday') || 'Yesterday';
         } else {
-            return d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            return d.toLocaleDateString(_lang || 'en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         }
     } catch(e) {
-        return 'Unknown Date';
+        return T('agent_modal.unknown_date') || 'Unknown Date';
     }
 }
 
@@ -3446,7 +3445,7 @@ function renderHistoryPage() {
     }
     
     if (!filtered || !filtered.length) {
-        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">No matching history entries.</p>';
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0;">${T('agent_modal.no_matching_history') || 'No matching history entries.'}</p>`;
         paginationDiv.style.display = 'none';
         return;
     }
@@ -3502,13 +3501,13 @@ function renderHistoryPage() {
                 <span style="color:#10b981; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; margin-left:8px;">
                     <span class="material-symbols-outlined" style="font-size:14px;">description</span> ${item.contentLength || 0}
                 </span>
-                <span class="history-item-status-scraped">Scraped</span>
+                <span class="history-item-status-scraped">${T('agent_modal.history_scraped') || 'Scraped'}</span>
             `;
         } else {
             const ip = item.ip || 'Unknown IP';
             statusHtml = `
                 <span style="color:var(--text-muted); display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">
-                    <span class="material-symbols-outlined" style="font-size:14px;">visibility</span> Visited | IP: ${esc(ip)}
+                    <span class="material-symbols-outlined" style="font-size:14px;">visibility</span> ${T('agent_modal.history_visited') || 'Visited'} | IP: ${esc(ip)}
                 </span>
             `;
         }
@@ -3544,8 +3543,8 @@ function renderHistoryPage() {
     
     // Update pagination UI
     paginationDiv.style.display = 'flex';
-    document.getElementById('agent-history-page-info').textContent = `Showing ${startIndex + 1}-${endIndex} of ${totalItems}`;
-    document.getElementById('agent-history-page-num').textContent = `Page ${currentHistoryPage} of ${totalPages}`;
+    document.getElementById('agent-history-page-info').textContent = T('agent_modal.history_showing', {start: startIndex + 1, end: endIndex, total: totalItems});
+    document.getElementById('agent-history-page-num').textContent = T('agent_modal.history_page_num', {page: currentHistoryPage, total: totalPages});
     
     const prevBtn = document.getElementById('agent-history-btn-prev');
     const nextBtn = document.getElementById('agent-history-btn-next');
@@ -3578,12 +3577,12 @@ async function loadAgentHistory() {
     const paginationDiv = document.getElementById('agent-history-pagination');
     
     if (!id) {
-        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">Save agent first to view history.</p>';
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0;">${T('agent_modal.save_agent_first') || 'Save agent first to view history.'}</p>`;
         paginationDiv.style.display = 'none';
         return;
     }
     
-    listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">⏳ Loading history...</p>';
+    listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0;">⏳ ${T('agent_modal.loading_history') || 'Loading history...'}</p>`;
     paginationDiv.style.display = 'none';
     
     // Reset page and search query on reload
@@ -3594,12 +3593,12 @@ async function loadAgentHistory() {
     
     const res = await apiGet('/api/v1/agents/' + id + '/history');
     if (res && res.error) {
-        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:#ef4444;">❌ Error: ${esc(res.error)}</p>`;
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:#ef4444;">❌ ${T('agent_modal.error_prefix') || 'Error'}: ${esc(res.error)}</p>`;
         return;
     }
     
     if (!res || !res.length) {
-        listDiv.innerHTML = '<p class="text-muted" style="text-align:center; padding:20px 0;">No history entries.</p>';
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0;">${T('agent_modal.no_history') || 'No history entries.'}</p>`;
         currentAgentHistory = [];
         return;
     }
