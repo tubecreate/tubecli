@@ -2815,6 +2815,9 @@ async function openEditAgent(id, btn) {
         const p=d.persona||{};
         document.getElementById('agent-interests').value=(p.interests||[]).join(', ');
         document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||{},workHabits:(d.routine||{}).workHabits||{}},null,2);
+        // Load language
+        const agentLangEl = document.getElementById('agent-language');
+        if (agentLangEl) agentLangEl.value = d.language || 'auto';
         const pp=d.proxy_provider||{mode:'none'};
         document.getElementById('agent-proxy-mode').value=pp.mode||'none';
         document.getElementById('agent-proxy')        // Populate Automated Schedule Status Panel
@@ -3276,6 +3279,7 @@ async function saveAgent() {
         proxy_config: pm === 'static' ? document.getElementById('agent-proxy').value : '',
         proxy_provider: pp,
         timezone: document.getElementById('agent-timezone').value,
+        language: document.getElementById('agent-language')?.value || 'auto',
 
         // Include flat fields for backend API
         schedule_enabled,
@@ -3368,6 +3372,7 @@ async function testAgentRoutine() {
         proxy_config: pm === 'static' ? document.getElementById('agent-proxy').value : '',
         proxy_provider: pp,
         timezone: document.getElementById('agent-timezone').value,
+        language: document.getElementById('agent-language')?.value || 'auto',
         schedule: {
             enabled: document.getElementById('agent-schedule-enable').checked,
             repeat: document.getElementById('agent-schedule-repeat').value,

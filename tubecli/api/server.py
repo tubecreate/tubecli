@@ -83,6 +83,32 @@ def check_and_generate_daily_keywords(agent, now_dt):
 
     history_text = "\n".join(recent_history_titles[:15]) if recent_history_titles else "No history yet (First day running)."
 
+    # Language instruction for keyword generation
+    agent_language = getattr(agent, "language", "auto") or "auto"
+    _LANGUAGE_NAMES = {
+        "auto": None,
+        "vi": "Vietnamese",
+        "en": "English",
+        "zh": "Chinese (Simplified)",
+        "zh-TW": "Chinese (Traditional)",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "es": "Spanish",
+        "tr": "Turkish",
+        "ru": "Russian",
+        "fr": "French",
+        "de": "German",
+        "pt": "Portuguese",
+        "ar": "Arabic",
+        "th": "Thai",
+        "id": "Indonesian",
+    }
+    lang_name = _LANGUAGE_NAMES.get(agent_language)
+    lang_instruction = (
+        f"\nIMPORTANT: Write ALL search queries in {lang_name}. The queries must be in {lang_name} language."
+        if lang_name else ""
+    )
+
     prompt = f"""You are the core intelligence of the agent '{agent.name}'.
 Description / Profession of the agent:
 "{agent.description}"
@@ -93,7 +119,7 @@ Agent's interests and focus topics:
 Here is the agent's recent web browsing history (last visited pages):
 {history_text}
 
-Your task is to generate a progressive and evolved set of search queries/keywords for today: {date_str}.
+Your task is to generate a progressive and evolved set of search queries/keywords for today: {date_str}.{lang_instruction}
 Rules for evolution and progression:
 1. Progress from basic/foundational concepts to more advanced, specific, and deeper concepts based on what has been browsed.
 2. Avoid repeating exactly the same queries or topics already found in the recent history.
@@ -449,6 +475,7 @@ def run_agent_routine(agent_id: str):
         "avatar_color": getattr(agent, "avatar_color", "blue"),
         "enable_scraping": getattr(agent, "enable_scraping", False),
         "scraper_text_limit": getattr(agent, "scraper_text_limit", 10000),
+        "language": getattr(agent, "language", "auto") or "auto",
     }
     
     if agent.auth:

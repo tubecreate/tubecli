@@ -55,6 +55,8 @@ class Agent:
         proxy_provider: Dict = None,
         # Schedule (Tab 7: Schedule)
         timezone: str = None,
+        # Language for keywords / prompts / responses
+        language: str = "auto",
         # Auth & Clouds (Misc)
         auth: Dict = None, 
         cloud_api_keys: Dict = None,
@@ -110,6 +112,7 @@ class Agent:
         self.proxy_provider = proxy_provider or {"mode": "static"}
         
         self.timezone = timezone
+        self.language = language or "auto"
         self.auth = auth or {"google": [], "facebook": [], "tiktok": [], "x": [], "discord": [], "telegram": []}
         self.cloud_api_keys = cloud_api_keys or {
             "gemini": "", "claude": "", "openai": "", "deepseek": ""
@@ -163,6 +166,7 @@ class Agent:
             "proxy_config": getattr(self, "proxy_config", ""),
             "proxy_provider": getattr(self, "proxy_provider", {"mode": "static"}),
             "timezone": getattr(self, "timezone", None),
+            "language": getattr(self, "language", "auto"),
             "auth": getattr(self, "auth", {}),
             "cloud_api_keys": getattr(self, "cloud_api_keys", {}),
             "enable_scraping": getattr(self, "enable_scraping", False),
