@@ -66,7 +66,7 @@ def check_and_generate_daily_keywords(agent, now_dt):
                     articles = data.get("scrapedArticles", [])
                     filtered_articles = [
                         a for a in articles 
-                        if a.get("agentId") == agent.id or a.get("agent_id") == agent.id
+                        if not a.get("agentId") and not a.get("agent_id") or a.get("agentId") == agent.id or a.get("agent_id") == agent.id
                     ]
                     for a in filtered_articles[:15]:
                         if a.get("title") and a.get("title") != "Untitled":
@@ -1113,7 +1113,8 @@ async def get_agent_history(agent_id: str):
                     data = json.load(f)
                     articles = data.get("scrapedArticles", [])
                     for a in articles:
-                        if a.get("agentId") == agent_id or a.get("agent_id") == agent_id:
+                        art_agent_id = a.get("agentId") or a.get("agent_id")
+                        if not art_agent_id or art_agent_id == agent_id:
                             a_copy = dict(a)
                             a_copy["_profile"] = profile
                             all_articles.append(a_copy)
