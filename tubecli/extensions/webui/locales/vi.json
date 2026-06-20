@@ -141,6 +141,8 @@
   "agent_modal.history_refresh": "Tải lại",
   "agent_modal.history_prev": "Trước",
   "agent_modal.history_next": "Sau",
+  "agent_modal.history_today": "Hôm nay",
+  "agent_modal.history_yesterday": "Hôm qua",
   "agent_modal.allowed_skills": "Kỹ năng được phép",
   "agent_modal.search_skills_placeholder": "🔍 Tìm kiếm kỹ năng...",
   "agent_modal.telegram_bot": "Telegram Bot",

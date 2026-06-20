@@ -64,7 +64,11 @@ def check_and_generate_daily_keywords(agent, now_dt):
                 with open(history_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     articles = data.get("scrapedArticles", [])
-                    for a in articles[:15]:
+                    filtered_articles = [
+                        a for a in articles 
+                        if a.get("agentId") == agent.id or a.get("agent_id") == agent.id
+                    ]
+                    for a in filtered_articles[:15]:
                         if a.get("title") and a.get("title") != "Untitled":
                             recent_history_titles.append(f"- {a.get('title')} ({a.get('url', '')})")
             except Exception:
@@ -390,6 +394,7 @@ def run_agent_routine(agent_id: str):
     
 
     context = {
+        "agent_id": agent.id,
         "agent_name": agent.name,
         "time_period": time_period,
         "current_activity": behavior,
@@ -1004,9 +1009,10 @@ async def get_agent_history(agent_id: str):
                     data = json.load(f)
                     articles = data.get("scrapedArticles", [])
                     for a in articles:
-                        a_copy = dict(a)
-                        a_copy["_profile"] = profile
-                        all_articles.append(a_copy)
+                        if a.get("agentId") == agent_id or a.get("agent_id") == agent_id:
+                            a_copy = dict(a)
+                            a_copy["_profile"] = profile
+                            all_articles.append(a_copy)
             except Exception as e:
                 print(f"Error reading scraper history for {profile}: {e}")
                 

@@ -41,7 +41,9 @@ export async function extract_content(page, params = {}) {
     minImageWidth = 200,
     maxImages = 10,
     enable_scraping = true,
-    scraper_text_limit = 10000
+    scraper_text_limit = 10000,
+    agentId = null,
+    agentName = null
   } = params;
 
   const currentUrl = page.url();
@@ -430,7 +432,9 @@ export async function extract_content(page, params = {}) {
           imageCount: result.imageCount,
           contentLength: result.content.length,
           scrapedAt: result.scrapedAt,
-          isScraped: true
+          isScraped: true,
+          agentId: agentId,
+          agentName: agentName
         });
       } else {
         history.scrapedArticles[existingIdx].isScraped = true;
@@ -439,6 +443,12 @@ export async function extract_content(page, params = {}) {
         history.scrapedArticles[existingIdx].scrapedAt = result.scrapedAt;
         if (!history.scrapedArticles[existingIdx].ip || history.scrapedArticles[existingIdx].ip === 'Unknown') {
             history.scrapedArticles[existingIdx].ip = currentIp;
+        }
+        if (agentId) {
+            history.scrapedArticles[existingIdx].agentId = agentId;
+        }
+        if (agentName) {
+            history.scrapedArticles[existingIdx].agentName = agentName;
         }
       }
 

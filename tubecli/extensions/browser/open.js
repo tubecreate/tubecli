@@ -1276,8 +1276,14 @@ async function main() {
           if (actionFn) {
             console.log(`\n--- Executing: ${step.action} ---`);
             try {
-              // Auto-inject auth credentials if this is a login action
               let stepParams = { ...step.params, isRetry, aiModel };
+              if (step.action === 'extract_content') {
+                stepParams.profileName = profileName;
+                stepParams.enable_scraping = agentContext?.enable_scraping !== false;
+                stepParams.scraper_text_limit = agentContext?.scraper_text_limit || 10000;
+                stepParams.agentId = agentContext?.agent_id || null;
+                stepParams.agentName = agentContext?.agent_name || null;
+              }
               if (step.action === 'login') {
                 stepParams = injectAuthCredentials(page, stepParams, agentContext);
                 // If account has a linked profile, skip login when profile already has session
@@ -1676,6 +1682,8 @@ async function main() {
                     actionParams.profileName = profileName;
                     actionParams.enable_scraping = agentContext?.enable_scraping !== false; // handle absent defaults
                     actionParams.scraper_text_limit = agentContext?.scraper_text_limit || 10000;
+                    actionParams.agentId = agentContext?.agent_id || null;
+                    actionParams.agentName = agentContext?.agent_name || null;
                   }
                   if (nextAction.action === 'login') {
                     actionParams = injectAuthCredentials(page, actionParams, agentContext);

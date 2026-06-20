@@ -141,6 +141,8 @@
   "agent_modal.history_refresh": "Refresh",
   "agent_modal.history_prev": "Previous",
   "agent_modal.history_next": "Next",
+  "agent_modal.history_today": "Today",
+  "agent_modal.history_yesterday": "Yesterday",
   "agent_modal.allowed_skills": "Allowed Skills",
   "agent_modal.search_skills_placeholder": "🔍 Search skills...",
   "agent_modal.telegram_bot": "Telegram Bot",

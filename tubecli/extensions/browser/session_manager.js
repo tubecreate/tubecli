@@ -477,7 +477,9 @@ async loadBlacklist() {
         url: url,
         ip: ipAddress,
         scrapedAt: new Date().toISOString(),
-        isScraped: false
+        isScraped: false,
+        agentId: this.agentContext?.agent_id || null,
+        agentName: this.agentContext?.agent_name || null
       });
       
       if (history.scrapedArticles.length > 500) {
