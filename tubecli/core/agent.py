@@ -260,7 +260,16 @@ class AgentManager:
         agent = self.agents[agent_id]
         for k, v in updates.items():
             if hasattr(agent, k):
-                setattr(agent, k, v)
+                if k in ("routine", "persona") and isinstance(v, dict):
+                    existing = getattr(agent, k)
+                    if isinstance(existing, dict):
+                        merged = dict(existing)
+                        merged.update(v)
+                        setattr(agent, k, merged)
+                    else:
+                        setattr(agent, k, v)
+                else:
+                    setattr(agent, k, v)
         self._save()
         return agent
 

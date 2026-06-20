@@ -2817,66 +2817,8 @@ async function openEditAgent(id, btn) {
         document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(d.routine||{}).dailyRoutine||{},workHabits:(d.routine||{}).workHabits||{}},null,2);
         const pp=d.proxy_provider||{mode:'none'};
         document.getElementById('agent-proxy-mode').value=pp.mode||'none';
-        document.getElementById('agent-proxy').value=d.proxy_config||'';
-        onProxyModeChange();
-        const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
-        const schedule_repeat = d.schedule_repeat || (d.schedule && d.schedule.repeat) || 'daily';
-        const schedule_active_days = d.schedule_active_days || (d.schedule && d.schedule.active_days) || ['mon','tue','wed','thu','fri'];
-        const schedule_start_time = d.schedule_start_time || (d.schedule && d.schedule.start_time) || '08:00';
-        const schedule_end_time = d.schedule_end_time || (d.schedule && d.schedule.end_time) || '22:00';
-        const schedule_max_runs = d.schedule_max_runs || (d.schedule && d.schedule.max_runs) || 10;
-
-        document.getElementById('agent-schedule-enable').checked = schedule_enabled;
-        document.getElementById('agent-timezone').value = d.timezone || 'Asia/Ho_Chi_Minh';
-        document.getElementById('agent-schedule-repeat').value = schedule_repeat;
-        document.getElementById('agent-schedule-interval').value = (d.schedule && d.schedule.interval) || 60;
-        document.getElementById('agent-schedule-start').value = schedule_start_time;
-        document.getElementById('agent-schedule-end').value = schedule_end_time;
-        document.getElementById('agent-schedule-max-runs').value = schedule_max_runs;
-        document.querySelectorAll('.agent-day-cb').forEach(cb => cb.checked = schedule_active_days.includes(cb.value));
-        onScheduleRepeatChange();
-        document.getElementById('agent-scraping-enable').checked=d.enable_scraping||false;
-        document.getElementById('agent-scraper-limit').value=d.scraper_text_limit||10000;
-        document.getElementById('agent-scraper-format').value=d.script_output_format||'json';
-        document.getElementById('agent-tg-token').value=d.telegram_token||'';
-        document.getElementById('agent-tg-chat').value=d.telegram_chat_id||'';
-        document.getElementById('agent-ms-token').value=d.messenger_token||'';
-        document.getElementById('agent-ms-page').value=d.messenger_page_id||'';
-        document.getElementById('agent-ms-php').value=d.messenger_php_url||'';
-        document.getElementById('agent-ms-skill').value=d.direct_trigger_skill_id||'';
-        await Promise.all([
-            populateAgentProfiles(d.allowed_profiles||[]),
-            populateAgentSkills(d.allowed_skills||[])
-        ]);
-        document.querySelector('.agent-tab-btn[data-atab="identity"]').click();
-
-        // Populate Automated Schedule Status Panel
-        const statusPanel = document.getElementById('schedule-status-panel');
-        if (statusPanel) {
-            statusPanel.style.display = 'block';
-            
-            // Next run countdown calculation
-            if (schedule_enabled && d.schedule_next_run) {
-                const nextRun = new Date(d.schedule_next_run);
-                const now = new Date();
-                const diffMs = nextRun - now;
-                let timeStr = nextRun.toLocaleString(_lang || 'en');
-                if (diffMs > 0) {
-                    const diffMins = Math.floor(diffMs / 60000);
-                    const hours = Math.floor(diffMins / 60);
-                    const mins = diffMins % 60;
-                    if (hours > 0) {
-                        timeStr += ' ' + T('agent_modal.in_hours_mins', {hours, mins});
-                    } else {
-                        timeStr += ' ' + T('agent_modal.in_mins', {mins});
-                    }
-                } else {
-                    timeStr += ' ' + T('agent_modal.running_or_overdue');
-                }
-                document.getElementById('sched-next-run-val').textContent = timeStr;
-                document.getElementById('sched-next-run-val').style.color = 'var(--green)';
-            } else {
-                document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
+        document.getElementById('agent-proxy')        // Populate Automated Schedule Status Panel
+        updateScheduleStatusPanel(d);    document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
                 document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
             }
 
@@ -2932,6 +2874,77 @@ async function openEditAgent(id, btn) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
         }
+    }
+}
+
+function updateScheduleStatusPanel(d) {
+    const statusPanel = document.getElementById('schedule-status-panel');
+    if (!statusPanel) return;
+    statusPanel.style.display = 'block';
+
+    const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
+
+    // Next run countdown calculation
+    if (schedule_enabled && d.schedule_next_run) {
+        const nextRun = new Date(d.schedule_next_run);
+        const now = new Date();
+        const diffMs = nextRun - now;
+        let timeStr = nextRun.toLocaleString(_lang || 'en');
+        if (diffMs > 0) {
+            const diffMins = Math.floor(diffMs / 60000);
+            const hours = Math.floor(diffMins / 60);
+            const mins = diffMins % 60;
+            if (hours > 0) {
+                timeStr += ' ' + T('agent_modal.in_hours_mins', {hours, mins});
+            } else {
+                timeStr += ' ' + T('agent_modal.in_mins', {mins});
+            }
+        } else {
+            timeStr += ' ' + T('agent_modal.running_or_overdue');
+        }
+        document.getElementById('sched-next-run-val').textContent = timeStr;
+        document.getElementById('sched-next-run-val').style.color = 'var(--green)';
+    } else {
+        document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
+        document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
+    }
+
+    // Daily keywords check
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${yyyy}-${mm}-${dd}`;
+
+    const dk = d.routine?.daily_keywords;
+    const isToday = dk && dk.date === todayStr;
+
+    if (isToday) {
+        const usedMeta = d.routine?.used_keywords_today;
+        const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
+
+        const renderKwList = (period) => {
+            const keywords = dk[period] || [];
+            const usedList = usedToday[period] || [];
+            if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
+            return keywords.map(kw => {
+                const isUsed = usedList.includes(kw);
+                return isUsed
+                    ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
+                    : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
+            }).join('');
+        };
+
+        document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
+        document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
+        document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
+        document.getElementById('kw-night-val').innerHTML = renderKwList('night');
+    } else {
+        const placeholder = T('agent_modal.not_generated_today') || 'Not generated yet today';
+        document.getElementById('kw-morning-val').textContent = placeholder;
+        document.getElementById('kw-afternoon-val').textContent = placeholder;
+        document.getElementById('kw-evening-val').textContent = placeholder;
+        document.getElementById('kw-night-val').textContent = placeholder;
     }
 }
 
@@ -3382,6 +3395,11 @@ async function testAgentRoutine() {
         const res = await apiPost('/api/v1/agents/' + id + '/test_routine', {});
         if (res && !res.error) {
             alert(T('agent_modal.test_triggered_bg') || 'Triggered routine test in background. Look for browser spawning!');
+            // Refresh keywords immediately on UI
+            const updatedAgent = await apiGet('/api/v1/agents/' + id);
+            if (updatedAgent) {
+                updateScheduleStatusPanel(updatedAgent);
+            }
         } else {
             alert((T('agent_modal.test_failed') || 'Failed to launch routine: ') + (res?.error || T('agent_modal.unknown_error') || 'Unknown error'));
         }
