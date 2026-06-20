@@ -2820,10 +2820,15 @@ async function openEditAgent(id, btn) {
         if (agentLangEl) agentLangEl.value = d.language || 'auto';
         const pp=d.proxy_provider||{mode:'none'};
         document.getElementById('agent-proxy-mode').value=pp.mode||'none';
-        document.getElementById('agent-proxy')        // Populate Automated Schedule Status Panel
-        updateScheduleStatusPanel(d);    document.getElementById('sched-next-run-val').textContent = T('agent_modal.not_scheduled') || 'Not scheduled';
-                document.getElementById('sched-next-run-val').style.color = 'var(--text-muted)';
-            }
+        document.getElementById('agent-proxy').value=d.proxy_config||'';
+        onProxyModeChange();
+        if (pp.mode === 'dynamic') {
+            document.getElementById('agent-proxy-api').value = pp.api_url || '';
+            document.getElementById('agent-proxy-api-key').value = pp.api_key || '';
+            document.getElementById('agent-proxy-location').value = pp.location || '';
+        }
+        // Populate Automated Schedule Status Panel
+        updateScheduleStatusPanel(d);
 
             // Daily keywords check
             const now = new Date();
@@ -2862,8 +2867,6 @@ async function openEditAgent(id, btn) {
                 document.getElementById('kw-evening-val').textContent = placeholder;
                 document.getElementById('kw-night-val').textContent = placeholder;
             }
-
-        }
 
         if (document.getElementById('btn-test-agent')) {
             document.getElementById('btn-test-agent').style.display = 'inline-block';
