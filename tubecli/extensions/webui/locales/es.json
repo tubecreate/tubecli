@@ -435,6 +435,7 @@
   "agent_modal.end_time": "Fin",
   "agent_modal.max_runs_day": "Máx Ejecuciones/Día",
   "agent_modal.btn_test_behavior": "⚡ Probar Comportamiento del Agente Ahora",
+  "agent_modal.btn_regen_keywords": "🔄 Regenerar Palabras Clave",
   "agent_modal.scraper_settings": "Ajustes del Scraper",
   "agent_modal.enable_scraping": "Habilitar Auto-Scraping",
   "agent_modal.max_text_chars": "Texto Máx (caracteres)",

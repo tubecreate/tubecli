@@ -647,6 +647,7 @@ class AgentCreateRequest(BaseModel):
     proxy_config: Optional[str] = ""
     proxy_provider: Optional[Dict] = {"mode": "static"}
     timezone: Optional[str] = None
+    language: Optional[str] = "auto"
     auth: Optional[Dict] = {}
     cloud_api_keys: Optional[Dict] = {}
     enable_scraping: Optional[bool] = False
@@ -696,6 +697,7 @@ class AgentUpdateRequest(BaseModel):
     proxy_config: Optional[str] = None
     proxy_provider: Optional[Dict] = None
     timezone: Optional[str] = None
+    language: Optional[str] = None
     auth: Optional[Dict] = None
     cloud_api_keys: Optional[Dict] = None
     enable_scraping: Optional[bool] = None
@@ -1055,6 +1057,38 @@ async def test_agent_routine(agent_id: str):
         return {"status": "success", "message": f"Triggered behavior routine for agent '{agent.name}'"}
     except Exception as e:
         raise HTTPException(500, f"Failed to run behavior routine: {str(e)}")
+
+
+@app.post("/api/v1/agents/{agent_id}/regenerate_keywords")
+async def regenerate_agent_keywords(agent_id: str):
+    """Force regenerate daily keywords for an agent (ignores cached date, applies current language)."""
+    from tubecli.core.agent import agent_manager
+    import asyncio, threading
+    from datetime import datetime, timezone as tz
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    # Clear the cached date so check_and_generate_daily_keywords will re-generate
+    routine = agent.routine or {}
+    existing_dk = routine.get("daily_keywords") or {}
+    existing_dk["date"] = ""  # force stale
+    routine["daily_keywords"] = existing_dk
+    agent_manager.update(agent_id, routine=routine)
+
+    # Reload fresh agent and regenerate
+    def _regen():
+        try:
+            fresh_agent = agent_manager.get(agent_id)
+            now_dt = datetime.now(tz.utc)
+            new_kw = check_and_generate_daily_keywords(fresh_agent, now_dt)
+            print(f"[RegenKw] Regenerated keywords for agent '{fresh_agent.name}': {new_kw}")
+        except Exception as e:
+            print(f"[RegenKw] Error regenerating keywords for agent {agent_id}: {e}")
+
+    threading.Thread(target=_regen, daemon=True).start()
+    return {"status": "success", "message": f"Keyword regeneration started for agent '{agent.name}'. Language: {getattr(agent, 'language', 'auto')}"}
 
 
 @app.get("/api/v1/agents/{agent_id}/history")

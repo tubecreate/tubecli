@@ -132,6 +132,7 @@
   "agent_modal.end_time": "End",
   "agent_modal.max_runs_day": "Max Runs/Day",
   "agent_modal.btn_test_behavior": "⚡ Test Agent Behavior Now",
+  "agent_modal.btn_regen_keywords": "🔄 Regenerate Keywords",
   "agent_modal.scraper_settings": "Scraper Settings",
   "agent_modal.enable_scraping": "Enable Auto-Scraping",
   "agent_modal.max_text_chars": "Max Text (chars)",

@@ -435,6 +435,7 @@
   "agent_modal.end_time": "Конец",
   "agent_modal.max_runs_day": "Макс запусков в день",
   "agent_modal.btn_test_behavior": "⚡ Проверить поведение агента сейчас",
+  "agent_modal.btn_regen_keywords": "🔄 Регенерировать ключевые слова",
   "agent_modal.scraper_settings": "Настройки парсера",
   "agent_modal.enable_scraping": "Включить автопарсинг",
   "agent_modal.max_text_chars": "Макс текст (символов)",

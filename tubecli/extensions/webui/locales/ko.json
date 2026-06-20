@@ -435,6 +435,7 @@
   "agent_modal.end_time": "종료",
   "agent_modal.max_runs_day": "하루 최대 실행 횟수",
   "agent_modal.btn_test_behavior": "⚡ 지금 에이전트 행동 테스트",
+  "agent_modal.btn_regen_keywords": "🔄 키워드 재생성",
   "agent_modal.scraper_settings": "스크래퍼 설정",
   "agent_modal.enable_scraping": "자동 스크래핑 활성화",
   "agent_modal.max_text_chars": "최대 텍스트 (글자)",

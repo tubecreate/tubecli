@@ -435,6 +435,7 @@
   "agent_modal.end_time": "Bitiş",
   "agent_modal.max_runs_day": "Maksimum Günlük Çalışma",
   "agent_modal.btn_test_behavior": "⚡ Ajan Davranışını Şimdi Test Et",
+  "agent_modal.btn_regen_keywords": "🔄 Anahtar Kelimeleri Yeniden Üret",
   "agent_modal.scraper_settings": "Kazıyıcı Ayarları",
   "agent_modal.enable_scraping": "Otomatik Kazımayı Etkinleştir",
   "agent_modal.max_text_chars": "Maksimum Metin (karakter)",

@@ -2763,6 +2763,9 @@ function showCreateAgent() {
     onProxyModeChange();
     document.getElementById('agent-schedule-enable').checked=false;
     document.getElementById('agent-timezone').value='Asia/Ho_Chi_Minh';
+    if (document.getElementById('agent-language')) {
+        document.getElementById('agent-language').value = 'auto';
+    }
     document.getElementById('agent-schedule-repeat').value='daily';
     document.getElementById('agent-schedule-interval').value='60';
     document.getElementById('agent-schedule-start').value='08:00';
@@ -2871,6 +2874,9 @@ async function openEditAgent(id, btn) {
         if (document.getElementById('btn-test-agent')) {
             document.getElementById('btn-test-agent').style.display = 'inline-block';
         }
+        if (document.getElementById('btn-regen-kw-main')) {
+            document.getElementById('btn-regen-kw-main').style.display = 'inline-block';
+        }
         document.getElementById('modal-agent').classList.remove('hidden');
         // Load model dropdowns async (non-blocking, lazy)
         populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
@@ -2880,6 +2886,71 @@ async function openEditAgent(id, btn) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
         }
+    }
+}
+
+async function regenerateKeywords() {
+    const id = document.getElementById('agent-id').value;
+    if (!id) return alert(T('agent_modal.save_first_test') || 'Save the agent first before regenerating keywords.');
+    const btnTop = document.getElementById('btn-regen-keywords');
+    const btnMain = document.getElementById('btn-regen-kw-main');
+    const origTop = btnTop ? btnTop.innerHTML : '';
+    const origMain = btnMain ? btnMain.innerHTML : '';
+    if (btnTop) { btnTop.disabled = true; btnTop.innerHTML = '⏳ Đang tạo...'; }
+    if (btnMain) { btnMain.disabled = true; btnMain.innerHTML = '⏳ Đang tạo...'; }
+    try {
+        // Save current agent state first (to persist current language)
+        await saveAgent(true);
+        // Trigger keyword regeneration
+        const res = await apiPost('/api/v1/agents/' + id + '/regenerate_keywords', {});
+        if (res && res.status === 'success') {
+            // Show generating state in keyword display
+            ['kw-morning-val','kw-afternoon-val','kw-evening-val','kw-night-val'].forEach(elId => {
+                const el = document.getElementById(elId);
+                if (el) el.innerHTML = '<span style="color:var(--cyan);font-style:italic">⏳ Đang tạo keyword mới...</span>';
+            });
+            // Refresh after ~15s to show new keywords
+            setTimeout(async () => {
+                const updated = await apiGet('/api/v1/agents/' + id);
+                if (updated) updateScheduleStatusPanel(updated);
+                if (updated) {
+                    const now = new Date();
+                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+                    const dk = updated.routine?.daily_keywords;
+                    const usedMeta = updated.routine?.used_keywords_today;
+                    const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
+                    if (dk && dk.date === todayStr) {
+                        const renderKwList = (period) => {
+                            const keywords = dk[period] || [];
+                            const usedList = usedToday[period] || [];
+                            if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
+                            return keywords.map(kw => {
+                                const isUsed = usedList.includes(kw);
+                                return isUsed
+                                    ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
+                                    : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
+                            }).join('');
+                        };
+                        document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
+                        document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
+                        document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
+                        document.getElementById('kw-night-val').innerHTML = renderKwList('night');
+                    } else {
+                        ['kw-morning-val','kw-afternoon-val','kw-evening-val','kw-night-val'].forEach(elId => {
+                            const el = document.getElementById(elId);
+                            if (el) el.textContent = T('agent_modal.not_generated_today') || 'Generating...';
+                        });
+                    }
+                }
+            }, 15000);
+        } else {
+            alert((T('agent_modal.regen_kw_failed') || 'Regeneration failed: ') + (res?.message || res?.detail || ''));
+        }
+    } catch(e) {
+        alert('Error: ' + e.message);
+    } finally {
+        if (btnTop) { btnTop.disabled = false; btnTop.innerHTML = origTop; }
+        if (btnMain) { btnMain.disabled = false; btnMain.innerHTML = origMain; }
     }
 }
 
@@ -3243,7 +3314,7 @@ function onProxyModeChange() { const m=document.getElementById('agent-proxy-mode
 function onScheduleRepeatChange() { document.getElementById('schedule-interval-group').style.display=document.getElementById('agent-schedule-repeat').value==='interval'?'block':'none'; }
 document.getElementById('agent-schedule-repeat')?.addEventListener('change', onScheduleRepeatChange);
 
-async function saveAgent() {
+async function saveAgent(silent = false) {
     const name = document.getElementById('agent-name').value.trim();
     if (!name) return alert(T('agent_modal.name_required') || 'Name required');
     const id = document.getElementById('agent-id').value;
@@ -3324,7 +3395,9 @@ async function saveAgent() {
     }
 
     if (response && (response.status === 'success' || response.status === 'updated' || response.status === 'created' || !response.error)) {
-        alert(T('agent_modal.save_success') || 'Saved successfully!');
+        if (!silent) {
+            alert(T('agent_modal.save_success') || 'Saved successfully!');
+        }
         // Update the id field if a new agent was created, so subsequent saves are updates
         if (!id && response.agent && response.agent.id) {
             document.getElementById('agent-id').value = response.agent.id;

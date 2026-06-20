@@ -435,6 +435,7 @@
   "agent_modal.end_time": "结束时间",
   "agent_modal.max_runs_day": "每日最大运行次数",
   "agent_modal.btn_test_behavior": "⚡ 立即测试代理行为",
+  "agent_modal.btn_regen_keywords": "🔄 重新生成关键字",
   "agent_modal.scraper_settings": "抓取设置",
   "agent_modal.enable_scraping": "启用自动抓取",
   "agent_modal.max_text_chars": "最大字数 (字符)",

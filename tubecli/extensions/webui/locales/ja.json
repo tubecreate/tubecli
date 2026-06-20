@@ -435,6 +435,7 @@
   "agent_modal.end_time": "終了",
   "agent_modal.max_runs_day": "1日あたりの最大実行数",
   "agent_modal.btn_test_behavior": "⚡ エージェントの動作を今すぐテスト",
+  "agent_modal.btn_regen_keywords": "🔄 キーワードを再生成",
   "agent_modal.scraper_settings": "スクレイパー設定",
   "agent_modal.enable_scraping": "自動スクレイピングを有効にする",
   "agent_modal.max_text_chars": "最大テキスト(文字数)",

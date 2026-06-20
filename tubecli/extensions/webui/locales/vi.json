@@ -132,6 +132,7 @@
   "agent_modal.end_time": "Kết thúc",
   "agent_modal.max_runs_day": "Số lần chạy tối đa/ngày",
   "agent_modal.btn_test_behavior": "⚡ Thử nghiệm hành vi Agent ngay",
+  "agent_modal.btn_regen_keywords": "🔄 Cập nhật keyword",
   "agent_modal.scraper_settings": "Cài đặt Scraper",
   "agent_modal.enable_scraping": "Bật tự động cào dữ liệu",
   "agent_modal.max_text_chars": "Độ dài văn bản tối đa",
