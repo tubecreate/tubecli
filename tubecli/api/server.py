@@ -176,15 +176,16 @@ def run_agent_routine(agent_id: str):
     # 2. Determine Time of Day in Agent's Timezone
     tz_str = getattr(agent, "timezone", None)
     now = datetime.datetime.now()
-    if tz_str:
+    if tz_str and isinstance(tz_str, str) and tz_str.strip():
+        tz_clean = tz_str.strip()
         try:
             from zoneinfo import ZoneInfo
-            now = datetime.datetime.now(ZoneInfo(tz_str))
-        except ImportError:
+            now = datetime.datetime.now(ZoneInfo(tz_clean))
+        except Exception:
             try:
                 import pytz
-                now = datetime.datetime.now(pytz.timezone(tz_str))
-            except ImportError:
+                now = datetime.datetime.now(pytz.timezone(tz_clean))
+            except Exception:
                 pass
                 
     hour = now.hour
@@ -210,8 +211,20 @@ def run_agent_routine(agent_id: str):
     daily_routine = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
     work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
     
-    period_tasks = daily_routine.get(time_period, {})
-    active_tasks = [task for task, enabled in period_tasks.items() if enabled]
+    period_tasks = {}
+    if isinstance(daily_routine, dict):
+        period_tasks = daily_routine.get(time_period, {})
+        if not isinstance(period_tasks, dict):
+            if isinstance(period_tasks, list):
+                period_tasks = {str(task): True for task in period_tasks if task}
+            else:
+                period_tasks = {}
+    elif isinstance(daily_routine, list):
+        period_tasks = {str(task): True for task in daily_routine if task}
+        
+    active_tasks = []
+    if isinstance(period_tasks, dict):
+        active_tasks = [task for task, enabled in period_tasks.items() if enabled]
     
     behavior = "browse"
     if active_tasks:
@@ -236,8 +249,12 @@ def run_agent_routine(agent_id: str):
         
     # 4. Generate Diverse Prompt
     import hashlib
-    interests = persona.get("interests", []) or routine.get("interests", []) or []
-    focus_areas = work_habits.get("focusAreas", []) or []
+    interests = persona.get("interests") or routine.get("interests") or []
+    if not isinstance(interests, list):
+        interests = [interests] if interests else []
+    focus_areas = work_habits.get("focusAreas") or []
+    if not isinstance(focus_areas, list):
+        focus_areas = [focus_areas] if focus_areas else []
     combined_topics = list(dict.fromkeys([str(t) for t in interests + focus_areas if t]))
     
     hour_slot = now.strftime('%Y%m%d%H')
@@ -296,18 +313,28 @@ def run_agent_routine(agent_id: str):
     fmts = fmt_templates.get(behavior, ["{topic} news", "about {topic}"])
     
     base_query = ""
-    today_keywords = daily_keywords.get(time_period, []) if daily_keywords else []
+    today_keywords = daily_keywords.get(time_period, []) if isinstance(daily_keywords, dict) else []
+    if not isinstance(today_keywords, list):
+        today_keywords = [today_keywords] if today_keywords else []
+
     if today_keywords:
         # --- Used-keyword tracking: pick next unused keyword, reset daily ---
         today_date = now.strftime('%Y-%m-%d')
         routine_data = agent.routine or {}
         used_meta = routine_data.get("used_keywords_today", {})
+        if not isinstance(used_meta, dict):
+            used_meta = {}
 
         # Reset if it's a new day
         if used_meta.get("date") != today_date:
             used_meta = {"date": today_date, "used": {}}
 
-        period_used = used_meta.get("used", {}).get(time_period, [])
+        used_dict = used_meta.get("used")
+        if not isinstance(used_dict, dict):
+            used_dict = {}
+        period_used = used_dict.get(time_period, [])
+        if not isinstance(period_used, list):
+            period_used = []
 
         # Find first unused keyword (cycle back when all used)
         available = [kw for kw in today_keywords if kw not in period_used]
@@ -316,23 +343,24 @@ def run_agent_routine(agent_id: str):
             period_used = []
             available = list(today_keywords)
 
-        base_query = available[0]  # pick the first unused one
+        base_query = available[0] if available else ""
         print(f"[Scheduler Callback] Selected evolved query for period '{time_period}': '{base_query}'")
 
         # Mark as used and persist
-        period_used.append(base_query)
-        if "used" not in used_meta:
-            used_meta["used"] = {}
-        used_meta["used"][time_period] = period_used
-        routine_data["used_keywords_today"] = used_meta
-        try:
-            from tubecli.core.agent import agent_manager
-            agent.routine = routine_data
-            agent_manager.update(agent.id, {"routine": routine_data})
-            print(f"[Scheduler Callback] Marked '{base_query}' as used for '{time_period}'. "
-                  f"Remaining: {[kw for kw in today_keywords if kw not in period_used]}")
-        except Exception as _e:
-            print(f"[Scheduler Callback] Warning: could not persist used_keywords_today: {_e}")
+        if base_query:
+            period_used.append(base_query)
+            if "used" not in used_meta:
+                used_meta["used"] = {}
+            used_meta["used"][time_period] = period_used
+            routine_data["used_keywords_today"] = used_meta
+            try:
+                from tubecli.core.agent import agent_manager
+                agent.routine = routine_data
+                agent_manager.update(agent.id, routine=routine_data)
+                print(f"[Scheduler Callback] Marked '{base_query}' as used for '{time_period}'. "
+                      f"Remaining: {[kw for kw in today_keywords if kw not in period_used]}")
+            except Exception as _e:
+                print(f"[Scheduler Callback] Warning: could not persist used_keywords_today: {_e}")
 
     elif combined_topics:
         topic_idx = seed_int % len(combined_topics)
@@ -401,10 +429,10 @@ def run_agent_routine(agent_id: str):
         "interests": combined_topics,
         "routine_tasks": period_tasks,
         "schedule_name": f"Scheduled Routine ({time_period})",
-        "proxy_provider": agent.proxy_provider,
-        "avatar_type": agent.avatar_type,
-        "avatar_color": agent.avatar_color,
-        "enable_scraping": agent.enable_scraping,
+        "proxy_provider": getattr(agent, "proxy_provider", {"mode": "none"}),
+        "avatar_type": getattr(agent, "avatar_type", "bot"),
+        "avatar_color": getattr(agent, "avatar_color", "blue"),
+        "enable_scraping": getattr(agent, "enable_scraping", False),
         "scraper_text_limit": getattr(agent, "scraper_text_limit", 10000),
     }
     
