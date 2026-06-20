@@ -262,14 +262,24 @@ def run_agent_routine(agent_id: str):
     seed_int = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
     rng = random.Random(seed_int)
     
+    # Occasionally add a natural time marker (not a forced year number)
+    _time_hints = ["", "", "", "latest", "recently", "this year", "new", "trending"]
+    _time_hint = rng.choice(_time_hints).strip()
+
+    def _with_hint(template: str) -> str:
+        """Randomly sprinkle a natural time hint into a template, or leave as-is."""
+        if _time_hint and "{topic}" in template and rng.random() < 0.35:
+            return template.replace("{topic}", f"{_time_hint} {{topic}}")
+        return template
+
     fmt_templates = {
         "work": [
             "how to {topic}",
-            "{topic} best practices 2026",
+            "{topic} best practices",
             "latest {topic} news",
             "{topic} tutorial for professionals",
             "{topic} tips and tricks",
-            "top {topic} tools 2026",
+            "top {topic} tools",
             "{topic} case study",
         ],
         "research": [
@@ -292,7 +302,7 @@ def run_agent_routine(agent_id: str):
             "latest {topic} headlines",
         ],
         "entertainment": [
-            "top {topic} 2026",
+            "top {topic}",
             "{topic} highlights",
             "best {topic} videos",
         ],
@@ -308,6 +318,11 @@ def run_agent_routine(agent_id: str):
         "checkEmails": [
             "gmail", "outlook mail", "email inbox",
         ],
+    }
+    # Apply natural time hints to templates
+    fmt_templates = {
+        k: [_with_hint(t) for t in v]
+        for k, v in fmt_templates.items()
     }
     
     fmts = fmt_templates.get(behavior, ["{topic} news", "about {topic}"])
@@ -377,7 +392,7 @@ def run_agent_routine(agent_id: str):
             "checkEmails": ["gmail", "outlook"],
             "morningCheck": ["breaking news today", "world news"],
             "work": ["github trending", "technology news"],
-            "research": ["AI advancements 2026", "science news"],
+            "research": ["AI advancements", "science news", "latest research"],
             "study": ["free coding tutorials", "learning resources"],
             "watchVideos": ["youtube trending", "interesting tech videos"],
         }
