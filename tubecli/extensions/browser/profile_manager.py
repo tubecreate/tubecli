@@ -229,6 +229,330 @@ def bulk_set_proxy(names: List[str], proxy: str) -> List[Dict]:
     return results
 
 
+def get_seed(profile_name: str) -> int:
+    if not profile_name:
+        import random
+        return random.randint(0, 1000000)
+    acc = 0
+    for char in profile_name:
+        acc = (acc * 31 + ord(char)) & 0x7FFFFFFF
+    return acc
+
+def parse_chrome_version(ua: str) -> dict:
+    import re
+    match = re.search(r'Chrome/(\d+)\.(\d+)\.(\d+)\.(\d+)', ua)
+    if match:
+        return {
+            "major": match.group(1),
+            "minor": match.group(2),
+            "build": int(match.group(3)),
+            "patch": int(match.group(4)),
+            "full": match.group(0).split('/')[1]
+        }
+    return {
+        "major": "124",
+        "minor": "0",
+        "build": 6367,
+        "patch": 207,
+        "full": "124.0.6367.207"
+    }
+
+def convert_bas_to_shardx(bas_fp: dict, profile_name: str = "") -> dict:
+    if not bas_fp:
+        return {}
+    
+    fp = bas_fp
+    if "fingerprint" in bas_fp:
+        fp = bas_fp["fingerprint"]
+        if isinstance(fp, str):
+            try:
+                fp = json.loads(fp)
+            except:
+                pass
+                
+    ua = fp.get("ua", "")
+    if not ua and "attr" in fp and isinstance(fp["attr"], dict):
+        ua = fp["attr"].get("navigator.userAgent", "")
+    if not ua and "navigator" in fp and isinstance(fp["navigator"], dict):
+        ua = fp["navigator"].get("userAgent", "")
+        
+    chrome_ver = parse_chrome_version(ua)
+    seed = get_seed(profile_name)
+    
+    time_zone = "Asia/Ho_Chi_Minh"
+    try:
+        if "attr" in fp and isinstance(fp["attr"], dict):
+            tz = fp["attr"].get("timezone", fp["attr"].get("timeZone"))
+            if tz:
+                time_zone = tz
+    except:
+        pass
+        
+    lang_str = fp.get("lang")
+    if not lang_str and "attr" in fp and isinstance(fp["attr"], dict):
+        lang_str = fp["attr"].get("navigator.language")
+    if not lang_str:
+        lang_str = "en-US,en;q=0.9"
+        
+    lang_parts = [p.split(";")[0].strip() for p in lang_str.split(",")]
+    primary_lang = lang_parts[0] if lang_parts else "en-US"
+    
+    screen_width = fp.get("width")
+    if not screen_width and "attr" in fp and isinstance(fp["attr"], dict):
+        screen_width = fp["attr"].get("screen.width")
+    if not screen_width:
+        screen_width = 1920
+        
+    screen_height = fp.get("height")
+    if not screen_height and "attr" in fp and isinstance(fp["attr"], dict):
+        screen_height = fp["attr"].get("screen.height")
+    if not screen_height:
+        screen_height = 1080
+        
+    avail_width = screen_width
+    avail_height = screen_height
+    if "attr" in fp and isinstance(fp["attr"], dict):
+        avail_width = fp["attr"].get("screen.availWidth", screen_width)
+        avail_height = fp["attr"].get("screen.availHeight", screen_height)
+        
+    color_depth = 24
+    pixel_depth = 24
+    device_pixel_ratio = 1
+    avail_left = 0
+    avail_top = 0
+    if "attr" in fp and isinstance(fp["attr"], dict):
+        color_depth = fp["attr"].get("screen.colorDepth", 24)
+        pixel_depth = fp["attr"].get("screen.pixelDepth", 24)
+        device_pixel_ratio = fp["attr"].get("window.devicePixelRatio", 1)
+        avail_left = fp["attr"].get("screen.availLeft", 0)
+        avail_top = fp["attr"].get("screen.availTop", 0)
+
+    webgl_properties = fp.get("webgl_properties", {})
+    if not isinstance(webgl_properties, dict):
+        webgl_properties = {}
+        
+    webgl_vendor = webgl_properties.get("unmaskedVendor", "Google Inc.")
+    webgl_renderer = webgl_properties.get("unmaskedRenderer", webgl_properties.get("renderer", ""))
+    webgl_vendor_masked = webgl_properties.get("vendor", "WebKit")
+    webgl_renderer_masked = webgl_properties.get("renderer", "WebKit WebGL")
+    max_texture_size = webgl_properties.get("maxTextureSize", 16384)
+    max_vertex_attribs = webgl_properties.get("maxVertexAttribs", 16)
+    
+    webgl_extensions = []
+    ext_val = webgl_properties.get("extensions")
+    if isinstance(ext_val, str):
+        webgl_extensions = [e.strip() for e in ext_val.split(",") if e.strip()]
+    elif isinstance(ext_val, list):
+        webgl_extensions = ext_val
+    else:
+        webgl_extensions = [
+            "EXT_clip_control", "EXT_color_buffer_float", "EXT_color_buffer_half_float",
+            "EXT_conservative_depth", "EXT_depth_clamp", "EXT_disjoint_timer_query_webgl2",
+            "EXT_float_blend", "EXT_polygon_offset_clamp", "EXT_render_snorm",
+            "EXT_texture_compression_bptc", "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic", "EXT_texture_mirror_clamp_to_edge",
+            "EXT_texture_norm16", "KHR_parallel_shader_compile",
+            "NV_shader_noperspective_interpolation", "OES_draw_buffers_indexed",
+            "OES_sample_variables", "OES_shader_multisample_interpolation",
+            "OES_texture_float_linear", "OVR_multiview2", "WEBGL_blend_func_extended",
+            "WEBGL_clip_cull_distance", "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb", "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders", "WEBGL_lose_context", "WEBGL_multi_draw",
+            "WEBGL_polygon_mode", "WEBGL_provoking_vertex", "WEBGL_stencil_texturing"
+        ]
+
+    webgpu_vendor = "intel"
+    webgpu_arch = ""
+    r_lower = webgl_renderer.lower() if webgl_renderer else ""
+    if "nvidia" in r_lower or "geforce" in r_lower:
+        webgpu_vendor = "nvidia"
+        webgpu_arch = "pascal"
+    elif "amd" in r_lower or "radeon" in r_lower:
+        webgpu_vendor = "amd"
+    elif "intel" in r_lower or "uhd" in r_lower or "iris" in r_lower:
+        webgpu_vendor = "intel"
+        webgpu_arch = "gen-9"
+        
+    platform = "Windows"
+    platform_value = "Win32"
+    platform_version = "10.0.0"
+    
+    raw_platform = ""
+    if "attr" in fp and isinstance(fp["attr"], dict):
+        raw_platform = fp["attr"].get("navigator.platform", "Win32")
+    elif "navigator" in fp and isinstance(fp["navigator"], dict):
+        raw_platform = fp["navigator"].get("platform", "Win32")
+        
+    if "mac" in raw_platform.lower() or "macintosh" in ua.lower():
+        platform = "MacIntel"
+        platform_value = "MacIntel"
+        platform_version = "13.0.0"
+        
+    audio_properties = fp.get("audio_properties", {})
+    if not isinstance(audio_properties, dict):
+        audio_properties = {}
+        
+    connection = fp.get("connection", {})
+    if not isinstance(connection, dict):
+        connection = {}
+        
+    battery = fp.get("battery", {})
+    if not isinstance(battery, dict):
+        battery = {}
+
+    shardx_fp = {
+        "name": fp.get("name", "converted-bas-fp"),
+        "notes": webgl_renderer,
+        "timezone": time_zone,
+        "icu_locale": primary_lang,
+        "navigator": {
+            "language": primary_lang,
+            "accept_language": lang_str,
+            "languages": lang_parts,
+            "user_agent": ua,
+            "platform": platform,
+            "platform_value": platform_value,
+            "platform_version": platform_version,
+            "hardware_concurrency": fp.get("attr", {}).get("hardwareConcurrency", fp.get("navigator", {}).get("hardwareConcurrency", 8)) if isinstance(fp.get("attr"), dict) else 8,
+            "device_memory": fp.get("attr", {}).get("deviceMemory", fp.get("navigator", {}).get("deviceMemory", 8)) if isinstance(fp.get("attr"), dict) else 8,
+            "vendor": fp.get("attr", {}).get("navigator.vendor", fp.get("navigator", {}).get("vendor", "Google Inc.")) if isinstance(fp.get("attr"), dict) else "Google Inc.",
+            "max_touch_points": fp.get("attr", {}).get("maxTouchPoints", fp.get("navigator", {}).get("maxTouchPoints", 0)) if isinstance(fp.get("attr"), dict) else 0
+        },
+        "client_hints": {
+            "brand": "Google Chrome",
+            "brand_version": chrome_ver["major"],
+            "platform_version": platform_version,
+            "architecture": "x86" if platform == "Windows" else "arm",
+            "bitness": "64",
+            "mobile": False,
+            "grease_brand": "Not)A;Brand",
+            "grease_version": "24",
+            "chrome_build": chrome_ver["build"],
+            "chrome_patch": chrome_ver["patch"],
+            "brand_full_version": chrome_ver["full"],
+            "grease_full_version": "24.0.0.0"
+        },
+        "screen": {
+            "width": screen_width,
+            "height": screen_height,
+            "avail_width": avail_width,
+            "avail_height": avail_height,
+            "color_depth": color_depth,
+            "pixel_depth": pixel_depth,
+            "device_pixel_ratio": device_pixel_ratio,
+            "color_gamut": "srgb",
+            "dynamic_range_high": False,
+            "avail_left": avail_left,
+            "avail_top": avail_top
+        },
+        "window": {
+            "outer_width": screen_width,
+            "outer_height": avail_height,
+            "inner_width": screen_width,
+            "inner_height": avail_height - 87
+        },
+        "webgl": {
+            "vendor": webgl_vendor,
+            "renderer": webgl_renderer,
+            "vendor_masked": webgl_vendor_masked,
+            "renderer_masked": webgl_renderer_masked,
+            "max_texture_size": max_texture_size,
+            "max_vertex_attribs": max_vertex_attribs,
+            "extensions": webgl_extensions
+        },
+        "webgpu": {
+            "vendor": webgpu_vendor,
+            "architecture": webgpu_arch,
+            "device": "",
+            "description": "",
+            "limits": {
+                "maxTextureDimension1D": 16384,
+                "maxTextureDimension2D": 16384,
+                "maxTextureDimension3D": 2048,
+                "maxTextureArrayLayers": 2048,
+                "maxBindGroups": 4,
+                "maxBindGroupsPlusVertexBuffers": 24,
+                "maxBindingsPerBindGroup": 1000,
+                "maxDynamicUniformBuffersPerPipelineLayout": 10,
+                "maxDynamicStorageBuffersPerPipelineLayout": 8,
+                "maxSampledTexturesPerShaderStage": 48,
+                "maxSamplersPerShaderStage": 16,
+                "maxStorageBuffersPerShaderStage": 16,
+                "maxStorageTexturesPerShaderStage": 8,
+                "maxUniformBuffersPerShaderStage": 12,
+                "maxUniformBufferBindingSize": 65536,
+                "maxStorageBufferBindingSize": 2147483644,
+                "minUniformBufferOffsetAlignment": 256,
+                "minStorageBufferOffsetAlignment": 256,
+                "maxVertexBuffers": 8,
+                "maxBufferSize": 2147483648.0,
+                "maxVertexAttributes": 30,
+                "maxVertexBufferArrayStride": 2048,
+                "maxInterStageShaderVariables": 28,
+                "maxColorAttachments": 8,
+                "maxColorAttachmentBytesPerSample": 128,
+                "maxComputeWorkgroupStorageSize": 32768,
+                "maxComputeInvocationsPerWorkgroup": 1024,
+                "maxComputeWorkgroupSizeX": 1024,
+                "maxComputeWorkgroupSizeY": 1024,
+                "maxComputeWorkgroupSizeZ": 64,
+                "maxComputeWorkgroupsPerDimension": 65535
+            }
+        },
+        "audio": {
+            "sample_rate": audio_properties.get("BaseAudioContextSampleRate", 44100),
+            "channel_count": audio_properties.get("AudioDestinationNodeMaxChannelCount", 2)
+        },
+        "connection": {
+            "effective_type": connection.get("effectiveType", "4g"),
+            "downlink_mbps": connection.get("downlink", 10),
+            "rtt_msec": connection.get("rtt", 50),
+            "save_data": connection.get("saveData", False)
+        },
+        "storage_estimate": {
+            "quota_gb": 10
+        },
+        "webauthn": {
+            "uvpa": True
+        },
+        "memory": {
+            "heap_size_limit": 4294967296
+        },
+        "battery": {
+            "charging": battery.get("charging", True),
+            "level": battery.get("level", 1),
+            "charging_time": battery.get("chargingTime", 0),
+            "discharging_time": str(battery.get("dischargingTime", "Infinity"))
+        },
+        "media_devices": {
+            "audio_input_count": 1,
+            "audio_output_count": 1,
+            "video_input_count": 0
+        },
+        "speech": {
+            "voices": [
+                { "name": "Google US English", "lang": "en-US", "local_service": False, "is_default": True },
+                { "name": "Google UK English Female", "lang": "en-GB", "local_service": False, "is_default": False },
+                { "name": "Google UK English Male", "lang": "en-GB", "local_service": False, "is_default": False }
+            ]
+        },
+        "noise": {
+            "canvas": { "enabled": True, "seed": seed },
+            "webgl": { "enabled": True, "seed": seed, "intensity": 5 },
+            "audio": { "enabled": True, "seed": seed },
+            "client_rects": { "enabled": True, "seed": seed, "max_offset": 5 },
+            "sensors": { "enabled": True, "seed": seed },
+            "fonts": { "enabled": True, "seed": seed }
+        },
+        "tls": {
+            "cipher_suites": [4865, 4866, 4867, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+            "signature_algorithms": [1027, 2052, 1025, 1283, 2053, 1281, 2054, 1537],
+            "shuffle_extensions": True
+        }
+    }
+    return shardx_fp
+
+
 def get_fingerprint(name: str) -> Optional[dict]:
     """Get the fingerprint for a profile, fetching from API if missing/invalid."""
     profile_path = os.path.join(PROFILES_DIR, name)
@@ -237,17 +561,48 @@ def get_fingerprint(name: str) -> Optional[dict]:
 
     fp_path = os.path.join(profile_path, "fingerprint_saved.json")
     legacy_fp_path = os.path.join(profile_path, "fingerprint.json")
+    shardx_fp_path = os.path.join(profile_path, "shardx_fingerprint.json")
     
+    # Read config to check if is_shardx
+    config = get_profile(name)
+    is_shardx = False
+    if config:
+        bv = config.get("browser_version")
+        if bv and "ShardX" in bv:
+            is_shardx = True
+
     # Try reading existing
-    target_path = fp_path if os.path.exists(fp_path) else legacy_fp_path
-    if os.path.exists(target_path):
-        try:
-            with open(target_path, "r", encoding="utf-8") as f:
-                fp = json.load(f)
-                if fp and isinstance(fp, dict) and len(fp) > 5:
-                    return fp
-        except Exception:
-            pass  # Fallback to fetch new
+    if is_shardx:
+        for p in (shardx_fp_path, fp_path, legacy_fp_path):
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        fp = json.load(f)
+                    if fp and isinstance(fp, dict) and len(fp) > 5:
+                        is_valid_shardx = fp.get("navigator") or fp.get("screen") or fp.get("webgpu")
+                        has_noise = fp.get("noise") and fp["noise"].get("canvas") and fp["noise"]["canvas"].get("enabled")
+                        if is_valid_shardx and has_noise:
+                            return fp
+                        
+                        # Convert/fix if not valid or noise disabled
+                        converted = convert_bas_to_shardx(fp, name)
+                        to_save = json.dumps(converted, indent=2, ensure_ascii=False)
+                        with open(fp_path, "w", encoding="utf-8") as f_out: f_out.write(to_save)
+                        with open(legacy_fp_path, "utf-8") as f_out: f_out.write(to_save)
+                        with open(shardx_fp_path, "utf-8") as f_out: f_out.write(to_save)
+                        return converted
+                except Exception:
+                    pass
+    else:
+        target_path = fp_path if os.path.exists(fp_path) else legacy_fp_path
+        if os.path.exists(target_path):
+            try:
+                with open(target_path, "r", encoding="utf-8") as f:
+                    fp = json.load(f)
+                    if fp and isinstance(fp, dict) and len(fp) > 5:
+                        return fp
+            except Exception:
+                pass
             
     # Fetch new from API
     try:
@@ -260,8 +615,18 @@ def get_fingerprint(name: str) -> Optional[dict]:
         if config:
             browser_version = config.get("browser_version")
             if browser_version and browser_version not in ("default", "latest"):
-                try: min_browser_version = browser_version.split('.')[0]
-                except: pass
+                try:
+                    import re as _re
+                    # Handle "ShardX 148.0.7778.97" or "148.0.7778.97" → "148"
+                    _m = _re.search(r'(\d+)\.', browser_version)
+                    if _m:
+                        min_browser_version = _m.group(1)
+                    else:
+                        # Fallback: strip non-digit prefix then split
+                        _stripped = _re.sub(r'^[^\d]*', '', browser_version)
+                        min_browser_version = _stripped.split('.')[0] if _stripped else None
+                except:
+                    pass
             
             tags = config.get("tags")
             if tags:
@@ -327,11 +692,19 @@ def get_fingerprint(name: str) -> Optional[dict]:
             fp_data, fp_raw_string = _do_fetch({"tags": tags_param})
 
         if fp_data and fp_raw_string:
-            with open(fp_path, "w", encoding="utf-8") as f:
-                f.write(fp_raw_string)
-            with open(legacy_fp_path, "w", encoding="utf-8") as f:
-                f.write(fp_raw_string)
-            return fp_data
+            if is_shardx:
+                converted = convert_bas_to_shardx(fp_data, name)
+                to_save = json.dumps(converted, indent=2, ensure_ascii=False)
+                with open(fp_path, "w", encoding="utf-8") as f: f.write(to_save)
+                with open(legacy_fp_path, "w", encoding="utf-8") as f: f.write(to_save)
+                with open(shardx_fp_path, "w", encoding="utf-8") as f: f.write(to_save)
+                return converted
+            else:
+                with open(fp_path, "w", encoding="utf-8") as f:
+                    f.write(fp_raw_string)
+                with open(legacy_fp_path, "w", encoding="utf-8") as f:
+                    f.write(fp_raw_string)
+                return fp_data
             
     except Exception as e:
         print(f"[Fingerprint API Error] {e}")

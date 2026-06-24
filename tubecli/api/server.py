@@ -655,6 +655,7 @@ class AgentCreateRequest(BaseModel):
     script_output_format: Optional[str] = "json"
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
+    schedule_interval: Optional[int] = 60
     schedule_active_days: Optional[List[str]] = []
     schedule_start_time: Optional[str] = "08:00"
     schedule_end_time: Optional[str] = "22:00"
@@ -705,6 +706,7 @@ class AgentUpdateRequest(BaseModel):
     script_output_format: Optional[str] = None
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
+    schedule_interval: Optional[int] = None
     schedule_active_days: Optional[List[str]] = None
     schedule_start_time: Optional[str] = None
     schedule_end_time: Optional[str] = None
@@ -1124,6 +1126,241 @@ async def get_agent_history(agent_id: str):
     # Sort by scrapedAt desc
     all_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
     return all_articles
+
+
+@app.get("/api/v1/agents/{agent_id}/scraped-article")
+async def get_scraped_article_detail(agent_id: str, profile: str, url: str):
+    from tubecli.core.agent import agent_manager
+    from pathlib import Path
+    import json
+    
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+        
+    allowed_profiles = getattr(agent, "allowed_profiles", []) or []
+    if profile not in allowed_profiles:
+        raise HTTPException(403, f"Profile {profile} is not associated with this agent")
+        
+    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    articles_path = scraped_data_dir / profile / "articles.json"
+    
+    if not articles_path.exists():
+        raise HTTPException(404, f"No articles found for profile {profile}")
+        
+    try:
+        with open(articles_path, 'r', encoding='utf-8') as f:
+            articles = json.load(f)
+            if not isinstance(articles, list):
+                articles = []
+            for a in articles:
+                if a.get("url") == url:
+                    return a
+    except Exception as e:
+        raise HTTPException(500, f"Error reading articles: {str(e)}")
+        
+    raise HTTPException(404, f"Article not found in profile {profile}")
+
+
+@app.post("/api/v1/agents/{agent_id}/rewrite-article")
+async def rewrite_scraped_article(agent_id: str, profile: str, url: str):
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.brain import AgentBrain
+    from pathlib import Path
+    import json
+    
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+        
+    allowed_profiles = getattr(agent, "allowed_profiles", []) or []
+    if profile not in allowed_profiles:
+        raise HTTPException(403, f"Profile {profile} is not associated with this agent")
+        
+    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    articles_path = scraped_data_dir / profile / "articles.json"
+    
+    if not articles_path.exists():
+        raise HTTPException(404, f"No articles found for profile {profile}")
+        
+    article = None
+    try:
+        with open(articles_path, 'r', encoding='utf-8') as f:
+            articles = json.load(f)
+            for a in articles:
+                if a.get("url") == url:
+                    article = a
+                    break
+    except Exception as e:
+        raise HTTPException(500, f"Error reading articles: {str(e)}")
+        
+    if not article:
+        raise HTTPException(404, f"Article not found in profile {profile}")
+        
+    title = article.get("title", "Untitled")
+    content = article.get("content", "")
+    if not content:
+        raise HTTPException(400, "Bài viết này không có nội dung văn bản để viết lại.")
+        
+    agent_language = getattr(agent, "language", "auto") or "auto"
+    _LANGUAGE_NAMES = {
+        "auto": "Vietnamese",
+        "vi": "Vietnamese",
+        "en": "English",
+        "zh": "Chinese (Simplified)",
+        "zh-TW": "Chinese (Traditional)",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "es": "Spanish",
+        "tr": "Turkish",
+        "ru": "Russian",
+        "fr": "French",
+        "de": "German",
+        "pt": "Portuguese",
+        "ar": "Arabic",
+        "th": "Thai",
+        "id": "Indonesian",
+    }
+    lang_name = _LANGUAGE_NAMES.get(agent_language, "Vietnamese")
+    
+    system_prompt = f"Bạn là một AI biên tập viên nội dung. Nhiệm vụ của bạn là viết lại một bài viết cào được thành một bài viết mới, chất lượng cao, mạch lạc và hấp dẫn bằng ngôn ngữ {lang_name}."
+    
+    user_prompt = f"""Dưới đây là thông tin bài viết gốc:
+    
+Tiêu đề: {title}
+Nội dung:
+{content[:5000]}
+
+Yêu cầu:
+1. Hãy viết một bài viết hoàn toàn mới dựa trên nội dung bài viết gốc này.
+2. Bài viết mới phải có tiêu đề hấp dẫn, phần mở đầu lôi cuốn, các phần nội dung rõ ràng (có tiêu đề phụ) và phần kết luận đúc rút thông tin.
+3. Không sao chép nguyên văn, hãy viết lại bằng văn phong của bạn một cách sáng tạo và logic.
+4. Trình bày bài viết bằng định dạng Markdown.
+5. Ngôn ngữ của bài viết: {lang_name}.
+
+Chỉ trả về nội dung bài viết bằng Markdown (không thêm lời giới thiệu của AI)."""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+    
+    try:
+        raw_response = AgentBrain._call_llm(agent.to_dict(), messages, temperature=0.7)
+        return {"status": "success", "content": raw_response}
+    except Exception as e:
+        raise HTTPException(500, f"Lỗi khi gọi AI viết lại bài: {str(e)}")
+
+
+class GenerateContentRequest(BaseModel):
+    selected_urls: Optional[List[str]] = []
+    max_length: Optional[int] = 2000
+
+@app.post("/api/v1/agents/{agent_id}/generate-content-from-today")
+async def generate_content_from_today(agent_id: str, req: Optional[GenerateContentRequest] = None):
+    from tubecli.core.agent import agent_manager
+    from tubecli.core.brain import AgentBrain
+    import json
+    from pathlib import Path
+    from datetime import datetime
+    
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+        
+    allowed_profiles = getattr(agent, "allowed_profiles", []) or []
+    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    today_articles = []
+    
+    for profile in allowed_profiles:
+        articles_path = scraped_data_dir / profile / "articles.json"
+        if articles_path.exists():
+            try:
+                with open(articles_path, 'r', encoding='utf-8') as f:
+                    articles = json.load(f)
+                    if isinstance(articles, list):
+                        for a in articles:
+                            scraped_at = a.get("scrapedAt", "")
+                            if scraped_at and today_str in scraped_at:
+                                a_copy = dict(a)
+                                a_copy["_profile"] = profile
+                                today_articles.append(a_copy)
+            except Exception as e:
+                print(f"Error reading articles for {profile}: {e}")
+                
+    if not today_articles:
+        raise HTTPException(400, "Không tìm thấy nội dung nào được cào (scraped) trong ngày hôm nay. Hãy chạy agent đi cào dữ liệu trước.")
+
+    today_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
+    
+    selected_urls = req.selected_urls if req else []
+    max_length = req.max_length if (req and req.max_length) else 2000
+    
+    if selected_urls:
+        selected_articles = [a for a in today_articles if a.get("url") in selected_urls]
+        if not selected_articles:
+            selected_articles = today_articles[:3]
+    else:
+        selected_articles = today_articles[:3]
+    
+    context_text = ""
+    for idx, art in enumerate(selected_articles, 1):
+        title = art.get("title", "Untitled")
+        url = art.get("url", "")
+        content = art.get("content", "")
+        content_snippet = content[:2000]
+        context_text += f"Bài viết {idx}:\nTiêu đề: {title}\nĐường dẫn: {url}\nNội dung:\n{content_snippet}\n---\n\n"
+        
+    agent_language = getattr(agent, "language", "auto") or "auto"
+    _LANGUAGE_NAMES = {
+        "auto": "Vietnamese",
+        "vi": "Vietnamese",
+        "en": "English",
+        "zh": "Chinese (Simplified)",
+        "zh-TW": "Chinese (Traditional)",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "es": "Spanish",
+        "tr": "Turkish",
+        "ru": "Russian",
+        "fr": "French",
+        "de": "German",
+        "pt": "Portuguese",
+        "ar": "Arabic",
+        "th": "Thai",
+        "id": "Indonesian",
+    }
+    lang_name = _LANGUAGE_NAMES.get(agent_language, "Vietnamese")
+    
+    system_prompt = f"Bạn là một AI biên tập viên nội dung. Nhiệm vụ của bạn là tổng hợp các thông tin và bài viết đã cào được trong ngày để tạo ra một bài viết tổng hợp mới, chất lượng cao, mạch lạc và hấp dẫn bằng ngôn ngữ {lang_name}."
+    
+    user_prompt = f"""Dưới đây là các thông tin thu thập được trong ngày hôm nay:
+    
+{context_text}
+
+Yêu cầu:
+1. Hãy viết một bài viết tổng hợp mới dựa trên các thông tin trên.
+2. Bài viết mới phải có tiêu đề hấp dẫn, phần mở đầu lôi cuốn, các phần nội dung rõ ràng (có tiêu đề phụ) và phần kết luận đúc rút thông tin.
+3. Không sao chép nguyên văn, hãy tổng hợp, phân tích, biên tập và liên kết các thông tin lại một cách logic.
+4. Trình bày bài viết bằng định dạng Markdown.
+5. Ngôn ngữ của bài viết: {lang_name}.
+6. Độ dài bài viết: Khoảng {max_length} ký tự.
+
+Chỉ trả về nội dung bài viết bằng Markdown (không thêm lời giới thiệu của AI)."""
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+    
+    try:
+        raw_response = AgentBrain._call_llm(agent.to_dict(), messages, temperature=0.7)
+        return {"status": "success", "content": raw_response}
+    except Exception as e:
+        raise HTTPException(500, f"Lỗi khi gọi AI tổng hợp bài viết: {str(e)}")
 
 
 

@@ -96,16 +96,6 @@ class Scheduler:
             if not getattr(agent, "schedule_enabled", False):
                 continue
 
-            day_name = now.strftime("%a")
-            active_days = getattr(agent, "schedule_active_days", []) or ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-            
-            if day_name not in active_days:
-                continue
-
-            start_time = getattr(agent, "schedule_start_time", "00:00")
-            end_time = getattr(agent, "schedule_end_time", "23:59")
-            current_time_str = now.strftime("%H:%M")
-
             runs_today = getattr(agent, "schedule_runs_today", 0)
             last_run = getattr(agent, "schedule_last_run", None)
 
@@ -118,25 +108,35 @@ class Scheduler:
                 except ValueError:
                     pass
 
-            max_runs = getattr(agent, "schedule_max_runs", 10)
+            next_run_str = getattr(agent, "schedule_next_run", None)
+            should_run_now = False
+            
+            if not next_run_str:
+                should_run_now = True
+            else:
+                try:
+                    next_run = datetime.datetime.fromisoformat(next_run_str)
+                    if now >= next_run:
+                        should_run_now = True
+                except ValueError:
+                    should_run_now = True
 
-            # If inside time window and not maxed out
-            if start_time <= current_time_str <= end_time and runs_today < max_runs:
-                # Need to enforce interval/next_run logic
-                next_run_str = getattr(agent, "schedule_next_run", None)
-                should_run = False
+            if should_run_now:
+                # Check if we are allowed to run now
+                day_name = now.strftime("%a").lower()
+                active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+                active_days = [d.lower() for d in active_days]
                 
-                if not next_run_str:
-                    should_run = True
-                else:
-                    try:
-                        next_run = datetime.datetime.fromisoformat(next_run_str)
-                        if now >= next_run:
-                            should_run = True
-                    except ValueError:
-                        should_run = True
-                
-                if should_run:
+                start_time = getattr(agent, "schedule_start_time", "00:00")
+                end_time = getattr(agent, "schedule_end_time", "23:59")
+                current_time_str = now.strftime("%H:%M")
+                max_runs = getattr(agent, "schedule_max_runs", 10)
+
+                is_active_day = day_name in active_days
+                is_inside_window = start_time <= current_time_str <= end_time
+                is_not_maxed = runs_today < max_runs
+
+                if is_active_day and is_inside_window and is_not_maxed:
                     print(f"[Scheduler] Triggering Agent: {agent.name}")
                     if self._agent_runner_callback:
                         self._agent_runner_callback(agent.id)
@@ -145,18 +145,76 @@ class Scheduler:
                     agent.schedule_runs_today = runs_today + 1
                     
                     # Next run depends on repeat strategy (e.g. interval)
-                    repeat = getattr(agent, "schedule_repeat", "Daily")
-                    if repeat == "Daily":
-                        # If daily, maybe run every 1 hour during the active window
-                        agent.schedule_next_run = (now + datetime.timedelta(minutes=60)).isoformat()
-                    elif repeat == "interval":
-                        # e.g., every 30 mins
-                        agent.schedule_next_run = (now + datetime.timedelta(minutes=30)).isoformat()
+                    repeat = getattr(agent, "schedule_repeat", "daily") or "daily"
+                    repeat_lower = repeat.lower()
+                    if repeat_lower == "daily":
+                        raw_next = now + datetime.timedelta(minutes=60)
+                    elif repeat_lower == "interval":
+                        interval_min = getattr(agent, "schedule_interval", 60)
+                        try:
+                            interval_min = int(interval_min)
+                        except Exception:
+                            interval_min = 60
+                        raw_next = now + datetime.timedelta(minutes=interval_min)
                     else:
-                        agent.schedule_next_run = (now + datetime.timedelta(minutes=60)).isoformat()
+                        raw_next = now + datetime.timedelta(minutes=60)
 
+                    valid_next = self._calculate_next_schedule_time(agent, raw_next)
+                    agent.schedule_next_run = valid_next.isoformat()
                     agent_manager._save()
                     self._log_history(f"Agent: {agent.name}", agent.id)
+                else:
+                    # We are due to run but not allowed now. Push to next valid slot.
+                    valid_next = self._calculate_next_schedule_time(agent, now)
+                    agent.schedule_next_run = valid_next.isoformat()
+                    agent_manager._save()
+                    print(f"[Scheduler] Advanced Agent {agent.name} schedule to {agent.schedule_next_run} because it was due but could not run now (Day active: {is_active_day}, Window active: {is_inside_window}, Not maxed: {is_not_maxed}).")
+
+    def _calculate_next_schedule_time(self, agent, start_from: datetime.datetime) -> datetime.datetime:
+        active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+        active_days = [d.lower() for d in active_days]
+        if not active_days:
+            active_days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+            
+        start_time_str = getattr(agent, "schedule_start_time", "08:00")
+        end_time_str = getattr(agent, "schedule_end_time", "22:00")
+        
+        try:
+            sh, sm = map(int, start_time_str.split(":"))
+        except Exception:
+            sh, sm = 8, 0
+        try:
+            eh, em = map(int, end_time_str.split(":"))
+        except Exception:
+            eh, em = 22, 0
+
+        dt = start_from
+        runs_today = getattr(agent, "schedule_runs_today", 0)
+        max_runs = getattr(agent, "schedule_max_runs", 10)
+
+        for _ in range(15):  # check up to 15 days in future
+            day_name = dt.strftime("%a").lower()
+            if day_name not in active_days:
+                dt = (dt + datetime.timedelta(days=1)).replace(hour=sh, minute=sm, second=0, microsecond=0)
+                continue
+                
+            today_start = dt.replace(hour=sh, minute=sm, second=0, microsecond=0)
+            today_end = dt.replace(hour=eh, minute=em, second=0, microsecond=0)
+            
+            if dt < today_start:
+                return today_start
+            elif dt <= today_end:
+                target_runs = runs_today if dt.date() == start_from.date() else 0
+                if target_runs >= max_runs:
+                    dt = (dt + datetime.timedelta(days=1)).replace(hour=sh, minute=sm, second=0, microsecond=0)
+                    continue
+                return dt
+            else:
+                dt = (dt + datetime.timedelta(days=1)).replace(hour=sh, minute=sm, second=0, microsecond=0)
+                continue
+                
+        return start_from + datetime.timedelta(days=1)
+
 
     def _calc_next_run(self, skill) -> Optional[str]:
         """Calculate next run time."""

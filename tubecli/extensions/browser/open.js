@@ -607,6 +607,7 @@ async function main() {
   const proxyArg = args['proxy'] || ''; // CLI override
   const skipProxyCheck = args['skip-proxy-check'] || false;
   const profilesDir = args['profiles-dir'] || './profiles'; // Custom profiles directory from TubeCLI
+  let profileName = args.profile || 'default';
   const startUrlArg = args['url'] || ''; // URL to open directly (e.g. OAuth callback)
   global._profilesDir = profilesDir;
   let proxy = proxyArg;
@@ -631,6 +632,38 @@ async function main() {
     } catch (e) {
         console.error('[Session] Failed to load context file:', e.message);
     }
+  } else {
+    // If no context file, try to find an agent in agents.json that has this profile in allowed_profiles
+    try {
+      const agentsPath = path.resolve(profilesDir, '..', 'agents.json');
+      const fallbackPath = path.resolve(__dirname, '..', '..', '..', 'data', 'agents.json');
+      let targetPath = agentsPath;
+      if (!await fs.pathExists(targetPath) && await fs.pathExists(fallbackPath)) {
+        targetPath = fallbackPath;
+      }
+      
+      if (await fs.pathExists(targetPath)) {
+        const agents = await fs.readJson(targetPath);
+        if (Array.isArray(agents)) {
+          const matchingAgent = agents.find(a => 
+            Array.isArray(a.allowed_profiles) && a.allowed_profiles.includes(profileName)
+          );
+          if (matchingAgent) {
+            agentContext = {
+              agent_id: matchingAgent.id,
+              agent_name: matchingAgent.name,
+              enable_scraping: matchingAgent.enable_scraping,
+              scraper_text_limit: matchingAgent.scraper_text_limit || 10000,
+              interests: matchingAgent.persona?.interests || matchingAgent.interests || [],
+              routine: matchingAgent.routine || {}
+            };
+            console.log(`[Session] Implicitly loaded context for agent '${agentContext.agent_name}' associated with profile '${profileName}' (enable_scraping: ${agentContext.enable_scraping})`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn(`[Config] Failed to resolve implicit agent context from agents.json: ${e.message}`);
+    }
   }
   
   // Log instance ID if provided (for multi-instance tracking)
@@ -652,7 +685,6 @@ async function main() {
 
   // 1. Determine Action Sequence & Profile Override
   let actionSequence = [];
-  let profileName = args.profile || 'default';
   
   if (!exportCookies && !isManual) { // Skip planning if exporting cookies or manual mode
       if (prompt) { 
@@ -1213,6 +1245,66 @@ async function main() {
       // 3. Manual Mode Check
       if (isManual) {
         console.log('>>> MANUAL MODE: Browser launched. Waiting for user to close window...');
+
+        // Initialize session manager for history recording in manual mode
+        const session = new SessionManager(minSessionMinutes, prompt || "", aiModel, agentContext, profileName);
+
+        const setupPageListeners = (p) => {
+          const handlePageVisit = async () => {
+            try {
+              const url = p.url();
+              if (!url || url === 'about:blank' || url.startsWith('chrome-extension://')) return;
+              const title = await p.title();
+              console.log(`[Manual History] Recording page visit: ${title} (${url})`);
+              await session.recordPageVisit(url, title, p);
+
+              // Auto-scrape content in manual mode if enable_scraping is true
+              if (agentContext?.enable_scraping && !url.includes('youtube.com') && !url.includes('google.com')) {
+                const pageContent = await session.scanPageContent(p);
+                if (pageContent.isContentPage) {
+                  if (!session.scrapedUrls.has(url)) {
+                    console.log(`[Manual Scraper] Content page detected: "${title}". Auto-extracting content...`);
+                    const actionParams = {
+                      profileName: profileName,
+                      enable_scraping: true,
+                      scraper_text_limit: agentContext.scraper_text_limit || 10000,
+                      agentId: agentContext.agent_id || null,
+                      agentName: agentContext.agent_name || null
+                    };
+                    const actionResult = await extractContentAction.extract_content(p, actionParams);
+                    if (actionResult) {
+                      session.addScrapedUrl(url);
+                      console.log(`[Manual Scraper] Scraped successfully: ${url}`);
+                      // Re-record to update isScraped to true in history.json
+                      await session.recordPageVisit(url, title, p);
+                    }
+                  } else {
+                    console.log(`[Manual Scraper] URL already scraped: ${url}`);
+                  }
+                }
+              }
+            } catch (err) {
+              console.warn('[Manual Scraper] Error during manual auto-extraction:', err.message);
+            }
+          };
+
+          p.on('domcontentloaded', handlePageVisit);
+          p.on('framenavigated', async (frame) => {
+            if (frame === p.mainFrame()) {
+              await handlePageVisit();
+            }
+          });
+        };
+
+        // Apply to the first page
+        if (page) {
+          setupPageListeners(page);
+        }
+
+        // Also listen for any new tabs opened by the user
+        context.on('page', async (newPage) => {
+          setupPageListeners(newPage);
+        });
         
         // If --url was provided (e.g. OAuth), navigate directly to that URL
         if (startUrlArg) {

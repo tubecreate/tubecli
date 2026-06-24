@@ -597,6 +597,11 @@
                                     <option value="srt">SRT</option>
                                 </select>
                             </div>
+
+                            <button class="btn-primary" id="btn-generate-content-today" onclick="openGenerateContentSetup()" style="width:100%; margin-top:15px; background:linear-gradient(135deg,#3b82f6,#2563eb); border:none; border-radius:6px; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px; padding:10px; font-weight:600; font-size:0.9rem;">
+                                <span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span>
+                                <span>Tạo nội dung hôm nay</span>
+                            </button>
                         </div>
                         <div style="flex:1; display:flex; flex-direction:column; min-width:0; height:100%;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -661,6 +666,124 @@
         <div class="modal-header"><h2>💬 Chat with <span id="chat-agent-name">Agent</span></h2><button class="btn-close" onclick="closeModal('modal-chat')">✕</button></div>
         <div id="chat-history" style="flex:1;overflow-y:auto;padding:16px;background:var(--bg2);border-radius:6px;display:flex;flex-direction:column;gap:12px;margin-bottom:16px"><p class="text-muted" style="text-align:center">Loading...</p></div>
         <div style="display:flex;gap:10px"><input type="text" id="chat-input" placeholder="Type a message..." style="flex:1;padding:12px;border-radius:6px;border:1px solid var(--border)" onkeypress="if(event.key==='Enter')sendChatMessage()"><button class="btn-primary" onclick="sendChatMessage()" style="padding:0 24px">Send</button></div>
+    </div>
+</div>
+
+<!-- View Scraped Article Details Modal -->
+<div id="modal-view-scraped-content" class="modal hidden">
+    <div class="modal-content modal-lg" style="height:85vh; display:flex; flex-direction:column;">
+        <div class="modal-header">
+            <h2>📄 Chi tiết bài viết cào được</h2>
+            <button class="btn-close" onclick="closeModal('modal-view-scraped-content')">✕</button>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:16px; background:var(--bg2); border-radius:6px; margin-bottom:16px; display:flex; flex-direction:column; gap:12px;">
+            <div>
+                <label style="font-weight:600; color:var(--text-muted); font-size:0.8rem; display:block; margin-bottom:4px;">Tiêu đề</label>
+                <div id="scraped-detail-title" style="font-size:1.1rem; font-weight:700; color:var(--text); line-height:1.4;"></div>
+            </div>
+            <div>
+                <label style="font-weight:600; color:var(--text-muted); font-size:0.8rem; display:block; margin-bottom:4px;">Đường dẫn (URL)</label>
+                <a id="scraped-detail-url" href="" target="_blank" style="color:var(--accent); font-size:0.85rem; word-break:break-all;"></a>
+            </div>
+            <div style="flex:1; display:flex; flex-direction:column; min-height:150px;">
+                <label style="font-weight:600; color:var(--text-muted); font-size:0.8rem; display:block; margin-bottom:4px;">Nội dung cào thô</label>
+                <textarea id="scraped-detail-content" style="flex:1; width:100%; padding:10px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:inherit; font-size:0.9rem; resize:none; outline:none;" readonly></textarea>
+            </div>
+        </div>
+        <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end;">
+            <input type="hidden" id="scraped-detail-profile-hidden">
+            <button class="btn-primary" id="btn-rewrite-article" onclick="rewriteSingleArticle()" style="background:linear-gradient(135deg,#f59e0b,#d97706); border:none; display:flex; align-items:center; gap:4px;">
+                <span class="material-symbols-outlined" style="font-size:18px;">bolt</span>
+                <span>Viết lại bài này bằng AI</span>
+            </button>
+            <button class="btn-secondary" onclick="closeModal('modal-view-scraped-content')">Đóng</button>
+        </div>
+    </div>
+</div>
+
+<!-- Setup AI Generated Content Modal -->
+<div id="modal-generate-content-setup" class="modal hidden">
+    <div class="modal-content modal-lg" style="display:flex; flex-direction:column; max-height:90vh;">
+        <div class="modal-header">
+            <h2>✨ Cấu hình tạo bài viết tổng hợp AI</h2>
+            <button class="btn-close" onclick="closeModal('modal-generate-content-setup')">✕</button>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:16px; min-height:150px;">
+            
+            <!-- AI Configuration Display -->
+            <div style="background:var(--bg3); border:1px solid var(--border); border-radius:8px; padding:12px;">
+                <h4 style="margin:0 0 10px 0; color:var(--cyan); display:flex; align-items:center; gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:18px;">smart_toy</span>
+                    <span>AI Model cấu hình</span>
+                </h4>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; font-size:0.85rem; margin-bottom:10px;">
+                    <div><span class="text-muted">Nhà cung cấp:</span> <span id="scraper-provider-val" style="font-weight:600; color:var(--text);">-</span></div>
+                    <div><span class="text-muted">Mô hình:</span> <span id="scraper-model-val" style="font-weight:600; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap; max-width:180px;" title="-">-</span></div>
+                </div>
+                <button type="button" class="btn-secondary btn-sm" id="btn-test-scraper-ai" onclick="testScraperAI()" style="padding:4px 10px; font-size:0.75rem; border-radius:4px; display:inline-flex; align-items:center; gap:4px; cursor:pointer;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">check_circle</span>
+                    <span>Test Connection</span>
+                </button>
+                <div id="test-scraper-ai-result" style="display:none; margin-top:8px; padding:6px 10px; border-radius:6px; font-size:0.78rem; word-break:break-all;"></div>
+            </div>
+
+            <!-- Length Setting Dropdown -->
+            <div class="form-group">
+                <label style="font-weight:600; margin-bottom:6px; display:block;">Số ký tự tối đa của bài viết</label>
+                <select id="agent-generated-content-max-length" style="width:100%; padding:8px 12px; border-radius:8px; background:var(--bg3); border:1px solid var(--border); color:var(--text);">
+                    <option value="500">500 ký tự (Ngắn gọn)</option>
+                    <option value="1000">1000 ký tự (Trung bình)</option>
+                    <option value="2000" selected>2000 ký tự (Chi tiết)</option>
+                    <option value="3000">3000 ký tự (Dài)</option>
+                    <option value="5000">5000 ký tự (Rất dài)</option>
+                </select>
+            </div>
+
+            <!-- Scraped Articles Selection -->
+            <div>
+                <label style="font-weight:600; margin-bottom:6px; display:block;">Chọn bài viết làm nguồn (Cào hôm nay)</label>
+                <p class="field-hint" style="margin-bottom:8px; font-size:0.8rem; color:var(--text-muted);">Mặc định nếu không chọn bài nào, AI sẽ tự tham khảo 3 bài viết mới nhất hôm nay để viết.</p>
+                <div style="display:flex; gap:8px; margin-bottom:8px;">
+                    <button type="button" class="btn-secondary btn-sm" onclick="selectAllSetupArticles(true)" style="padding:4px 8px; font-size:0.75rem; cursor:pointer;">Chọn tất cả</button>
+                    <button type="button" class="btn-secondary btn-sm" onclick="selectAllSetupArticles(false)" style="padding:4px 8px; font-size:0.75rem; cursor:pointer;">Bỏ chọn tất cả</button>
+                </div>
+                <div id="setup-scraped-articles-list" style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:10px; background:var(--bg3); display:flex; flex-direction:column; gap:8px;">
+                    <p class="text-muted" style="text-align:center; padding:15px 0;">Không có bài viết nào được cào hôm nay.</p>
+                </div>
+            </div>
+
+        </div>
+        <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end; padding-top:15px; border-top:1px solid var(--border);">
+            <button class="btn-secondary" onclick="closeModal('modal-generate-content-setup')">Hủy</button>
+            <button class="btn-primary" onclick="submitGenerateContent()" style="background:linear-gradient(135deg,#3b82f6,#2563eb); border:none; display:flex; align-items:center; gap:4px;">
+                <span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span>
+                <span>Tạo bài viết tổng hợp</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- View AI Generated Content Modal -->
+<div id="modal-generated-content" class="modal hidden">
+    <div class="modal-content modal-lg" style="height:85vh; display:flex; flex-direction:column;">
+        <div class="modal-header">
+            <h2>✨ Kết quả tạo nội dung AI</h2>
+            <button class="btn-close" onclick="closeModal('modal-generated-content')">✕</button>
+        </div>
+        <div style="flex:1; overflow-y:auto; padding:16px; background:var(--bg2); border-radius:6px; margin-bottom:16px; display:flex; flex-direction:column; min-height:150px;">
+            <textarea id="generated-content-textarea" style="flex:1; width:100%; padding:10px; background:var(--bg3); border:1px solid var(--border); border-radius:6px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:0.9rem; resize:none; outline:none;" readonly></textarea>
+        </div>
+        <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end;">
+            <button class="btn-secondary" onclick="copyGeneratedContent()" style="display:flex; align-items:center; gap:4px;">
+                <span class="material-symbols-outlined" style="font-size:18px;">content_copy</span>
+                <span>Sao chép</span>
+            </button>
+            <button class="btn-secondary" onclick="downloadGeneratedContent()" style="display:flex; align-items:center; gap:4px;">
+                <span class="material-symbols-outlined" style="font-size:18px;">download</span>
+                <span>Tải về (.txt)</span>
+            </button>
+            <button class="btn-primary" onclick="closeModal('modal-generated-content')">Đóng</button>
+        </div>
     </div>
 </div>
 

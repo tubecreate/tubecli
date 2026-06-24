@@ -67,6 +67,7 @@ class Agent:
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
+        schedule_interval: int = 60,
         schedule_active_days: List[str] = None,
         schedule_start_time: str = "08:00",
         schedule_end_time: str = "22:00",
@@ -126,6 +127,7 @@ class Agent:
         # Schedule
         self.schedule_enabled = schedule_enabled
         self.schedule_repeat = schedule_repeat
+        self.schedule_interval = schedule_interval
         self.schedule_active_days = schedule_active_days or ["Mon", "Tue", "Wed", "Thu", "Fri"]
         self.schedule_start_time = schedule_start_time
         self.schedule_end_time = schedule_end_time
@@ -174,6 +176,7 @@ class Agent:
             "script_output_format": getattr(self, "script_output_format", "json"),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
+            "schedule_interval": getattr(self, "schedule_interval", 60),
             "schedule_active_days": getattr(self, "schedule_active_days", []),
             "schedule_start_time": getattr(self, "schedule_start_time", "08:00"),
             "schedule_end_time": getattr(self, "schedule_end_time", "22:00"),
@@ -181,6 +184,15 @@ class Agent:
             "schedule_next_run": getattr(self, "schedule_next_run", None),
             "schedule_last_run": getattr(self, "schedule_last_run", None),
             "schedule_runs_today": getattr(self, "schedule_runs_today", 0),
+            "schedule": {
+                "enabled": getattr(self, "schedule_enabled", False),
+                "repeat": getattr(self, "schedule_repeat", "Daily"),
+                "interval": getattr(self, "schedule_interval", 60),
+                "active_days": getattr(self, "schedule_active_days", []),
+                "start_time": getattr(self, "schedule_start_time", "08:00"),
+                "end_time": getattr(self, "schedule_end_time", "22:00"),
+                "max_runs": getattr(self, "schedule_max_runs", 10),
+            },
             "chess_stats": getattr(self, "chess_stats", {}),
         }
 

@@ -680,10 +680,21 @@ async loadBlacklist() {
             if (isSecurity) return false;
 
             const ogType = document.querySelector('meta[property="og:type"]')?.content || '';
+            if (ogType === 'article') return true;
+
+            // Class-agnostic heuristic: count substantial paragraphs
+            const allParas = Array.from(document.querySelectorAll('p'));
+            const substantialParas = allParas.filter(p => {
+              const text = (p.textContent || p.innerText || '').trim();
+              return text.length > 40;
+            });
+
             const hasArticleTag = document.querySelectorAll('article, [role="article"]').length > 0;
             const h1 = document.querySelector('h1');
-            const contentParas = document.querySelectorAll('article p, .post-content p, .entry-content p, .article-body p, main p');
-            return ogType === 'article' || (hasArticleTag && contentParas.length >= 3) || (!!h1 && contentParas.length >= 5);
+
+            return (hasArticleTag && substantialParas.length >= 2) || 
+                   (!!h1 && substantialParas.length >= 4) || 
+                   (substantialParas.length >= 6);
           })()
         };
       });
@@ -782,6 +793,7 @@ async loadBlacklist() {
       hasVideo: pageContent?.hasVideo || false,
       hasSearchBox: pageContent?.hasSearchBox || false,
       isContentPage: pageContent?.isContentPage || false,
+      enable_scraping: this.agentContext?.enable_scraping,
       alreadyScraped: pageContent?.isContentPage ? this.scrapedUrls.has(this.currentContext.url) : false,
       // Track if the session has already performed a search — AI must not search again
       alreadySearched: this.actionHistory.some(a => a.action === 'search' && a.status === 'success'),

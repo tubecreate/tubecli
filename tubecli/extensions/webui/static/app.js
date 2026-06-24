@@ -2791,9 +2791,11 @@ function showCreateAgent() {
         const defaultModel = s?.default_model || 'qwen:latest';
         populateAgentModelDropdown('chatbot', defaultModel);
         populateAgentModelDropdown('browser', defaultModel);
+        setTimeout(updateScraperSettingsAIInfo, 100);
     }).catch(() => {
         populateAgentModelDropdown('chatbot', 'qwen:latest');
         populateAgentModelDropdown('browser', 'qwen:latest');
+        setTimeout(updateScraperSettingsAIInfo, 100);
     });
 }
 
@@ -2830,8 +2832,42 @@ async function openEditAgent(id, btn) {
             document.getElementById('agent-proxy-api-key').value = pp.api_key || '';
             document.getElementById('agent-proxy-location').value = pp.location || '';
         }
+
+        // Populate Automated Schedule fields
+        const sched = d.schedule || {};
+        const sched_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (sched.enabled || false);
+        document.getElementById('agent-schedule-enable').checked = sched_enabled;
+        document.getElementById('agent-schedule-repeat').value = d.schedule_repeat || sched.repeat || 'daily';
+        document.getElementById('agent-schedule-interval').value = sched.interval || '60';
+        document.getElementById('agent-schedule-start').value = d.schedule_start_time || sched.start_time || '08:00';
+        document.getElementById('agent-schedule-end').value = d.schedule_end_time || sched.end_time || '22:00';
+        document.getElementById('agent-schedule-max-runs').value = d.schedule_max_runs || sched.max_runs || '10';
+        onScheduleRepeatChange();
+        
+        // Active days
+        const activeDays = d.schedule_active_days || sched.active_days || ['mon', 'tue', 'wed', 'thu', 'fri'];
+        document.querySelectorAll('.agent-day-cb').forEach(cb => {
+            cb.checked = activeDays.includes(cb.value);
+        });
+
+        // Populate scraper settings
+        document.getElementById('agent-scraping-enable').checked = (d.enable_scraping !== undefined) ? d.enable_scraping : false;
+        document.getElementById('agent-scraper-limit').value = d.scraper_text_limit || '10000';
+        document.getElementById('agent-scraper-format').value = d.script_output_format || 'json';
+
+        // Populate Telegram/Messenger settings
+        document.getElementById('agent-tg-token').value = d.telegram_token || '';
+        document.getElementById('agent-tg-chat').value = d.telegram_chat_id || '';
+        document.getElementById('agent-ms-token').value = d.messenger_token || '';
+        document.getElementById('agent-ms-page').value = d.messenger_page_id || '';
+        document.getElementById('agent-ms-php').value = d.messenger_php_url || '';
+        document.getElementById('agent-ms-skill').value = d.direct_trigger_skill_id || '';
         // Populate Automated Schedule Status Panel
         updateScheduleStatusPanel(d);
+        updateScraperSettingsAIInfo();
+
+        await populateAgentProfiles(d.allowed_profiles || []);
+        await populateAgentSkills(d.allowed_skills || []);
 
             // Daily keywords check
             const now = new Date();
@@ -3299,6 +3335,176 @@ async function onAgentModelChange(type) {
             warn.innerHTML = msg.replace('{provider}', `<b>${provider}</b>`);
         }
     } catch(e) { warn.style.display = 'none'; }
+    updateScraperSettingsAIInfo();
+}
+
+function detectProviderAndModel(modelName) {
+    const model = (modelName || '').trim();
+    const lower = model.toLowerCase();
+    if (!model) {
+        return { provider: 'Global Default', model: 'Mặc định' };
+    }
+    if (lower.includes('9router') || lower.startsWith('cx/') || lower.startsWith('ag/')) {
+        return { provider: '🔀 9Router', model: model };
+    }
+    if (model.includes(':')) {
+        return { provider: '🖥️ Ollama (Cục bộ)', model: model };
+    }
+    if (lower.includes('gemini') || lower.includes('gemma')) {
+        return { provider: '✨ Gemini', model: model };
+    }
+    if (lower.includes('gpt') || lower.includes('chatgpt') || lower.startsWith('o1') || lower.startsWith('o3')) {
+        return { provider: '🤖 OpenAI', model: model };
+    }
+    if (lower.includes('claude')) {
+        return { provider: '🧠 Claude', model: model };
+    }
+    if (lower.includes('deepseek')) {
+        return { provider: '🔮 DeepSeek', model: model };
+    }
+    if (lower.includes('grok')) {
+        return { provider: '⚡ Grok', model: model };
+    }
+    return { provider: '🖥️ Ollama / Khác', model: model };
+}
+
+function updateScraperSettingsAIInfo() {
+    const chatSel = document.getElementById('agent-model');
+    const browserSel = document.getElementById('agent-browser-model');
+    const chatModel = chatSel ? chatSel.value : '';
+    const browserModel = browserSel ? browserSel.value : '';
+    const activeModel = chatModel || browserModel || 'qwen:latest';
+    const info = detectProviderAndModel(activeModel);
+    const pVal = document.getElementById('scraper-provider-val');
+    const mVal = document.getElementById('scraper-model-val');
+    if (pVal) pVal.textContent = info.provider;
+    if (mVal) {
+        mVal.textContent = info.model;
+        mVal.title = info.model;
+    }
+}
+
+async function testScraperAI() {
+    let sel = document.getElementById('agent-model');
+    if (sel && (!sel.value || sel.value === '')) {
+        sel = document.getElementById('agent-browser-model');
+    }
+    const resultDiv = document.getElementById('test-scraper-ai-result');
+    const btn = document.getElementById('btn-test-scraper-ai');
+    if (!sel || !resultDiv || !btn) return;
+    const selectedOpt = sel.options[sel.selectedIndex];
+    if (!selectedOpt || !selectedOpt.value) {
+        resultDiv.style.display = 'block';
+        resultDiv.textContent = `Vui lòng cấu hình model trước khi kiểm tra.`;
+        resultDiv.style.color = '#ef4444';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+        return;
+    }
+    const model = selectedOpt.value;
+    const optgroup = selectedOpt.closest('optgroup');
+    resultDiv.style.display = 'block';
+    resultDiv.textContent = 'Đang kiểm tra kết nối...';
+    resultDiv.style.color = 'var(--text)';
+    resultDiv.style.background = 'var(--bg-lighter)';
+    btn.disabled = true;
+    try {
+        if (optgroup && optgroup.label.includes('Ollama')) {
+            const resp = await fetch('http://localhost:11434/api/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: model, prompt: "Reply 'OK'", stream: false })
+            });
+            if (resp.ok) {
+                resultDiv.textContent = `✅ Kết nối Ollama thành công!`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                resultDiv.textContent = `❌ Lỗi Ollama: ${resp.status}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } else if (optgroup && optgroup.label.includes('☁️')) {
+            const providerMap = { 'Gemini': 'gemini', 'OpenAI': 'openai', 'Claude': 'claude', 'Grok': 'grok', 'DeepSeek': 'deepseek', 'OpenRouter': 'openrouter' };
+            let provider = '';
+            for (const [name, id] of Object.entries(providerMap)) { if (optgroup.label.includes(name)) { provider = id; break; } }
+            if (!provider) throw new Error("Không xác định được provider");
+            const resp = await fetch(`/api/v1/cloud-api/providers/${provider}/test-model`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: model, prompt: "Reply 'Hello from API!'" })
+            });
+            const data = await resp.json();
+            if (resp.ok && data.status === 'success') {
+                resultDiv.textContent = `✅ Kết nối tốt! (${data.response?.substring(0, 30) || 'OK'})`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                let errText = data.detail || data.message || 'Unknown error';
+                if (typeof errText === 'string' && errText.length > 100) errText = errText.substring(0, 100) + '...';
+                resultDiv.textContent = `❌ Lỗi: ${errText}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } else if (optgroup && optgroup.label.includes('9Router')) {
+            resultDiv.textContent = 'Testing 9Router...';
+            const resp = await fetch('http://localhost:20128/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: model,
+                    messages: [{ role: 'user', content: "Reply 'Hello from 9Router!'" }],
+                    max_tokens: 30, stream: false
+                })
+            });
+            if (resp.ok) {
+                const text = await resp.text();
+                let reply = 'OK';
+                try {
+                    const data = JSON.parse(text);
+                    reply = data?.choices?.[0]?.message?.content || 'OK';
+                } catch(e) {}
+                resultDiv.textContent = `✅ Kết nối 9Router tốt! (${reply.substring(0, 30)})`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                resultDiv.textContent = `❌ Lỗi 9Router: ${resp.status}`;
+                resultDiv.style.color = '#ef4444';
+                resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+            }
+        } else {
+            resultDiv.textContent = `Đang gửi test prompt qua API server...`;
+            const resp = await fetch(`/api/v1/cloud-api/providers/gemini/test-model`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: model, prompt: "Reply 'Hello'" })
+            });
+            const data = await resp.json();
+            if (resp.ok && data.status === 'success') {
+                resultDiv.textContent = `✅ Kết nối thành công!`;
+                resultDiv.style.color = '#10b981';
+                resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+            } else {
+                const ollamaResp = await fetch('http://localhost:11434/api/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: model, prompt: "Reply 'OK'", stream: false })
+                });
+                if (ollamaResp.ok) {
+                    resultDiv.textContent = `✅ Kết nối Ollama thành công!`;
+                    resultDiv.style.color = '#10b981';
+                    resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
+                } else {
+                    resultDiv.textContent = `❌ Lỗi kết nối: Model không khả dụng hoặc chưa bắt đầu.`;
+                    resultDiv.style.color = '#ef4444';
+                    resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+                }
+            }
+        }
+    } catch(e) {
+        resultDiv.textContent = `❌ Lỗi: ${e.message}`;
+        resultDiv.style.color = '#ef4444';
+        resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
+    } finally { btn.disabled = false; }
 }
 // Reset cloud provider cache when modal closes (so fresh data next open)
 document.getElementById('modal-agent')?.addEventListener('click', e => {
@@ -3358,6 +3564,7 @@ async function saveAgent(silent = false) {
         // Include flat fields for backend API
         schedule_enabled,
         schedule_repeat,
+        schedule_interval: parseInt(document.getElementById('agent-schedule-interval').value) || 60,
         schedule_active_days,
         schedule_start_time,
         schedule_end_time,
@@ -3614,6 +3821,10 @@ function renderHistoryPage() {
                     <span class="material-symbols-outlined" style="font-size:14px;">description</span> ${item.contentLength || 0}
                 </span>
                 <span class="history-item-status-scraped">${T('agent_modal.history_scraped') || 'Scraped'}</span>
+                <button onclick="viewScrapedContent('${esc(profile)}', '${esc(url)}')" class="btn-sm" style="padding:2px 6px; font-size:0.7rem; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); color:#60a5fa; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:2px; margin-left:8px;" title="Xem nội dung chi tiết">
+                    <span class="material-symbols-outlined" style="font-size:12px;">visibility</span>
+                    <span>Xem & Viết lại</span>
+                </button>
             `;
         } else {
             const ip = item.ip || 'Unknown IP';
@@ -6312,5 +6523,205 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 });
+
+
+// ── Scraper Content Generation and Rewrite Handlers ──
+async function viewScrapedContent(profile, url) {
+    const agentId = document.getElementById('agent-id').value;
+    if (!agentId) return alert('Hãy chọn agent trước.');
+    
+    // Set parameters
+    document.getElementById('scraped-detail-profile-hidden').value = profile;
+    document.getElementById('scraped-detail-title').textContent = 'Đang tải...';
+    document.getElementById('scraped-detail-url').href = url;
+    document.getElementById('scraped-detail-url').textContent = url;
+    document.getElementById('scraped-detail-content').value = 'Đang tải nội dung cào thô từ máy chủ...';
+    
+    openModal('modal-view-scraped-content');
+    
+    try {
+        const res = await apiGet(`/api/v1/agents/${agentId}/scraped-article?profile=${encodeURIComponent(profile)}&url=${encodeURIComponent(url)}`);
+        if (res && res.error) {
+            document.getElementById('scraped-detail-content').value = '❌ Lỗi: ' + res.error;
+            return;
+        }
+        document.getElementById('scraped-detail-title').textContent = res.title || 'Không có tiêu đề';
+        document.getElementById('scraped-detail-content').value = res.content || 'Không có nội dung cào thô.';
+    } catch (e) {
+        document.getElementById('scraped-detail-content').value = '❌ Lỗi kết nối máy chủ: ' + e.message;
+    }
+}
+
+async function rewriteSingleArticle() {
+    const agentId = document.getElementById('agent-id').value;
+    const profile = document.getElementById('scraped-detail-profile-hidden').value;
+    const url = document.getElementById('scraped-detail-url').textContent;
+    
+    if (!agentId || !profile || !url) return alert('Thiếu thông tin để viết lại bài.');
+    
+    // Close detail modal and show loading in generated content modal
+    closeModal('modal-view-scraped-content');
+    
+    document.getElementById('generated-content-textarea').value = '⏳ AI đang đọc và viết lại bài viết này, vui lòng đợi...\n(Tùy thuộc vào mô hình AI bạn cấu hình, quá trình có thể mất từ 15-60 giây)';
+    openModal('modal-generated-content');
+    
+    try {
+        const res = await apiPost(`/api/v1/agents/${agentId}/rewrite-article?profile=${encodeURIComponent(profile)}&url=${encodeURIComponent(url)}`);
+        if (res && res.error) {
+            document.getElementById('generated-content-textarea').value = '❌ Lỗi: ' + res.error;
+            return;
+        }
+        if (res && res.content) {
+            document.getElementById('generated-content-textarea').value = res.content;
+        } else {
+            document.getElementById('generated-content-textarea').value = '⚠️ Không nhận được kết quả từ AI.';
+        }
+    } catch (e) {
+        document.getElementById('generated-content-textarea').value = '❌ Lỗi kết nối: ' + e.message;
+    }
+}
+
+async function openGenerateContentSetup() {
+    const agentId = document.getElementById('agent-id').value;
+    if (!agentId) return alert('Hãy lưu hoặc chọn agent trước.');
+    
+    // Reset test scraper AI result
+    const scraperRes = document.getElementById('test-scraper-ai-result');
+    if (scraperRes) {
+        scraperRes.style.display = 'none';
+        scraperRes.textContent = '';
+    }
+    
+    // Update active model & provider in the setup modal
+    updateScraperSettingsAIInfo();
+    
+    const listDiv = document.getElementById('setup-scraped-articles-list');
+    listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0;">⏳ Đang tải bài viết hôm nay...</p>`;
+    
+    openModal('modal-generate-content-setup');
+    
+    try {
+        const res = await apiGet(`/api/v1/agents/${agentId}/history`);
+        if (res && res.error) {
+            listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:#ef4444;">❌ Lỗi: ${esc(res.error)}</p>`;
+            return;
+        }
+        
+        if (!res || !res.length) {
+            listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0;">Không có bài viết nào được cào hôm nay.</p>`;
+            return;
+        }
+        
+        // Filter for scraped articles from today (local date)
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const todayLocalStr = `${yyyy}-${mm}-${dd}`;
+        
+        const todayArticles = res.filter(item => {
+            if (!item.isScraped || !item.scrapedAt) return false;
+            try {
+                const d = new Date(item.scrapedAt);
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}` === todayLocalStr;
+            } catch(e) {
+                return false;
+            }
+        });
+        
+        if (!todayArticles.length) {
+            listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0;">Không có bài viết nào được cào hôm nay.</p>`;
+            return;
+        }
+        
+        listDiv.innerHTML = todayArticles.map(item => {
+            const title = item.title || 'Untitled';
+            const url = item.url || '';
+            const timeStr = item.scrapedAt ? new Date(item.scrapedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+            return `
+                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:8px; border-radius:6px; background:rgba(255,255,255,0.02); border:1px solid var(--border); margin:0; text-align:left;">
+                    <input type="checkbox" class="setup-article-cb" value="${esc(url)}" checked style="width:16px; height:16px; cursor:pointer; margin-top:2px; flex-shrink:0;">
+                    <div style="flex:1; min-width:0; font-size:0.82rem;">
+                        <div style="font-weight:600; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${esc(title)}">${esc(title)}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted); text-overflow:ellipsis; overflow:hidden; white-space:nowrap; margin-top:2px;">
+                            <span>${timeStr}</span> | <a href="${esc(url)}" target="_blank" onclick="event.stopPropagation();" style="color:var(--cyan); text-decoration:none;">${esc(url)}</a>
+                        </div>
+                    </div>
+                </label>
+            `;
+        }).join('');
+        
+    } catch(e) {
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:#ef4444;">❌ Lỗi kết nối: ${e.message}</p>`;
+    }
+}
+
+function selectAllSetupArticles(select) {
+    document.querySelectorAll('.setup-article-cb').forEach(cb => {
+        cb.checked = select;
+    });
+}
+
+async function submitGenerateContent() {
+    const agentId = document.getElementById('agent-id').value;
+    if (!agentId) return alert('Hãy lưu hoặc chọn agent trước.');
+    
+    const checkedCbs = Array.from(document.querySelectorAll('.setup-article-cb:checked'));
+    const selectedUrls = checkedCbs.map(cb => cb.value);
+    
+    const maxLengthEl = document.getElementById('agent-generated-content-max-length');
+    const maxLength = maxLengthEl ? parseInt(maxLengthEl.value) : 2000;
+    
+    closeModal('modal-generate-content-setup');
+    
+    document.getElementById('generated-content-textarea').value = '⏳ AI đang tổng hợp tất cả bài viết cào được trong ngày hôm nay để viết bài mới, vui lòng đợi...\n(Quá trình có thể mất từ 15-60 giây)';
+    openModal('modal-generated-content');
+    
+    try {
+        const res = await apiPost(`/api/v1/agents/${agentId}/generate-content-from-today`, {
+            selected_urls: selectedUrls,
+            max_length: maxLength
+        });
+        if (res && res.error) {
+            document.getElementById('generated-content-textarea').value = '❌ Lỗi: ' + res.error;
+            return;
+        }
+        if (res && res.content) {
+            document.getElementById('generated-content-textarea').value = res.content;
+        } else {
+            document.getElementById('generated-content-textarea').value = '⚠️ Không có bài viết nào được cào trong hôm nay hoặc không nhận được kết quả từ AI.';
+        }
+    } catch (e) {
+        document.getElementById('generated-content-textarea').value = '❌ Lỗi kết nối: ' + e.message;
+    }
+}
+
+function copyGeneratedContent() {
+    const txt = document.getElementById('generated-content-textarea').value;
+    if (!txt) return;
+    navigator.clipboard.writeText(txt).then(() => {
+        alert('📋 Đã sao chép nội dung vào bộ nhớ tạm!');
+    }).catch(e => {
+        alert('Không thể sao chép tự động: ' + e);
+    });
+}
+
+function downloadGeneratedContent() {
+    const txt = document.getElementById('generated-content-textarea').value;
+    if (!txt) return;
+    
+    const blob = new Blob([txt], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ai-generated-content-${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
 
 

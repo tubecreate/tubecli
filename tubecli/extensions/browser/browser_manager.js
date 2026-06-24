@@ -4,6 +4,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import axios from 'axios';
 import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 
 function extractRawKey(jsonString, key) {
     const searchStr = `"${key}":`;
@@ -47,6 +48,274 @@ function extractRawKey(jsonString, key) {
         }
     }
     return null;
+}
+
+const isShardXFpFormat = (fpStr) => {
+    try {
+        const parsed = typeof fpStr === 'string' ? JSON.parse(fpStr) : fpStr;
+        return parsed && (parsed.navigator || parsed.screen || parsed.webgpu) && !parsed.canvas;
+    } catch { return false; }
+};
+
+function parseChromeVersion(ua) {
+    const match = ua.match(/Chrome\/(\d+)\.(\d+)\.(\d+)\.(\d+)/);
+    if (match) {
+        return {
+            major: match[1],
+            minor: match[2],
+            build: parseInt(match[3], 10),
+            patch: parseInt(match[4], 10),
+            full: match[0].split('/')[1]
+        };
+    }
+    return {
+        major: "124",
+        minor: "0",
+        build: 6367,
+        patch: 207,
+        full: "124.0.6367.207"
+    };
+}
+
+export function convertBasToShardX(basFp, profileName = "") {
+    if (!basFp) return null;
+    
+    let fp = typeof basFp === 'string' ? JSON.parse(basFp) : basFp;
+    
+    if (fp.fingerprint) {
+        fp = typeof fp.fingerprint === 'string' ? JSON.parse(fp.fingerprint) : fp.fingerprint;
+    }
+
+    const ua = fp.ua || (fp.attr && fp.attr["navigator.userAgent"]) || (fp.navigator && fp.navigator.userAgent) || "";
+    const chromeVer = parseChromeVersion(ua);
+
+    // Compute polynomial hash-based seed for profileName, otherwise random
+    const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
+
+    let timeZone = "Asia/Ho_Chi_Minh";
+    try {
+        timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || timeZone;
+    } catch (e) {}
+
+    const langStr = fp.lang || (fp.attr && fp.attr["navigator.language"]) || "en-US,en;q=0.9";
+    const langParts = langStr.split(",").map(p => p.split(";")[0].trim());
+    const primaryLang = langParts[0] || "en-US";
+
+    const screenWidth = fp.width || (fp.attr && fp.attr["screen.width"]) || 1920;
+    const screenHeight = fp.height || (fp.attr && fp.attr["screen.height"]) || 1080;
+    const availWidth = (fp.attr && fp.attr["screen.availWidth"]) || screenWidth;
+    const availHeight = (fp.attr && fp.attr["screen.availHeight"]) || screenHeight;
+    const colorDepth = (fp.attr && fp.attr["screen.colorDepth"]) || 24;
+    const pixelDepth = (fp.attr && fp.attr["screen.pixelDepth"]) || 24;
+    const devicePixelRatio = (fp.attr && fp.attr["window.devicePixelRatio"]) || 1;
+    const availLeft = (fp.attr && fp.attr["screen.availLeft"]) || 0;
+    const availTop = (fp.attr && fp.attr["screen.availTop"]) || 0;
+
+    const webglVendor = fp.webgl_properties?.unmaskedVendor || "Google Inc.";
+    const webglRenderer = fp.webgl_properties?.unmaskedRenderer || fp.webgl_properties?.renderer || "";
+    const webglVendorMasked = fp.webgl_properties?.vendor || "WebKit";
+    const webglRendererMasked = fp.webgl_properties?.renderer || "WebKit WebGL";
+    const maxTextureSize = fp.webgl_properties?.maxTextureSize || 16384;
+    const maxVertexAttribs = fp.webgl_properties?.maxVertexAttribs || 16;
+    
+    let webglExtensions = [];
+    if (typeof fp.webgl_properties?.extensions === "string") {
+        webglExtensions = fp.webgl_properties.extensions.split(",").map(e => e.trim()).filter(Boolean);
+    } else if (Array.isArray(fp.webgl_properties?.extensions)) {
+        webglExtensions = fp.webgl_properties.extensions;
+    } else {
+        webglExtensions = [
+            "EXT_clip_control", "EXT_color_buffer_float", "EXT_color_buffer_half_float",
+            "EXT_conservative_depth", "EXT_depth_clamp", "EXT_disjoint_timer_query_webgl2",
+            "EXT_float_blend", "EXT_polygon_offset_clamp", "EXT_render_snorm",
+            "EXT_texture_compression_bptc", "EXT_texture_compression_rgtc",
+            "EXT_texture_filter_anisotropic", "EXT_texture_mirror_clamp_to_edge",
+            "EXT_texture_norm16", "KHR_parallel_shader_compile",
+            "NV_shader_noperspective_interpolation", "OES_draw_buffers_indexed",
+            "OES_sample_variables", "OES_shader_multisample_interpolation",
+            "OES_texture_float_linear", "OVR_multiview2", "WEBGL_blend_func_extended",
+            "WEBGL_clip_cull_distance", "WEBGL_compressed_texture_s3tc",
+            "WEBGL_compressed_texture_s3tc_srgb", "WEBGL_debug_renderer_info",
+            "WEBGL_debug_shaders", "WEBGL_lose_context", "WEBGL_multi_draw",
+            "WEBGL_polygon_mode", "WEBGL_provoking_vertex", "WEBGL_stencil_texturing"
+        ];
+    }
+
+    let webgpuVendor = "intel";
+    let webgpuArch = "";
+    const rLower = webglRenderer.toLowerCase();
+    if (rLower.includes("nvidia") || rLower.includes("geforce")) {
+        webgpuVendor = "nvidia";
+        webgpuArch = "ampere";
+    } else if (rLower.includes("amd") || rLower.includes("radeon")) {
+        webgpuVendor = "amd";
+    } else if (rLower.includes("intel") || rLower.includes("uhd") || rLower.includes("iris")) {
+        webgpuVendor = "intel";
+        webgpuArch = "gen-9";
+    }
+
+    let platform = "Windows";
+    let platformValue = "Win32";
+    let platformVersion = "10.0.0";
+    const rawPlatform = (fp.attr && fp.attr["navigator.platform"]) || (fp.navigator && fp.navigator.platform) || "Win32";
+    if (rawPlatform.toLowerCase().includes("mac") || ua.toLowerCase().includes("macintosh")) {
+        platform = "MacIntel";
+        platformValue = "MacIntel";
+        platformVersion = "13.0.0";
+    }
+
+    const shardxFp = {
+        name: fp.name || "converted-bas-fp",
+        notes: webglRenderer,
+        timezone: timeZone,
+        icu_locale: primaryLang,
+        navigator: {
+            language: primaryLang,
+            accept_language: langStr,
+            languages: langParts,
+            user_agent: ua,
+            platform: platform,
+            platform_value: platformValue,
+            platform_version: platformVersion,
+            hardware_concurrency: fp.attr?.hardwareConcurrency || fp.navigator?.hardwareConcurrency || 8,
+            device_memory: fp.attr?.deviceMemory || fp.navigator?.deviceMemory || 8,
+            vendor: fp.attr?.["navigator.vendor"] || fp.navigator?.vendor || "Google Inc.",
+            max_touch_points: fp.attr?.maxTouchPoints || fp.navigator?.maxTouchPoints || 0
+        },
+        client_hints: {
+            brand: "Google Chrome",
+            brand_version: chromeVer.major,
+            platform_version: platformVersion,
+            architecture: platform === "Windows" ? "x86" : "arm",
+            bitness: "64",
+            mobile: false,
+            grease_brand: "Not)A;Brand",
+            grease_version: "24",
+            chrome_build: chromeVer.build,
+            chrome_patch: chromeVer.patch,
+            brand_full_version: chromeVer.full,
+            grease_full_version: "24.0.0.0"
+        },
+        screen: {
+            width: screenWidth,
+            height: screenHeight,
+            avail_width: availWidth,
+            avail_height: availHeight,
+            color_depth: colorDepth,
+            pixel_depth: pixelDepth,
+            device_pixel_ratio: devicePixelRatio,
+            color_gamut: "srgb",
+            dynamic_range_high: false,
+            avail_left: availLeft,
+            avail_top: availTop
+        },
+        window: {
+            outer_width: screenWidth,
+            outer_height: availHeight,
+            inner_width: screenWidth,
+            inner_height: availHeight - 87
+        },
+        webgl: {
+            vendor: webglVendor,
+            renderer: webglRenderer,
+            vendor_masked: webglVendorMasked,
+            renderer_masked: webglRendererMasked,
+            max_texture_size: maxTextureSize,
+            max_vertex_attribs: maxVertexAttribs,
+            extensions: webglExtensions
+        },
+        webgpu: {
+            vendor: webgpuVendor,
+            architecture: webgpuArch,
+            device: "",
+            description: "",
+            limits: {
+                maxTextureDimension1D: 16384,
+                maxTextureDimension2D: 16384,
+                maxTextureDimension3D: 2048,
+                maxTextureArrayLayers: 2048,
+                maxBindGroups: 4,
+                maxBindGroupsPlusVertexBuffers: 24,
+                maxBindingsPerBindGroup: 1000,
+                maxDynamicUniformBuffersPerPipelineLayout: 10,
+                maxDynamicStorageBuffersPerPipelineLayout: 8,
+                maxSampledTexturesPerShaderStage: 48,
+                maxSamplersPerShaderStage: 16,
+                maxStorageBuffersPerShaderStage: 16,
+                maxStorageTexturesPerShaderStage: 8,
+                maxUniformBuffersPerShaderStage: 12,
+                maxUniformBufferBindingSize: 65536,
+                maxStorageBufferBindingSize: 2147483644,
+                minUniformBufferOffsetAlignment: 256,
+                minStorageBufferOffsetAlignment: 256,
+                maxVertexBuffers: 8,
+                maxBufferSize: 2147483648.0,
+                maxVertexAttributes: 30,
+                maxVertexBufferArrayStride: 2048,
+                maxInterStageShaderVariables: 28,
+                maxColorAttachments: 8,
+                maxColorAttachmentBytesPerSample: 128,
+                maxComputeWorkgroupStorageSize: 32768,
+                maxComputeInvocationsPerWorkgroup: 1024,
+                maxComputeWorkgroupSizeX: 1024,
+                maxComputeWorkgroupSizeY: 1024,
+                maxComputeWorkgroupSizeZ: 64,
+                maxComputeWorkgroupsPerDimension: 65535
+            }
+        },
+        audio: {
+            sample_rate: fp.audio_properties?.BaseAudioContextSampleRate || 44100,
+            channel_count: fp.audio_properties?.AudioDestinationNodeMaxChannelCount || 2
+        },
+        connection: {
+            effective_type: fp.connection?.effectiveType || "4g",
+            downlink_mbps: fp.connection?.downlink || 10,
+            rtt_msec: fp.connection?.rtt || 50,
+            save_data: fp.connection?.saveData || false
+        },
+        storage_estimate: {
+            quota_gb: 10
+        },
+        webauthn: {
+            uvpa: true
+        },
+        memory: {
+            heap_size_limit: 4294967296
+        },
+        battery: {
+            charging: fp.battery?.charging ?? true,
+            level: fp.battery?.level ?? 1,
+            charging_time: fp.battery?.chargingTime ?? 0,
+            discharging_time: String(fp.battery?.dischargingTime ?? "Infinity")
+        },
+        media_devices: {
+            audio_input_count: 1,
+            audio_output_count: 1,
+            video_input_count: 0
+        },
+        speech: {
+            voices: [
+                { name: "Google US English", lang: "en-US", local_service: false, is_default: true },
+                { name: "Google UK English Female", lang: "en-GB", local_service: false, is_default: false },
+                { name: "Google UK English Male", lang: "en-GB", local_service: false, is_default: false }
+            ]
+        },
+        noise: {
+            canvas: { enabled: true, seed: seed },
+            webgl: { enabled: true, seed: seed, intensity: 5 },
+            audio: { enabled: true, seed: seed },
+            client_rects: { enabled: true, seed: seed, max_offset: 5 },
+            sensors: { enabled: true, seed: seed },
+            fonts: { enabled: true, seed: seed }
+        },
+        tls: {
+            cipher_suites: [4865, 4866, 4867, 49195, 49199, 49196, 49200, 52393, 52392, 49171, 49172, 156, 157, 47, 53],
+            signature_algorithms: [1027, 2052, 1025, 1283, 2053, 1281, 2054, 1537],
+            shuffle_extensions: true
+        }
+    };
+    
+    return shardxFp;
 }
 
 export class BrowserManager {
@@ -111,24 +380,77 @@ export class BrowserManager {
 
         let fingerprint;
 
+        let isShardX = false;
+        let tags = options.tags || ['Windows', 'Chrome'];
+        if (await fs.pathExists(configPath)) {
+             try {
+                  const config = await fs.readJson(configPath);
+                  if (config.browser_version && config.browser_version.includes('ShardX')) {
+                      isShardX = true;
+                  }
+                  if (config.tags && Array.isArray(config.tags)) {
+                      tags = config.tags;
+                  }
+             } catch (e) {}
+        }
+
         // 1. Try to load existing
         if (await fs.pathExists(fingerprintPath) || await fs.pathExists(legacyFingerprintPath)) {
             console.log('Loading saved fingerprint...');
             try {
                 const targetFpPath = await fs.pathExists(fingerprintPath) ? fingerprintPath : legacyFingerprintPath;
                 const data = await fs.readFile(targetFpPath, 'utf8');
-                // Check if it's a plugin.fetch() string token (not JSON object)
                 if (data && data.length > 20) {
+                    let parsed = null;
                     try {
-                        const parsed = JSON.parse(data);
-                        // If it's an object with very few keys, it might be a wrapped token
-                        if (typeof parsed === 'object' && parsed !== null) {
-                            fingerprint = data; // Keep as string for plugin.useFingerprint
+                        parsed = JSON.parse(data);
+                    } catch (e) {}
+
+                    if (parsed && typeof parsed === 'object') {
+                        if (isShardX) {
+                            if (!isShardXFpFormat(parsed)) {
+                                console.log('[Fingerprint] Loaded BAS fingerprint, but profile is ShardX. Converting to ShardX format...');
+                                const converted = convertBasToShardX(parsed, profileName);
+                                const toSave = JSON.stringify(converted, null, 2);
+                                await fs.outputFile(fingerprintPath, toSave, 'utf8');
+                                await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+                                fingerprint = toSave;
+                            } else {
+                                // Ensure noise settings are enabled for existing ShardX fingerprint
+                                let needsUpdate = false;
+                                if (!parsed.noise || 
+                                    !parsed.noise.canvas || !parsed.noise.canvas.enabled || 
+                                    !parsed.noise.webgl || !parsed.noise.webgl.enabled) {
+                                    needsUpdate = true;
+                                }
+                                if (needsUpdate) {
+                                    console.log('[Fingerprint] Existing ShardX fingerprint has noise disabled/missing. Enabling it...');
+                                    const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
+                                    parsed.noise = {
+                                        canvas: { enabled: true, seed: seed },
+                                        webgl: { enabled: true, seed: seed, intensity: 5 },
+                                        audio: { enabled: true, seed: seed },
+                                        client_rects: { enabled: true, seed: seed, max_offset: 5 },
+                                        sensors: { enabled: true, seed: seed },
+                                        fonts: { enabled: true, seed: seed }
+                                    };
+                                    const toSave = JSON.stringify(parsed, null, 2);
+                                    await fs.outputFile(fingerprintPath, toSave, 'utf8');
+                                    await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+                                    // Also save shardx_fingerprint.json
+                                    const savedFpPath = path.join(profilePath, 'shardx_fingerprint.json');
+                                    await fs.outputFile(savedFpPath, toSave, 'utf8');
+                                    fingerprint = toSave;
+                                } else {
+                                    fingerprint = data;
+                                }
+                            }
+                        } else {
+                            fingerprint = data;
                         }
-                    } catch (e) {
-                        fingerprint = data; // Not JSON — likely a raw string token
+                    } else {
+                        fingerprint = data;
                     }
-                    if (!fingerprint) fingerprint = data;
                     console.log(`Fingerprint loaded successfully (${typeof fingerprint}, ${fingerprint.length} chars).`);
                     return fingerprint;
                 }
@@ -137,17 +459,90 @@ export class BrowserManager {
             }
         }
 
-        // Read config for tags/version/window_size
-        let tags = options.tags || ['Windows', 'Chrome'];
+        // Check local ShardX fingerprints repository directory first if isShardX is true
+        if (isShardX) {
+            const extDir = path.dirname(fileURLToPath(import.meta.url));
+            const localShardxDir = path.resolve(extDir, '..', '..', '..', '..', 'shardx_fps', 'shardx-fingerprints');
+            if (await fs.pathExists(localShardxDir)) {
+                try {
+                    let filterPrefix = 'win';
+                    const hasMac = tags.some(t => t.toLowerCase().includes('mac'));
+                    const hasLinux = tags.some(t => t.toLowerCase().includes('linux'));
+                    if (hasMac) {
+                        filterPrefix = 'mac';
+                    } else if (hasLinux) {
+                        filterPrefix = 'linux';
+                    }
+                    const files = (await fs.readdir(localShardxDir)).filter(f => f.endsWith('.json') && f.startsWith(filterPrefix));
+                    if (files.length > 0) {
+                        const idx = profileName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % files.length;
+                        const shardxFpPath = path.join(localShardxDir, files[idx]);
+                        console.log(`[Fingerprint] Found local ShardX fingerprint: ${files[idx]} (consistent hash pick)`);
+                        const shardxData = await fs.readJson(shardxFpPath);
+                        const seed = profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0);
+                        shardxData.noise = {
+                            canvas: { enabled: true, seed: seed },
+                            webgl: { enabled: true, seed: seed, intensity: 5 },
+                            audio: { enabled: true, seed: seed },
+                            client_rects: { enabled: true, seed: seed, max_offset: 5 },
+                            sensors: { enabled: true, seed: seed },
+                            fonts: { enabled: true, seed: seed }
+                        };
+                        
+                        const toSave = JSON.stringify(shardxData, null, 2);
+                        await fs.outputFile(fingerprintPath, toSave, 'utf8');
+                        await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+                        
+                        // Also save shardx_fingerprint.json
+                        const savedFpPath = path.join(profilePath, 'shardx_fingerprint.json');
+                        await fs.outputFile(savedFpPath, toSave, 'utf8');
+                        
+                        return toSave;
+                    }
+                } catch (err) {
+                    console.warn('[Fingerprint] Failed to load from local ShardX fingerprints folder:', err.message);
+                }
+            }
+        }
+
+        // Check local BAS fingerprints repository directory first
+        const localBasDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'bas_fingerprints');
+        if (await fs.pathExists(localBasDir)) {
+            try {
+                const files = (await fs.readdir(localBasDir)).filter(f => f.endsWith('.json'));
+                if (files.length > 0) {
+                    const idx = profileName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % files.length;
+                    const basFpPath = path.join(localBasDir, files[idx]);
+                    console.log(`[Fingerprint] Found local BAS fingerprint: ${files[idx]} (consistent hash pick)`);
+                    const basData = await fs.readJson(basFpPath);
+                    
+                    let finalFp = basData;
+                    if (isShardX) {
+                        console.log('[Fingerprint] Converting local BAS fingerprint to ShardX format...');
+                        finalFp = convertBasToShardX(basData, profileName);
+                    }
+                    
+                    const toSave = JSON.stringify(finalFp, null, 2);
+                    await fs.outputFile(fingerprintPath, toSave, 'utf8');
+                    await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
+                    return toSave;
+                }
+            } catch (err) {
+                console.warn('[Fingerprint] Failed to load from local BAS fingerprints folder:', err.message);
+            }
+        }
+
+        // Read config for version/window_size
         let minBrowserVersion = null;
         let windowSize = null;
         
         if (await fs.pathExists(configPath)) {
              try {
                  const config = await fs.readJson(configPath);
-                 if (config.tags && Array.isArray(config.tags)) tags = config.tags;
                  if (config.browser_version && config.browser_version !== 'default' && config.browser_version !== 'latest') {
-                     minBrowserVersion = config.browser_version.split('.')[0];
+                     // Handle "ShardX 148.0.7778.97" or "148.0.7778.97" → extract numeric major version "148"
+                     const _vMatch = config.browser_version.match(/(\d+)\./);
+                     minBrowserVersion = _vMatch ? _vMatch[1] : config.browser_version.replace(/^[^\d]*/, '').split('.')[0];
                  }
                  if (config.window_size) windowSize = config.window_size;
              } catch (e) {}
@@ -201,23 +596,33 @@ export class BrowserManager {
                     }
                     
                     // Validate: Security Browser may return {valid: false, message: "..."}
-                    if (typeof fingerprint === 'object' && fingerprint.valid === false) {
-                        console.warn(`[Fingerprint] Security Browser returned invalid: ${fingerprint.message}`);
+                    let parsedFp = null;
+                    try {
+                        parsedFp = typeof fingerprint === 'string' ? JSON.parse(fingerprint) : fingerprint;
+                    } catch (e) {}
+
+                    if (parsedFp && parsedFp.valid === false) {
+                        console.warn(`[Fingerprint] Security Browser returned invalid: ${parsedFp.message}`);
                         if (!triedWithoutSize && windowSize) {
                             console.log('[Fingerprint] Retrying without size constraints...');
                             triedWithoutSize = true;
                             attempts++;
                             continue;
                         }
-                        throw new Error(`Security Browser: ${fingerprint.message}`);
+                        throw new Error(`Security Browser: ${parsedFp.message}`);
                     }
                     
                     if (!fingerprint || (typeof fingerprint !== 'object' && typeof fingerprint !== 'string')) {
                         throw new Error('Invalid fingerprint data received from API');
                     }
 
+                    if (isShardX && parsedFp) {
+                        console.log('[Fingerprint] Fetched BAS fingerprint for ShardX profile. Converting to ShardX format...');
+                        fingerprint = convertBasToShardX(parsedFp, profileName);
+                    }
+
                     // Save it
-                    const toSave = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
+                    const toSave = typeof fingerprint === 'object' ? JSON.stringify(fingerprint, null, 2) : fingerprint;
                     await fs.outputFile(fingerprintPath, toSave, 'utf8');
                     await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
                     return toSave;
@@ -446,6 +851,7 @@ export class BrowserManager {
         let targetChromiumVer = null;
         let targetBasVer = null;
         let shardxExePath = null;
+        let isShardXProfile = false;  // track outside try block
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
                 targetChromiumVer = conf.browser_version;
@@ -453,7 +859,8 @@ export class BrowserManager {
                 let isShardX = false;
                 if (targetChromiumVer && targetChromiumVer.includes('ShardX')) {
                     isShardX = true;
-                    const versionNum = targetChromiumVer.replace('ShardX', '').replace('-', '').trim();
+                    isShardXProfile = true;
+                    const versionNum = targetChromiumVer.replace('ShardX', '').replace(/^\s*-\s*/, '').trim();
                     const appdata = process.env.APPDATA;
                     if (appdata) {
                         let p1 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, `ShardX-Windows-${versionNum}`, 'chrome.exe');
@@ -578,20 +985,28 @@ export class BrowserManager {
             console.warn('Failed to resolve browser_version path:', e.message);
         }
 
-        // Patch fingerprint User-Agent to match actual engine version
-        // Bypassed to prevent fingerprint signature corruption causing 'Incorrect format' errors
-        /*
-        if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
-            fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
+        // ═══════════════════════════════════════════════════════════════
+        // SHARDX LAUNCH PATH — bypass playwright-with-fingerprints plugin
+        // ShardX engine does spoofing at Chromium C++ level, not via JS.
+        // Fingerprint format is different: {navigator, webgpu, screen, ...}
+        // Injected via --fingerprint-profile=<file> CLI flag.
+        // No service key, no PHP API needed.
+        // ═══════════════════════════════════════════════════════════════
+        if (isShardXProfile && shardxExePath) {
+            return await this._launchShardX({
+                profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args
+            });
         }
-        */
 
-        // Apply fingerprint with retry logic
+        // ═══════════════════════════════════════════════════════════════
+        // BAS (Security Browser) LAUNCH PATH — uses playwright-with-fingerprints plugin
+        // ═══════════════════════════════════════════════════════════════
+
+        // Apply fingerprint with retry logic (BAS only)
         if (fingerprint) {
              let fpAttempts = 0;
              while (fpAttempts < 2) {
                  try {
-
                     if (fingerprint) {
                         // Pass stringified JSON or raw token to plugin.useFingerprint (always string)
                         const fpString = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
@@ -607,7 +1022,6 @@ export class BrowserManager {
                               const legacyFingerprintPath = path.join(profilePath, 'fingerprint.json');
                               await fs.remove(fingerprintPath);
                               await fs.remove(legacyFingerprintPath);
-                              // Fetch new one
                               fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
                           } catch (err) {
                               console.error('Failed to refresh fingerprint:', err.message);
@@ -620,7 +1034,7 @@ export class BrowserManager {
              }
         }
 
-        // Default args
+        // Default args (BAS)
         const launchArgs = [
             '--start-maximized',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
@@ -631,12 +1045,9 @@ export class BrowserManager {
 
         console.log(`Launching browser [Profile: ${profileName}]...`);
         
-        // Explicitly configure profile to NOT load proxy from storage
-        // This ensures that if we provided a proxy, it's used. If we didn't, NO proxy is used.
-        // We also handle fingerprint manually, so loadFingerprint: false is safer too.
         plugin.useProfile(profilePath, { loadProxy: false, loadFingerprint: false });
 
-        // LAUNCH RETRY LOGIC (Specifically for "Failed to get proxy ip")
+        // LAUNCH RETRY LOGIC (BAS)
         let launchAttempt = 1;
         const maxLaunchAttempts = 3;
         let lastError = null;
@@ -648,7 +1059,6 @@ export class BrowserManager {
                     args: launchArgs,
                     userDataDir: profilePath,
                     ignoreDefaultArgs: ['--enable-automation'],
-                    ...(shardxExePath ? { executablePath: shardxExePath } : {})
                 });
                 return context;
             } catch (e) {
@@ -665,7 +1075,6 @@ export class BrowserManager {
                 const isFingerprintError = errMsg.includes('fingerprint') && (errMsg.includes('not found') || errMsg.includes('error'));
 
                 if (isFingerprintError && launchAttempt === 1) {
-                    // Fingerprint incompatible with engine — delete old, fetch fresh, retry
                     console.warn(`[Launch] ⚠️ Fingerprint rejected by engine: ${e.message}`);
                     console.warn(`[Launch] Deleting old fingerprint and fetching a fresh one...`);
                     try {
@@ -674,13 +1083,6 @@ export class BrowserManager {
                         await fs.remove(fingerprintPath);
                         await fs.remove(legacyFingerprintPath);
                         fingerprint = await this.getFingerprint(profileName, { tags: ['Microsoft Windows', 'Chrome'] });
-                        // User-Agent patching is bypassed to prevent cryptographic signature corruption
-                        /*
-                        if (fingerprint && targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
-                            fingerprint = this.patchFingerprintUserAgent(fingerprint, targetChromiumVer);
-                        }
-                        */
-                        // Re-apply fingerprint directly (always stringified if object)
                         const fpString = typeof fingerprint === 'object' ? JSON.stringify(fingerprint) : fingerprint;
                         plugin.useFingerprint(fpString);
                         console.log('[Launch] Fresh fingerprint applied. Retrying launch...');
@@ -695,10 +1097,9 @@ export class BrowserManager {
                     if (isKeyError) {
                          console.warn(`[Launch] 🛡️ Security Browser key is expired! Marking profile for FREE mode bypass...`);
                          try { 
-                             const fs = await import('fs-extra');
-                             await fs.writeFile(path.join(profilePath, 'skip_fingerprint.txt'), 'true');
+                             const fsExtra = await import('fs-extra');
+                             await fsExtra.writeFile(path.join(profilePath, 'skip_fingerprint.txt'), 'true');
                          } catch(ex){}
-                         
                          throw new Error('Key expired! I have installed a Bypass hook. Please click OPEN BROWSER again to launch in Free Mode (no antidetect).');
                     }
 
@@ -708,7 +1109,6 @@ export class BrowserManager {
                              throw new Error('FINGERPRINT_FATAL_ERROR');
                          }
                          console.warn(`[Launch] 'Incorrect format' error detected. This likely means PROXY is invalid.`);
-                         console.warn(`[Launch] Disabling proxy for next attempt to verify...`);
                          this.applyProxy(null);
                          options.proxy = null;
                          launchAttempt++;
@@ -719,12 +1119,198 @@ export class BrowserManager {
                     launchAttempt++;
                     await new Promise(r => setTimeout(r, 3000));
                 } else {
-                    throw e; // Non-recoverable error, fail immediately
+                    throw e;
                 }
             }
         }
         
         throw new Error(`Failed to launch browser after ${maxLaunchAttempts} attempts. Last error: ${lastError?.message}`);
+    }
+
+    /**
+     * Launch ShardX browser directly — no playwright-with-fingerprints plugin.
+     * ShardX Chromium engine reads fingerprint via --fingerprint-profile=<file>
+     * and does all spoofing at the C++ engine level (Blink/V8/network stack).
+     * Uses bundled fingerprint profiles from %APPDATA%\shardx-launcher\runtime\fingerprints\
+     * or falls back to fingerprint saved in the profile folder.
+     */
+    async _launchShardX({ profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args }) {
+        console.log(`[ShardX] Launching with native engine at: ${shardxExePath}`);
+
+        // ── 1. Resolve fingerprint for ShardX ──────────────────────────
+        // Priority: (a) profile's saved fingerprint.json (ShardX format)
+        //           (b) bundled ShardX fingerprint library
+        //           (c) launch without --fingerprint-profile (use engine defaults)
+        let shardxFpFile = null;
+
+        // (a) Check for saved ShardX fingerprint in profile folder
+        const savedFpPath = path.join(profilePath, 'shardx_fingerprint.json');
+        const legacyFpPath = path.join(profilePath, 'fingerprint.json');
+
+        if (await fs.pathExists(savedFpPath)) {
+            shardxFpFile = savedFpPath;
+            console.log(`[ShardX] Using saved ShardX fingerprint: ${savedFpPath}`);
+        } else if (fingerprint) {
+            let finalFp = fingerprint;
+            if (!isShardXFpFormat(fingerprint)) {
+                console.log(`[ShardX] Converting passed-in BAS fingerprint to ShardX format...`);
+                try {
+                    finalFp = convertBasToShardX(fingerprint, profileName);
+                } catch (e) {
+                    console.error(`[ShardX] Failed to convert fingerprint: ${e.message}`);
+                }
+            }
+            if (isShardXFpFormat(finalFp)) {
+                // Ensure noise is enabled for the passed-in fingerprint
+                const parsedFp = typeof finalFp === 'string' ? JSON.parse(finalFp) : finalFp;
+                const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
+                parsedFp.noise = {
+                    canvas: { enabled: true, seed: seed },
+                    webgl: { enabled: true, seed: seed, intensity: 5 },
+                    audio: { enabled: true, seed: seed },
+                    client_rects: { enabled: true, seed: seed, max_offset: 5 },
+                    sensors: { enabled: true, seed: seed },
+                    fonts: { enabled: true, seed: seed }
+                };
+                const fpContent = JSON.stringify(parsedFp, null, 2);
+                await fs.outputFile(savedFpPath, fpContent, 'utf8');
+                shardxFpFile = savedFpPath;
+                console.log(`[ShardX] Wrote ShardX fingerprint from caller to: ${savedFpPath}`);
+            }
+        }
+
+        if (!shardxFpFile) {
+            // (b) Pick from bundled ShardX fingerprint library
+            const appdata = process.env.APPDATA;
+            const localappdata = process.env.LOCALAPPDATA;
+            const extDir = path.dirname(fileURLToPath(import.meta.url));
+            const localWorkspaceFpDir = path.resolve(extDir, '..', '..', '..', '..', 'shardx_fps', 'shardx-fingerprints');
+            const shardxFpDirs = [
+                localWorkspaceFpDir,
+                appdata   ? path.join(appdata,      'shardx-launcher', 'runtime', 'fingerprints') : null,
+                localappdata ? path.join(localappdata, 'shardx-sdk',      'fingerprints')            : null,
+            ].filter(Boolean);
+
+            let bundledFp = null;
+            for (const fpDir of shardxFpDirs) {
+                if (!await fs.pathExists(fpDir)) continue;
+                const files = (await fs.readdir(fpDir)).filter(f => f.endsWith('.json') && f.startsWith('win'));
+                if (files.length > 0) {
+                    // Pick a stable fingerprint per profile name (hash-based, consistent across runs)
+                    const idx = profileName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % files.length;
+                    bundledFp = path.join(fpDir, files[idx]);
+                    console.log(`[ShardX] Picked bundled fingerprint: ${files[idx]} (from ${fpDir})`);
+                    break;
+                }
+            }
+
+            if (bundledFp) {
+                shardxFpFile = savedFpPath;
+                try {
+                    const shardxData = await fs.readJson(bundledFp);
+                    const seed = profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0);
+                    shardxData.noise = {
+                        canvas: { enabled: true, seed: seed },
+                        webgl: { enabled: true, seed: seed, intensity: 5 },
+                        audio: { enabled: true, seed: seed },
+                        client_rects: { enabled: true, seed: seed, max_offset: 5 },
+                        sensors: { enabled: true, seed: seed },
+                        fonts: { enabled: true, seed: seed }
+                    };
+                    const toSave = JSON.stringify(shardxData, null, 2);
+                    await fs.outputFile(savedFpPath, toSave, 'utf8');
+                    await fs.outputFile(legacyFpPath, toSave, 'utf8');
+                    console.log(`[ShardX] Saved picked fingerprint with enabled noise to profile folder: ${savedFpPath}`);
+                } catch (e) {
+                    console.warn(`[ShardX] Failed to save picked fingerprint with noise: ${e.message}`);
+                    shardxFpFile = bundledFp;
+                }
+            } else {
+                // (c) No fingerprint available — engine will use its own defaults
+                console.warn('[ShardX] No bundled fingerprint found. Engine will use built-in defaults.');
+                console.warn('[ShardX] Install ShardBrowser at https://github.com/ProxyShard/ShardBrowser to get 170 profiles.');
+            }
+        }
+
+        // ── 2. Build launch args ────────────────────────────────────────
+        const launchArgs = [
+            // NOTE: --user-data-dir is passed as the first positional arg to
+            // launchPersistentContext(), NOT as a CLI flag. Playwright enforces this.
+            '--no-first-run',
+            '--restore-last-session',
+            '--hide-crash-restore-bubble',
+            '--disable-blink-features=AutomationControlled',
+            '--proxy-bypass-list=localhost,127.0.0.1,::1',
+            '--remote-debugging-port=0',
+            '--remote-allow-origins=*',
+            ...args
+        ];
+
+        if (shardxFpFile) {
+            try {
+                const tempDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'temp_fps');
+                await fs.ensureDir(tempDir);
+                const safeName = crypto.createHash('md5').update(profileName).digest('hex') + '.json';
+                const tempFpPath = path.join(tempDir, safeName);
+                
+                // Read and explicitly ensure noise is enabled before writing to the temp ASCII path
+                const shardxData = await fs.readJson(shardxFpFile);
+                const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
+                shardxData.noise = {
+                    canvas: { enabled: true, seed: seed },
+                    webgl: { enabled: true, seed: seed, intensity: 5 },
+                    audio: { enabled: true, seed: seed },
+                    client_rects: { enabled: true, seed: seed, max_offset: 5 },
+                    sensors: { enabled: true, seed: seed },
+                    fonts: { enabled: true, seed: seed }
+                };
+                await fs.outputJson(tempFpPath, shardxData, { spaces: 2 });
+                console.log(`[ShardX] Wrote fingerprint with enabled noise to safe ASCII path: ${tempFpPath}`);
+                shardxFpFile = tempFpPath;
+            } catch (err) {
+                console.warn('[ShardX] Failed to write fingerprint with noise to temp ASCII path:', err.message);
+            }
+
+            launchArgs.push(`--fingerprint-profile=${shardxFpFile}`);
+        }
+
+        if (headless) launchArgs.push('--headless=new');
+
+        // Proxy
+        if (proxy) {
+            const normalized = this.normalizeProxy(proxy);
+            if (normalized) {
+                // Convert to format chrome understands: socks5://host:port or http://host:port
+                try {
+                    const u = new URL(normalized);
+                    const proxyServer = `${u.protocol}//${u.host}`;
+                    launchArgs.push(`--proxy-server=${proxyServer}`);
+                    console.log(`[ShardX] Proxy: ${proxyServer}`);
+                } catch {
+                    launchArgs.push(`--proxy-server=${proxy}`);
+                }
+            }
+        }
+
+        // ── 3. Launch via patchright (stealth Playwright) ───────────────
+        // patchright is already in node_modules (playwright-with-fingerprints depends on it)
+        // We use chromium.launchPersistentContext with the ShardX executable
+        try {
+            const { chromium } = await import('playwright');
+            console.log(`[ShardX] Spawning: ${shardxExePath}`);
+            const context = await chromium.launchPersistentContext(profilePath, {
+                executablePath: shardxExePath,
+                headless,
+                args: launchArgs,
+                ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
+                ignoreHTTPSErrors: true,
+            });
+            console.log('[ShardX] ✅ Browser launched successfully.');
+            return context;
+        } catch (e) {
+            console.error(`[ShardX] Launch failed: ${e.message}`);
+            throw e;
+        }
     }
 
     async getStats(profileName) {

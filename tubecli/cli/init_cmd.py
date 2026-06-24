@@ -10,13 +10,14 @@ import os
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
+from tubecli.config import SUPPORTED_LANGUAGES
 
 console = Console()
 
 
 @click.command("init")
-@click.option("--lang", type=click.Choice(["zh", "vi", "en"]), default=None,
-              help="Set UI language (zh=Chinese, vi=Vietnamese, en=English)")
+@click.option("--lang", type=click.Choice(SUPPORTED_LANGUAGES), default=None,
+              help="Set UI language")
 @click.option("--port", type=int, default=None,
               help="Set API server port (default: 5295)")
 def init_cmd(lang, port):
