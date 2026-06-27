@@ -478,9 +478,30 @@ async function autoLoginIfNeeded(page, profileName, agentCtx) {
 }
 
 /**
+ * Sync all version descriptor files (*_64.json) from __dirname to __dirname/data
+ */
+async function syncDescriptors() {
+  try {
+    const files = await fs.readdir(__dirname);
+    const descriptorFiles = files.filter(f => f.endsWith('_64.json'));
+    const dataDir = path.join(__dirname, 'data');
+    await fs.ensureDir(dataDir);
+    for (const file of descriptorFiles) {
+      const srcPath = path.join(__dirname, file);
+      const destPath = path.join(dataDir, file);
+      await fs.copy(srcPath, destPath, { overwrite: true });
+    }
+    console.log('[Config] Synced version descriptor files to data directory.');
+  } catch (e) {
+    console.warn('[Config] Failed to sync version descriptor files:', e.message);
+  }
+}
+
+/**
  * Main Orchestrator
  */
 async function main() {
+  await syncDescriptors();
   const args = minimist(process.argv.slice(2));
   
   // --- ENGINE MANAGEMENT ---
@@ -903,7 +924,7 @@ async function main() {
       
       // Try to load key from settings first
       try {
-          const settingsPath = path.resolve(__dirname, '..', '..', '..', 'data', 'global_settings.json');
+          const settingsPath = path.resolve(__dirname, '..', '..', 'data', 'global_settings.json');
           if (await fs.pathExists(settingsPath)) {
               const settings = await fs.readJson(settingsPath);
               if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
