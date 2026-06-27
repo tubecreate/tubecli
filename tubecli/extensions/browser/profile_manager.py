@@ -105,6 +105,7 @@ def resolve_default_browser_version() -> str:
                 latest_bas = ver_dirs[0]
                 # Map BAS version to Chromium version
                 ENGINE_MAP = {
+                    '30.2.0': '149.0.7827.54',
                     '30.1.0': '148.0.7778.97',
                     '30.0.0': '147.0.7727.56',
                     '29.9.2': '146.0.7680.80',
@@ -112,10 +113,10 @@ def resolve_default_browser_version() -> str:
                     '29.7.0': '144.0.7559.60',
                     '29.5.0': '142.0.7444.60',
                 }
-                return ENGINE_MAP.get(latest_bas, '148.0.7778.97')
+                return ENGINE_MAP.get(latest_bas, '149.0.7827.54')
     except Exception as e:
         print(f"[resolve_default_browser_version] Error: {e}")
-    return "148.0.7778.97"
+    return "149.0.7827.54"
 
 
 def create_profile(name: str, proxy: str = "", browser_version: str = "latest", tags: List[str] = None,
@@ -256,6 +257,29 @@ def parse_chrome_version(ua: str) -> dict:
         "patch": 207,
         "full": "124.0.6367.207"
     }
+
+def resolve_proxy_timezone(proxy: Optional[str]) -> str:
+    if proxy:
+        import re as _re
+        host = None
+        # Match host/IP from protocol://[user:pass@]host:port or host:port
+        _m = _re.search(r'(?:[^@\n]+@)?(?:www\.)?([^:\/\n]+)', proxy)
+        if _m:
+            host = _m.group(1)
+        if host and host not in ('127.0.0.1', 'localhost'):
+            try:
+                import requests
+                resp = requests.get(f"http://ip-api.com/json/{host}", timeout=5)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") == "success" and data.get("timezone"):
+                        print(f"[Timezone] Resolved timezone for proxy {host}: {data.get('timezone')}")
+                        return data.get("timezone")
+            except Exception as e:
+                print(f"[Timezone] Failed to resolve proxy timezone: {e}")
+                
+    # Fallback to default/local
+    return "Asia/Ho_Chi_Minh"
 
 def convert_bas_to_shardx(bas_fp: dict, profile_name: str = "") -> dict:
     if not bas_fp:
@@ -586,10 +610,14 @@ def get_fingerprint(name: str) -> Optional[dict]:
                         
                         # Convert/fix if not valid or noise disabled
                         converted = convert_bas_to_shardx(fp, name)
+                        if config:
+                            tz = resolve_proxy_timezone(config.get("proxy"))
+                            if tz:
+                                converted["timezone"] = tz
                         to_save = json.dumps(converted, indent=2, ensure_ascii=False)
                         with open(fp_path, "w", encoding="utf-8") as f_out: f_out.write(to_save)
-                        with open(legacy_fp_path, "utf-8") as f_out: f_out.write(to_save)
-                        with open(shardx_fp_path, "utf-8") as f_out: f_out.write(to_save)
+                        with open(legacy_fp_path, "w", encoding="utf-8") as f_out: f_out.write(to_save)
+                        with open(shardx_fp_path, "w", encoding="utf-8") as f_out: f_out.write(to_save)
                         return converted
                 except Exception:
                     pass
@@ -608,6 +636,18 @@ def get_fingerprint(name: str) -> Optional[dict]:
     try:
         # Read config to pass params
         config = get_profile(name)
+        
+        # Load BAS key from global_settings
+        bas_key = None
+        try:
+            settings_path = os.path.join(DATA_DIR, "global_settings.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    bas_key = settings.get("bas_fingerprint_key") or settings.get("browser_service_keys", {}).get("bas")
+        except Exception as e:
+            print(f"[Fingerprint] Error reading settings: {e}")
+        
         tags_param = "Microsoft Windows,Chrome"
         min_browser_version = None
         window_size = None
@@ -667,6 +707,8 @@ def get_fingerprint(name: str) -> Optional[dict]:
 
         # Attempt 1: with size ranges
         params = {"tags": tags_param}
+        if bas_key:
+            params["key"] = bas_key.strip()
         if min_browser_version:
             params["min_browser_version"] = min_browser_version
         if window_size:
@@ -682,6 +724,8 @@ def get_fingerprint(name: str) -> Optional[dict]:
         if not fp_data and window_size:
             print("[Fingerprint] Retrying without size constraints...")
             params2 = {"tags": tags_param}
+            if bas_key:
+                params2["key"] = bas_key.strip()
             if min_browser_version:
                 params2["min_browser_version"] = min_browser_version
             fp_data, fp_raw_string = _do_fetch(params2)
@@ -689,11 +733,18 @@ def get_fingerprint(name: str) -> Optional[dict]:
         # Attempt 3: without version
         if not fp_data and min_browser_version:
             print("[Fingerprint] Retrying without version constraint...")
-            fp_data, fp_raw_string = _do_fetch({"tags": tags_param})
+            params3 = {"tags": tags_param}
+            if bas_key:
+                params3["key"] = bas_key.strip()
+            fp_data, fp_raw_string = _do_fetch(params3)
 
         if fp_data and fp_raw_string:
             if is_shardx:
                 converted = convert_bas_to_shardx(fp_data, name)
+                if config:
+                    tz = resolve_proxy_timezone(config.get("proxy"))
+                    if tz:
+                        converted["timezone"] = tz
                 to_save = json.dumps(converted, indent=2, ensure_ascii=False)
                 with open(fp_path, "w", encoding="utf-8") as f: f.write(to_save)
                 with open(legacy_fp_path, "w", encoding="utf-8") as f: f.write(to_save)

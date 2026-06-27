@@ -392,6 +392,11 @@
                         </select>
                         <div class="field-hint" data-i18n="settings.browser_desc">Browser profile used by Workflows & AI Agents.</div>
                     </div>
+                    <div class="settings-field" style="margin-top: 16px;">
+                        <label>BAS Fingerprint API Key (Khóa Fingerprint BAS)</label>
+                        <input type="password" id="set-bas-key" onchange="autoSaveSetting('bas_fingerprint_key', this.value, this)" placeholder="Nhập BAS Fingerprint API Key..." style="width:100%;">
+                        <div class="field-hint">Dùng để lấy fingerprint cho trình duyệt bảo mật BAS. Nếu để trống sẽ sử dụng mặc định.</div>
+                    </div>
                 </div>
 
                 <!-- 📅 Google Calendar & Storage Card -->

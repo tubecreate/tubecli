@@ -1474,7 +1474,7 @@ async function renderBrowserExt(el) {
     const runningProfiles = runningInstances.map(i => i.profile);
     _lastRunningProfiles = runningProfiles.slice().sort().join(',');
     startBrowserStatusPoller(el);
-    let h = `<div style="margin-bottom:16px;display:flex;gap:10px"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button></div>`;
+    let h = `<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button><button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:#c4b5fd;" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button></div>`;
     if (runningInstances.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${runningInstances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
@@ -1483,6 +1483,86 @@ async function renderBrowserExt(el) {
         return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
+}
+
+// ── Browser BAS Key Manager ──
+function showBASKeyModal() { showBrowserKeyManager(); }
+
+async function showBrowserKeyManager() {
+    let basKey = '';
+    try {
+        const s = await apiGet('/api/v1/settings');
+        basKey = s?.bas_fingerprint_key || s?.browser_service_keys?.bas || '';
+    } catch(e) {}
+
+    const existing = document.getElementById('modal-key-manager');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'modal-key-manager';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width:440px; padding:20px; border-radius:12px; background:var(--bg-content); border:1px solid var(--border); box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+            <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px">
+                <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px">
+                    <span style="color:#c4b5fd">🔑</span> Cấu hình BAS Fingerprint Key
+                </h3>
+                <button class="btn-close" onclick="document.getElementById('modal-key-manager').remove()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.2rem; line-height:1">✕</button>
+            </div>
+            
+            <div style="margin-bottom:18px">
+                <label style="display:block; font-size:0.8rem; font-weight:600; color:var(--text-muted); margin-bottom:6px">BAS Fingerprint API Key</label>
+                <div style="display:flex; gap:6px; align-items:center">
+                    <input type="password" id="km-bas-key" value="${esc(basKey)}"
+                        placeholder="Chưa cấu hình (dùng key mặc định)"
+                        style="flex:1; font-family:'JetBrains Mono',monospace; font-size:0.85rem; padding:8px 12px; border-radius:6px; border:1px solid var(--border); background:var(--bg-input); color:var(--text-primary)">
+                    <button onclick="const i=document.getElementById('km-bas-key'); i.type=i.type==='password'?'text':'password'; this.textContent=i.type==='password'?'👁':'🙈'"
+                        style="background:none; border:1px solid var(--border); border-radius:6px; padding:7px 10px; cursor:pointer; color:var(--text-muted); font-size:0.85rem; height:34px; width:36px; display:flex; align-items:center; justify-content:center" title="Hiển thị/Ẩn key">👁</button>
+                </div>
+                <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px; line-height:1.4">
+                    Nhập API Key từ <a href="https://fingerprints.bablosoft.com" target="_blank" style="color:#c4b5fd; text-decoration:underline">fingerprints.bablosoft.com</a> để sử dụng key của riêng bạn. Nếu bỏ trống, hệ thống sẽ tự động dùng key mặc định.
+                </div>
+            </div>
+
+            <div class="modal-actions" style="display:flex; justify-content:flex-end; gap:8px; border-top:1px solid var(--border); padding-top:12px; margin-top:16px">
+                <button class="btn-secondary" onclick="document.getElementById('modal-key-manager').remove()" style="padding:6px 12px; font-size:0.85rem">Hủy</button>
+                <button class="btn-primary" id="btn-save-km" onclick="saveBASKey()" style="background:linear-gradient(135deg,#8b5cf6,#6d28d9); border-color:#7c3aed; padding:6px 14px; font-size:0.85rem; font-weight:600">💾 Lưu cài đặt</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+}
+
+async function saveBASKey() {
+    const btn = document.getElementById('btn-save-km');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Đang lưu...'; }
+    const keyVal = document.getElementById('km-bas-key').value.trim();
+    try {
+        const r = await apiPut('/api/v1/settings', {
+            bas_fingerprint_key: keyVal,
+            browser_service_keys: {
+                bas: keyVal
+            }
+        });
+        if (r && r.status === 'success') {
+            document.getElementById('modal-key-manager')?.remove();
+            
+            // Đồng bộ với input trong trang settings nếu đang mở
+            const settingsInput = document.getElementById('set-bas-key');
+            if (settingsInput) settingsInput.value = keyVal;
+
+            const toast = document.createElement('div');
+            toast.textContent = '✅ Đã lưu cấu hình BAS Fingerprint Key!';
+            toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#6d28d9);color:#fff;padding:12px 22px;border-radius:10px;z-index:99999;font-weight:700;font-size:0.95rem;box-shadow:0 4px 20px rgba(139,92,246,0.4);animation:fadeIn .3s';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        } else {
+            alert('❌ Lưu thất bại: ' + JSON.stringify(r));
+            if (btn) { btn.disabled = false; btn.textContent = '💾 Lưu cài đặt'; }
+        }
+    } catch(e) {
+        alert('❌ Lỗi: ' + e.message);
+        if (btn) { btn.disabled = false; btn.textContent = '💾 Lưu cài đặt'; }
+    }
 }
 
 // ── Workflows Ext ──
@@ -4334,6 +4414,9 @@ async function applyGlobalSettings(s) {
     if (s.api_base_url && document.getElementById('set-api')) document.getElementById('set-api').value = s.api_base_url;
     if (s.telegram_bot_token && document.getElementById('set-tg-token')) document.getElementById('set-tg-token').value = s.telegram_bot_token;
     if (s.telegram_chat_id && document.getElementById('set-tg-chat')) document.getElementById('set-tg-chat').value = s.telegram_chat_id;
+    if (s.bas_fingerprint_key !== undefined && document.getElementById('set-bas-key')) {
+        document.getElementById('set-bas-key').value = s.bas_fingerprint_key;
+    }
     
     const notifyEnabled = s.ext_update_notifications !== undefined ? s.ext_update_notifications : false;
     if (document.getElementById('set-ext-update-notify')) {
@@ -4930,6 +5013,7 @@ async function saveGlobalSettings() {
         default_calendar_email: document.getElementById('set-default-calendar')?.value || '',
         default_storage_email: document.getElementById('set-default-storage')?.value || '',
         ext_update_notifications: document.getElementById('set-ext-update-notify')?.checked || false,
+        bas_fingerprint_key: document.getElementById('set-bas-key')?.value || '',
     };
     try {
         const r = await apiPut('/api/v1/settings', payload);

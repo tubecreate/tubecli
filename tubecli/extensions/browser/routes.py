@@ -408,6 +408,8 @@ async def api_get_engine_versions():
 
             # 2. Add local fallback versions if they are not in the list
             fallback_versions = [
+                {"bas_version": "30.2.0", "browser_version": "149.0.7827.54",
+                 "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.2.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "30.1.0", "browser_version": "148.0.7778.97",
                  "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/30.1.0/FastExecuteScript.x64.zip"},
                 {"bas_version": "30.0.0", "browser_version": "147.0.7727.56",
@@ -443,6 +445,7 @@ async def api_get_engine_versions():
             shardx_versions = [
                 {"bas_version": "ShardX-148.0.7778.97", "browser_version": "ShardX 148.0.7778.97", "download_url": ""},
                 {"bas_version": "ShardX-148.0.7778.216", "browser_version": "ShardX 148.0.7778.216", "download_url": ""},
+                {"bas_version": "ShardX-149.0.7827.103", "browser_version": "ShardX 149.0.7827.103", "download_url": ""},
             ]
             for sv in shardx_versions:
                 versions.append({
@@ -560,9 +563,12 @@ async def api_download_engine(version: str, request: Request):
             import zipfile
             import requests
             
-            url = f"https://cf-r2-worker.tubecli.workers.dev/ShardX-Windows-{version_num}.zip"
+            if version_num == "149.0.7827.103":
+                url = "https://pub-e57a7c60f6934eb09a6600bf2fc59cdc.r2.dev/ShardX-Windows.zip"
+            else:
+                url = f"https://cf-r2-worker.tubecli.workers.dev/ShardX-Windows-{version_num}.zip"
             try:
-                write_progress("downloading", 3, f"Connecting to Cloudflare R2 worker...")
+                write_progress("downloading", 3, f"Connecting to Cloudflare R2 worker..." if "cf-r2" in url else "Connecting to ProxyShard CDN...")
                 
                 resp = requests.get(url, stream=True, timeout=300, verify=False)
                 if resp.status_code != 200:

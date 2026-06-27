@@ -900,17 +900,34 @@ async function main() {
       // 2. Browser Initialization
       console.log('Fetching service key...');
       let serviceKey = '';
+      
+      // Try to load key from settings first
       try {
-        const keyResponse = await axios.get('https://api.tubecreate.com/api/fingerprints/key.php', { timeout: 10000 });
-        if (keyResponse.data && keyResponse.data.status === 'success' && keyResponse.data.key) {
-          // Decode Base64 key
-          serviceKey = Buffer.from(keyResponse.data.key, 'base64').toString('utf8');
-          console.log('Service key fetched and decoded.');
-        } else {
-          throw new Error('Invalid key response format');
-        }
+          const settingsPath = path.resolve(__dirname, '..', '..', '..', 'data', 'global_settings.json');
+          if (await fs.pathExists(settingsPath)) {
+              const settings = await fs.readJson(settingsPath);
+              if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
+                  serviceKey = settings.bas_fingerprint_key.trim();
+                  console.log('Service key loaded from settings.');
+              }
+          }
       } catch (e) {
-        console.error(`Failed to fetch service key: ${e.message}`);
+          console.warn('Failed to load global settings in open.js:', e.message);
+      }
+
+      if (!serviceKey) {
+          try {
+            const keyResponse = await axios.get('https://api.tubecreate.com/api/fingerprints/key.php', { timeout: 10000 });
+            if (keyResponse.data && keyResponse.data.status === 'success' && keyResponse.data.key) {
+              // Decode Base64 key
+              serviceKey = Buffer.from(keyResponse.data.key, 'base64').toString('utf8');
+              console.log('Service key fetched and decoded.');
+            } else {
+              throw new Error('Invalid key response format');
+            }
+          } catch (e) {
+            console.error(`Failed to fetch service key: ${e.message}`);
+          }
       }
       
       if (serviceKey) {

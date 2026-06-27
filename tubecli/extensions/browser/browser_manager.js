@@ -324,8 +324,190 @@ export class BrowserManager {
         this.serviceKey = null;
     }
 
+    async resolveProxyTimezone(proxy) {
+        if (proxy) {
+            let host = null;
+            try {
+                let normalized = proxy;
+                if (!normalized.includes('://')) {
+                    normalized = 'http://' + normalized;
+                }
+                const u = new URL(normalized);
+                host = u.hostname;
+            } catch (e) {
+                const match = proxy.match(/(?:[^@\n]+@)?(?:www\.)?([^:\/\n]+)/);
+                host = match ? match[1] : null;
+            }
+            
+            if (host && host !== '127.0.0.1' && host !== 'localhost') {
+                console.log(`[Timezone] Resolving timezone for proxy host: ${host}`);
+                try {
+                    const resp = await axios.get(`http://ip-api.com/json/${host}`, { timeout: 5000 });
+                    if (resp.data && resp.data.status === 'success' && resp.data.timezone) {
+                        console.log(`[Timezone] Proxy timezone resolved successfully: ${resp.data.timezone}`);
+                        return resp.data.timezone;
+                    }
+                } catch (e) {
+                    console.warn(`[Timezone] Failed to resolve proxy timezone: ${e.message}`);
+                }
+            }
+        }
+        
+        // Fallback to local system timezone if proxy lookup fails or no proxy
+        try {
+            const systemTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            if (systemTz) return systemTz;
+        } catch (e) {}
+        
+        return "Asia/Ho_Chi_Minh";
+    }
+
+    async resolveIPDetails(proxy) {
+        let host = null;
+        if (proxy) {
+            try {
+                let normalized = proxy;
+                if (!normalized.includes('://')) {
+                    normalized = 'http://' + normalized;
+                }
+                const u = new URL(normalized);
+                host = u.hostname;
+            } catch (e) {
+                const match = proxy.match(/(?:[^@\n]+@)?(?:www\.)?([^:\/\n]+)/);
+                host = match ? match[1] : null;
+            }
+        }
+        
+        let url = 'http://ip-api.com/json/';
+        if (host && host !== '127.0.0.1' && host !== 'localhost') {
+            url = `http://ip-api.com/json/${host}`;
+        }
+        
+        console.log(`[IPDetails] Resolving details from: ${url}`);
+        try {
+            const resp = await axios.get(url, { timeout: 5000 });
+            if (resp.data && resp.data.status === 'success') {
+                console.log(`[IPDetails] Resolved: timezone=${resp.data.timezone}, countryCode=${resp.data.countryCode}`);
+                return {
+                    timezone: resp.data.timezone || "Asia/Ho_Chi_Minh",
+                    countryCode: resp.data.countryCode || "VN"
+                };
+            }
+        } catch (e) {
+            console.warn(`[IPDetails] Failed to resolve details: ${e.message}`);
+        }
+        
+        // Fallback: local system timezone and system country
+        let timezone = "Asia/Ho_Chi_Minh";
+        try {
+            timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || timezone;
+        } catch (e) {}
+        
+        // Default countryCode VN or resolve from language
+        let countryCode = "VN";
+        try {
+            const lang = Intl.DateTimeFormat().resolvedOptions().locale;
+            if (lang && lang.includes('-')) {
+                countryCode = lang.split('-')[1].toUpperCase();
+            }
+        } catch (e) {}
+        
+        return { timezone, countryCode };
+    }
+
+    getLanguageForCountry(countryCode) {
+        const c = countryCode ? countryCode.toUpperCase() : "VN";
+        const map = {
+            "VN": {
+                locale: "vi-VN",
+                languages: ["vi-VN", "vi", "en-US", "en"],
+                acceptLanguage: "vi-VN,vi;q=0.9,fr-FR;q=0.8,fr;q=0.7,en-US;q=0.6,en;q=0.5"
+            },
+            "US": {
+                locale: "en-US",
+                languages: ["en-US", "en"],
+                acceptLanguage: "en-US,en;q=0.9"
+            },
+            "GB": {
+                locale: "en-GB",
+                languages: ["en-GB", "en-US", "en"],
+                acceptLanguage: "en-GB,en-US;q=0.9,en;q=0.8"
+            },
+            "RU": {
+                locale: "ru-RU",
+                languages: ["ru-RU", "ru", "en-US", "en"],
+                acceptLanguage: "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "FR": {
+                locale: "fr-FR",
+                languages: ["fr-FR", "fr", "en-US", "en"],
+                acceptLanguage: "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "DE": {
+                locale: "de-DE",
+                languages: ["de-DE", "de", "en-US", "en"],
+                acceptLanguage: "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "UA": {
+                locale: "uk-UA",
+                languages: ["uk-UA", "uk", "ru-UA", "ru", "en-US", "en"],
+                acceptLanguage: "uk-UA,uk;q=0.9,ru-UA;q=0.8,ru;q=0.7,en-US;q=0.6,en;q=0.5"
+            },
+            "TH": {
+                locale: "th-TH",
+                languages: ["th-TH", "th", "en-US", "en"],
+                acceptLanguage: "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "ID": {
+                locale: "id-ID",
+                languages: ["id-ID", "id", "en-US", "en"],
+                acceptLanguage: "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "PH": {
+                locale: "fil-PH",
+                languages: ["fil-PH", "fil", "en-US", "en"],
+                acceptLanguage: "fil-PH,fil;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "MY": {
+                locale: "ms-MY",
+                languages: ["ms-MY", "ms", "en-US", "en"],
+                acceptLanguage: "ms-MY,ms;q=0.9,en-US;q=0.8,en;q=0.7"
+            },
+            "SG": {
+                locale: "en-SG",
+                languages: ["en-SG", "en-GB", "en-US", "en", "zh-SG", "zh"],
+                acceptLanguage: "en-SG,en-GB;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+        };
+        
+        return map[c] || {
+            locale: "en-US",
+            languages: ["en-US", "en"],
+            acceptLanguage: "en-US,en;q=0.9"
+        };
+    }
+
     async fetchServiceKey() {
         if (this.serviceKey) return this.serviceKey;
+
+        // 1. Try to read from global_settings.json
+        try {
+            const extDir = path.dirname(fileURLToPath(import.meta.url));
+            const settingsPath = path.resolve(extDir, '..', '..', '..', 'data', 'global_settings.json');
+            if (await fs.pathExists(settingsPath)) {
+                const settings = await fs.readJson(settingsPath);
+                if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
+                    this.serviceKey = settings.bas_fingerprint_key.trim();
+                    plugin.setServiceKey(this.serviceKey);
+                    console.log('Service key loaded from settings.');
+                    return this.serviceKey;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load global settings in browser_manager:', e.message);
+        }
+
+        // 2. Fallback to API if not in settings
         try {
             console.log('Fetching service key from API...');
             const response = await axios.get('https://api.tubecreate.com/api/fingerprints/key.php', { timeout: 10000 });
@@ -333,10 +515,9 @@ export class BrowserManager {
                 // Decode Base64 key
                 this.serviceKey = Buffer.from(response.data.key, 'base64').toString('utf8');
                 plugin.setServiceKey(this.serviceKey);
-                console.log('Service key fetched and decoded.');
+                console.log('Service key fetched and decoded from API.');
                 return this.serviceKey;
             }
-            // Fallback: no key available
             return null;
         } catch (e) {
             console.error(`Error fetching service key: ${e.message}`);
@@ -411,6 +592,13 @@ export class BrowserManager {
                             if (!isShardXFpFormat(parsed)) {
                                 console.log('[Fingerprint] Loaded BAS fingerprint, but profile is ShardX. Converting to ShardX format...');
                                 const converted = convertBasToShardX(parsed, profileName);
+                                try {
+                                    const config = await fs.readJson(configPath).catch(() => ({}));
+                                    const resolvedTz = await this.resolveProxyTimezone(config.proxy);
+                                    if (resolvedTz) {
+                                        converted.timezone = resolvedTz;
+                                    }
+                                } catch (err) {}
                                 const toSave = JSON.stringify(converted, null, 2);
                                 await fs.outputFile(fingerprintPath, toSave, 'utf8');
                                 await fs.outputFile(legacyFingerprintPath, toSave, 'utf8');
@@ -479,6 +667,13 @@ export class BrowserManager {
                         const shardxFpPath = path.join(localShardxDir, files[idx]);
                         console.log(`[Fingerprint] Found local ShardX fingerprint: ${files[idx]} (consistent hash pick)`);
                         const shardxData = await fs.readJson(shardxFpPath);
+                        try {
+                            const config = await fs.readJson(configPath).catch(() => ({}));
+                            const resolvedTz = await this.resolveProxyTimezone(config.proxy);
+                            if (resolvedTz) {
+                                shardxData.timezone = resolvedTz;
+                            }
+                        } catch (err) {}
                         const seed = profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0);
                         shardxData.noise = {
                             canvas: { enabled: true, seed: seed },
@@ -520,6 +715,13 @@ export class BrowserManager {
                     if (isShardX) {
                         console.log('[Fingerprint] Converting local BAS fingerprint to ShardX format...');
                         finalFp = convertBasToShardX(basData, profileName);
+                        try {
+                            const config = await fs.readJson(configPath).catch(() => ({}));
+                            const resolvedTz = await this.resolveProxyTimezone(config.proxy);
+                            if (resolvedTz) {
+                                finalFp.timezone = resolvedTz;
+                            }
+                        } catch (err) {}
                     }
                     
                     const toSave = JSON.stringify(finalFp, null, 2);
@@ -554,6 +756,21 @@ export class BrowserManager {
 
         // 2. Fetch via PHP API (key stays on server)
         console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
+        
+        let basKey = '';
+        try {
+            const extDir = path.dirname(fileURLToPath(import.meta.url));
+            const settingsPath = path.resolve(extDir, '..', '..', '..', 'data', 'global_settings.json');
+            if (await fs.pathExists(settingsPath)) {
+                const settings = await fs.readJson(settingsPath);
+                if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
+                    basKey = settings.bas_fingerprint_key.trim();
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load global settings in getFingerprint:', e.message);
+        }
+
         let attempts = 0;
         let triedWithoutSize = false;
         while (attempts < 3) {
@@ -568,13 +785,26 @@ export class BrowserManager {
                     params.max_height = windowSize.height + 200;
                 }
                 
-                const resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { 
-                    params,
-                    responseType: 'text',
-                    timeout: 180000,
-                    maxContentLength: 50 * 1024 * 1024,
-                    maxBodyLength: 50 * 1024 * 1024
-                });
+                let resp;
+                if (basKey) {
+                    resp = await axios.post('https://api.tubecreate.com/api/fingerprints/getfinger.php', {
+                        key: basKey,
+                        ...params
+                    }, {
+                        responseType: 'text',
+                        timeout: 180000,
+                        maxContentLength: 50 * 1024 * 1024,
+                        maxBodyLength: 50 * 1024 * 1024
+                    });
+                } else {
+                    resp = await axios.get('https://api.tubecreate.com/api/fingerprints/getfinger.php', { 
+                        params,
+                        responseType: 'text',
+                        timeout: 180000,
+                        maxContentLength: 50 * 1024 * 1024,
+                        maxBodyLength: 50 * 1024 * 1024
+                    });
+                }
                 const rawText = resp.data;
                 const data = JSON.parse(rawText);
                 
@@ -618,7 +848,15 @@ export class BrowserManager {
 
                     if (isShardX && parsedFp) {
                         console.log('[Fingerprint] Fetched BAS fingerprint for ShardX profile. Converting to ShardX format...');
-                        fingerprint = convertBasToShardX(parsedFp, profileName);
+                        const converted = convertBasToShardX(parsedFp, profileName);
+                        try {
+                            const config = await fs.readJson(configPath).catch(() => ({}));
+                            const resolvedTz = await this.resolveProxyTimezone(config.proxy);
+                            if (resolvedTz) {
+                                converted.timezone = resolvedTz;
+                            }
+                        } catch (err) {}
+                        fingerprint = converted;
                     }
 
                     // Save it
@@ -855,6 +1093,11 @@ export class BrowserManager {
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
                 targetChromiumVer = conf.browser_version;
+                if (targetChromiumVer) {
+                    if (targetChromiumVer === '149.0.0.0') {
+                        targetChromiumVer = '149.0.7827.54';
+                    }
+                }
                 
                 let isShardX = false;
                 if (targetChromiumVer && targetChromiumVer.includes('ShardX')) {
@@ -897,6 +1140,7 @@ export class BrowserManager {
                 
                 if (!isShardX) {
                     const ENGINE_MAP = {
+                        '30.2.0': '149.0.7827.54',
                         '30.1.0': '148.0.7778.97',
                         '30.0.0': '147.0.7727.56',
                         '29.9.2': '146.0.7680.80',
@@ -994,7 +1238,7 @@ export class BrowserManager {
         // ═══════════════════════════════════════════════════════════════
         if (isShardXProfile && shardxExePath) {
             return await this._launchShardX({
-                profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args
+                profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args, targetChromiumVer
             });
         }
 
@@ -1056,6 +1300,7 @@ export class BrowserManager {
             try {
                 const context = await plugin.launchPersistentContext(profilePath, {
                     headless,
+                    viewport: null, // Disable default Playwright viewport override
                     args: launchArgs,
                     userDataDir: profilePath,
                     ignoreDefaultArgs: ['--enable-automation'],
@@ -1134,8 +1379,11 @@ export class BrowserManager {
      * Uses bundled fingerprint profiles from %APPDATA%\shardx-launcher\runtime\fingerprints\
      * or falls back to fingerprint saved in the profile folder.
      */
-    async _launchShardX({ profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args }) {
+    async _launchShardX({ profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args, targetChromiumVer }) {
         console.log(`[ShardX] Launching with native engine at: ${shardxExePath}`);
+
+        const configPath = path.join(profilePath, 'config.json');
+        const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
 
         // ── 1. Resolve fingerprint for ShardX ──────────────────────────
         // Priority: (a) profile's saved fingerprint.json (ShardX format)
@@ -1255,6 +1503,51 @@ export class BrowserManager {
                 
                 // Read and explicitly ensure noise is enabled before writing to the temp ASCII path
                 const shardxData = await fs.readJson(shardxFpFile);
+                
+                // Dynamic timezone, language, and Client Hints override right before launch
+                try {
+                    const ipDetails = await this.resolveIPDetails(proxy);
+                    if (ipDetails) {
+                        console.log(`[ShardX] Injecting resolved timezone: ${ipDetails.timezone}`);
+                        shardxData.timezone = ipDetails.timezone;
+                        
+                        const langDetails = this.getLanguageForCountry(ipDetails.countryCode);
+                        console.log(`[ShardX] Injecting resolved language details [locale: ${langDetails.locale}, country: ${ipDetails.countryCode}]`);
+                        
+                        shardxData.icu_locale = langDetails.locale;
+                        if (!shardxData.navigator) shardxData.navigator = {};
+                        shardxData.navigator.language = langDetails.locale;
+                        shardxData.navigator.accept_language = langDetails.acceptLanguage;
+                        shardxData.navigator.languages = langDetails.languages;
+                    }
+                } catch (tzErr) {
+                    console.warn(`[ShardX] Error injecting timezone/language: ${tzErr.message}`);
+                }
+
+                // Dynamic Client Hints version override right before launch
+                if (targetChromiumVer) {
+                    try {
+                        const parts = targetChromiumVer.split('.');
+                        if (parts.length === 4) {
+                            const major = parts[0];
+                            const build = parseInt(parts[2], 10);
+                            const patch = parseInt(parts[3], 10);
+                            
+                            if (!shardxData.client_hints) shardxData.client_hints = {};
+                            
+                            shardxData.client_hints.brand = "Google Chrome";
+                            shardxData.client_hints.brand_version = major;
+                            shardxData.client_hints.brand_full_version = targetChromiumVer;
+                            shardxData.client_hints.chrome_build = build;
+                            shardxData.client_hints.chrome_patch = patch;
+                            
+                            console.log(`[ShardX] Injected Client Hints version: brand_full_version=${targetChromiumVer}, build=${build}, patch=${patch}`);
+                        }
+                    } catch (chErr) {
+                        console.warn(`[ShardX] Error injecting Client Hints version: ${chErr.message}`);
+                    }
+                }
+
                 const seed = profileName ? profileName.split('').reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) & 0x7FFFFFFF, 0) : Math.floor(Math.random() * 1000000);
                 shardxData.noise = {
                     canvas: { enabled: true, seed: seed },
@@ -1272,6 +1565,13 @@ export class BrowserManager {
             }
 
             launchArgs.push(`--fingerprint-profile=${shardxFpFile}`);
+        }
+
+        // Cấu hình kích thước cửa sổ
+        if (conf.window_size && conf.window_size.width && conf.window_size.height) {
+            launchArgs.push(`--window-size=${conf.window_size.width},${conf.window_size.height}`);
+        } else {
+            launchArgs.push('--start-maximized');
         }
 
         if (headless) launchArgs.push('--headless=new');
@@ -1301,10 +1601,21 @@ export class BrowserManager {
             const context = await chromium.launchPersistentContext(profilePath, {
                 executablePath: shardxExePath,
                 headless,
+                viewport: null, // Disable default Playwright viewport override to allow window-size / start-maximized
                 args: launchArgs,
                 ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
                 ignoreHTTPSErrors: true,
             });
+
+            // Bơm script ẩn danh để vượt qua các bộ kiểm tra bot cơ bản
+            await context.addInitScript(() => {
+                try {
+                    Object.defineProperty(navigator, 'webdriver', {
+                        get: () => undefined
+                    });
+                } catch (e) {}
+            });
+
             console.log('[ShardX] ✅ Browser launched successfully.');
             return context;
         } catch (e) {
