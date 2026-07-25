@@ -45,8 +45,10 @@
 
 ## 🌟 主な機能
 
-システムは、完全な 10 サブシステム アーキテクチャに進化しました：
+システムは、完全な 12 サブシステム アーキテクチャに進化しました：
 
+- 💬 **Chat** — システム全体のための統合された会話インターフェース。永続的な履歴を持つマルチセッション スレッド、エージェント ピッカー（または適切な専門エージェントへの自動ルーティング）、およびマークダウン レンダリングを備えています。すべてのターンで完全なパイプライン（ゼロトークンの意図分類、スキル選択、そしてモデル）が実行されるため、Telegram ボットでできることはブラウザでも同じように実行できます。
+- 📋 **Codex** — エージェント作業のためのミッション コントロール。ユーザーまたは AI がタスクを作成し、エージェントまたはチームに委任して承認すると、バックグラウンド ワーカーがそれを実行し、その間ステップ タイムラインで進行状況を確認できます。結果はレビューのために返されます。タスクは永続的で再起動後も維持され、タスクごとに完全な監査証跡が残ります。
 - 🤖 **Agent Manager** — ペルソナ、ルーティン、スキルを持つ AI エージェントを作成および管理します。
 - ⚡ **Skill System** — マークダウン ビューアとリアルタイム実行モーダルを備えた、タグ（ワークフロー、API、マークダウン）でマークされた実行可能ワークフロー。
 - 🔄 **Workflow Engine & Builder** — DAG ベースのワークフロー実行エンジン。WebUI は、コンパクトなノード、コンテキスト スライディング プロパティ パネル、および動的なモデル選択（ローカル Ollama / クラウド API）を備えた最新のノードベース ビルダーを備えています。
@@ -54,9 +56,10 @@
 - 👥 **Teams Agents** — 組織図を使用して複数のエージェントを調整します。論理テンプレートまたはドラッグ アンド ドロップを介して役割を割り当てます。タスクの委任は、シーケンシャル、並列、または階層的戦略に基づいて、チームを介して作業をルーティングします。
 - 🏢 **3D Studio (Teams 3D)** — Three.js を使用した等角投影法によるプロシージャル 3D ビジュアライゼーション。インテリジェントな内向きアルゴリズム、レイキャスティング グループ操作、および 15 以上の組み込みアセットを備えた複数席の家具（会議用テーブルなど）をサポートします。
 - 🎬 **Story Engine & Player** — スクリプト エディタを介してプロンプトからインタラクティブな 3D ストーリーを生成します。エージェントは、アニメーション化されたシーン プレーヤー内で 3D 吹き出しを介して通信します。
-- 🔌 **Extension Manager** — `browser`、`webui`、`market`、および `studio3d` をサポートするプラグイン可能アーキテクチャ。CLI コマンドと API ルートのホットリロードを可能にします。
+- 🔌 **Extension Manager** — プラグイン可能アーキテクチャ。組み込みには `chat`、`codex`、`browser`、`browser_scripts`、`webui`、`market`、`multi_agents`、`studio3d`、`cloud_api` などが含まれます。各拡張機能は、CLI コマンド、API ルート、ワークフロー ノード、Telegram アクション、および独自の UI ページを提供します。
 - 🌐 **Browser Automation** — ブラウザ プロファイル、プロキシ、フィンガープリントをオーケストレーションします。TOTP 2FA を使用した Google の自動ログインが組み込まれています。
 - 🛒 **Marketplace** — オンライン レジストリを介してコミュニティ スキルを発見、インストール、共有します。
+- 📨 **Telegram Bridge** — Telegram ボットから同じシステムを操作します。意図のルーティング、スキルの実行、タスクの承認、および長時間実行される作業が完了したときのプロアクティブな通知に対応しています。
 
 ## 🚀 クイック スタート & インストール
 
@@ -125,6 +128,15 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### タスク ボード (Codex)
+```bash
+tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
+tubecli codex list --status pending_approval
+tubecli codex approve 3
+tubecli codex show 3
+```
+> AI が作成したタスクは、実行される前に必ずユーザーの承認を待ちます。
+
 ### 拡張機能 & マーケット
 ```bash
 tubecli extension list
@@ -132,6 +144,7 @@ tubecli extension enable webui
 tubecli market search "seo"
 tubecli market install "seo-analyzer"
 ```
+> 拡張機能は、サーバーがそれらをインポートするときに API ルートをバインドします。そのため、拡張機能を有効化または追加した後は**サーバーを再起動**してください。
 
 ## 🧠 アーキテクチャの概要
 
@@ -141,7 +154,7 @@ tubecli/
 │   ├── api/           # REST API サーバー (FastAPI)
 │   ├── cli/           # CLI コマンド モジュール
 │   ├── core/          # コア ビジネス ロジック
-│   ├── extensions/    # 拡張機能 (Browser, WebUI, Market, Studio3D)
+│   ├── extensions/    # 拡張機能 (Chat, Codex, Browser, WebUI, Market, Studio3D, …)
 │   ├── nodes/         # ワークフロー ノードの実装
 │   └── skills/        # 組み込みシステム スキル
 ├── .agents/           # AI 読み取り用ドキュメント (SKILL.md)

@@ -45,8 +45,10 @@
 
 ## 🌟 主要功能
 
-该系统已演变为一个完整的 10 子系统架构：
+该系统已演变为一个完整的 12 子系统架构：
 
+- 💬 **Chat** — 面向整个系统的统一对话界面。支持多会话线程与持久化历史记录、Agent 选择器（或自动路由到合适的专职 Agent）以及 Markdown 渲染。每一轮对话都会执行完整流水线——零 token 意图分类、技能选择，然后调用模型——因此 Telegram 机器人能做的一切，在浏览器中同样可以完成。
+- 📋 **Codex** — Agent 化工作的任务中枢。您或 AI 创建任务，将其分派给某个 Agent 或团队，批准后由后台工作进程执行，同时您可以观看步骤时间线。结果会返回供您审阅。任务是持久化的，重启后依然存在，并且每个任务都有完整的审计记录。
 - 🤖 **Agent Manager** — 创建和管理具有角色设定（persona）、日常例程（routine）和技能（skill）的 AI Agent。
 - ⚡ **Skill System** — 带标签的可执行工作流（Workflow, API, Markdown），配备 Markdown 查看器和实时执行模态框。
 - 🔄 **Workflow Engine & Builder** — 基于 DAG 的工作流执行器。WebUI 提供了现代化的节点生成器，包含紧凑的节点、上下文滑动属性面板以及动态模型选择（本地 Ollama / 云端 API）。
@@ -54,9 +56,10 @@
 - 👥 **Teams Agents** — 使用组织结构图编排多个 Agent。通过逻辑模板或拖放来分配角色。任务分配通过团队依据顺序、并行或层级策略路由工作。
 - 🏢 **3D Studio (Teams 3D)** — 使用 Three.js 的等距 3D 可视化。支持多座家具（会议桌、谈判桌）以及智能内向算法、射线检测（raycasting）组操作和 15+ 内置资产。
 - 🎬 **Story Engine & Player** — 通过剧本编辑器根据提示生成交互式 3D 故事。Agent 在动画场景播放器内通过 3D 气泡进行交流。
-- 🔌 **Extension Manager** — 支持 `browser`、`webui`、`market` 和 `studio3d` 的可插拔架构。支持热重载 CLI 命令和 API 路由。
+- 🔌 **Extension Manager** — 可插拔架构。内置扩展包括 `chat`、`codex`、`browser`、`browser_scripts`、`webui`、`market`、`multi_agents`、`studio3d`、`cloud_api` 等。每个扩展都可以提供 CLI 命令、API 路由、工作流节点、Telegram 动作以及自己的 UI 页面。
 - 🌐 **Browser Automation** — 编排浏览器配置、代理、指纹。内置带有 TOTP 双因素认证（2FA）的谷歌自动登录。
 - 🛒 **Marketplace** — 通过在线注册表发现、安装和分享社区技能。
+- 📨 **Telegram Bridge** — 通过 Telegram 机器人驱动同一套系统：意图路由、技能执行、任务审批，以及长时间任务完成时的主动通知。
 
 ## 🚀 快速开始与安装
 
@@ -125,6 +128,15 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### 任务看板 (Codex)
+```bash
+tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
+tubecli codex list --status pending_approval
+tubecli codex approve 3
+tubecli codex show 3
+```
+> AI 创建的任务在运行前始终会等待您的批准。
+
 ### 扩展与市场
 ```bash
 tubecli extension list
@@ -132,6 +144,7 @@ tubecli extension enable webui
 tubecli market search "seo"
 tubecli market install "seo-analyzer"
 ```
+> 扩展的 API 路由是在服务器导入它们时绑定的，因此启用或添加扩展后请**重启服务器**。
 
 ## 🧠 架构概述
 
@@ -141,7 +154,7 @@ tubecli/
 │   ├── api/           # REST API 服务器 (FastAPI)
 │   ├── cli/           # CLI 命令模块
 │   ├── core/          # 核心业务逻辑
-│   ├── extensions/    # 扩展 (Browser, WebUI, Market, Studio3D)
+│   ├── extensions/    # 扩展 (Chat, Codex, Browser, WebUI, Market, Studio3D, …)
 │   ├── nodes/         # 工作流节点实现
 │   └── skills/        # 内置系统技能
 ├── .agents/           # AI 可读文档 (SKILL.md)

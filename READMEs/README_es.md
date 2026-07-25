@@ -45,8 +45,10 @@ Un sistema CLI sin interfaz (headless) para instalar, gestionar y orquestar **ag
 
 ## 🌟 Características Clave
 
-El sistema ha evolucionado hacia una arquitectura completa de 10 subsistemas:
+El sistema ha evolucionado hacia una arquitectura completa de 12 subsistemas:
 
+- 💬 **Chat** — Una interfaz de conversación unificada para todo el sistema. Hilos multisesión con historial persistente, un selector de agentes (o enrutamiento automático al especialista adecuado) y renderizado de Markdown. Cada turno ejecuta el pipeline completo — clasificación de intenciones sin consumo de tokens, selección de habilidades y luego el modelo — de modo que todo lo que puede hacer el bot de Telegram, también puede hacerlo el navegador.
+- 📋 **Codex** — Centro de control para el trabajo agéntico. Usted o la IA crean una tarea, la delegan a un agente o a un equipo, la aprueban y un proceso en segundo plano la ejecuta mientras usted observa la línea de tiempo de los pasos. Los resultados regresan para su revisión. Las tareas son persistentes y sobreviven a un reinicio, con un registro de auditoría completo por cada tarea.
 - 🤖 **Agent Manager** — Crea y gestiona agentes de IA con personalidades (personas), rutinas y habilidades.
 - ⚡ **Skill System** — Flujos de trabajo ejecutables marcados con etiquetas (Workflow, API, Markdown) con un visor de Markdown y un modal de ejecución en tiempo real.
 - 🔄 **Workflow Engine & Builder** — Ejecutor de flujos de trabajo basado en DAG. La interfaz WebUI presenta un constructor moderno basado en nodos con nodos compactos, paneles de propiedades deslizantes contextuales y selección dinámica de modelos (Ollama local / API en la nube).
@@ -54,9 +56,10 @@ El sistema ha evolucionado hacia una arquitectura completa de 10 subsistemas:
 - 👥 **Teams Agents** — Orquesta múltiples agentes utilizando organigramas. Asigna roles mediante plantillas lógicas o arrastrar y soltar. La delegación de tareas enruta el trabajo a través del equipo basado en estrategias secuenciales, paralelas o jerárquicas.
 - 🏢 **3D Studio (Teams 3D)** — Visualización 3D procedimental isométrica utilizando Three.js. Soporta mobiliario de múltiples asientos (mesas de reunión, mesas de conferencias) con algoritmos inteligentes orientados hacia adentro, manipulación de grupos por raycasting y más de 15 recursos integrados.
 - 🎬 **Story Engine & Player** — Genera historias en 3D interactivas a partir de prompts a través de nuestro Editor de Guiones. Los agentes se comunican a través de burbujas de diálogo en 3D dentro de un reproductor de escenas animadas.
-- 🔌 **Extension Manager** — Arquitectura modular compatible con `browser`, `webui`, `market` y `studio3d`. Permite la recarga en caliente de comandos CLI y rutas de API.
+- 🔌 **Extension Manager** — Arquitectura modular (pluggable). Las extensiones integradas incluyen `chat`, `codex`, `browser`, `browser_scripts`, `webui`, `market`, `multi_agents`, `studio3d`, `cloud_api` y más. Cada extensión aporta comandos CLI, rutas de API, nodos de flujo de trabajo, acciones de Telegram y su propia página de interfaz.
 - 🌐 **Browser Automation** — Orquesta perfiles de navegador, proxies y huellas digitales. Inicio de sesión automático integrado para Google con TOTP 2FA.
 - 🛒 **Marketplace** — Descubre, instala y comparte habilidades de la comunidad a través de un registro en línea.
+- 📨 **Telegram Bridge** — Controle el mismo sistema desde un bot de Telegram: enrutamiento de intenciones, ejecución de habilidades, aprobación de tareas y notificaciones proactivas cuando finalizan los trabajos de larga duración.
 
 ## 🚀 Inicio Rápido e Instalación
 
@@ -125,6 +128,15 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### Tablero de Tareas (Codex)
+```bash
+tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
+tubecli codex list --status pending_approval
+tubecli codex approve 3
+tubecli codex show 3
+```
+> Las tareas que crea la IA siempre esperan su aprobación antes de ejecutarse.
+
 ### Extensiones y Mercado
 ```bash
 tubecli extension list
@@ -132,6 +144,7 @@ tubecli extension enable webui
 tubecli market search "seo"
 tubecli market install "seo-analyzer"
 ```
+> Las extensiones vinculan sus rutas de API cuando el servidor las importa, por lo que debe **reiniciar el servidor** después de habilitar o añadir una.
 
 ## 🧠 Descripción General de la Arquitectura
 
@@ -141,7 +154,7 @@ tubecli/
 │   ├── api/           # Servidor API REST (FastAPI)
 │   ├── cli/           # Módulos de comandos CLI
 │   ├── core/          # Lógica de negocio principal
-│   ├── extensions/    # Extensiones (Browser, WebUI, Market, Studio3D)
+│   ├── extensions/    # Extensiones (Chat, Codex, Browser, WebUI, Market, Studio3D, …)
 │   ├── nodes/         # Implementaciones de nodos de flujo de trabajo
 │   └── skills/        # Habilidades integradas del sistema
 ├── .agents/           # Documentación legible por IA (SKILL.md)

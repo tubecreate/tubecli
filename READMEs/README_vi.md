@@ -45,8 +45,10 @@ Hệ thống CLI không giao diện (headless) để cài đặt, quản lý và
 
 ## 🌟 Tính năng chính
 
-Hệ thống đã phát triển thành một kiến trúc hoàn chỉnh gồm 10 phân hệ chính:
+Hệ thống đã phát triển thành một kiến trúc hoàn chỉnh gồm 12 phân hệ chính:
 
+- 💬 **Chat** — Giao diện hội thoại hợp nhất cho toàn bộ hệ thống. Hỗ trợ nhiều phiên trò chuyện với lịch sử được lưu bền, bộ chọn agent (hoặc tự động định tuyến tới đúng chuyên gia) và hiển thị markdown. Mỗi lượt trò chuyện đều chạy qua toàn bộ pipeline — phân loại ý định không tốn token, chọn skill, rồi mới tới model — nên bất cứ điều gì bot Telegram làm được thì trình duyệt cũng làm được.
+- 📋 **Codex** — Trung tâm điều hành cho các tác vụ agent. Bạn hoặc AI tạo một tác vụ, ủy thác cho một agent hoặc một nhóm, phê duyệt nó, và một worker chạy nền sẽ thực thi trong khi bạn theo dõi dòng thời gian từng bước. Kết quả được trả về để bạn xem xét. Các tác vụ được lưu bền và vẫn còn nguyên sau khi khởi động lại, kèm nhật ký kiểm toán đầy đủ cho từng tác vụ.
 - 🤖 **Agent Manager** — Tạo và quản lý các agent AI với tính cách (persona), thói quen (routine) và kỹ năng (skill).
 - ⚡ **Skill System** — Các quy trình công việc có thể thực thi được gắn thẻ (Workflow, API, Markdown) với Trình xem Markdown và Giao diện thực thi thời gian thực.
 - 🔄 **Workflow Engine & Builder** — Trình thực thi workflow dựa trên đồ thị DAG. Giao diện WebUI có trình tạo dạng node hiện đại với các nút nhỏ gọn, bảng thuộc tính trượt theo ngữ cảnh và chọn model động (Ollama cục bộ / API Cloud).
@@ -54,9 +56,10 @@ Hệ thống đã phát triển thành một kiến trúc hoàn chỉnh gồm 10
 - 👥 **Teams Agents** — Điều phối nhiều agent bằng Sơ đồ tổ chức. Phân vai qua các mẫu logic hoặc kéo thả. Ủy thác công việc định tuyến qua nhóm theo các chiến lược tuần tự, song song hoặc phân cấp.
 - 🏢 **3D Studio (Teams 3D)** — Trực quan hóa 3D thủ tục trực diện (isometric) sử dụng Three.js. Hỗ trợ nội thất nhiều chỗ ngồi (bàn họp, bàn hội nghị) với thuật toán xoay hướng thông minh, thao tác nhóm bằng raycasting và hơn 15 tài nguyên có sẵn.
 - 🎬 **Story Engine & Player** — Tạo cốt truyện 3D tương tác từ prompt qua Trình soạn thảo kịch bản. Các agent giao tiếp qua bong bóng thoại 3D bên trong trình phát cảnh hoạt họa.
-- 🔌 **Extension Manager** — Kiến trúc cắm (pluggable) hỗ trợ `browser`, `webui`, `market` và `studio3d`. Cho phép tải lại nóng (hot-reloading) các lệnh CLI và tuyến API.
+- 🔌 **Extension Manager** — Kiến trúc cắm (pluggable). Các extension tích hợp sẵn gồm `chat`, `codex`, `browser`, `browser_scripts`, `webui`, `market`, `multi_agents`, `studio3d`, `cloud_api` và nhiều hơn nữa. Mỗi extension đóng góp các lệnh CLI, tuyến API, node workflow, hành động Telegram và trang giao diện riêng.
 - 🌐 **Browser Automation** — Điều phối cấu hình trình duyệt, proxy, dấu vân tay (fingerprint). Tích hợp tự động đăng nhập Google với TOTP 2FA.
 - 🛒 **Marketplace** — Khám phá, cài đặt và chia sẻ kỹ năng cộng đồng qua sổ đăng ký trực tuyến.
+- 📨 **Telegram Bridge** — Điều khiển chính hệ thống này từ một bot Telegram: định tuyến ý định, thực thi skill, phê duyệt tác vụ và thông báo chủ động khi các công việc chạy dài hoàn tất.
 
 ## 🚀 Hướng dẫn nhanh & Cài đặt
 
@@ -125,6 +128,15 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### Bảng tác vụ (Codex)
+```bash
+tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
+tubecli codex list --status pending_approval
+tubecli codex approve 3
+tubecli codex show 3
+```
+> Các tác vụ do AI tạo ra luôn chờ bạn phê duyệt trước khi chạy.
+
 ### Extensions & Chợ ứng dụng (Market)
 ```bash
 tubecli extension list
@@ -132,6 +144,7 @@ tubecli extension enable webui
 tubecli market search "seo"
 tubecli market install "seo-analyzer"
 ```
+> Các extension chỉ gắn tuyến API của chúng khi máy chủ nạp (import) chúng, vì vậy hãy **khởi động lại máy chủ** sau khi bật hoặc thêm một extension.
 
 ## 🧠 Tổng quan kiến trúc
 
@@ -141,7 +154,7 @@ tubecli/
 │   ├── api/           # REST API server (FastAPI)
 │   ├── cli/           # Các mô-đun lệnh CLI
 │   ├── core/          # Logic nghiệp vụ cốt lõi
-│   ├── extensions/    # Tiện ích mở rộng (Browser, WebUI, Market, Studio3D)
+│   ├── extensions/    # Tiện ích mở rộng (Chat, Codex, Browser, WebUI, Market, Studio3D, …)
 │   ├── nodes/         # Triển khai nút Workflow
 │   └── skills/        # Kỹ năng hệ thống tích hợp sẵn
 ├── .agents/           # Tài liệu đọc cho AI (SKILL.md)

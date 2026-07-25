@@ -45,8 +45,10 @@ A headless CLI system for installing, managing, and orchestrating **AI agents**,
 
 ## 🌟 Key Features
 
-The system has evolved into a full-fledged 10-subsystem architecture:
+The system has evolved into a full-fledged 12-subsystem architecture:
 
+- 💬 **Chat** — A unified conversation interface for the whole system. Multi-session threads with durable history, an agent picker (or automatic routing to the right specialist), and markdown rendering. Every turn runs the full pipeline — zero-token intent classification, skill selection, then the model — so anything the Telegram bot can do, the browser can do too.
+- 📋 **Codex** — Mission control for agentic work. You or the AI create a task, delegate it to an agent or a team, approve it, and a background worker runs it while you watch the step timeline. Results come back for review. Tasks are durable and survive a restart, with a full audit trail per task.
 - 🤖 **Agent Manager** — Create and manage AI agents with personas, routines, and skills.
 - ⚡ **Skill System** — Executable workflows marked with tags (Workflow, API, Markdown) featuring a Markdown Viewer and Real-time Execution Modal.
 - 🔄 **Workflow Engine & Builder** — DAG-based workflow executor. The WebUI features a modern node-based builder with compact nodes, contextual sliding property panels, and dynamic model selection (Ollama local / Cloud API).
@@ -54,9 +56,10 @@ The system has evolved into a full-fledged 10-subsystem architecture:
 - 👥 **Teams Agents** — Orchestrate multiple agents using Organizational Charts. Assign roles via logical templates or drag-and-drop. Task Delegation routes work through the team based on sequential, parallel, or hierarchical strategies.
 - 🏢 **3D Studio (Teams 3D)** — Isometric procedural 3D visualization using Three.js. Supports multi-seat furniture (meeting tables, conference tables) with intelligent inward-facing algorithms, raycasting group manipulation, and 15+ built-in assets.
 - 🎬 **Story Engine & Player** — Generate interactive 3D stories from prompts via our Script Editor. Agents communicate via 3D speech bubbles inside an animated scene player.
-- 🔌 **Extension Manager** — Pluggable architecture supporting `browser`, `webui`, `market`, and `studio3d`. Enables hot-reloading CLI commands and API routes.
+- 🔌 **Extension Manager** — Pluggable architecture. Built-ins include `chat`, `codex`, `browser`, `browser_scripts`, `webui`, `market`, `multi_agents`, `studio3d`, `cloud_api`, and more. Each extension contributes CLI commands, API routes, workflow nodes, Telegram actions, and its own UI page.
 - 🌐 **Browser Automation** — Orchestrate browser profiles, proxies, fingerprints. Built-in Auto-Login for Google with TOTP 2FA.
 - 🛒 **Marketplace** — Discover, install, and share community skills via an online registry.
+- 📨 **Telegram Bridge** — Drive the same system from a Telegram bot: intent routing, skill execution, task approval, and proactive notifications when long-running work finishes.
 
 ## 🚀 Quick Start & Installation
 
@@ -133,6 +136,15 @@ tubecli api stop
 tubecli workflow run <path_to_workflow.json>
 ```
 
+### Task Board (Codex)
+```bash
+tubecli codex create "Research the top 5 competitor channels" --agent "Researcher"
+tubecli codex list --status pending_approval
+tubecli codex approve 3
+tubecli codex show 3
+```
+> Tasks the AI creates always wait for your approval before they run.
+
 ### Extensions & Market
 ```bash
 tubecli extension list
@@ -140,6 +152,7 @@ tubecli extension enable webui
 tubecli market search "seo"
 tubecli market install "seo-analyzer"
 ```
+> Extensions bind their API routes when the server imports them, so **restart the server** after enabling or adding one.
 
 ## 🧠 Architecture Overview
 
@@ -149,7 +162,7 @@ tubecli/
 │   ├── api/           # REST API server (FastAPI)
 │   ├── cli/           # CLI command modules
 │   ├── core/          # Core Business logic
-│   ├── extensions/    # Extensions (Browser, WebUI, Market, Studio3D)
+│   ├── extensions/    # Extensions (Chat, Codex, Browser, WebUI, Market, Studio3D, …)
 │   ├── nodes/         # Workflow Node implementations
 │   └── skills/        # Built-in system skills
 ├── .agents/           # AI-readable documentation (SKILL.md)
