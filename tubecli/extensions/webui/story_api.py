@@ -251,7 +251,7 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
                     break
                 raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://api.x.ai/v1")
             elif provider == "deepseek":
-                if not model: model = "deepseek-chat"
+                if not model: model = "deepseek-v4-flash"
                 if not current_key:
                     error_msg = "Chưa cấu hình DeepSeek API key."
                     break

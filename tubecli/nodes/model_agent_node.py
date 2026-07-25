@@ -231,7 +231,7 @@ class ModelAgentNode(BaseNode):
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model or "deepseek-chat", "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False},
+            json={"model": model or "deepseek-v4-flash", "messages": messages, "temperature": temperature, "max_tokens": max_tokens, "stream": False},
             timeout=180,
         )
         if resp.status_code == 200:

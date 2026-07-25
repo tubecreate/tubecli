@@ -309,7 +309,7 @@ def call_llm(prompt: str, user_message: str, provider: str, model: str, api_key:
         resp = requests.post(
             "https://api.deepseek.com/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": model or "deepseek-chat", "messages": messages, "temperature": 0.3},
+            json={"model": model or "deepseek-v4-flash", "messages": messages, "temperature": 0.3},
             timeout=120,
         )
         if resp.status_code == 200:
@@ -332,7 +332,7 @@ def call_llm(prompt: str, user_message: str, provider: str, model: str, api_key:
             "http://localhost:20128/v1/chat/completions",
             headers=headers,
             json={
-                "model": model or "deepseek-chat",
+                "model": model or "deepseek-v4-flash",
                 "messages": messages,
                 "temperature": 0.3,
             },

@@ -1315,7 +1315,7 @@ const WF = (() => {
 
     // DeepSeek models
     if (provider === 'deepseek') {
-      models = ['deepseek-chat', 'deepseek-reasoner'];
+      models = ['deepseek-v4-flash', 'deepseek-v4-pro'];
       $model.value = models[0];
       $model.placeholder = models.join(', ');
     } else if (provider === 'openrouter') {

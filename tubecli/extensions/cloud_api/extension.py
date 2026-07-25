@@ -38,7 +38,7 @@ PROVIDERS = {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com/v1",
         "anthropic_url": "https://api.deepseek.com/anthropic",
-        "models": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro"],
+        "models": ["deepseek-v4-flash", "deepseek-v4-pro"],
         "env_var": "DEEPSEEK_API_KEY",
     },
     "grok": {

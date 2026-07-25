@@ -1812,7 +1812,7 @@ async function loadSkillAIModels() {
                         'gemini': ['gemini-2.0-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
                         'chatgpt': ['gpt-4o-mini', 'gpt-4o', 'o1-mini', 'gpt-3.5-turbo'],
                         'claude': ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
-                        'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+                        'deepseek': ['deepseek-v4-flash', 'deepseek-v4-pro'],
                         'grok': ['grok-2-1212', 'grok-beta']
                     };
                     const models = fallbacks[provider] || ['default'];
@@ -1823,7 +1823,7 @@ async function loadSkillAIModels() {
                     'gemini': ['gemini-2.0-flash', 'gemini-2.0-pro-exp', 'gemini-1.5-pro', 'gemini-1.5-flash'],
                     'chatgpt': ['gpt-4o-mini', 'gpt-4o', 'o1-mini', 'gpt-3.5-turbo'],
                     'claude': ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
-                    'deepseek': ['deepseek-chat', 'deepseek-reasoner'],
+                    'deepseek': ['deepseek-v4-flash', 'deepseek-v4-pro'],
                     'grok': ['grok-2-1212', 'grok-beta']
                 };
                 const models = fallbacks[provider] || ['default'];
@@ -4020,7 +4020,7 @@ let AI_PROVIDERS = {
     "chatgpt": { models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo"], needs_api: true },
     "claude": { models: ["claude-sonnet-4-20250514", "claude-3-5-haiku-20241022"], needs_api: true },
     "grok": { models: ["grok-3", "grok-3-mini", "grok-2"], needs_api: true },
-    "deepseek": { models: ["deepseek-chat", "deepseek-reasoner"], needs_api: true },
+    "deepseek": { models: ["deepseek-v4-flash", "deepseek-v4-pro"], needs_api: true },
     "openrouter": { models: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-r1"], needs_api: true },
     "9router": { models: ["deepseek-chat", "deepseek-reasoner"], needs_api: true }
 };

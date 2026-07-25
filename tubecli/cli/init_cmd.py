@@ -314,7 +314,7 @@ def _auto_set_agent_model(provider_id: str, key: str):
         "gemini": "gemini-1.5-flash",
         "openai": "gpt-4o-mini",
         "claude": "claude-sonnet-4-20250514",
-        "deepseek": "deepseek-chat",
+        "deepseek": "deepseek-v4-flash",
     }
     model = model_map.get(provider_id)
     if not model:

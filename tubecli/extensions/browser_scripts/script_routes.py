@@ -183,7 +183,7 @@ async def list_ai_providers():
     models_dict = {
         "gemini": ["gemini-2.0-flash", "gemini-2.0-pro", "gemini-1.5-flash", "gemini-1.5-pro"],
         "chatgpt": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"],
-        "deepseek": ["deepseek-chat", "deepseek-coder", "deepseek-reasoner"],
+        "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
         "grok": ["grok-2", "grok-2-mini"],
         "9router": ["deepseek-chat", "deepseek-reasoner", "deepseek/deepseek-r1", "google/gemini-2.5-flash-lite"],
         "ollama": []
@@ -859,7 +859,7 @@ Generate realistic, working CSS selectors. Use language-agnostic selectors (IDs,
                     model_to_use = selected_model or "gemini-2.0-flash"
                     raw = call_gemini(model_to_use, api_key, system_prompt)
                 elif provider == "deepseek":
-                    model_to_use = selected_model or "deepseek-chat"
+                    model_to_use = selected_model or "deepseek-v4-flash"
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="https://api.deepseek.com/v1")
                 elif provider == "grok":
                     model_to_use = selected_model or "grok-3-mini-fast"
@@ -999,7 +999,7 @@ User: {message}"""
                     model_to_use = selected_model or "gemini-2.0-flash"
                     raw = call_gemini(model_to_use, api_key, system_prompt)
                 elif provider == "deepseek":
-                    model_to_use = selected_model or "deepseek-chat"
+                    model_to_use = selected_model or "deepseek-v4-flash"
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="https://api.deepseek.com/v1")
                 elif provider == "grok":
                     model_to_use = selected_model or "grok-3-mini-fast"
@@ -1117,7 +1117,7 @@ If selector is correct, keep it and focus on dismissing overlays."""
                 if provider == "gemini":
                     raw = call_gemini("gemini-2.0-flash", api_key, prompt)
                 elif provider == "deepseek":
-                    raw = call_openai_compatible("deepseek-chat", api_key, prompt, base_url="https://api.deepseek.com/v1")
+                    raw = call_openai_compatible("deepseek-v4-flash", api_key, prompt, base_url="https://api.deepseek.com/v1")
                 elif provider == "grok":
                     raw = call_openai_compatible("grok-3-mini-fast", api_key, prompt, base_url="https://api.x.ai/v1")
                 if raw and not raw.startswith("[ERROR]"):
@@ -1252,7 +1252,7 @@ Generate realistic, working CSS selectors. Output ONLY the JSON."""
                     model_to_use = selected_model or "gemini-2.0-flash"
                     raw = call_gemini(model_to_use, api_key, system_prompt)
                 elif provider == "deepseek":
-                    model_to_use = selected_model or "deepseek-chat"
+                    model_to_use = selected_model or "deepseek-v4-flash"
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="https://api.deepseek.com/v1")
                 elif provider == "grok":
                     model_to_use = selected_model or "grok-3-mini-fast"
