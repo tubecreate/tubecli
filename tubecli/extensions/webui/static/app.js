@@ -29,12 +29,16 @@ const ROUTE_TAB_MAP = {
     'ext-subtitle-extractor': 'ext-subtitle-extractor',
     'ext-workflows': 'ext-workflows',
     'workflows': 'ext-workflows',
+    'ext-codex': 'ext-codex',
+    'codex': 'ext-codex',
+    'ext-chat': 'ext-chat',
+    'chat': 'ext-chat',
 };
 
 function navigateTo(tab) {
     const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
-        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys', 'ext-market'];
+        const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys', 'ext-market', 'ext-codex', 'ext-chat'];
         if (!excludeTabs.includes(tab)) {
             let url = null;
             const panel = document.getElementById('tab-' + tab);
@@ -369,6 +373,8 @@ const EXT_REGISTRY = [
     { id:'skills',    tab:'skills',       icon:'bolt',       name:'stat.skills',   type:'core' },
     { id:'market',    tab:'ext-market',   icon:'storefront', name:'Marketplace',   type:'core' },
     // extension: shown when API enabled, groupable
+    { id:'chat',               tab:'ext-chat',               icon:'forum',          name:'chat.nav',            type:'extension' },
+    { id:'codex',              tab:'ext-codex',              icon:'checklist',      name:'codex.nav',           type:'extension' },
     { id:'cloud_api',          tab:'ext-cloud-keys',         icon:'cloud',          name:'dash.cloud_api_keys', type:'extension' },
     { id:'ollama',             tab:'ext-ollama',             icon:'🧠',             name:'Ollama Manager',      type:'extension' },
     { id:'multi_agents',       tab:'ext-teams',              icon:'groups',         name:'Teams AI',            type:'extension' },

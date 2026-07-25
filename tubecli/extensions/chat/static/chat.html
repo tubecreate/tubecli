@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Chat — TubeCLI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link rel="stylesheet" href="/chat/chat.css">
+</head>
+<body>
+
+<div class="ch-app" id="ch-app">
+
+  <!-- ═══ Sidebar ══════════════════════════════════════════════ -->
+  <aside class="ch-sidebar" id="ch-sidebar">
+
+    <div class="ch-sb-head">
+      <a class="ch-icon-btn ch-back" href="/dashboard" data-i18n-title="chat.back_dashboard" title="Back to dashboard">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
+      <div class="ch-brand">
+        <span class="material-symbols-outlined ch-brand-icon">forum</span>
+        <div class="ch-brand-text">
+          <div class="ch-brand-name" data-i18n="chat.page_title">Chat</div>
+          <div class="ch-brand-sub" data-i18n="chat.subtitle">Talk to your whole system</div>
+        </div>
+      </div>
+      <button type="button" class="ch-icon-btn ch-sb-close" onclick="CHAT.toggleSidebar()"
+              data-i18n-title="chat.collapse_sidebar" title="Hide conversation list">
+        <span class="material-symbols-outlined">left_panel_close</span>
+      </button>
+    </div>
+
+    <div class="ch-sb-actions">
+      <button type="button" class="ch-btn ch-btn-primary ch-new-btn" onclick="CHAT.newChat()">
+        <span class="material-symbols-outlined">add</span>
+        <span data-i18n="chat.new_chat">New chat</span>
+      </button>
+    </div>
+
+    <div class="ch-sb-search">
+      <span class="material-symbols-outlined">search</span>
+      <input type="search" id="ch-search" autocomplete="off"
+             data-i18n-placeholder="chat.search_placeholder"
+             placeholder="Search conversations…"
+             oninput="CHAT.onSearch(this.value)">
+    </div>
+
+    <div class="ch-sessions" id="ch-sessions"></div>
+
+    <div class="ch-sb-foot" id="ch-sb-foot"></div>
+  </aside>
+
+  <div class="ch-backdrop" id="ch-backdrop" onclick="CHAT.closeSidebar()"></div>
+
+  <!-- ═══ Main column ══════════════════════════════════════════ -->
+  <main class="ch-main">
+
+    <header class="ch-topbar">
+      <button type="button" class="ch-icon-btn ch-sb-open" onclick="CHAT.toggleSidebar()"
+              data-i18n-title="chat.show_sidebar" title="Show conversation list">
+        <span class="material-symbols-outlined">menu</span>
+      </button>
+
+      <div class="ch-head-title" onclick="CHAT.renameActive()" data-i18n-title="chat.rename" title="Rename">
+        <h1 id="ch-title" data-i18n="chat.untitled">New conversation</h1>
+        <div class="ch-head-sub" id="ch-sub"></div>
+      </div>
+
+      <div class="ch-head-right">
+        <label class="ch-agent" data-i18n-title="chat.agent_label" title="Agent">
+          <span class="material-symbols-outlined">robot_2</span>
+          <select id="ch-agent" onchange="CHAT.onAgentChange(this.value)"></select>
+        </label>
+
+        <div class="ch-menu-wrap">
+          <button type="button" class="ch-icon-btn" onclick="CHAT.toggleMenu(event)"
+                  data-i18n-title="chat.menu" title="More actions">
+            <span class="material-symbols-outlined">more_vert</span>
+          </button>
+          <div class="ch-menu hidden" id="ch-menu">
+            <button type="button" onclick="CHAT.renameActive()">
+              <span class="material-symbols-outlined">edit</span>
+              <span data-i18n="chat.rename">Rename</span>
+            </button>
+            <button type="button" onclick="CHAT.togglePinActive()" id="ch-menu-pin">
+              <span class="material-symbols-outlined">push_pin</span>
+              <span data-i18n="chat.pin">Pin</span>
+            </button>
+            <button type="button" onclick="CHAT.clearActive()">
+              <span class="material-symbols-outlined">mop</span>
+              <span data-i18n="chat.clear">Clear conversation</span>
+            </button>
+            <div class="ch-menu-sep"></div>
+            <button type="button" class="danger" onclick="CHAT.deleteActive()">
+              <span class="material-symbols-outlined">delete</span>
+              <span data-i18n="chat.delete">Delete</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="ch-scroll" id="ch-scroll">
+      <div class="ch-thread" id="ch-thread"></div>
+    </div>
+
+    <button type="button" class="ch-jump hidden" id="ch-jump" onclick="CHAT.scrollToBottom(true)"
+            data-i18n-title="chat.scroll_bottom" title="Jump to latest">
+      <span class="material-symbols-outlined">arrow_downward</span>
+    </button>
+
+    <div class="ch-composer-wrap">
+      <div class="ch-composer" id="ch-composer">
+        <textarea id="ch-input" rows="1" autocomplete="off" spellcheck="false"
+                  data-i18n-placeholder="chat.composer_placeholder"
+                  placeholder="Message your system…"
+                  oninput="CHAT.autoGrow(this)"
+                  onkeydown="CHAT.onKey(event)"></textarea>
+        <button type="button" class="ch-send" id="ch-send" onclick="CHAT.send()"
+                data-i18n-title="chat.btn_send" title="Send">
+          <span class="material-symbols-outlined" id="ch-send-icon">arrow_upward</span>
+        </button>
+      </div>
+      <div class="ch-composer-hint" data-i18n="chat.composer_hint">Enter to send · Shift+Enter for a new line</div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══ Modal: rename ══════════════════════════════════════════ -->
+<div class="ch-modal hidden" id="ch-modal-rename" onclick="CHAT.onBackdrop(event,'ch-modal-rename')">
+  <div class="ch-modal-box ch-modal-sm">
+    <div class="ch-modal-head">
+      <h2 data-i18n="chat.rename_title">Rename conversation</h2>
+      <button type="button" class="ch-icon-btn" onclick="CHAT.closeModal('ch-modal-rename')"
+              data-i18n-title="chat.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="ch-modal-body">
+      <div class="ch-field">
+        <label for="ch-rename-input" data-i18n="chat.rename_label">Title</label>
+        <input type="text" id="ch-rename-input" maxlength="60" onkeydown="CHAT.onRenameKey(event)">
+      </div>
+    </div>
+    <div class="ch-modal-foot">
+      <button type="button" class="ch-btn ch-btn-ghost" onclick="CHAT.closeModal('ch-modal-rename')"
+              data-i18n="chat.btn_cancel">Cancel</button>
+      <button type="button" class="ch-btn ch-btn-primary" onclick="CHAT.submitRename()"
+              data-i18n="chat.btn_save">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Modal: confirm ═════════════════════════════════════════ -->
+<div class="ch-modal hidden" id="ch-modal-confirm" onclick="CHAT.onBackdrop(event,'ch-modal-confirm')">
+  <div class="ch-modal-box ch-modal-sm">
+    <div class="ch-modal-head">
+      <h2 id="ch-confirm-title"></h2>
+      <button type="button" class="ch-icon-btn" onclick="CHAT.closeModal('ch-modal-confirm')"
+              data-i18n-title="chat.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="ch-modal-body">
+      <p class="ch-confirm-desc" id="ch-confirm-desc"></p>
+    </div>
+    <div class="ch-modal-foot">
+      <button type="button" class="ch-btn ch-btn-ghost" onclick="CHAT.closeModal('ch-modal-confirm')"
+              data-i18n="chat.btn_cancel">Cancel</button>
+      <button type="button" class="ch-btn ch-btn-danger" id="ch-confirm-ok" onclick="CHAT.confirmYes()"></button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/i18n.js"></script>
+<script src="/chat/chat.js"></script>
+</body>
+</html>

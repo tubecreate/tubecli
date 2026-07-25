@@ -42,6 +42,7 @@
         <nav class="sidebar-nav">
             <div class="nav-section-label" data-i18n="nav.main">MAIN</div>
             <button class="nav-item active" data-tab="dashboard"><span class="material-symbols-outlined">dashboard</span> <span class="nav-text" data-i18n="nav.dashboard">Dashboard</span></button>
+            <button class="nav-item" data-tab="ext-chat"><span class="material-symbols-outlined">forum</span> <span class="nav-text" data-i18n="chat.nav">Chat</span></button>
             <button class="nav-item" data-tab="extensions" id="nav-extensions"><span class="material-symbols-outlined">extension</span> <span class="nav-text" data-i18n="nav.extensions">Extensions</span><span id="ext-update-badge" style="display:none;background:#ef4444;color:#fff;font-size:0.65rem;font-weight:700;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:9px;margin-left:auto;padding:0 5px;animation:pulse 2s infinite"></span></button>
             <button class="nav-item" onclick="window.location.hash='#/extensions/detail/skills'; setTimeout(() => { document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active')); this.classList.add('active'); }, 200);" id="nav-skills"><span class="material-symbols-outlined">bolt</span> <span class="nav-text" data-i18n="stat.skills">Skills</span></button>
             <button class="nav-item" data-tab="api-manager"><span class="material-symbols-outlined">api</span> <span class="nav-text" data-i18n="nav.api_manager">API Manager</span></button>
@@ -77,6 +78,7 @@
         <button class="nav-item" data-ext="multi_agents" data-tab="ext-teams"><span class="material-symbols-outlined">groups</span> <span class="nav-text">Teams AI</span></button>
         <button class="nav-item" data-ext="video_manager" data-tab="ext-video-manager"><span class="material-symbols-outlined">video_library</span> <span class="nav-text">Video Manager</span></button>
         <button class="nav-item" data-ext="browser_scripts" data-tab="ext-browser-scripts"><span class="material-symbols-outlined">integration_instructions</span> <span class="nav-text">Script Studio</span></button>
+        <button class="nav-item" data-ext="codex" data-ext-static="true" data-tab="ext-codex"><span class="material-symbols-outlined">checklist</span> <span class="nav-text" data-i18n="codex.nav">Codex</span></button>
         <!-- Static ext: always shown, also groupable -->
         <button class="nav-item" data-ext="story_engine" data-ext-static="true" data-tab="ext-story"><span class="material-symbols-outlined">movie</span> <span class="nav-text">Story Engine</span></button>
         <button class="nav-item" data-ext="studio_3d" data-ext-static="true" data-tab="ext-studio"><span class="material-symbols-outlined">palette</span> <span class="nav-text">3D Studio</span></button>
@@ -184,6 +186,12 @@
         </section>
         <section class="tab-panel" id="tab-ext-video-processing">
             <div class="iframe-container"><iframe data-src="/video/processing" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-codex">
+            <div class="iframe-container"><iframe data-src="/codex" class="ext-iframe"></iframe></div>
+        </section>
+        <section class="tab-panel" id="tab-ext-chat">
+            <div class="iframe-container"><iframe data-src="/chat" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-tracker">
             <div class="iframe-container"><iframe data-src="/tracker" class="ext-iframe"></iframe></div>
@@ -1359,8 +1367,8 @@
         </div>
     </div>
 </div>
-<script src="/static/i18n.js?v=11"></script>
-<script src="/static/app.js?v=34"></script>
+<script src="/static/i18n.js?v=13"></script>
+<script src="/static/app.js?v=36"></script>
 <script>
 // Auto-fill API base URL from current location
 (function(){

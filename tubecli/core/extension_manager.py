@@ -322,6 +322,8 @@ class ExtensionManager:
         "tubecli.extensions.calendar_manager",
         "tubecli.extensions.file_manager",
         "tubecli.extensions.universal_tracker",
+        "tubecli.extensions.codex",
+        "tubecli.extensions.chat",
     ]
 
     # Essential external extensions to auto-install if missing

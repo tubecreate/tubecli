@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codex — TubeCLI</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
+<link rel="stylesheet" href="/codex/codex.css">
+</head>
+<body>
+
+<div class="cx-app">
+
+  <!-- ═══ Header ═══════════════════════════════════════════════ -->
+  <header class="cx-header">
+    <div class="cx-header-left">
+      <a class="cx-icon-btn cx-back" href="/dashboard" data-i18n-title="codex.back_dashboard" title="Dashboard">
+        <span class="material-symbols-outlined">arrow_back</span>
+      </a>
+      <div class="cx-brand">
+        <div class="cx-brand-row">
+          <span class="material-symbols-outlined cx-brand-icon">flight_takeoff</span>
+          <h1 data-i18n="codex.title">Codex</h1>
+        </div>
+        <div class="cx-brand-sub" data-i18n="codex.subtitle">Mission control for agentic work</div>
+      </div>
+    </div>
+
+    <div class="cx-header-right">
+      <div class="cx-worker" id="cx-worker">
+        <span class="cx-dot" id="cx-worker-dot"></span>
+        <span id="cx-worker-text" data-i18n="codex.worker_unknown">Worker status unknown</span>
+      </div>
+
+      <label class="cx-switch" data-i18n-title="codex.auto_refresh">
+        <input type="checkbox" id="cx-auto" checked onchange="CODEX.setAuto(this.checked)">
+        <span data-i18n="codex.auto_refresh">Auto-refresh</span>
+      </label>
+
+      <button type="button" class="cx-btn cx-btn-ghost cx-btn-icon" id="cx-refresh-btn"
+              onclick="CODEX.refresh(true)" data-i18n-title="codex.btn_refresh" title="Refresh">
+        <span class="material-symbols-outlined">refresh</span>
+      </button>
+
+      <button type="button" class="cx-btn cx-btn-primary" onclick="CODEX.openNewTask()">
+        <span class="material-symbols-outlined">add</span>
+        <span data-i18n="codex.btn_new_task">New task</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══ Stat tiles ═══════════════════════════════════════════ -->
+  <section class="cx-stats" id="cx-stats"></section>
+
+  <!-- ═══ Filters ══════════════════════════════════════════════ -->
+  <section class="cx-toolbar">
+    <div class="cx-chips" id="cx-chips"></div>
+    <div class="cx-search">
+      <span class="material-symbols-outlined">search</span>
+      <input type="search" id="cx-search" autocomplete="off"
+             data-i18n-placeholder="codex.search_placeholder"
+             placeholder="Search title or goal…"
+             oninput="CODEX.onSearch(this.value)">
+    </div>
+  </section>
+
+  <!-- ═══ Board ════════════════════════════════════════════════ -->
+  <main class="cx-main">
+    <div class="cx-list" id="cx-list"></div>
+  </main>
+
+</div>
+
+<!-- ═══ Modal: new task ════════════════════════════════════════ -->
+<div class="cx-modal hidden" id="cx-modal-new" onclick="CODEX.onBackdrop(event,'cx-modal-new')">
+  <div class="cx-modal-box">
+    <div class="cx-modal-head">
+      <h2 data-i18n="codex.modal_new_title">New task</h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-new')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+
+    <!-- Step 1 — the form -->
+    <div id="cx-new-step-form">
+      <div class="cx-modal-body">
+        <div class="cx-field">
+          <label for="cx-f-goal" data-i18n="codex.field_goal">Goal</label>
+          <textarea id="cx-f-goal" rows="5"
+                    data-i18n-placeholder="codex.field_goal_placeholder"
+                    placeholder="Describe what should be done…"></textarea>
+        </div>
+
+        <div class="cx-field">
+          <label for="cx-f-title" data-i18n="codex.field_title">Title (optional)</label>
+          <input type="text" id="cx-f-title"
+                 data-i18n-placeholder="codex.field_title_placeholder"
+                 placeholder="Short name for the board">
+        </div>
+
+        <div class="cx-field-row">
+          <div class="cx-field">
+            <label for="cx-f-assignee" data-i18n="codex.field_assignee">Assign to</label>
+            <select id="cx-f-assignee"></select>
+          </div>
+          <div class="cx-field cx-field-narrow">
+            <label for="cx-f-priority" data-i18n="codex.field_priority">Priority</label>
+            <input type="number" id="cx-f-priority" value="0" min="0" max="99" step="1">
+          </div>
+        </div>
+
+        <label class="cx-check">
+          <input type="checkbox" id="cx-f-approval" checked>
+          <span>
+            <strong data-i18n="codex.field_approval">Requires approval</strong>
+            <em data-i18n="codex.field_approval_hint">The task waits for your approval before it runs</em>
+          </span>
+        </label>
+      </div>
+      <div class="cx-modal-foot">
+        <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
+                data-i18n="codex.btn_cancel">Cancel</button>
+        <button type="button" class="cx-btn cx-btn-primary" id="cx-create-btn" onclick="CODEX.submitNewTask()">
+          <span data-i18n="codex.btn_create">Create task</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2 — created, offer AI planning -->
+    <div id="cx-new-step-done" class="hidden">
+      <div class="cx-modal-body">
+        <div class="cx-created">
+          <span class="material-symbols-outlined cx-created-icon">check_circle</span>
+          <div>
+            <div class="cx-created-title" id="cx-created-title"></div>
+            <div class="cx-created-desc" data-i18n="codex.created_desc">Want the AI to break this goal into steps? It takes 10–60 seconds.</div>
+          </div>
+        </div>
+        <div id="cx-plan-preview"></div>
+      </div>
+      <div class="cx-modal-foot">
+        <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
+                data-i18n="codex.btn_close">Close</button>
+        <button type="button" class="cx-btn cx-btn-primary" id="cx-plan-btn" onclick="CODEX.planFromModal()">
+          <span class="material-symbols-outlined">auto_awesome</span>
+          <span data-i18n="codex.btn_plan_now">Plan with AI</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Modal: note / feedback ═════════════════════════════════ -->
+<div class="cx-modal hidden" id="cx-modal-note" onclick="CODEX.onBackdrop(event,'cx-modal-note')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-note-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-note')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <p class="cx-hint" id="cx-note-hint"></p>
+      <textarea id="cx-note-text" rows="4"></textarea>
+    </div>
+    <div class="cx-modal-foot">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-note')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-primary" id="cx-note-confirm" onclick="CODEX.confirmNote()"></button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/i18n.js"></script>
+<script src="/codex/codex.js"></script>
+</body>
+</html>
