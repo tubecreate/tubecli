@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "Skill '{name}' hoàn thành.",
     "brain.summarize_prompt": "Summarize friendly in Vietnamese.",
     "brain.max_steps": "Đã đạt giới hạn bước tối đa.",
+    "brain.file_action_no_path": "⚠️ Mình suýt chạy một thao tác file mà không biết bạn muốn thao tác trên file/thư mục nào, nên đã dừng lại.\n\nNếu bạn thật sự muốn làm gì đó trên ổ đĩa, hãy cho mình đường dẫn cụ thể. Còn không, bạn nói rõ nhu cầu thật để mình dùng đúng công cụ nhé.",
     "brain.file_action_not_a_path": "⚠️ '{path}' là đường link web, không phải đường dẫn file, nên không có gì để mở trên ổ đĩa.\n\nBạn nói rõ muốn làm gì với link đó — phân tích nội dung, tải về, hay theo dõi kênh — mình sẽ dùng đúng công cụ.",
     "brain.empty_response": "⚠️ Model trả về phản hồi rỗng.\n\nThường là do model dạng suy luận đã dùng hết ngân sách token cho phần suy nghĩ. Bạn gửi lại tin nhắn, hoặc chọn model khác ở ô chọn model phía trên.",
     "brain.no_model_available": "⚠️ Chưa có model AI nào khả dụng.\n\nAgent này đang trỏ tới model Ollama chạy trên máy, nhưng Ollama chưa được cài/chạy và cũng chưa có API key cloud nào được cấu hình.\n\nBạn chọn một trong hai cách:\n1. Thêm API key trong Dashboard → Cloud API Keys (Gemini, DeepSeek, OpenAI…), rồi chọn model bằng bộ chọn model ngay trong Chat.\n2. Hoặc cài Ollama tại https://ollama.com và chạy `ollama pull qwen:latest`.",

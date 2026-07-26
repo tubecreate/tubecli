@@ -105,7 +105,7 @@ class AgentBrain:
             "### ACTION FORMAT (output JSON to trigger system):\n"
             '- Run a skill → {"action": "run_skill", "skill_id": "<ID>", "input": "<user query>"}\n'
             '- Video URL → {"action": "download_video", "url": "<URL>"}\n'
-            '- File ops → {"action": "file_action", "operation": "create_folder|create_file|delete|move|copy|list|read", "path": "~/Desktop/...", "content": "", "destination": ""}\n'
+            '- File ops → {"action": "file_action", "operation": "create_folder|create_file|delete|move|copy|list|read", "path": "<REQUIRED: an explicit path on this computer>", "content": "", "destination": ""}\n'
             '- Create team → {"action": "create_team", "template": "dev_team", "name": "<name>"}\n'
             '- API call → {"action": "run_api", "method": "POST", "endpoint": "/api/v1/..."}\n'
             '- Create skill → {"action": "create_skill", "name": "<n>", "description": "<d>", "instructions": ["..."]}\n\n'
@@ -114,7 +114,7 @@ class AgentBrain:
             "2. If the intent matches a skill → output run_skill JSON with the skill ID and user's query.\n"
             "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
             "4. DIRECT Video URLs (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
-            "5. File/folder create/delete/move/list → ALWAYS use file_action directly.\n"
+            "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop.\n"
             "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
             "7. **CRITICAL**: For greetings (hi, hello, xin chào, etc.), casual chat, or questions WITHOUT a clear actionable intent → reply conversationally in plain text. Do NOT output any JSON action block. Only output JSON when the user EXPLICITLY requests an action.\n\n"
             "### YOUR PERSONA:\n"
@@ -241,7 +241,7 @@ class AgentBrain:
                         file_service.delete(path)
                         reply = f"✅ Đã xóa: {path}"
                     elif op == "list":
-                        r = file_service.list_dir(path or "~/Desktop")
+                        r = file_service.list_dir(path)
                         items = r.get("items", [])
                         lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
                         for item in items[:20]:
@@ -375,7 +375,7 @@ class AgentBrain:
                         r = file_service.copy(path, destination)
                         reply = f"✅ Đã sao chép: {path} → {destination}"
                     elif op == "list":
-                        r = file_service.list_dir(path or "~/Desktop")
+                        r = file_service.list_dir(path)
                         items = r.get("items", [])
                         lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
                         for item in items[:20]:
@@ -789,26 +789,34 @@ Rules:
     def _reject_non_file_path(action_data: Dict) -> Optional[str]:
         """Guard the file_action branch, which runs filesystem calls inline.
 
-        The model sometimes answers a question about a URL ("what is this
-        YouTube channel about?") with a file_action whose `path` is the URL.
-        Running that produces a baffling "path outside the allowed area" error
-        for something the user never asked to be a file operation. Refuse
-        early and say what actually happened.
+        Two ways the model turns an unrelated question into a file operation:
+
+        * `path` is the URL the user asked about ("what is this YouTube channel
+          about?") — running it yields a baffling "outside the allowed area".
+        * `path` is MISSING. That is worse: `list` used to fall back to
+          `~/Desktop`, so a question about a YouTube link answered by dumping
+          the user's Desktop. A guessed action must never invent its target.
         """
         from tubecli.i18n import t
 
         path = str(action_data.get("path", "") or "").strip()
-        if not path:
+        if path:
+            lowered = path.lower()
+            if lowered.startswith(("http://", "https://", "www.", "ftp://")):
+                msg = t("brain.file_action_not_a_path", path=path[:120])
+                return msg if msg != "brain.file_action_not_a_path" else (
+                    f"⚠️ '{path[:120]}' is a web address, not a file path, so there is "
+                    f"nothing to open on disk. Tell me what you want done with that "
+                    f"link and I will use the right tool."
+                )
             return None
-        lowered = path.lower()
-        if lowered.startswith(("http://", "https://", "www.", "ftp://")):
-            msg = t("brain.file_action_not_a_path", path=path[:120])
-            return msg if msg != "brain.file_action_not_a_path" else (
-                f"⚠️ '{path[:120]}' is a web address, not a file path, so there is "
-                f"nothing to open on disk. Tell me what you want done with that "
-                f"link and I will use the right tool."
-            )
-        return None
+
+        msg = t("brain.file_action_no_path")
+        return msg if msg != "brain.file_action_no_path" else (
+            "⚠️ I was about to run a file operation without knowing which file or "
+            "folder you meant, so I stopped. If you do want something done on "
+            "disk, name the path; otherwise tell me what you actually need."
+        )
 
     @staticmethod
     def _call_provider(provider: str, model: str, cloud_keys: Dict,

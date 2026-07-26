@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "'{name}' becerisi tamamlandı.",
     "brain.summarize_prompt": "İngilizce olarak dostça özetleyin.",
     "brain.max_steps": "Maksimum adım sayısına ulaşıldı.",
+    "brain.file_action_no_path": "⚠️ Hangi dosyayı veya klasörü kastettiğinizi bilmeden bir dosya işlemi çalıştırmak üzereydim, bu yüzden durdum.\n\nDiskte gerçekten bir şey yapılmasını istiyorsanız tam yolu söyleyin. Aksi halde asıl ihtiyacınızı söyleyin, doğru aracı kullanayım.",
     "brain.file_action_not_a_path": "⚠️ '{path}' bir web adresi, dosya yolu değil; diskte açılacak bir şey yok.\n\nBu bağlantıyla ne yapmak istediğinizi söyleyin — içeriği analiz etmek, indirmek veya kanalı takip etmek — doğru aracı kullanayım.",
     "brain.empty_response": "⚠️ Model boş bir yanıt döndürdü.\n\nBu genellikle bir akıl yürütme modelinin tüm token bütçesini düşünmeye harcadığı anlamına gelir. Mesajı yeniden gönderin veya yukarıdaki model seçiciyle farklı bir model seçin.",
     "brain.no_model_available": "⚠️ Henüz kullanılabilir bir yapay zeka modeli yok.\n\nBu ajan yerel bir Ollama modeline işaret ediyor, ancak Ollama bu makinede çalışmıyor ve yapılandırılmış bir bulut yapay zeka anahtarı da yok.\n\nBaşlamak için şunlardan birini seçin:\n1. Dashboard → Cloud API Keys bölümünden bir bulut API anahtarı ekleyin (Gemini, DeepSeek, OpenAI…), ardından Sohbet'teki model seçiciyle bir model seçin.\n2. Veya https://ollama.com adresinden Ollama'yı kurun ve `ollama pull qwen:latest` komutunu çalıştırın.",
