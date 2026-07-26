@@ -3,7 +3,7 @@ Browser Extension — API routes.
 """
 from fastapi import APIRouter, HTTPException, Request, File, UploadFile
 from pydantic import BaseModel
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 import os
 import json
 import subprocess
@@ -48,7 +48,12 @@ class ProfileUpdateRequest(BaseModel):
 class LaunchRequest(BaseModel):
     profile: str
     prompt: str = ""
-    url: str = "https://google.com"
+    # No start page by default. Opening a profile by hand always forced a
+    # navigation to google.com, and on the ShardX engine that navigation cannot
+    # be driven over the automation channel at all: it timed out and left the
+    # first tab spinning. The profile opens its own start pages anyway, and a
+    # caller that genuinely needs a page (an OAuth callback) still passes one.
+    url: str = ""
     headless: bool = False
     manual: bool = True
     ai_model: str = "qwen:latest"
@@ -211,14 +216,59 @@ async def api_delete_cookies(name: str):
     return {"status": "not_found"}
 
 
-_launching_profiles = set()
+# profile -> when its launch started. A launch that never reports back must not
+# lock the profile out for the rest of the process's life: before this was
+# time-bounded, one crashed attempt meant "already running or opening" on every
+# later click, and only a server restart cleared it.
+_launching_profiles: Dict[str, float] = {}
 _launching_lock = asyncio.Lock()
+LAUNCH_GUARD_SEC = 90
+
+
+def _pid_alive(pid) -> bool:
+    """Is this PID still around? Unknown counts as alive, so a probe failure
+    never lets two launchers run against the same profile directory."""
+    try:
+        import psutil
+
+        return psutil.pid_exists(int(pid))
+    except ImportError:
+        pass
+    except Exception:
+        return True
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return True
+
+
+def _is_launching(profile_name: str) -> bool:
+    import time
+
+    started = _launching_profiles.get(profile_name)
+    if started is None:
+        return False
+    if time.time() - started > LAUNCH_GUARD_SEC:
+        _launching_profiles.pop(profile_name, None)   # stale — let it retry
+        return False
+    return True
+
 
 def is_profile_running(profile_name: str) -> bool:
     from .process_manager import browser_process_manager
-    # Check normal running profiles
+    # Check normal running profiles. A recorded status of "running" is not
+    # proof: if the launcher was killed the record survives, and the profile
+    # would be unopenable until restart. Verify the process is really there.
     for inst in browser_process_manager.list_all():
         if inst.get("profile") == profile_name and inst.get("status") == "running":
+            pid = inst.get("pid")
+            if pid and not _pid_alive(pid):
+                continue
             return True
             
     # Check preview running profiles
@@ -236,12 +286,52 @@ def is_profile_running(profile_name: str) -> bool:
         
     return is_running
 
+def check_launch_blockers(profile_name: str) -> Optional[str]:
+    """Why this profile cannot start, in words the user can act on.
+
+    A BAS profile with no local fingerprint has to call the licensed
+    fingerprint API. Without a key that call comes back "Query limit reached"
+    and the launcher dies about ten seconds later, leaving nothing on screen —
+    the reason only ever reached a log file. ShardX is free and keeps its
+    fingerprints locally, so it is never blocked here.
+    """
+    from .profile_manager import PROFILES_DIR, get_profile
+
+    config = get_profile(profile_name) or {}
+    version = str(config.get("browser_version") or "")
+    if "ShardX" in version:
+        return None
+
+    profile_dir = os.path.join(PROFILES_DIR, profile_name)
+    has_local_fp = any(
+        os.path.isfile(os.path.join(profile_dir, n))
+        for n in ("fingerprint_saved.json", "fingerprint.json", "shardx_fingerprint.json")
+    )
+    if has_local_fp or _get_bas_key():
+        return None
+    return "BAS_KEY_REQUIRED"
+
+
 @router.post("/launch")
 async def api_launch_browser(req: LaunchRequest):
+    blocker = check_launch_blockers(req.profile)
+    if blocker == "BAS_KEY_REQUIRED":
+        raise HTTPException(400, {
+            "code": "BAS_KEY_REQUIRED",
+            "profile": req.profile,
+            "message": (
+                "This profile uses a BAS engine, which needs a BAS Fingerprint "
+                "API key. Enter one in Settings, or create the profile with a "
+                "ShardX engine instead — ShardX is free and needs no key."
+            ),
+        })
+
     async with _launching_lock:
-        if req.profile in _launching_profiles or is_profile_running(req.profile):
+        if _is_launching(req.profile) or is_profile_running(req.profile):
             raise HTTPException(400, f"Profile '{req.profile}' is already running or opening.")
-        _launching_profiles.add(req.profile)
+        import time as _time
+
+        _launching_profiles[req.profile] = _time.time()
         
     try:
         from .process_manager import browser_process_manager
@@ -251,7 +341,7 @@ async def api_launch_browser(req: LaunchRequest):
         return result
     finally:
         async with _launching_lock:
-            _launching_profiles.discard(req.profile)
+            _launching_profiles.pop(req.profile, None)
 
 @router.post("/stop")
 async def api_stop_browser(req: StopRequest):
@@ -352,6 +442,29 @@ async def api_browser_log(profile: str):
         "log": log_content,
         "debug": instance.get("debug", {}),
     }
+
+def _get_bas_key() -> str:
+    """The BAS fingerprint licence key, or "" when the user has none.
+
+    ShardX needs nothing; BAS fetches its fingerprints from an API that meters
+    by key, so a BAS profile without one cannot launch at all.
+    """
+    import json as _json
+
+    try:
+        from tubecli.config import DATA_DIR
+
+        path = os.path.join(str(DATA_DIR), "global_settings.json")
+        if not os.path.exists(path):
+            return ""
+        with open(path, "r", encoding="utf-8") as f:
+            settings = _json.load(f)
+        key = (settings.get("bas_fingerprint_key")
+               or (settings.get("browser_service_keys") or {}).get("bas") or "")
+        return str(key).strip()
+    except Exception:
+        return ""
+
 
 @router.get("/engine/versions")
 async def api_get_engine_versions():
@@ -503,10 +616,20 @@ async def api_get_engine_versions():
                     v["downloaded"] = is_installed
                     v["path"] = script_dir if is_installed else "-"
             
+            # ShardX is the free engine; BAS pulls its fingerprints from an
+            # API that needs a licence key, and without one a profile dies at
+            # launch with nothing but a line in a log file. Say so up front.
+            for v in versions:
+                v["requires_key"] = not bool(v.get("is_shardx"))
+
             # Sort: newest first
             versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
-            
-            result = {"success": True, "versions": versions}
+
+            result = {
+                "success": True,
+                "versions": versions,
+                "bas_key_configured": bool(_get_bas_key()),
+            }
             if api_error and not any(v.get("is_private") for v in versions):
                 result["warning"] = api_error
             return result
@@ -905,9 +1028,11 @@ async def launch_preview(request: Request):
         url = "https://google.com"
 
     async with _launching_lock:
-        if profile in _launching_profiles or is_profile_running(profile):
+        if _is_launching(profile) or is_profile_running(profile):
             raise HTTPException(400, f"Profile '{profile}' is already running or opening.")
-        _launching_profiles.add(profile)
+        import time as _time
+
+        _launching_profiles[profile] = _time.time()
 
     try:
         ext_dir = os.path.dirname(os.path.abspath(__file__))
@@ -956,7 +1081,7 @@ async def launch_preview(request: Request):
         return {"status": "launched", "session_id": session_id, "port": port}
     finally:
         async with _launching_lock:
-            _launching_profiles.discard(profile)
+            _launching_profiles.pop(profile, None)
 
 @router.post("/preview/stop")
 async def stop_preview(request: Request):

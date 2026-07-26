@@ -1014,6 +1014,10 @@ async function main() {
           '--test-type',               // Hide unsupported command-line flag warnings
       ];
 
+      // NB: a start URL cannot be passed here — Playwright refuses positional
+      // arguments outright ("Arguments can not specify page to be opened").
+      // Manual mode navigates from inside the page instead; see openStartUrl.
+
       // Optional: Load specific extensions if provided via CLI
       if (args['load-extension']) {
           const extensionPaths = args['load-extension'].split(',').map(p => path.resolve(p.trim()));
@@ -1344,22 +1348,79 @@ async function main() {
           setupPageListeners(newPage);
         });
         
-        // If --url was provided (e.g. OAuth), navigate directly to that URL
+        // Open the start URL on a tab nobody is using.
+        //
+        // The profile opens its own startup pages a moment after launch. Firing
+        // goto() at the original about:blank tab raced them: the navigation
+        // never landed, timed out after 30s, and — because a failed goto leaves
+        // the load pending — that first tab sat there spinning forever while
+        // the user looked at a different one.
+        const openStartUrl = async (targetUrl) => {
+            await page.waitForTimeout(1500);   // let the startup pages settle
+
+            // Already showing it? Nothing to drive.
+            try {
+                const host = new URL(targetUrl).hostname;
+                if (context.pages().some(p => (p.url() || '').includes(host))) {
+                    console.log('[Manual] Start page already open — nothing to navigate.');
+                    return;
+                }
+            } catch (_) { /* fall through and try to navigate */ }
+
+            // Always drive a page we have just created. The tab handed to us
+            // at launch — and any blank tab the engine is still juggling — can
+            // be closed out from under us moments later, which showed up as
+            // "Target page, context or browser has been closed" on every
+            // attempt to navigate.
+            let target = null;
+            try {
+                target = await context.newPage();
+            } catch (e) {
+                const alive = context.pages().filter(p => !p.isClosed());
+                target = alive.length ? alive[alive.length - 1] : page;
+            }
+            if (!target || target.isClosed()) {
+                console.warn('[Manual] No page available to navigate; leaving the browser as it is.');
+                return;
+            }
+
+            console.log(`[Manual] Navigating to provided URL: ${targetUrl}`);
+            try { await target.bringToFront(); } catch (_) {}
+
+            try {
+                // 'commit' resolves as soon as the navigation is accepted —
+                // we are only putting a page in front of a human, so waiting
+                // for domcontentloaded (and failing at 30s on a slow redirect
+                // chain) bought nothing.
+                await target.goto(targetUrl, { waitUntil: 'commit', timeout: 15000 });
+                console.log('[Manual] Navigation committed.');
+                return;
+            } catch (e) {
+                console.warn(`[Manual] goto() did not commit: ${e.message.split('\n')[0]}`);
+            }
+
+            // Fall back to navigating from inside the page. On this engine
+            // goto() can hang without ever committing, yet the browser itself
+            // loads pages perfectly well — so ask the page to move instead of
+            // driving it through the automation channel.
+            try {
+                await target.evaluate((u) => { window.stop(); window.location.href = u; }, targetUrl);
+                await target.waitForTimeout(3000);
+                console.log(`[Manual] Navigated in-page. Now on: ${target.url()}`);
+            } catch (e2) {
+                console.warn(`[Manual] In-page navigation failed too: ${e2.message.split('\n')[0]}`);
+                // Leave no spinner behind.
+                try { await target.evaluate(() => window.stop()); } catch (_) {}
+            }
+        };
+
+        // Only when a start page was actually asked for. Manual mode used to
+        // force google.com on every open, which on this engine could not be
+        // driven and simply left a tab spinning.
         if (startUrlArg) {
-            console.log(`[Manual] Navigating to provided URL: ${startUrlArg}`);
-            try {
-                await page.goto(startUrlArg, { waitUntil: 'domcontentloaded', timeout: 30000 });
-            } catch (e) {
-                console.warn(`[Manual] Failed to navigate to URL: ${e.message}`);
-            }
+            await openStartUrl(startUrlArg);
         } else {
-            // Navigate directly to Google
-            console.log('[Manual] Defaulting to Google...');
-            try {
-                await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-            } catch (e) {
-                console.warn('[Manual] Failed to navigate: ' + e.message);
-            }
+            console.log('[Manual] No start page requested — leaving the browser to the user.');
         }
 
         // Wait until the browser context is closed by the user
@@ -1720,13 +1781,13 @@ async function main() {
                 console.log(`[Session] Blocking popup detected: ${pageContent.blockingPopup.selector}. Attempting dismissal...`);
                 let popupCleared = false;
                 let attempts = 0;
-                const dismissTerms = [
-                    'close', 'not now', 'dismiss', 'no thanks', 'maybe later',
-                    'deny', 'block', 'reject', 'decline', 'refuse',
-                    // Affirmative dismiss (GDPR confirm, proceed, etc.)
-                    'confirm', 'do not proceed', 'continue', 'proceed', 'yes',
-                    'i accept', 'i consent', 'i agree', 'accept all', 'allow all',
-                    'essential only', 'necessary only', 'save settings'
+                const dismissTerms = [
+                    'close', 'not now', 'dismiss', 'no thanks', 'maybe later',
+                    'deny', 'block', 'reject', 'decline', 'refuse',
+                    // Affirmative dismiss (GDPR confirm, proceed, etc.)
+                    'confirm', 'do not proceed', 'continue', 'proceed', 'yes',
+                    'i accept', 'i consent', 'i agree', 'accept all', 'allow all',
+                    'essential only', 'necessary only', 'save settings'
                 ];
 
                 while (attempts < 5) {

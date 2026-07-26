@@ -1650,11 +1650,15 @@ async function renderSkillsExt(el) {
         actionsHtml += `<button class="btn-icon btn-sm btn-danger-icon" onclick="deleteSkill('${s.id}')" title="${T('skills.title_delete')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px; color: var(--danger);"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>`;
         actionsHtml += `</div></div>`;
 
+        const notRunnable = (s.is_runnable === false);
+        const warnBadge = notRunnable
+            ? `<span class="tag" title="Skill này chưa có workflow/logic để thực thi — AI agent sẽ không nhìn thấy nó. Bấm Edit để hoàn thiện." style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:0.72rem; font-weight:600;">⚠ Chưa chạy được</span>`
+            : '';
         html += `
-        <div class="card skill-item-card" data-name="${esc(s.name.toLowerCase())}" data-desc="${esc((s.description||'').toLowerCase())}" style="display:flex; flex-direction:column;">
+        <div class="card skill-item-card" data-name="${esc(s.name.toLowerCase())}" data-desc="${esc((s.description||'').toLowerCase())}" style="display:flex; flex-direction:column;${notRunnable ? ' opacity:0.75; border-color:rgba(245,158,11,0.35);' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
                 <div class="card-icon" style="margin:0; width:40px; height:40px; border-radius:10px; font-size:1.2rem; background:rgba(0,0,0,0.2); box-shadow:0 4px 10px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;">${cat.icon}</div>
-                <span class="tag" style="background:${cat.color}20; color:${cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span>
+                <div style="display:flex; gap:6px; align-items:center;">${warnBadge}<span class="tag" style="background:${cat.color}20; color:${cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span></div>
             </div>
             <h3 style="margin-bottom:8px; font-size:1.05rem;">${esc(s.name)}</h3>
             <p class="card-desc" style="flex:1; margin-bottom:16px;">${esc(s.description||'')}</p>
@@ -1738,6 +1742,9 @@ function openCreateSkillModal() {
     document.getElementById('skill-desc-input').value = '';
     document.getElementById('skill-trigger-input').value = '';
     document.getElementById('skill-markdown-input').value = '';
+    document.getElementById('skill-input-hint').value = '';
+    document.getElementById('skill-when-to-use').value = '';
+    document.getElementById('skill-examples-input').value = '';
     
     document.getElementById('skill-ai-prompt').value = '';
     document.getElementById('skill-ai-name').value = '';
@@ -1766,7 +1773,10 @@ function openEditSkillModal(skillId) {
     document.getElementById('skill-type-select').value = skill.skill_type || 'Markdown';
     document.getElementById('skill-desc-input').value = skill.description || '';
     document.getElementById('skill-trigger-input').value = (skill.commands || []).join(', ');
-    document.getElementById('skill-markdown-input').value = skill.workflow_data?.markdown || skill.workflow_data?.sop || '';
+    document.getElementById('skill-markdown-input').value = skill.workflow_data?.markdown || skill.workflow_data?.sop || skill.workflow_data?.markdown_content || '';
+    document.getElementById('skill-input-hint').value = skill.input_hint || '';
+    document.getElementById('skill-when-to-use').value = skill.when_to_use || '';
+    document.getElementById('skill-examples-input').value = (skill.examples || []).join('\n');
     
     document.getElementById('skill-ai-prompt').value = '';
     document.getElementById('skill-ai-name').value = '';
@@ -2020,7 +2030,18 @@ async function saveCreatedSkill() {
         trigger: trigger,
         workflow_data: workflow_data
     };
-    
+
+    // skill_format drives the execution path server-side
+    if (skill_type === 'Markdown') payload.skill_format = 'markdown';
+
+    // AI-agent contract fields (manual tab only)
+    if (isManual) {
+        payload.input_hint = document.getElementById('skill-input-hint').value.trim();
+        payload.when_to_use = document.getElementById('skill-when-to-use').value.trim();
+        payload.examples = document.getElementById('skill-examples-input').value
+            .split('\n').map(s => s.trim()).filter(Boolean);
+    }
+
     const saveBtn = document.getElementById('btn-save-created-skill');
     saveBtn.disabled = true;
     saveBtn.textContent = '⏳ Đang lưu...';
@@ -2955,44 +2976,6 @@ async function openEditAgent(id, btn) {
         await populateAgentProfiles(d.allowed_profiles || []);
         await populateAgentSkills(d.allowed_skills || []);
 
-            // Daily keywords check
-            const now = new Date();
-            const yyyy = now.getFullYear();
-            const mm = String(now.getMonth() + 1).padStart(2, '0');
-            const dd = String(now.getDate()).padStart(2, '0');
-            const todayStr = `${yyyy}-${mm}-${dd}`;
-
-            const dk = d.routine?.daily_keywords;
-            const isToday = dk && dk.date === todayStr;
-
-            if (isToday) {
-                const usedMeta = d.routine?.used_keywords_today;
-                const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
-
-                const renderKwList = (period) => {
-                    const keywords = dk[period] || [];
-                    const usedList = usedToday[period] || [];
-                    if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
-                    return keywords.map(kw => {
-                        const isUsed = usedList.includes(kw);
-                        return isUsed
-                            ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
-                            : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
-                    }).join('');
-                };
-
-                document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
-                document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
-                document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
-                document.getElementById('kw-night-val').innerHTML = renderKwList('night');
-            } else {
-                const placeholder = T('agent_modal.not_generated_today') || 'Not generated yet today';
-                document.getElementById('kw-morning-val').textContent = placeholder;
-                document.getElementById('kw-afternoon-val').textContent = placeholder;
-                document.getElementById('kw-evening-val').textContent = placeholder;
-                document.getElementById('kw-night-val').textContent = placeholder;
-            }
-
         if (document.getElementById('btn-test-agent')) {
             document.getElementById('btn-test-agent').style.display = 'inline-block';
         }
@@ -3035,35 +3018,6 @@ async function regenerateKeywords() {
             setTimeout(async () => {
                 const updated = await apiGet('/api/v1/agents/' + id);
                 if (updated) updateScheduleStatusPanel(updated);
-                if (updated) {
-                    const now = new Date();
-                    const todayStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-                    const dk = updated.routine?.daily_keywords;
-                    const usedMeta = updated.routine?.used_keywords_today;
-                    const usedToday = (usedMeta && usedMeta.date === todayStr) ? (usedMeta.used || {}) : {};
-                    if (dk && dk.date === todayStr) {
-                        const renderKwList = (period) => {
-                            const keywords = dk[period] || [];
-                            const usedList = usedToday[period] || [];
-                            if (!keywords.length) return `<span style="color:var(--text-muted)">${T('agent_modal.none') || 'None'}</span>`;
-                            return keywords.map(kw => {
-                                const isUsed = usedList.includes(kw);
-                                return isUsed
-                                    ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
-                                    : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
-                            }).join('');
-                        };
-                        document.getElementById('kw-morning-val').innerHTML = renderKwList('morning');
-                        document.getElementById('kw-afternoon-val').innerHTML = renderKwList('afternoon');
-                        document.getElementById('kw-evening-val').innerHTML = renderKwList('evening');
-                        document.getElementById('kw-night-val').innerHTML = renderKwList('night');
-                    } else {
-                        ['kw-morning-val','kw-afternoon-val','kw-evening-val','kw-night-val'].forEach(elId => {
-                            const el = document.getElementById(elId);
-                            if (el) el.textContent = T('agent_modal.not_generated_today') || 'Generating...';
-                        });
-                    }
-                }
             }, 15000);
         } else {
             alert((T('agent_modal.regen_kw_failed') || 'Regeneration failed: ') + (res?.message || res?.detail || ''));
@@ -3080,6 +3034,10 @@ function updateScheduleStatusPanel(d) {
     const statusPanel = document.getElementById('schedule-status-panel');
     if (!statusPanel) return;
     statusPanel.style.display = 'block';
+
+    // Keep data for the keyword editor and leave edit mode on re-render
+    window._kwAgentData = d;
+    _setKwEditMode(false);
 
     const schedule_enabled = (d.schedule_enabled !== undefined) ? d.schedule_enabled : (d.schedule && d.schedule.enabled) || false;
 
@@ -3145,6 +3103,52 @@ function updateScheduleStatusPanel(d) {
         document.getElementById('kw-evening-val').textContent = placeholder;
         document.getElementById('kw-night-val').textContent = placeholder;
     }
+}
+
+// ── Manual keyword editing (Evolved Keywords) ──────────────────
+const _KW_PERIODS = ['morning', 'afternoon', 'evening', 'night'];
+
+function _setKwEditMode(on) {
+    const editBtn = document.getElementById('btn-edit-keywords');
+    const regenBtn = document.getElementById('btn-regen-keywords');
+    const actions = document.getElementById('kw-edit-actions');
+    if (editBtn) editBtn.style.display = on ? 'none' : 'flex';
+    if (regenBtn) regenBtn.style.display = on ? 'none' : 'flex';
+    if (actions) actions.style.display = on ? 'flex' : 'none';
+}
+
+function startEditKeywords() {
+    const d = window._kwAgentData;
+    if (!d) return;
+    const dk = d.routine?.daily_keywords || {};
+    _KW_PERIODS.forEach(p => {
+        const el = document.getElementById('kw-' + p + '-val');
+        if (!el) return;
+        const kws = Array.isArray(dk[p]) ? dk[p] : [];
+        el.innerHTML = `<textarea id="kw-edit-${p}" rows="3" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;padding:6px;resize:vertical" placeholder="${T('agent_modal.kw_edit_hint') || 'One keyword per line'}">${esc(kws.join('\n'))}</textarea>`;
+    });
+    _setKwEditMode(true);
+}
+
+async function saveEditKeywords() {
+    const id = document.getElementById('agent-id').value;
+    if (!id) return alert(T('agent_modal.save_first_test') || 'Save the agent first.');
+    const payload = {};
+    _KW_PERIODS.forEach(p => {
+        const el = document.getElementById('kw-edit-' + p);
+        payload[p] = (el?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    });
+    const res = await apiPut('/api/v1/agents/' + id + '/daily_keywords', payload);
+    if (res && res.status === 'success' && res.agent) {
+        updateScheduleStatusPanel(res.agent);
+    } else {
+        alert((T('agent_modal.save_error') || 'An error occurred: ') + (res?.error || res?.detail || res?.message || ''));
+    }
+}
+
+function cancelEditKeywords() {
+    if (window._kwAgentData) updateScheduleStatusPanel(window._kwAgentData);
+    else _setKwEditMode(false);
 }
 
 async function populateAgentProfiles(allowed) { const d=await apiGet('/api/v1/browser/profiles'); const c=document.getElementById('agent-profiles-list'); if(!d?.profiles?.length) { c.innerHTML=`<p class="text-muted">${T('agent_modal.no_profiles') || 'No profiles.'}</p>`; return; } c.innerHTML=d.profiles.map(p=>`<label class="checkbox-item"><input type="checkbox" value="${esc(p.name)}" class="agent-profile-cb" ${allowed.includes(p.name)?'checked':''}>${esc(p.name)}</label>`).join(''); }
@@ -4248,6 +4252,7 @@ async function showBrowserEnginesModal() {
     try {
         const r = await apiGet('/api/v1/browser/engine/versions');
         if (r && r.success && r.versions) {
+            const keyMissing = (r.bas_key_configured === false);
             let rows = r.versions.map(v => {
                 const name = typeof v === 'object' ? v.name : v;
                 const installed = (typeof v === 'object' && v.downloaded);
@@ -4255,9 +4260,25 @@ async function showBrowserEnginesModal() {
                 const isBas = (typeof v === 'object' && v.is_bas_app);
                 const downloadUrl = (typeof v === 'object' && (v.local_url || v.download_url)) ? (v.local_url || v.download_url) : '';
                 
+                // ShardX is free; BAS pulls fingerprints from a metered API,
+                // so without a key its profiles cannot launch at all.
+                const isShardx = (typeof v === 'object' && v.is_shardx);
+                const needsKey = (typeof v === 'object' && v.requires_key);
+                const pill = (bg, text, title) =>
+                    `<span title="${esc(title)}" style="font-size:0.65rem;background:${bg};color:#fff;padding:1px 6px;border-radius:4px;margin-left:5px">${esc(text)}</span>`;
+                const licence = isShardx
+                    ? pill('var(--green)', T('browser.badge_free', 'FREE'),
+                           T('browser.badge_free_hint', 'Open engine — no key needed'))
+                    : (needsKey ? pill(keyMissing ? 'var(--red)' : 'var(--orange)',
+                                       T('browser.badge_needs_key', 'NEEDS KEY'),
+                                       T('browser.badge_needs_key_hint',
+                                         'Requires a BAS Fingerprint API key'))
+                                : '');
+
                 return `<tr>
                     <td style="font-weight:600;color:var(--cyan)">
                         ${esc(name)}
+                        ${licence}
                         ${isBas ? '<span style="font-size:0.65rem;background:var(--purple);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">BAS APP</span>' : ''}
                         ${v.is_private ? '<span style="font-size:0.65rem;background:var(--green);color:white;padding:1px 4px;border-radius:4px;margin-left:5px">PRIVATE</span>' : ''}
                     </td>
@@ -4269,7 +4290,17 @@ async function showBrowserEnginesModal() {
                 </tr>`;
             }).join('');
             
-            container.innerHTML = `<table class="data-table">
+            // The licence difference decides whether a profile can start at
+            // all, so it belongs above the table, not buried in a tooltip.
+            const legend = `<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border,#333);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.55">
+                <b style="color:var(--green)">ShardX</b> — ${esc(T('browser.legend_shardx', 'free and open: fingerprints are stored locally, no key required.'))}<br>
+                <b style="color:var(--orange)">BAS</b> — ${esc(T('browser.legend_bas', 'needs a BAS Fingerprint API key: profiles fetch their fingerprint from a metered API and will not launch without one.'))}
+            </div>`;
+            const keyWarning = keyMissing ? `<div style="background:rgba(239,68,68,0.10);border:1px solid var(--red);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.85rem">
+                ⚠️ ${esc(T('browser.no_bas_key', 'No BAS Fingerprint API key is set, so BAS profiles cannot launch. Enter one in Settings, or use a ShardX engine — it is free.'))}
+            </div>` : '';
+
+            container.innerHTML = legend + keyWarning + `<table class="data-table">
                 <thead><tr><th>${T('browser.hdr_version', 'Version')}</th><th>${T('browser.hdr_status', 'Status')}</th><th>${T('browser.hdr_path', 'Path')}</th><th style="text-align:right">${T('browser.hdr_action', 'Action')}</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
@@ -4399,7 +4430,85 @@ async function createProfile() {
     if (document.getElementById('profile-win-height')) document.getElementById('profile-win-height').value = '1080';
     renderBrowserExt(getBrowserBody());
 }
-async function launchProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='🚀...'} const r=await apiPost('/api/v1/browser/launch',{profile:name,manual:true}); if(r && !r.error && r.status !== 'error') { let n=0; const iv=setInterval(async()=>{await renderBrowserExt(getBrowserBody());if(++n>=3)clearInterval(iv)},2000); } else { if(btn){btn.disabled=false;btn.textContent='▶'} let msg = T('browser.launch_failed', 'Failed to launch: ') + (r?.error || r?.detail || T('browser.err_unknown', 'Unknown error')); if(r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output; if(r?.debug) { const d = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (d.node_available ? d.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (d.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (d.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (d.launcher_dir || '-'); if(d.launcher_dir_contents) msg += '\n• Dir contents: ' + d.launcher_dir_contents.join(', '); if(d.exit_code !== undefined) msg += '\n• Exit code: ' + d.exit_code; } alert(msg); } }
+// The launcher spawns node and returns "running" straight away, but a profile
+// can still die seconds later — a BAS profile with no key gives up after about
+// ten. The old code polled three times over six seconds and then stopped, so
+// that failure never reached the screen: the browser simply never appeared.
+// Watch until the instance settles, then say what happened.
+async function watchLaunch(name, btn) {
+    const deadline = Date.now() + 45000;
+    let seenRunning = false;
+    while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2000));
+        await renderBrowserExt(getBrowserBody());
+        let inst = null;
+        try {
+            const s = await apiGet('/api/v1/browser/status');
+            const mine = (s?.instances || []).filter(i => i.profile === name);
+            inst = mine.length ? mine[mine.length - 1] : null;
+        } catch (e) { continue; }
+        if (!inst) continue;
+        if (inst.status === 'running') { seenRunning = true; continue; }
+        if (inst.status === 'error' || inst.status === 'timeout_killed') {
+            let why = '';
+            try {
+                const lg = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name));
+                why = launchFailureReason(lg?.log || '');
+            } catch (e) { /* the log is a bonus, not a requirement */ }
+            if (btn) { btn.disabled = false; btn.textContent = '▶'; }
+            alert(T('browser.launch_died', 'The browser closed right after starting.') +
+                  '\n\n' + (why || T('browser.err_unknown', 'Unknown error')) +
+                  '\n\n' + T('browser.see_log', 'Full log: ') + (inst.log_file || '-'));
+            return;
+        }
+        if (seenRunning) return;   // finished normally
+    }
+}
+
+// Turn a launcher log into the one line that explains the failure.
+function launchFailureReason(log) {
+    if (!log) return '';
+    if (/Query limit reached|Failed to fetch fingerprint after all attempts/i.test(log)) {
+        return T('browser.err_bas_quota',
+                 'The BAS fingerprint API refused the request (no key, or the quota is used up). ' +
+                 'Enter a BAS Fingerprint API key in Settings, or use a ShardX engine — ShardX is free.');
+    }
+    if (/ENOENT|chrome\.exe.*not found|Engine not found/i.test(log)) {
+        return T('browser.err_engine_missing',
+                 'The browser engine for this profile is not installed. Open "Browser Engines" and install it.');
+    }
+    if (/proxy/i.test(log) && /ERR_|failed/i.test(log)) {
+        return T('browser.err_proxy', 'The proxy refused the connection. Check the profile proxy settings.');
+    }
+    const lines = log.split('\n').map(s => s.trim())
+        .filter(s => /^(!!!|Error|error:|\[Fingerprint\]|Failed)/.test(s));
+    return lines.length ? lines[lines.length - 1].slice(0, 300) : '';
+}
+
+async function launchProfile(name,btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '🚀...'; }
+    const r = await apiPost('/api/v1/browser/launch', {profile: name, manual: true});
+
+    // A structured refusal from the server (BAS without a key) is actionable.
+    const d = r && r.detail;
+    if (d && typeof d === 'object' && d.code === 'BAS_KEY_REQUIRED') {
+        if (btn) { btn.disabled = false; btn.textContent = '▶'; }
+        if (confirm(d.message + '\n\n' + T('browser.open_settings_q', 'Open Settings now?'))) {
+            navigateTo('settings');
+            setTimeout(() => document.getElementById('set-bas-key')?.focus(), 400);
+        }
+        return;
+    }
+
+    if (r && !r.error && r.status !== 'error') { watchLaunch(name, btn); return; }
+
+    if (btn) { btn.disabled = false; btn.textContent = '▶'; }
+    let msg = T('browser.launch_failed', 'Failed to launch: ') +
+        (r?.error || (typeof d === 'string' ? d : (d && d.message)) || T('browser.err_unknown', 'Unknown error'));
+    if (r?.log_output) msg += '\n\n📋 Log output:\n' + r.log_output;
+    if (r?.debug) { const dbg = r.debug; msg += '\n\n🔍 Debug info:'; msg += '\n• Node: ' + (dbg.node_available ? dbg.node_version : '❌ NOT FOUND'); msg += '\n• open.js: ' + (dbg.open_js_exists ? '✅' : '❌ NOT FOUND'); msg += '\n• node_modules: ' + (dbg.node_modules_exists ? '✅' : '❌ MISSING'); msg += '\n• Launcher dir: ' + (dbg.launcher_dir || '-'); if(dbg.launcher_dir_contents) msg += '\n• Dir contents: ' + dbg.launcher_dir_contents.join(', '); if(dbg.exit_code !== undefined) msg += '\n• Exit code: ' + dbg.exit_code; }
+    alert(msg);
+}
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(getBrowserBody()),1000); }
 function openWSProfile(name) { window.open('/browser/view?profile=' + encodeURIComponent(name), '_blank'); }
 async function deleteProfile(name) { if(!confirm(T('browser.delete_confirm_prompt', {name: name}))) return; await apiDelete('/api/v1/browser/profiles/'+name); }
