@@ -1526,13 +1526,29 @@ async def exec_run_api(action_data: Dict) -> str:
                 return f"❌ Method không hỗ trợ: {method}"
 
             try:
+                from tubecli.core.bot_i18n import t as _bt
+
                 data = resp.json()
+                if resp.status_code == 422 and isinstance(data, dict):
+                    # FastAPI validation error. The raw detail array
+                    # ("[{'type': 'missing', 'loc': ['body', 'url'], …]") is
+                    # for developers — tell the user what is missing instead.
+                    missing = [str((item.get("loc") or ["?"])[-1])
+                               for item in (data.get("detail") or [])
+                               if isinstance(item, dict)]
+                    return _bt("vs.api_missing_fields",
+                               fields=", ".join(missing) or "?")
                 if isinstance(data, dict):
-                    if data.get("success"):
-                        msg_data = data.get("data") or data.get("message") or data
-                        return f"✅ Thành công:\n```\n{json.dumps(msg_data, ensure_ascii=False, indent=2)[:500]}\n```"
-                    else:
-                        return f"❌ Lỗi API: {data.get('detail', str(data)[:200])}"
+                    # Explicit failure: an HTTP error, or a 200 carrying
+                    # {"success": false, …}.
+                    if resp.status_code >= 400 or data.get("success") is False:
+                        detail = data.get("detail")
+                        if not isinstance(detail, str):
+                            detail = (json.dumps(detail, ensure_ascii=False, default=str)
+                                      if detail is not None else str(data))
+                        return _bt("vs.api_error", error=detail[:200])
+                    msg_data = data.get("data") or data.get("message") or data
+                    return f"✅ Thành công:\n```\n{json.dumps(msg_data, ensure_ascii=False, indent=2)[:500]}\n```"
                 return f"✅ Response: `{str(data)[:500]}`"
             except Exception:
                 return f"✅ Response ({resp.status_code}): {resp.text[:300]}"

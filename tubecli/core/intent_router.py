@@ -124,6 +124,38 @@ VIDEO_URL_PATTERNS = [
     r'https?://vm\.tiktok\.com/\S+',
     r'https?://(?:www\.)?iesdouyin\.com/share/(?:video|note|slides)/\S+',
     r'https?://v\.douyin\.com/\S+',
+    # Non-douyin hosts the downloader handles just as well. This list used to
+    # stop at douyin/tiktok, so "download <youtube link>" never hit the 0-token
+    # download path — it fell through to an LLM that sometimes invented a broken
+    # run_api call. Each pattern pins a VIDEO page shape: channel/profile URLs
+    # (youtube.com/@handle, tiktok.com/@user) must keep flowing to channel
+    # analysis, not download.
+    r'https?://(?:www\.|m\.)?youtube\.com/(?:watch\?\S*v=|shorts/|live/)\S+',
+    r'https?://youtu\.be/\S+',
+    r'https?://(?:www\.|m\.|web\.)?facebook\.com/(?:\S+/videos/|reel/|watch/?\?\S*v=|share/[vr]/)\S+',
+    r'https?://fb\.watch/\S+',
+    r'https?://(?:www\.)?instagram\.com/(?:p|reel|reels|tv)/\S+',
+    r'https?://(?:www\.|mobile\.)?(?:twitter|x)\.com/[^/\s]+/status/\S+',
+    r'https?://(?:www\.)?vimeo\.com/\d+\S*',
+    r'https?://(?:www\.)?dailymotion\.com/video/\S+',
+    r'https?://(?:www\.)?bilibili\.com/video/\S+',
+    r'https?://(?:www\.)?twitch\.tv/videos/\S+',
+    r'https?://(?:www\.)?kuaishou\.com/short-video/\S+',
+]
+
+# "Please download …" in every shipped language. Word-boundary matched via
+# _kw_hit, so "postal" ≠ "post" style false hits cannot come back.
+DOWNLOAD_KEYWORDS = [
+    "tải", "tải về", "tai video", "download", "save video", "lưu video",
+    "下载", "下載", "ダウンロード", "保存して", "다운로드", "받아줘",
+    "скачать", "скачай", "загрузи видео", "indir", "descargar", "descarga",
+]
+
+# Words that mark the request as being about a video at all — the no-URL ask
+# below must not fire on "download the excel report".
+VIDEO_WORDS = [
+    "video", "clip", "youtube", "tiktok", "douyin", "shorts", "reel", "phim",
+    "视频", "影片", "動画", "영상", "видео", "ролик", "vídeo",
 ]
 
 UPLOAD_KEYWORDS = [
@@ -238,6 +270,15 @@ class IntentRouter:
 
         # ── 1. Video URL Detection ───────────────────────────────
         video_url = self._extract_video_url(text, text_lower)
+        if not video_url and self._kw_hit(text_lower, DOWNLOAD_KEYWORDS):
+            # An explicit download request vouches for the link, whatever the
+            # host — the downloader supports ~1800 sites, far more than any
+            # hand-kept pattern list. The URL then flows through the SAME
+            # keyword checks below (tracker/live/reup/subtitle/upload), so
+            # "tải video mới nhất của <channel>" still reaches the tracker.
+            candidate = self._extract_any_url(text)
+            if candidate and not candidate.startswith("rtmp://") and ".m3u8" not in candidate:
+                video_url = candidate
         if video_url:
             # Check for tracker/live bypass
             if self._kw_hit(text_lower, TRACKER_KEYWORDS):
@@ -304,6 +345,23 @@ class IntentRouter:
                 intent_type="video_download",
                 confidence=0.99,
                 extracted_data={"url": video_url},
+                skip_llm=True,
+            )
+
+        # ── 1b. Video request with NO link ───────────────────────
+        # "Download this YouTube video and give me the transcript" carries no
+        # URL. Left to the LLM, the Video Agent once answered by running its
+        # capabilities skill and dumping raw JSON. Deterministic instead: ask
+        # for the link, zero tokens.
+        if (
+            (self._kw_hit(text_lower, DOWNLOAD_KEYWORDS) or self._kw_hit(text_lower, SUBTITLE_KEYWORDS))
+            and self._kw_hit(text_lower, VIDEO_WORDS)
+            and not self._extract_any_url(text)
+        ):
+            return IntentResult(
+                intent_type="video_request_no_url",
+                confidence=0.9,
+                extracted_data={"original_message": text},
                 skip_llm=True,
             )
 

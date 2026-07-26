@@ -381,6 +381,14 @@ class TelegramListener:
             self._save_history(agent_id, agent_dict, text, result, history)
             return result
 
+        # ── Fast-path: video request without a link (0 tokens) ──
+        if intent.intent_type == "video_request_no_url":
+            from tubecli.core.bot_i18n import t as _bt
+
+            result = _bt("vs.ask_url")
+            self._save_history(agent_id, agent_dict, text, result, history)
+            return result
+
         # ── Plan & Confirm: Video Upload Sequence ──
         if intent.intent_type == "video_upload":
             provider = intent.extracted_data.get("provider", "youtube")

@@ -91,6 +91,43 @@ async def run_turn(
         )
         return (reply or ""), meta
 
+    # ── 0-token fast-paths (mirror of the Telegram listener) ─────
+    # A download request must never depend on the LLM composing the right
+    # action: "download <url>" once became a run_api call with an empty body.
+    if intent is not None and intent.intent_type == "video_download":
+        url = (intent.extracted_data or {}).get("url", "")
+        if url:
+            try:
+                from tubecli.core.telegram_actions import execute_download
+
+                out = await execute_download(url, agent_dict, {})
+                if isinstance(out, dict):
+                    # Douyin-family links resolve inline and come back as a
+                    # file descriptor (the Telegram path sends the file).
+                    # Web chat shows the caption + local path instead of
+                    # falling through to the LLM after the work is done.
+                    parts = [out.get("caption") or ""]
+                    if out.get("file_path"):
+                        parts.append(f"📁 `{out['file_path']}`")
+                    meta["action"] = "download_video"
+                    return "\n".join(p for p in parts if p).strip(), meta
+                if isinstance(out, str) and out.strip():
+                    text, task = _extract_task_marker(out)
+                    if task:
+                        meta["codex_task"] = task
+                    meta["action"] = "download_video"
+                    return text, meta
+            except Exception as e:
+                logger.error(f"[Chat] download fast-path failed: {e}", exc_info=True)
+                # fall through to the LLM rather than answering with nothing
+
+    # A video request with no link: ask for it instead of letting the model
+    # guess a tool ("give me the transcript" once ran the capabilities skill).
+    if intent is not None and intent.intent_type == "video_request_no_url":
+        from tubecli.core.bot_i18n import t as _bt
+
+        return _bt("vs.ask_url"), meta
+
     # Optionally hand the turn to the specialist that owns this intent.
     if auto_route and intent is not None:
         specialist = _route_to_specialist(intent, agent_dict)

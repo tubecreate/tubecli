@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ 焼き込み字幕は見つかりませんでした — 隠すものがありません。",
   "vs.hardsub_covered": "✅ 元の字幕を隠しました ({mode}):\n`{path}`",
   "vs.err_queue_reup": "❌ リアップを登録できません: {error}",
-  "vs.queued_approve_hint": "📥 ダウンロードを Codex #{seq} として登録しました — ボードで承認すると開始します。"
+  "vs.queued_approve_hint": "📥 ダウンロードを Codex #{seq} として登録しました — ボードで承認すると開始します。",
+  "vs.ask_url": "🔗 了解です — 動画のリンクを送ってください。あとはお任せを。\nやりたいこと(ダウンロード、字幕、翻訳など)も添えてOKです。",
+  "vs.api_missing_fields": "⚠️ 実行できませんでした — 必要な情報が不足しています: {fields}。送っていただければ再試行します。",
+  "vs.api_error": "⚠️ リクエストに失敗しました: {error}",
+  "vs.queued_job": "🎬 {job} を *Codex #{seq}* として登録しました"
 }

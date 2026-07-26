@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ Không thấy sub cứng — không có gì để che.",
   "vs.hardsub_covered": "✅ Đã che sub gốc ({mode}):\n`{path}`",
   "vs.err_queue_reup": "❌ Không xếp được lịch reup: {error}",
-  "vs.queued_approve_hint": "📥 Đã xếp lịch tải — Codex #{seq}. Duyệt trên board để bắt đầu."
+  "vs.queued_approve_hint": "📥 Đã xếp lịch tải — Codex #{seq}. Duyệt trên board để bắt đầu.",
+  "vs.ask_url": "🔗 Được — gửi mình link video nhé, mình lo phần còn lại.\nBạn có thể ghi kèm việc cần làm: tải về, tách sub, dịch…",
+  "vs.api_missing_fields": "⚠️ Chưa chạy được — thiếu thông tin bắt buộc: {fields}. Bạn gửi bổ sung giúp mình nhé.",
+  "vs.api_error": "⚠️ Yêu cầu không thành công: {error}",
+  "vs.queued_job": "🎬 Đã xếp lịch {job} — *Codex #{seq}*"
 }

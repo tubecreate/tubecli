@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ 未发现硬字幕 — 无需遮盖。",
   "vs.hardsub_covered": "✅ 已遮盖原字幕（{mode}）：\n`{path}`",
   "vs.err_queue_reup": "❌ 无法排队二次创作：{error}",
-  "vs.queued_approve_hint": "📥 下载已排队为 Codex #{seq} — 请在面板上批准以开始。"
+  "vs.queued_approve_hint": "📥 下载已排队为 Codex #{seq} — 请在面板上批准以开始。",
+  "vs.ask_url": "🔗 好的 — 请把视频链接发给我，剩下的交给我。\n也可以说明要做什么：下载、字幕、翻译…",
+  "vs.api_missing_fields": "⚠️ 无法执行 — 缺少必要信息:{fields}。请补充后我再试。",
+  "vs.api_error": "⚠️ 请求失败:{error}",
+  "vs.queued_job": "🎬 {job} 已排队为 *Codex #{seq}*"
 }

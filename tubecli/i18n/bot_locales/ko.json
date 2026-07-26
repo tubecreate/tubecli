@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ 하드 자막이 없습니다 — 가릴 것이 없습니다.",
   "vs.hardsub_covered": "✅ 원본 자막을 가렸습니다 ({mode}):\n`{path}`",
   "vs.err_queue_reup": "❌ 리업을 예약할 수 없습니다: {error}",
-  "vs.queued_approve_hint": "📥 다운로드를 Codex #{seq}(으)로 예약했습니다 — 보드에서 승인하면 시작합니다."
+  "vs.queued_approve_hint": "📥 다운로드를 Codex #{seq}(으)로 예약했습니다 — 보드에서 승인하면 시작합니다.",
+  "vs.ask_url": "🔗 좋아요 — 영상 링크를 보내주시면 나머지는 제가 할게요.\n원하는 작업(다운로드, 자막, 번역 등)도 함께 적어주세요.",
+  "vs.api_missing_fields": "⚠️ 실행하지 못했어요 — 필수 정보가 없습니다: {fields}. 보내주시면 다시 시도할게요.",
+  "vs.api_error": "⚠️ 요청이 실패했습니다: {error}",
+  "vs.queued_job": "🎬 {job}을(를) *Codex #{seq}*(으)로 예약했습니다"
 }

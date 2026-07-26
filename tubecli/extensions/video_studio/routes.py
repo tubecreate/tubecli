@@ -224,3 +224,90 @@ async def pipeline_reup(req: ReupRequest):
         raise HTTPException(500, str(e))
     return {"status": "queued", "task": task,
             "message": f"Reup queued as Codex #{task.get('seq')} — approve it to start."}
+
+
+# ── One-string job wrappers (chat/skill entry points) ────────────────
+#
+# extension_action skills can only send ONE string. The raw endpoints behind
+# these jobs need structured bodies (file_path, srt_content, srt_path…), which
+# is why every direct mapping used to 422. Each wrapper takes {"input": …} —
+# a URL or a local file path — builds the right subset of the reup pipeline,
+# and queues it as a codex task so it runs in the background with progress.
+# The reply carries the codex marker, so chat renders a live card.
+
+class JobRequest(BaseModel):
+    input: str
+    options: Dict[str, Any] = {}
+    created_by: str = "brain"
+    origin: Optional[Dict[str, Any]] = None
+
+
+# job → which pipeline steps stay on (everything else is turned off)
+_JOB_STEPS = {
+    "extract": {"subtitle"},
+    "translate": {"subtitle", "translate"},
+    "dub": {"subtitle", "translate", "dub"},
+    "burn": {"subtitle", "burn"},
+}
+_JOB_LABELS = {
+    "extract": "Extract subtitles",
+    "translate": "Translate subtitles",
+    "dub": "Dub with TTS",
+    "burn": "Burn subtitles",
+}
+
+
+def _extract_source(text: str) -> str:
+    """Pull the URL or file path out of a free-text skill input."""
+    import re as _re
+
+    m = _re.search(r"(https?://\S+)", text)
+    if m:
+        return m.group(0).rstrip(".,;?!)")
+    # A quoted or bare Windows/Unix path somewhere in the sentence
+    m = _re.search(r"([A-Za-z]:\\[^\s\"']+|/[^\s\"']+)", text)
+    if m and os.path.isfile(m.group(0)):
+        return m.group(0)
+    candidate = text.strip().strip('"\'')
+    return candidate
+
+
+@router.post("/job/{job_id}")
+async def queue_single_job(job_id: str, req: JobRequest):
+    """Queue one video job (extract/translate/dub/burn) from a single string."""
+    from tubecli.core.bot_i18n import t as _bt
+
+    if job_id not in _JOB_STEPS:
+        raise HTTPException(404, f"Unknown job: {job_id}. Use one of {sorted(_JOB_STEPS)}.")
+    source = _extract_source(req.input or "")
+    is_url = source.startswith(("http://", "https://"))
+    if not source or (not is_url and not os.path.isfile(source)):
+        # No link and no existing file — ask instead of failing with a trace.
+        return {"status": "need_input", "report": _bt("vs.ask_url")}
+
+    try:
+        from tubecli.extensions.video_studio.pipeline import STEPS, create_codex_task
+    except ImportError:
+        raise HTTPException(400, "The codex extension is required to run jobs.")
+
+    keep = _JOB_STEPS[job_id]
+    options = {sid: (sid in keep or sid == "download") for sid, _, _, _ in STEPS}
+    options.update(req.options or {})
+    # An SRT source needs no download/extract; run_reup detects that itself.
+    try:
+        task = await asyncio.to_thread(
+            create_codex_task, source, options, req.created_by, req.origin,
+            _JOB_LABELS[job_id],
+        )
+    except Exception as e:
+        logger.error(f"[VideoStudio] queueing {job_id} failed: {e}", exc_info=True)
+        raise HTTPException(500, str(e))
+
+    queued = task.get("status") == "queued"
+    head = (_bt("vs.queued_job", job=_JOB_LABELS[job_id], seq=task["seq"])
+            + _bt("vs.starting_now" if queued else "vs.awaiting_approval"))
+    return {
+        "status": "queued",
+        "task": task,
+        "report": f"{head}\n\n<!--codex:{task['id']}:{task['seq']}:{task.get('status','')}-->",
+    }

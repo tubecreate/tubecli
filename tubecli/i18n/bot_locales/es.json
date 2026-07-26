@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ No se encontraron subtítulos incrustados: nada que cubrir.",
   "vs.hardsub_covered": "✅ Subtítulos originales cubiertos ({mode}):\n`{path}`",
   "vs.err_queue_reup": "❌ No se pudo poner el reup en cola: {error}",
-  "vs.queued_approve_hint": "📥 Descarga en cola como Codex #{seq}: apruébala en el tablero para empezar."
+  "vs.queued_approve_hint": "📥 Descarga en cola como Codex #{seq}: apruébala en el tablero para empezar.",
+  "vs.ask_url": "🔗 Claro — envíame el enlace del vídeo y yo me encargo.\nPuedes añadir qué necesitas: descarga, subtítulos, traducción…",
+  "vs.api_missing_fields": "⚠️ No pude ejecutarlo: falta información obligatoria: {fields}. Envíamela y lo reintento.",
+  "vs.api_error": "⚠️ La solicitud falló: {error}",
+  "vs.queued_job": "🎬 {job} en cola como *Codex #{seq}*"
 }

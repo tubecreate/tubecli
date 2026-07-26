@@ -98,5 +98,9 @@
   "vs.no_hardsub": "ℹ️ Gömülü altyazı bulunamadı — kapatılacak bir şey yok.",
   "vs.hardsub_covered": "✅ Orijinal altyazılar kapatıldı ({mode}):\n`{path}`",
   "vs.err_queue_reup": "❌ Reup sıraya alınamadı: {error}",
-  "vs.queued_approve_hint": "📥 İndirme Codex #{seq} olarak sıraya alındı — başlatmak için panoda onaylayın."
+  "vs.queued_approve_hint": "📥 İndirme Codex #{seq} olarak sıraya alındı — başlatmak için panoda onaylayın.",
+  "vs.ask_url": "🔗 Tamam — video bağlantısını gönderin, gerisini ben hallederim.\nNe istediğinizi de ekleyebilirsiniz: indirme, altyazı, çeviri…",
+  "vs.api_missing_fields": "⚠️ Çalıştıramadım — gerekli bilgi eksik: {fields}. Gönderirseniz tekrar denerim.",
+  "vs.api_error": "⚠️ İstek başarısız oldu: {error}",
+  "vs.queued_job": "🎬 {job} *Codex #{seq}* olarak sıraya alındı"
 }

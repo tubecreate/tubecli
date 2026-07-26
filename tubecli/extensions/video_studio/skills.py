@@ -22,13 +22,19 @@ SKILLS: List[Dict] = [
         "name": "🎬 Video Capabilities",
         "requires": None,
         "description": (
-            "Check which video tools are installed and what the Video Agent can do "
-            "right now. Use this FIRST whenever a video request cannot be fulfilled, "
-            "so the user is told exactly which extension to install from the Market."
+            "List which video tools are installed and which Market extensions are "
+            "missing. ONLY for 'what can you do with video?' questions or when a "
+            "required extension is NOT installed. Never a substitute for doing the "
+            "job: if the user wants a download/subtitle/translation and only a "
+            "detail (like the link) is missing, ASK for that detail instead."
         ),
         "commands": ["video capabilities", "kiểm tra công cụ video", "video tools"],
         "input_hint": "no input needed",
-        "when_to_use": "Before saying a video job is impossible, or when the user asks what you can do with video.",
+        "when_to_use": (
+            "The user explicitly asks what video tools are available, or a job "
+            "failed because an extension is missing. NOT when a request is merely "
+            "missing its URL — ask for the URL then."
+        ),
         "endpoint": "/api/v1/video-studio/capabilities",
         "method": "GET",
         "input_key": "q",
@@ -81,20 +87,26 @@ SKILLS: List[Dict] = [
         # cannot execute.
         "commands": ["tách sub", "tách phụ đề", "lấy phụ đề", "sub từ video",
                      "get subtitles"],
-        "input_hint": "path to a downloaded video file",
+        "input_hint": "a video link OR a path to a video file on this machine",
         "when_to_use": "The user wants the spoken content of a video as text or an SRT.",
-        "endpoint": "/api/v1/subtitle/extract",
-        "input_key": "video_path",
+        # One-string wrapper: downloads if given a URL, then extracts — as a
+        # background codex task. The raw /subtitle/extract endpoint needs
+        # {file_path} and a status poll, which a single skill string can't do.
+        "endpoint": "/api/v1/video-studio/job/extract",
+        "input_key": "input",
     },
     {
         "name": "🌐 Translate Subtitles",
         "requires": "translate_subtitle",
         "description": "Translate an existing subtitle track into another language, keeping the timings.",
         "commands": ["dịch phụ đề", "dịch sub", "translate subtitle"],
-        "input_hint": "subtitle lines or an SRT path, plus the target language",
-        "when_to_use": "The user has subtitles and wants them in another language.",
-        "endpoint": "/api/v1/subtitle/translate",
-        "input_key": "text",
+        "input_hint": "a video link, a video file path, or an .srt file path",
+        "when_to_use": "The user has a video or subtitles and wants them in another language.",
+        # Wrapper: .srt input translates directly; a video/link first extracts.
+        # The raw /subtitle/translate endpoint wants {subtitles: [...],
+        # target_language} — unreachable from one string.
+        "endpoint": "/api/v1/video-studio/job/translate",
+        "input_key": "input",
     },
     {
         "name": "🧽 Remove Burned-in Subtitles",
@@ -118,20 +130,26 @@ SKILLS: List[Dict] = [
             "stretching each line to match its timing. Replaces or mixes with the original audio."
         ),
         "commands": ["lồng tiếng", "dub video", "text to speech video"],
-        "input_hint": "video path plus the subtitle lines to speak",
+        "input_hint": "a video link or a video file path",
         "when_to_use": "The user wants the video spoken in another voice or language.",
-        "endpoint": "/api/v1/tts/synthesize-srt",
-        "input_key": "video_path",
+        # Wrapper: extract → translate → synthesize → mux, as a codex task.
+        # The raw /tts/synthesize-srt endpoint wants {srt_content} and returns
+        # a bare audio track behind a status poll — not a dubbed video.
+        "endpoint": "/api/v1/video-studio/job/dub",
+        "input_key": "input",
     },
     {
         "name": "🔥 Burn Subtitles",
         "requires": "burn_subtitle",
         "description": "Render subtitles permanently into the video frames with a chosen style.",
         "commands": ["ghi sub", "burn subtitle", "ghép phụ đề"],
-        "input_hint": "video path plus the subtitle lines",
+        "input_hint": "a video link or a video file path",
         "when_to_use": "The user wants subtitles baked into the picture rather than a separate file.",
-        "endpoint": "/api/v1/subtitle/burn",
-        "input_key": "video_path",
+        # Wrapper: extract → export SRT → burn, as a codex task. The raw
+        # /subtitle/burn endpoint wants TWO existing files {video_path,
+        # srt_path} plus a status poll — impossible from one string.
+        "endpoint": "/api/v1/video-studio/job/burn",
+        "input_key": "input",
     },
     {
         "name": "🚀 Reup Pipeline",
