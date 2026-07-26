@@ -216,8 +216,8 @@ def guidance_for(job_ids: List[str]) -> Optional[str]:
         # Not a Market item — a system binary, so it needs its own instructions.
         lines.append(
             "**ffmpeg** is not installed, or this server cannot find it. Install it "
-            "from https://ffmpeg.org, then either put its `bin` folder on PATH or "
-            "set `ffmpeg_path` in Settings."
+            "from https://ffmpeg.org, then put its `bin` folder on PATH and restart "
+            "TubeCLI — or add `\"ffmpeg_path\"` to `data/global_settings.json`."
         )
         lines.append("")
     lines.append(

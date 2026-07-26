@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ Çalıştıramadım — gerekli bilgi eksik: {fields}. Gönderirseniz tekrar denerim.",
   "vs.api_error": "⚠️ İstek başarısız oldu: {error}",
   "vs.queued_job": "🎬 {job} *Codex #{seq}* olarak sıraya alındı",
-  "vs.err_ffmpeg_missing": "⚠️ ffmpeg bulunamadı, video ve ses parçaları birleştirilemiyor.\nffmpeg'i kurup TubeCLI'yi yeniden başlatın veya yolunu Ayarlar → ffmpeg_path içinde belirtin."
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg bulunamadı, video ve ses parçaları birleştirilemiyor.\nhttps://ffmpeg.org adresinden ffmpeg'i kurun, `bin` klasörünü PATH'e ekleyin ve TubeCLI'yi yeniden başlatın — veya `data/global_settings.json` içine `\"ffmpeg_path\"` ekleyin."
 }

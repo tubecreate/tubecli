@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ Не получилось выполнить — не хватает данных: {fields}. Пришлите их, и я повторю.",
   "vs.api_error": "⚠️ Запрос не выполнен: {error}",
   "vs.queued_job": "🎬 {job} поставлено в очередь как *Codex #{seq}*",
-  "vs.err_ffmpeg_missing": "⚠️ ffmpeg не найден, объединить видео- и аудиодорожки не удалось.\nУстановите ffmpeg и перезапустите TubeCLI или укажите путь в Настройки → ffmpeg_path."
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg не найден, объединить видео- и аудиодорожки не удалось.\nУстановите ffmpeg с https://ffmpeg.org, добавьте его папку `bin` в PATH и перезапустите TubeCLI — либо укажите `\"ffmpeg_path\"` в `data/global_settings.json`."
 }

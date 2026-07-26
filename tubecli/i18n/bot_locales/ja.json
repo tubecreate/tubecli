@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ 実行できませんでした — 必要な情報が不足しています: {fields}。送っていただければ再試行します。",
   "vs.api_error": "⚠️ リクエストに失敗しました: {error}",
   "vs.queued_job": "🎬 {job} を *Codex #{seq}* として登録しました",
-  "vs.err_ffmpeg_missing": "⚠️ ffmpeg が見つからないため、映像と音声を結合できません。\nffmpeg をインストールして TubeCLI を再起動するか、設定 → ffmpeg_path にパスを指定してください。"
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg が見つからないため、映像と音声を結合できません。\nhttps://ffmpeg.org から ffmpeg をインストールし、その `bin` フォルダを PATH に 追加して TubeCLI を再起動してください — または `data/global_settings.json` に `\"ffmpeg_path\"` を追加してください。"
 }

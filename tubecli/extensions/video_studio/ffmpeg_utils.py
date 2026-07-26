@@ -124,15 +124,28 @@ def find_ffmpeg() -> Optional[str]:
 
 
 def find_ffprobe() -> Optional[str]:
-    return _which("ffprobe")
+    found = _which("ffprobe")
+    if found:
+        return found
+    # imageio-ffmpeg ships ffmpeg but NO ffprobe, so a box that only has that
+    # copy loses probing entirely — and callers degrade quietly (subtitle
+    # region detection falls back to sampling under a second of video). Look
+    # beside whatever ffmpeg we did find before giving up.
+    ffmpeg = find_ffmpeg()
+    if ffmpeg:
+        beside = os.path.join(os.path.dirname(ffmpeg), _exe("ffprobe"))
+        if os.path.isfile(beside):
+            return beside
+    return None
 
 
 def require_ffmpeg() -> str:
     exe = find_ffmpeg()
     if not exe:
         raise RuntimeError(
-            "ffmpeg not found. Install it from https://ffmpeg.org and make sure it is on "
-            "PATH, or set 'ffmpeg_path' in Settings."
+            "ffmpeg not found. Install it from https://ffmpeg.org and put its 'bin' "
+            "folder on PATH, then restart TubeCLI — or add 'ffmpeg_path' to "
+            "data/global_settings.json."
         )
     return exe
 

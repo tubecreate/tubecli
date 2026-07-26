@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ 無法執行 — 缺少必要資訊:{fields}。請補充後我再試。",
   "vs.api_error": "⚠️ 請求失敗:{error}",
   "vs.queued_job": "🎬 {job} 已排入 *Codex #{seq}*",
-  "vs.err_ffmpeg_missing": "⚠️ 找不到 ffmpeg,無法合併影像與音訊軌道。\n請安裝 ffmpeg 後重新啟動 TubeCLI,或在「設定 → ffmpeg_path」中指定路徑。"
+  "vs.err_ffmpeg_missing": "⚠️ 找不到 ffmpeg,無法合併影像與音訊軌道。\n請從 https://ffmpeg.org 安裝 ffmpeg,把它的 `bin` 目錄加入 PATH 後重新啟動 TubeCLI — 或在 `data/global_settings.json` 中加入 `\"ffmpeg_path\"`。"
 }

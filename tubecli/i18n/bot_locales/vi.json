@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ Chưa chạy được — thiếu thông tin bắt buộc: {fields}. Bạn gửi bổ sung giúp mình nhé.",
   "vs.api_error": "⚠️ Yêu cầu không thành công: {error}",
   "vs.queued_job": "🎬 Đã xếp lịch {job} — *Codex #{seq}*",
-  "vs.err_ffmpeg_missing": "⚠️ Không tìm thấy ffmpeg nên không ghép được luồng hình và tiếng.\nHãy cài ffmpeg rồi khởi động lại TubeCLI, hoặc khai báo đường dẫn ở Cài đặt → ffmpeg_path."
+  "vs.err_ffmpeg_missing": "⚠️ Không tìm thấy ffmpeg nên không ghép được luồng hình và tiếng.\nHãy cài ffmpeg từ https://ffmpeg.org, thêm thư mục `bin` của nó vào PATH rồi khởi động lại TubeCLI — hoặc khai báo `\"ffmpeg_path\"` trong `data/global_settings.json`."
 }

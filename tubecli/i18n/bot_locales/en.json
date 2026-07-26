@@ -103,5 +103,5 @@
   "vs.api_missing_fields": "⚠️ I couldn't run that — required information is missing: {fields}. Please send it and I'll retry.",
   "vs.api_error": "⚠️ The request failed: {error}",
   "vs.queued_job": "🎬 {job} queued as *Codex #{seq}*",
-  "vs.err_ffmpeg_missing": "⚠️ ffmpeg could not be found, so the video and audio tracks cannot be merged.\nInstall ffmpeg and restart TubeCLI, or set its path in Settings → ffmpeg_path."
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg could not be found, so the video and audio tracks cannot be merged.\nInstall ffmpeg from https://ffmpeg.org, put its `bin` folder on PATH and restart TubeCLI — or add `\"ffmpeg_path\"` to `data/global_settings.json`."
 }
