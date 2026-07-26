@@ -102,5 +102,6 @@
   "vs.ask_url": "🔗 좋아요 — 영상 링크를 보내주시면 나머지는 제가 할게요.\n원하는 작업(다운로드, 자막, 번역 등)도 함께 적어주세요.",
   "vs.api_missing_fields": "⚠️ 실행하지 못했어요 — 필수 정보가 없습니다: {fields}. 보내주시면 다시 시도할게요.",
   "vs.api_error": "⚠️ 요청이 실패했습니다: {error}",
-  "vs.queued_job": "🎬 {job}을(를) *Codex #{seq}*(으)로 예약했습니다"
+  "vs.queued_job": "🎬 {job}을(를) *Codex #{seq}*(으)로 예약했습니다",
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg을 찾을 수 없어 영상과 오디오를 합칠 수 없습니다.\nffmpeg을 설치한 뒤 TubeCLI를 다시 시작하거나, 설정 → ffmpeg_path에 경로를 지정해 주세요."
 }

@@ -29,6 +29,18 @@ class VideoStudioExtension(Extension):
 
     def on_enable(self):
         """Idempotent — on_enable re-fires on every discovery pass."""
+        # Do this FIRST and for everyone: a server started from a launcher or a
+        # service inherits a much smaller PATH than a developer shell, and then
+        # every tool that shells out to a bare "ffmpeg" (yt-dlp's merge step,
+        # the burn-subtitles route, the TTS stitcher) fails with "ffmpeg is not
+        # installed" even though it is installed.
+        try:
+            from tubecli.extensions.video_studio.ffmpeg_utils import ensure_on_path
+
+            ensure_on_path()
+        except Exception as e:
+            logger.warning(f"Could not make ffmpeg discoverable: {e}")
+
         try:
             from tubecli.extensions.video_studio.skills import register_skills
 

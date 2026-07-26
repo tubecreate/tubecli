@@ -45,6 +45,11 @@ EXTENSIONS: Dict[str, Dict[str, str]] = {
     },
 }
 
+# Jobs that shell out to ffmpeg. An installed extension is not enough: if the
+# binary is undiscoverable the job fails deep inside a tool with a message like
+# "ffmpeg is not installed", so ffmpeg is treated as a requirement of its own.
+NEEDS_FFMPEG = {"download", "remove_hardsub", "tts", "burn_subtitle", "reup_pipeline"}
+
 # Job id → what it needs and which endpoint does the work.
 JOBS: Dict[str, Dict] = {
     "download": {
@@ -118,6 +123,10 @@ def check_job(job_id: str) -> Dict:
         else:
             present.append(ext)
 
+    tools = []
+    if job_id in NEEDS_FFMPEG and not ffmpeg_ready():
+        tools.append("ffmpeg")
+
     return {
         "job": job_id,
         "label": job["label"],
@@ -127,8 +136,24 @@ def check_job(job_id: str) -> Dict:
         "present": present,
         "missing": missing,
         "disabled": disabled,
-        "ready": not missing and not disabled,
+        "missing_tools": tools,
+        "ready": not missing and not disabled and not tools,
     }
+
+
+def ffmpeg_ready() -> bool:
+    """Is there an ffmpeg this process can actually run?
+
+    Checked through video_studio's own finder, which also looks in the usual
+    install directories — a server started from a launcher inherits a PATH
+    that frequently has none of them.
+    """
+    try:
+        from tubecli.extensions.video_studio.ffmpeg_utils import find_ffmpeg
+
+        return bool(find_ffmpeg())
+    except Exception:
+        return False
 
 
 def check_all() -> Dict:
@@ -156,7 +181,7 @@ def guidance_for(job_ids: List[str]) -> Optional[str]:
     if isinstance(job_ids, str):
         job_ids = [job_ids]
 
-    missing, disabled, wanted = [], [], []
+    missing, disabled, wanted, tools = [], [], [], []
     for jid in job_ids:
         r = check_job(jid)
         if r.get("error"):
@@ -168,8 +193,11 @@ def guidance_for(job_ids: List[str]) -> Optional[str]:
         for e in r["disabled"]:
             if e not in disabled:
                 disabled.append(e)
+        for e in r.get("missing_tools") or []:
+            if e not in tools:
+                tools.append(e)
 
-    if not missing and not disabled:
+    if not missing and not disabled and not tools:
         return None
 
     lines = ["⚠️ **Missing tools for this job.**", ""]
@@ -183,6 +211,14 @@ def guidance_for(job_ids: List[str]) -> Optional[str]:
     if disabled:
         lines.append("These are installed but switched off — enable them in Extensions:")
         lines += [f"  - {_describe(e)}" for e in disabled]
+        lines.append("")
+    if "ffmpeg" in tools:
+        # Not a Market item — a system binary, so it needs its own instructions.
+        lines.append(
+            "**ffmpeg** is not installed, or this server cannot find it. Install it "
+            "from https://ffmpeg.org, then either put its `bin` folder on PATH or "
+            "set `ffmpeg_path` in Settings."
+        )
         lines.append("")
     lines.append(
         "After installing or enabling, **restart the server** — extension routes are "
@@ -199,7 +235,7 @@ def capability_report() -> str:
         mark = "✅" if r["ready"] else "❌"
         line = f"{mark} **{r['label']}**"
         if not r["ready"]:
-            gaps = r["missing"] + r["disabled"]
+            gaps = r["missing"] + r["disabled"] + (r.get("missing_tools") or [])
             line += f" — needs: {', '.join(EXTENSIONS.get(g, {}).get('label', g) for g in gaps)}"
         lines.append(line)
     if data["blocked"]:

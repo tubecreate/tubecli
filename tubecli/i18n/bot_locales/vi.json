@@ -102,5 +102,6 @@
   "vs.ask_url": "🔗 Được — gửi mình link video nhé, mình lo phần còn lại.\nBạn có thể ghi kèm việc cần làm: tải về, tách sub, dịch…",
   "vs.api_missing_fields": "⚠️ Chưa chạy được — thiếu thông tin bắt buộc: {fields}. Bạn gửi bổ sung giúp mình nhé.",
   "vs.api_error": "⚠️ Yêu cầu không thành công: {error}",
-  "vs.queued_job": "🎬 Đã xếp lịch {job} — *Codex #{seq}*"
+  "vs.queued_job": "🎬 Đã xếp lịch {job} — *Codex #{seq}*",
+  "vs.err_ffmpeg_missing": "⚠️ Không tìm thấy ffmpeg nên không ghép được luồng hình và tiếng.\nHãy cài ffmpeg rồi khởi động lại TubeCLI, hoặc khai báo đường dẫn ở Cài đặt → ffmpeg_path."
 }

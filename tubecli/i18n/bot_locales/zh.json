@@ -102,5 +102,6 @@
   "vs.ask_url": "🔗 好的 — 请把视频链接发给我，剩下的交给我。\n也可以说明要做什么：下载、字幕、翻译…",
   "vs.api_missing_fields": "⚠️ 无法执行 — 缺少必要信息:{fields}。请补充后我再试。",
   "vs.api_error": "⚠️ 请求失败:{error}",
-  "vs.queued_job": "🎬 {job} 已排队为 *Codex #{seq}*"
+  "vs.queued_job": "🎬 {job} 已排队为 *Codex #{seq}*",
+  "vs.err_ffmpeg_missing": "⚠️ 找不到 ffmpeg,无法合并视频与音频轨道。\n请安装 ffmpeg 后重启 TubeCLI,或在「设置 → ffmpeg_path」中指定路径。"
 }

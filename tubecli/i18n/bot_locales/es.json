@@ -102,5 +102,6 @@
   "vs.ask_url": "🔗 Claro — envíame el enlace del vídeo y yo me encargo.\nPuedes añadir qué necesitas: descarga, subtítulos, traducción…",
   "vs.api_missing_fields": "⚠️ No pude ejecutarlo: falta información obligatoria: {fields}. Envíamela y lo reintento.",
   "vs.api_error": "⚠️ La solicitud falló: {error}",
-  "vs.queued_job": "🎬 {job} en cola como *Codex #{seq}*"
+  "vs.queued_job": "🎬 {job} en cola como *Codex #{seq}*",
+  "vs.err_ffmpeg_missing": "⚠️ No se encontró ffmpeg, así que no se pueden unir las pistas de vídeo y audio.\nInstala ffmpeg y reinicia TubeCLI, o indica su ruta en Ajustes → ffmpeg_path."
 }

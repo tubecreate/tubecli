@@ -10,10 +10,29 @@ Here the async endpoint is used instead: start the job, then poll its status and
 publish the percentage into the codex step, so the board shows a moving bar.
 """
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger("VideoStudio")
+
+# Terminal colour codes from the tools we shell out to. Left in, they reach the
+# chat bubble as literal "[0;31mERROR:[0m".
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _clean_error(text: Any) -> str:
+    return _ANSI.sub("", str(text or "")).strip()
+
+
+def _humanise(error: str) -> str:
+    """Turn a known, fixable tool failure into something the user can act on."""
+    low = error.lower()
+    if "ffmpeg" in low and ("not installed" in low or "not found" in low):
+        from tubecli.core.bot_i18n import t
+
+        return t("vs.err_ffmpeg_missing")
+    return error
 
 POLL_SECONDS = 2.0
 DEFAULT_TIMEOUT = 3600      # an hour is plenty for a long video
@@ -175,9 +194,10 @@ def download_with_progress(
             say("success", name or "done", 100)
             return {"ok": True, "path": path, "filename": name}
         if status in ("error", "failed"):
-            err = data.get("error") or "the downloader reported a failure"
-            say("error", str(err)[:200])
-            return {"ok": False, "error": str(err)}
+            err = _humanise(_clean_error(data.get("error"))
+                            or "the downloader reported a failure")
+            say("error", err[:200])
+            return {"ok": False, "error": err}
 
 
 def run_download_task(url: str, options: Optional[Dict] = None,

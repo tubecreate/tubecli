@@ -102,5 +102,6 @@
   "vs.ask_url": "🔗 Tamam — video bağlantısını gönderin, gerisini ben hallederim.\nNe istediğinizi de ekleyebilirsiniz: indirme, altyazı, çeviri…",
   "vs.api_missing_fields": "⚠️ Çalıştıramadım — gerekli bilgi eksik: {fields}. Gönderirseniz tekrar denerim.",
   "vs.api_error": "⚠️ İstek başarısız oldu: {error}",
-  "vs.queued_job": "🎬 {job} *Codex #{seq}* olarak sıraya alındı"
+  "vs.queued_job": "🎬 {job} *Codex #{seq}* olarak sıraya alındı",
+  "vs.err_ffmpeg_missing": "⚠️ ffmpeg bulunamadı, video ve ses parçaları birleştirilemiyor.\nffmpeg'i kurup TubeCLI'yi yeniden başlatın veya yolunu Ayarlar → ffmpeg_path içinde belirtin."
 }
