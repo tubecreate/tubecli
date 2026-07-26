@@ -590,7 +590,38 @@ const CHAT = (() => {
         }
       } catch (e) { /* transient — keep the last known state */ }
     }
-    if (changed) renderThread();
+    if (changed) refreshTaskCards();
+  }
+
+  /** Repaint only the cards whose task moved.
+   *
+   * This used to call renderThread(), which rebuilds every message's innerHTML
+   * and snaps the view to the bottom. Every 2.5s, against a thread holding a
+   * few hundred lines of transcript, that is a visible stutter — and it yanked
+   * the page away from whatever the user was reading. */
+  function refreshTaskCards() {
+    const thread = $('ch-thread');
+    if (!thread) return;
+    let missing = false;
+    state.messages.forEach((msg) => {
+      const ref = taskOf(msg);
+      if (!ref) return;
+      const el = thread.querySelector('.ch-task[data-task="' + cssEscape(ref.id) + '"]');
+      if (!el) { missing = true; return; }
+      const html = taskCardHtml(msg);
+      const holder = document.createElement('div');
+      holder.innerHTML = html;
+      const next = holder.firstElementChild;
+      if (next && next.outerHTML !== el.outerHTML) el.replaceWith(next);
+    });
+    // A card that is not on the page yet (first paint) still needs a full pass.
+    if (missing) renderThread();
+  }
+
+  function cssEscape(v) {
+    const s = String(v == null ? '' : v);
+    if (window.CSS && typeof CSS.escape === 'function') return CSS.escape(s);
+    return s.replace(/["\\]/g, '\\$&');
   }
 
   async function taskDecision(id, decision) {
@@ -605,7 +636,7 @@ const CHAT = (() => {
       if (!resp.ok) throw new Error((data && data.detail) || ('HTTP ' + resp.status));
       if (data && data.task) state.tasks[id] = data.task;
       toast(t(decision === 'approve' ? 'chat.toast_task_approved' : 'chat.toast_task_rejected'), 'success');
-      renderThread();
+      refreshTaskCards();
       pollTasks();
     } catch (e) {
       toast(e.message, 'error');

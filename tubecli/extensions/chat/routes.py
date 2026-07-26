@@ -170,6 +170,7 @@ async def send_message(session_id: str, req: SendMessageRequest):
             auto_route=req.auto_route,
             model_override=model_override,
             provider_override=provider_override,
+            session_id=session_id,
         )
     except Exception as e:
         logger.error(f"[Chat] Turn failed: {e}", exc_info=True)

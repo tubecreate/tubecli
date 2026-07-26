@@ -116,6 +116,8 @@ class AgentBrain:
             "4. DIRECT Video URLs (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
             "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop.\n"
             "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
+            "6b. NEVER claim you created, copied, moved, saved or deleted a file unless you emitted the JSON action for it in THIS reply. If you cannot do it, say so. Reporting an action you did not take is the worst possible answer.\n"
+            "6c. Use file paths EXACTLY as they appear earlier in the conversation. Never invent or shorten a filename, and never guess one — if the path is not in the conversation, ask for it.\n"
             "7. **CRITICAL**: For greetings (hi, hello, xin chào, etc.), casual chat, or questions WITHOUT a clear actionable intent → reply conversationally in plain text. Do NOT output any JSON action block. Only output JSON when the user EXPLICITLY requests an action.\n\n"
             "### YOUR PERSONA:\n"
         )

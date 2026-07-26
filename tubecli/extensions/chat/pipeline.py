@@ -22,6 +22,7 @@ asyncio.to_thread (the pattern at telegram_listener.py:671/695/740).
 """
 import asyncio
 import logging
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -38,6 +39,7 @@ async def run_turn(
     auto_route: bool = True,
     model_override: str = "",
     provider_override: str = "",
+    session_id: str = "",
 ) -> Tuple[str, Dict[str, Any]]:
     """Process one user turn. Returns (reply_text, meta).
 
@@ -127,6 +129,16 @@ async def run_turn(
         from tubecli.core.bot_i18n import t as _bt
 
         return _bt("vs.ask_url"), meta
+
+    # "save that file to Downloads". Left to the model this went wrong twice in
+    # one conversation: it invented a filename, and then simply ASSERTED it had
+    # copied the file without emitting any action at all. The paths this
+    # conversation produced are known, so do it here and report what really
+    # happened.
+    saved = _try_save_artifact(message, history, session_id)
+    if saved is not None:
+        meta["action"] = "save_file"
+        return saved, meta
 
     # Optionally hand the turn to the specialist that owns this intent.
     if auto_route and intent is not None:
@@ -229,6 +241,124 @@ async def run_turn(
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+# "save/copy it to <somewhere>", in every shipped language. Deliberately
+# requires BOTH a save verb and a destination cue, so "lưu ý" or a sentence
+# merely mentioning a folder does not trigger a copy.
+_SAVE_VERBS = re.compile(
+    r"(lưu|luu|sao\s*chép|sao\s*chep|copy|save|store|export|"
+    r"保存|另存|复制|複製|保存して|コピー|저장|복사|"
+    r"сохран|скопир|kaydet|kopyala|guardar|copiar)",
+    re.IGNORECASE)
+
+# Folder words → the real directory. A user says "Downloads", not a path.
+_DEST_WORDS = [
+    (re.compile(r"(download|tải\s*về|tai\s*ve|下载|下載|ダウンロード|다운로드|"
+                r"загрузк|indirilen|descargas)", re.IGNORECASE), "~/Downloads"),
+    (re.compile(r"(desktop|màn\s*hình|man\s*hinh|桌面|デスクトップ|바탕\s*화면|"
+                r"рабочий\s*стол|masaüstü|escritorio)", re.IGNORECASE), "~/Desktop"),
+    (re.compile(r"(document|tài\s*liệu|tai\s*lieu|文档|文件夾|ドキュメント|문서|"
+                r"документ|belgeler|documentos)", re.IGNORECASE), "~/Documents"),
+]
+
+# An absolute path the assistant printed, usually inside backticks.
+_PATH_RE = re.compile(r"(?:[A-Za-z]:\\[^`\n\"'|<>]+|/(?:home|Users|mnt|var)/[^`\n\"'|<>]+)")
+
+
+def _paths_in(text: str, into: List[str]) -> None:
+    for raw in _PATH_RE.findall(str(text or "")):
+        path = raw.strip().rstrip(".,;:)`")
+        if os.path.isfile(path) and path not in into:
+            into.append(path)
+
+
+def _task_artifacts(session_id: str, limit: int = 20) -> List[str]:
+    """Files produced by the codex tasks this conversation started.
+
+    A task's output lives on the TASK, not in the transcript: the stored
+    assistant message only says "queued as Codex #22", and the result arrives
+    later through the card. get_history_for_llm also drops meta, so without
+    this the .srt the user just watched appear is invisible to the save path.
+    """
+    found: List[str] = []
+    try:
+        from tubecli.extensions.chat.store import conversation_store
+        from tubecli.extensions.codex.manager import codex_manager
+    except Exception:
+        return found
+    try:
+        messages = conversation_store.get_messages(session_id, limit=limit * 2)
+    except Exception:
+        return found
+    for msg in reversed(messages):
+        ref = ((msg or {}).get("meta") or {}).get("codex_task") or {}
+        task_id = ref.get("id")
+        if not task_id:
+            continue
+        try:
+            task = codex_manager.get_task(task_id) or {}
+        except Exception:
+            continue
+        _paths_in(task.get("result", ""), found)
+    return found
+
+
+def _recent_artifacts(history: List[Dict[str, str]], session_id: str = "",
+                      limit: int = 8) -> List[str]:
+    """Files this conversation actually produced, newest first.
+
+    Reading the real paths back beats asking the model to remember a filename,
+    which is exactly how it came to invent one.
+    """
+    found: List[str] = []
+    for msg in reversed(history[-limit:] if limit else history):
+        if (msg or {}).get("role") == "user":
+            continue
+        _paths_in((msg or {}).get("content", ""), found)
+    if session_id:
+        for path in _task_artifacts(session_id):
+            if path not in found:
+                found.append(path)
+    return found
+
+
+def _save_destination(message: str) -> Optional[str]:
+    """The folder the user asked for, or None when they named none."""
+    explicit = _PATH_RE.search(message)
+    if explicit:
+        return explicit.group(0).strip().rstrip(".,;:)`")
+    for pattern, folder in _DEST_WORDS:
+        if pattern.search(message):
+            return os.path.expanduser(folder)
+    return None
+
+
+def _try_save_artifact(message: str, history: List[Dict[str, str]],
+                       session_id: str = "") -> Optional[str]:
+    """Copy the newest produced file where the user asked. None = not this."""
+    from tubecli.core.bot_i18n import t as _bt
+
+    if not _SAVE_VERBS.search(message or ""):
+        return None
+    dest = _save_destination(message or "")
+    if not dest:
+        return None
+    artifacts = _recent_artifacts(history or [], session_id)
+    if not artifacts:
+        return None                      # nothing produced yet — let the model talk
+
+    src = artifacts[0]
+    target = os.path.join(dest, os.path.basename(src)) if (
+        os.path.isdir(dest) or not os.path.splitext(dest)[1]) else dest
+    try:
+        from tubecli.extensions.file_manager.file_service import file_service
+
+        result = file_service.copy(src, target)
+    except Exception as e:
+        logger.warning(f"[Chat] save-artifact failed: {e}")
+        return _bt("chat.save_failed", error=str(e)[:200])
+    return _bt("chat.save_ok", src=result.get("from", src), dst=result.get("to", target))
+
 
 LANGUAGE_NAMES = {
     "en": "English", "vi": "Vietnamese (Tiếng Việt)", "zh": "Simplified Chinese (简体中文)",
