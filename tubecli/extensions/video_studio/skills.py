@@ -38,12 +38,20 @@ SKILLS: List[Dict] = [
         "requires": "download",
         "description": (
             "Download a video from Douyin, TikTok, YouTube and other platforms, "
-            "without watermark where possible. Accepts full or shortened links."
+            "without watermark where possible. Accepts full or shortened links. "
+            "Runs in the BACKGROUND as a Codex task with a live progress bar — it "
+            "returns a task number immediately, it does not block the chat."
         ),
-        "commands": ["tải video", "download video", "tai video"],
+        # Deliberately distinct from the legacy '🌍 Universal Video Downloader'
+        # skill, which owns "download video"/"download youtube".
+        # _match_skill_command returns the FIRST skill whose command matches, so
+        # sharing a phrase would silently hand the job back to the old workflow —
+        # the one that calls the synchronous endpoint and dies at 30s.
+        "commands": ["tải video này", "tai video nay", "download this video",
+                     "video downloader", "tải link"],
         "input_hint": "the video URL",
         "when_to_use": "The user gives a link to ONE video and wants the file.",
-        "endpoint": "/api/v1/ytdl/download_async",
+        "endpoint": "/api/v1/video-studio/download",
         "input_key": "url",
     },
     {
@@ -67,7 +75,12 @@ SKILLS: List[Dict] = [
             "Transcribe a video into timed subtitle lines using Gemini (cloud) or "
             "Whisper (offline), and export SRT/VTT/ASS."
         ),
-        "commands": ["tách sub", "tách phụ đề", "extract subtitle", "transcribe"],
+        # 'extract subtitle' and 'transcribe' belong to the legacy (broken)
+        # "Subtitle Extractor" skill. _match_skill_command does not check
+        # is_runnable, so sharing a phrase would route the job to a skill that
+        # cannot execute.
+        "commands": ["tách sub", "tách phụ đề", "lấy phụ đề", "sub từ video",
+                     "get subtitles"],
         "input_hint": "path to a downloaded video file",
         "when_to_use": "The user wants the spoken content of a video as text or an SRT.",
         "endpoint": "/api/v1/subtitle/extract",

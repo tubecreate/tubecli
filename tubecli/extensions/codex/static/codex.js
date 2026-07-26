@@ -496,13 +496,22 @@ const CODEX = (() => {
           <div class="cx-timeline">${steps.map(s => {
             const st = STEP_ICON[s.status] ? s.status : 'pending';
             const d = duration(s.started_at, s.ended_at);
+            // Long-running steps (download, encode) publish 0-100 so the user
+            // sees movement instead of an indeterminate spinner.
+            const pctRaw = (s.progress === null || s.progress === undefined)
+              ? null : Number(s.progress);
+            const pct = (pctRaw !== null && isFinite(pctRaw))
+              ? Math.max(0, Math.min(100, pctRaw)) : null;
+            const showBar = pct !== null && st === 'running';
             return `<div class="cx-step ${esc(st)}">
                 <span class="cx-step-dot"></span>
                 <div class="cx-step-head">
                   <span class="cx-step-label">${esc(s.label || s.name || '')}</span>
                   <span class="cx-step-status">${esc(stepLabel(st))}</span>
+                  ${showBar ? `<span class="cx-step-pct">${esc(pct.toFixed(0))}%</span>` : ''}
                   ${d ? `<span class="cx-step-time">${esc(d)}</span>` : ''}
                 </div>
+                ${showBar ? `<div class="cx-step-bar"><span style="width:${pct.toFixed(1)}%"></span></div>` : ''}
                 ${s.message ? `<div class="cx-step-msg">${esc(s.message)}</div>` : ''}
               </div>`;
           }).join('')}</div>

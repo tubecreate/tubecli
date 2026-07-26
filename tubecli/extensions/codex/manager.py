@@ -651,10 +651,24 @@ class CodexManager:
         return snapshot
 
     def report_step(
-        self, task_id: str, name: str, status: str, message: str = "", label: str = ""
+        self, task_id: str, name: str, status: str, message: str = "",
+        label: str = "", progress: Optional[float] = None,
     ):
-        """Upsert a step on the task and mirror it into the event log."""
+        """Upsert a step on the task and mirror it into the event log.
+
+        `progress` is 0-100 for long-running work (a download, an encode) so the
+        board can draw a bar instead of an indeterminate spinner. Progress-only
+        updates are frequent, so they do NOT write an event — that would flood
+        the log with hundreds of lines per download.
+        """
         self._ensure_loaded()
+        pct = None
+        if progress is not None:
+            try:
+                pct = max(0.0, min(100.0, round(float(progress), 1)))
+            except (TypeError, ValueError):
+                pct = None
+
         with self._lock:
             task = self._tasks.get(task_id)
             if not task:
@@ -667,24 +681,33 @@ class CodexManager:
                     "label": label or name,
                     "status": status,
                     "message": message,
+                    "progress": pct,
                     "started_at": _now(),
                     "ended_at": "",
                 }
                 steps.append(existing)
+                is_new = True
             else:
+                is_new = existing.get("status") != status
                 existing["status"] = status
                 if message:
                     existing["message"] = message
                 if label:
                     existing["label"] = label
+                if pct is not None:
+                    existing["progress"] = pct
             if status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED):
                 existing["ended_at"] = _now()
+                existing["progress"] = 100.0 if status == STEP_SUCCESS else existing.get("progress")
             task["updated_at"] = _now()
             self._save()
-        self.append_event(
-            task_id, "step", message or f"{name}: {status}", actor="worker",
-            data={"step": name, "status": status},
-        )
+
+        # Only log real transitions, not every percent tick.
+        if is_new:
+            self.append_event(
+                task_id, "step", message or f"{name}: {status}", actor="worker",
+                data={"step": name, "status": status, "progress": pct},
+            )
 
     def report_result(self, task_id: str, result: str) -> Dict[str, Any]:
         task = self.get_task(task_id)

@@ -491,3 +491,28 @@ body {
     .cx-field-narrow { max-width: none; }
     .toast { top: auto; bottom: 20px; right: 12px; left: 12px; max-width: none; }
 }
+
+/* ── Step progress bar ────────────────────────────────────────────────
+   Long-running steps (download, encode) report 0-100; without this the
+   user only sees a spinner and cannot tell a slow job from a stuck one. */
+.cx-step-pct {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+  font-weight: 600;
+}
+.cx-step-bar {
+  margin: 6px 0 2px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--bg3, rgba(255, 255, 255, 0.08));
+  overflow: hidden;
+}
+.cx-step-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--primary);
+  transition: width 0.4s ease;
+}

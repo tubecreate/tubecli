@@ -46,6 +46,12 @@ class ReupRequest(BaseModel):
     origin: Optional[Dict[str, Any]] = None
 
 
+class DownloadRequest(BaseModel):
+    url: str
+    created_by: str = "user"
+    origin: Optional[Dict[str, Any]] = None
+
+
 # ── Capabilities ─────────────────────────────────────────────────────
 
 @router.get("/capabilities")
@@ -162,6 +168,35 @@ async def analyze_channel_route(req: ChannelRequest):
 
 
 # ── Reup pipeline ────────────────────────────────────────────────────
+
+@router.post("/download")
+async def download_route(req: DownloadRequest):
+    """Queue a background download with a progress bar.
+
+    Deliberately NOT a synchronous call: yt-dlp takes minutes, and any caller
+    (workflow node, chat turn, Telegram handler) times out long before it
+    finishes. As a codex task it reports live percentage and survives a restart.
+    """
+    if not (req.url or "").strip():
+        raise HTTPException(400, "url is required")
+    from tubecli.extensions.video_studio.capabilities import guidance_for
+
+    gap = guidance_for(["download"])
+    if gap:
+        raise HTTPException(400, gap)
+    try:
+        from tubecli.extensions.video_studio.jobs import create_download_task
+
+        task = await asyncio.to_thread(
+            create_download_task, req.url, req.created_by, req.origin
+        )
+    except Exception as e:
+        logger.error(f"[VideoStudio] queueing the download failed: {e}", exc_info=True)
+        raise HTTPException(500, str(e))
+    return {"status": "queued", "task": task,
+            "message": (f"📥 Download queued as Codex #{task.get('seq')} — approve it "
+                        f"to start; progress shows on the board.")}
+
 
 @router.post("/pipeline/plan")
 async def pipeline_plan(req: ReupRequest):

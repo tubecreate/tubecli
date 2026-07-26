@@ -108,7 +108,9 @@ def run_reup(url: str, options: Optional[Dict[str, Any]] = None,
     def cancelled() -> bool:
         return bool(is_cancelled and is_cancelled())
 
-    state: Dict[str, Any] = {"url": url}
+    # Steps that stream progress (download, encode) need the callbacks; carry
+    # them on the state so each step keeps a uniform (state, options) signature.
+    state: Dict[str, Any] = {"url": url, "_report": report, "_is_cancelled": is_cancelled}
     notes: List[str] = []
     skipped_jobs: List[str] = []
 
@@ -163,11 +165,18 @@ def run_reup(url: str, options: Optional[Dict[str, Any]] = None,
 # ── Individual steps ─────────────────────────────────────────────────
 
 def _step_download(state: Dict, options: Dict):
-    data = _post("/api/v1/ytdl/download", {"url": state["url"]}, timeout=1800)
-    path = (data.get("path") or data.get("file") or data.get("filepath")
-            or (data.get("result") or {}).get("path"))
+    # Async + polling, never the synchronous endpoint: that one blocks for the
+    # whole download and every caller times out long before it returns.
+    from tubecli.extensions.video_studio.jobs import download_with_progress
+
+    result = download_with_progress(
+        state["url"], state.get("_report"), state.get("_is_cancelled"), step="download"
+    )
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "The download failed.")
+    path = result.get("path") or ""
     if not path or not os.path.exists(str(path)):
-        raise RuntimeError(f"The downloader did not return a usable file path: {data}")
+        raise RuntimeError(f"The downloader returned an unusable path: {path!r}")
     state["video_path"] = str(path)
 
 

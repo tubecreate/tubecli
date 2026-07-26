@@ -104,9 +104,12 @@ class CodexWorker:
     async def _run_one(self, task: Dict):
         task_id = task["id"]
         try:
-            def report(name: str, status: str, message: str = "", label: str = ""):
+            def report(name: str, status: str, message: str = "", label: str = "",
+                       progress=None):
                 try:
-                    codex_manager.report_step(task_id, name, status, message, label)
+                    codex_manager.report_step(
+                        task_id, name, status, message, label, progress
+                    )
                 except Exception as e:
                     logger.error(f"[Codex] report_step failed: {e}")
 

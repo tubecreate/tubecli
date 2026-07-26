@@ -75,6 +75,15 @@ async def _run_registered_pipeline(
         logger.info(f"[Codex] running video_studio reup for {url}")
         return await asyncio.to_thread(run_reup, url, options, report, is_cancelled)
 
+    if kind == "video_studio.download":
+        from tubecli.extensions.video_studio.jobs import run_download_task
+
+        url = payload.get("url", "")
+        logger.info(f"[Codex] running video_studio download for {url}")
+        return await asyncio.to_thread(
+            run_download_task, url, payload.get("options") or {}, report, is_cancelled
+        )
+
     logger.warning(f"[Codex] unknown pipeline kind {kind!r}; falling back to the agent")
     return None
 
