@@ -324,6 +324,7 @@ class ExtensionManager:
         "tubecli.extensions.universal_tracker",
         "tubecli.extensions.codex",
         "tubecli.extensions.chat",
+        "tubecli.extensions.video_studio",
     ]
 
     # Essential external extensions to auto-install if missing

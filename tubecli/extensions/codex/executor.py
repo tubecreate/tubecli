@@ -38,11 +38,59 @@ async def execute_task(
     if is_cancelled():
         raise TaskCancelled()
 
+    # Tasks queued by another extension carry a machine-readable kind in their
+    # event log, so the worker runs the real pipeline instead of handing the
+    # goal text to an LLM.
+    special = await _run_registered_pipeline(task, report, is_cancelled)
+    if special is not None:
+        return special
+
     if assignee_type == "team":
         return await _execute_team(task, report, is_cancelled)
     if assignee_type == "skill" or (task.get("skill_ref") or {}).get("skill_id"):
         return await _execute_skill(task, report, is_cancelled)
     return await _execute_agent(task, report, is_cancelled)
+
+
+# ── Extension-provided pipelines ─────────────────────────────────────
+
+async def _run_registered_pipeline(
+    task: Dict[str, Any],
+    report: Callable[..., None],
+    is_cancelled: Callable[[], bool],
+) -> Optional[str]:
+    """Run a task that another extension queued with a declared `kind`.
+
+    Returns the result text, or None when this is an ordinary agent task.
+    """
+    kind, payload = _task_kind(task)
+    if not kind:
+        return None
+
+    if kind == "video_studio.reup":
+        from tubecli.extensions.video_studio.pipeline import run_reup
+
+        url = payload.get("url", "")
+        options = payload.get("options") or {}
+        logger.info(f"[Codex] running video_studio reup for {url}")
+        return await asyncio.to_thread(run_reup, url, options, report, is_cancelled)
+
+    logger.warning(f"[Codex] unknown pipeline kind {kind!r}; falling back to the agent")
+    return None
+
+
+def _task_kind(task: Dict[str, Any]):
+    """Read the `kind` an extension stamped on the task's event log."""
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        for ev in reversed(codex_manager.get_events(task["id"], limit=50)):
+            data = ev.get("data") or {}
+            if data.get("kind"):
+                return data["kind"], data
+    except Exception as e:
+        logger.debug(f"[Codex] could not read the task kind: {e}")
+    return None, {}
 
 
 # ── Agent ────────────────────────────────────────────────────────────
