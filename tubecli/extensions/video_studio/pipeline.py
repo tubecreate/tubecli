@@ -276,14 +276,39 @@ def run_reup(url: str, options: Optional[Dict[str, Any]] = None,
             raise
         say(sid, "success", "")
 
-    lines = ["## ✅ Reup pipeline finished", ""]
+    # Someone who asked for subtitles wants the SUBTITLES, not a line count.
+    # Write them to an .srt they can open, and put the text in the answer.
+    subs = state.get("subtitles") or []
+    if subs and not state.get("srt_path"):
+        try:
+            stem = os.path.splitext(state.get("video_path") or "")[0]
+            if not stem:
+                from tubecli.config import EXTENSIONS_DATA_DIR
+
+                outdir = os.path.join(str(EXTENSIONS_DATA_DIR), "video_studio", "subtitles")
+                os.makedirs(outdir, exist_ok=True)
+                stem = os.path.join(outdir, _safe_stem(state))
+            state["srt_path"] = _export_srt(subs, f"{stem}.srt")
+        except Exception as e:
+            logger.warning(f"[VideoStudio] could not write the SRT: {e}")
+
+    lines = [f"## ✅ {options.get('job_label') or 'Reup pipeline'} finished", ""]
     for key, label in (("video_path", "Downloaded"), ("clean_path", "Original subs covered"),
                        ("dubbed_path", "Dubbed"), ("final_path", "Final video"),
-                       ("srt_path", "Subtitles")):
+                       ("srt_path", "Subtitle file")):
         if state.get(key):
             lines.append(f"- **{label}**: `{state[key]}`")
-    if state.get("subtitle_count"):
-        lines.append(f"- **Subtitle lines**: {state['subtitle_count']}")
+    if subs:
+        origin = state.get("subtitle_source") or ""
+        detail = f"{len(subs)} lines"
+        if state.get("subtitle_language"):
+            detail += f" · {state['subtitle_language']}"
+        if origin:
+            detail += f" · {origin}"
+            if state.get("subtitle_auto"):
+                detail += " (auto-generated)"
+        lines.append(f"- **Subtitles**: {detail}")
+        lines += ["", _subtitle_preview(subs)]
     if notes:
         lines += ["", "### Steps that did not run", ""] + notes
         extra = guidance_for(skipped_jobs)
@@ -310,7 +335,114 @@ def _step_download(state: Dict, options: Dict):
     state["video_path"] = str(path)
 
 
+PREVIEW_LINES = 40
+PREVIEW_CHARS = 3000
+
+
+def _safe_stem(state: Dict) -> str:
+    """A filename for subtitles pulled without ever downloading the video."""
+    import re as _re
+
+    base = state.get("title") or state.get("url") or "subtitles"
+    base = _re.sub(r"^https?://", "", str(base))
+    base = _re.sub(r'[\\/:*?"<>|]+', "_", base).strip("_. ")
+    return (base or "subtitles")[:60]
+
+
+def _ts(seconds) -> str:
+    try:
+        s = float(seconds or 0)
+    except (TypeError, ValueError):
+        s = 0.0
+    return f"{int(s // 60):02d}:{int(s % 60):02d}"
+
+
+def _subtitle_preview(subs: List[Dict]) -> str:
+    """The actual transcript, timestamped and trimmed to a readable size.
+
+    Reporting only "176 lines" told the user nothing about what was in the
+    video — the point of extracting subtitles is to read them.
+    """
+    out, total = [], 0
+    for s in subs[:PREVIEW_LINES]:
+        text = str(s.get("text", "")).strip()
+        if not text:
+            continue
+        line = f"`{_ts(s.get('start'))}`  {text}"
+        total += len(line)
+        if total > PREVIEW_CHARS:
+            break
+        out.append(line)
+    shown = len(out)
+    body = "\n".join(out)
+    if shown < len(subs):
+        body += f"\n\n_…{len(subs) - shown} more lines — the full text is in the .srt above._"
+    return body
+
+
+def _try_caption_track(state: Dict, options: Dict) -> bool:
+    """Fetch the platform's own caption track. True when it produced lines.
+
+    YouTube (and most sites yt-dlp knows) publish subtitles that can be pulled
+    straight from the page — downloading the video and running Whisper over it,
+    as this pipeline used to do unconditionally, is minutes of CPU and an API
+    bill for something already available as text.
+    """
+    langs = options.get("caption_languages")
+    if isinstance(langs, str):
+        langs = [langs]
+    if not langs and options.get("source_language") not in (None, "", "auto"):
+        langs = [options["source_language"]]
+    try:
+        data = _post("/api/v1/subtitle/extract/youtube",
+                     {"url": state["url"], "languages": langs}, timeout=180)
+    except Exception as e:
+        logger.info(f"[VideoStudio] no caption track for {state['url']}: {e}")
+        return False
+
+    subs = data.get("subtitles") or []
+    if not subs:
+        return False
+    state["subtitles"] = subs
+    state["subtitle_count"] = len(subs)
+    state["subtitle_source"] = data.get("engine") or "captions"
+    state["subtitle_language"] = data.get("language") or ""
+    state["subtitle_auto"] = bool(data.get("is_auto_generated"))
+    if data.get("title"):
+        state.setdefault("title", data["title"])
+    return True
+
+
 def _step_subtitle(state: Dict, options: Dict):
+    # Cheapest route first: most platforms already publish a caption track, so
+    # asking for it costs one request — no multi-hundred-MB download, no
+    # Whisper/Gemini pass, no API spend. Only fall through to transcription
+    # when the video genuinely has no captions.
+    if state.get("subtitles"):
+        return                      # supplied by the caller (an .srt input)
+    if not options.get("force_transcribe") and state.get("url"):
+        if _try_caption_track(state, options):
+            return
+
+    if not state.get("video_path"):
+        # Transcription needs the media. Fetch it now rather than up front, so
+        # a video that already has captions never gets downloaded at all.
+        if not state.get("url"):
+            raise RuntimeError("Nothing to transcribe: no captions, no media file.")
+        say = state.get("_report")
+        if say:
+            try:
+                say("download", "running", "no captions — downloading to transcribe",
+                    "Download", 0)
+            except Exception:
+                pass
+        _step_download(state, options)
+        if say:
+            try:
+                say("download", "success", "", "Download", 100)
+            except Exception:
+                pass
+
     # The extractor wants `file_path` (not video_path) and runs in the
     # BACKGROUND: the POST returns {"task_id"} immediately and the subtitles
     # only exist behind /subtitle/status/{id}. The old synchronous call with

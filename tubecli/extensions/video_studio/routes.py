@@ -242,13 +242,18 @@ class JobRequest(BaseModel):
     origin: Optional[Dict[str, Any]] = None
 
 
-# job → which pipeline steps stay on (everything else is turned off)
+# job → which pipeline steps stay on (everything else is turned off), and
+# whether the job needs the VIDEO FILE itself. Subtitle-only jobs do not:
+# the pipeline pulls the platform's caption track first and downloads solely
+# as a fallback when a video has none, so "tách sub <youtube link>" costs one
+# request instead of a full download plus a Whisper pass.
 _JOB_STEPS = {
     "extract": {"subtitle"},
     "translate": {"subtitle", "translate"},
     "dub": {"subtitle", "translate", "dub"},
     "burn": {"subtitle", "burn"},
 }
+_JOB_NEEDS_VIDEO = {"dub", "burn"}
 _JOB_LABELS = {
     "extract": "Extract subtitles",
     "translate": "Translate subtitles",
@@ -291,7 +296,10 @@ async def queue_single_job(job_id: str, req: JobRequest):
         raise HTTPException(400, "The codex extension is required to run jobs.")
 
     keep = _JOB_STEPS[job_id]
-    options = {sid: (sid in keep or sid == "download") for sid, _, _, _ in STEPS}
+    needs_video = job_id in _JOB_NEEDS_VIDEO
+    options = {sid: (sid in keep or (sid == "download" and needs_video))
+               for sid, _, _, _ in STEPS}
+    options["job_label"] = _JOB_LABELS[job_id]   # so the result is not headed "Reup pipeline"
     options.update(req.options or {})
     # An SRT source needs no download/extract; run_reup detects that itself.
     try:
