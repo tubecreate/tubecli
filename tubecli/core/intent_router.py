@@ -8,6 +8,19 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 
 
+# Scripts that do not separate words with spaces — keyword matching there has to
+# stay a substring test, since there is no word boundary to anchor to.
+_CJK_RE = re.compile(
+    "[　-〿"      # CJK punctuation
+    "぀-ヿ"       # Hiragana + Katakana
+    "㐀-䶿"       # CJK ext A
+    "一-鿿"       # CJK unified ideographs
+    "가-힯"       # Hangul syllables
+    "＀-￯]"      # Halfwidth/Fullwidth forms
+)
+_KW_CACHE: Dict[str, Any] = {}
+
+
 @dataclass
 class IntentResult:
     """Result of intent classification."""
@@ -21,7 +34,11 @@ class IntentResult:
 
 # ── Intent Patterns ──────────────────────────────────────────────
 
+# TubeCLI ships in 9 languages (en, vi, zh, zh-TW, ja, ko, es, tr, ru). Patterns
+# used to be Vietnamese/English only, so every other locale fell through to the
+# expensive full-LLM path and never got a cheap greeting reply.
 GREETING_PATTERNS = [
+    # vi / en
     r"^(xin\s+)?ch[àa]o",
     r"^h[ie]llo",
     r"^hi\b",
@@ -31,6 +48,18 @@ GREETING_PATTERNS = [
     r"^(tôi|mình)\s+l[àa]\s+",
     r"^good\s+(morning|afternoon|evening)",
     r"^chào\s+buổi",
+    # zh / zh-TW
+    r"^(你好|您好|哈囉|哈罗|嗨|早安|午安|晚安)",
+    # ja
+    r"^(こんにちは|こんばんは|おはよう|やあ|はじめまして)",
+    # ko
+    r"^(안녕|반갑|안녕하세요)",
+    # ru
+    r"^(привет|здравствуй|добрый\s+(день|вечер|утро)|доброе\s+утро)",
+    # tr
+    r"^(merhaba|selam|g[üu]nayd[ıi]n|iyi\s+(g[üu]nler|ak[şs]amlar))",
+    # es
+    r"^(hola|buenos\s+d[íi]as|buenas\s+(tardes|noches)|qu[ée]\s+tal)",
 ]
 
 CALENDAR_PATTERNS = [
@@ -97,20 +126,40 @@ VIDEO_URL_PATTERNS = [
     r'https?://v\.douyin\.com/\S+',
 ]
 
-UPLOAD_KEYWORDS = ["upload", "đăng", "lên kênh", "đăng mmo", "post"]
-REUP_KEYWORDS = ["reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật", "flip", "template"]
+UPLOAD_KEYWORDS = [
+    "upload", "đăng", "lên kênh", "đăng mmo", "post",
+    "上传", "上傳", "アップロード", "投稿", "업로드", "загрузить", "загрузи",
+    "yükle", "subir", "publicar",
+]
+REUP_KEYWORDS = [
+    "reup", "re-up", "re up", "xào", "gương", "mirror", "chống gậy", "lật",
+    "flip", "template",
+    "二次创作", "搬运", "転載", "리업", "перезалив", "yeniden yükle", "resubir",
+]
 TEMPLATE_PATTERN = r'template\s*(\d+)'
-TRACKER_KEYWORDS = ["mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất"]
-LIVE_KEYWORDS = ["tạo phiên live", "live", "直播", "phát live", "restream", "livestream", "live stream", "go live", "tạo live"]
+TRACKER_KEYWORDS = [
+    "mới nhất", "theo dõi", "tracker", "kích hoạt", "video mới nhất",
+    "最新", "追踪", "监控", "最新の", "追跡", "최신", "추적",
+    "отслеживать", "последнее видео", "takip et", "seguir", "rastrear",
+]
+LIVE_KEYWORDS = [
+    "tạo phiên live", "live", "直播", "phát live", "restream", "livestream",
+    "live stream", "go live", "tạo live",
+    "ライブ", "生放送", "라이브", "생방송", "прямой эфир", "стрим",
+    "canlı yayın", "en vivo", "transmisión en vivo",
+]
 
-# Live source URL patterns (Douyin live, TikTok live, m3u8, RTMP)
+# Live source URL patterns (Douyin live, TikTok live, m3u8, RTMP).
+# The generic `https?://\S+` fallback that used to close this list is gone: it
+# made EVERY link look like a livestream source. _extract_live_url() has always
+# used its own stricter copy, so the entry was dead weight — and a landmine for
+# anyone who reused this constant.
 LIVE_URL_PATTERNS = [
     r'https?://live\.douyin\.com/\S+',
     r'https?://(?:www\.)?tiktok\.com/@[^/]+/live',
     r'https?://\S+\.m3u8\S*',
     r'rtmp://\S+',
     r'https?://v\.douyin\.com/\S+',
-    r'https?://\S+',  # Generic URL fallback (lowest priority)
 ]
 
 # Standalone live patterns (no URL needed in message body)
@@ -122,11 +171,30 @@ LIVE_STANDALONE_PATTERNS = [
     r"go\s+live",
     r"tạo\s+luồng\s+live",
 ]
-SUBTITLE_KEYWORDS = ["tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề", "lấy sub", "extract sub", "transcribe"]
-TTS_KEYWORDS = ["lồng tiếng", "voiceover", "voice over", "tts", "đọc text", "text to speech", "narrate", "giọng đọc"]
+SUBTITLE_KEYWORDS = [
+    "tách sub", "subtitle", "phụ đề", "caption", "字幕", "tách phụ đề",
+    "lấy sub", "extract sub", "transcribe",
+    "자막", "субтитры", "altyazı", "subtítulos", "subtitulos",
+]
+TTS_KEYWORDS = [
+    "lồng tiếng", "voiceover", "voice over", "tts", "đọc text",
+    "text to speech", "narrate", "giọng đọc",
+    "配音", "音声合成", "ナレーション", "더빙", "음성 합성",
+    "озвучка", "seslendirme", "locución", "voz en off",
+]
 
+# Only an EXPLICIT "show me my connected channels" request belongs here.
+# The old pattern was `(list|danh sách|xem).*?(kênh|youtube|...)`, which is both
+# too broad and too narrow: "xem" is an everyday Vietnamese verb, so
+# "xem thử kênh này nói về gì" (a question ABOUT one channel) was treated as
+# "list my channels"; meanwhile plain "list channels" and "liệt kê kênh" were
+# missed because the pattern required the Vietnamese word "kênh" right after.
 LIST_CHANNELS_PATTERNS = [
-    r"(list|danh\s*sách|xem).*?(kênh|youtube|facebook|fanpage|page|tiktok)"
+    r"(danh\s*sách|liệt\s*kê)\s*(các\s*)?(kênh|channel|fanpage|page)",
+    r"\b(list|show)\s+(all\s+|my\s+)?(channels?|kênh|fanpages?|pages?)\b",
+    r"xem\s+danh\s*sách\s*(các\s*)?(kênh|channel)",
+    r"(kênh|channel)\s+(nào|của\s+tôi|đã\s+kết\s+nối)",
+    r"có\s+(những\s+)?(kênh|channel)\s+nào",
 ]
 
 LIST_TEMPLATES_PATTERNS = [
@@ -158,7 +226,7 @@ class IntentRouter:
         # ── 0. Live Stream URL Detection ────────────────────────
         # Check for live-specific URLs first (douyin live, m3u8, rtmp)
         live_url = self._extract_live_url(text, text_lower)
-        if live_url or (any(k in text_lower for k in LIVE_KEYWORDS) and self._has_any_url(text)):
+        if live_url or (self._kw_hit(text_lower, LIVE_KEYWORDS) and self._has_any_url(text)):
             source = live_url or self._extract_any_url(text)
             if source:
                 return IntentResult(
@@ -172,20 +240,20 @@ class IntentRouter:
         video_url = self._extract_video_url(text, text_lower)
         if video_url:
             # Check for tracker/live bypass
-            if any(k in text_lower for k in TRACKER_KEYWORDS):
+            if self._kw_hit(text_lower, TRACKER_KEYWORDS):
                 return IntentResult(
                     intent_type="tracker_action",
                     confidence=0.95,
                     extracted_data={"url": video_url},
                 )
-            if any(k in text_lower for k in LIVE_KEYWORDS):
+            if self._kw_hit(text_lower, LIVE_KEYWORDS):
                 return IntentResult(
                     intent_type="live_action",
                     confidence=0.95,
                     extracted_data={"url": video_url},
                 )
             # Check for reup intent (download + ffmpeg + upload)
-            if any(k in text_lower for k in REUP_KEYWORDS):
+            if self._kw_hit(text_lower, REUP_KEYWORDS):
                 extracted = {"url": video_url}
                 # Detect template index (e.g. "template 1", "template 3")
                 tpl_match = re.search(TEMPLATE_PATTERN, text_lower)
@@ -198,10 +266,14 @@ class IntentRouter:
                     skip_llm=False,
                 )
             # Check for subtitle pipeline (download + subtitle + optional burn/tts/upload)
-            if any(k in text_lower for k in SUBTITLE_KEYWORDS):
-                has_upload = any(k in text_lower for k in UPLOAD_KEYWORDS)
-                has_burn = any(k in text_lower for k in ["burn", "ghi sub", "ghi phụ đề", "thêm sub", "thêm phụ đề", "ghép sub"])
-                has_tts = any(k in text_lower for k in TTS_KEYWORDS)
+            if self._kw_hit(text_lower, SUBTITLE_KEYWORDS):
+                has_upload = self._kw_hit(text_lower, UPLOAD_KEYWORDS)
+                has_burn = self._kw_hit(text_lower, [
+                    "burn", "ghi sub", "ghi phụ đề", "thêm sub", "thêm phụ đề", "ghép sub",
+                    "烧录字幕", "字幕焼き込み", "자막 삽입", "вшить субтитры",
+                    "altyazı göm", "incrustar subtítulos",
+                ])
+                has_tts = self._kw_hit(text_lower, TTS_KEYWORDS)
                 return IntentResult(
                     intent_type="subtitle_pipeline",
                     confidence=0.96,
@@ -215,7 +287,7 @@ class IntentRouter:
                     skip_llm=False,
                 )
             # Check for upload intent
-            if any(k in text_lower for k in UPLOAD_KEYWORDS):
+            if self._kw_hit(text_lower, UPLOAD_KEYWORDS):
                 # Smart provider detection: keywords + context from last listed channels
                 try:
                     from tubecli.core.channel_cache import channel_cache
@@ -300,7 +372,9 @@ class IntentRouter:
             )
 
         # ── 7a. List Channels / Pages ────────────────────────────
-        if self._matches_any(text_lower, LIST_CHANNELS_PATTERNS):
+        # A message carrying a URL is asking about that ONE thing, never for a
+        # listing of the user's own connected channels.
+        if self._matches_any(text_lower, LIST_CHANNELS_PATTERNS) and not re.search(r"https?://", text):
             provider = "youtube"
             if "facebook" in text_lower or "fanpage" in text_lower or "page" in text_lower:
                 provider = "facebook"
@@ -368,7 +442,7 @@ class IntentRouter:
                 skip_llm=True,
             )
         # ── 7c. Subtitle Extraction ──────────────────────────────
-        if any(k in text_lower for k in SUBTITLE_KEYWORDS):
+        if self._kw_hit(text_lower, SUBTITLE_KEYWORDS):
             sub_skills = self._find_skills_by_category(skills, ["subtitle", "phụ đề", "sub", "caption"])
             return IntentResult(
                 intent_type="subtitle_action",
@@ -459,6 +533,38 @@ class IntentRouter:
     def _matches_any(self, text: str, patterns: List[str]) -> bool:
         """Check if text matches any regex pattern."""
         return any(re.search(p, text) for p in patterns)
+
+    def _kw_hit(self, text_lower: str, keywords: List[str]) -> bool:
+        """Whole-word keyword match.
+
+        Replaces the plain `any(k in text_lower ...)` these lists used to use,
+        which matched inside unrelated words: "live" hit "deliver"/"alive",
+        "post" hit "postal", so an ordinary sentence containing a URL was
+        routed to the livestream or upload pipeline.
+
+        Scripts written without spaces (Chinese, Japanese, Korean) have no word
+        boundaries to anchor to, so those keywords stay substring matches.
+        """
+        for kw in keywords:
+            rx = self._kw_regex(kw)
+            if rx and rx.search(text_lower):
+                return True
+        return False
+
+    @staticmethod
+    def _kw_regex(keyword: str):
+        """Compile (and cache) the matcher for one keyword."""
+        kw = (keyword or "").strip().lower()
+        if not kw:
+            return None
+        cached = _KW_CACHE.get(kw)
+        if cached is None:
+            if _CJK_RE.search(kw):
+                cached = re.compile(re.escape(kw))
+            else:
+                cached = re.compile(r"(?<!\w)" + re.escape(kw) + r"(?!\w)")
+            _KW_CACHE[kw] = cached
+        return cached
 
     def _has_action_keywords(self, text_lower: str) -> bool:
         """Check if text contains action-oriented keywords."""

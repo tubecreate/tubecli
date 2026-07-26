@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "技能 '{name}' 已完成。",
     "brain.summarize_prompt": "用英语友好地总结。",
     "brain.max_steps": "已达到最大步骤数。",
+    "brain.file_action_not_a_path": "⚠️ '{path}' 是网址，不是文件路径，磁盘上没有对应的文件。\n\n请告诉我你想用这个链接做什么——分析内容、下载、还是追踪频道——我会使用正确的工具。",
     "brain.empty_response": "⚠️ 模型返回了空响应。\n\n这通常是因为推理型模型把全部 token 预算都用在了思考上。请重新发送该消息，或用上方的模型选择器换一个模型。",
     "brain.no_model_available": "⚠️ 当前还没有可用的 AI 模型。\n\n此智能体指向本地的 Ollama 模型，但本机上的 Ollama 未在运行，且尚未配置任何云端 AI 密钥。\n\n请选择以下任一方式开始：\n1. 在 Dashboard → Cloud API Keys 中添加云端 API 密钥（Gemini、DeepSeek、OpenAI…），然后在聊天中使用模型选择器选择模型。\n2. 或从 https://ollama.com 安装 Ollama 并运行 `ollama pull qwen:latest`。",
     "brain.workflow_error_guidance": "工作流遇到错误。请检查：(1) 凭据是否正确，(2) spreadsheet_id 是否存在，(3) API 是否已启用。",

@@ -85,7 +85,8 @@ async def run_turn(
     # Cheap path for greetings / small talk — ~500 tokens instead of the full prompt.
     if intent is not None and intent.intent_type == "greeting":
         reply = await asyncio.to_thread(
-            AgentBrain.quick_reply, message, agent_dict, history
+            AgentBrain.quick_reply, message,
+            _with_language_instruction(agent_dict), history,
         )
         return (reply or ""), meta
 
@@ -129,6 +130,11 @@ async def run_turn(
                 agent_for_call.get("system_prompt", "") + "\n\n" + caps
             )
 
+    # Applied LAST, after any specialist swap: routing replaces the whole agent
+    # dict, so an instruction added earlier would be thrown away — which is
+    # exactly why a Japanese question kept coming back in Vietnamese.
+    agent_for_call = _with_language_instruction(agent_for_call)
+
     # ── Tier 2: one LLM call ─────────────────────────────────────
     result = await asyncio.to_thread(
         AgentBrain.chat_targeted, message, agent_for_call, skills, history, ""
@@ -171,6 +177,30 @@ async def run_turn(
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
+def _with_language_instruction(agent_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Make the agent answer in the language the user actually wrote in.
+
+    The Telegram path hard-codes an instruction for vi/zh and sends everyone
+    else English (telegram_listener.py:728-738). Asking the model to mirror the
+    user's own language instead covers all nine shipped locales — and any other
+    language a user happens to type in — without a detection table.
+    """
+    try:
+        from tubecli.config import get_language
+
+        ui_lang = get_language() or "en"
+    except Exception:
+        ui_lang = "en"
+
+    instruction = (
+        "IMPORTANT: Reply in the SAME language the user wrote their message in. "
+        f"If the language is unclear, reply in '{ui_lang}'. "
+        "Keep code, commands, file paths, URLs and model names unchanged."
+    )
+    prompt = agent_dict.get("system_prompt", "You are a helpful assistant.")
+    return {**agent_dict, "system_prompt": f"{prompt}\n\n{instruction}"}
+
 
 def _all_skills() -> List[Dict[str, Any]]:
     try:

@@ -221,6 +221,9 @@ class AgentBrain:
                     "skill_input": action_data.get("input", message),
                 }
             elif action_type == "file_action":
+                guard = AgentBrain._reject_non_file_path(action_data)
+                if guard:
+                    return {"reply": guard, "action": None, "skill_id": None, "skill_input": ""}
                 try:
                     from tubecli.extensions.file_manager.file_service import file_service
                     op = action_data.get("operation", "")
@@ -346,6 +349,9 @@ class AgentBrain:
 
             elif action_type == "file_action":
                 # Execute file operation directly and return text result
+                guard = AgentBrain._reject_non_file_path(action_data)
+                if guard:
+                    return {"reply": guard, "action": None, "skill_id": None, "skill_input": ""}
                 try:
                     from tubecli.extensions.file_manager.file_service import file_service
                     op = action_data.get("operation", "")
@@ -778,6 +784,31 @@ Rules:
             result = AgentBrain._failover_llm(model, cloud_keys, messages, temperature, result)
         
         return result
+
+    @staticmethod
+    def _reject_non_file_path(action_data: Dict) -> Optional[str]:
+        """Guard the file_action branch, which runs filesystem calls inline.
+
+        The model sometimes answers a question about a URL ("what is this
+        YouTube channel about?") with a file_action whose `path` is the URL.
+        Running that produces a baffling "path outside the allowed area" error
+        for something the user never asked to be a file operation. Refuse
+        early and say what actually happened.
+        """
+        from tubecli.i18n import t
+
+        path = str(action_data.get("path", "") or "").strip()
+        if not path:
+            return None
+        lowered = path.lower()
+        if lowered.startswith(("http://", "https://", "www.", "ftp://")):
+            msg = t("brain.file_action_not_a_path", path=path[:120])
+            return msg if msg != "brain.file_action_not_a_path" else (
+                f"⚠️ '{path[:120]}' is a web address, not a file path, so there is "
+                f"nothing to open on disk. Tell me what you want done with that "
+                f"link and I will use the right tool."
+            )
+        return None
 
     @staticmethod
     def _call_provider(provider: str, model: str, cloud_keys: Dict,
