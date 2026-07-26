@@ -182,6 +182,8 @@ class CodexManager:
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._loaded = False
         self._cancel_requested: set = set()
+        # Off in tests, so a harness cannot push into the user's real chat.
+        self.notifications_enabled = True
 
     # ── Persistence ──────────────────────────────────────────────
 
@@ -322,7 +324,15 @@ class CodexManager:
         return token, str(chat_id) if chat_id else ""
 
     def notify(self, task: Dict[str, Any], text: str):
-        """Fire-and-forget Telegram push. Never raises, never blocks."""
+        """Fire-and-forget Telegram push. Never raises, never blocks.
+
+        `notifications_enabled` is the seam a test harness switches off. A
+        manager pointed at a temp directory still resolves the REAL bot token
+        from global settings, so an isolated store is not isolation: a test
+        creating six tasks pushed six messages into the user's chat.
+        """
+        if not self.notifications_enabled:
+            return
         token, chat_id = self._resolve_notify_target(task)
         if not token or not chat_id:
             return
