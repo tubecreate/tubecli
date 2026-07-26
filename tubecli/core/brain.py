@@ -148,11 +148,25 @@ class AgentBrain:
             pass
         
         persona = agent.get("system_prompt", "You are a friendly assistant.")
+        # The interface language is the user's explicit choice. This used to say
+        # "Use Vietnamese if the user writes in Vietnamese", appended AFTER the
+        # persona — so it overrode any language instruction the caller had put
+        # there, and the Settings language was silently ignored.
+        try:
+            from tubecli.config import get_language
+
+            ui_lang = (get_language() or "en").strip()
+        except Exception:
+            ui_lang = "en"
+        lang_rule = (
+            f"Write your reply in the '{ui_lang}' language (the interface language "
+            "the user chose), unless the user explicitly asks for another one."
+        )
         system_prompt = (
             f"### YOUR PERSONA:\n{persona}\n"
             f"{memory_section}\n\n"
-            "Respond naturally and conversationally. Keep it brief and friendly. "
-            "Use Vietnamese if the user writes in Vietnamese."
+            f"Respond naturally and conversationally. Keep it brief and friendly. "
+            f"{lang_rule}"
         )
         
         messages = [{"role": "system", "content": system_prompt}]

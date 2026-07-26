@@ -538,7 +538,8 @@ const CHAT = (() => {
         examples.map((k) => {
           const text = t(k);
           return '<button type="button" class="ch-example" onclick="CHAT.useExample(this)">' +
-            icon('arrow_forward') + '<span>' + esc(text) + '</span></button>';
+            icon('arrow_forward') +
+            '<span class="ch-example-text">' + esc(text) + '</span></button>';
         }).join('') +
       '</div>' +
     '</div>';
@@ -867,8 +868,11 @@ const CHAT = (() => {
   function useExample(btn) {
     const input = $('ch-input');
     if (!input || !btn) return;
-    const label = btn.querySelector('span');
-    input.value = label ? label.textContent : '';
+    // Must target the TEXT span: the button also holds a Material icon span,
+    // and querySelector('span') returned that one — so clicking an example sent
+    // the literal string "arrow_forward" and named the conversation after it.
+    const label = btn.querySelector('.ch-example-text');
+    input.value = label ? label.textContent : (btn.textContent || '').trim();
     autoGrow(input);
     input.focus();
     send();

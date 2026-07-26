@@ -183,11 +183,53 @@ def clean_reply_text(text: str) -> str:
 #  DOWNLOAD ACTIONS
 # ═══════════════════════════════════════════════════════════════
 
+DOUYIN_HOSTS = ("douyin.com", "iesdouyin.com", "tiktok.com")
+
+
+def _is_douyin_family(url: str) -> bool:
+    return any(h in (url or "").lower() for h in DOUYIN_HOSTS)
+
+
+async def _queue_generic_download(url: str, context: Dict = None):
+    """Hand a non-Douyin link to video_studio, which runs yt-dlp in the
+    background with a progress bar. Returns a message, or None when
+    video_studio is unavailable so the caller can fall back."""
+    try:
+        import asyncio
+
+        from tubecli.extensions.video_studio.capabilities import guidance_for
+        from tubecli.extensions.video_studio.jobs import create_download_task
+    except Exception:
+        return None
+
+    gap = guidance_for(["download"])
+    if gap:
+        return gap
+    try:
+        origin = {"chat_id": (context or {}).get("chat_id", ""),
+                  "token": (context or {}).get("token", "")}
+        task = await asyncio.to_thread(create_download_task, url, "brain", origin)
+    except Exception as e:
+        print(f"[Actions] could not queue the download: {e}")
+        return None
+    return (f"📥 Download queued as *Codex #{task['seq']}* — it runs in the "
+            f"background with a progress bar.\nReply `approve {task['seq']}` to start.")
+
+
 async def execute_download(url: str, agent_dict: Dict, context: Dict = None) -> dict:
     """Execute video download via Downloader extension API and return file info."""
     chat_id = context.get("chat_id", 0) if context else 0
     lang = get_user_lang(chat_id)
     print(f"[Actions] 📥 Starting download: {url}")
+
+    # Only Douyin/TikTok links can go through the douyin parser. Everything else
+    # (YouTube, Facebook, Twitter…) used to be sent there too and came back with
+    # "Không thể phân tích link — nhập link douyin.com/video/xxx", which reads
+    # like the video is broken rather than the wrong tool being used.
+    if not _is_douyin_family(url):
+        queued = await _queue_generic_download(url, context)
+        if queued is not None:
+            return queued
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:

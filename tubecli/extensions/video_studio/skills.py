@@ -152,6 +152,35 @@ SKILLS: List[Dict] = [
 
 VIDEO_AGENT_NAME = "Video Agent"
 
+# Legacy workflow skills that LOOK healthy (is_runnable is True because they
+# have nodes) but cannot actually work: their api_request node POSTs a
+# SYNCHRONOUS download endpoint with timeout=30, while a real download takes
+# minutes. The model kept choosing them over the new ones and the user got
+# "HTTPConnectionPool ... Read timed out (read timeout=30)" dumped into chat.
+# They are detached from the Video Agent — not deleted, so they stay available
+# elsewhere and the user can re-attach them if they ever get fixed.
+SUPERSEDED_SKILL_NAMES = {
+    "🌍 Universal Video Downloader",
+    "📥 Douyin/TikTok Downloader",
+}
+
+
+def _blocking_download_workflow(skill) -> bool:
+    """True when a workflow skill calls a blocking download endpoint."""
+    wf = getattr(skill, "workflow_data", None) or {}
+    for node in wf.get("nodes") or []:
+        cfg = node.get("config") or {}
+        url = str(cfg.get("url") or "")
+        if not url:
+            continue
+        # /download is synchronous; /download_async is the one that returns a
+        # task id immediately.
+        if url.rstrip("/").endswith("/download") or "/douyin_downloader/download" in url:
+            timeout = cfg.get("timeout")
+            if timeout is None or float(timeout) <= 120:
+                return True
+    return False
+
 
 def register_skills() -> Dict[str, int]:
     """Create or refresh every skill, then attach them to the Video Agent.
@@ -205,8 +234,11 @@ def register_skills() -> Dict[str, int]:
             return stats
 
         current = list(agent.allowed_skills or [])
-        # Drop skills the prompt builder would hide anyway — an agent listing
-        # skills it cannot run is worse than one with a short, honest list.
+        # Drop three kinds of skill from the agent:
+        #   * gone from the store
+        #   * not runnable — the prompt builder hides them anyway, so listing
+        #     them only makes the agent look more capable than it is
+        #   * superseded blocking downloaders, which look runnable but time out
         kept = []
         for sid in current:
             s = skill_manager.get(sid)
@@ -215,6 +247,13 @@ def register_skills() -> Dict[str, int]:
                 continue
             if not s.is_runnable:
                 logger.info(f"[VideoStudio] dropping non-runnable skill {s.name!r} from {VIDEO_AGENT_NAME}")
+                stats["pruned"] += 1
+                continue
+            if s.name in SUPERSEDED_SKILL_NAMES or _blocking_download_workflow(s):
+                logger.info(
+                    f"[VideoStudio] detaching {s.name!r} from {VIDEO_AGENT_NAME}: it "
+                    f"calls a blocking download endpoint and times out"
+                )
                 stats["pruned"] += 1
                 continue
             kept.append(sid)

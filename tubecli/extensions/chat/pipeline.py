@@ -178,25 +178,39 @@ async def run_turn(
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _with_language_instruction(agent_dict: Dict[str, Any]) -> Dict[str, Any]:
-    """Make the agent answer in the language the user actually wrote in.
+LANGUAGE_NAMES = {
+    "en": "English", "vi": "Vietnamese (Tiếng Việt)", "zh": "Simplified Chinese (简体中文)",
+    "zh-TW": "Traditional Chinese (繁體中文)", "ja": "Japanese (日本語)",
+    "ko": "Korean (한국어)", "ru": "Russian (Русский)", "tr": "Turkish (Türkçe)",
+    "es": "Spanish (Español)",
+}
 
-    The Telegram path hard-codes an instruction for vi/zh and sends everyone
-    else English (telegram_listener.py:728-738). Asking the model to mirror the
-    user's own language instead covers all nine shipped locales — and any other
-    language a user happens to type in — without a detection table.
+
+def _with_language_instruction(agent_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Answer in the language configured in Settings.
+
+    The interface language is the user's explicit choice, so it wins — an
+    earlier version mirrored whatever language the message happened to be
+    written in, which meant the setting was quietly ignored. The user can still
+    override per message ("reply in Japanese"); only the default is fixed.
+
+    The Telegram path hard-codes vi/zh and sends everyone else English
+    (telegram_listener.py:728-738); this covers all nine shipped locales.
     """
     try:
         from tubecli.config import get_language
 
-        ui_lang = get_language() or "en"
+        ui_lang = (get_language() or "en").strip()
     except Exception:
         ui_lang = "en"
 
+    label = LANGUAGE_NAMES.get(ui_lang, ui_lang)
     instruction = (
-        "IMPORTANT: Reply in the SAME language the user wrote their message in. "
-        f"If the language is unclear, reply in '{ui_lang}'. "
-        "Keep code, commands, file paths, URLs and model names unchanged."
+        f"IMPORTANT — LANGUAGE: Always write your reply in {label}. That is the "
+        "interface language the user chose in Settings, so use it even when their "
+        "message is in another language. The only exception is an explicit request "
+        "to answer in a different language. Never translate code, commands, file "
+        "paths, URLs or model names."
     )
     prompt = agent_dict.get("system_prompt", "You are a helpful assistant.")
     return {**agent_dict, "system_prompt": f"{prompt}\n\n{instruction}"}
