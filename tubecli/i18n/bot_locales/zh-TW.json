@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ 已儲存。\n- **來源**:`{src}`\n- **目標**:`{dst}`",
   "chat.save_failed": "❌ 無法儲存檔案:{error}",
   "chat.convert_ok": "✅ 已轉換為純文字({lines} 行)。\n- **來源**:`{src}`\n- **目標**:`{dst}`",
-  "chat.convert_failed": "❌ 無法轉換檔案:{error}"
+  "chat.convert_failed": "❌ 無法轉換檔案:{error}",
+  "chat.translate_failed": "❌ 無法開始翻譯:{error}"
 }

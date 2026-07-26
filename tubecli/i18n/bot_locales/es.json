@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ Guardado.\n- **Desde**: `{src}`\n- **Hasta**: `{dst}`",
   "chat.save_failed": "❌ No se pudo guardar el archivo: {error}",
   "chat.convert_ok": "✅ Convertido a texto plano ({lines} líneas).\n- **Desde**: `{src}`\n- **Hasta**: `{dst}`",
-  "chat.convert_failed": "❌ No se pudo convertir el archivo: {error}"
+  "chat.convert_failed": "❌ No se pudo convertir el archivo: {error}",
+  "chat.translate_failed": "❌ No se pudo iniciar la traducción: {error}"
 }

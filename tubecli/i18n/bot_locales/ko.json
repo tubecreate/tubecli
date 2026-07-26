@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ 저장했습니다.\n- **원본**: `{src}`\n- **대상**: `{dst}`",
   "chat.save_failed": "❌ 파일을 저장하지 못했습니다: {error}",
   "chat.convert_ok": "✅ 일반 텍스트로 변환했습니다 ({lines}줄).\n- **원본**: `{src}`\n- **대상**: `{dst}`",
-  "chat.convert_failed": "❌ 파일을 변환하지 못했습니다: {error}"
+  "chat.convert_failed": "❌ 파일을 변환하지 못했습니다: {error}",
+  "chat.translate_failed": "❌ 번역을 시작하지 못했습니다: {error}"
 }

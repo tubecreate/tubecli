@@ -41,6 +41,19 @@ class VideoStudioExtension(Extension):
         except Exception as e:
             logger.warning(f"Could not make ffmpeg discoverable: {e}")
 
+        # Built-in specialists are seeded by `tubecli init`, so an install that
+        # predates a new one never gets it — the Translator Agent, whose model
+        # and house style the translation pipeline borrows, would simply be
+        # missing. Re-running is safe: existing names are skipped.
+        try:
+            from tubecli.core.specialists import register_builtin_specialists
+
+            added = register_builtin_specialists()
+            if added:
+                logger.info(f"Seeded missing built-in specialists: {added}")
+        except Exception as e:
+            logger.warning(f"Could not seed built-in specialists: {e}")
+
         try:
             from tubecli.extensions.video_studio.skills import register_skills
 

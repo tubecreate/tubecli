@@ -14,6 +14,7 @@ to install to get them.
 """
 import logging
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 from tubecli.extensions.video_studio.capabilities import check_job, guidance_for
@@ -264,13 +265,18 @@ def run_reup(url: str, options: Optional[Dict[str, Any]] = None,
                 (guidance_for([job]) or f"{label} needs {gaps}.")
             )
 
+        # A step is only "optional" in a full reup, where partial output is
+        # still useful. When the caller asked for exactly this job, its failure
+        # IS the outcome — reporting "✅ finished" over it is a lie.
+        required = sid in (options.get("required_steps") or ())
+
         say(sid, "running", label)
         try:
             handler = globals()[f"_step_{sid}"]
             handler(state, options)
         except Exception as e:
             say(sid, "error", str(e)[:300])
-            if optional:
+            if optional and not required:
                 notes.append(f"- **{label}** failed: {e}")
                 continue
             raise
@@ -288,14 +294,32 @@ def run_reup(url: str, options: Optional[Dict[str, Any]] = None,
                 outdir = os.path.join(str(EXTENSIONS_DATA_DIR), "video_studio", "subtitles")
                 os.makedirs(outdir, exist_ok=True)
                 stem = os.path.join(outdir, _safe_stem(state))
+            # Tag the language so a translation never lands on top of the
+            # original it came from.
+            lang = state.get("subtitle_language") or ""
+            if lang and not stem.endswith(f".{lang}"):
+                stem = f"{stem}.{lang}"
             state["srt_path"] = _export_srt(subs, f"{stem}.srt")
         except Exception as e:
             logger.warning(f"[VideoStudio] could not write the SRT: {e}")
 
+    # "…and save it as txt": the timestamps go, the words stay.
+    if subs and options.get("export_txt"):
+        try:
+            base = os.path.splitext(state.get("srt_path")
+                                    or state.get("video_path") or "subtitles")[0]
+            txt_path = f"{base}.txt"
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(str(s.get("text", "")).strip()
+                                  for s in subs if str(s.get("text", "")).strip()))
+            state["txt_path"] = txt_path
+        except Exception as e:
+            logger.warning(f"[VideoStudio] could not write the TXT: {e}")
+
     lines = [f"## ✅ {options.get('job_label') or 'Reup pipeline'} finished", ""]
     for key, label in (("video_path", "Downloaded"), ("clean_path", "Original subs covered"),
                        ("dubbed_path", "Dubbed"), ("final_path", "Final video"),
-                       ("srt_path", "Subtitle file")):
+                       ("srt_path", "Subtitle file"), ("txt_path", "Plain text")):
         if state.get(key):
             lines.append(f"- **{label}**: `{state[key]}`")
     if subs:
@@ -341,11 +365,16 @@ PREVIEW_CHARS = 3000
 
 def _safe_stem(state: Dict) -> str:
     """A filename for subtitles pulled without ever downloading the video."""
-    import re as _re
+    source = state.get("url") or ""
+    # A local source is already a real filename — sanitising the whole PATH
+    # turned "…\Vật Lý Sau 2,500 Năm.srt" into
+    # "C_tubecreate-vue_tubecli_data_extensions_data_video_studio_s".
+    if source and os.path.isfile(source):
+        return os.path.splitext(os.path.basename(source))[0][:60]
 
-    base = state.get("title") or state.get("url") or "subtitles"
-    base = _re.sub(r"^https?://", "", str(base))
-    base = _re.sub(r'[\\/:*?"<>|]+', "_", base).strip("_. ")
+    base = state.get("title") or source or "subtitles"
+    base = re.sub(r"^https?://", "", str(base))
+    base = re.sub(r'[\\/:*?"<>|]+', "_", base).strip("_. ")
     return (base or "subtitles")[:60]
 
 
@@ -469,19 +498,121 @@ def _step_subtitle(state: Dict, options: Dict):
         state["srt_path"] = result["srt_path"]
 
 
+def _translate_via_brain(subs: List[Dict], target: str, state: Dict) -> List[Dict]:
+    """Translate with whatever LLM the user has configured.
+
+    /api/v1/subtitle/translate is hard-wired to Gemini and 400s with "No Gemini
+    API key available" — even when the user has DeepSeek, OpenRouter or a local
+    model set up. AgentBrain already resolves keys and fails over between
+    providers, so route through it instead of demanding one vendor.
+    """
+    import json as _json
+
+    from tubecli.core.brain import AgentBrain
+
+    # Use the Translator specialist when it exists: it carries the model chosen
+    # for translation work and the house style (keep line count, never
+    # translate names/paths/code). Falling back to an empty agent keeps this
+    # working on installs that have no specialists.
+    agent: Dict[str, Any] = {"model": "", "cloud_api_keys": {}}
+    house_style = ""
+    try:
+        from tubecli.core.specialists import get_specialist_for_intent
+
+        spec = get_specialist_for_intent("translate")
+        if spec:
+            agent = spec if isinstance(spec, dict) else spec.to_dict()
+            house_style = (agent.get("system_prompt") or "").strip()
+    except Exception as e:
+        logger.debug(f"[VideoStudio] no translator specialist: {e}")
+
+    if not agent.get("model"):
+        # A specialist with no model of its own would fall through to
+        # _call_llm's "qwen:latest" default — an Ollama model most installs do
+        # not have. Borrow the orchestrator's instead, which is configured.
+        try:
+            from tubecli.core.agent import agent_manager
+
+            for a in agent_manager.get_all():
+                if (getattr(a, "role", "") or "") == "orchestrator" and getattr(a, "model", ""):
+                    agent = {**agent, "model": a.model, "provider": getattr(a, "provider", "")}
+                    break
+        except Exception:
+            pass
+
+    out: List[Dict] = []
+    batch = 40
+    total = max(1, len(subs))
+    for i in range(0, len(subs), batch):
+        if state.get("_is_cancelled") and state["_is_cancelled"]():
+            raise RuntimeError("Cancelled by the user.")
+        chunk = subs[i:i + batch]
+        numbered = "\n".join(f"{n + 1}. {s.get('text', '')}" for n, s in enumerate(chunk))
+        system = (house_style + "\n\n") if house_style else ""
+        system += (
+            "Reply with ONLY a JSON array of translated strings, exactly "
+            f"{len(chunk)} of them, in the same order as the input. "
+            "No prose, no numbering, no code fences."
+        )
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content":
+                f"Translate these {len(chunk)} subtitle lines to {target}:\n\n{numbered}"},
+        ]
+        raw = AgentBrain._call_llm(agent, messages, temperature=0.1) or ""
+        texts = None
+        m = re.search(r"\[.*\]", raw, re.DOTALL)
+        if m:
+            try:
+                parsed = _json.loads(m.group(0))
+                if isinstance(parsed, list):
+                    texts = [str(x) for x in parsed]
+            except Exception:
+                texts = None
+        for n, s in enumerate(chunk):
+            new = dict(s)
+            if texts and n < len(texts) and texts[n].strip():
+                new["text"] = texts[n].strip()
+            out.append(new)          # a failed batch keeps the original line
+        if state.get("_report"):
+            done = min(i + batch, len(subs))
+            try:
+                state["_report"]("translate", "running", f"{done}/{len(subs)}",
+                                 "Translate", done * 100.0 / total)
+            except Exception:
+                pass
+    return out
+
+
 def _step_translate(state: Dict, options: Dict):
     if not state.get("subtitles"):
         raise RuntimeError("Nothing to translate — the subtitle step produced no lines.")
-    data = _post("/api/v1/subtitle/translate", {
-        "subtitles": state["subtitles"],
-        "target_language": options.get("target_language", "vi"),
-    }, timeout=1800)
-    subs = data.get("subtitles") or data.get("result") or []
-    if subs:
-        state["subtitles"] = subs
-        # Any SRT written before this point holds the ORIGINAL language —
-        # drop the pointer so dub/burn re-export from the translated lines.
-        state.pop("srt_path", None)
+    target = options.get("target_language", "vi")
+    subs = []
+    try:
+        data = _post("/api/v1/subtitle/translate", {
+            "subtitles": state["subtitles"], "target_language": target,
+        }, timeout=1800)
+        subs = data.get("subtitles") or data.get("result") or []
+    except Exception as e:
+        # The extension's endpoint is Gemini-only. Rather than fail on a
+        # missing key for one specific vendor, fall back to the user's own
+        # configured model.
+        logger.info(f"[VideoStudio] subtitle/translate unusable ({e}); using the agent's LLM")
+        subs = _translate_via_brain(state["subtitles"], target, state)
+
+    if not subs:
+        raise RuntimeError("The translation produced no lines.")
+    if subs == state["subtitles"]:
+        raise RuntimeError(
+            "Nothing was translated — no usable model answered. Add an API key "
+            "in Cloud API Keys, or run a local model."
+        )
+    state["subtitles"] = subs
+    state["subtitle_language"] = target
+    # Any SRT written before this point holds the ORIGINAL language —
+    # drop the pointer so dub/burn re-export from the translated lines.
+    state.pop("srt_path", None)
 
 
 def _step_clean(state: Dict, options: Dict):

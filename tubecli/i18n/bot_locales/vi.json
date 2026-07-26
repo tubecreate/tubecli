@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ Đã lưu.\n- **Từ**: `{src}`\n- **Đến**: `{dst}`",
   "chat.save_failed": "❌ Không lưu được file: {error}",
   "chat.convert_ok": "✅ Đã chuyển sang văn bản thuần ({lines} dòng).\n- **Từ**: `{src}`\n- **Đến**: `{dst}`",
-  "chat.convert_failed": "❌ Không chuyển được file: {error}"
+  "chat.convert_failed": "❌ Không chuyển được file: {error}",
+  "chat.translate_failed": "❌ Không khởi động được bản dịch: {error}"
 }

@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ 保存しました。\n- **元**: `{src}`\n- **先**: `{dst}`",
   "chat.save_failed": "❌ ファイルを保存できませんでした: {error}",
   "chat.convert_ok": "✅ プレーンテキストに変換しました({lines} 行)。\n- **元**: `{src}`\n- **先**: `{dst}`",
-  "chat.convert_failed": "❌ ファイルを変換できませんでした: {error}"
+  "chat.convert_failed": "❌ ファイルを変換できませんでした: {error}",
+  "chat.translate_failed": "❌ 翻訳を開始できませんでした: {error}"
 }

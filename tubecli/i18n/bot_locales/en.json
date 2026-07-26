@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ Saved.\n- **From**: `{src}`\n- **To**: `{dst}`",
   "chat.save_failed": "❌ Could not save the file: {error}",
   "chat.convert_ok": "✅ Converted to plain text ({lines} lines).\n- **From**: `{src}`\n- **To**: `{dst}`",
-  "chat.convert_failed": "❌ Could not convert the file: {error}"
+  "chat.convert_failed": "❌ Could not convert the file: {error}",
+  "chat.translate_failed": "❌ Could not start the translation: {error}"
 }

@@ -40,6 +40,35 @@ BUILTIN_SPECIALISTS = [
         "avatar_color": "red",
     },
     {
+        # Deliberately narrow. Translation work is driven by deterministic
+        # pipelines (subtitles, documents); this agent exists so that work can
+        # be given its OWN model and house style — a cheap fast model for bulk
+        # subtitles, a stronger one for documents — instead of inheriting
+        # whatever the chat happens to be using. It does not choose what to do.
+        "name": "Translator Agent",
+        "description": "Translation specialist: subtitles, documents and text, with a consistent house style",
+        "role": "specialist",
+        "specialties": ["translate", "translation", "subtitle translation", "localize",
+                        "dịch", "dịch thuật", "phụ đề", "bản dịch",
+                        "翻译", "翻譯", "翻訳", "번역", "перевод", "çeviri", "traducción"],
+        "system_prompt": (
+            "You are Translator Agent — a translation specialist.\n"
+            "House rules, always:\n"
+            "1. Translate meaning, not words. Keep the register of the source "
+            "(casual stays casual, formal stays formal).\n"
+            "2. NEVER translate: proper nouns, brand names, code, commands, file "
+            "paths, URLs, model names, or anything inside backticks.\n"
+            "3. Keep the line count and order EXACTLY as given — subtitle lines "
+            "are timed, so a merged or dropped line breaks the timing.\n"
+            "4. Sound-effect and music markers ([music], [âm nhạc], [applause]) "
+            "are localized, not removed.\n"
+            "5. When asked for a specific output shape (a JSON array, one line "
+            "per input), return ONLY that. No preamble, no numbering, no fences."
+        ),
+        "avatar_icon": "TRANSLATE",
+        "avatar_color": "green",
+    },
+    {
         "name": "Calendar Agent",
         "description": "Manage schedules, events, and reminders via Google Calendar",
         "role": "specialist",
@@ -291,6 +320,9 @@ def get_specialist_for_intent(intent_type: str) -> Dict:
         "live_action": ["live", "restream"],
         "tracker_action": ["video", "tracker"],
         "crawler": ["web", "crawler"],
+        # Not routed from chat: the translation pipelines look this up to
+        # borrow the agent's model and house style.
+        "translate": ["translate", "dịch"],
     }
     
     target_specs = intent_specialty_map.get(intent_type, [])

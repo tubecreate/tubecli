@@ -107,5 +107,6 @@
   "chat.save_ok": "✅ Kaydedildi.\n- **Kaynak**: `{src}`\n- **Hedef**: `{dst}`",
   "chat.save_failed": "❌ Dosya kaydedilemedi: {error}",
   "chat.convert_ok": "✅ Düz metne dönüştürüldü ({lines} satır).\n- **Kaynak**: `{src}`\n- **Hedef**: `{dst}`",
-  "chat.convert_failed": "❌ Dosya dönüştürülemedi: {error}"
+  "chat.convert_failed": "❌ Dosya dönüştürülemedi: {error}",
+  "chat.translate_failed": "❌ Çeviri başlatılamadı: {error}"
 }

@@ -254,6 +254,10 @@ _JOB_STEPS = {
     "burn": {"subtitle", "burn"},
 }
 _JOB_NEEDS_VIDEO = {"dub", "burn"}
+# The step that IS the job. If it fails, the task fails — the others are
+# prerequisites and may legitimately be skipped.
+_JOB_REQUIRED = {"extract": "subtitle", "translate": "translate",
+                 "dub": "dub", "burn": "burn"}
 _JOB_LABELS = {
     "extract": "Extract subtitles",
     "translate": "Translate subtitles",
@@ -324,6 +328,7 @@ async def queue_single_job(job_id: str, req: JobRequest):
     options = {sid: (sid in keep or (sid == "download" and needs_video))
                for sid, _, _, _ in STEPS}
     options["job_label"] = _JOB_LABELS[job_id]   # so the result is not headed "Reup pipeline"
+    options["required_steps"] = [_JOB_REQUIRED[job_id]]
     target = _target_language(req.input or "")
     if target:
         options["target_language"] = target

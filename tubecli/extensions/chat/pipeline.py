@@ -140,6 +140,16 @@ async def run_turn(
         meta["action"] = "save_file"
         return saved, meta
 
+    # "translate it to English" — runs on the subtitle we produced, as a task.
+    # Checked before the txt path: "dịch … và lưu txt" is one job, not two.
+    translated = await _try_translate_artifact(message, history, session_id)
+    if translated is not None:
+        text, task = _extract_task_marker(translated)
+        if task:
+            meta["codex_task"] = task
+        meta["action"] = "translate_file"
+        return text, meta
+
     # "turn that subtitle into a .txt" — a local transform of a file we made.
     converted = _try_convert_txt(message, history, session_id)
     if converted is not None:
@@ -368,10 +378,12 @@ def _save_destination(message: str) -> Optional[str]:
 
 # "turn it into a txt / plain text". A subtitle file is already text, so this
 # is a local transform — no model, no API, no waiting.
+# A bare "txt" token covers every phrasing a user actually types — "lưu txt",
+# "sang txt", "file .txt", "save as txt". Listing prefixes missed "lưu txt",
+# so "dịch … và lưu txt" silently skipped the text export.
 _TXT_VERBS = re.compile(
-    r"(\.txt\b|sang\s*txt|ra\s*txt|to\s*txt|as\s*txt|plain\s*text|"
-    r"văn\s*bản\s*thuần|chuyển.*txt|转.*txt|テキスト|텍스트|"
-    r"текст|metin|texto\s*plano)",
+    r"(\btxt\b|\.txt\b|plain\s*text|văn\s*bản\s*thuần|"
+    r"純文本|純文字|テキスト|텍스트|текст|düz\s*metin|texto\s*plano)",
     re.IGNORECASE)
 
 
@@ -397,6 +409,63 @@ def _try_convert_txt(message: str, history: List[Dict[str, str]],
         logger.warning(f"[Chat] srt→txt failed: {e}")
         return _bt("chat.convert_failed", error=str(e)[:200])
     return _bt("chat.convert_ok", src=src, dst=out, lines=len(subs))
+
+
+# "translate it to English". Same lesson as everywhere else in this pipeline:
+# the model was given the exact path in its prompt and still asked the user
+# where the file was, so the useful requests do not go through it.
+_TRANSLATE_VERBS = re.compile(
+    r"(dịch|dich\b|translate|翻译|翻譯|翻訳|번역|перевед|перевод|çevir|tercüme|"
+    r"traduc|traduzir)",
+    re.IGNORECASE)
+
+
+async def _try_translate_artifact(message: str, history: List[Dict[str, str]],
+                                  session_id: str = "") -> Optional[str]:
+    """Queue a translation of the subtitle this conversation produced."""
+    from tubecli.core.bot_i18n import t as _bt
+
+    if not _TRANSLATE_VERBS.search(message or ""):
+        return None
+    src = next((p for p in _recent_artifacts(history or [], session_id)
+                if p.lower().endswith((".srt", ".vtt"))), None)
+    if not src:
+        return None
+    try:
+        from tubecli.extensions.video_studio.pipeline import create_codex_task
+        from tubecli.extensions.video_studio.routes import (
+            _JOB_LABELS, _JOB_NEEDS_VIDEO, _JOB_REQUIRED, _JOB_STEPS, _target_language,
+        )
+        from tubecli.extensions.video_studio.pipeline import STEPS
+
+        keep = _JOB_STEPS["translate"]
+        options: Dict[str, Any] = {
+            sid: (sid in keep or (sid == "download" and "translate" in _JOB_NEEDS_VIDEO))
+            for sid, _, _, _ in STEPS
+        }
+        options["job_label"] = _JOB_LABELS["translate"]
+        # If the translation itself fails, the task must fail — not report ✅.
+        options["required_steps"] = [_JOB_REQUIRED["translate"]]
+        target = _target_language(message)
+        if target:
+            options["target_language"] = target
+        if _TXT_VERBS.search(message or ""):
+            options["export_txt"] = True     # "…and save it as txt"
+
+        # In-process, on a worker thread. Going back out over HTTP to our own
+        # server would deadlock: this runs on the event loop that would have to
+        # serve that request.
+        task = await asyncio.to_thread(
+            create_codex_task, src, options, "user", None, _JOB_LABELS["translate"])
+    except Exception as e:
+        logger.warning(f"[Chat] translate-artifact failed: {e}")
+        return _bt("chat.translate_failed", error=str(e)[:200])
+
+    queued = task.get("status") == "queued"
+    head = (_bt("vs.queued_job", job=_JOB_LABELS["translate"], seq=task["seq"])
+            + _bt("vs.starting_now" if queued else "vs.awaiting_approval"))
+    # Carries the codex marker, so the chat turns it into a live card.
+    return f"{head}\n\n<!--codex:{task['id']}:{task['seq']}:{task.get('status','')}-->"
 
 
 def _try_save_artifact(message: str, history: List[Dict[str, str]],
