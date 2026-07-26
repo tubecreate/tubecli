@@ -41,9 +41,12 @@
   "chat.meta_action": "동작 {name}",
   "chat.meta_routed": "{name}에게 전달됨",
   "chat.meta_skill": "스킬 {name} 실행",
+  "chat.model_default": "에이전트 기본값",
+  "chat.model_label": "모델",
   "chat.nav": "채팅",
   "chat.new_chat": "새 채팅",
   "chat.no_agents": "사용할 수 있는 에이전트가 없습니다 — 먼저 에이전트를 만드세요.",
+  "chat.no_models_hint": "아직 연동된 AI 제공업체가 없습니다 — Cloud API Keys에서 키를 추가하세요",
   "chat.no_results": "검색과 일치하는 대화가 없습니다",
   "chat.no_sessions": "아직 대화가 없습니다",
   "chat.no_sessions_hint": "새 채팅을 시작해 에이전트와 대화해 보세요.",
@@ -66,6 +69,7 @@
   "chat.time_hour": "{n}시간 전",
   "chat.time_min": "{n}분 전",
   "chat.time_now": "방금",
+  "chat.toast_model_changed": "모델을 {name}(으)로 전환했습니다",
   "chat.unpin": "고정 해제",
   "chat.untitled": "새 대화"
 }

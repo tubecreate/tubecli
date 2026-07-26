@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "'{name}' becerisi tamamlandı.",
     "brain.summarize_prompt": "İngilizce olarak dostça özetleyin.",
     "brain.max_steps": "Maksimum adım sayısına ulaşıldı.",
+    "brain.no_model_available": "⚠️ Henüz kullanılabilir bir yapay zeka modeli yok.\n\nBu ajan yerel bir Ollama modeline işaret ediyor, ancak Ollama bu makinede çalışmıyor ve yapılandırılmış bir bulut yapay zeka anahtarı da yok.\n\nBaşlamak için şunlardan birini seçin:\n1. Dashboard → Cloud API Keys bölümünden bir bulut API anahtarı ekleyin (Gemini, DeepSeek, OpenAI…), ardından Sohbet'teki model seçiciyle bir model seçin.\n2. Veya https://ollama.com adresinden Ollama'yı kurun ve `ollama pull qwen:latest` komutunu çalıştırın.",
     "brain.workflow_error_guidance": "İş akışı bir hata ile karşılaştı. Şunları kontrol edin: (1) kimlik bilgilerinin doğru olduğunu, (2) spreadsheet_id'nin mevcut olduğunu, (3) API'lerin etkinleştirildiğini.",
     "ollama.auto_install_windows_only": "[yellow]Otomatik yükleme şu anda yalnızca Windows'ta desteklenmektedir.[/yellow]",
     "ollama.manual_install": "Lütfen Ollama'yı manuel olarak şuradan yükleyin: https://ollama.com/download",

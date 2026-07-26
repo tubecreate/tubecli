@@ -35,13 +35,22 @@ async def run_turn(
     agent_dict: Dict[str, Any],
     history: List[Dict[str, str]],
     auto_route: bool = True,
+    model_override: str = "",
 ) -> Tuple[str, Dict[str, Any]]:
-    """Process one user turn. Returns (reply_text, meta)."""
+    """Process one user turn. Returns (reply_text, meta).
+
+    `model_override` (the chat header's model picker) survives specialist
+    routing: whichever agent ends up answering, the picked model wins.
+    """
     from tubecli.core.brain import AgentBrain
+
+    if model_override:
+        agent_dict = {**agent_dict, "model": model_override}
 
     meta: Dict[str, Any] = {
         "agent_id": agent_dict.get("id", ""),
         "agent_name": agent_dict.get("name", ""),
+        "model": agent_dict.get("model", ""),
         "intent": "",
         "skill_used": "",
         "action": "",
@@ -74,9 +83,12 @@ async def run_turn(
         specialist = _route_to_specialist(intent, agent_dict)
         if specialist is not None:
             agent_dict = specialist
+            if model_override:
+                agent_dict = {**agent_dict, "model": model_override}
             meta["routed_to"] = specialist.get("name", "")
             meta["agent_id"] = specialist.get("id", "")
             meta["agent_name"] = specialist.get("name", "")
+            meta["model"] = agent_dict.get("model", "")
             allowed = specialist.get("allowed_skills") or []
             available = (
                 [s for s in all_skills if s.get("id") in allowed] if allowed else all_skills

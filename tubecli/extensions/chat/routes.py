@@ -1,11 +1,10 @@
 """
 Chat — FastAPI routes (session API + the /chat page).
 """
-import asyncio
 import logging
 import mimetypes
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
@@ -62,11 +61,13 @@ class UpdateSessionRequest(BaseModel):
     title: Optional[str] = None
     agent_id: Optional[str] = None
     pinned: Optional[bool] = None
+    model: Optional[str] = None
 
 
 class SendMessageRequest(BaseModel):
     message: str
     agent_id: str = ""
+    model: str = ""
     auto_route: bool = True
 
 
@@ -146,6 +147,9 @@ async def send_message(session_id: str, req: SendMessageRequest):
     if not agent:
         raise HTTPException(400, "Chưa có agent nào. Hãy tạo một agent trước.")
 
+    # Per-conversation model override (the chat header's model picker).
+    model_override = (req.model or session.get("model") or "").strip()
+
     user_msg = conversation_store.append_message(session_id, "user", text)
     history = conversation_store.get_history_for_llm(session_id, turns=10)
     # Drop the turn we just stored — it is passed as the prompt, not as history.
@@ -153,10 +157,24 @@ async def send_message(session_id: str, req: SendMessageRequest):
         history = history[:-1]
 
     try:
-        reply, meta = await run_turn(text, agent, history, auto_route=req.auto_route)
+        reply, meta = await run_turn(
+            text, agent, history,
+            auto_route=req.auto_route, model_override=model_override,
+        )
     except Exception as e:
         logger.error(f"[Chat] Turn failed: {e}", exc_info=True)
         reply, meta = f"❌ Lỗi: {e}", {"error": str(e)}
+
+    # Safety net: raw Ollama connection errors can still leak through paths
+    # that bypass _call_llm's fallback (workflow nodes, browser scripts).
+    # Never show a stacktrace to the user — show what to do instead.
+    if "[Ollama Error]" in (reply or ""):
+        from tubecli.i18n import t
+
+        friendly = t("brain.no_model_available")
+        if friendly != "brain.no_model_available":  # key resolved
+            reply = friendly
+        meta["error_type"] = "no_model"
 
     assistant_msg = conversation_store.append_message(session_id, "assistant", reply, meta=meta)
     conversation_store.prune(session_id)
@@ -172,6 +190,80 @@ async def send_message(session_id: str, req: SendMessageRequest):
         "message": assistant_msg,
         "session": conversation_store.get_session(session_id),
     }
+
+
+@router.get("/models")
+async def list_models():
+    """Providers the user has actually integrated, with their models.
+
+    Feeds the chat header's model picker. Only three sources count as
+    "integrated": a cloud provider with an ACTIVE key in cloud_api, a running
+    local Ollama, and a running 9router proxy. Everything else is omitted so
+    the picker never offers a model that cannot answer.
+    """
+    providers = []
+
+    # Cloud providers with an active key.
+    try:
+        from tubecli.extensions.cloud_api.extension import PROVIDERS, key_manager
+
+        for pid, info in PROVIDERS.items():
+            if pid == "9router":
+                continue  # handled below via a live probe — key alone is not enough
+            try:
+                if key_manager.get_active_key(pid):
+                    models = list(info.get("models") or [])
+                    if models:
+                        providers.append({
+                            "id": pid,
+                            "label": info.get("name") or pid.title(),
+                            "source": "cloud",
+                            "models": models,
+                        })
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning(f"[Chat] Could not read cloud providers: {e}")
+
+    # Local Ollama — probe quickly; list installed models only.
+    try:
+        import requests
+
+        resp = requests.get("http://localhost:11434/api/tags", timeout=1.5)
+        if resp.status_code == 200:
+            names = [
+                m.get("name") for m in resp.json().get("models", []) if m.get("name")
+            ]
+            if names:
+                providers.append({
+                    "id": "ollama",
+                    "label": "Ollama (local)",
+                    "source": "local",
+                    "models": sorted(names),
+                })
+    except Exception:
+        pass  # not installed/running — simply absent from the picker
+
+    # 9router proxy — probe quickly.
+    try:
+        import requests
+
+        resp = requests.get("http://localhost:20128/v1/models", timeout=1.5)
+        if resp.status_code == 200:
+            names = [
+                m.get("id") for m in resp.json().get("data", []) if m.get("id")
+            ]
+            if names:
+                providers.append({
+                    "id": "9router",
+                    "label": "9Router (local proxy)",
+                    "source": "local",
+                    "models": sorted(names)[:40],
+                })
+    except Exception:
+        pass
+
+    return {"providers": providers, "count": len(providers)}
 
 
 @router.get("/agents")

@@ -41,9 +41,12 @@
   "chat.meta_action": "動作 {name}",
   "chat.meta_routed": "已轉給 {name}",
   "chat.meta_skill": "執行了技能 {name}",
+  "chat.model_default": "代理預設",
+  "chat.model_label": "模型",
   "chat.nav": "對話",
   "chat.new_chat": "新增對話",
   "chat.no_agents": "沒有可用的代理 — 請先建立一個代理。",
+  "chat.no_models_hint": "尚未整合任何 AI 供應商 — 請在 Cloud API Keys 中新增金鑰",
   "chat.no_results": "沒有符合搜尋的對話",
   "chat.no_sessions": "還沒有對話",
   "chat.no_sessions_hint": "開一個新對話，就能和你的代理聊聊。",
@@ -66,6 +69,7 @@
   "chat.time_hour": "{n} 小時前",
   "chat.time_min": "{n} 分鐘前",
   "chat.time_now": "剛剛",
+  "chat.toast_model_changed": "模型已切換為 {name}",
   "chat.unpin": "取消釘選",
   "chat.untitled": "新對話"
 }

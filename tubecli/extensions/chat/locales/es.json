@@ -41,9 +41,12 @@
   "chat.meta_action": "acción {name}",
   "chat.meta_routed": "derivado a {name}",
   "chat.meta_skill": "ejecutó la habilidad {name}",
+  "chat.model_default": "Predeterminado del agente",
+  "chat.model_label": "Modelo",
   "chat.nav": "Chat",
   "chat.new_chat": "Nuevo chat",
   "chat.no_agents": "No hay agentes disponibles — crea uno primero.",
+  "chat.no_models_hint": "Aún no hay ningún proveedor de IA integrado — añade una clave en Cloud API Keys",
   "chat.no_results": "Ninguna conversación coincide con tu búsqueda",
   "chat.no_sessions": "Aún no hay conversaciones",
   "chat.no_sessions_hint": "Empieza un chat nuevo para hablar con tus agentes.",
@@ -66,6 +69,7 @@
   "chat.time_hour": "hace {n} h",
   "chat.time_min": "hace {n} min",
   "chat.time_now": "ahora mismo",
+  "chat.toast_model_changed": "Modelo cambiado a {name}",
   "chat.unpin": "Dejar de fijar",
   "chat.untitled": "Conversación nueva"
 }

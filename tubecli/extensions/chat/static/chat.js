@@ -25,6 +25,7 @@ const CHAT = (() => {
     sessions: [],
     agents: [],
     agentsOk: false,
+    models: [],          // providers from GET /models: {id, label, source, models[]}
     messages: [],
     activeId: '',
     search: '',
@@ -395,6 +396,7 @@ const CHAT = (() => {
       if (label) label.textContent = (s && s.pinned) ? t('chat.unpin') : t('chat.pin');
     }
     renderAgentPicker();
+    renderModelPicker();
   }
 
   function renderAgentPicker() {
@@ -413,6 +415,48 @@ const CHAT = (() => {
     sel.disabled = state.sending;
   }
 
+  function renderModelPicker() {
+    const sel = $('ch-model');
+    if (!sel) return;
+    const wrap = sel.closest('.ch-model');
+    const label = t('chat.model_label');
+    sel.setAttribute('aria-label', label);
+
+    if (!state.models.length) {
+      const hint = t('chat.no_models_hint');
+      sel.innerHTML = '<option value="">' + esc(hint) + '</option>';
+      sel.value = '';
+      sel.disabled = true;
+      sel.title = hint;
+      if (wrap) { wrap.classList.add('disabled'); wrap.title = hint; }
+      return;
+    }
+
+    const s = activeSession();
+    const current = (s && typeof s.model === 'string') ? s.model : '';
+    const opts = ['<option value="">' + esc(t('chat.model_default')) + '</option>'];
+    let found = !current;
+    state.models.forEach((p) => {
+      if (!p || !Array.isArray(p.models) || !p.models.length) return;
+      opts.push('<optgroup label="' + esc(p.label || p.id) + '">');
+      p.models.forEach((m) => {
+        if (!m) return;
+        if (m === current) found = true;
+        opts.push('<option value="' + esc(m) + '">' + esc(m) + '</option>');
+      });
+      opts.push('</optgroup>');
+    });
+    // A stored choice whose provider went away must still display.
+    if (!found) opts.push('<option value="' + esc(current) + '">' + esc(current) + '</option>');
+
+    sel.innerHTML = opts.join('');
+    sel.value = current;
+    if (sel.value !== current) sel.value = '';
+    sel.disabled = state.sending;
+    sel.title = label;
+    if (wrap) { wrap.classList.remove('disabled'); wrap.title = label; }
+  }
+
   // ═══════════════════════════════════════════════════════════════
   //  Thread
   // ═══════════════════════════════════════════════════════════════
@@ -427,6 +471,10 @@ const CHAT = (() => {
         esc(t('chat.meta_routed', { name: meta.routed_to })) + '</span>');
     } else if (meta.agent_name) {
       chips.push('<span class="ch-chip">' + icon('robot_2') + esc(meta.agent_name) + '</span>');
+    }
+    if (meta.model) {
+      chips.push('<span class="ch-chip" title="' + esc(t('chat.model_label')) + '">' +
+        icon('memory') + esc(meta.model) + '</span>');
     }
     if (meta.skill_used) {
       chips.push('<span class="ch-chip skill">' + icon('bolt') +
@@ -609,6 +657,18 @@ const CHAT = (() => {
     renderAgentPicker();
   }
 
+  async function loadModels() {
+    try {
+      const data = await api('/models');
+      state.models = Array.isArray(data.providers)
+        ? data.providers.filter((p) => p && p.id && Array.isArray(p.models) && p.models.length)
+        : [];
+    } catch (e) {
+      state.models = [];   // picker falls back to its disabled hint state
+    }
+    renderModelPicker();
+  }
+
   async function loadSessions() {
     try {
       const data = await api('/sessions?limit=' + SESSION_LIMIT);
@@ -693,9 +753,11 @@ const CHAT = (() => {
     const sendIcon = $('ch-send-icon');
     const composer = $('ch-composer');
     const sel = $('ch-agent');
+    const modelSel = $('ch-model');
     if (input) input.disabled = !!on;
     if (send) send.disabled = !!on;
     if (sel) sel.disabled = !!on;
+    if (modelSel) modelSel.disabled = !!on || !state.models.length;
     if (composer) composer.classList.toggle('busy', !!on);
     if (sendIcon) sendIcon.textContent = on ? 'progress_activity' : 'arrow_upward';
     if (sendIcon) sendIcon.classList.toggle('spin', !!on);
@@ -933,6 +995,19 @@ const CHAT = (() => {
     }
   }
 
+  async function onModelChange(value) {
+    const sid = state.activeId;
+    if (!sid) return;
+    const model = String(value || '');
+    try {
+      await updateSession(sid, { model: model });
+      toast(t('chat.toast_model_changed', { name: model || t('chat.model_default') }), 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+      renderModelPicker();   // snap back to the stored choice
+    }
+  }
+
   function persistChoices() {
     try {
       const keys = Object.keys(state.agentChoice).slice(-60);
@@ -1119,7 +1194,7 @@ const CHAT = (() => {
       if (id && id !== state.activeId && findSession(id)) open(id);
     });
 
-    await Promise.all([loadAgents(), loadSessions()]);
+    await Promise.all([loadAgents(), loadModels(), loadSessions()]);
 
     const id = pickInitialSession();
     if (id) await open(id);
@@ -1136,7 +1211,7 @@ const CHAT = (() => {
   return {
     init, open, newChat, send, onKey, autoGrow, useExample, retryDraft,
     onSearch, togglePin, togglePinActive, rename, renameActive, onRenameKey,
-    submitRename, confirmDelete, deleteActive, clearActive, onAgentChange,
+    submitRename, confirmDelete, deleteActive, clearActive, onAgentChange, onModelChange,
     copyCode, copyMsg, toggleSidebar, closeSidebar, toggleMenu,
     openModal, closeModal, onBackdrop, confirmYes, scrollToBottom,
   };

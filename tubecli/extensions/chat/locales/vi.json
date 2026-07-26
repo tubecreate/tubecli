@@ -41,9 +41,12 @@
   "chat.meta_action": "hành động {name}",
   "chat.meta_routed": "đã chuyển cho {name}",
   "chat.meta_skill": "đã chạy kỹ năng {name}",
+  "chat.model_default": "Theo agent",
+  "chat.model_label": "Model",
   "chat.nav": "Chat",
   "chat.new_chat": "Trò chuyện mới",
   "chat.no_agents": "Chưa có agent nào — hãy tạo một agent trước.",
+  "chat.no_models_hint": "Chưa tích hợp nhà cung cấp AI nào — thêm key trong Cloud API Keys",
   "chat.no_results": "Không có cuộc trò chuyện nào khớp",
   "chat.no_sessions": "Chưa có cuộc trò chuyện nào",
   "chat.no_sessions_hint": "Bắt đầu một cuộc trò chuyện mới để nói chuyện với các agent của bạn.",
@@ -66,6 +69,7 @@
   "chat.time_hour": "{n} giờ trước",
   "chat.time_min": "{n} phút trước",
   "chat.time_now": "vừa xong",
+  "chat.toast_model_changed": "Đã chuyển model: {name}",
   "chat.unpin": "Bỏ ghim",
   "chat.untitled": "Cuộc trò chuyện mới"
 }

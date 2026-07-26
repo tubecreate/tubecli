@@ -74,6 +74,11 @@
           <select id="ch-agent" onchange="CHAT.onAgentChange(this.value)"></select>
         </label>
 
+        <label class="ch-agent ch-model" data-i18n-title="chat.model_label" title="Model">
+          <span class="material-symbols-outlined">memory</span>
+          <select id="ch-model" onchange="CHAT.onModelChange(this.value)"></select>
+        </label>
+
         <div class="ch-menu-wrap">
           <button type="button" class="ch-icon-btn" onclick="CHAT.toggleMenu(event)"
                   data-i18n-title="chat.menu" title="More actions">

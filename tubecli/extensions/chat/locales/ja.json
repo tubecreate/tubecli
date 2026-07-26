@@ -41,9 +41,12 @@
   "chat.meta_action": "アクション {name}",
   "chat.meta_routed": "{name} に振り分け",
   "chat.meta_skill": "スキル {name} を実行",
+  "chat.model_default": "エージェントの既定",
+  "chat.model_label": "モデル",
   "chat.nav": "チャット",
   "chat.new_chat": "新しいチャット",
   "chat.no_agents": "エージェントがありません — 先にエージェントを作成してください。",
+  "chat.no_models_hint": "AI プロバイダーがまだ連携されていません — Cloud API Keys でキーを追加してください",
   "chat.no_results": "検索に一致する会話はありません",
   "chat.no_sessions": "会話はまだありません",
   "chat.no_sessions_hint": "新しいチャットを始めて、エージェントと話しましょう。",
@@ -66,6 +69,7 @@
   "chat.time_hour": "{n} 時間前",
   "chat.time_min": "{n} 分前",
   "chat.time_now": "たった今",
+  "chat.toast_model_changed": "モデルを {name} に切り替えました",
   "chat.unpin": "ピンを外す",
   "chat.untitled": "新しい会話"
 }

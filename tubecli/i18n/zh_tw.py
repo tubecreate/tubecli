@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "技能 '{name}' 已完成。",
     "brain.summarize_prompt": "用英語友好地總結。",
     "brain.max_steps": "已達到最大步驟數。",
+    "brain.no_model_available": "⚠️ 目前還沒有可用的 AI 模型。\n\n此代理指向本機的 Ollama 模型，但本機上的 Ollama 並未執行，且尚未設定任何雲端 AI 金鑰。\n\n請選擇以下任一方式開始：\n1. 在 Dashboard → Cloud API Keys 中新增雲端 API 金鑰（Gemini、DeepSeek、OpenAI…），然後在聊天中使用模型選擇器選擇模型。\n2. 或從 https://ollama.com 安裝 Ollama 並執行 `ollama pull qwen:latest`。",
     "brain.workflow_error_guidance": "工作流程發生錯誤。請檢查：(1) 憑證是否正確，(2) spreadsheet_id 是否存在，(3) API 是否已啟用。",
     "ollama.auto_install_windows_only": "[yellow]自動安裝目前僅支援 Windows。[/yellow]",
     "ollama.manual_install": "請從 https://ollama.com/download 手動安裝 Ollama",

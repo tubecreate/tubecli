@@ -93,7 +93,7 @@ class ConversationStore:
     # ── Sessions ─────────────────────────────────────────────────
 
     def create_session(
-        self, title: str = "", agent_id: str = "", agent_name: str = ""
+        self, title: str = "", agent_id: str = "", agent_name: str = "", model: str = ""
     ) -> Dict[str, Any]:
         self._ensure_loaded()
         session = {
@@ -101,6 +101,8 @@ class ConversationStore:
             "title": (title or "").strip()[:TITLE_MAX] or "Cuộc trò chuyện mới",
             "agent_id": agent_id,
             "agent_name": agent_name,
+            # Per-conversation model override; "" = use the agent's own model.
+            "model": model,
             "created_at": _now(),
             "updated_at": _now(),
             "message_count": 0,
@@ -132,7 +134,7 @@ class ConversationStore:
 
     def update_session(self, session_id: str, **updates) -> Optional[Dict[str, Any]]:
         self._ensure_loaded()
-        editable = {"title", "agent_id", "agent_name", "pinned"}
+        editable = {"title", "agent_id", "agent_name", "pinned", "model"}
         with self._lock:
             s = self._sessions.get(session_id)
             if not s:

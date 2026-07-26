@@ -230,6 +230,12 @@ body {
 .ch-agent select:disabled { opacity: 0.6; cursor: not-allowed; }
 .ch-agent select option { background: var(--bg2); color: var(--text); }
 
+/* Model picker — same pill as the agent picker (shares .ch-agent) */
+.ch-model.disabled { opacity: 0.65; }
+.ch-model.disabled:hover, .ch-model.disabled:focus-within { border-color: var(--border); }
+.ch-model select { font-family: var(--mono); font-size: 0.76rem; }
+.ch-model select optgroup { font-family: 'Inter', sans-serif; font-style: normal; background: var(--bg2); color: var(--text-muted); }
+
 .ch-menu-wrap { position: relative; }
 .ch-menu {
     position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;

@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "스킬 '{name}'이(가) 완료되었습니다.",
     "brain.summarize_prompt": "영어로 친근하게 요약해 주세요.",
     "brain.max_steps": "최대 단계에 도달했습니다.",
+    "brain.no_model_available": "⚠️ 아직 사용 가능한 AI 모델이 없습니다.\n\n이 에이전트는 로컬 Ollama 모델을 가리키고 있지만, 이 컴퓨터에서 Ollama가 실행되고 있지 않으며 클라우드 AI 키도 설정되어 있지 않습니다.\n\n시작하려면 다음 중 하나를 선택하세요:\n1. Dashboard → Cloud API Keys에서 클라우드 API 키(Gemini, DeepSeek, OpenAI…)를 추가한 후, 채팅의 모델 선택기에서 모델을 선택하세요.\n2. 또는 https://ollama.com 에서 Ollama를 설치하고 `ollama pull qwen:latest` 를 실행하세요.",
     "brain.workflow_error_guidance": "워크플로에서 오류가 발생했습니다. 다음을 확인하세요: (1) 자격 증명이 올바른지, (2) spreadsheet_id가 존재하는지, (3) API가 활성화되었는지.",
     "ollama.auto_install_windows_only": "[yellow]자동 설치는 현재 Windows에서만 지원됩니다.[/yellow]",
     "ollama.manual_install": "https://ollama.com/download 에서 Ollama를 수동으로 설치하세요.",

@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "Skill '{name}' hoàn thành.",
     "brain.summarize_prompt": "Summarize friendly in Vietnamese.",
     "brain.max_steps": "Đã đạt giới hạn bước tối đa.",
+    "brain.no_model_available": "⚠️ Chưa có model AI nào khả dụng.\n\nAgent này đang trỏ tới model Ollama chạy trên máy, nhưng Ollama chưa được cài/chạy và cũng chưa có API key cloud nào được cấu hình.\n\nBạn chọn một trong hai cách:\n1. Thêm API key trong Dashboard → Cloud API Keys (Gemini, DeepSeek, OpenAI…), rồi chọn model bằng bộ chọn model ngay trong Chat.\n2. Hoặc cài Ollama tại https://ollama.com và chạy `ollama pull qwen:latest`.",
     "brain.workflow_error_guidance": "Workflow gặp lỗi. Kiểm tra: (1) credentials đã đúng chưa, (2) spreadsheet_id có tồn tại không, (3) các API đã bật chưa.",
     "ollama.auto_install_windows_only": "[yellow]Cài tự động hiện chỉ hỗ trợ Windows.[/yellow]",
     "ollama.manual_install": "Vui lòng cài đặt Ollama thủ công từ: https://ollama.com/download",

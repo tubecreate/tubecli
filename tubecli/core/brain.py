@@ -738,7 +738,20 @@ Rules:
             elif "grok" in model.lower():
                 result = AgentBrain._call_openai(model, cloud_keys.get("grok", ""), messages, base_url="https://api.x.ai/v1", temperature=temperature)
             else:
-                return AgentBrain._call_ollama(model, messages, temperature=temperature)
+                result = AgentBrain._call_ollama(model, messages, temperature=temperature)
+                if "[Ollama Error]" in result:
+                    # Ollama is not installed/running (the default install path:
+                    # agents ship with model "qwen:latest" but no local runtime).
+                    # Instead of surfacing the raw connection error, quietly fall
+                    # over to any configured cloud provider; if none exists,
+                    # return a friendly, actionable message.
+                    print(f"[Brain] ⚠️ Ollama unavailable: {result[:120]}")
+                    cloud_result = AgentBrain._try_any_cloud(cloud_keys, messages, temperature)
+                    if cloud_result is not None:
+                        return cloud_result
+                    from tubecli.i18n import t
+                    return t("brain.no_model_available")
+                return result
         
         # ── Auto-Failover on Quota/Rate Limit Errors ──
         if any(err_tag in result for err_tag in ["429", "quota", "rate limit", "Too Many Requests", "exceeded"]):
@@ -746,6 +759,52 @@ Rules:
             result = AgentBrain._failover_llm(model, cloud_keys, messages, temperature, result)
         
         return result
+
+    @staticmethod
+    def _try_any_cloud(cloud_keys: Dict, messages: List[Dict], temperature: float):
+        """Try the first configured cloud provider. Returns the reply, or None
+        when no provider has an active key (or every attempt errored).
+
+        Used when the agent points at a local Ollama model but Ollama is not
+        running — the silent recovery path, so no failover banner is added
+        (a banner would corrupt JSON-action parsing downstream).
+        """
+        try:
+            from tubecli.extensions.cloud_api.extension import PROVIDERS
+        except Exception:
+            return None
+
+        for provider in ["gemini", "deepseek", "openai", "grok", "openrouter", "claude", "9router"]:
+            key = cloud_keys.get(provider, "")
+            if not key:
+                continue
+            prov_models = PROVIDERS.get(provider, {}).get("models", [])
+            if not prov_models:
+                continue
+            alt_model = prov_models[0]
+            print(f"[Brain] 🔄 Ollama missing → trying {provider}/{alt_model}...")
+            try:
+                if provider == "gemini":
+                    result = AgentBrain._call_gemini(alt_model, key, messages, temperature=temperature)
+                elif provider == "openai":
+                    result = AgentBrain._call_openai(alt_model, key, messages, temperature=temperature)
+                elif provider == "claude":
+                    result = AgentBrain._call_claude(alt_model, key, messages)
+                elif provider == "deepseek":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                elif provider == "grok":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
+                elif provider == "openrouter":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
+                else:  # 9router
+                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+            except Exception as e:
+                print(f"[Brain] Cloud fallback {provider} raised: {e}")
+                continue
+            if result and not any(m in result for m in ["[Error]", "[Ollama Error]", "429", "quota", "rate limit"]):
+                print(f"[Brain] ✅ Recovered via {provider}/{alt_model}")
+                return result
+        return None
 
     @staticmethod
     def _failover_llm(failed_model: str, cloud_keys: Dict, messages: List[Dict], temperature: float, original_error: str) -> str:
