@@ -289,6 +289,50 @@ async def list_models():
     return {"providers": providers, "count": len(providers)}
 
 
+class RevealRequest(BaseModel):
+    path: str
+
+
+@router.post("/reveal")
+async def reveal_in_file_manager(req: RevealRequest):
+    """Open the folder containing a produced file, with the file selected.
+
+    The chat runs against a local server, so "show me where it landed" means
+    the machine's own file manager. Paths go through file_service's sandbox
+    first: only Desktop / Documents / Downloads / the tubecli data dir can be
+    revealed, and only if the file is really there.
+    """
+    import subprocess
+    import sys
+
+    raw = (req.path or "").strip()
+    if not raw:
+        raise HTTPException(400, "path is required")
+    try:
+        from tubecli.extensions.file_manager.file_service import file_service
+
+        path = file_service._validate_path(raw)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    if not os.path.exists(path):
+        raise HTTPException(404, f"Not found: {raw}")
+
+    folder = path if os.path.isdir(path) else os.path.dirname(path)
+    try:
+        if sys.platform == "win32":
+            # /select, needs the argument glued on, and the whole thing quoted.
+            subprocess.Popen(["explorer", f"/select,{path}"],
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path])
+        else:
+            subprocess.Popen(["xdg-open", folder])
+    except Exception as e:
+        logger.warning(f"[Chat] could not reveal {path}: {e}")
+        raise HTTPException(500, f"Could not open the folder: {e}")
+    return {"status": "opened", "path": path, "folder": folder}
+
+
 @router.get("/agents")
 async def list_agents():
     """Agents available in the picker, orchestrator first."""

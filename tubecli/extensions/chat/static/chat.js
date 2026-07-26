@@ -613,6 +613,7 @@ const CHAT = (() => {
       holder.innerHTML = html;
       const next = holder.firstElementChild;
       if (next && next.outerHTML !== el.outerHTML) el.replaceWith(next);
+      syncOpenFolder(msg, thread);
     });
     // A card that is not on the page yet (first paint) still needs a full pass.
     if (missing) renderThread();
@@ -622,6 +623,25 @@ const CHAT = (() => {
     const s = String(v == null ? '' : v);
     if (window.CSS && typeof CSS.escape === 'function') return CSS.escape(s);
     return s.replace(/["\\]/g, '\\$&');
+  }
+
+  /** A task's file paths only exist once it finishes, so the footer button has
+   *  to appear then too — the card is repainted on its own. */
+  function syncOpenFolder(msg, thread) {
+    const body = thread.querySelector('.ch-msg[data-id="' + cssEscape(msg.id || '') + '"]');
+    const foot = body && body.querySelector('.ch-foot');
+    if (!foot) return;
+    const existing = foot.querySelector('.ch-open-folder');
+    const wanted = openFolderHtml(msg);
+    if (!wanted) {
+      if (existing) existing.remove();
+      return;
+    }
+    const holder = document.createElement('div');
+    holder.innerHTML = wanted;
+    const next = holder.firstElementChild;
+    if (!existing) foot.appendChild(next);
+    else if (existing.outerHTML !== next.outerHTML) existing.replaceWith(next);
   }
 
   async function taskDecision(id, decision) {
@@ -684,6 +704,61 @@ const CHAT = (() => {
     }
   }
 
+  // Absolute paths the assistant printed — in the reply itself or in the
+  // result of the task it started. Anything that produced a file gets an
+  // "open folder" button, because the next thing you want is to look at it.
+  const FILE_PATH_RE =
+    /(?:[A-Za-z]:\\[^\s`"'|<>*?]+\.[A-Za-z0-9]{1,6}|\/(?:home|Users|mnt|var)\/[^\s`"'|<>*?]+\.[A-Za-z0-9]{1,6})/g;
+
+  function filesIn(msg) {
+    const m = msg || {};
+    let text = String(m.content || '');
+    const ref = taskOf(m);
+    const live = ref && state.tasks[ref.id];
+    if (live) text += '\n' + String(live.result || '');
+    const seen = [];
+    let hit;
+    FILE_PATH_RE.lastIndex = 0;
+    while ((hit = FILE_PATH_RE.exec(text)) !== null) {
+      const p = hit[0].replace(/[.,;:)]+$/, '');
+      if (seen.indexOf(p) < 0) seen.push(p);
+    }
+    return seen;
+  }
+
+  async function revealFile(path) {
+    try {
+      const r = await fetch('/api/v1/chat/reveal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+      toast(t('chat.folder_opened'), 'success');
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  /** Bottom-right of a reply that produced a file: open its folder. */
+  function openFolderHtml(msg) {
+    const files = filesIn(msg);
+    if (!files.length) return '';
+    const p = files[0];
+    const label = files.length > 1
+      ? t('chat.open_folder_n', { n: files.length }) : t('chat.open_folder');
+    return '<button type="button" class="ch-mini ch-open-folder" ' +
+      'onclick="CHAT.revealFile(' + attr(p) + ')" ' +
+      'title="' + esc(p) + '">' + icon('folder_open') +
+      '<span>' + esc(label) + '</span></button>';
+  }
+
+  /** A JS string literal safe to drop inside an HTML onclick attribute. */
+  function attr(value) {
+    return esc(JSON.stringify(String(value == null ? '' : value)));
+  }
+
   function messageHtml(msg) {
     const m = msg || {};
     const id = esc(m.id || '');
@@ -709,6 +784,7 @@ const CHAT = (() => {
           '<span class="ch-time">' + time + '</span>' +
           '<button type="button" class="ch-mini" onclick="CHAT.copyMsg(this)" ' +
             'title="' + esc(t('chat.copy_message')) + '">' + icon('content_copy') + '</button>' +
+          openFolderHtml(m) +
         '</div>' +
       '</div>' +
     '</div>';
@@ -1421,6 +1497,6 @@ const CHAT = (() => {
     submitRename, confirmDelete, deleteActive, clearActive, onAgentChange, onModelChange,
     copyCode, copyMsg, toggleSidebar, closeSidebar, toggleMenu,
     openModal, closeModal, onBackdrop, confirmYes, scrollToBottom,
-    approveTask, rejectTask, setAutoApprove,
+    approveTask, rejectTask, setAutoApprove, revealFile,
   };
 })();

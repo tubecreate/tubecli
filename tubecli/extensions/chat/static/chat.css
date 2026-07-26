@@ -309,6 +309,18 @@ body {
 .ch-msg.user .ch-foot { justify-content: flex-end; }
 .ch-time { font-size: 0.68rem; color: var(--text-subtle); font-family: var(--mono); padding: 0 4px; }
 
+/* "Open folder" sits at the far right of the reply that produced the file,
+   and stays visible: the whole footer is hover-revealed, but an action you
+   are meant to notice must not be something you have to discover. */
+.ch-open-folder {
+    margin-left: auto;
+    color: var(--accent, #7c8cff);
+    border: 1px solid var(--border);
+    background: var(--bg3);
+}
+.ch-open-folder:hover { color: var(--text); border-color: var(--accent, #7c8cff); }
+.ch-foot:has(.ch-open-folder) { opacity: 1; }
+
 /* ─── Meta strip ─────────────────────────────────────────────── */
 .ch-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .ch-chip {

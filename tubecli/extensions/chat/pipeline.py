@@ -140,6 +140,12 @@ async def run_turn(
         meta["action"] = "save_file"
         return saved, meta
 
+    # "turn that subtitle into a .txt" — a local transform of a file we made.
+    converted = _try_convert_txt(message, history, session_id)
+    if converted is not None:
+        meta["action"] = "convert_file"
+        return converted, meta
+
     # Optionally hand the turn to the specialist that owns this intent.
     if auto_route and intent is not None:
         specialist = _route_to_specialist(intent, agent_dict)
@@ -179,6 +185,17 @@ async def run_turn(
             agent_for_call["system_prompt"] = (
                 agent_for_call.get("system_prompt", "") + "\n\n" + caps
             )
+
+    # ── …and what this conversation has already produced ─────────
+    # A task's output lives on the TASK: the stored message only says "queued
+    # as Codex #24", and get_history_for_llm drops meta. So the model could not
+    # see the .srt it had just made, and answered a follow-up with "no actual
+    # file was created or saved yet" — while the file sat on disk.
+    artifacts = _recent_artifacts(history, session_id)
+    if artifacts:
+        agent_for_call["system_prompt"] = (
+            agent_for_call.get("system_prompt", "") + "\n\n" + _artifact_block(artifacts)
+        )
 
     # Applied LAST, after any specialist swap: routing replaces the whole agent
     # dict, so an instruction added earlier would be thrown away — which is
@@ -322,6 +339,22 @@ def _recent_artifacts(history: List[Dict[str, str]], session_id: str = "",
     return found
 
 
+def _artifact_block(paths: List[str]) -> str:
+    """Tell the model, in plain terms, which files really exist right now."""
+    lines = ["### FILES ALREADY PRODUCED IN THIS CONVERSATION",
+             "These exist on disk RIGHT NOW. Use these EXACT paths — never say "
+             "a file was not created, and never invent a different name:"]
+    for p in paths[:6]:
+        try:
+            kb = os.path.getsize(p) / 1024.0
+            lines.append(f"- `{p}` ({kb:.0f} KB)")
+        except OSError:
+            lines.append(f"- `{p}`")
+    lines.append("If the user refers to 'the file', 'it', or 'that subtitle', "
+                 "they mean the first one listed.")
+    return "\n".join(lines)
+
+
 def _save_destination(message: str) -> Optional[str]:
     """The folder the user asked for, or None when they named none."""
     explicit = _PATH_RE.search(message)
@@ -331,6 +364,39 @@ def _save_destination(message: str) -> Optional[str]:
         if pattern.search(message):
             return os.path.expanduser(folder)
     return None
+
+
+# "turn it into a txt / plain text". A subtitle file is already text, so this
+# is a local transform — no model, no API, no waiting.
+_TXT_VERBS = re.compile(
+    r"(\.txt\b|sang\s*txt|ra\s*txt|to\s*txt|as\s*txt|plain\s*text|"
+    r"văn\s*bản\s*thuần|chuyển.*txt|转.*txt|テキスト|텍스트|"
+    r"текст|metin|texto\s*plano)",
+    re.IGNORECASE)
+
+
+def _try_convert_txt(message: str, history: List[Dict[str, str]],
+                     session_id: str = "") -> Optional[str]:
+    """Write the newest subtitle file out as plain text. None = not this."""
+    from tubecli.core.bot_i18n import t as _bt
+
+    if not _TXT_VERBS.search(message or ""):
+        return None
+    src = next((p for p in _recent_artifacts(history or [], session_id)
+                if p.lower().endswith((".srt", ".vtt"))), None)
+    if not src:
+        return None
+    try:
+        from tubecli.extensions.video_studio.pipeline import _parse_srt_file
+
+        subs = _parse_srt_file(src)
+        out = os.path.splitext(src)[0] + ".txt"
+        with open(out, "w", encoding="utf-8") as f:
+            f.write("\n".join(str(s.get("text", "")).strip() for s in subs if s.get("text")))
+    except Exception as e:
+        logger.warning(f"[Chat] srt→txt failed: {e}")
+        return _bt("chat.convert_failed", error=str(e)[:200])
+    return _bt("chat.convert_ok", src=src, dst=out, lines=len(subs))
 
 
 def _try_save_artifact(message: str, history: List[Dict[str, str]],

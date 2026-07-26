@@ -105,5 +105,7 @@
   "vs.queued_job": "🎬 {job} queued as *Codex #{seq}*",
   "vs.err_ffmpeg_missing": "⚠️ ffmpeg could not be found, so the video and audio tracks cannot be merged.\nInstall ffmpeg from https://ffmpeg.org, put its `bin` folder on PATH and restart TubeCLI — or add `\"ffmpeg_path\"` to `data/global_settings.json`.",
   "chat.save_ok": "✅ Saved.\n- **From**: `{src}`\n- **To**: `{dst}`",
-  "chat.save_failed": "❌ Could not save the file: {error}"
+  "chat.save_failed": "❌ Could not save the file: {error}",
+  "chat.convert_ok": "✅ Converted to plain text ({lines} lines).\n- **From**: `{src}`\n- **To**: `{dst}`",
+  "chat.convert_failed": "❌ Could not convert the file: {error}"
 }

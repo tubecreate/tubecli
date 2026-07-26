@@ -105,5 +105,7 @@
   "vs.queued_job": "🎬 {job} 已排队为 *Codex #{seq}*",
   "vs.err_ffmpeg_missing": "⚠️ 找不到 ffmpeg,无法合并视频与音频轨道。\n请从 https://ffmpeg.org 安装 ffmpeg,把它的 `bin` 目录加入 PATH 后重启 TubeCLI — 或在 `data/global_settings.json` 中添加 `\"ffmpeg_path\"`。",
   "chat.save_ok": "✅ 已保存。\n- **来源**:`{src}`\n- **目标**:`{dst}`",
-  "chat.save_failed": "❌ 无法保存文件:{error}"
+  "chat.save_failed": "❌ 无法保存文件:{error}",
+  "chat.convert_ok": "✅ 已转换为纯文本({lines} 行)。\n- **来源**:`{src}`\n- **目标**:`{dst}`",
+  "chat.convert_failed": "❌ 无法转换文件:{error}"
 }

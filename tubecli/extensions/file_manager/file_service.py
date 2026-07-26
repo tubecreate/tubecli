@@ -41,21 +41,42 @@ class FileService:
         # Normalize all paths
         self.allowed_roots = [os.path.normpath(r) for r in self.allowed_roots]
 
+    @staticmethod
+    def _under(path: str, root: str) -> bool:
+        """Is `path` the root itself, or something inside it?
+
+        Two traps this closes. A bare startswith() treats
+        "…/Downloads_evil" as inside "…/Downloads", so the separator has to be
+        part of the comparison. And Windows paths are case-insensitive, so a
+        plain string compare let "c:\\windows\\system32" slip past a blocklist
+        entry written as "C:\\Windows" — and rejected a legitimate
+        "c:\\tubecreate-vue\\tubecli\\data" that differed only in drive case.
+        os.path.normcase handles both platforms correctly.
+        """
+        p = os.path.normcase(os.path.normpath(path))
+        r = os.path.normcase(os.path.normpath(root))
+        return p == r or p.startswith(r.rstrip(os.sep) + os.sep)
+
     def _validate_path(self, path: str) -> str:
         """Validate and normalize path. Raises ValueError if blocked."""
         # Expand ~ and environment variables
         expanded = os.path.expanduser(os.path.expandvars(path))
         normalized = os.path.normpath(os.path.abspath(expanded))
+        # Resolve symlinks/junctions too: a link inside an allowed root must
+        # not be a way to reach a blocked one.
+        try:
+            resolved = os.path.realpath(normalized)
+        except OSError:
+            resolved = normalized
 
         # Check blocked paths
         for blocked in BLOCKED_PATHS:
-            blocked_norm = os.path.normpath(blocked)
-            if normalized.startswith(blocked_norm):
+            if self._under(normalized, blocked) or self._under(resolved, blocked):
                 raise ValueError(f"Đường dẫn bị chặn vì lý do bảo mật: {path}")
 
         # Check if within allowed roots
         in_allowed = any(
-            normalized.startswith(os.path.normpath(root))
+            self._under(normalized, root) and self._under(resolved, root)
             for root in self.allowed_roots
         )
         if not in_allowed:

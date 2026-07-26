@@ -105,5 +105,7 @@
   "vs.queued_job": "🎬 {job} *Codex #{seq}* olarak sıraya alındı",
   "vs.err_ffmpeg_missing": "⚠️ ffmpeg bulunamadı, video ve ses parçaları birleştirilemiyor.\nhttps://ffmpeg.org adresinden ffmpeg'i kurun, `bin` klasörünü PATH'e ekleyin ve TubeCLI'yi yeniden başlatın — veya `data/global_settings.json` içine `\"ffmpeg_path\"` ekleyin.",
   "chat.save_ok": "✅ Kaydedildi.\n- **Kaynak**: `{src}`\n- **Hedef**: `{dst}`",
-  "chat.save_failed": "❌ Dosya kaydedilemedi: {error}"
+  "chat.save_failed": "❌ Dosya kaydedilemedi: {error}",
+  "chat.convert_ok": "✅ Düz metne dönüştürüldü ({lines} satır).\n- **Kaynak**: `{src}`\n- **Hedef**: `{dst}`",
+  "chat.convert_failed": "❌ Dosya dönüştürülemedi: {error}"
 }

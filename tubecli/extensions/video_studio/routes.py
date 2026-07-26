@@ -262,6 +262,30 @@ _JOB_LABELS = {
 }
 
 
+# "translate to English" — the target language a user names in passing. Without
+# this the translate job always used its default (vi), so asking for English
+# quietly produced Vietnamese.
+_TARGET_LANGS = [
+    (r"(tiếng\s*anh|english|英语|英文|英語|영어|английск|i̇ngilizce|ingles|inglés)", "en"),
+    (r"(tiếng\s*việt|vietnamese|越南语|越南文|ベトナム語|베트남어|вьетнамск|vietnamca|vietnamita)", "vi"),
+    (r"(tiếng\s*trung|chinese|中文|简体|中国語|중국어|китайск|çince|chino)", "zh"),
+    (r"(tiếng\s*nhật|japanese|日语|日文|日本語|일본어|японск|japonca|japonés)", "ja"),
+    (r"(tiếng\s*hàn|korean|韩语|韓文|韓国語|한국어|корейск|korece|coreano)", "ko"),
+    (r"(tiếng\s*nga|russian|俄语|ロシア語|러시아어|русск|rusça|ruso)", "ru"),
+    (r"(tiếng\s*tây\s*ban\s*nha|spanish|西班牙语|スペイン語|스페인어|испанск|i̇spanyolca|español)", "es"),
+    (r"(tiếng\s*thổ|turkish|土耳其语|トルコ語|튀르키예어|турецк|türkçe|turco)", "tr"),
+]
+
+
+def _target_language(text: str) -> Optional[str]:
+    import re as _re
+
+    for pattern, code in _TARGET_LANGS:
+        if _re.search(pattern, text or "", _re.IGNORECASE):
+            return code
+    return None
+
+
 def _extract_source(text: str) -> str:
     """Pull the URL or file path out of a free-text skill input."""
     import re as _re
@@ -300,6 +324,9 @@ async def queue_single_job(job_id: str, req: JobRequest):
     options = {sid: (sid in keep or (sid == "download" and needs_video))
                for sid, _, _, _ in STEPS}
     options["job_label"] = _JOB_LABELS[job_id]   # so the result is not headed "Reup pipeline"
+    target = _target_language(req.input or "")
+    if target:
+        options["target_language"] = target
     options.update(req.options or {})
     # An SRT source needs no download/extract; run_reup detects that itself.
     try:
