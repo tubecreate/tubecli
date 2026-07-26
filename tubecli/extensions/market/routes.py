@@ -17,14 +17,75 @@ router.include_router(paypal_router)
 
 
 # ── Check Updates ──
+
+def _run_git(args, cwd, timeout=15):
+    """Run a read-only git command that can never wedge the caller.
+
+    Two Windows hazards make the obvious subprocess.run(capture_output=True,
+    timeout=…) unsafe here, and together they once froze the whole server:
+
+    1. `git fetch` on a repo that needs auth starts a credential helper. With
+       pipes, that grandchild inherits the write ends of stdout/stderr; killing
+       git does not close them. subprocess.run's post-timeout communicate()
+       takes no timeout on Windows, so it blocks forever waiting on its reader
+       threads. Redirecting to a temp file means there are no pipes to wait on.
+    2. Nothing may prompt: a server has no one to answer. GIT_TERMINAL_PROMPT=0
+       plus an empty credential.helper makes git fail fast instead of parking on
+       a credential dialog.
+
+    Returns stdout on success, or None if the command failed or timed out.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    env = dict(os.environ)
+    env.update({
+        "GIT_TERMINAL_PROMPT": "0",   # never ask on the console
+        "GIT_ASKPASS": "",            # …nor through an askpass helper
+        "SSH_ASKPASS": "",
+        "GCM_INTERACTIVE": "never",   # …nor through Git Credential Manager
+    })
+    cmd = ["git", "-c", "credential.helper=", *args]
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # no console flash on Windows
+
+    with tempfile.TemporaryFile() as out:
+        try:
+            proc = subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                                    stdout=out, stderr=subprocess.DEVNULL,
+                                    creationflags=flags)
+        except OSError:
+            return None
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()  # safe: no pipes are held open by anyone
+            return None
+        if code != 0:
+            return None
+        out.seek(0)
+        return out.read().decode("utf-8", "replace")
+
+
 @router.get("/check-updates")
 async def check_updates():
     """Compare local extension versions with Git repositories or marketplace versions.
     Returns list of extensions that have newer versions available.
     """
+    import asyncio
+
+    # The git scan shells out per extension; on the event loop a single slow
+    # fetch would stall every other request in the process.
+    updates, local_extensions = await asyncio.to_thread(_scan_git_extensions)
+
+    return await _merge_marketplace_updates(updates, local_extensions)
+
+
+def _scan_git_extensions():
+    """Inspect each installed extension. Runs in a worker thread."""
     import os
     import json
-    import subprocess
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR
     from tubecli.core.extension_manager import (
         compare_versions,
@@ -62,52 +123,43 @@ async def check_updates():
                             should_fetch = False
                     
                     if should_fetch:
-                        subprocess.run(["git", "fetch", "origin"], cwd=local_path, capture_output=True, timeout=15)
+                        _run_git(["fetch", "origin"], local_path, timeout=15)
                     branch = get_git_tracking_branch(local_path)
-                    
+
                     # Count commits behind upstream
-                    r_behind = subprocess.run(
-                        ["git", "rev-list", "--count", f"HEAD..origin/{branch}"],
-                        cwd=local_path, capture_output=True, text=True, timeout=10
+                    behind_out = _run_git(
+                        ["rev-list", "--count", f"HEAD..origin/{branch}"],
+                        local_path, timeout=10,
                     )
                     commits_behind = 0
-                    if r_behind.returncode == 0:
+                    if behind_out:
                         try:
-                            commits_behind = int(r_behind.stdout.strip())
+                            commits_behind = int(behind_out.strip())
                         except Exception:
                             pass
-                    
+
                     if commits_behind > 0:
                         # Fetch local standardized version
                         local_version = get_git_commit_version(local_path) or manifest.get("version", "0.0.0")
                         
                         # Fetch remote version from git manifest, fallback to remote commit date
                         remote_version = None
-                        try:
-                            res_show = subprocess.run(
-                                ["git", "show", f"origin/{branch}:tubecli-extension.json"],
-                                cwd=local_path, capture_output=True, text=True, timeout=10
-                            )
-                            if res_show.returncode == 0:
-                                r_manifest = json.loads(res_show.stdout)
-                                remote_version = r_manifest.get("version")
-                        except Exception:
-                            pass
-                        
+                        show_out = _run_git(
+                            ["show", f"origin/{branch}:tubecli-extension.json"],
+                            local_path, timeout=10,
+                        )
+                        if show_out:
+                            try:
+                                remote_version = json.loads(show_out).get("version")
+                            except Exception:
+                                pass
+
                         if not remote_version or compare_versions(remote_version, "2000.01.01.000000") < 0:
                             remote_version = get_git_commit_version(local_path, remote=True, branch=branch) or "2026.05.21.000000"
-                        
+
                         # Get remote URL
-                        git_url = ""
-                        try:
-                            r_url = subprocess.run(
-                                ["git", "remote", "get-url", "origin"],
-                                cwd=local_path, capture_output=True, text=True, timeout=5
-                            )
-                            if r_url.returncode == 0:
-                                git_url = r_url.stdout.strip()
-                        except Exception:
-                            pass
+                        url_out = _run_git(["remote", "get-url", "origin"], local_path, timeout=5)
+                        git_url = url_out.strip() if url_out else ""
 
                         updates.append({
                             "name": name,
@@ -132,7 +184,13 @@ async def check_updates():
             except Exception:
                 continue
 
-    # Step 2: Fetch marketplace items and check for updates for non-git extensions
+    return updates, local_extensions
+
+
+async def _merge_marketplace_updates(updates, local_extensions):
+    """Step 2: ask the marketplace about the extensions that are not git repos."""
+    from tubecli.core.extension_manager import compare_versions
+
     if local_extensions:
         try:
             market_data = await market_service.list_items(category="extension", limit=100)
