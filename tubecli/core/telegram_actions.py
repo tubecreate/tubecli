@@ -212,8 +212,14 @@ async def _queue_generic_download(url: str, context: Dict = None):
     except Exception as e:
         print(f"[Actions] could not queue the download: {e}")
         return None
-    return (f"📥 Download queued as *Codex #{task['seq']}* — it runs in the "
-            f"background with a progress bar.\nReply `approve {task['seq']}` to start.")
+    from tubecli.core.bot_i18n import t as _t
+
+    queued = task.get("status") == "queued"
+    head = (_t("vs.queued_download", seq=task["seq"])
+            + _t("vs.starting_now" if queued else "vs.awaiting_approval"))
+    # Marker consumed by the chat pipeline to build a live card (approve
+    # buttons, progress, result). Harmless anywhere else: it is an HTML comment.
+    return (f"{head}\n\n<!--codex:{task['id']}:{task['seq']}:{task.get('status','')}-->")
 
 
 async def execute_download(url: str, agent_dict: Dict, context: Dict = None) -> dict:

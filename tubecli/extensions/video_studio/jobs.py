@@ -195,10 +195,12 @@ def run_download_task(url: str, options: Optional[Dict] = None,
         raise RuntimeError(result.get("error") or "The download failed.")
     path = result.get("path") or ""
     name = path.replace("\\", "/").split("/")[-1]
-    return (f"## ✅ Download finished\n\n"
-            f"- **File**: `{name}`\n"
-            f"- **Path**: `{path}`\n\n"
-            f"Source: {url}")
+    from tubecli.core.bot_i18n import t
+
+    return (f"{t('vs.download_finished')}\n\n"
+            f"- **{t('vs.label_file')}**: `{name}`\n"
+            f"- **{t('vs.label_path')}**: `{path}`\n\n"
+            f"{t('vs.label_source')}: {url}")
 
 
 def create_download_task(url: str, created_by: str = "user",

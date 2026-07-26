@@ -15,16 +15,19 @@ from tubecli.core.extension_manager import Extension
 logger = logging.getLogger("Codex")
 
 SKILL_NAME = "Codex"
+# Words that route straight to the codex command parser without spending an LLM
+# call (core/intent_router.py:_match_skill_command). One entry per shipped UI
+# language so the zero-token path is not English-and-Vietnamese only; the parser
+# itself (telegram.py:_VERBS) accepts the same vocabulary.
 SKILL_COMMANDS = [
-    "codex",
-    "tasks",
-    "nhiệm vụ",
-    "approve",
-    "reject",
-    "retry",
-    "accept",
-    "duyệt",
-    "từ chối",
+    "codex", "tasks", "approve", "reject", "retry", "accept",
+    "nhiệm vụ", "duyệt", "từ chối",                    # vi
+    "任务", "批准", "任務", "核准",                       # zh, zh-TW
+    "タスク", "承認",                                    # ja
+    "작업", "승인",                                      # ko
+    "задача", "одобрить",                              # ru
+    "görev", "onayla",                                 # tr
+    "tarea", "aprobar",                                # es
 ]
 
 

@@ -39,6 +39,7 @@ const CHAT = (() => {
     confirmFn: null,
     lastDraft: '',
     thinkStarted: 0,
+    tasks: {},           // codex task id -> latest task, for the live cards
   };
 
   let thinkTimer = null;
@@ -499,6 +500,121 @@ const CHAT = (() => {
     return chips.length ? '<div class="ch-meta">' + chips.join('') + '</div>' : '';
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  //  Codex task card — a live panel inside the reply that queued a task
+  //
+  //  Before this, the assistant said "reply `approve 3` to start", the user
+  //  had to type a command, and neither the progress nor the final result ever
+  //  came back to the conversation.
+  // ═══════════════════════════════════════════════════════════════
+  const TASK_TERMINAL = ['done', 'failed', 'rejected', 'cancelled'];
+
+  function taskOf(msg) {
+    const t = msg && msg.meta && msg.meta.codex_task;
+    return (t && t.id) ? t : null;
+  }
+
+  function taskCardHtml(msg) {
+    const ref = taskOf(msg);
+    if (!ref) return '';
+    const live = state.tasks[ref.id] || null;
+    const status = String((live && live.status) || ref.status || 'pending_approval');
+    const seq = (live && live.seq) || ref.seq || '?';
+    const id = esc(ref.id);
+
+    // Overall progress = mean of the steps that have reported one.
+    const steps = (live && live.steps) || [];
+    const withPct = steps.filter((s) => typeof s.progress === 'number');
+    let pct = null;
+    if (status === 'running' && withPct.length) {
+      pct = withPct.reduce((a, s) => a + s.progress, 0) / withPct.length;
+    }
+    const active = steps.filter((s) => s.status === 'running').slice(-1)[0];
+
+    let body = '';
+    if (status === 'pending_approval') {
+      body =
+        '<div class="ch-task-actions">' +
+          '<button type="button" class="ch-task-btn approve" onclick="CHAT.approveTask(\'' + id + '\')">' +
+            icon('check') + esc(t('chat.task_approve')) + '</button>' +
+          '<button type="button" class="ch-task-btn reject" onclick="CHAT.rejectTask(\'' + id + '\')">' +
+            icon('close') + esc(t('chat.task_reject')) + '</button>' +
+        '</div>';
+    } else if (status === 'running' || status === 'queued') {
+      body =
+        (pct !== null
+          ? '<div class="ch-task-bar"><span style="width:' + pct.toFixed(1) + '%"></span></div>'
+          : '<div class="ch-task-bar indet"><span></span></div>') +
+        '<div class="ch-task-note">' +
+          (pct !== null ? '<b>' + esc(pct.toFixed(0)) + '%</b> · ' : '') +
+          esc((active && (active.message || active.label)) || t('chat.task_working')) +
+        '</div>';
+    } else if (live && (live.result || live.error)) {
+      body = '<div class="ch-task-result ch-md">' +
+        mdRender(String(live.result || live.error).slice(0, 4000)) + '</div>';
+    }
+
+    return '<div class="ch-task ' + esc(status) + '" data-task="' + id + '">' +
+        '<div class="ch-task-head">' +
+          icon('checklist') +
+          '<b>Codex #' + esc(String(seq)) + '</b>' +
+          '<span class="ch-task-status">' + esc(t('chat.task_' + status) || status) + '</span>' +
+        '</div>' + body +
+      '</div>';
+  }
+
+  /** Poll every task shown in this conversation that is not finished yet. */
+  async function pollTasks() {
+    const ids = state.messages.map(taskOf).filter(Boolean)
+      .map((r) => r.id)
+      .filter((id) => {
+        const live = state.tasks[id];
+        return !live || TASK_TERMINAL.indexOf(live.status) < 0;
+      });
+    if (!ids.length) return;
+
+    let changed = false;
+    for (const id of ids.slice(-4)) {          // only the most recent few
+      try {
+        const resp = await fetch('/api/v1/codex/tasks/' + encodeURIComponent(id));
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        const task = data && data.task;
+        if (!task) continue;
+        const prev = state.tasks[id];
+        if (!prev || prev.status !== task.status ||
+            JSON.stringify(prev.steps || []) !== JSON.stringify(task.steps || []) ||
+            prev.result !== task.result) {
+          state.tasks[id] = task;
+          changed = true;
+        }
+      } catch (e) { /* transient — keep the last known state */ }
+    }
+    if (changed) renderThread();
+  }
+
+  async function taskDecision(id, decision) {
+    const path = '/api/v1/codex/tasks/' + encodeURIComponent(id) + '/' + decision;
+    try {
+      const resp = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actor: 'user:chat' }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error((data && data.detail) || ('HTTP ' + resp.status));
+      if (data && data.task) state.tasks[id] = data.task;
+      toast(t(decision === 'approve' ? 'chat.toast_task_approved' : 'chat.toast_task_rejected'), 'success');
+      renderThread();
+      pollTasks();
+    } catch (e) {
+      toast(e.message, 'error');
+    }
+  }
+
+  function approveTask(id) { return taskDecision(id, 'approve'); }
+  function rejectTask(id) { return taskDecision(id, 'reject'); }
+
   function messageHtml(msg) {
     const m = msg || {};
     const id = esc(m.id || '');
@@ -518,6 +634,7 @@ const CHAT = (() => {
       '<div class="ch-avatar">' + icon('smart_toy') + '</div>' +
       '<div class="ch-msg-body">' +
         '<div class="ch-bubble ch-md">' + mdRender(m.content || '') + '</div>' +
+        taskCardHtml(m) +
         metaHtml(m.meta) +
         '<div class="ch-foot">' +
           '<span class="ch-time">' + time + '</span>' +
@@ -1190,6 +1307,12 @@ const CHAT = (() => {
     const scroll = $('ch-scroll');
     if (scroll) scroll.addEventListener('scroll', onScroll, { passive: true });
 
+    // Follow any queued codex task so its progress and result land back in the
+    // conversation. Paused while the tab is hidden — nobody is watching.
+    setInterval(() => {
+      if (!document.hidden) pollTasks();
+    }, 2500);
+
     document.addEventListener('click', (e) => {
       const menu = $('ch-menu');
       const target = e && e.target;
@@ -1229,5 +1352,6 @@ const CHAT = (() => {
     submitRename, confirmDelete, deleteActive, clearActive, onAgentChange, onModelChange,
     copyCode, copyMsg, toggleSidebar, closeSidebar, toggleMenu,
     openModal, closeModal, onBackdrop, confirmYes, scrollToBottom,
+    approveTask, rejectTask,
   };
 })();

@@ -157,6 +157,27 @@ def _guard(fn, *args, **kwargs):
 
 # ── Endpoints ────────────────────────────────────────────────────────
 
+class SettingsRequest(BaseModel):
+    auto_approve: bool
+
+
+@router.get("/settings")
+async def get_settings():
+    """Board policy. `auto_approve` skips the human gate for new tasks."""
+    from tubecli.extensions.codex.manager import auto_approve_enabled
+
+    return {"auto_approve": auto_approve_enabled()}
+
+
+@router.put("/settings")
+async def update_settings(req: SettingsRequest):
+    from tubecli.config import set_setting
+
+    if not set_setting("codex_auto_approve", bool(req.auto_approve)):
+        raise HTTPException(500, "Could not save the setting.")
+    return {"status": "updated", "auto_approve": bool(req.auto_approve)}
+
+
 @router.get("/stats")
 async def get_stats():
     return codex_manager.get_stats()

@@ -38,6 +38,11 @@
         <span data-i18n="codex.auto_refresh">Auto-refresh</span>
       </label>
 
+      <label class="cx-switch" data-i18n-title="codex.auto_approve_hint">
+        <input type="checkbox" id="cx-auto-approve" onchange="CODEX.setAutoApprove(this.checked)">
+        <span data-i18n="codex.auto_approve">Auto-approve</span>
+      </label>
+
       <button type="button" class="cx-btn cx-btn-ghost cx-btn-icon" id="cx-refresh-btn"
               onclick="CODEX.refresh(true)" data-i18n-title="codex.btn_refresh" title="Refresh">
         <span class="material-symbols-outlined">refresh</span>

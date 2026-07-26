@@ -17,6 +17,7 @@ import logging
 import threading
 from typing import Any, Dict, List
 
+from tubecli.core.bot_i18n import t
 from tubecli.extensions.codex.manager import (
     ALL_STATES,
     PENDING_APPROVAL,
@@ -87,10 +88,10 @@ def _fmt_line(task: Dict[str, Any]) -> str:
 
 def format_task_list(tasks: List[Dict[str, Any]], header: str = "") -> str:
     if not tasks:
-        return "📋 Không có task nào."
-    lines = [header] if header else ["📋 *Codex tasks*"]
-    lines += [_fmt_line(t) for t in tasks]
-    lines.append("\nLệnh: `approve <n>` · `reject <n>` · `cancel <n>` · `retry <n>` · `codex <n>`")
+        return t("codex.no_tasks")
+    lines = [header] if header else [t("codex.list_header")]
+    lines += [_fmt_line(task) for task in tasks]
+    lines.append(t("codex.list_commands"))
     return "\n".join(lines)
 
 
@@ -104,28 +105,28 @@ def format_task_detail(task: Dict[str, Any]) -> str:
     ]
     who = task.get("assignee_name") or ""
     if who:
-        lines.append(f"\n👤 Giao cho: _{who}_ ({task.get('assignee_type')})")
+        lines.append(t("codex.detail_assignee", who=who, kind=task.get("assignee_type")))
     steps = task.get("steps") or []
     if steps:
-        lines.append("\n*Tiến độ:*")
+        lines.append(t("codex.detail_progress"))
         for s in steps[-8:]:
             mark = {"success": "✅", "error": "❌", "running": "⏳", "skipped": "⏭"}.get(
                 s.get("status"), "•"
             )
             lines.append(f"{mark} {s.get('label') or s.get('name')} — {s.get('message', '')}"[:200])
     if task.get("result"):
-        lines.append(f"\n*Kết quả:*\n{task['result'][:1200]}")
+        lines.append(t("codex.detail_result") + f"\n{task['result'][:1200]}")
     if task.get("error"):
-        lines.append(f"\n❌ *Lỗi:* {task['error'][:600]}")
+        lines.append(t("codex.detail_error") + f" {task['error'][:600]}")
 
     status = task.get("status")
     seq = task.get("seq")
     if status == PENDING_APPROVAL:
-        lines.append(f"\n➡️ `approve {seq}` hoặc `reject {seq}`")
+        lines.append(t("codex.hint_approve", seq=seq))
     elif status == REVIEW:
-        lines.append(f"\n➡️ `accept {seq}` để đóng, `retry {seq}` để chạy lại")
+        lines.append(t("codex.hint_review", seq=seq))
     elif status == "failed":
-        lines.append(f"\n➡️ `retry {seq}` để chạy lại")
+        lines.append(t("codex.hint_retry", seq=seq))
     return "\n".join(lines)
 
 
@@ -139,7 +140,7 @@ async def action_create_task(action_data: dict, context: dict) -> str:
         or ""
     ).strip()
     if not goal:
-        return "❌ Thiếu `goal` — cần mô tả công việc cần làm."
+        return t("codex.err_no_goal")
 
     assignee = (action_data.get("assignee") or action_data.get("agent") or "").strip()
     assignee_type = (action_data.get("assignee_type") or "").strip().lower()
@@ -166,15 +167,10 @@ async def action_create_task(action_data: dict, context: dict) -> str:
             priority=int(action_data.get("priority") or 0),
         )
     except Exception as e:
-        return f"❌ Không tạo được task: {e}"
+        return t("codex.err_create", error=e)
 
-    who = task.get("assignee_name") or "agent phù hợp nhất"
-    return (
-        f"📋 Đã tạo *Codex #{task['seq']}* — _{task['title']}_\n"
-        f"👤 Giao cho: {who}\n\n"
-        f"⏸ Đang chờ bạn duyệt. Trả lời `approve {task['seq']}` để chạy, "
-        f"`reject {task['seq']}` để bỏ."
-    )
+    who = task.get("assignee_name") or t("codex.best_agent")
+    return t("codex.created", seq=task["seq"], title=task["title"], who=who)
 
 
 async def action_list_tasks(action_data: dict, context: dict) -> str:
@@ -182,7 +178,7 @@ async def action_list_tasks(action_data: dict, context: dict) -> str:
     if status and status not in ALL_STATES and status != "active":
         status = ""
     tasks = codex_manager.list_tasks(status=status or "active", limit=15)
-    header = f"📋 *Codex tasks* ({status or 'active'})"
+    header = f"{t('codex.list_header')} ({status or 'active'})"
     return format_task_list(tasks, header)
 
 
@@ -190,7 +186,7 @@ async def action_task_status(action_data: dict, context: dict) -> str:
     ref = action_data.get("task") or action_data.get("id") or action_data.get("seq")
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
     return format_task_detail(task)
 
 
@@ -203,52 +199,52 @@ async def action_approve(action_data: dict, context: dict) -> str:
     ref = action_data.get("task") or action_data.get("id") or action_data.get("seq")
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
     try:
         updated = codex_manager.approve(
             task["id"], actor=_actor(context), note=(action_data.get("note") or "")
         )
     except Exception as e:
-        return f"❌ Không duyệt được: {e}"
-    return f"✅ Đã duyệt *Codex #{updated['seq']}* — đang xếp hàng chạy."
+        return t("codex.err_approve", error=e)
+    return t("codex.approved", seq=updated["seq"])
 
 
 async def action_reject(action_data: dict, context: dict) -> str:
     ref = action_data.get("task") or action_data.get("id") or action_data.get("seq")
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
     try:
         updated = codex_manager.reject(
             task["id"], actor=_actor(context), note=(action_data.get("note") or "")
         )
     except Exception as e:
-        return f"❌ Không từ chối được: {e}"
-    return f"🚫 Đã từ chối *Codex #{updated['seq']}*."
+        return t("codex.err_reject", error=e)
+    return t("codex.rejected", seq=updated["seq"])
 
 
 async def action_cancel(action_data: dict, context: dict) -> str:
     ref = action_data.get("task") or action_data.get("id") or action_data.get("seq")
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
     try:
         updated = codex_manager.cancel(task["id"], actor=_actor(context))
     except Exception as e:
-        return f"❌ Không huỷ được: {e}"
-    return f"⛔ Đã huỷ *Codex #{updated['seq']}*."
+        return t("codex.err_cancel", error=e)
+    return t("codex.cancelled", seq=updated["seq"])
 
 
 async def action_retry(action_data: dict, context: dict) -> str:
     ref = action_data.get("task") or action_data.get("id") or action_data.get("seq")
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
     try:
         updated = codex_manager.retry(task["id"], actor=_actor(context))
     except Exception as e:
-        return f"❌ Không chạy lại được: {e}"
-    return f"🔁 Đã xếp lại *Codex #{updated['seq']}* vào hàng chờ."
+        return t("codex.err_retry", error=e)
+    return t("codex.retried", seq=updated["seq"])
 
 
 def get_telegram_actions() -> Dict[str, Any]:
@@ -266,14 +262,46 @@ def get_telegram_actions() -> Dict[str, Any]:
 # ── Deterministic command parser (zero LLM tokens) ───────────────────
 
 _VERBS = {
-    "approve": "approve", "duyet": "approve", "duyệt": "approve", "ok": "approve",
-    "reject": "reject", "tuchoi": "reject", "từchối": "reject", "no": "reject",
-    "cancel": "cancel", "huy": "cancel", "hủy": "cancel", "stop": "cancel",
-    "retry": "retry", "chaylai": "retry", "chạylại": "retry", "again": "retry",
-    "accept": "accept", "done": "accept", "xong": "accept",
-    "status": "status", "show": "status", "xem": "status",
+    # English + ASCII shorthands
+    "approve": "approve", "ok": "approve", "yes": "approve",
+    "reject": "reject", "no": "reject",
+    "cancel": "cancel", "stop": "cancel",
+    "retry": "retry", "again": "retry",
+    "accept": "accept", "done": "accept",
+    "status": "status", "show": "status",
     "list": "list", "tasks": "list", "ls": "list",
+    # Every shipped UI language, so users type in their own words. Accents are
+    # optional (users often type without them) — both spellings map to the verb.
+    "duyet": "approve", "duyệt": "approve",          # vi
+    "批准": "approve", "同意": "approve", "核准": "approve",  # zh / zh-TW
+    "承認": "approve", "승인": "approve",              # ja / ko
+    "одобрить": "approve", "onayla": "approve", "aprobar": "approve",  # ru / tr / es
+    "tuchoi": "reject", "từchối": "reject",           # vi
+    "拒绝": "reject", "拒絕": "reject", "却下": "reject", "거절": "reject",
+    "отклонить": "reject", "reddet": "reject", "rechazar": "reject",
+    "huy": "cancel", "hủy": "cancel",                 # vi
+    "取消": "cancel", "キャンセル": "cancel", "취소": "cancel",
+    "отменить": "cancel", "iptal": "cancel", "cancelar": "cancel",
+    "chaylai": "retry", "chạylại": "retry",           # vi
+    "重试": "retry", "重試": "retry", "再実行": "retry", "재시도": "retry",
+    "повторить": "retry", "tekrar": "retry", "reintentar": "retry",
+    "xong": "accept",                                 # vi
+    "完成": "accept", "完了": "accept", "완료": "accept",
+    "готово": "accept", "tamam": "accept", "completar": "accept",
+    "xem": "status",                                  # vi
+    "详情": "status", "詳情": "status", "詳細": "status", "상세": "status",
+    "статус": "status", "durum": "status", "estado": "status",
+    "danhsach": "list", "列表": "list", "一覧": "list", "목록": "list",
+    "список": "list", "liste": "list", "lista": "list",
 }
+
+# Leading words that only announce "this is a codex command" and carry no meaning.
+_TRIGGERS = {
+    "codex", "task", "tasks", "nhiệm", "nhiem",
+    "任务", "任務", "タスク", "작업", "задача", "задачи", "görev", "tarea", "tareas",
+}
+# Second half of a two-word trigger ("nhiệm vụ") — only dropped after a trigger.
+_TRIGGER_TAILS = {"vụ", "vu"}
 
 
 def handle_command(text: str, actor: str = "user") -> str:
@@ -287,11 +315,11 @@ def handle_command(text: str, actor: str = "user") -> str:
         return format_task_list(codex_manager.list_tasks(status="active", limit=15))
 
     words = raw.split()
-    # Drop a leading "codex" / "task" / "nhiệm vụ" trigger word.
+    # Drop a leading trigger word ("codex", "task", "nhiệm vụ", "任务", …).
     lead = words[0].lower().lstrip("/")
-    if lead in ("codex", "task", "tasks", "nhiệm", "nhiem"):
+    if lead in _TRIGGERS:
         words = words[1:]
-        if words and words[0].lower() in ("vụ", "vu"):
+        if words and words[0].lower() in _TRIGGER_TAILS:
             words = words[1:]
 
     if not words:
@@ -304,7 +332,8 @@ def handle_command(text: str, actor: str = "user") -> str:
     # because "done" is also an alias for accept, which needs a task number.
     if head in ALL_STATES and not has_task_arg:
         return format_task_list(
-            codex_manager.list_tasks(status=head, limit=20), f"📋 *Codex tasks* ({head})"
+            codex_manager.list_tasks(status=head, limit=20),
+            f"{t('codex.list_header')} ({head})",
         )
 
     verb = _VERBS.get(head)
@@ -312,22 +341,18 @@ def handle_command(text: str, actor: str = "user") -> str:
     # "codex 3" → show detail
     if verb is None and head.isdigit():
         task = codex_manager.resolve_ref(head)
-        return format_task_detail(task) if task else f"❌ Không tìm thấy task #{head}."
+        return (format_task_detail(task) if task
+                else t("codex.err_not_found_seq", ref=head))
 
     if verb is None:
-        return (
-            "📋 *Codex* — lệnh khả dụng:\n"
-            "`codex` — danh sách task đang hoạt động\n"
-            "`codex <n>` — chi tiết task\n"
-            "`approve <n>` · `reject <n>` · `cancel <n>` · `retry <n>` · `accept <n>`\n"
-            "`codex done|failed|running|pending_approval` — lọc theo trạng thái"
-        )
+        return t("codex.help")
 
     if verb == "list":
         rest = words[1].lower() if len(words) > 1 else "active"
         status = rest if (rest in ALL_STATES or rest == "active") else "active"
         return format_task_list(
-            codex_manager.list_tasks(status=status, limit=20), f"📋 *Codex tasks* ({status})"
+            codex_manager.list_tasks(status=status, limit=20),
+            f"{t('codex.list_header')} ({status})",
         )
 
     ref = words[1].strip("#:") if len(words) > 1 else ""
@@ -341,30 +366,31 @@ def handle_command(text: str, actor: str = "user") -> str:
         if len(candidates) == 1:
             ref = candidates[0]["id"]
         elif len(candidates) > 1:
-            return format_task_list(candidates, f"❓ Có {len(candidates)} task — cần rõ số:")
+            return format_task_list(
+                candidates, t("codex.ambiguous", count=len(candidates)))
         else:
-            return f"❌ Cần số task, ví dụ `{verb} 3`."
+            return t("codex.err_need_number", verb=verb)
 
     task = codex_manager.resolve_ref(ref)
     if not task:
-        return f"❌ Không tìm thấy task `{ref}`."
+        return t("codex.err_not_found", ref=ref)
 
     try:
         if verb == "approve":
-            t = codex_manager.approve(task["id"], actor=actor, note=note)
-            return f"✅ Đã duyệt *Codex #{t['seq']}* — đang xếp hàng chạy."
+            done = codex_manager.approve(task["id"], actor=actor, note=note)
+            return t("codex.approved", seq=done["seq"])
         if verb == "reject":
-            t = codex_manager.reject(task["id"], actor=actor, note=note)
-            return f"🚫 Đã từ chối *Codex #{t['seq']}*."
+            done = codex_manager.reject(task["id"], actor=actor, note=note)
+            return t("codex.rejected", seq=done["seq"])
         if verb == "cancel":
-            t = codex_manager.cancel(task["id"], actor=actor)
-            return f"⛔ Đã huỷ *Codex #{t['seq']}*."
+            done = codex_manager.cancel(task["id"], actor=actor)
+            return t("codex.cancelled", seq=done["seq"])
         if verb == "retry":
-            t = codex_manager.retry(task["id"], actor=actor)
-            return f"🔁 Đã xếp lại *Codex #{t['seq']}* vào hàng chờ."
+            done = codex_manager.retry(task["id"], actor=actor)
+            return t("codex.retried", seq=done["seq"])
         if verb == "accept":
-            t = codex_manager.complete_review(task["id"], True, actor=actor)
-            return f"✅ *Codex #{t['seq']}* đã hoàn tất."
+            done = codex_manager.complete_review(task["id"], True, actor=actor)
+            return t("codex.accepted", seq=done["seq"])
         if verb == "status":
             return format_task_detail(task)
     except Exception as e:

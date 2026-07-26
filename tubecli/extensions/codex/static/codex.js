@@ -601,6 +601,33 @@ const CODEX = (() => {
     if (state.auto) refresh(false);
   }
 
+  /** Policy switch: when on, new tasks skip the human approval gate. */
+  async function setAutoApprove(on) {
+    const box = $('cx-auto-approve');
+    try {
+      const data = await api('/settings', {
+        method: 'PUT', body: JSON.stringify({ auto_approve: !!on }),
+      });
+      state.autoApprove = !!(data && data.auto_approve);
+      toast(t(state.autoApprove ? 'codex.toast_auto_approve_on'
+                                : 'codex.toast_auto_approve_off'), 'success');
+    } catch (e) {
+      if (box) box.checked = !on;          // put the switch back
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      const data = await api('/settings');
+      state.autoApprove = !!(data && data.auto_approve);
+    } catch (e) {
+      state.autoApprove = false;
+    }
+    const box = $('cx-auto-approve');
+    if (box) box.checked = state.autoApprove;
+  }
+
   // ── Actions ────────────────────────────────────────────────────
   async function act(taskId, suffix, body, okKey) {
     if (state.busy[taskId]) return;
@@ -824,6 +851,7 @@ const CODEX = (() => {
     }
     const auto = $('cx-auto');
     if (auto) state.auto = !!auto.checked;
+    loadSettings();
 
     renderStats();
     renderChips();
@@ -847,7 +875,7 @@ const CODEX = (() => {
 
   // ── Public surface (referenced by inline onclick handlers) ─────
   return {
-    init, refresh, toggle, setFilter, onSearch, setAuto,
+    init, refresh, toggle, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, accept, requestChanges,
     confirmNote, copyResult, planTask,
     openNewTask, submitNewTask, planFromModal, closeModal, onBackdrop,

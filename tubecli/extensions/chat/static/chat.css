@@ -566,3 +566,56 @@ body {
     .ch-composer-hint { display: none; }
     .toast { top: auto; bottom: 20px; right: 12px; left: 12px; max-width: none; }
 }
+
+/* ── Codex task card ──────────────────────────────────────────────────
+   Lives inside the reply that queued a task: approve/reject buttons, a
+   progress bar while it runs, then the result. Before this the user had to
+   type "approve 3" and never saw the outcome in the conversation. */
+.ch-task {
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  max-width: 760px;
+}
+.ch-task.running { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.ch-task.done, .ch-task.review { border-color: color-mix(in srgb, var(--green, #22c55e) 40%, var(--border)); }
+.ch-task.failed, .ch-task.rejected { border-color: color-mix(in srgb, var(--red, #ef4444) 40%, var(--border)); }
+.ch-task-head {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.85rem; margin-bottom: 8px;
+}
+.ch-task-head .material-symbols-outlined { font-size: 17px; opacity: 0.85; }
+.ch-task-status {
+  margin-left: auto; font-size: 0.72rem; opacity: 0.75;
+  text-transform: lowercase;
+}
+.ch-task-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.ch-task-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 13px; font-size: 0.82rem; font-weight: 600;
+  border-radius: 8px; cursor: pointer; border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.05); color: var(--text);
+  transition: filter 0.15s ease;
+}
+.ch-task-btn .material-symbols-outlined { font-size: 16px; }
+.ch-task-btn:hover { filter: brightness(1.25); }
+.ch-task-btn.approve { background: var(--primary); border-color: var(--primary); color: #fff; }
+.ch-task-btn.reject { background: transparent; }
+.ch-task-bar {
+  height: 6px; border-radius: 999px; overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ch-task-bar > span {
+  display: block; height: 100%; border-radius: 999px;
+  background: var(--primary); transition: width 0.4s ease;
+}
+.ch-task-bar.indet > span { width: 35%; animation: ch-indet 1.3s ease-in-out infinite; }
+@keyframes ch-indet {
+  0%   { margin-left: -35%; }
+  100% { margin-left: 100%; }
+}
+.ch-task-note { margin-top: 6px; font-size: 0.78rem; opacity: 0.8; }
+.ch-task-result { margin-top: 4px; font-size: 0.86rem; }
+@media (max-width: 520px) { .ch-task-btn { flex: 1; justify-content: center; } }

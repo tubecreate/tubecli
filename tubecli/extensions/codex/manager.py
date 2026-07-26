@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - fallback when uuid_extensions is absen
     _uuid7 = uuid.uuid4
 
 from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
+from tubecli.core.bot_i18n import t as _t
 
 logger = logging.getLogger("Codex")
 
@@ -427,7 +428,9 @@ class CodexManager:
 
         is_brain = created_by in ("brain", "telegram_brain")
         if approval_required is None:
-            approval_required = True
+            # Auto-approve is an explicit, user-set policy: when it is on, work
+            # queued from chat starts without a second confirmation click.
+            approval_required = not _brain_auto_approve()
         if is_brain and not _brain_auto_approve():
             # The AI can propose, never self-approve.
             approval_required = True
@@ -472,9 +475,8 @@ class CodexManager:
             self.append_event(task.id, "state", f"→ {PENDING_APPROVAL}", actor=created_by)
             self.notify(
                 data,
-                f"🟡 *Codex #{task.seq}* cần duyệt\n\n"
-                f"*{_md(task.title)}*\n{_md(goal[:400])}\n\n"
-                f"Trả lời `approve {task.seq}` để chạy, `reject {task.seq}` để bỏ.",
+                _t("codex.notify_pending", seq=task.seq,
+                   title=_md(task.title), goal=_md(goal[:400])),
             )
         else:
             self.append_event(task.id, "state", f"→ {QUEUED}", actor=created_by)
@@ -591,10 +593,12 @@ class CodexManager:
                 message=f"Result accepted by {actor}",
                 updates={"finished_at": _now()},
             )
-        # Rework: append the feedback to the goal and re-queue.
+        # Rework: append the feedback to the goal and re-queue. This text is an
+        # instruction to the agent, so it stays English like the event messages
+        # around it — the reviewer's own words are carried through verbatim.
         goal = task.get("goal", "")
         if feedback:
-            goal = f"{goal}\n\n[Phản hồi từ {actor}]: {feedback}"
+            goal = f"{goal}\n\n[Feedback from {actor}]: {feedback}"
         self.append_event(
             task_id, "log", f"🔁 Changes requested by {actor}: {feedback}", actor=actor
         )
@@ -647,7 +651,8 @@ class CodexManager:
             snapshot["id"], "state", f"{QUEUED} → {RUNNING}", actor="worker",
             data={"from": QUEUED, "to": RUNNING},
         )
-        self.notify(snapshot, f"⚙️ *Codex #{snapshot['seq']}* bắt đầu chạy: {_md(snapshot['title'])}")
+        self.notify(snapshot, _t("codex.notify_started", seq=snapshot["seq"],
+                                 title=_md(snapshot["title"])))
         return snapshot
 
     def report_step(
@@ -723,8 +728,8 @@ class CodexManager:
             preview = preview[:600] + "…"
         self.notify(
             updated,
-            f"✅ *Codex #{seq}* xong: {_md(updated.get('title', ''))}\n\n{_md(preview)}\n\n"
-            f"Trả lời `accept {seq}` để đóng, hoặc mở board để xem chi tiết.",
+            _t("codex.notify_done", seq=seq,
+               title=_md(updated.get("title", "")), preview=_md(preview)),
         )
         return updated
 
@@ -739,8 +744,8 @@ class CodexManager:
         self.append_event(task_id, "error", error[:2000], actor="worker")
         self.notify(
             updated,
-            f"❌ *Codex #{seq}* lỗi: {_md(updated.get('title', ''))}\n\n{_md(error[:600])}\n\n"
-            f"Trả lời `retry {seq}` để chạy lại.",
+            _t("codex.notify_failed", seq=seq,
+               title=_md(updated.get("title", "")), error=_md(error[:600])),
         )
         return updated
 
@@ -845,12 +850,24 @@ def _md(text: str) -> str:
 
 
 def _brain_auto_approve() -> bool:
+    """Whether the AI may skip the human approval gate.
+
+    `codex_auto_approve` is the general switch shown in the board header;
+    `codex_brain_auto_approve` is the older, brain-only key and still honoured.
+    """
     try:
         from tubecli.config import get_setting
 
-        return bool(get_setting("codex_brain_auto_approve", False))
+        return bool(get_setting("codex_auto_approve", False)) or bool(
+            get_setting("codex_brain_auto_approve", False)
+        )
     except Exception:
         return False
+
+
+def auto_approve_enabled() -> bool:
+    """Public read of the auto-approve switch (used by the API and the board)."""
+    return _brain_auto_approve()
 
 
 def _parse_plan(raw: str) -> List[Dict[str, Any]]:

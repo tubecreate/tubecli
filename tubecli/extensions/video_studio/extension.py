@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from tubecli.core.bot_i18n import t
 from tubecli.core.extension_manager import Extension
 
 logger = logging.getLogger("VideoStudio")
@@ -70,7 +71,7 @@ class VideoStudioExtension(Extension):
 
         url = (action_data.get("url") or action_data.get("channel") or "").strip()
         if not url:
-            return "❌ Missing `url` — send the channel link."
+            return t("vs.err_missing_channel")
         gap = guidance_for(["channel_analysis"])
         if gap:
             return gap
@@ -94,7 +95,7 @@ class VideoStudioExtension(Extension):
 
         path = (action_data.get("video_path") or action_data.get("path") or "").strip()
         if not path:
-            return "❌ Missing `video_path`."
+            return t("vs.err_missing_video_path")
         gap = guidance_for(["remove_hardsub"])
         if gap:
             return gap
@@ -104,7 +105,7 @@ class VideoStudioExtension(Extension):
 
         info = await asyncio.to_thread(detect_subtitle_region, path, 6)
         if not info.get("found"):
-            return "ℹ️ No burned-in subtitles found — nothing to cover."
+            return t("vs.no_hardsub")
         from tubecli.config import EXTENSIONS_DATA_DIR
 
         outdir = os.path.join(str(EXTENSIONS_DATA_DIR), "video_studio", "outputs")
@@ -113,14 +114,14 @@ class VideoStudioExtension(Extension):
             outdir, f"{os.path.splitext(os.path.basename(path))[0]}_clean.mp4")
         mode = action_data.get("mode") or "delogo"
         result = await asyncio.to_thread(cover_region, path, info["box"], out, mode)
-        return f"✅ Original subtitles covered ({mode}):\n`{result}`"
+        return t("vs.hardsub_covered", mode=mode, path=result)
 
     async def _action_reup(self, action_data: dict, context: dict) -> str:
         import asyncio
 
         url = (action_data.get("url") or "").strip()
         if not url:
-            return "❌ Missing `url`."
+            return t("vs.err_missing_url")
         from tubecli.extensions.video_studio.pipeline import create_codex_task
 
         origin = {"chat_id": context.get("chat_id", ""),
@@ -128,9 +129,11 @@ class VideoStudioExtension(Extension):
         try:
             task = await asyncio.to_thread(create_codex_task, url, {}, "brain", origin)
         except Exception as e:
-            return f"❌ Could not queue the reup: {e}"
-        return (f"🚀 Reup queued as *Codex #{task['seq']}* — awaiting your approval.\n"
-                f"Reply `approve {task['seq']}` to start.")
+            return t("vs.err_queue_reup", error=e)
+        queued = task.get("status") == "queued"
+        head = (t("vs.queued_reup", seq=task["seq"])
+                + t("vs.starting_now" if queued else "vs.awaiting_approval"))
+        return f"{head}\n\n<!--codex:{task['id']}:{task['seq']}:{task.get('status','')}-->"
 
 
 extension_instance = VideoStudioExtension()

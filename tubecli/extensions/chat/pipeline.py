@@ -22,6 +22,7 @@ asyncio.to_thread (the pattern at telegram_listener.py:671/695/740).
 """
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("Chat")
@@ -171,9 +172,17 @@ async def run_turn(
     # shared dispatcher — this is the piece the stock web chat is missing.
     dispatched = await _dispatch_extension_action(reply, agent_for_call)
     if dispatched is not None and dispatched != reply:
-        return dispatched, meta
+        text, task = _extract_task_marker(dispatched)
+        if task:
+            # The chat turns this into a live card: approve/reject buttons, a
+            # progress bar while it runs, and the result when it finishes.
+            meta["codex_task"] = task
+        return text, meta
 
-    return _clean(reply), meta
+    text, task = _extract_task_marker(_clean(reply))
+    if task:
+        meta["codex_task"] = task
+    return text, meta
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -285,6 +294,23 @@ async def _dispatch_extension_action(reply: str, agent_dict: Dict) -> Optional[s
     except Exception as e:
         logger.warning(f"[Chat] Extension action dispatch failed: {e}")
         return None
+
+
+# Handlers that queue a codex task append this marker so the chat can render
+# Approve/Reject buttons. It travels inside the reply string because
+# handle_extension_action can only return text.
+TASK_MARKER = re.compile(r"<!--\s*codex:([0-9a-fA-F-]+):(\d+):(\w+)\s*-->")
+
+
+def _extract_task_marker(reply: str):
+    """Pull the codex task out of a reply. Returns (clean_reply, task|None)."""
+    if not reply:
+        return reply, None
+    m = TASK_MARKER.search(reply)
+    if not m:
+        return reply, None
+    task = {"id": m.group(1), "seq": int(m.group(2)), "status": m.group(3)}
+    return TASK_MARKER.sub("", reply).strip(), task
 
 
 def _clean(reply: str) -> str:

@@ -193,9 +193,10 @@ async def download_route(req: DownloadRequest):
     except Exception as e:
         logger.error(f"[VideoStudio] queueing the download failed: {e}", exc_info=True)
         raise HTTPException(500, str(e))
+    from tubecli.core.bot_i18n import t
+
     return {"status": "queued", "task": task,
-            "message": (f"📥 Download queued as Codex #{task.get('seq')} — approve it "
-                        f"to start; progress shows on the board.")}
+            "message": t("vs.queued_approve_hint", seq=task.get("seq"))}
 
 
 @router.post("/pipeline/plan")
