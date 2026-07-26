@@ -477,8 +477,30 @@ body {
 .ch-send:hover:not(:disabled) { background: var(--primary-hover); }
 .ch-send:disabled { background: var(--bg-lighter); color: var(--text-muted); cursor: not-allowed; }
 .ch-composer-hint {
-    max-width: var(--thread-w); margin: 7px auto 0;
     font-size: 0.68rem; color: var(--text-subtle); text-align: center;
+}
+/* Under the composer: the auto-approve switch on the left, the hint centred.
+   The hint keeps its centred position because the switch is absolute. */
+.ch-composer-foot {
+    position: relative; max-width: var(--thread-w); margin: 7px auto 0;
+    display: flex; align-items: center; justify-content: center; min-height: 20px;
+}
+.ch-auto {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 9px 2px 7px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--bg3);
+    font-size: 0.68rem; color: var(--text-subtle);
+    cursor: pointer; user-select: none;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.ch-auto:hover { color: var(--text); border-color: var(--text-subtle); }
+.ch-auto input { display: none; }
+.ch-auto .material-symbols-outlined { font-size: 14px; }
+/* Lit up when queued work runs without asking. */
+.ch-auto.on {
+    color: #f5c518; border-color: rgba(245,197,24,0.45);
+    background: rgba(245,197,24,0.10);
 }
 
 /* ═══ Modals ═════════════════════════════════════════════════ */

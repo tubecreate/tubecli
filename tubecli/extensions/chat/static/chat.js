@@ -615,6 +615,44 @@ const CHAT = (() => {
   function approveTask(id) { return taskDecision(id, 'approve'); }
   function rejectTask(id) { return taskDecision(id, 'reject'); }
 
+  // ── Auto-approve ───────────────────────────────────────────────
+  // The same codex_auto_approve setting the board header shows, surfaced next
+  // to the composer: approving every routine download by hand was the whole
+  // complaint. Reading it back after the write keeps both switches in step.
+  function paintAuto(on) {
+    const wrap = $('ch-auto-wrap');
+    const box = $('ch-auto-approve');
+    if (box) box.checked = !!on;
+    if (wrap) wrap.classList.toggle('on', !!on);
+  }
+
+  async function loadAutoApprove() {
+    try {
+      const r = await fetch('/api/v1/codex/settings');
+      if (!r.ok) return;
+      const d = await r.json();
+      paintAuto(d && d.auto_approve);
+    } catch (e) { /* the board still owns the setting */ }
+  }
+
+  async function setAutoApprove(on) {
+    paintAuto(on);
+    try {
+      const r = await fetch('/api/v1/codex/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auto_approve: !!on }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error((d && d.detail) || ('HTTP ' + r.status));
+      paintAuto(d && d.auto_approve);
+      toast(t(on ? 'chat.toast_auto_on' : 'chat.toast_auto_off'), 'success');
+    } catch (e) {
+      paintAuto(!on);   // the setting did not stick — do not lie about it
+      toast(e.message, 'error');
+    }
+  }
+
   function messageHtml(msg) {
     const m = msg || {};
     const id = esc(m.id || '');
@@ -1332,7 +1370,7 @@ const CHAT = (() => {
       if (id && id !== state.activeId && findSession(id)) open(id);
     });
 
-    await Promise.all([loadAgents(), loadModels(), loadSessions()]);
+    await Promise.all([loadAgents(), loadModels(), loadSessions(), loadAutoApprove()]);
 
     const id = pickInitialSession();
     if (id) await open(id);
@@ -1352,6 +1390,6 @@ const CHAT = (() => {
     submitRename, confirmDelete, deleteActive, clearActive, onAgentChange, onModelChange,
     copyCode, copyMsg, toggleSidebar, closeSidebar, toggleMenu,
     openModal, closeModal, onBackdrop, confirmYes, scrollToBottom,
-    approveTask, rejectTask,
+    approveTask, rejectTask, setAutoApprove,
   };
 })();

@@ -128,7 +128,16 @@
           <span class="material-symbols-outlined" id="ch-send-icon">arrow_upward</span>
         </button>
       </div>
-      <div class="ch-composer-hint" data-i18n="chat.composer_hint">Enter to send · Shift+Enter for a new line</div>
+      <div class="ch-composer-foot">
+        <label class="ch-auto" id="ch-auto-wrap" data-i18n-title="chat.auto_approve_hint"
+               title="Run queued work without asking for approval">
+          <input type="checkbox" id="ch-auto-approve"
+                 onchange="CHAT.setAutoApprove(this.checked)">
+          <span class="material-symbols-outlined">bolt</span>
+          <span data-i18n="chat.auto_approve">Auto</span>
+        </label>
+        <span class="ch-composer-hint" data-i18n="chat.composer_hint">Enter to send · Shift+Enter for a new line</span>
+      </div>
     </div>
 
   </main>

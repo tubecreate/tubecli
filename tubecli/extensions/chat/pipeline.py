@@ -194,7 +194,13 @@ async def run_turn(
                     ),
                     timeout=SKILL_TIMEOUT_SEC,
                 )
-                return (out or reply), meta
+                # A skill can queue codex work too (the video job wrappers do),
+                # so the marker has to be consumed here as well — otherwise it
+                # is printed verbatim and the user gets no approve button.
+                text, task = _extract_task_marker(out or reply)
+                if task:
+                    meta["codex_task"] = task
+                return text, meta
             except asyncio.TimeoutError:
                 return (
                     f"⏱ Skill '{skill.get('name')}' chạy quá {SKILL_TIMEOUT_SEC}s và đã bị dừng.",

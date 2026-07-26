@@ -849,20 +849,28 @@ def _md(text: str) -> str:
     return text
 
 
-def _brain_auto_approve() -> bool:
-    """Whether the AI may skip the human approval gate.
+AUTO_APPROVE_DEFAULT = True
 
-    `codex_auto_approve` is the general switch shown in the board header;
-    `codex_brain_auto_approve` is the older, brain-only key and still honoured.
+
+def _brain_auto_approve() -> bool:
+    """Whether work may skip the human approval gate.
+
+    `codex_auto_approve` is the general switch, shown both in the board header
+    and next to the chat composer; `codex_brain_auto_approve` is the older,
+    brain-only key and still honoured.
+
+    Defaults to ON: having to approve every routine download turned the gate
+    into noise. Turn it off from either switch to get the review step back for
+    everything, including work the AI queues on its own.
     """
     try:
         from tubecli.config import get_setting
 
-        return bool(get_setting("codex_auto_approve", False)) or bool(
+        return bool(get_setting("codex_auto_approve", AUTO_APPROVE_DEFAULT)) or bool(
             get_setting("codex_brain_auto_approve", False)
         )
     except Exception:
-        return False
+        return AUTO_APPROVE_DEFAULT
 
 
 def auto_approve_enabled() -> bool:
