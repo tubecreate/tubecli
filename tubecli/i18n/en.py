@@ -177,6 +177,7 @@ MESSAGES = {
     "brain.skill_completed": "Skill '{name}' completed.",
     "brain.summarize_prompt": "Summarize friendly in English.",
     "brain.max_steps": "Max steps reached.",
+    "brain.empty_response": "⚠️ The model returned an empty response.\n\nThis usually means a reasoning model spent its whole token budget on thinking. Send the message again, or pick a different model with the selector above.",
     "brain.no_model_available": "⚠️ No AI model is available yet.\n\nThis agent points at a local Ollama model, but Ollama is not running on this machine and no cloud AI key is configured.\n\nPick one of these to get going:\n1. Add a cloud API key in Dashboard → Cloud API Keys (Gemini, DeepSeek, OpenAI…), then pick a model with the model selector in Chat.\n2. Or install Ollama from https://ollama.com and run `ollama pull qwen:latest`.",
     "brain.workflow_error_guidance": "Workflow encountered an error. Check: (1) credentials are correct, (2) spreadsheet_id exists, (3) APIs are enabled.",
 

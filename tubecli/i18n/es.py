@@ -151,6 +151,7 @@ MESSAGES = {
     "brain.skill_completed": "Habilidad '{name}' completada.",
     "brain.summarize_prompt": "Resume amistosamente en inglés.",
     "brain.max_steps": "Se alcanzó el número máximo de pasos.",
+    "brain.empty_response": "⚠️ El modelo devolvió una respuesta vacía.\n\nEsto suele significar que un modelo de razonamiento gastó todo su presupuesto de tokens en pensar. Vuelve a enviar el mensaje o elige otro modelo con el selector de modelos de arriba.",
     "brain.no_model_available": "⚠️ Aún no hay ningún modelo de IA disponible.\n\nEste agente apunta a un modelo local de Ollama, pero Ollama no se está ejecutando en esta máquina y no hay ninguna clave de IA en la nube configurada.\n\nElige una de estas opciones para empezar:\n1. Agrega una clave API en la nube en Dashboard → Cloud API Keys (Gemini, DeepSeek, OpenAI…) y luego elige un modelo con el selector de modelos en el Chat.\n2. O instala Ollama desde https://ollama.com y ejecuta `ollama pull qwen:latest`.",
     "brain.workflow_error_guidance": "El flujo de trabajo encontró un error. Verifica: (1) que las credenciales sean correctas, (2) que exista el spreadsheet_id, (3) que las API estén habilitadas.",
     "ollama.auto_install_windows_only": "[yellow]La instalación automática solo es compatible con Windows actualmente.[/yellow]",

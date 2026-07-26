@@ -93,7 +93,8 @@ class ConversationStore:
     # ── Sessions ─────────────────────────────────────────────────
 
     def create_session(
-        self, title: str = "", agent_id: str = "", agent_name: str = "", model: str = ""
+        self, title: str = "", agent_id: str = "", agent_name: str = "",
+        model: str = "", provider: str = "",
     ) -> Dict[str, Any]:
         self._ensure_loaded()
         session = {
@@ -102,7 +103,10 @@ class ConversationStore:
             "agent_id": agent_id,
             "agent_name": agent_name,
             # Per-conversation model override; "" = use the agent's own model.
+            # `provider` is stored alongside because a model id alone is
+            # ambiguous (9router serves OpenRouter-shaped ids like "ag/...").
             "model": model,
+            "provider": provider,
             "created_at": _now(),
             "updated_at": _now(),
             "message_count": 0,
@@ -134,7 +138,7 @@ class ConversationStore:
 
     def update_session(self, session_id: str, **updates) -> Optional[Dict[str, Any]]:
         self._ensure_loaded()
-        editable = {"title", "agent_id", "agent_name", "pinned", "model"}
+        editable = {"title", "agent_id", "agent_name", "pinned", "model", "provider"}
         with self._lock:
             s = self._sessions.get(session_id)
             if not s:

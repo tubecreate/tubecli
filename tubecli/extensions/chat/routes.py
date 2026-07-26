@@ -62,12 +62,14 @@ class UpdateSessionRequest(BaseModel):
     agent_id: Optional[str] = None
     pinned: Optional[bool] = None
     model: Optional[str] = None
+    provider: Optional[str] = None
 
 
 class SendMessageRequest(BaseModel):
     message: str
     agent_id: str = ""
     model: str = ""
+    provider: str = ""
     auto_route: bool = True
 
 
@@ -148,7 +150,13 @@ async def send_message(session_id: str, req: SendMessageRequest):
         raise HTTPException(400, "Chưa có agent nào. Hãy tạo một agent trước.")
 
     # Per-conversation model override (the chat header's model picker).
+    # The provider travels with the model: a bare id like "ag/claude-sonnet-4-6"
+    # is served by 9router but looks exactly like an OpenRouter id.
     model_override = (req.model or session.get("model") or "").strip()
+    if req.model:
+        provider_override = (req.provider or "").strip()
+    else:
+        provider_override = (session.get("provider") or "").strip()
 
     user_msg = conversation_store.append_message(session_id, "user", text)
     history = conversation_store.get_history_for_llm(session_id, turns=10)
@@ -159,22 +167,36 @@ async def send_message(session_id: str, req: SendMessageRequest):
     try:
         reply, meta = await run_turn(
             text, agent, history,
-            auto_route=req.auto_route, model_override=model_override,
+            auto_route=req.auto_route,
+            model_override=model_override,
+            provider_override=provider_override,
         )
     except Exception as e:
         logger.error(f"[Chat] Turn failed: {e}", exc_info=True)
         reply, meta = f"❌ Lỗi: {e}", {"error": str(e)}
 
-    # Safety net: raw Ollama connection errors can still leak through paths
+    from tubecli.i18n import t
+
+    # Safety net 1: raw Ollama connection errors can still leak through paths
     # that bypass _call_llm's fallback (workflow nodes, browser scripts).
     # Never show a stacktrace to the user — show what to do instead.
     if "[Ollama Error]" in (reply or ""):
-        from tubecli.i18n import t
-
         friendly = t("brain.no_model_available")
         if friendly != "brain.no_model_available":  # key resolved
             reply = friendly
         meta["error_type"] = "no_model"
+
+    # Safety net 2: never store an empty assistant turn. A blank bubble is the
+    # worst possible outcome — the user cannot tell it apart from a hang.
+    # Reasoning models can legitimately return an empty content field when the
+    # thinking consumes the whole token budget.
+    if not (reply or "").strip():
+        fallback = t("brain.empty_response")
+        reply = fallback if fallback != "brain.empty_response" else (
+            "⚠️ The model returned an empty response. Send the message again, "
+            "or pick another model with the selector above."
+        )
+        meta["error_type"] = "empty_response"
 
     assistant_msg = conversation_store.append_message(session_id, "assistant", reply, meta=meta)
     conversation_store.prune(session_id)

@@ -18,6 +18,8 @@ const CHAT = (() => {
   const LS_SIDEBAR = 'tubecli_chat_sidebar';
   const STICK_PX = 90;
   const AUTO = '__auto__';
+  // Separator packing "<provider>::<model>" into one <option> value.
+  const MODEL_SEP = '::';
   const DEFAULT_TITLES = ['', 'Cuộc trò chuyện mới'];
 
   // ── State ──────────────────────────────────────────────────────
@@ -433,7 +435,12 @@ const CHAT = (() => {
     }
 
     const s = activeSession();
-    const current = (s && typeof s.model === 'string') ? s.model : '';
+    const curModel = (s && typeof s.model === 'string') ? s.model : '';
+    const curProv = (s && typeof s.provider === 'string') ? s.provider : '';
+    // The value carries the provider too: a bare id like "ag/claude-sonnet-4-6"
+    // is served by 9router but is indistinguishable from an OpenRouter id, so
+    // the backend cannot infer the provider from the model name alone.
+    const current = curModel ? (curProv + MODEL_SEP + curModel) : '';
     const opts = ['<option value="">' + esc(t('chat.model_default')) + '</option>'];
     let found = !current;
     state.models.forEach((p) => {
@@ -441,13 +448,14 @@ const CHAT = (() => {
       opts.push('<optgroup label="' + esc(p.label || p.id) + '">');
       p.models.forEach((m) => {
         if (!m) return;
-        if (m === current) found = true;
-        opts.push('<option value="' + esc(m) + '">' + esc(m) + '</option>');
+        const val = p.id + MODEL_SEP + m;
+        if (val === current) found = true;
+        opts.push('<option value="' + esc(val) + '">' + esc(m) + '</option>');
       });
       opts.push('</optgroup>');
     });
     // A stored choice whose provider went away must still display.
-    if (!found) opts.push('<option value="' + esc(current) + '">' + esc(current) + '</option>');
+    if (!found) opts.push('<option value="' + esc(current) + '">' + esc(curModel) + '</option>');
 
     sel.innerHTML = opts.join('');
     sel.value = current;
@@ -998,9 +1006,12 @@ const CHAT = (() => {
   async function onModelChange(value) {
     const sid = state.activeId;
     if (!sid) return;
-    const model = String(value || '');
+    const raw = String(value || '');
+    const idx = raw.indexOf(MODEL_SEP);
+    const provider = idx >= 0 ? raw.slice(0, idx) : '';
+    const model = idx >= 0 ? raw.slice(idx + MODEL_SEP.length) : raw;
     try {
-      await updateSession(sid, { model: model });
+      await updateSession(sid, { model: model, provider: provider });
       toast(t('chat.toast_model_changed', { name: model || t('chat.model_default') }), 'success');
     } catch (e) {
       toast(e.message, 'error');

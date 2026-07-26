@@ -700,10 +700,29 @@ Rules:
         except Exception:
             pass
         
+        # An explicit provider always wins over name-based guessing. Guessing is
+        # genuinely ambiguous: 9router serves ids like "ag/claude-sonnet-4-6"
+        # that are indistinguishable from OpenRouter ids, so a model picked from
+        # the 9router group would otherwise be sent to OpenRouter and rejected.
+        explicit_provider = (agent.get("provider") or "").strip().lower()
+        if explicit_provider:
+            forced = AgentBrain._call_provider(
+                explicit_provider, model, cloud_keys, messages, temperature
+            )
+            if forced is not None:
+                if any(err_tag in forced for err_tag in
+                       ["429", "quota", "rate limit", "Too Many Requests", "exceeded"]):
+                    print(f"[Brain] ⚠️ Provider quota error detected: {forced[:100]}")
+                    forced = AgentBrain._failover_llm(
+                        model, cloud_keys, messages, temperature, forced
+                    )
+                return forced
+            print(f"[Brain] ⚠️ Unknown provider '{explicit_provider}', falling back to model-name routing")
+
         lower_model = model.lower()
         is_9router = False
         is_openrouter = False
-        
+
         if "9router" in lower_model or "antigravity" in lower_model or "cx/" in lower_model:
             is_9router = True
         elif "/" in model and not model.startswith("http"):
@@ -759,6 +778,48 @@ Rules:
             result = AgentBrain._failover_llm(model, cloud_keys, messages, temperature, result)
         
         return result
+
+    @staticmethod
+    def _call_provider(provider: str, model: str, cloud_keys: Dict,
+                       messages: List[Dict], temperature: float = 0.7):
+        """Call ONE specific provider. Returns None when it is not recognised.
+
+        Lets a caller that already knows the provider (the chat model picker,
+        which groups models by provider) skip the ambiguous name-based routing
+        in _call_llm.
+        """
+        p = (provider or "").strip().lower()
+        if not p:
+            return None
+        key = cloud_keys.get(p, "")
+
+        if p == "ollama":
+            return AgentBrain._call_ollama(model, messages, temperature=temperature)
+        if p == "gemini":
+            return AgentBrain._call_gemini(model, key, messages, temperature=temperature)
+        if p in ("openai", "chatgpt"):
+            return AgentBrain._call_openai(model, key, messages, temperature=temperature)
+        if p == "claude":
+            return AgentBrain._call_claude(model, key, messages)
+        if p == "deepseek":
+            return AgentBrain._call_openai(model, key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+        if p == "grok":
+            return AgentBrain._call_openai(model, key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
+        if p == "openrouter":
+            return AgentBrain._call_openai(model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
+        if p == "9router":
+            return AgentBrain._call_openai(model, key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+
+        # Any other OpenAI-compatible provider declared in the cloud_api registry.
+        try:
+            from tubecli.extensions.cloud_api.extension import PROVIDERS
+
+            base_url = (PROVIDERS.get(p) or {}).get("base_url")
+            if base_url:
+                return AgentBrain._call_openai(model, key, messages, base_url=base_url, temperature=temperature)
+        except Exception:
+            pass
+        return None
 
     @staticmethod
     def _try_any_cloud(cloud_keys: Dict, messages: List[Dict], temperature: float):
@@ -980,8 +1041,40 @@ Rules:
             from openai import OpenAI
             client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
             oai_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
-            response = client.chat.completions.create(model=model, messages=oai_messages, temperature=temperature)
-            return response.choices[0].message.content
+
+            def _ask(**extra):
+                r = client.chat.completions.create(
+                    model=model, messages=oai_messages, temperature=temperature, **extra
+                )
+                choice = r.choices[0]
+                # content can be None (not just "") — coerce before any use, or
+                # the quota sniff in _call_llm raises "argument of type
+                # 'NoneType' is not iterable".
+                return (
+                    (choice.message.content or "").strip(),
+                    getattr(choice, "finish_reason", "") or "",
+                    choice.message,
+                )
+
+            content, finish, msg = _ask()
+
+            # Reasoning models (deepseek-v4-*, o-series behind proxies) put their
+            # chain of thought in `reasoning_content` and the answer in
+            # `content`. When the thinking uses up the whole output budget the
+            # API returns finish_reason="length" with content="" — a perfectly
+            # successful HTTP call that yields an empty reply. Retry once with a
+            # bigger budget so the visible answer fits.
+            if not content and finish == "length":
+                print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with a larger token budget")
+                content, finish, msg = _ask(max_tokens=8192)
+
+            if not content:
+                reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
+                detail = f"finish_reason={finish or 'unknown'}"
+                if reasoning:
+                    detail += ", the model spent its whole budget on reasoning"
+                return f"[OpenAI Error] {model} returned an empty response ({detail})."
+            return content
         except Exception as e: return f"[OpenAI Error] {e}"
 
     @staticmethod

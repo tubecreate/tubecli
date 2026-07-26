@@ -36,16 +36,27 @@ async def run_turn(
     history: List[Dict[str, str]],
     auto_route: bool = True,
     model_override: str = "",
+    provider_override: str = "",
 ) -> Tuple[str, Dict[str, Any]]:
     """Process one user turn. Returns (reply_text, meta).
 
-    `model_override` (the chat header's model picker) survives specialist
-    routing: whichever agent ends up answering, the picked model wins.
+    `model_override`/`provider_override` (the chat header's model picker)
+    survive specialist routing: whichever agent ends up answering, the picked
+    model wins. The provider travels with the model because a model id alone is
+    ambiguous across OpenAI-compatible proxies.
     """
     from tubecli.core.brain import AgentBrain
 
-    if model_override:
-        agent_dict = {**agent_dict, "model": model_override}
+    def _apply_override(a: Dict[str, Any]) -> Dict[str, Any]:
+        if not model_override:
+            return a
+        a = {**a, "model": model_override}
+        # An empty provider must CLEAR any inherited one, or the agent's own
+        # provider would be applied to the newly picked model.
+        a["provider"] = provider_override
+        return a
+
+    agent_dict = _apply_override(agent_dict)
 
     meta: Dict[str, Any] = {
         "agent_id": agent_dict.get("id", ""),
@@ -82,9 +93,7 @@ async def run_turn(
     if auto_route and intent is not None:
         specialist = _route_to_specialist(intent, agent_dict)
         if specialist is not None:
-            agent_dict = specialist
-            if model_override:
-                agent_dict = {**agent_dict, "model": model_override}
+            agent_dict = _apply_override(specialist)
             meta["routed_to"] = specialist.get("name", "")
             meta["agent_id"] = specialist.get("id", "")
             meta["agent_name"] = specialist.get("name", "")
