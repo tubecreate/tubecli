@@ -10,6 +10,12 @@ class FileManagerNode(BaseNode):
     description = "Create, delete, move, copy, list files and folders."
     icon = "📁"
     category = "System"
+    config_schema = {
+        "action": {"type": "string", "required": True, "description": "File operation. 'auto' parses the natural-language `command` input.", "default": "auto", "options": ["auto", "create_folder", "create_file", "delete", "move", "copy", "list", "read"]},
+        "path": {"type": "string", "description": "Target file/folder path, e.g. ~/Desktop/report.txt."},
+        "content": {"type": "string", "description": "File content (for create_file)."},
+        "destination": {"type": "string", "description": "Destination path (for move/copy)."},
+    }
 
     def _setup_ports(self):
         self.add_input("command", PortType.TEXT, "Natural language command or action", required=False)

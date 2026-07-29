@@ -106,6 +106,40 @@ TEAM_PATTERNS = [
     r"lập\s+đội",
 ]
 
+# "Phân tích kênh + đề xuất ý tưởng" — chạy skill Analyze Channel. Trước đây
+# "bạn vào kênh <url> phân tích nội dung" không khớp lệnh "phân tích kênh"
+# (không đứng đầu câu) → rơi vào LLM → deepseek bịa "không có browser skill".
+CHANNEL_ANALYZE_VERBS = [
+    "phân tích kênh", "phân tích nội dung kênh", "analyze channel",
+    "analyse channel", "channel analysis", "ý tưởng kênh", "channel ideas",
+    "kênh tương tự", "similar channel", "tạo kênh tương tự", "phân tích channel",
+    "分析频道", "频道分析",
+]
+# URL kênh (KHÔNG phải video/live). Scheme optional để bắt cả "youtube.com/@x".
+# Bỏ /watch /shorts /live /video/ (những cái đó đi nhánh video).
+_CHANNEL_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.|m\.)?(?:"
+    r"youtube\.com/(?:@[\w.-]+|channel/[\w-]+|c/[\w.-]+|user/[\w.-]+)"
+    r"|tiktok\.com/@[\w.-]+"
+    r"|douyin\.com/user/[\w-]+"
+    r")(?:/?\??\S*)?", re.I)
+
+# Động từ "đọc/mở/tóm tắt một trang cụ thể" — dùng cho intent read_page.
+# CJK giữ substring; Latin/tiếng Việt chốt whole-word qua _kw_hit.
+READ_PAGE_VERBS = [
+    "xem trang", "xem web", "đọc trang", "đọc báo", "vào trang", "vào web",
+    "mở trang", "mở web", "truy cập", "tóm tắt", "lấy tin", "lấy nội dung",
+    "lấy bài", "trích nội dung", "đọc", "xem", "crawl", "scrape", "cào",
+    "read", "browse", "open", "summarize", "summary", "fetch", "visit",
+    "打开", "阅读", "总结", "抓取",
+]
+
+# TLD phổ biến — chặn "file.txt", "v1.2" khỏi bị nhận nhầm là domain.
+_TLD = (r"(?:com|net|org|vn|io|co|info|news|tv|me|edu|gov|biz|xyz|dev|app|ai|"
+        r"cn|jp|kr|uk|us|de|fr|ru|com\.vn|edu\.vn|gov\.vn|org\.vn)")
+_BARE_DOMAIN_RE = re.compile(
+    r"\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+" + _TLD + r")(/\S*)?\b", re.I)
+
 BROWSER_PATTERNS = [
     r"(list|danh\s*sách)\s*(browser|trình\s*duyệt|profile)",
     r"(mở|open|launch)\s*(browser|trình\s*duyệt|profile)",
@@ -365,6 +399,32 @@ class IntentRouter:
                 skip_llm=True,
             )
 
+        # ── 1c. Phân tích kênh (Analyze Channel) ──────────────────
+        # Đặt TRƯỚC skill_command để "bạn vào kênh <url> phân tích..." và
+        # "phân tích kênh <url>" cùng đi một đường (channel_analyze) — cả 2
+        # dispatcher đều xử lý, không lệch web/telegram. URL kênh + động từ
+        # phân tích → chạy skill Analyze Channel deterministic (0-token).
+        channel_url = None
+        cm = _CHANNEL_URL_RE.search(text)
+        if cm:
+            channel_url = cm.group(0).rstrip(".,;?!)")
+            if not re.match(r"^https?://", channel_url, re.I):
+                channel_url = "https://" + channel_url  # endpoint cần URL đầy đủ
+        if channel_url and (
+            self._kw_hit(text_lower, CHANNEL_ANALYZE_VERBS)
+            or self._kw_hit(text_lower, ["phân tích", "analyze", "analyse", "ý tưởng", "分析"])
+        ):
+            analyze_skill = self._find_skill_by_command(
+                skills, ["phân tích kênh", "analyze channel", "channel ideas", "ý tưởng kênh"]
+            )
+            return IntentResult(
+                intent_type="channel_analyze",
+                confidence=0.96,
+                matched_skills=[analyze_skill["id"]] if analyze_skill else [],
+                extracted_data={"url": channel_url, "task": text},
+                skip_llm=True,
+            )
+
         # ── 2. Exact Skill Command Match ─────────────────────────
         if skills:
             matched_skill = self._match_skill_command(text_lower, skills)
@@ -413,7 +473,22 @@ class IntentRouter:
                 confidence=0.90,
             )
 
+        # ── 5b. Read a SPECIFIC page ─────────────────────────────
+        # "xem trang vnexpress.net xong tóm tắt", "đọc <url> lấy tin"... phải
+        # được hiểu là ĐỌC trang đó — không phải Google Search. Đặt TRƯỚC
+        # SEARCH vì câu có "tin tức" sẽ khớp SEARCH_PATTERNS và cướp mất.
+        page_url = self._extract_readable_url(text, text_lower)
+        if page_url and self._kw_hit(text_lower, READ_PAGE_VERBS):
+            return IntentResult(
+                intent_type="read_page",
+                confidence=0.92,
+                extracted_data={"url": page_url, "task": text},
+                skip_llm=True,
+            )
+
         # ── 6. Search ────────────────────────────────────────────
+        # Chỉ là Google Search khi KHÔNG trỏ tới một trang cụ thể — nếu có
+        # URL/domain + động từ đọc thì nhánh read_page ở trên đã xử lý.
         if self._matches_any(text_lower, SEARCH_PATTERNS):
             search_skills = self._find_skills_by_category(skills, ["search", "tìm kiếm", "tra cứu"])
             return IntentResult(
@@ -564,6 +639,29 @@ class IntentRouter:
         m = re.search(r'(https?://\S+|rtmp://\S+)', text)
         return m.group(0).rstrip('.,;?!') if m else None
 
+    def _extract_readable_url(self, text: str, text_lower: str) -> Optional[str]:
+        """URL/domain của một trang ĐỌC ĐƯỢC (không phải video/channel URL đã
+        xử lý ở nhánh trước). Trả full URL, hoặc bare domain (sẽ thêm https://)."""
+        # 1. URL đầy đủ — nhưng bỏ qua nếu là video URL (đã có nhánh riêng)
+        m = re.search(r'https?://\S+', text)
+        if m:
+            url = m.group(0).rstrip('.,;?!)')
+            for pat in VIDEO_URL_PATTERNS:
+                if re.match(pat, url):
+                    return None  # để nhánh video xử lý
+            return url
+        # 2. Bare domain (vnexpress.net, vietnamnet.vn/...)
+        dm = _BARE_DOMAIN_RE.search(text)
+        if dm:
+            domain = dm.group(1)
+            path = dm.group(2) or ""
+            # loại email (có @ ngay trước)
+            start = dm.start()
+            if start > 0 and text[start - 1] == "@":
+                return None
+            return domain + path
+        return None
+
     def _extract_video_url(self, text: str, text_lower: str) -> Optional[str]:
         """Extract video URL from message, respecting bypass keywords."""
         for pattern in VIDEO_URL_PATTERNS:
@@ -576,9 +674,16 @@ class IntentRouter:
         return None
 
     def _match_skill_command(self, msg_lower: str, skills: List[Dict]) -> Optional[Dict]:
-        """Check for exact skill command match."""
+        """Check for exact skill command match.
+
+        Mirrors AgentBrain.match_skill_command: skip skills that cannot run,
+        so dead sop-shells never hijack commands from live skills."""
+        from tubecli.core.brain import is_skill_runnable
+
         msg_clean = re.sub(r'[?!.,;]+$', '', msg_lower).strip()
         for skill in skills:
+            if not is_skill_runnable(skill):
+                continue
             commands = skill.get("commands", [])
             for cmd in commands:
                 if not cmd or len(cmd.strip()) < 3:
@@ -647,6 +752,19 @@ class IntentRouter:
                 results.append(s)
         return results
 
+    def _find_skill_by_command(self, skills: List[Dict], commands: List[str]) -> Optional[Dict]:
+        """Tìm skill CHẠY ĐƯỢC có một trong các command cho trước (khớp chính
+        xác một lệnh, không cần message bắt đầu bằng lệnh)."""
+        from tubecli.core.brain import is_skill_runnable
+        wanted = {c.strip().lower() for c in commands}
+        for s in skills or []:
+            if not is_skill_runnable(s):
+                continue
+            for cmd in (s.get("commands") or []):
+                if (cmd or "").strip().lower() in wanted:
+                    return s
+        return None
+
     def _score_skills(self, text_lower: str, skills: List[Dict], limit: int = 3) -> List[Dict]:
         """Score and return top N relevant skills (claw-code RoutedMatch pattern)."""
         scored = []
@@ -695,9 +813,11 @@ class IntentRouter:
             if role != "specialist" or not specialties:
                 continue
             
-            # Check if message matches this specialist's domain
+            # Check if message matches this specialist's domain.
+            # Whole-word match (same fix as _kw_hit): plain substring made
+            # "live" hit "deliver", "web" hit "website", "edit" hit "credit".
             for specialty in specialties:
-                if specialty.lower() in text_lower:
+                if self._kw_hit(text_lower, [specialty.lower()]):
                     relevant_skills = []
                     if ag.allowed_skills:
                         relevant_skills = [s for s in (skills or []) if s.get("id") in ag.allowed_skills]

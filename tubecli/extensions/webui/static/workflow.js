@@ -1416,6 +1416,13 @@ const WF = (() => {
       setTimeout(zoomFit, 200);
       toast(T('wf.js_ai_success', {count: workflowData.nodes.length}) || `✨ Tạo thành công ${workflowData.nodes.length} nodes!`, 'success');
 
+      // Surface validation warnings from the AI builder (after self-repair)
+      if (workflowData.warnings && workflowData.warnings.length) {
+        const warnList = workflowData.warnings.slice(0, 5).map(w => '• ' + w).join('\n');
+        toast('⚠ Workflow còn vấn đề cần kiểm tra:\n' + warnList, 'error');
+        console.warn('[AI Generate] Validation warnings:', workflowData.warnings);
+      }
+
     } catch (e) {
       $statusText.textContent = '❌ Lỗi: ' + e.message;
       if ($spinner) $spinner.style.display = 'none';

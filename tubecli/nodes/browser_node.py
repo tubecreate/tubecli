@@ -13,6 +13,15 @@ class BrowserNode(BaseNode):
     description = "Launch browser with a profile and perform actions (navigate, AI prompt, screenshot). Auto-reads profile and AI model from Settings."
     icon = "🌐"
     category = "Browser"
+    config_schema = {
+        "action": {"type": "string", "description": "Browser action.", "default": "navigate", "options": ["navigate", "run_prompt", "screenshot"]},
+        "url": {"type": "string", "description": "URL to open (can also come from the `url` input port)."},
+        "prompt": {"type": "string", "description": "AI instruction for the browser agent. Use {{input}} placeholder to inject the runtime input."},
+        "profile_name": {"type": "string", "description": "Browser profile name. Leave empty to use the default from Settings."},
+        "headless": {"type": "boolean", "description": "Run browser without visible window.", "default": False},
+        "wait_seconds": {"type": "number", "description": "Seconds to wait after action.", "default": 10},
+        "ai_model": {"type": "string", "description": "AI model for the browser agent. Leave empty to use global default."},
+    }
 
     def _setup_ports(self):
         self.add_input("url", PortType.TEXT, "URL to navigate to", required=False)

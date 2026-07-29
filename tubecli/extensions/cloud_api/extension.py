@@ -105,6 +105,20 @@ PROVIDERS = {
         "models": [],
         "env_var": "GITHUB_TOKEN",
     },
+    "cloudflare": {
+        "name": "Cloudflare",
+        "base_url": "https://api.cloudflare.com/client/v4",
+        "models": [],
+        "env_var": "CLOUDFLARE_API_TOKEN",
+        "icon": "☁️",
+        "description": "Cloudflare Workers, D1, R2, Pages deployment credentials",
+        # Cloudflare uses compound credentials: api_token + account_id
+        "compound": True,
+        "fields": [
+            {"key": "api_token", "label": "API Token", "env": "CLOUDFLARE_API_TOKEN", "placeholder": "cfut_xxxxxxxxxxxx", "secret": True},
+            {"key": "account_id", "label": "Account ID", "env": "CLOUDFLARE_ACCOUNT_ID", "placeholder": "32-character hex string", "secret": False},
+        ],
+    },
 }
 
 
@@ -366,6 +380,88 @@ class KeyManager:
         except Exception as e:
             return {"status": "error", "message": f"Test failed: {e}"}
 
+    # ── Cloudflare Compound Credentials ──────────────────────────
+
+    def add_cloudflare_key(
+        self,
+        api_token: str,
+        account_id: str,
+        label: str = "default",
+    ) -> dict:
+        """Store Cloudflare API Token + Account ID as a compound credential."""
+        import datetime as _dt
+        self._keys.setdefault("cloudflare", {})[label] = {
+            "key": api_token,
+            "account_id": account_id,
+            "active": True,
+            "added_at": _dt.datetime.now().isoformat(),
+        }
+        self._save()
+        return {
+            "status": "success",
+            "message": f"Cloudflare credentials '{label}' saved.",
+        }
+
+    def get_cloudflare_creds(self, label: str = "default") -> dict:
+        """Return {api_token, account_id} for a Cloudflare credential label."""
+        self._load()
+        entries = self._keys.get("cloudflare", {})
+        entry = entries.get(label) if isinstance(entries, dict) else None
+        if entry and entry.get("active"):
+            return {
+                "api_token": entry.get("key", ""),
+                "account_id": entry.get("account_id", ""),
+                "label": label,
+            }
+        # Fallback to environment variables
+        api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        if api_token or account_id:
+            return {"api_token": api_token, "account_id": account_id, "label": "env"}
+        return {"api_token": "", "account_id": "", "label": None}
+
+    def list_cloudflare_keys(self) -> list:
+        """List all stored Cloudflare credential profiles (masked)."""
+        self._load()
+        entries = self._keys.get("cloudflare", {})
+        result = []
+        if not isinstance(entries, dict):
+            return result
+        for label, entry in entries.items():
+            if not isinstance(entry, dict):
+                continue
+            token = entry.get("key", "")
+            masked = token[:6] + "..." + token[-4:] if len(token) > 10 else "***"
+            result.append({
+                "label": label,
+                "masked_token": masked,
+                "account_id": entry.get("account_id", ""),
+                "active": entry.get("active", False),
+                "added_at": entry.get("added_at", ""),
+            })
+        return result
+
+    def test_cloudflare_key(self, label: str = "default") -> dict:
+        """Verify Cloudflare credentials by calling the accounts API."""
+        creds = self.get_cloudflare_creds(label)
+        if not creds.get("api_token"):
+            return {"status": "error", "message": "Không tìm thấy Cloudflare API Token."}
+        try:
+            import urllib.request
+            import urllib.error
+            req = urllib.request.Request(
+                "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                headers={"Authorization": f"Bearer {creds['api_token']}", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+                if data.get("success"):
+                    return {"status": "success", "message": "✅ Cloudflare API Token hợp lệ!", "result": data.get("result", {})}
+                errors = ", ".join([e.get("message", "") for e in data.get("errors", [])])
+                return {"status": "error", "message": f"Token không hợp lệ: {errors}"}
+        except Exception as e:
+            return {"status": "error", "message": f"Lỗi kiểm tra token: {e}"}
+
 
 # Global singleton
 key_manager = KeyManager()
@@ -374,7 +470,7 @@ key_manager = KeyManager()
 class CloudApiExtension(Extension):
     name = "cloud_api"
     version = "0.1.0"
-    description = "Manage cloud AI providers (Gemini, OpenAI, Claude, DeepSeek, Grok) and API keys"
+    description = "Manage cloud AI providers (Gemini, OpenAI, Claude, DeepSeek, Grok, Cloudflare) and API keys"
     author = "TubeCreate"
     extension_type = "system"
 

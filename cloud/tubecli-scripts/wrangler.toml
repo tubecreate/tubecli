@@ -1,0 +1,25 @@
+# tubecli-scripts — central browser-automation script store.
+#
+# The live deployment was made with deploy.py (Cloudflare REST API) because
+# wrangler is not installed on the build machine. This file exists so that
+# `wrangler deploy` produces the same worker if you ever prefer the CLI.
+#
+# Secrets are NOT here and must never be: set them once with
+#   wrangler secret put ADMIN_TOKEN
+#   wrangler secret put CLIENT_KEY
+# deploy.py passes keep_bindings=["secret_text"] so a redeploy never strips them.
+
+name = "tubecli-scripts"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+workers_dev = true
+
+# dashboard.html is imported by worker.js as a string, not bundled as JS.
+rules = [
+  { type = "Text", globs = ["**/*.html"], fallthrough = false }
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "tubecli-scripts-db"
+database_id = "6cce8231-6a45-43ed-b115-f060758134a6"

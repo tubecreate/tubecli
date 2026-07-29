@@ -123,6 +123,55 @@ async def run_turn(
                 logger.error(f"[Chat] download fast-path failed: {e}", exc_info=True)
                 # fall through to the LLM rather than answering with nothing
 
+    # "vào kênh <url> phân tích + đề xuất kênh tương tự" — chạy skill Analyze
+    # Channel THẲNG (deterministic), không để LLM bịa "không có browser skill".
+    if intent is not None and intent.intent_type == "channel_analyze":
+        url = (intent.extracted_data or {}).get("url", "")
+        sid = (intent.matched_skills or [None])[0]
+        if url and sid:
+            try:
+                from tubecli.core.skill import skill_manager
+
+                skill_obj = skill_manager.get(sid)
+                if skill_obj:
+                    reply = await asyncio.wait_for(
+                        AgentBrain.autonomous_run(
+                            message=url, agent=agent_dict, skill=skill_obj.to_dict()),
+                        timeout=240,
+                    )
+                    meta["action"] = "channel_analyze"
+                    meta["url"] = url
+                    if reply and reply.strip():
+                        return reply, meta
+            except Exception as e:
+                logger.error(f"[Chat] channel_analyze fast-path failed: {e}", exc_info=True)
+                # fall through to the LLM rather than answering with nothing
+
+    # "xem trang <url> tóm tắt" — đọc THẲNG trang đó rồi tóm tắt, không để rơi
+    # vào Google Search (lỗi hiểu-sai-ý-định). Chung một handler với Telegram.
+    if intent is not None and intent.intent_type == "read_page":
+        url = (intent.extracted_data or {}).get("url", "")
+        task = (intent.extracted_data or {}).get("task", message)
+        if url:
+            try:
+                from tubecli.core.web_reader import read_and_summarize
+
+                try:
+                    from tubecli.config import get_language
+                    ui_lang = (get_language() or "vi").strip()
+                except Exception:
+                    ui_lang = "vi"
+                out = await asyncio.to_thread(
+                    read_and_summarize, url, task, agent_dict, ui_lang,
+                )
+                meta["action"] = "read_page"
+                meta["url"] = url
+                if out and out.strip():
+                    return out, meta
+            except Exception as e:
+                logger.error(f"[Chat] read_page fast-path failed: {e}", exc_info=True)
+                # fall through to the LLM rather than answering with nothing
+
     # A video request with no link: ask for it instead of letting the model
     # guess a tool ("give me the transcript" once ran the capabilities skill).
     if intent is not None and intent.intent_type == "video_request_no_url":

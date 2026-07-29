@@ -1,0 +1,59 @@
+{
+  "name": "Google Trends Browsing",
+  "slug": "google_trends_browsing",
+  "description": "Lướt xem xu hướng tìm kiếm nóng hổi trên Google Trends để xây dựng cookie lịch sử tự nhiên",
+  "category": "google",
+  "target_url": "https://trends.google.com/trends/trendingsearches/realtime",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở Google Trends Realtime",
+      "params": {
+        "url": "https://trends.google.com/trends/trendingsearches/realtime"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ bảng xu hướng tải xong",
+      "selector": "div.feed-item",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      }
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xem danh sách tin tức hot",
+      "params": {
+        "direction": "down",
+        "amount": 600
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Đọc thông tin xu hướng",
+      "params": {
+        "ms": 5000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Xem chi tiết xu hướng hàng đầu",
+      "selector": "div.feed-item:nth-child(1)"
+    },
+    {
+      "type": "sleep",
+      "label": "Xem biểu đồ tìm kiếm",
+      "params": {
+        "ms": 4000
+      }
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-07-01 06:33:26",
+  "updated_at": "2026-07-01 06:33:26"
+}

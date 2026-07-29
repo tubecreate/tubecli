@@ -10,6 +10,10 @@ class SwitchNode(BaseNode):
     description = "Route data to different outputs based on a field value."
     icon = "🔃"
     category = "Logic"
+    config_schema = {
+        "field": {"type": "string", "description": "Field name to read from dict input. Leave empty to match the raw value."},
+        "rules": {"type": "array", "required": True, "description": "Routing rules: [{'value': 'x', 'output': 1}, ...]. Unmatched data goes to output_0."},
+    }
 
     def _setup_ports(self):
         self.add_input("data", PortType.ANY, "Input data")

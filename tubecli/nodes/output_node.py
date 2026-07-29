@@ -11,6 +11,10 @@ class OutputNode(BaseNode):
     display_name = "📤 Output"
     description = "Save or display workflow results."
     category = "Output"
+    config_schema = {
+        "output_file": {"type": "string", "description": "Optional file path to also write the result to."},
+        "print": {"type": "boolean", "description": "Print result to console/log.", "default": True},
+    }
 
     def _setup_ports(self):
         self.add_input("data", PortType.ANY, "Data to output")

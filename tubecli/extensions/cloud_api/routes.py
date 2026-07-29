@@ -148,3 +148,90 @@ async def api_9router_status():
     except Exception:
         return {"running": False, "model_count": 0, "models": []}
 
+
+# ── Cloudflare Credential Routes ──────────────────────────────────────
+
+
+class AddCloudflareKeyRequest(BaseModel):
+    api_token: str
+    account_id: str
+    label: str = "default"
+
+
+class TestCloudflareKeyRequest(BaseModel):
+    label: str = "default"
+
+
+@router.get("/cloudflare/profiles")
+async def api_list_cloudflare_profiles():
+    """List all stored Cloudflare credential profiles."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    return {"profiles": key_manager.list_cloudflare_keys()}
+
+
+@router.post("/cloudflare/profiles")
+async def api_add_cloudflare_profile(req: AddCloudflareKeyRequest):
+    """Add or update Cloudflare credentials (API Token + Account ID)."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    if not req.api_token:
+        raise HTTPException(400, "API Token là bắt buộc.")
+    if not req.account_id:
+        raise HTTPException(400, "Account ID là bắt buộc.")
+    result = key_manager.add_cloudflare_key(req.api_token, req.account_id, req.label)
+    if result["status"] == "error":
+        raise HTTPException(400, result["message"])
+    return result
+
+
+@router.delete("/cloudflare/profiles/{label}")
+async def api_delete_cloudflare_profile(label: str):
+    """Delete a Cloudflare credential profile."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    result = key_manager.remove_key("cloudflare", label)
+    if result["status"] == "error":
+        raise HTTPException(404, result["message"])
+    return result
+
+
+@router.post("/cloudflare/profiles/{label}/test")
+async def api_test_cloudflare_profile(label: str):
+    """Test a Cloudflare API Token by calling the verify endpoint."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    return key_manager.test_cloudflare_key(label)
+
+
+@router.get("/cloudflare/profiles/{label}/creds")
+async def api_get_cloudflare_creds(label: str = "default"):
+    """Get Cloudflare credentials for internal use (e.g. website_manager deploy).
+    Returns masked token for security."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    creds = key_manager.get_cloudflare_creds(label)
+    if not creds.get("api_token"):
+        raise HTTPException(404, f"Không tìm thấy Cloudflare profile '{label}'.")
+    token = creds["api_token"]
+    masked = token[:6] + "..." + token[-4:] if len(token) > 10 else "***"
+    return {
+        "label": creds["label"],
+        "masked_token": masked,
+        "account_id": creds["account_id"],
+        "has_creds": True,
+    }
+
+
+@router.get("/cloudflare/creds")
+async def api_get_default_cloudflare_creds():
+    """Get default Cloudflare credentials (full, for internal extension use).
+    Called by website_manager to auto-fill deploy form."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    creds = key_manager.get_cloudflare_creds("default")
+    if not creds.get("api_token"):
+        return {"has_creds": False, "api_token": "", "account_id": "", "label": None}
+    token = creds["api_token"]
+    masked = token[:6] + "..." + token[-4:] if len(token) > 10 else "***"
+    return {
+        "has_creds": True,
+        "masked_token": masked,
+        "account_id": creds["account_id"],
+        "label": creds["label"],
+    }
+

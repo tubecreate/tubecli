@@ -88,15 +88,19 @@ class SessionMemory:
         if unsummarized >= SUMMARIZE_THRESHOLD:
             return True
 
-        # Check time gap: if first unsummarized message is >30 min old
-        # and there are enough messages to justify a summary
-        if unsummarized >= 6:
+        # Session-gap detection: this runs right AFTER the newest exchange
+        # (user + assistant) was appended, so comparing "now" vs the LAST
+        # message is always ~0s and never fired. Instead compare the newest
+        # exchange's start against the message before it — a >30 min gap
+        # means the user came back after a pause → archive the old block.
+        if unsummarized >= 6 and len(history) >= 3:
             try:
-                last_ts = history[-1].get("timestamp", "")
-                if last_ts:
-                    last_time = datetime.datetime.fromisoformat(last_ts)
-                    now = datetime.datetime.now()
-                    if (now - last_time).total_seconds() > PAUSE_MINUTES * 60:
+                cur_ts = history[-2].get("timestamp", "")   # current user msg
+                prev_ts = history[-3].get("timestamp", "")  # end of previous exchange
+                if cur_ts and prev_ts:
+                    cur_time = datetime.datetime.fromisoformat(cur_ts)
+                    prev_time = datetime.datetime.fromisoformat(prev_ts)
+                    if (cur_time - prev_time).total_seconds() > PAUSE_MINUTES * 60:
                         return True
             except Exception:
                 pass

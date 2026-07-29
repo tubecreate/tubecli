@@ -1,0 +1,62 @@
+{
+  "name": "Google Policy Reading",
+  "slug": "google_policy_reading",
+  "description": "Đọc kỹ chính sách dịch vụ của Google để thiết lập cookie lịch sử uy tín của trình duyệt",
+  "category": "google",
+  "target_url": "https://policies.google.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở trang chính sách Google",
+      "params": {
+        "url": "https://policies.google.com"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ tải tài liệu",
+      "selector": "main",
+      "params": {
+        "state": "visible",
+        "timeout": 10000
+      }
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn đọc điều khoản 1",
+      "params": {
+        "direction": "down",
+        "amount": 400
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Mô phỏng đọc chính sách",
+      "params": {
+        "ms": 5000
+      }
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn đọc điều khoản 2",
+      "params": {
+        "direction": "down",
+        "amount": 400
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Hoàn thành đọc điều khoản",
+      "params": {
+        "ms": 3000
+      }
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-07-01 06:33:26",
+  "updated_at": "2026-07-01 06:33:26"
+}

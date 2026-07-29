@@ -10,6 +10,10 @@ class MergeNode(BaseNode):
     description = "Combine data from two inputs using append, combine, or join modes."
     icon = "🔗"
     category = "Logic"
+    config_schema = {
+        "mode": {"type": "string", "description": "Merge strategy: append (concat lists / merge dicts), combine (zip), join (SQL-style by key).", "default": "append", "options": ["append", "combine", "join"]},
+        "join_key": {"type": "string", "description": "Key to join on (join mode only)."},
+    }
 
     def _setup_ports(self):
         self.add_input("input_1", PortType.ANY, "First input")

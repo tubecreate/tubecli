@@ -11,6 +11,15 @@ class GoogleSheetsNode(BaseNode):
     description = "Read, write, or append data to Google Sheets. Auto-creates sheet if not found."
     icon = "📊"
     category = "Integration"
+    config_schema = {
+        "action": {"type": "string", "required": True, "description": "Sheet operation.", "default": "read", "options": ["read", "write", "append", "create", "sync"]},
+        "spreadsheet_id": {"type": "string", "description": "Target spreadsheet ID, or 'auto' to create a new spreadsheet.", "default": "auto"},
+        "sheet_name": {"type": "string", "description": "Tab name inside the spreadsheet.", "default": "Sheet1"},
+        "range": {"type": "string", "description": "Cell range (A1 notation).", "default": "A1:Z1000"},
+        "title": {"type": "string", "description": "Title for the new spreadsheet when spreadsheet_id='auto'."},
+        "data": {"type": "array", "description": "Fallback data to write when `data` input port is not connected. MUST be a 2D array: [[header1, header2], [val1, val2]]."},
+        "credentials_json": {"type": "string", "description": "Optional inline credentials JSON. Prefer connecting a google_auth node instead."},
+    }
 
     def _setup_ports(self):
         self.add_input("credentials", PortType.JSON, "Google credentials (from Google Auth node)", required=False)

@@ -31,8 +31,17 @@ TUBECLI_BASE_URL = f"http://localhost:{get_api_port()}"
 
 
 # ── Confirmation Keywords ──
-CONFIRM_KEYWORDS = ["ok", "ok đi", "được", "đi", "go", "chạy", "thực hiện", "làm đi", "đồng ý", "yes", "oke", "okê", "chạy đi", "bắt đầu", "xác nhận", "confirm"]
-CANCEL_KEYWORDS = ["không", "hủy", "thôi", "cancel", "no", "bỏ", "dừng"]
+# EXACT match only (see _matches_keyword) — ambiguous single words like
+# "đi"/"được" were removed: with prefix-matching they made messages like
+# "đi ngủ đây" silently confirm an upload plan.
+CONFIRM_KEYWORDS = ["ok", "oke", "okê", "okay", "yes", "go", "confirm", "xác nhận", "đồng ý", "chạy", "chạy đi", "làm đi", "thực hiện", "bắt đầu", "ok đi"]
+CANCEL_KEYWORDS = ["không", "hủy", "huỷ", "thôi", "cancel", "no", "bỏ", "dừng", "stop"]
+
+
+def _matches_keyword(text_lower: str, keywords: list) -> bool:
+    """Exact keyword match, tolerant of trailing punctuation ('ok!', 'hủy.')."""
+    cleaned = re.sub(r'[!.…,~]+$', '', text_lower).strip()
+    return cleaned in keywords
 MODIFY_CHANNEL_PATTERN = r'(?:đổi|chuyển|chọn|switch)\s*(?:sang\s*)?(?:kênh|channel|page|trang)\s*(?:thứ\s*)?(\d+)'
 
 
@@ -47,6 +56,9 @@ class TelegramListener:
         self.pending_actions: Dict[int, Dict[str, Any]] = {}
         # Auto-execute timer tasks (keyed by chat_id)
         self._auto_execute_tasks: Dict[int, asyncio.Task] = {}
+        # Per-chat conversation histories (keyed by "agent_id:chat_id") so
+        # different Telegram users never share/mix conversation context
+        self._chat_histories: Dict[str, list] = {}
 
     # ═══════════════════════════════════════════════════════════════
     #  TOKEN MANAGEMENT
@@ -230,7 +242,9 @@ class TelegramListener:
         else:
             available_skills = [s.to_dict() for s in all_skills]
 
-        history = agent.history_log or []
+        # Per-chat history: each Telegram chat gets its own conversation
+        # context instead of all chats sharing agent.history_log
+        history = self._get_chat_history(agent_id, chat_id)
 
         # ═══════════════════════════════════════════════════════════
         #  CHECK PENDING ACTION CONFIRMATION
@@ -246,46 +260,14 @@ class TelegramListener:
             self._cancel_auto_execute(chat_id)
             
             # ── User confirms → execute the pending plan ──
-            if any(text_lower_check == k or text_lower_check.startswith(k + " ") for k in CONFIRM_KEYWORDS):
+            if _matches_keyword(text_lower_check, CONFIRM_KEYWORDS):
                 plan = self.pending_actions.pop(chat_id)
-                context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
-                context["upload_provider"] = plan.get("provider", "youtube")
-                # Pass template info to executor
-                if plan.get("template_id"):
-                    context["template_id"] = plan["template_id"]
-                    context["template_name"] = plan.get("template_name", "")
-                
-                if plan["type"] == "video_upload":
-                    result = await execute_upload_sequence(
-                        plan["url"], plan["original_text"], agent_dict,
-                        self._send_message, self._send_file,
-                        lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                        context,
-                    )
-                elif plan["type"] == "reup_action":
-                    result = await execute_reup_sequence(
-                        plan["url"], plan["original_text"], agent_dict,
-                        self._send_message, self._send_file,
-                        lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                        context,
-                    )
-                elif plan["type"] == "livestream_action":
-                    from tubecli.core.telegram_actions import execute_livestream_pipeline
-                    result = await execute_livestream_pipeline(
-                        source_url=plan.get("resolved_url", plan["url"]),
-                        user_text=plan["original_text"],
-                        agent_dict=agent_dict,
-                        send_message_fn=self._send_message,
-                        context=context,
-                    )
-                else:
-                    result = "❌ Loại kế hoạch không hợp lệ."
-                
-                self._save_history(agent_id, agent_dict, text, result, history)
+                result = await self._execute_plan(plan, agent_dict, context)
+                self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                 return result
             
             # ── User cancels ──
-            if any(text_lower_check == k or text_lower_check.startswith(k + " ") for k in CANCEL_KEYWORDS):
+            if _matches_keyword(text_lower_check, CANCEL_KEYWORDS):
                 self.pending_actions.pop(chat_id)
                 return "🚫 Đã hủy kế hoạch. Bạn có thể gửi yêu cầu mới."
             
@@ -378,7 +360,7 @@ class TelegramListener:
             context["_agent_badge"] = "🎬 Video Agent đang tải video..."
             url = intent.extracted_data.get("url", "")
             result = await execute_download(url, agent_dict)
-            self._save_history(agent_id, agent_dict, text, result, history)
+            self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
             return result
 
         # ── Fast-path: video request without a link (0 tokens) ──
@@ -386,7 +368,7 @@ class TelegramListener:
             from tubecli.core.bot_i18n import t as _bt
 
             result = _bt("vs.ask_url")
-            self._save_history(agent_id, agent_dict, text, result, history)
+            self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
             return result
 
         # ── Plan & Confirm: Video Upload Sequence ──
@@ -507,12 +489,37 @@ class TelegramListener:
                         )
                         skill_manager.update(skill_data["id"], last_run=datetime.datetime.now().isoformat())
                         result = await handle_extension_action(reply, agent_dict, context)
-                        self._save_history(agent_id, agent_dict, text, result, history, skill_used=skill_data.get("name"))
+                        self._save_history(agent_id, agent_dict, text, result, history, skill_used=skill_data.get("name"), chat_id=chat_id)
                         return result
                     except asyncio.TimeoutError:
                         return f"⏰ Skill '{skill_data.get('name')}' chạy quá lâu (>90s)."
                     except Exception as e:
                         return f"⚠️ Skill lỗi: {str(e)[:200]}"
+
+        # ── Fast-path: Phân tích kênh (0-token, chạy skill deterministic) ──
+        if intent.intent_type == "channel_analyze":
+            context["_agent_badge"] = "📊 Analyze Channel"
+            url = (intent.extracted_data or {}).get("url", "")
+            sid = (intent.matched_skills or [None])[0]
+            skill_obj = skill_manager.get(sid) if sid else None
+            if skill_obj and url:
+                self._enrich_agent_config(agent_dict)
+                try:
+                    reply = await asyncio.wait_for(
+                        AgentBrain.autonomous_run(message=url, agent=agent_dict,
+                                                  skill=skill_obj.to_dict()),
+                        timeout=240,
+                    )
+                    result = await handle_extension_action(reply, agent_dict, context)
+                except asyncio.TimeoutError:
+                    result = "⏰ Phân tích kênh chạy quá lâu (>4 phút)."
+                except Exception as e:
+                    result = f"⚠️ Lỗi phân tích kênh: {str(e)[:200]}"
+            else:
+                result = "⚠️ Chưa gán skill Analyze Channel cho agent, hoặc thiếu URL kênh."
+            self._save_history(agent_id, agent_dict, text, result, history,
+                               skill_used="Analyze Channel", chat_id=chat_id)
+            return result
 
         # ── Tracker / Live / List Action Bypass ──
         if intent.intent_type in ("tracker_action", "live_action", "list_channels_action", "list_templates_action"):
@@ -521,7 +528,7 @@ class TelegramListener:
                 payload = {"action": action_type}
                 fake_json = "```json\n" + json.dumps(payload) + "\n```"
                 result = await handle_extension_action(fake_json, agent_dict, context)
-                self._save_history(agent_id, agent_dict, text, result, history)
+                self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                 return result
 
             elif intent.intent_type == "live_action":
@@ -543,7 +550,7 @@ class TelegramListener:
                         "• Link m3u8/RTMP\n\n"
                         "Ví dụ: `tạo live stream https://v.douyin.com/xxx lên kênh 3`"
                     )
-                    self._save_history(agent_id, agent_dict, text, result, history)
+                    self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                     return result
 
                 # ── Pre-validate source URL (inline) ──
@@ -578,7 +585,7 @@ class TelegramListener:
                                         f"👤 {author}\n🔗 {source_url}\n\n"
                                         "_Vui lòng kiểm tra lại link hoặc chờ phòng live mở lại._"
                                     )
-                                    self._save_history(agent_id, agent_dict, text, result, history)
+                                    self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                                     return result
                             elif content_type == "video":
                                 video_url = parse_data.get("download_url", "")
@@ -593,7 +600,7 @@ class TelegramListener:
                                         f"🔗 {source_url}\n\n"
                                         "_Cookie Douyin có thể đã hết hạn._"
                                     )
-                                    self._save_history(agent_id, agent_dict, text, result, history)
+                                    self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                                     return result
                             else:
                                 is_live_ok = True
@@ -607,7 +614,7 @@ class TelegramListener:
                                 "🔴 **Livestream Pipeline**\n\n"
                                 f"❌ **Link không hợp lệ**\n🔗 {source_url}\n📝 {err}"
                             )
-                            self._save_history(agent_id, agent_dict, text, result, history)
+                            self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                             return result
                     except Exception as e:
                         is_live_ok = True  # Skip validation, try anyway
@@ -650,14 +657,14 @@ class TelegramListener:
                 payload = intent.extracted_data.get("action_data", {"action": "list_channels"})
                 fake_json = "```json\n" + json.dumps(payload) + "\n```"
                 result = await handle_extension_action(fake_json, agent_dict, context)
-                self._save_history(agent_id, agent_dict, text, result, history)
+                self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                 return result
 
             elif intent.intent_type == "list_templates_action":
                 payload = intent.extracted_data.get("action_data", {"action": "list_templates"})
                 fake_json = "```json\n" + json.dumps(payload) + "\n```"
                 result = await handle_extension_action(fake_json, agent_dict, context)
-                self._save_history(agent_id, agent_dict, text, result, history)
+                self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                 return result
 
         # ── Team Create ──
@@ -669,21 +676,35 @@ class TelegramListener:
         if intent.intent_type == "browser_action":
             context["_agent_badge"] = "🌐 Browser Manager"
             result = await self._handle_browser_action(intent.extracted_data, text)
-            self._save_history(agent_id, agent_dict, text, result, history)
+            self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
+            return result
+
+        # ── Fast-path: Read a specific web page + summarize (0-token đọc) ──
+        if intent.intent_type == "read_page":
+            context["_agent_badge"] = "🌐 Web Reader"
+            url = (intent.extracted_data or {}).get("url", "")
+            task = (intent.extracted_data or {}).get("task", text)
+            from tubecli.core.web_reader import read_and_summarize
+            self._enrich_agent_config(agent_dict)
+            result = await asyncio.to_thread(
+                read_and_summarize, url, task, agent_dict, get_user_lang(chat_id)
+            )
+            self._save_history(agent_id, agent_dict, text, result, history,
+                               skill_used="Web Reader", chat_id=chat_id)
             return result
 
         # ── Fast-path: Subtitle Pipeline (URL + subtitle + optional upload) ──
         if intent.intent_type == "subtitle_pipeline":
             context["_agent_badge"] = "📝 Subtitle Pipeline"
             result = await self._handle_subtitle_pipeline(intent.extracted_data, text, agent_dict, context)
-            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor")
+            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor", chat_id=chat_id)
             return result
 
         # ── Fast-path: Subtitle Extraction ──
         if intent.intent_type == "subtitle_action":
             context["_agent_badge"] = "📝 Subtitle Extractor"
             result = await self._handle_subtitle_action(text, agent_dict, context)
-            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor")
+            self._save_history(agent_id, agent_dict, text, result, history, skill_used="Subtitle Extractor", chat_id=chat_id)
             return result
 
         # ═══════════════════════════════════════════════════════════
@@ -693,14 +714,15 @@ class TelegramListener:
         # ── Greeting / General Chat → quick_reply (~500 tokens) ──
         if intent.intent_type == "greeting":
             context["_agent_badge"] = "🤖 Orchestrator"
-            reply = AgentBrain.quick_reply(text, agent_dict, history)
-            self._save_history(agent_id, agent_dict, text, reply, history)
+            # to_thread: LLM call is sync (requests) — never block the event loop
+            reply = await asyncio.to_thread(AgentBrain.quick_reply, text, agent_dict, history)
+            self._save_history(agent_id, agent_dict, text, reply, history, chat_id=chat_id)
             return reply
 
         if intent.intent_type == "general_chat" and intent.confidence >= 0.5:
             context["_agent_badge"] = "🤖 Orchestrator"
-            reply = AgentBrain.quick_reply(text, agent_dict, history)
-            self._save_history(agent_id, agent_dict, text, reply, history)
+            reply = await asyncio.to_thread(AgentBrain.quick_reply, text, agent_dict, history)
+            self._save_history(agent_id, agent_dict, text, reply, history, chat_id=chat_id)
             return reply
 
         # ── Team Delegation (Phase 2) ──
@@ -717,7 +739,8 @@ class TelegramListener:
                     text, target_agent.allowed_skills, available_skills, limit=3
                 )
                 
-                brain_result = AgentBrain.chat_targeted(
+                brain_result = await asyncio.to_thread(
+                    AgentBrain.chat_targeted,
                     message=text, agent=target_dict, skills=selected_skills,
                     history=target_agent.history_log or [], intent_hint=intent.intent_type,
                 )
@@ -726,14 +749,33 @@ class TelegramListener:
                 result = await self._handle_brain_actions(brain_result, text, target_dict, selected_skills, context)
                 if isinstance(result, str):
                     result = f"*[{target_agent.name}]*\n{result}"
-                self._save_history(agent_id, agent_dict, text, result, history)
+                self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
                 return result
 
         # ── Calendar / Search / File / Complex → targeted skills (~3000 tokens) ──
-        # Try to find matching specialist for this intent
+        # Try to find matching specialist for this intent and ACTUALLY hand the
+        # turn to it (model + system prompt + skills), instead of only showing
+        # its name as a badge while the original agent does the work.
         from tubecli.core.specialists import get_specialist_for_intent
         specialist = get_specialist_for_intent(intent.intent_type)
-        active_agent_name = specialist.name if specialist else agent_dict.get("name", "AI")
+        # Keep the original agent for history/memory (that's who the user talks
+        # to); the specialist only handles this one turn.
+        home_agent_dict = agent_dict
+        if specialist and specialist.id != agent_dict.get("id"):
+            agent_dict = specialist.to_dict()
+            self._enrich_agent_config(agent_dict)
+            # Restrict skill choice to the specialist's own allowed set. Dựng
+            # lại từ CATALOG ĐẦY ĐỦ (all_skills), không phải available_skills đã
+            # bị lọc theo home agent — nếu không sẽ thành HOME ∩ specialist và
+            # mất skill của specialist khi home agent bị thu hẹp. Guard: rỗng
+            # thì giữ tập đầy (thà thừa còn hơn không có skill nào).
+            if specialist.allowed_skills:
+                restricted = [
+                    s.to_dict() for s in all_skills if s.id in specialist.allowed_skills
+                ]
+                if restricted:
+                    available_skills = restricted
+        active_agent_name = agent_dict.get("name", "AI")
         context["_agent_badge"] = f"{active_agent_name} đang xử lý..."
 
         selected_skills = skill_selector.select(
@@ -761,13 +803,14 @@ class TelegramListener:
             
         agent_dict["system_prompt"] = f"{current_prompt}\n\nIMPORTANT: {lang_instruction}"
         
-        brain_result = AgentBrain.chat_targeted(
+        brain_result = await asyncio.to_thread(
+            AgentBrain.chat_targeted,
             message=text, agent=agent_dict, skills=selected_skills,
             history=history, intent_hint=intent.intent_type,
         )
 
         result = await self._handle_brain_actions(brain_result, text, agent_dict, selected_skills, context)
-        self._save_history(agent_id, agent_dict, text, result, history)
+        self._save_history(agent_id, home_agent_dict, text, result, history, chat_id=chat_id)
         return result
 
     # ═══════════════════════════════════════════════════════════════
@@ -886,11 +929,13 @@ class TelegramListener:
         for i, step in enumerate(steps, 1):
             lines.append(f"  {i}. {step}")
         
-        lines.append(t("plan.auto_execute", lang))
+        auto_secs = self._get_auto_execute_seconds()
+        if auto_secs > 0:
+            lines.append(f"⏱️ _Tự động thực hiện sau {auto_secs} giây..._")
         lines.append(t("plan.reply_ok", lang))
         lines.append(t("plan.reply_change", lang, entity=entity_lower))
         lines.append(t("plan.reply_cancel", lang))
-        
+
         return "\n".join(lines)
 
     def _format_livestream_plan(self, plan: Dict, chat_id: int) -> str:
@@ -924,7 +969,9 @@ class TelegramListener:
             lines.append(f"  {i}. {step}")
 
         lines.append("")
-        lines.append("⏱️ _Tự động thực hiện sau 20 giây..._")
+        auto_secs = self._get_auto_execute_seconds()
+        if auto_secs > 0:
+            lines.append(f"⏱️ _Tự động thực hiện sau {auto_secs} giây..._")
         lines.append("✅ Trả lời **ok** để bắt đầu ngay")
         lines.append("🔄 Trả lời **đổi kênh N** để đổi kênh")
         lines.append("🚫 Trả lời **hủy** để hủy")
@@ -935,12 +982,30 @@ class TelegramListener:
     #  AUTO-EXECUTE TIMER
     # ═══════════════════════════════════════════════════════════════
 
+    def _get_auto_execute_seconds(self) -> int:
+        """Auto-execute delay for pending plans. 0 = DISABLED (default) —
+        publishing actions (upload/reup/livestream) then require an explicit
+        'ok'. Enable by setting 'telegram_auto_execute_seconds' in
+        global_settings.json (e.g. 20)."""
+        try:
+            if os.path.exists(SETTINGS_FILE):
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                return max(0, int(data.get("telegram_auto_execute_seconds", 0) or 0))
+        except Exception:
+            pass
+        return 0
+
     def _schedule_auto_execute(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
-        """Schedule auto-execution of a pending plan after 20 seconds."""
+        """Schedule auto-execution of a pending plan (only if enabled in settings)."""
         self._cancel_auto_execute(chat_id)
-        
+
+        delay = self._get_auto_execute_seconds()
+        if delay <= 0:
+            return  # Auto-execute disabled — wait for explicit user confirmation
+
         task = asyncio.create_task(
-            self._auto_execute_plan(chat_id, plan, agent_dict, context.copy(), agent_id, history)
+            self._auto_execute_plan(chat_id, plan, agent_dict, context.copy(), agent_id, history, delay)
         )
         self._auto_execute_tasks[chat_id] = task
 
@@ -951,72 +1016,76 @@ class TelegramListener:
             task.cancel()
             print(f"[AutoExec] Cancelled timer for chat {chat_id}")
 
-    async def _auto_execute_plan(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list):
-        """Wait 20 seconds then auto-execute the pending plan if still present."""
+    async def _auto_execute_plan(self, chat_id: int, plan: Dict, agent_dict: Dict, context: Dict, agent_id: str, history: list, delay: int = 20):
+        """Wait `delay` seconds then auto-execute the pending plan if still present."""
         try:
-            await asyncio.sleep(20)
-            
+            await asyncio.sleep(delay)
+
             # Check if the plan is still pending (user didn't respond)
             if chat_id not in self.pending_actions:
                 return  # Already confirmed/cancelled/replaced
-            
+
             # Pop the plan and execute
             plan = self.pending_actions.pop(chat_id)
             self._auto_execute_tasks.pop(chat_id, None)
-            
+
             token = context.get("token", "")
-            
+
             await self._send_message(token, chat_id,
-                "⏱️ 20s đã qua — tự động thực hiện kế hoạch..."
+                f"⏱️ {delay}s đã qua — tự động thực hiện kế hoạch..."
             )
-            
-            context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
-            context["upload_provider"] = plan.get("provider", "youtube")
-            # Pass template info to executor
-            if plan.get("template_id"):
-                context["template_id"] = plan["template_id"]
-                context["template_name"] = plan.get("template_name", "")
-            
-            if plan["type"] == "video_upload":
-                result = await execute_upload_sequence(
-                    plan["url"], plan["original_text"], agent_dict,
-                    self._send_message, self._send_file,
-                    lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                    context,
-                )
-            elif plan["type"] == "reup_action":
-                result = await execute_reup_sequence(
-                    plan["url"], plan["original_text"], agent_dict,
-                    self._send_message, self._send_file,
-                    lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
-                    context,
-                )
-            elif plan["type"] == "livestream_action":
-                from tubecli.core.telegram_actions import execute_livestream_pipeline
-                result = await execute_livestream_pipeline(
-                    source_url=plan.get("resolved_url", plan["url"]),
-                    user_text=plan["original_text"],
-                    agent_dict=agent_dict,
-                    send_message_fn=self._send_message,
-                    context=context,
-                )
-            else:
-                result = "❌ Loại kế hoạch không hợp lệ."
-            
-            self._save_history(agent_id, agent_dict, "[auto-execute]", result, history)
-            
+
+            result = await self._execute_plan(plan, agent_dict, context)
+
+            self._save_history(agent_id, agent_dict, "[auto-execute]", result, history, chat_id=chat_id)
+
             # Send result back to user
             if isinstance(result, str) and result.strip():
                 await self._send_message(token, chat_id, result)
-            
+
             print(f"[AutoExec] Auto-executed plan for chat {chat_id}")
-            
+
         except asyncio.CancelledError:
             pass  # Timer was cancelled by user response
         except Exception as e:
             print(f"[AutoExec] Error: {e}")
             import traceback
             traceback.print_exc()
+
+    async def _execute_plan(self, plan: Dict, agent_dict: Dict, context: Dict):
+        """Execute a confirmed/auto-executed pending plan (single source of
+        truth — used by both the user-confirm branch and the auto-exec timer)."""
+        context["_agent_badge"] = plan.get("badge", "🎬 Đang thực hiện...")
+        context["upload_provider"] = plan.get("provider", "youtube")
+        # Pass template info to executor
+        if plan.get("template_id"):
+            context["template_id"] = plan["template_id"]
+            context["template_name"] = plan.get("template_name", "")
+
+        if plan["type"] == "video_upload":
+            return await execute_upload_sequence(
+                plan["url"], plan["original_text"], agent_dict,
+                self._send_message, self._send_file,
+                lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                context,
+            )
+        elif plan["type"] == "reup_action":
+            return await execute_reup_sequence(
+                plan["url"], plan["original_text"], agent_dict,
+                self._send_message, self._send_file,
+                lambda reply, ad, ctx: handle_extension_action(reply, ad, ctx),
+                context,
+            )
+        elif plan["type"] == "livestream_action":
+            from tubecli.core.telegram_actions import execute_livestream_pipeline
+            return await execute_livestream_pipeline(
+                source_url=plan.get("resolved_url", plan["url"]),
+                user_text=plan["original_text"],
+                agent_dict=agent_dict,
+                send_message_fn=self._send_message,
+                context=context,
+            )
+        return "❌ Loại kế hoạch không hợp lệ."
 
     # ═══════════════════════════════════════════════════════════════
     #  HELPER METHODS
@@ -1053,7 +1122,40 @@ class TelegramListener:
             pass
         return {}
 
-    def _save_history(self, agent_id, agent_dict, text, result, history, skill_used=None):
+    def _chat_history_path(self, agent_id: str, chat_id):
+        """File path for a per-chat Telegram history."""
+        from tubecli.config import AGENT_MEMORY_DIR
+        d = AGENT_MEMORY_DIR / agent_id / "telegram_chats"
+        d.mkdir(parents=True, exist_ok=True)
+        return d / f"{chat_id}.json"
+
+    def _get_chat_history(self, agent_id: str, chat_id) -> list:
+        """Load (and cache) the conversation history for one agent+chat pair."""
+        key = f"{agent_id}:{chat_id}"
+        if key in self._chat_histories:
+            return self._chat_histories[key]
+        hist = []
+        try:
+            p = self._chat_history_path(agent_id, chat_id)
+            if p.exists():
+                loaded = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(loaded, list):
+                    hist = loaded
+        except Exception:
+            hist = []
+        self._chat_histories[key] = hist
+        return hist
+
+    def _save_chat_history(self, agent_id: str, chat_id, history: list):
+        """Persist a per-chat history to disk and refresh the cache."""
+        self._chat_histories[f"{agent_id}:{chat_id}"] = history
+        try:
+            p = self._chat_history_path(agent_id, chat_id)
+            p.write_text(json.dumps(history, ensure_ascii=False, indent=1), encoding="utf-8")
+        except Exception as e:
+            print(f"[TelegramListener] Chat history save err: {e}")
+
+    def _save_history(self, agent_id, agent_dict, text, result, history, skill_used=None, chat_id=None):
         """Non-blocking save of conversation history + memory update."""
         reply_for_history = result if isinstance(result, str) else f"[File sent: {result.get('caption', '') if isinstance(result, dict) else ''}]"
         history.append({"role": "user", "content": text, "timestamp": datetime.datetime.now().isoformat()})
@@ -1064,14 +1166,27 @@ class TelegramListener:
         if len(history) > 50:
             history = history[-50:]
 
+        # Persist per-chat history (LLM context source) + mirror the latest
+        # exchange into agent.history_log so the dashboard History tab still works
+        if chat_id is not None:
+            self._save_chat_history(agent_id, chat_id, history)
+        agent_manager.update(agent_id, history_log=history)
+
         async def _bg_mem():
             try:
-                AgentBrain.post_chat_memory_update(agent_id, agent_dict, history)
+                from tubecli.core.memory import AgentMemory
+                if not AgentMemory.should_summarize(agent_id, history):
+                    return
+                # to_thread: summarize/extract are sync LLM calls — keep the
+                # event loop responsive for other chats while they run.
+                await asyncio.to_thread(AgentBrain.post_chat_memory_update, agent_id, agent_dict, history)
+                # Re-save only now: persists the _summarized markers
+                if chat_id is not None:
+                    self._save_chat_history(agent_id, chat_id, history)
                 agent_manager.update(agent_id, history_log=history)
             except Exception as e:
                 print(f"[TelegramListener] Memory err: {e}")
         asyncio.create_task(_bg_mem())
-        agent_manager.update(agent_id, history_log=history)
 
     async def _handle_browser_action(self, data: dict, original_text: str) -> str:
         """Handle browser management actions (0 tokens — pure API call)."""

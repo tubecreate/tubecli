@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tubecli · Kho script trung tâm</title>
+<style>
+:root{
+  --bg:#0f1420; --panel:#161d2d; --panel-2:#1b2436; --line:#26314a;
+  --fg:#e6ecf7; --muted:#8b98b4; --accent:#3ddad7;
+  --ok:#3ddc84; --warn:#ffb454; --bad:#ff6b6b; --idle:#63708f;
+}
+*{box-sizing:border-box}
+body{margin:0;font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif;
+     background:var(--bg);color:var(--fg)}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel-2);
+       color:var(--fg);border-radius:7px;padding:6px 12px}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--accent);color:#06232a;border-color:var(--accent);font-weight:600}
+button.primary:hover{filter:brightness(1.1);color:#06232a}
+button.danger:hover{border-color:var(--bad);color:var(--bad)}
+input,select,textarea{font:inherit;background:#0d1322;color:var(--fg);
+       border:1px solid var(--line);border-radius:7px;padding:7px 10px;width:100%}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+a{color:var(--accent)}
+.hide{display:none !important}
+
+/* ── gate ── */
+#gate{max-width:420px;margin:14vh auto;padding:28px;background:var(--panel);
+      border:1px solid var(--line);border-radius:14px}
+#gate h1{margin:0 0 6px;font-size:19px}
+#gate p{margin:0 0 18px;color:var(--muted);font-size:13px}
+#gate button{width:100%;margin-top:12px}
+#gateErr{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
+
+/* ── shell ── */
+header{display:flex;align-items:center;gap:14px;padding:14px 22px;
+       background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{margin:0;font-size:16px;font-weight:600;letter-spacing:.2px}
+header h1 span{color:var(--accent)}
+header .spacer{flex:1}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+       gap:12px;padding:16px 22px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:13px 15px}
+.tile .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.6px}
+.tile .v{font-size:23px;font-weight:600;margin-top:3px}
+.tile .s{color:var(--muted);font-size:12px}
+
+nav.tabs{display:flex;gap:4px;padding:0 22px;border-bottom:1px solid var(--line)}
+nav.tabs button{border:0;background:none;border-bottom:2px solid transparent;
+       border-radius:0;padding:10px 14px;color:var(--muted)}
+nav.tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+nav.tabs button:hover{color:var(--fg)}
+
+main{padding:18px 22px 60px}
+.toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center}
+.toolbar input[type=search]{max-width:280px}
+.toolbar select{max-width:190px}
+.toolbar label{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;
+       white-space:nowrap}
+.toolbar input[type=checkbox]{width:auto}
+
+/* ── success-rate board (the t2login panel) ── */
+.board{display:grid;grid-template-columns:1.05fr 1fr;gap:16px;align-items:start}
+@media(max-width:1080px){.board{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.card > h2{margin:0;padding:13px 16px;font-size:14px;font-weight:600;
+       border-bottom:1px solid var(--line);display:flex;align-items:center;gap:9px}
+.card > h2 .sub{color:var(--muted);font-weight:400;font-size:12px}
+.card .body{padding:6px 0}
+
+.rate{display:flex;align-items:center;gap:12px;padding:8px 16px;cursor:pointer;
+      border-left:2px solid transparent}
+.rate:hover{background:var(--panel-2)}
+.rate.sel{background:var(--panel-2);border-left-color:var(--accent)}
+.rate .slug{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rate .num{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.rate .cnt{color:var(--muted);font-weight:400;font-size:12px}
+.rate.off .slug{text-decoration:line-through;opacity:.55}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .idle{color:var(--idle)}
+.barwrap{height:4px;background:#0d1322;border-radius:3px;width:74px;overflow:hidden;flex:none}
+.bar{height:100%;border-radius:3px}
+
+/* ── detail ── */
+#detail .body{padding:16px}
+.meta{display:grid;grid-template-columns:118px 1fr;gap:7px 12px;font-size:13px;margin-bottom:16px}
+.meta .k{color:var(--muted)}
+.meta .v{word-break:break-word}
+.chip{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;
+      border:1px solid var(--line);background:var(--panel-2);margin-right:5px}
+.chip.on{border-color:var(--ok);color:var(--ok)}
+.chip.off{border-color:var(--bad);color:var(--bad)}
+h3.sec{font-size:12.5px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);
+       margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:6px 8px;
+   border-bottom:1px solid var(--line)}
+td{padding:6px 8px;border-bottom:1px solid #1d2537;vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.n{color:var(--muted);font-variant-numeric:tabular-nums;width:32px}
+code{background:#0d1322;border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+     font-family:Consolas,"Courier New",monospace;font-size:12px;word-break:break-all}
+.steptype{color:var(--accent);font-family:Consolas,monospace;font-size:12px;white-space:nowrap}
+.empty{color:var(--muted);padding:22px 16px;text-align:center;font-size:13px}
+.scroll{max-height:330px;overflow:auto}
+
+/* ── modal ── */
+.mask{position:fixed;inset:0;background:rgba(6,10,18,.72);display:flex;
+      align-items:center;justify-content:center;padding:24px;z-index:50}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:13px;
+       width:min(860px,100%);max-height:88vh;display:flex;flex-direction:column}
+.modal h2{margin:0;padding:14px 18px;font-size:15px;border-bottom:1px solid var(--line)}
+.modal .content{padding:16px 18px;overflow:auto;flex:1}
+.modal .foot{padding:12px 18px;border-top:1px solid var(--line);display:flex;
+       gap:9px;justify-content:flex-end}
+.modal textarea{min-height:380px;font-family:Consolas,"Courier New",monospace;font-size:12.5px;
+       line-height:1.55;resize:vertical;white-space:pre}
+#editErr{color:var(--bad);font-size:13px;flex:1;align-self:center}
+
+#toast{position:fixed;right:20px;bottom:20px;display:flex;flex-direction:column;gap:8px;z-index:80}
+.toast{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);
+       border-radius:8px;padding:10px 15px;font-size:13px;box-shadow:0 8px 26px rgba(0,0,0,.45);
+       animation:slide .22s ease}
+.toast.err{border-left-color:var(--bad)}
+@keyframes slide{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h1>Kho script trung tâm <span style="color:var(--accent)">tubecli</span></h1>
+  <p>Nhập admin token để xem và quản lý kho script.</p>
+  <input id="tokenInput" type="password" placeholder="Admin token" autocomplete="off">
+  <button class="primary" id="gateBtn">Mở bảng điều khiển</button>
+  <div id="gateErr"></div>
+</div>
+
+<div id="app" class="hide">
+  <header>
+    <h1>Kho script <span>tubecli</span></h1>
+    <span class="sub" id="serverTime" style="color:var(--muted);font-size:12px"></span>
+    <div class="spacer"></div>
+    <button id="btnNew">+ Script mới</button>
+    <button id="btnRecompute" title="Dựng lại thống kê từ nhật ký chạy thô">Tính lại thống kê</button>
+    <button id="btnRefresh">↻ Làm mới</button>
+    <button id="btnLogout" class="danger">Thoát</button>
+  </header>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Script</div><div class="v" id="tScripts">—</div>
+      <div class="s" id="tScriptsSub"></div></div>
+    <div class="tile"><div class="k">Lượt chạy</div><div class="v" id="tRuns">—</div>
+      <div class="s" id="tRunsSub"></div></div>
+    <div class="tile"><div class="k">Tỉ lệ thành công</div><div class="v" id="tRate">—</div>
+      <div class="s" id="tRateSub"></div></div>
+    <div class="tile"><div class="k">Máy khách</div><div class="v" id="tClients">—</div>
+      <div class="s" id="tClientsSub"></div></div>
+  </div>
+
+  <nav class="tabs">
+    <button class="on" data-tab="board">Kho script</button>
+    <button data-tab="fails">Lượt chạy lỗi</button>
+    <button data-tab="clients">Máy khách</button>
+  </nav>
+
+  <main>
+    <!-- ── tab: board ── -->
+    <section id="tab-board">
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Tìm theo slug, tên, URL…">
+        <select id="cat"><option value="">Mọi nhóm</option></select>
+        <label><input type="checkbox" id="onlyBad"> Chỉ script yếu (&lt;40%)</label>
+        <label><input type="checkbox" id="showOff"> Hiện cả script đã tắt</label>
+      </div>
+      <div class="board">
+        <div class="card">
+          <h2>Tỉ lệ thành công script <span class="sub" id="boardCount"></span></h2>
+          <div class="body" id="rateList"></div>
+        </div>
+        <div class="card" id="detail">
+          <h2 id="detailTitle">Chi tiết</h2>
+          <div class="body" id="detailBody">
+            <div class="empty">Chọn một script bên trái để xem các bước và lịch sử chạy.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── tab: failures ── -->
+    <section id="tab-fails" class="hide">
+      <div class="toolbar">
+        <button id="btnLoadFails" class="primary">Tải 200 lượt chạy lỗi gần nhất</button>
+        <span style="color:var(--muted);font-size:13px">Xem script hỏng ở bước nào.</span>
+      </div>
+      <div class="card"><div class="body scroll" id="failList" style="max-height:none">
+        <div class="empty">Chưa tải.</div></div></div>
+    </section>
+
+    <!-- ── tab: clients ── -->
+    <section id="tab-clients" class="hide">
+      <div class="card"><div class="body" id="clientList">
+        <div class="empty">Chưa tải.</div></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="editMask" class="mask hide">
+  <div class="modal">
+    <h2 id="editTitle">Sửa script</h2>
+    <div class="content">
+      <textarea id="editArea" spellcheck="false"></textarea>
+    </div>
+    <div class="foot">
+      <span id="editErr"></span>
+      <button id="editCancel">Huỷ</button>
+      <button id="editSave" class="primary">Lưu</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TOKEN = localStorage.getItem('tubecli_scripts_token') || '';
+  var state = { scripts: [], totals: {}, selected: null };
+
+  // ── plumbing ───────────────────────────────────────────────────────────────
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = opts.headers || {};
+    headers['X-Admin-Token'] = TOKEN;
+    if (opts.body) headers['Content-Type'] = 'application/json';
+    return fetch(path, { method: opts.method || 'GET', headers: headers, body: opts.body })
+      .then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (d) {
+          if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+          return d;
+        });
+      });
+  }
+
+  function esc(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function toast(msg, isErr) {
+    var el = document.createElement('div');
+    el.className = 'toast' + (isErr ? ' err' : '');
+    el.textContent = msg;
+    document.getElementById('toast').appendChild(el);
+    setTimeout(function () { el.remove(); }, isErr ? 6000 : 3200);
+  }
+
+  /** The colour rule the t2login panel uses: strong / shaky / broken / untried. */
+  function rateClass(attempts, successes) {
+    if (!attempts) return 'idle';
+    var pct = successes / attempts * 100;
+    if (pct >= 80) return 'ok';
+    if (pct >= 40) return 'warn';
+    return 'bad';
+  }
+
+  function pctText(st) {
+    if (!st || !st.attempts) return { cls: 'idle', text: 'chưa chạy', pct: 0 };
+    var pct = Math.round(st.successes / st.attempts * 100);
+    return {
+      cls: rateClass(st.attempts, st.successes),
+      text: pct + '% <span class="cnt">(' + st.successes + '/' + st.attempts + ')</span>',
+      pct: pct,
+    };
+  }
+
+  // ── gate ───────────────────────────────────────────────────────────────────
+  function showApp() {
+    document.getElementById('gate').classList.add('hide');
+    document.getElementById('app').classList.remove('hide');
+    refresh();
+  }
+
+  function tryToken(t) {
+    TOKEN = t;
+    return api('/api/admin/overview').then(function (d) {
+      localStorage.setItem('tubecli_scripts_token', t);
+      state.scripts = d.scripts || [];
+      state.totals = d.totals || {};
+      showApp();
+    });
+  }
+
+  document.getElementById('gateBtn').onclick = function () {
+    var t = document.getElementById('tokenInput').value.trim();
+    if (!t) return;
+    document.getElementById('gateErr').textContent = '';
+    tryToken(t).catch(function (e) {
+      document.getElementById('gateErr').textContent = e.message;
+    });
+  };
+  document.getElementById('tokenInput').onkeydown = function (e) {
+    if (e.key === 'Enter') document.getElementById('gateBtn').click();
+  };
+  document.getElementById('btnLogout').onclick = function () {
+    localStorage.removeItem('tubecli_scripts_token');
+    location.reload();
+  };
+
+  // ── load ───────────────────────────────────────────────────────────────────
+  function refresh() {
+    return api('/api/admin/overview').then(function (d) {
+      state.scripts = d.scripts || [];
+      state.totals = d.totals || {};
+      document.getElementById('serverTime').textContent = 'máy chủ: ' + (d.server_time || '');
+      renderTiles();
+      renderCategories();
+      renderBoard();
+      if (state.selected) selectScript(state.selected, true);
+    }).catch(function (e) { toast(e.message, true); });
+  }
+
+  function renderTiles() {
+    var t = state.totals;
+    var enabled = state.scripts.filter(function (s) { return s.enabled; }).length;
+    document.getElementById('tScripts').textContent = t.scripts || 0;
+    document.getElementById('tScriptsSub').textContent =
+      enabled + ' đang bật · ' + ((t.scripts || 0) - enabled) + ' đã tắt';
+
+    // Both tiles read the same table. Counting runs from the raw outcome log
+    // while computing the rate from the rollup made them contradict each other
+    // on this very board — "0 lượt chạy" beside "460/964 lượt" — because the
+    // inherited t2login history exists only in the rollup.
+    var att = t.attempts || 0, suc = t.successes || 0;
+    var logged = t.logged_runs || 0;
+    document.getElementById('tRuns').textContent = att.toLocaleString('vi-VN');
+    document.getElementById('tRunsSub').textContent = att
+      ? (logged.toLocaleString('vi-VN') + ' có nhật ký chi tiết · '
+         + (t.inherited || 0).toLocaleString('vi-VN') + ' kế thừa từ t2login')
+      : 'chưa có lượt chạy nào';
+
+    var el = document.getElementById('tRate');
+    if (!att) { el.textContent = '—'; el.className = 'v'; }
+    else {
+      el.innerHTML = Math.round(suc / att * 100) + '%';
+      el.className = 'v ' + rateClass(att, suc);
+    }
+    document.getElementById('tRateSub').textContent = att ? suc + '/' + att + ' lượt' : 'chưa có dữ liệu';
+    if (t.last_run) document.getElementById('tRateSub').title = 'lượt gần nhất ' + t.last_run;
+
+    document.getElementById('tClients').textContent = t.clients || 0;
+    document.getElementById('tClientsSub').textContent = t.last_seen ? 'gần nhất ' + t.last_seen : 'chưa máy nào báo về';
+  }
+
+  function renderCategories() {
+    var sel = document.getElementById('cat');
+    var cur = sel.value;
+    var cats = {};
+    state.scripts.forEach(function (s) { cats[s.category || 'general'] = 1; });
+    sel.innerHTML = '<option value="">Mọi nhóm</option>' +
+      Object.keys(cats).sort().map(function (c) {
+        return '<option value="' + esc(c) + '">' + esc(c) + '</option>';
+      }).join('');
+    sel.value = cur;
+  }
+
+  function visibleScripts() {
+    var q = document.getElementById('q').value.trim().toLowerCase();
+    var cat = document.getElementById('cat').value;
+    var onlyBad = document.getElementById('onlyBad').checked;
+    var showOff = document.getElementById('showOff').checked;
+
+    return state.scripts.filter(function (s) {
+      if (!showOff && !s.enabled) return false;
+      if (cat && (s.category || 'general') !== cat) return false;
+      if (q) {
+        var hay = (s.slug + ' ' + (s.name || '') + ' ' + (s.target_url || '')).toLowerCase();
+        if (hay.indexOf(q) === -1) return false;
+      }
+      if (onlyBad) {
+        var st = s.stats;
+        if (!st || !st.attempts) return false;
+        if (st.successes / st.attempts >= 0.4) return false;
+      }
+      return true;
+    });
+  }
+
+  function renderBoard() {
+    var rows = visibleScripts();
+    document.getElementById('boardCount').textContent =
+      rows.length + '/' + state.scripts.length + ' script';
+
+    var host = document.getElementById('rateList');
+    if (!rows.length) {
+      host.innerHTML = '<div class="empty">Không có script nào khớp bộ lọc.</div>';
+      return;
+    }
+    // Worst first: a board about success rates should lead with what is broken.
+    rows.sort(function (a, b) {
+      var ra = a.stats && a.stats.attempts ? a.stats.successes / a.stats.attempts : 2;
+      var rb = b.stats && b.stats.attempts ? b.stats.successes / b.stats.attempts : 2;
+      if (ra !== rb) return ra - rb;
+      return a.slug.localeCompare(b.slug);
+    });
+
+    host.innerHTML = rows.map(function (s) {
+      var p = pctText(s.stats);
+      var barColor = p.cls === 'ok' ? 'var(--ok)' : p.cls === 'warn' ? 'var(--warn)'
+        : p.cls === 'bad' ? 'var(--bad)' : 'var(--idle)';
+      return '<div class="rate' + (state.selected === s.slug ? ' sel' : '')
+        + (s.enabled ? '' : ' off') + '" data-slug="' + esc(s.slug) + '">'
+        + '<span class="slug" title="' + esc(s.name || s.slug) + '">' + esc(s.slug) + '</span>'
+        + '<span class="barwrap"><span class="bar" style="width:' + p.pct
+        + '%;background:' + barColor + '"></span></span>'
+        + '<span class="num ' + p.cls + '">' + p.text + '</span></div>';
+    }).join('');
+
+    Array.prototype.forEach.call(host.querySelectorAll('.rate'), function (el) {
+      el.onclick = function () { selectScript(el.getAttribute('data-slug')); };
+    });
+  }
+
+  ['q', 'cat', 'onlyBad', 'showOff'].forEach(function (id) {
+    var el = document.getElementById(id);
+    el.addEventListener(el.tagName === 'INPUT' && el.type === 'search' ? 'input' : 'change', renderBoard);
+  });
+
+  // ── detail ─────────────────────────────────────────────────────────────────
+  function selectScript(slug, keepScroll) {
+    state.selected = slug;
+    if (!keepScroll) renderBoard();
+    document.getElementById('detailTitle').textContent = slug;
+    document.getElementById('detailBody').innerHTML = '<div class="empty">Đang tải…</div>';
+
+    api('/api/admin/scripts/' + encodeURIComponent(slug)).then(function (d) {
+      renderDetail(d.script, d.stats, d.outcomes || []);
+    }).catch(function (e) {
+      document.getElementById('detailBody').innerHTML =
+        '<div class="empty bad">' + esc(e.message) + '</div>';
+    });
+  }
+
+  function renderDetail(s, st, outcomes) {
+    var p = pctText(st);
+    var html = '<div class="meta">'
+      + '<span class="k">Tên</span><span class="v">' + esc(s.name) + '</span>'
+      + '<span class="k">Trạng thái</span><span class="v">'
+        + '<span class="chip ' + (s.enabled ? 'on">đang bật' : 'off">đã tắt') + '</span>'
+        + '<span class="chip">' + esc(s.category) + '</span>'
+        + '<span class="chip">engine: ' + esc(s.engine) + '</span>'
+        + (s.is_function ? '<span class="chip">function</span>' : '') + '</span>'
+      + '<span class="k">Tỉ lệ</span><span class="v ' + p.cls + '">' + p.text + '</span>'
+      + (s.target_url ? '<span class="k">URL</span><span class="v"><code>' + esc(s.target_url) + '</code></span>' : '')
+      + (s.description ? '<span class="k">Mô tả</span><span class="v">' + esc(s.description) + '</span>' : '')
+      + '<span class="k">Cập nhật</span><span class="v">' + esc(s.updated_at) + '</span>'
+      + (st && st.last_error ? '<span class="k">Lỗi gần nhất</span><span class="v bad">'
+          + esc(st.last_error) + '</span>' : '')
+      + '</div>';
+
+    html += '<div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">'
+      + '<button id="dEdit">Sửa JSON</button>'
+      + '<button id="dToggle">' + (s.enabled ? 'Tắt' : 'Bật') + '</button>'
+      + '<button id="dDelete" class="danger">Xoá</button></div>';
+
+    html += '<h3 class="sec">Các bước (' + s.steps.length + ')</h3>';
+    if (!s.steps.length) html += '<div class="empty">Script này chưa có bước nào.</div>';
+    else {
+      html += '<div class="scroll"><table><tbody>' + s.steps.map(function (step, i) {
+        // A step that is not an object (null, a bare string) used to throw here,
+        // and because the throw happened before detailBody was assigned it took
+        // the Edit / Toggle / Delete buttons with it — leaving no way to repair
+        // the very script that caused it.
+        if (!step || typeof step !== 'object') {
+          return '<tr><td class="n">' + (i + 1) + '</td>'
+            + '<td class="steptype bad">không hợp lệ</td>'
+            + '<td class="bad">bước này không phải là một object: <code>'
+            + esc(JSON.stringify(step)) + '</code></td></tr>';
+        }
+        var detail = step.selector ? '<code>' + esc(step.selector) + '</code>' : '';
+        var pr = (step.params && typeof step.params === 'object') ? step.params : {};
+        var bits = Object.keys(pr).map(function (k) {
+          var v = pr[k];
+          if (typeof v === 'object') v = JSON.stringify(v);
+          return esc(k) + '=' + esc(String(v).slice(0, 70));
+        });
+        if (bits.length) detail += (detail ? ' ' : '') + '<span style="color:var(--muted)">'
+          + bits.join(' · ') + '</span>';
+        return '<tr><td class="n">' + (i + 1) + '</td>'
+          + '<td class="steptype">' + esc(step.type) + '</td>'
+          + '<td>' + esc(step.label || '') + (detail ? '<br>' + detail : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    }
+
+    html += '<h3 class="sec">Lượt chạy gần đây (' + outcomes.length + ')</h3>';
+    if (!outcomes.length) html += '<div class="empty">Chưa có máy nào báo kết quả cho script này.</div>';
+    else {
+      html += '<div class="scroll"><table><thead><tr><th>Lúc</th><th>KQ</th>'
+        + '<th>Bước lỗi</th><th>Lỗi</th><th>Máy</th></tr></thead><tbody>'
+        + outcomes.map(function (o) {
+          return '<tr><td style="white-space:nowrap">' + esc(o.created_at) + '</td>'
+            + '<td class="' + (o.success ? 'ok">✓' : 'bad">✗') + '</td>'
+            + '<td>' + (o.failed_step_index === null || o.failed_step_index === undefined ? ''
+                : '#' + (o.failed_step_index + 1) + ' ' + esc(o.failed_step_label || '')) + '</td>'
+            + '<td style="color:var(--muted)">' + esc((o.error || '').slice(0, 120)) + '</td>'
+            + '<td style="color:var(--muted)">' + esc((o.machine_id || '').slice(0, 14)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    document.getElementById('detailBody').innerHTML = html;
+    document.getElementById('dEdit').onclick = function () { openEditor(s); };
+    document.getElementById('dToggle').onclick = function () {
+      api('/api/admin/scripts/' + encodeURIComponent(s.slug) + '/toggle', { method: 'POST' })
+        .then(function (d) { toast(d.enabled ? 'Đã bật ' + s.slug : 'Đã tắt ' + s.slug); return refresh(); })
+        .catch(function (e) { toast(e.message, true); });
+    };
+    document.getElementById('dDelete').onclick = function () {
+      if (!confirm('Xoá script "' + s.slug + '"?')) return;
+      // Keeping the run history is the default: it is the only record of why a
+      // script was dropped. Purging matters for throwaway scripts, whose old
+      // attempts would otherwise keep skewing the totals for ever.
+      var purge = confirm('Xoá luôn cả lịch sử chạy của script này?\n\n'
+        + 'OK = xoá sạch (thống kê cũ biến mất khỏi tổng)\n'
+        + 'Cancel = giữ lịch sử để tra cứu sau');
+      api('/api/admin/scripts/' + encodeURIComponent(s.slug) + (purge ? '?purge=1' : ''),
+          { method: 'DELETE' })
+        .then(function () {
+          toast('Đã xoá ' + s.slug);
+          state.selected = null;
+          document.getElementById('detailTitle').textContent = 'Chi tiết';
+          document.getElementById('detailBody').innerHTML =
+            '<div class="empty">Chọn một script bên trái.</div>';
+          return refresh();
+        }).catch(function (e) { toast(e.message, true); });
+    };
+  }
+
+  // ── editor ─────────────────────────────────────────────────────────────────
+  var editing = null;
+
+  function openEditor(script) {
+    editing = script ? script.slug : null;
+    document.getElementById('editTitle').textContent = script ? 'Sửa: ' + script.slug : 'Script mới';
+    document.getElementById('editErr').textContent = '';
+    var doc = script ? {
+      slug: script.slug, name: script.name, description: script.description,
+      category: script.category, target_url: script.target_url, tags: script.tags,
+      engine: script.engine, is_function: script.is_function,
+      function_inputs: script.function_inputs, function_outputs: script.function_outputs,
+      variables: script.variables, steps: script.steps,
+    } : {
+      slug: '', name: '', description: '', category: 'general', target_url: '',
+      tags: [], engine: 'any', is_function: false,
+      function_inputs: [], function_outputs: [], variables: [],
+      steps: [{ type: 'navigate', label: 'Mở trang', params: { url: 'https://example.com' } }],
+    };
+    document.getElementById('editArea').value = JSON.stringify(doc, null, 2);
+    document.getElementById('editMask').classList.remove('hide');
+  }
+
+  document.getElementById('btnNew').onclick = function () { openEditor(null); };
+  document.getElementById('editCancel').onclick = function () {
+    document.getElementById('editMask').classList.add('hide');
+  };
+  document.getElementById('editSave').onclick = function () {
+    var raw = document.getElementById('editArea').value;
+    var doc;
+    try {
+      doc = JSON.parse(raw);
+    } catch (e) {
+      document.getElementById('editErr').textContent = 'JSON hỏng: ' + e.message;
+      return;
+    }
+    if (!doc.slug) {
+      document.getElementById('editErr').textContent = 'Thiếu "slug".';
+      return;
+    }
+    document.getElementById('editErr').textContent = '';
+    save(false);
+  };
+
+  /**
+   * Creating never silently replaces. The create form starts from blank
+   * defaults, so a slug typed over an existing one would otherwise wipe a live
+   * script — 36 steps down to a placeholder — and still show a success toast.
+   * The server answers 409; here that becomes a question, not a failure.
+   */
+  function save(overwrite) {
+    var doc = JSON.parse(document.getElementById('editArea').value);
+    var path = editing
+      ? '/api/admin/scripts/' + encodeURIComponent(editing)
+      : '/api/admin/scripts' + (overwrite ? '?overwrite=1' : '');
+    api(path, { method: 'POST', body: JSON.stringify(doc) })
+      .then(function (d) {
+        document.getElementById('editMask').classList.add('hide');
+        toast(d.created ? 'Đã tạo ' + d.slug : 'Đã lưu ' + d.slug);
+        state.selected = d.slug;
+        return refresh();
+      })
+      .catch(function (e) {
+        if (!editing && /already exists/.test(e.message)) {
+          if (confirm('Script "' + doc.slug + '" đã tồn tại.\n\n'
+              + 'OK = ghi đè (mọi bước hiện có sẽ bị thay thế)\n'
+              + 'Cancel = quay lại sửa slug')) {
+            save(true);
+            return;
+          }
+          document.getElementById('editErr').textContent = 'Slug đã tồn tại — đổi slug khác.';
+          return;
+        }
+        document.getElementById('editErr').textContent = e.message;
+      });
+  }
+
+  // ── tabs ───────────────────────────────────────────────────────────────────
+  Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'), function (b) {
+    b.onclick = function () {
+      Array.prototype.forEach.call(document.querySelectorAll('nav.tabs button'), function (x) {
+        x.classList.remove('on');
+      });
+      b.classList.add('on');
+      ['board', 'fails', 'clients'].forEach(function (t) {
+        document.getElementById('tab-' + t).classList.toggle('hide', t !== b.dataset.tab);
+      });
+      if (b.dataset.tab === 'clients') loadClients();
+    };
+  });
+
+  function loadFails() {
+    document.getElementById('failList').innerHTML = '<div class="empty">Đang tải…</div>';
+    api('/api/admin/outcomes?failed=1&limit=200').then(function (d) {
+      var rows = d.outcomes || [];
+      if (!rows.length) {
+        document.getElementById('failList').innerHTML =
+          '<div class="empty">Chưa ghi nhận lượt chạy lỗi nào.</div>';
+        return;
+      }
+      document.getElementById('failList').innerHTML =
+        '<table><thead><tr><th>Lúc</th><th>Script</th><th>Bước lỗi</th>'
+        + '<th>Lỗi</th><th>Máy</th></tr></thead><tbody>' + rows.map(function (o) {
+          return '<tr><td style="white-space:nowrap">' + esc(o.created_at) + '</td>'
+            + '<td><a href="#" data-slug="' + esc(o.slug) + '">' + esc(o.slug) + '</a></td>'
+            + '<td>' + (o.failed_step_index === null || o.failed_step_index === undefined ? ''
+                : '#' + (o.failed_step_index + 1) + ' ' + esc(o.failed_step_label || '')) + '</td>'
+            + '<td style="color:var(--muted)">' + esc((o.error || '').slice(0, 160)) + '</td>'
+            + '<td style="color:var(--muted)">' + esc((o.machine_id || '').slice(0, 14)) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      Array.prototype.forEach.call(document.querySelectorAll('#failList a[data-slug]'), function (a) {
+        a.onclick = function (ev) {
+          ev.preventDefault();
+          document.querySelector('nav.tabs button[data-tab="board"]').click();
+          selectScript(a.getAttribute('data-slug'));
+        };
+      });
+    }).catch(function (e) {
+      document.getElementById('failList').innerHTML = '<div class="empty bad">' + esc(e.message) + '</div>';
+    });
+  }
+  document.getElementById('btnLoadFails').onclick = loadFails;
+
+  function loadClients() {
+    document.getElementById('clientList').innerHTML = '<div class="empty">Đang tải…</div>';
+    api('/api/admin/clients').then(function (d) {
+      var rows = d.clients || [];
+      if (!rows.length) {
+        document.getElementById('clientList').innerHTML =
+          '<div class="empty">Chưa máy nào báo về. Máy khách sẽ hiện ở đây sau lần chạy script đầu tiên.</div>';
+        return;
+      }
+      document.getElementById('clientList').innerHTML =
+        '<table><thead><tr><th>Máy</th><th>Hostname</th><th>Phiên bản</th>'
+        + '<th>Nền tảng</th><th>Lượt chạy</th><th>Thấy lần cuối</th></tr></thead><tbody>'
+        + rows.map(function (c) {
+          return '<tr><td><code>' + esc(c.machine_id) + '</code></td>'
+            + '<td>' + esc(c.hostname) + '</td><td>' + esc(c.version) + '</td>'
+            + '<td>' + esc(c.platform) + '</td><td>' + c.runs + '</td>'
+            + '<td>' + esc(c.last_seen) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }).catch(function (e) {
+      document.getElementById('clientList').innerHTML = '<div class="empty bad">' + esc(e.message) + '</div>';
+    });
+  }
+
+  document.getElementById('btnRefresh').onclick = function () {
+    refresh().then(function () { toast('Đã làm mới'); });
+  };
+  document.getElementById('btnRecompute').onclick = function () {
+    if (!confirm('Dựng lại bảng thống kê từ nhật ký chạy thô?')) return;
+    api('/api/admin/stats/recompute', { method: 'POST' })
+      .then(function (d) { toast('Đã tính lại ' + d.recomputed + " script"); return refresh(); })
+      .catch(function (e) { toast(e.message, true); });
+  };
+
+  // ── boot ───────────────────────────────────────────────────────────────────
+  if (TOKEN) {
+    tryToken(TOKEN).catch(function () {
+      localStorage.removeItem('tubecli_scripts_token');
+      document.getElementById('gate').classList.remove('hide');
+    });
+  }
+})();
+</script>
+</body>
+</html>

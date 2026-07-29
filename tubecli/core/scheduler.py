@@ -1,14 +1,32 @@
 """
 Scheduler — Background daemon for scheduled skill/workflow execution.
 """
+import os
 import threading
 import time
 import json
+import random
 import datetime
 from typing import Dict, List, Callable, Optional
 from pathlib import Path
 
 from tubecli.config import DATA_DIR, ensure_data_dirs
+
+# ── Smart scheduling knobs ───────────────────────────────────────
+# Max agent browser sessions the scheduler may have running at once.
+MAX_CONCURRENT_AGENT_BROWSERS = int(os.environ.get("TUBECLI_MAX_SCHEDULED_BROWSERS", "2"))
+# Max agents launched within a single scheduler tick (staggers launches).
+MAX_LAUNCHES_PER_TICK = 1
+# If a run is overdue by more than this, it was "missed" (app was closed /
+# machine slept). Instead of firing immediately, spread it randomly.
+MISSED_RUN_GRACE_SEC = 300
+# Missed/startup runs get rescheduled randomly within this window (minutes).
+MISSED_SPREAD_MIN, MISSED_SPREAD_MAX = 2, 20
+# Short deferral when blocked by concurrency/tick limits (minutes).
+DEFER_MIN, DEFER_MAX = 2, 6
+# Wait this long after app startup before the first tick, so launching the
+# app never immediately spawns browsers while the UI is still loading.
+STARTUP_GRACE_SEC = int(os.environ.get("TUBECLI_SCHEDULER_STARTUP_GRACE", "60"))
 
 
 class Scheduler:
@@ -52,6 +70,13 @@ class Scheduler:
         return self._thread is not None and self._thread.is_alive()
 
     def _loop(self, interval_sec: int):
+        # Startup grace: give the app time to finish loading before any
+        # scheduled agent can spawn a browser.
+        for _ in range(STARTUP_GRACE_SEC):
+            if self._stop_flag.is_set():
+                return
+            time.sleep(1)
+
         while not self._stop_flag.is_set():
             try:
                 self._tick()
@@ -91,7 +116,9 @@ class Scheduler:
 
         # Check Agents
         from tubecli.core.agent import agent_manager
-        
+
+        launches_this_tick = 0
+
         for agent in agent_manager.get_all():
             if not getattr(agent, "schedule_enabled", False):
                 continue
@@ -110,23 +137,46 @@ class Scheduler:
 
             next_run_str = getattr(agent, "schedule_next_run", None)
             should_run_now = False
-            
+            overdue_sec = 0.0
+
             if not next_run_str:
-                should_run_now = True
+                # Never scheduled before (fresh agent or scheduling just enabled).
+                # Do NOT fire immediately — assign a randomized first slot so a
+                # fleet of new/reset agents doesn't stampede at app startup.
+                first_slot = now + datetime.timedelta(minutes=random.randint(MISSED_SPREAD_MIN, MISSED_SPREAD_MAX))
+                valid_next = self._calculate_next_schedule_time(agent, first_slot)
+                agent.schedule_next_run = valid_next.isoformat()
+                agent_manager._save()
+                print(f"[Scheduler] Initialized schedule for Agent {agent.name}: first run at {agent.schedule_next_run}")
+                continue
             else:
                 try:
                     next_run = datetime.datetime.fromisoformat(next_run_str)
                     if now >= next_run:
                         should_run_now = True
+                        overdue_sec = (now - next_run).total_seconds()
                 except ValueError:
                     should_run_now = True
 
             if should_run_now:
+                # Missed run detection: the run time passed long ago (app was
+                # closed or machine slept). Firing all missed agents at once
+                # would open many browsers simultaneously and freeze the
+                # machine — instead spread them randomly over the next minutes.
+                if overdue_sec > MISSED_RUN_GRACE_SEC:
+                    delay_min = random.randint(MISSED_SPREAD_MIN, MISSED_SPREAD_MAX)
+                    valid_next = self._calculate_next_schedule_time(agent, now + datetime.timedelta(minutes=delay_min))
+                    agent.schedule_next_run = valid_next.isoformat()
+                    agent_manager._save()
+                    print(f"[Scheduler] Agent {agent.name} missed its run by {int(overdue_sec // 60)} min "
+                          f"(app was closed?). Rescheduled to {agent.schedule_next_run} to avoid a launch storm.")
+                    continue
+
                 # Check if we are allowed to run now
                 day_name = now.strftime("%a").lower()
                 active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
                 active_days = [d.lower() for d in active_days]
-                
+
                 start_time = getattr(agent, "schedule_start_time", "00:00")
                 end_time = getattr(agent, "schedule_end_time", "23:59")
                 current_time_str = now.strftime("%H:%M")
@@ -137,27 +187,45 @@ class Scheduler:
                 is_not_maxed = runs_today < max_runs
 
                 if is_active_day and is_inside_window and is_not_maxed:
+                    # Stagger: at most MAX_LAUNCHES_PER_TICK browser launches
+                    # per tick. Other due agents get a short random deferral —
+                    # they stay inside their time window, just a bit later.
+                    if launches_this_tick >= MAX_LAUNCHES_PER_TICK:
+                        self._defer_agent(agent, now, reason="another agent already launched this tick")
+                        agent_manager._save()
+                        continue
+
+                    # Concurrency gate: don't pile browsers on top of each other.
+                    running_count = self._count_running_agent_browsers()
+                    if running_count >= MAX_CONCURRENT_AGENT_BROWSERS:
+                        self._defer_agent(agent, now, reason=f"{running_count} browser session(s) already running")
+                        agent_manager._save()
+                        continue
+
                     print(f"[Scheduler] Triggering Agent: {agent.name}")
                     if self._agent_runner_callback:
                         self._agent_runner_callback(agent.id)
+                    launches_this_tick += 1
 
                     agent.schedule_last_run = now.isoformat()
                     agent.schedule_runs_today = runs_today + 1
-                    
+
                     # Next run depends on repeat strategy (e.g. interval)
                     repeat = getattr(agent, "schedule_repeat", "daily") or "daily"
                     repeat_lower = repeat.lower()
-                    if repeat_lower == "daily":
-                        raw_next = now + datetime.timedelta(minutes=60)
-                    elif repeat_lower == "interval":
+                    if repeat_lower == "interval":
                         interval_min = getattr(agent, "schedule_interval", 60)
                         try:
                             interval_min = int(interval_min)
                         except Exception:
                             interval_min = 60
-                        raw_next = now + datetime.timedelta(minutes=interval_min)
                     else:
-                        raw_next = now + datetime.timedelta(minutes=60)
+                        interval_min = 60
+
+                    # Humanize: add random jitter so runs land "within the
+                    # window" rather than at rigid exact times.
+                    jitter_min = random.randint(0, max(1, min(15, interval_min // 3)))
+                    raw_next = now + datetime.timedelta(minutes=interval_min + jitter_min)
 
                     valid_next = self._calculate_next_schedule_time(agent, raw_next)
                     agent.schedule_next_run = valid_next.isoformat()
@@ -169,6 +237,23 @@ class Scheduler:
                     agent.schedule_next_run = valid_next.isoformat()
                     agent_manager._save()
                     print(f"[Scheduler] Advanced Agent {agent.name} schedule to {agent.schedule_next_run} because it was due but could not run now (Day active: {is_active_day}, Window active: {is_inside_window}, Not maxed: {is_not_maxed}).")
+
+    def _defer_agent(self, agent, now: datetime.datetime, reason: str = ""):
+        """Push a due agent's run a few random minutes into the future
+        (respecting its window/day settings) without executing it."""
+        delay_min = random.randint(DEFER_MIN, DEFER_MAX)
+        valid_next = self._calculate_next_schedule_time(agent, now + datetime.timedelta(minutes=delay_min))
+        agent.schedule_next_run = valid_next.isoformat()
+        print(f"[Scheduler] Deferred Agent {agent.name} by ~{delay_min} min ({reason}). Next attempt: {agent.schedule_next_run}")
+
+    def _count_running_agent_browsers(self) -> int:
+        """Count currently running scheduled browser sessions. Returns 0 if the
+        browser extension is unavailable so scheduling never hard-blocks."""
+        try:
+            from tubecli.extensions.browser.process_manager import browser_process_manager
+            return len(browser_process_manager.list_running())
+        except Exception:
+            return 0
 
     def _calculate_next_schedule_time(self, agent, start_from: datetime.datetime) -> datetime.datetime:
         active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

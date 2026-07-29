@@ -9,6 +9,11 @@ class RunCommandNode(BaseNode):
     display_name = "💻 Run Command"
     description = "Execute a shell command. Use {text_input} or {input_data} as placeholders."
     category = "System"
+    config_schema = {
+        "command": {"type": "string", "required": True, "description": "Shell command to execute."},
+        "cwd": {"type": "string", "description": "Working directory (optional)."},
+        "timeout": {"type": "number", "description": "Timeout in seconds.", "default": 60},
+    }
 
     def _setup_ports(self):
         self.add_input("command", PortType.TEXT, "Command to execute", required=False)

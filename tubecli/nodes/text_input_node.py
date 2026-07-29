@@ -8,6 +8,9 @@ class TextInputNode(BaseNode):
     display_name = "📝 Text Input"
     description = "Provides static text content."
     category = "Input"
+    config_schema = {
+        "text": {"type": "string", "description": "Static text value. Leave empty to receive the skill/user input at runtime.", "default": ""},
+    }
 
     def _setup_ports(self):
         self.add_output("content", PortType.TEXT, "Text content")

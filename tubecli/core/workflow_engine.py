@@ -118,6 +118,20 @@ class WorkflowEngine:
         node = self.nodes.get(node_id)
         return node and node.node_type == "loop"
 
+    @staticmethod
+    def _detect_output_error(result: Any) -> Optional[str]:
+        """Most nodes swallow exceptions and return 'Error: ...' strings in
+        their outputs instead of raising. Detect that pattern so failures show
+        up in logs/errors instead of the run looking fully successful."""
+        if not isinstance(result, dict):
+            return None
+        for key, value in result.items():
+            if isinstance(value, str):
+                v = value.strip()
+                if v.startswith("Error:") or v.startswith("❌"):
+                    return f"{key}: {v[:300]}"
+        return None
+
     def _get_downstream_nodes(self, node_id: str) -> List[str]:
         """Get all nodes downstream of a given node, in topological order."""
         downstream_set = set()
@@ -146,6 +160,16 @@ class WorkflowEngine:
         step = 0
 
         self._log("engine", "Workflow Engine", "started", f"Starting workflow with {total} nodes")
+
+        # Nodes trapped in a cycle never appear in the topological order and
+        # would be skipped silently — surface that clearly instead.
+        if total < len(self.nodes):
+            missing = [nid for nid in self.nodes if nid not in execution_order]
+            self._log(
+                "engine", "Workflow Engine", "error",
+                f"Cycle detected: nodes {missing} form a loop in connections and will NOT run. "
+                "Workflows must be a DAG — use the 'loop' node for iteration instead of circular connections.",
+            )
 
         try:
             i = 0
@@ -207,7 +231,11 @@ class WorkflowEngine:
                                     try:
                                         result = await ds_node.execute(ds_inputs, context=self.context)
                                         self.node_outputs[ds_id] = result
-                                        self._log(ds_id, ds_node.display_name, "completed", str(result)[:500])
+                                        err = self._detect_output_error(result)
+                                        if err:
+                                            self._log(ds_id, ds_node.display_name, "error", err)
+                                        else:
+                                            self._log(ds_id, ds_node.display_name, "completed", str(result)[:500])
                                     except Exception as ex:
                                         self._log(ds_id, ds_node.display_name, "error", str(ex))
 
@@ -227,7 +255,11 @@ class WorkflowEngine:
                     try:
                         result = await node.execute(inputs, context=self.context)
                         self.node_outputs[node_id] = result
-                        self._log(node_id, node.display_name, "completed", str(result)[:500])
+                        err = self._detect_output_error(result)
+                        if err:
+                            self._log(node_id, node.display_name, "error", err)
+                        else:
+                            self._log(node_id, node.display_name, "completed", str(result)[:500])
                     except Exception as ex:
                         self._log(node_id, node.display_name, "error", str(ex))
 
@@ -241,8 +273,17 @@ class WorkflowEngine:
         finally:
             self._running = False
 
+        # Summarize node errors so callers (and AI agents) see failures at a
+        # glance instead of digging through logs of a "completed" run.
+        node_errors = [
+            {"node_id": l.node_id, "node_name": l.node_name, "message": l.message}
+            for l in self.logs if l.status == "error"
+        ]
+
         return {
             "status": "completed" if not self._cancelled else "cancelled",
+            "has_errors": bool(node_errors),
+            "errors": node_errors,
             "logs": [{"timestamp": l.timestamp, "node_id": l.node_id, "node_name": l.node_name,
                        "status": l.status, "message": l.message} for l in self.logs],
             "outputs": {k: v for k, v in self.node_outputs.items()},

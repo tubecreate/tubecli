@@ -316,6 +316,7 @@ class ExtensionManager:
         "tubecli.extensions.multi_agents",
         "tubecli.extensions.browser",
         "tubecli.extensions.browser_scripts",
+        "tubecli.extensions.website_manager",
         "tubecli.extensions.studio3d",
         "tubecli.extensions.douyin_downloader",
         "tubecli.extensions.auth_manager",

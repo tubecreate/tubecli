@@ -10,6 +10,13 @@ class ApiRequestNode(BaseNode):
     display_name = "🌐 API Request"
     description = "Make HTTP requests to external APIs."
     category = "Network"
+    config_schema = {
+        "url": {"type": "string", "description": "Request URL (can also come from the `url` input port)."},
+        "method": {"type": "string", "description": "HTTP method.", "default": "GET", "options": ["GET", "POST", "PUT", "DELETE", "PATCH"]},
+        "headers": {"type": "object", "description": "HTTP headers as a JSON object.", "default": {}},
+        "body": {"type": "object", "description": "Request body (JSON object or string) for POST/PUT/PATCH."},
+        "timeout": {"type": "number", "description": "Timeout in seconds.", "default": 30},
+    }
 
     def _setup_ports(self):
         self.add_input("url", PortType.TEXT, "Request URL", required=False)

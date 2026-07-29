@@ -12,6 +12,154 @@ from typing import Dict, Any, Optional
 from tubecli.config import OLLAMA_BASE_URL, DEFAULT_AI_MODEL
 
 
+def _render_node_catalog(available_nodes: list) -> str:
+    """Render the full node catalog: ports with types/descriptions/required
+    flags + every config key with type, options, default and description.
+    This is what makes generated workflows actually runnable — the LLM no
+    longer has to guess port names or config keys."""
+    out = ""
+    for node in available_nodes:
+        ntype = node.get("type", "")
+        name = node.get("name", ntype)
+        desc = node.get("description", "")
+        out += f"### {ntype} — {name}\n{desc}\n"
+
+        in_ports = node.get("input_ports") or [
+            {"name": n, "type": "any", "description": "", "required": True}
+            for n in node.get("inputs", [])
+        ]
+        out_ports = node.get("output_ports") or [
+            {"name": n, "type": "any", "description": ""}
+            for n in node.get("outputs", [])
+        ]
+
+        if in_ports:
+            parts = []
+            for p in in_ports:
+                tag = f"{p['name']} ({p.get('type', 'any')}"
+                if not p.get("required", True):
+                    tag += ", optional"
+                tag += ")"
+                if p.get("description"):
+                    tag += f": {p['description']}"
+                parts.append(tag)
+            out += "  Input ports: " + "; ".join(parts) + "\n"
+        else:
+            out += "  Input ports: (none — this is a source node)\n"
+
+        if out_ports:
+            parts = []
+            for p in out_ports:
+                tag = f"{p['name']} ({p.get('type', 'any')})"
+                if p.get("description"):
+                    tag += f": {p['description']}"
+                parts.append(tag)
+            out += "  Output ports: " + "; ".join(parts) + "\n"
+
+        cfg = node.get("config_schema") or {}
+        if cfg:
+            out += "  Config keys:\n"
+            for key, cdef in cfg.items():
+                line = f"    - {key} ({cdef.get('type', 'string')}"
+                if cdef.get("required"):
+                    line += ", REQUIRED"
+                line += ")"
+                if cdef.get("options"):
+                    line += f" one of {cdef['options']}"
+                if "default" in cdef:
+                    line += f" [default: {json.dumps(cdef['default'], ensure_ascii=False)}]"
+                if cdef.get("description"):
+                    line += f" — {cdef['description']}"
+                out += line + "\n"
+        out += "\n"
+    return out
+
+
+def validate_workflow(nodes: list, connections: list, port_defs: dict, available_nodes: list = None) -> list:
+    """Static validation of a generated workflow. Returns a list of
+    human/LLM-readable issue strings (empty = valid)."""
+    issues = []
+    if not nodes:
+        return ["Workflow has no nodes."]
+
+    node_ids = [nd.get("id", "") for nd in nodes]
+    id_set = set(node_ids)
+
+    # Duplicate / missing ids
+    seen_ids = set()
+    for nid in node_ids:
+        if not nid:
+            issues.append("A node is missing its 'id' field.")
+        elif nid in seen_ids:
+            issues.append(f"Duplicate node id '{nid}' — every node needs a unique id.")
+        seen_ids.add(nid)
+
+    # Config keys against schema (unknown node types are handled upstream)
+    schema_map = {}
+    for n in (available_nodes or []):
+        schema_map[n.get("type", "")] = n.get("config_schema") or {}
+
+    node_type_map = {}
+    for nd in nodes:
+        ntype = nd.get("type", "")
+        node_type_map[nd.get("id", "")] = ntype
+        schema = schema_map.get(ntype)
+        if schema:
+            for req_key, cdef in schema.items():
+                if cdef.get("required") and not (nd.get("config") or {}).get(req_key):
+                    # Required config missing — may still arrive via an input port
+                    inputs_for_type = set(port_defs.get(ntype, {}).get("inputs", []))
+                    fed_by_conn = any(
+                        c.get("to_node_id") == nd.get("id") for c in connections
+                    ) and bool(inputs_for_type)
+                    if not fed_by_conn:
+                        issues.append(
+                            f"Node '{nd.get('id')}' ({ntype}) is missing required config '{req_key}' and has no incoming connection to supply it."
+                        )
+
+    # Connection endpoints must exist
+    connected = set()
+    for c in connections:
+        f, t = c.get("from_node_id", ""), c.get("to_node_id", "")
+        if f not in id_set:
+            issues.append(f"Connection references unknown from_node_id '{f}'.")
+        if t not in id_set:
+            issues.append(f"Connection references unknown to_node_id '{t}'.")
+        if f == t:
+            issues.append(f"Node '{f}' connects to itself.")
+        connected.add(f)
+        connected.add(t)
+
+    # Orphan nodes (only matters when there are 2+ nodes)
+    if len(nodes) > 1:
+        for nid in node_ids:
+            if nid and nid not in connected:
+                issues.append(f"Node '{nid}' is not connected to anything (orphan).")
+
+    # Cycle detection via Kahn's algorithm
+    in_degree = {nid: 0 for nid in id_set}
+    graph = {nid: [] for nid in id_set}
+    for c in connections:
+        f, t = c.get("from_node_id", ""), c.get("to_node_id", "")
+        if f in graph and t in in_degree:
+            graph[f].append(t)
+            in_degree[t] += 1
+    queue = [nid for nid, deg in in_degree.items() if deg == 0]
+    visited = 0
+    while queue:
+        nid = queue.pop(0)
+        visited += 1
+        for nb in graph[nid]:
+            in_degree[nb] -= 1
+            if in_degree[nb] == 0:
+                queue.append(nb)
+    if visited < len(id_set):
+        cyclic = [nid for nid, deg in in_degree.items() if deg > 0]
+        issues.append(f"Workflow contains a cycle involving nodes: {cyclic}. Workflows must be a DAG (no loops in connections; use the 'loop' node for iteration).")
+
+    return issues
+
+
 def build_system_prompt(available_nodes: list) -> str:
     """
     Build a comprehensive system prompt that teaches the LLM
@@ -24,18 +172,7 @@ def build_system_prompt(available_nodes: list) -> str:
 
     # ── Node Catalog ────────────────────────────────────────────
     prompt += "## AVAILABLE NODES\n\n"
-    for node in available_nodes:
-        ntype = node.get("type", "")
-        name = node.get("name", ntype)
-        desc = node.get("description", "")
-        inputs = node.get("inputs", [])
-        outputs = node.get("outputs", [])
-
-        prompt += f"- **{ntype}** ({name}): {desc}\n"
-        if inputs:
-            prompt += f"  Inputs: {', '.join(inputs)}\n"
-        if outputs:
-            prompt += f"  Outputs: {', '.join(outputs)}\n"
+    prompt += _render_node_catalog(available_nodes)
 
     # ── Fallback Instruction ────────────────────────────────────
     prompt += "\n## PYTHON CODE FALLBACK\n"
@@ -393,32 +530,55 @@ def generate_workflow(prompt: str, provider: str = "ollama", model: str = "", ap
     # 3. Build system prompt
     system_prompt = build_system_prompt(available_nodes)
 
-    # 4. Call LLM
-    raw_response = call_llm(system_prompt, prompt, provider, model, api_key)
-
-    # 5. Parse JSON from response
-    workflow = _parse_json_response(raw_response)
-
-    # 6. Validate & resolve connections
-    nodes = workflow.get("nodes", [])
-    connections = workflow.get("connections", [])
-
-    # Validate node types exist
     valid_types = {n["type"] for n in available_nodes}
-    for nd in nodes:
-        if nd.get("type") not in valid_types:
-            nd["type"] = "python_code"  # Fallback unknown types to python_code
 
-    # Assign coordinates if missing
-    _assign_coordinates(nodes)
+    def _postprocess(workflow: dict):
+        nodes = workflow.get("nodes", [])
+        connections = workflow.get("connections", [])
+        for nd in nodes:
+            if nd.get("type") not in valid_types:
+                nd["type"] = "python_code"  # Fallback unknown types to python_code
+        _assign_coordinates(nodes)
+        if connections:
+            connections = resolve_port_connections(nodes, connections, port_defs)
+        else:
+            connections = auto_connect_sequential(nodes, port_defs)
+        return nodes, connections
 
-    # Resolve port connections
-    if connections:
-        connections = resolve_port_connections(nodes, connections, port_defs)
-    else:
-        connections = auto_connect_sequential(nodes, port_defs)
+    # 4. Call LLM → parse → validate; on validation errors give the LLM ONE
+    #    chance to self-repair with the concrete issue list as feedback.
+    raw_response = call_llm(system_prompt, prompt, provider, model, api_key)
+    workflow = _parse_json_response(raw_response)
+    nodes, connections = _postprocess(workflow)
+    issues = validate_workflow(nodes, connections, port_defs, available_nodes)
 
-    return {"nodes": nodes, "connections": connections}
+    if issues:
+        print(f"[AI Workflow] Validation found {len(issues)} issue(s), asking LLM to self-repair...")
+        repair_message = (
+            f"Your previous workflow JSON had these problems:\n"
+            + "\n".join(f"- {i}" for i in issues)
+            + "\n\nHere is the JSON you produced:\n"
+            + json.dumps({"nodes": nodes, "connections": connections}, ensure_ascii=False)
+            + f"\n\nOriginal request: {prompt}\n"
+            "Fix ALL the problems and return the corrected full workflow JSON (nodes + connections). JSON only."
+        )
+        try:
+            raw_retry = call_llm(system_prompt, repair_message, provider, model, api_key)
+            workflow_retry = _parse_json_response(raw_retry)
+            nodes_retry, connections_retry = _postprocess(workflow_retry)
+            issues_retry = validate_workflow(nodes_retry, connections_retry, port_defs, available_nodes)
+            # Keep the repaired version if it is at least as good
+            if len(issues_retry) <= len(issues):
+                nodes, connections, issues = nodes_retry, connections_retry, issues_retry
+        except Exception as e:
+            print(f"[AI Workflow] Self-repair attempt failed, keeping first result: {e}")
+
+    result = {"nodes": nodes, "connections": connections}
+    if issues:
+        # Surface remaining problems to the UI/caller instead of failing silently
+        result["warnings"] = issues
+        print(f"[AI Workflow] Remaining warnings: {issues}")
+    return result
 
 
 def _resolve_cloud_api_key(provider: str) -> str:
@@ -439,26 +599,21 @@ def _resolve_cloud_api_key(provider: str) -> str:
 
 
 def _build_port_defs() -> dict:
-    """Build a map of node_type -> {inputs: [names], outputs: [names]}."""
-    return {
-        "text_input":      {"inputs": [],                                        "outputs": ["content", "lines"]},
-        "loop":            {"inputs": ["items"],                                 "outputs": ["current_item", "index"]},
-        "api_request":     {"inputs": ["trigger", "url"],                        "outputs": ["response", "status"]},
-        "python_code":     {"inputs": ["text_input", "json_input"],              "outputs": ["result"]},
-        "run_command":     {"inputs": ["trigger"],                               "outputs": ["stdout", "stderr"]},
-        "ai_node":         {"inputs": ["prompt"],                                "outputs": ["response"]},
-        "output":          {"inputs": ["data"],                                  "outputs": []},
-        "google_auth":     {"inputs": [],                                        "outputs": ["credentials", "status"]},
-        "google_sheets":   {"inputs": ["credentials", "data", "range"],          "outputs": ["rows", "status"]},
-        "browser_action":  {"inputs": ["url", "prompt", "data"],                 "outputs": ["result", "screenshot_path", "status"]},
-        "json_parser":     {"inputs": ["data", "expression"],                    "outputs": ["result", "keys", "count"]},
-        "model_agent":     {"inputs": ["prompt", "context", "history"],          "outputs": ["response", "usage"]},
-        "custom":          {"inputs": ["input"],                                 "outputs": ["output"]},
-        "if_node":         {"inputs": ["data"],                                  "outputs": ["true_output", "false_output"]},
-        "switch_node":     {"inputs": ["data"],                                  "outputs": ["output_0", "output_1", "output_2", "output_3"]},
-        "merge_node":      {"inputs": ["input_1", "input_2"],                    "outputs": ["merged"]},
+    """Build a map of node_type -> {inputs: [names], outputs: [names]}.
+    Derived from the live node registry (covers extension nodes too),
+    with hand-coded fallbacks for known extension nodes that may not be
+    installed at build time."""
+    fallbacks = {
         "video_processing": {"inputs": ["input_file", "input_files", "audio_file", "start_time", "end_time", "text", "output_dir"], "outputs": ["output_file", "status"]},
     }
+    try:
+        from tubecli.nodes.registry import build_port_defs
+        defs = build_port_defs()
+    except Exception:
+        defs = {}
+    for k, v in fallbacks.items():
+        defs.setdefault(k, v)
+    return defs
 
 
 def _parse_json_response(raw: str) -> dict:
@@ -520,17 +675,7 @@ def build_skill_system_prompt(available_nodes: list, skill_mds: list) -> str:
 
     # Available nodes
     prompt += "## AVAILABLE WORKFLOW NODES (Use these ONLY for Workflow Skills):\n\n"
-    for node in available_nodes:
-        ntype = node.get("type", "")
-        name = node.get("name", ntype)
-        desc = node.get("description", "")
-        inputs = node.get("inputs", [])
-        outputs = node.get("outputs", [])
-        prompt += f"- **{ntype}** ({name}): {desc}\n"
-        if inputs:
-            prompt += f"  Inputs: {', '.join(inputs)}\n"
-        if outputs:
-            prompt += f"  Outputs: {', '.join(outputs)}\n"
+    prompt += _render_node_catalog(available_nodes)
 
     # Python fallback instruction
     prompt += "\n## PYTHON CODE FALLBACK\n"
@@ -613,15 +758,56 @@ def generate_skill_with_ai(prompt: str, provider: str = "ollama", model: str = "
 
     if skill_data["skill_type"] == "Workflow Skill" and nodes:
         valid_types = {n["type"] for n in available_nodes}
-        for nd in nodes:
-            if nd.get("type") not in valid_types:
-                nd["type"] = "python_code"
-        _assign_coordinates(nodes)
-        
         port_defs = _build_port_defs()
-        if connections:
-            wf["connections"] = resolve_port_connections(nodes, connections, port_defs)
-        else:
-            wf["connections"] = auto_connect_sequential(nodes, port_defs)
-            
+
+        def _postprocess_skill_wf(wf_dict):
+            nds = wf_dict.get("nodes", [])
+            conns = wf_dict.get("connections", [])
+            for nd in nds:
+                if nd.get("type") not in valid_types:
+                    nd["type"] = "python_code"
+            _assign_coordinates(nds)
+            if conns:
+                conns = resolve_port_connections(nds, conns, port_defs)
+            else:
+                conns = auto_connect_sequential(nds, port_defs)
+            wf_dict["nodes"] = nds
+            wf_dict["connections"] = conns
+            return nds, conns
+
+        nodes, connections = _postprocess_skill_wf(wf)
+        issues = validate_workflow(nodes, connections, port_defs, available_nodes)
+
+        if issues:
+            print(f"[AI Skill] Workflow validation found {len(issues)} issue(s), asking LLM to self-repair...")
+            repair_message = (
+                "Your previous Skill JSON had these workflow problems:\n"
+                + "\n".join(f"- {i}" for i in issues)
+                + "\n\nHere is the JSON you produced:\n"
+                + json.dumps(skill_data, ensure_ascii=False)
+                + f"\n\nOriginal request: {prompt}\n"
+                "Fix ALL the problems and return the corrected FULL skill JSON (same structure). JSON only."
+            )
+            try:
+                raw_retry = call_llm(system_prompt, repair_message, provider, model, api_key)
+                retry_data = _parse_json_response(raw_retry)
+                retry_wf = retry_data.get("workflow_data") or {}
+                retry_nodes, retry_conns = _postprocess_skill_wf(retry_wf)
+                retry_issues = validate_workflow(retry_nodes, retry_conns, port_defs, available_nodes)
+                if retry_nodes and len(retry_issues) <= len(issues):
+                    retry_data.setdefault("name", skill_data["name"])
+                    retry_data.setdefault("description", skill_data["description"])
+                    retry_data.setdefault("skill_type", skill_data["skill_type"])
+                    retry_data.setdefault("commands", skill_data["commands"])
+                    retry_wf.setdefault("markdown", "")
+                    skill_data = retry_data
+                    wf = retry_wf
+                    issues = retry_issues
+            except Exception as e:
+                print(f"[AI Skill] Self-repair attempt failed, keeping first result: {e}")
+
+        if issues:
+            skill_data["workflow_warnings"] = issues
+            print(f"[AI Skill] Remaining workflow warnings: {issues}")
+
     return skill_data

@@ -8,6 +8,9 @@ class LoopNode(BaseNode):
     display_name = "🔄 Loop"
     description = "Iterate over a list of items."
     category = "Control"
+    config_schema = {
+        "delay_ms": {"type": "number", "description": "Delay between iterations in milliseconds.", "default": 500},
+    }
 
     def _setup_ports(self):
         self.add_input("items", PortType.ANY, "Items to iterate over")

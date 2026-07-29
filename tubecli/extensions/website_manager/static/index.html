@@ -1,0 +1,1491 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Website Manager — TubeCLI</title>
+  <meta name="description" content="Quản lý và deploy websites Cloudflare Workers với giao diện card list trực quan." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #080c14;
+      --surface: #0d1520;
+      --surface2: #111d2e;
+      --surface3: #162134;
+      --border: rgba(99,170,255,.12);
+      --border-hover: rgba(99,170,255,.28);
+      --accent: #3b82f6;
+      --accent2: #6366f1;
+      --accent-glow: rgba(59,130,246,.35);
+      --green: #10b981;
+      --yellow: #f59e0b;
+      --red: #ef4444;
+      --orange: #f97316;
+      --purple: #8b5cf6;
+      --cf-orange: #f6821f;
+      --text: #e2e8f0;
+      --text2: #94a3b8;
+      --text3: #475569;
+      --radius: 14px;
+      --radius-sm: 8px;
+      --shadow: 0 8px 32px rgba(0,0,0,.5);
+    }
+
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: linear-gradient(135deg, var(--surface) 0%, #0a1628 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 18px 28px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky; top: 0; z-index: 50;
+      backdrop-filter: blur(12px);
+    }
+    .header-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.02em; }
+    .header p { font-size: .8rem; color: var(--text2); margin-top: 1px; }
+    .header-actions { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 16px; border-radius: var(--radius-sm); border: none;
+      font-size: .875rem; font-weight: 600; cursor: pointer;
+      transition: all .18s ease; letter-spacing: -.01em;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      box-shadow: 0 4px 14px var(--accent-glow);
+    }
+    .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px var(--accent-glow); }
+    .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--surface2); color: var(--text); border-color: var(--border-hover); }
+    .btn-danger { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.25); }
+    .btn-danger:hover { background: rgba(239,68,68,.25); }
+    .btn-cf {
+      background: linear-gradient(135deg, #f6821f, #e85d04);
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(246,130,31,.35);
+    }
+    .btn-cf:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(246,130,31,.5); }
+    .btn-sm { padding: 5px 10px; font-size: .78rem; }
+    .btn-icon { padding: 7px; border-radius: var(--radius-sm); }
+
+    /* ── Main content ── */
+    .main { padding: 28px; max-width: 1400px; margin: 0 auto; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: flex; gap: 16px; margin-bottom: 28px; flex-wrap: wrap;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      min-width: 140px; flex: 1;
+      transition: border-color .2s;
+    }
+    .stat-card:hover { border-color: var(--border-hover); }
+    .stat-label { font-size: .75rem; color: var(--text2); font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
+    .stat-value { font-size: 1.75rem; font-weight: 800; margin-top: 4px; }
+    .stat-active .stat-value { color: var(--green); }
+    .stat-deploying .stat-value { color: var(--yellow); }
+    .stat-failed .stat-value { color: var(--red); }
+    .stat-total .stat-value { color: var(--accent); }
+
+    /* ── CF Profile bar ── */
+    .cf-bar {
+      background: linear-gradient(135deg, rgba(246,130,31,.1), rgba(246,130,31,.04));
+      border: 1px solid rgba(246,130,31,.22);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      display: flex; align-items: center; gap: 12px;
+      margin-bottom: 24px;
+    }
+    .cf-bar-icon { font-size: 1.4rem; }
+    .cf-bar-info { flex: 1; }
+    .cf-bar-info span { font-size: .8rem; color: var(--text2); display: block; }
+    .cf-bar-info strong { font-size: .95rem; color: #f6821f; }
+    .cf-status { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
+    .cf-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .cf-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .cf-dot.none { background: var(--text3); }
+
+    /* ── Section header ── */
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px; gap: 12px;
+    }
+    .section-title { font-size: 1.05rem; font-weight: 700; }
+    .search-box {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 14px;
+      transition: border-color .2s;
+    }
+    .search-box:focus-within { border-color: var(--accent); }
+    .search-box input {
+      background: none; border: none; outline: none;
+      color: var(--text); font-size: .875rem; width: 220px;
+    }
+    .search-box input::placeholder { color: var(--text3); }
+
+    /* ── Website Cards Grid ── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 20px;
+    }
+
+    .site-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: all .22s ease;
+      position: relative;
+      cursor: default;
+    }
+    .site-card:hover {
+      border-color: var(--border-hover);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 40px rgba(0,0,0,.4);
+    }
+
+    /* Status stripe */
+    .site-card::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .site-card.active::before { background: linear-gradient(90deg, var(--green), #34d399); }
+    .site-card.deploying::before { background: linear-gradient(90deg, var(--yellow), #fbbf24); animation: pulse-stripe 1.5s ease-in-out infinite; }
+    .site-card.failed::before { background: linear-gradient(90deg, var(--red), #f87171); }
+
+    @keyframes pulse-stripe {
+      0%, 100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    /* Thumbnail */
+    .card-thumb {
+      width: 100%; height: 160px;
+      background: linear-gradient(135deg, var(--surface2), var(--surface3));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 3.5rem;
+      position: relative; overflow: hidden;
+    }
+    .card-thumb img {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      transition: transform .3s ease;
+    }
+    .site-card:hover .card-thumb img { transform: scale(1.04); }
+    .card-thumb-overlay {
+      position: absolute; inset: 0;
+      background: linear-gradient(to bottom, transparent 50%, rgba(8,12,20,.7) 100%);
+    }
+
+    /* Status badge */
+    .status-badge {
+      position: absolute; top: 10px; right: 10px;
+      padding: 3px 10px; border-radius: 99px;
+      font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+    }
+    .badge-active { background: rgba(16,185,129,.2); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+    .badge-deploying { background: rgba(245,158,11,.2); color: var(--yellow); border: 1px solid rgba(245,158,11,.3); animation: blink .8s ease-in-out infinite; }
+    .badge-failed { background: rgba(239,68,68,.2); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+    @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
+
+    /* Card body */
+    .card-body { padding: 16px; }
+    .card-name { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .card-url {
+      font-size: .75rem; color: var(--accent);
+      text-decoration: none; display: flex; align-items: center; gap: 4px;
+      margin-bottom: 12px; word-break: break-all;
+    }
+    .card-url:hover { text-decoration: underline; }
+
+    /* Token row */
+    .token-row {
+      display: flex; align-items: center; gap: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 7px 10px;
+      margin-bottom: 6px;
+    }
+    .token-label { font-size: .7rem; color: var(--text2); font-weight: 600; min-width: 75px; }
+    .token-value {
+      font-size: .73rem; font-family: 'Courier New', monospace;
+      color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .token-toggle { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px; font-size: .85rem; }
+    .token-toggle:hover { color: var(--text2); }
+    .token-copy { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px; font-size: .85rem; }
+    .token-copy:hover { color: var(--accent); }
+
+    /* Card actions */
+    .card-actions {
+      display: flex; gap: 8px; margin-top: 14px;
+      padding-top: 12px; border-top: 1px solid var(--border);
+    }
+    .card-actions .btn { flex: 1; justify-content: center; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      grid-column: 1/-1;
+      text-align: center;
+      padding: 80px 20px;
+    }
+    .empty-icon { font-size: 4rem; margin-bottom: 16px; opacity: .4; }
+    .empty-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 8px; }
+    .empty-desc { color: var(--text2); font-size: .9rem; margin-bottom: 24px; }
+
+    /* ── Modal Overlay ── */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,.75);
+      backdrop-filter: blur(6px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+      opacity: 0; pointer-events: none;
+      transition: opacity .22s ease;
+    }
+    .modal-overlay.open { opacity: 1; pointer-events: all; }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 80px rgba(0,0,0,.7);
+      transform: scale(.95) translateY(10px);
+      transition: transform .22s ease;
+    }
+    .modal-overlay.open .modal { transform: scale(1) translateY(0); }
+
+    .modal-sm { max-width: 480px; }
+    .modal-md { max-width: 640px; }
+    .modal-lg { max-width: 860px; }
+    .modal-xl { max-width: 1020px; }
+
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .modal-header h2 { font-size: 1.1rem; font-weight: 700; }
+    .modal-close {
+      margin-left: auto; background: none; border: none;
+      color: var(--text3); cursor: pointer; font-size: 1.2rem;
+      padding: 4px; border-radius: 6px; transition: all .15s;
+    }
+    .modal-close:hover { background: var(--surface2); color: var(--text); }
+    .modal-body { padding: 24px; }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex; gap: 4px;
+      background: var(--surface2);
+      border-radius: var(--radius-sm);
+      padding: 4px;
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      flex: 1; padding: 8px 12px;
+      background: none; border: none; border-radius: 6px;
+      color: var(--text2); cursor: pointer;
+      font-size: .85rem; font-weight: 600; transition: all .15s;
+    }
+    .tab-btn.active { background: var(--surface3); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Form ── */
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block; font-size: .8rem; font-weight: 600; color: var(--text2);
+      margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em;
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: .875rem;
+      font-family: inherit;
+      transition: border-color .2s, box-shadow .2s;
+      outline: none;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.15);
+    }
+    .form-select option { background: var(--surface2); }
+    .form-textarea { resize: vertical; min-height: 80px; }
+    .form-hint { font-size: .73rem; color: var(--text3); margin-top: 4px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .input-with-action { display: flex; gap: 8px; }
+    .input-with-action .form-input { flex: 1; }
+
+    /* ── CF Profile Select ── */
+    .cf-profile-select-box {
+      background: linear-gradient(135deg, rgba(246,130,31,.08), rgba(246,130,31,.03));
+      border: 1px solid rgba(246,130,31,.22);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .cf-profile-select-box .form-label { color: #f6821f; }
+    .cf-profile-option {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid rgba(246,130,31,.12);
+      cursor: pointer;
+    }
+    .cf-profile-option:last-child { border-bottom: none; }
+    .cf-profile-option input[type=radio] { accent-color: #f6821f; }
+    .cf-profile-name { font-size: .88rem; font-weight: 600; }
+    .cf-profile-meta { font-size: .73rem; color: var(--text2); }
+
+    /* ── Theme Picker ── */
+    .themes-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px; margin-bottom: 20px;
+    }
+    .theme-card {
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      cursor: pointer;
+      transition: all .18s ease;
+      position: relative;
+    }
+    .theme-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+    .theme-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+    .theme-thumb {
+      height: 110px;
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2.5rem; position: relative;
+    }
+    .theme-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .theme-check {
+      position: absolute; top: 8px; right: 8px;
+      width: 22px; height: 22px;
+      background: var(--accent); border-radius: 50%;
+      display: none; align-items: center; justify-content: center;
+      color: #fff; font-size: .75rem;
+    }
+    .theme-card.selected .theme-check { display: flex; }
+    .theme-info { padding: 10px; }
+    .theme-name { font-size: .82rem; font-weight: 700; margin-bottom: 3px; }
+    .theme-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .theme-tag {
+      background: rgba(99,130,255,.12);
+      color: #94a3b8; padding: 1px 6px;
+      border-radius: 99px; font-size: .65rem; font-weight: 600;
+    }
+
+    /* ── Deploy Terminal ── */
+    .terminal {
+      background: #030712;
+      border: 1px solid rgba(99,170,255,.15);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .terminal-header {
+      background: #0d1520;
+      padding: 10px 16px;
+      display: flex; align-items: center; gap: 8px;
+      border-bottom: 1px solid rgba(99,170,255,.1);
+    }
+    .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .terminal-title { font-size: .78rem; color: var(--text2); margin-left: 4px; }
+    .terminal-body {
+      font-family: 'Courier New', monospace;
+      font-size: .75rem;
+      line-height: 1.65;
+      padding: 14px 16px;
+      height: 340px; overflow-y: auto;
+      color: #cbd5e1;
+      white-space: pre-wrap; word-break: break-all;
+    }
+    .terminal-body .log-err { color: #f87171; }
+    .terminal-body .log-ok { color: #4ade80; }
+    .terminal-body .log-info { color: #60a5fa; }
+    .terminal-body .log-warn { color: #fbbf24; }
+    .deploy-progress {
+      padding: 12px 16px;
+      border-top: 1px solid rgba(99,170,255,.1);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .progress-bar {
+      flex: 1; height: 4px; background: var(--surface3); border-radius: 99px; overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      transition: width .5s ease;
+    }
+    .progress-label { font-size: .75rem; color: var(--text2); min-width: 32px; text-align: right; }
+
+    /* ── Toast ── */
+    .toast-container {
+      position: fixed; top: 20px; right: 20px; z-index: 200;
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .toast {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      display: flex; align-items: center; gap: 10px;
+      box-shadow: var(--shadow);
+      pointer-events: all;
+      animation: toast-in .25s ease forwards;
+      max-width: 340px;
+    }
+    .toast.error { border-color: rgba(239,68,68,.4); }
+    .toast.success { border-color: rgba(16,185,129,.3); }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(20px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── Spinner ── */
+    .spinner { animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 99px; }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .main { padding: 16px; }
+      .form-row { grid-template-columns: 1fr; }
+      .stats-bar { gap: 10px; }
+      .cards-grid { grid-template-columns: 1fr; }
+      .themes-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="header">
+  <div class="header-icon">🌐</div>
+  <div>
+    <h1>Website Manager</h1>
+    <p>Quản lý và deploy websites Cloudflare Workers</p>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost btn-sm" id="btn-manage-cf" title="Cấu hình Cloudflare Keys">
+      <span>⚡</span> Cloud Keys
+    </button>
+    <button class="btn btn-primary" id="btn-open-add">
+      <span>＋</span> Thêm website
+    </button>
+  </div>
+</header>
+
+<!-- ── Main ── -->
+<main class="main">
+
+  <!-- Stats -->
+  <div class="stats-bar">
+    <div class="stat-card stat-total"><div class="stat-label">Tổng cộng</div><div class="stat-value" id="stat-total">0</div></div>
+    <div class="stat-card stat-active"><div class="stat-label">Đang hoạt động</div><div class="stat-value" id="stat-active">0</div></div>
+    <div class="stat-card stat-deploying"><div class="stat-label">Đang deploy</div><div class="stat-value" id="stat-deploying">0</div></div>
+    <div class="stat-card stat-failed"><div class="stat-label">Thất bại</div><div class="stat-value" id="stat-failed">0</div></div>
+  </div>
+
+  <!-- CF profile bar -->
+  <div class="cf-bar" id="cf-bar">
+    <div class="cf-bar-icon">⚡</div>
+    <div class="cf-bar-info">
+      <span>Cloudflare Credentials</span>
+      <strong id="cf-bar-text">Chưa cấu hình</strong>
+    </div>
+    <div class="cf-status">
+      <div class="cf-dot none" id="cf-dot"></div>
+      <span id="cf-status-text" style="color:var(--text2)">Chưa kết nối</span>
+    </div>
+    <button class="btn btn-cf btn-sm" id="btn-cf-setup">Cấu hình</button>
+  </div>
+
+  <!-- Section header -->
+  <div class="section-header">
+    <div class="section-title">📋 Danh sách Websites</div>
+    <div class="search-box">
+      <span style="color:var(--text3)">🔍</span>
+      <input type="text" id="search-input" placeholder="Tìm kiếm website..." />
+    </div>
+  </div>
+
+  <!-- Cards grid -->
+  <div class="cards-grid" id="cards-grid">
+    <div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text3);">
+      <div class="spinner" style="font-size:1.5rem; display:inline-block;">⟳</div>
+      <div style="margin-top:12px;">Đang tải...</div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── Toast Container ── -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Thêm / Tạo Website
+     ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-add">
+  <div class="modal modal-xl">
+    <div class="modal-header">
+      <span style="font-size:1.3rem">🌐</span>
+      <h2>Thêm Website</h2>
+      <button class="modal-close" data-close="modal-add">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="tab-manual">📋 Thêm thủ công</button>
+        <button class="tab-btn" data-tab="tab-deploy">🚀 Tạo & Deploy mới</button>
+      </div>
+
+      <!-- Tab: Manual -->
+      <div class="tab-pane active" id="tab-manual">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tên website *</label>
+            <input class="form-input" id="m-name" placeholder="my-website" />
+            <div class="form-hint">Chữ thường, số, dấu gạch ngang</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">URL Deploy</label>
+            <input class="form-input" id="m-url" placeholder="https://my-website.workers.dev" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">User Token</label>
+            <input class="form-input" id="m-user-token" type="password" placeholder="Token người dùng" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">WP Token (Admin JWT)</label>
+            <input class="form-input" id="m-wp-token" type="password" placeholder="Token admin WordPress/CMS" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Thumbnail URL</label>
+          <input class="form-input" id="m-thumbnail" placeholder="https://..." />
+        </div>
+      </div>
+
+      <!-- Tab: Deploy -->
+      <div class="tab-pane" id="tab-deploy">
+        <!-- Error banner for instant user feedback -->
+        <div id="deploy-error-banner" style="display:none; padding:12px 16px; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.35); color:#f87171; border-radius:var(--radius-sm); margin-bottom:16px; font-size:.85rem; font-weight:600;"></div>
+
+        <!-- Theme picker -->
+        <div class="form-group">
+          <label class="form-label">📐 Chọn Theme *</label>
+          <div class="themes-grid" id="themes-grid">
+            <div style="color:var(--text3); padding:20px; text-align:center; grid-column:1/-1;">
+              <div class="spinner" style="display:inline-block;">⟳</div> Đang tải themes...
+            </div>
+          </div>
+          <input type="hidden" id="d-template-id" />
+          <input type="hidden" id="d-github-url" />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tên website * <span style="color:var(--text3); font-weight:400; text-transform:none;">(site-name.workers.dev)</span></label>
+            <input class="form-input" id="d-name" placeholder="my-blog" autocomplete="off" />
+            <div class="form-hint">Tự động chuyển thành chữ thường, số, dấu gạch ngang</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tiêu đề website</label>
+            <input class="form-input" id="d-title" placeholder="Tên hiển thị của website" />
+          </div>
+        </div>
+
+        <!-- CF Credentials section -->
+        <div style="background:linear-gradient(135deg,rgba(246,130,31,.08),rgba(246,130,31,.02)); border:1px solid rgba(246,130,31,.22); border-radius:var(--radius); padding:16px; margin-bottom:16px;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+            <span style="font-size:1.2rem;">⚡</span>
+            <span style="font-size:.9rem; font-weight:700; color:#f6821f;">Cloudflare Credentials</span>
+            <span style="margin-left:auto; font-size:.75rem; color:var(--text3);" id="cf-cred-source">Nhập thủ công</span>
+          </div>
+
+          <!-- Saved profiles dropdown -->
+          <div class="form-group" id="cf-profiles-section" style="display:none;">
+            <label class="form-label" style="color:#f6821f;">Profile đã lưu</label>
+            <div style="display:flex; gap:8px;">
+              <select class="form-select" id="d-cf-profile" style="border-color:rgba(246,130,31,.3);">
+                <option value="">-- Nhập thủ công --</option>
+              </select>
+              <button class="btn btn-sm" style="background:rgba(246,130,31,.15); color:#f6821f; border:1px solid rgba(246,130,31,.3);" id="btn-use-profile">Dùng profile này</button>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">CF API Token *</label>
+              <input class="form-input" id="d-cf-token" type="password" placeholder="cfut_xxxxxxxxxxxx" style="border-color:rgba(246,130,31,.3);" />
+              <div class="form-hint">Tạo tại: Cloudflare Dashboard → API Tokens</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">CF Account ID *</label>
+              <input class="form-input" id="d-cf-account" placeholder="32-character hex" style="border-color:rgba(246,130,31,.3);" />
+              <div class="form-hint">Cloudflare Dashboard → bên phải trang chủ</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-save-cf-inline">💾 Lưu vào Cloud Keys</button>
+            <span style="font-size:.75rem; color:var(--text3);">Lưu để dùng lại lần sau</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Mật khẩu Admin *</label>
+          <input class="form-input" id="d-admin-pw" type="password" placeholder="Tối thiểu 8 ký tự" />
+          <div class="form-hint">Mật khẩu để đăng nhập trang quản trị /admin</div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-add">Hủy</button>
+      <button class="btn btn-primary" id="btn-submit-add">
+        <span id="submit-add-icon">＋</span> <span id="submit-add-text">Thêm Website</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Deploy Terminal
+     ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-deploy">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <span style="font-size:1.3rem">🚀</span>
+      <h2 id="deploy-modal-title">Deploy <em id="deploy-site-name"></em></h2>
+      <div class="cf-dot" id="deploy-status-dot" style="margin-left:8px;"></div>
+      <button class="modal-close" data-close="modal-deploy">✕</button>
+    </div>
+    <div class="modal-body" style="padding:16px;">
+      <div class="terminal">
+        <div class="terminal-header">
+          <div class="terminal-dot" style="background:#ef4444;"></div>
+          <div class="terminal-dot" style="background:#f59e0b;"></div>
+          <div class="terminal-dot" style="background:#10b981;"></div>
+          <span class="terminal-title">Deploy Log — <span id="terminal-site-name"></span></span>
+        </div>
+        <div class="terminal-body" id="terminal-body">Đang kết nối log stream...</div>
+        <div class="deploy-progress">
+          <span style="font-size:.75rem; color:var(--text2);" id="deploy-step-label">Đang chuẩn bị...</span>
+          <div class="progress-bar"><div class="progress-fill" id="deploy-progress-fill" style="width:0%"></div></div>
+          <span class="progress-label" id="deploy-progress-pct">0%</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-deploy">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Cloudflare Key Manager
+     ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-cf">
+  <div class="modal modal-md">
+    <div class="modal-header">
+      <span style="font-size:1.3rem;">⚡</span>
+      <h2>Cloudflare Credentials</h2>
+      <button class="modal-close" data-close="modal-cf">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:.85rem; color:var(--text2); margin-bottom:20px;">
+        Lưu API Token và Account ID để tái sử dụng khi deploy website. Dữ liệu lưu trong <strong>Cloud Keys</strong>.
+      </p>
+
+      <!-- Existing profiles -->
+      <div id="cf-profiles-list" style="margin-bottom:20px;"></div>
+
+      <!-- Add new -->
+      <div style="border:1px solid rgba(246,130,31,.2); border-radius:var(--radius); padding:16px; background:rgba(246,130,31,.04);">
+        <div style="font-size:.85rem; font-weight:700; color:#f6821f; margin-bottom:14px;">➕ Thêm / Cập nhật Profile</div>
+        <div class="form-group">
+          <label class="form-label">Tên profile</label>
+          <input class="form-input" id="cf-new-label" value="default" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">CF API Token *</label>
+          <input class="form-input" id="cf-new-token" type="password" placeholder="cfut_xxxxxxxxxxxx" />
+          <div class="form-hint">Cloudflare Dashboard → My Profile → API Tokens → Create Token</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">CF Account ID *</label>
+          <input class="form-input" id="cf-new-account" placeholder="32-character hexadecimal" />
+          <div class="form-hint">Cloudflare Dashboard → Trang chủ → sidebar phải</div>
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button class="btn btn-cf" id="btn-save-cf" style="flex:1;">💾 Lưu Credentials</button>
+          <button class="btn btn-ghost btn-sm" id="btn-verify-cf">✓ Xác thực</button>
+        </div>
+        <div id="cf-verify-result" style="margin-top:10px; font-size:.8rem;"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-cf">Đóng</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     MODAL: Edit Website
+     ═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <span>✏️</span>
+      <h2>Chỉnh sửa Website</h2>
+      <button class="modal-close" data-close="modal-edit">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-site-id" />
+      <div class="form-group">
+        <label class="form-label">Tên website</label>
+        <input class="form-input" id="edit-name" disabled style="opacity:.6;" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL Deploy</label>
+        <input class="form-input" id="edit-url" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">User Token</label>
+        <input class="form-input" id="edit-user-token" type="password" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">WP Token</label>
+        <input class="form-input" id="edit-wp-token" type="password" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Thumbnail URL</label>
+        <input class="form-input" id="edit-thumbnail" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" data-close="modal-edit">Hủy</button>
+      <button class="btn btn-primary" id="btn-save-edit">💾 Lưu thay đổi</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// Config
+// ═══════════════════════════════════════════════════════════════
+const API_BASE = '';
+let _sites = [];
+let _templates = [];
+let _cfProfiles = [];
+let _sseConnection = null;
+
+// ═══════════════════════════════════════════════════════════════
+// Utilities
+// ═══════════════════════════════════════════════════════════════
+async function api(method, url, body, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' }, signal: controller.signal };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(API_BASE + url, opts);
+    clearTimeout(timer);
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.detail || data.message || r.statusText);
+    return data;
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error('Hết thời gian phản hồi (Timeout). Vui lòng thử lại.');
+    throw e;
+  }
+}
+
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${msg}</span>`;
+  c.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function mask(val) {
+  if (!val) return '—';
+  return val.slice(0, 4) + '••••' + val.slice(-4);
+}
+
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+function statusBadge(status) {
+  const map = { active: 'badge-active', deploying: 'badge-deploying', failed: 'badge-failed' };
+  const label = { active: '✓ Active', deploying: '⟳ Deploying', failed: '✗ Failed' };
+  return `<div class="status-badge ${map[status] || 'badge-active'}">${label[status] || status}</div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Load websites
+// ═══════════════════════════════════════════════════════════════
+async function loadSites() {
+  try {
+    const data = await api('GET', '/api/v1/website-manager/sites');
+    _sites = data.sites || [];
+    renderCards();
+    updateStats();
+  } catch (e) {
+    document.getElementById('cards-grid').innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">⚠️</div>
+        <div class="empty-title">Không thể tải danh sách</div>
+        <div class="empty-desc">${e.message}</div>
+        <button class="btn btn-ghost" onclick="loadSites()">Thử lại</button>
+      </div>`;
+  }
+}
+
+function updateStats() {
+  document.getElementById('stat-total').textContent = _sites.length;
+  document.getElementById('stat-active').textContent = _sites.filter(s => s.status === 'active').length;
+  document.getElementById('stat-deploying').textContent = _sites.filter(s => s.status === 'deploying').length;
+  document.getElementById('stat-failed').textContent = _sites.filter(s => s.status === 'failed').length;
+}
+
+function renderCards(filter = '') {
+  const grid = document.getElementById('cards-grid');
+  const sites = filter ? _sites.filter(s => s.name.includes(filter) || (s.deploy_url || '').includes(filter)) : _sites;
+
+  if (!sites.length) {
+    grid.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🌐</div>
+        <div class="empty-title">${filter ? 'Không tìm thấy' : 'Chưa có website nào'}</div>
+        <div class="empty-desc">${filter ? `Không có website khớp với "${filter}"` : 'Nhấn "+ Thêm website" để bắt đầu.'}</div>
+        ${!filter ? '<button class="btn btn-primary" onclick="openAddModal()">＋ Thêm website đầu tiên</button>' : ''}
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = sites.map(s => buildCard(s)).join('');
+
+  // Add event listeners
+  grid.querySelectorAll('.btn-edit').forEach(btn => {
+    btn.addEventListener('click', () => openEditModal(btn.dataset.id));
+  });
+  grid.querySelectorAll('.btn-delete').forEach(btn => {
+    btn.addEventListener('click', () => deleteSite(btn.dataset.id, btn.dataset.name));
+  });
+  grid.querySelectorAll('.btn-logs').forEach(btn => {
+    btn.addEventListener('click', () => openDeployModal(btn.dataset.name, false));
+  });
+  grid.querySelectorAll('[data-copy]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(btn.dataset.copy);
+      toast('Đã copy!', 'success');
+    });
+  });
+  grid.querySelectorAll('.token-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tgt = document.getElementById(btn.dataset.target);
+      const hidden = tgt.dataset.hidden === 'true';
+      tgt.textContent = hidden ? tgt.dataset.real : mask(tgt.dataset.real);
+      tgt.dataset.hidden = !hidden;
+      btn.textContent = hidden ? '🙈' : '👁';
+    });
+  });
+}
+
+function buildCard(s) {
+  const thumb = s.thumbnail
+    ? `<img src="${s.thumbnail}" alt="${s.name}" onerror="this.style.display='none'" />`
+    : `<span>🌐</span>`;
+  const userReal = s.user_token || '';
+  const wpReal = s.wp_token || '';
+  const userMasked = mask(userReal);
+  const wpMasked = mask(wpReal);
+  const urlDisplay = s.deploy_url || 'Chưa deploy';
+
+  return `
+  <div class="site-card ${s.status || 'active'}">
+    <div class="card-thumb">
+      ${thumb}
+      <div class="card-thumb-overlay"></div>
+      ${statusBadge(s.status || 'active')}
+    </div>
+    <div class="card-body">
+      <div class="card-name">${s.name}</div>
+      ${s.deploy_url
+        ? `<a href="${s.deploy_url}" target="_blank" class="card-url">🔗 ${s.deploy_url} ↗</a>`
+        : `<div class="card-url" style="color:var(--text3);">Chưa có URL</div>`}
+
+      ${userReal ? `
+      <div class="token-row">
+        <span class="token-label">User Token</span>
+        <span class="token-value" id="ut-${s.id}" data-real="${userReal}" data-hidden="true">${userMasked}</span>
+        <button class="token-toggle" data-target="ut-${s.id}">👁</button>
+        <button class="token-copy" data-copy="${userReal}" title="Copy">📋</button>
+      </div>` : ''}
+
+      ${wpReal ? `
+      <div class="token-row">
+        <span class="token-label">WP Token</span>
+        <span class="token-value" id="wp-${s.id}" data-real="${wpReal}" data-hidden="true">${wpMasked}</span>
+        <button class="token-toggle" data-target="wp-${s.id}">👁</button>
+        <button class="token-copy" data-copy="${wpReal}" title="Copy">📋</button>
+      </div>` : ''}
+
+      <div class="card-actions">
+        ${s.deploy_url ? `<a href="${s.deploy_url}" target="_blank" class="btn btn-ghost btn-sm">↗ Mở</a>` : ''}
+        ${s.status === 'deploying' ? `<button class="btn btn-ghost btn-sm btn-logs" data-name="${s.name}">📋 Xem log</button>` : ''}
+        <button class="btn btn-ghost btn-sm btn-edit" data-id="${s.id}">✏️ Sửa</button>
+        <button class="btn btn-danger btn-sm btn-delete" data-id="${s.id}" data-name="${s.name}">🗑</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloudflare profiles
+// ═══════════════════════════════════════════════════════════════
+async function loadCfProfiles() {
+  try {
+    const data = await api('GET', '/api/v1/website-manager/cloudflare-profiles');
+    _cfProfiles = data.profiles || [];
+    renderCfBar();
+    renderCfProfilesInDeploy();
+  } catch (e) { /* silent */ }
+}
+
+function renderCfBar() {
+  const dot = document.getElementById('cf-dot');
+  const text = document.getElementById('cf-bar-text');
+  const statusText = document.getElementById('cf-status-text');
+  if (_cfProfiles.length > 0) {
+    const def = _cfProfiles.find(p => p.label === 'default') || _cfProfiles[0];
+    text.textContent = `${def.label} · Account: ${def.account_id ? def.account_id.slice(0, 8) + '...' : 'N/A'}`;
+    dot.className = 'cf-dot ok';
+    statusText.textContent = `${_cfProfiles.length} profile(s)`;
+    statusText.style.color = 'var(--green)';
+  } else {
+    text.textContent = 'Chưa cấu hình Cloudflare credentials';
+    dot.className = 'cf-dot none';
+    statusText.textContent = 'Chưa kết nối';
+    statusText.style.color = 'var(--text2)';
+  }
+}
+
+function renderCfProfilesInDeploy() {
+  const section = document.getElementById('cf-profiles-section');
+  const sel = document.getElementById('d-cf-profile');
+  const source = document.getElementById('cf-cred-source');
+  sel.innerHTML = '<option value="">-- Nhập thủ công --</option>';
+  if (_cfProfiles.length > 0) {
+    section.style.display = 'block';
+    _cfProfiles.forEach(p => {
+      sel.innerHTML += `<option value="${p.label}">${p.label} (${p.account_id ? p.account_id.slice(0,12)+'...' : '—'})</option>`;
+    });
+    // Auto-select default
+    const def = _cfProfiles.find(p => p.label === 'default');
+    if (def) {
+      sel.value = 'default';
+      source.textContent = 'Từ Cloud Keys';
+    }
+  } else {
+    section.style.display = 'none';
+  }
+}
+
+function renderCfProfilesModal() {
+  const list = document.getElementById('cf-profiles-list');
+  if (!_cfProfiles.length) {
+    list.innerHTML = '<div style="color:var(--text3); font-size:.85rem; text-align:center; padding:16px;">Chưa có profile nào.</div>';
+    return;
+  }
+  list.innerHTML = _cfProfiles.map(p => `
+    <div style="display:flex; align-items:center; gap:12px; padding:10px; background:var(--surface2); border-radius:var(--radius-sm); margin-bottom:8px; border:1px solid var(--border);">
+      <span style="font-size:1.1rem;">⚡</span>
+      <div style="flex:1;">
+        <div style="font-size:.88rem; font-weight:700;">${p.label}</div>
+        <div style="font-size:.73rem; color:var(--text2);">Token: ${p.masked_token} · Account: ${p.account_id || '—'}</div>
+      </div>
+      <div class="cf-dot ${p.active ? 'ok' : 'none'}"></div>
+      <button class="btn btn-ghost btn-sm" onclick="deleteCfProfile('${p.label}')">🗑</button>
+    </div>
+  `).join('');
+}
+
+async function deleteCfProfile(label) {
+  if (!confirm(`Xóa profile "${label}"?`)) return;
+  try {
+    await api('DELETE', `/api/v1/cloud-api/cloudflare/profiles/${label}`);
+    toast('Đã xóa profile!', 'success');
+    await loadCfProfiles();
+    renderCfProfilesModal();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Templates
+// ═══════════════════════════════════════════════════════════════
+async function loadTemplates() {
+  try {
+    const data = await api('GET', '/api/v1/website-manager/templates');
+    _templates = data.templates || [];
+    renderThemes();
+  } catch (e) {
+    document.getElementById('themes-grid').innerHTML = `<div style="color:var(--red); grid-column:1/-1;">Lỗi tải themes: ${e.message}</div>`;
+  }
+}
+
+function renderThemes() {
+  const grid = document.getElementById('themes-grid');
+  grid.innerHTML = _templates.map(t => `
+    <div class="theme-card" data-id="${t.id}" data-github="${t.githubUrl || ''}" onclick="selectTheme('${t.id}', '${t.githubUrl || ''}')">
+      <div class="theme-thumb" style="background:${t.color || '#1a2332'}22;">
+        ${t.thumbnail ? `<img src="https://autoweb.tubecreate.com${t.thumbnail}" alt="${t.name}" onerror="this.style.display='none'" />` : '🌐'}
+        <div class="theme-check">✓</div>
+      </div>
+      <div class="theme-info">
+        <div class="theme-name">${t.name}</div>
+        <div class="theme-tags">${(t.tags || []).map(tag => `<span class="theme-tag">${tag}</span>`).join('')}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function selectTheme(id, githubUrl) {
+  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.theme-card[data-id="${id}"]`)?.classList.add('selected');
+  document.getElementById('d-template-id').value = id;
+  document.getElementById('d-github-url').value = githubUrl;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Modal: Add Website
+// ═══════════════════════════════════════════════════════════════
+function openAddModal() {
+  openModal('modal-add');
+  loadTemplates();
+  renderCfProfilesInDeploy();
+  // Reset tab
+  switchTab('tab-manual');
+}
+
+function switchTab(tabId) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tabId)?.classList.add('active');
+  document.querySelector(`[data-tab="${tabId}"]`)?.classList.add('active');
+  const submitText = document.getElementById('submit-add-text');
+  const submitIcon = document.getElementById('submit-add-icon');
+  if (tabId === 'tab-deploy') {
+    submitText.textContent = 'Deploy Website';
+    submitIcon.textContent = '🚀';
+  } else {
+    submitText.textContent = 'Thêm Website';
+    submitIcon.textContent = '＋';
+  }
+}
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+document.getElementById('btn-submit-add').addEventListener('click', async () => {
+  const activeTab = document.querySelector('.tab-pane.active')?.id;
+  if (activeTab === 'tab-manual') {
+    await submitManual();
+  } else {
+    await submitDeploy();
+  }
+});
+
+async function submitManual() {
+  const name = document.getElementById('m-name').value.trim();
+  if (!name) return toast('Tên website là bắt buộc.', 'error');
+  try {
+    await api('POST', '/api/v1/website-manager/sites', {
+      name,
+      user_token: document.getElementById('m-user-token').value.trim(),
+      wp_token: document.getElementById('m-wp-token').value.trim(),
+      thumbnail: document.getElementById('m-thumbnail').value.trim(),
+      deploy_url: document.getElementById('m-url').value.trim(),
+    });
+    toast(`Website "${name}" đã được thêm!`, 'success');
+    closeModal('modal-add');
+    loadSites();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function submitDeploy() {
+  const errBanner = document.getElementById('deploy-error-banner');
+  if (errBanner) errBanner.style.display = 'none';
+
+  let templateId = document.getElementById('d-template-id').value;
+  let githubUrl = document.getElementById('d-github-url').value;
+  let name = document.getElementById('d-name').value.trim();
+  const title = document.getElementById('d-title').value.trim();
+  const adminPw = document.getElementById('d-admin-pw').value.trim();
+  const cfToken = document.getElementById('d-cf-token').value.trim();
+  const cfAccount = document.getElementById('d-cf-account').value.trim();
+  const cfProfileLabel = document.getElementById('d-cf-profile').value;
+
+  const showErr = (msg) => {
+    if (errBanner) {
+      errBanner.innerHTML = '⚠️ ' + msg;
+      errBanner.style.display = 'block';
+      errBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    toast(msg, 'error');
+  };
+
+  if (!templateId) return showErr('Vui lòng nhấp chọn một Theme ở danh sách phía trên.');
+
+  // Auto-slugify name
+  name = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  document.getElementById('d-name').value = name;
+
+  if (!name) return showErr('Vui lòng nhập Tên website.');
+  if (!/^[a-z0-9\-]+$/.test(name)) return showErr('Tên website chỉ được chứa chữ thường, số và dấu gạch ngang (VD: my-website).');
+  if (!adminPw) return showErr('Vui lòng nhập Mật khẩu Admin.');
+  if (adminPw.length < 8) return showErr('Mật khẩu Admin phải có tối thiểu 8 ký tự.');
+
+  // Check CF credentials resolution
+  if (!cfToken && !cfAccount && !cfProfileLabel && _cfProfiles.length === 0) {
+    return showErr('Chưa cấu hình Cloudflare Credentials! Hãy chọn profile hoặc nhập CF API Token + Account ID.');
+  }
+
+  // Visual button feedback
+  const submitBtn = document.getElementById('btn-submit-add');
+  const origHtml = submitBtn.innerHTML;
+  submitBtn.disabled = true;
+  submitBtn.innerHTML = '<div class="spinner" style="display:inline-block">⟳</div> Đang khởi tạo deploy...';
+
+  try {
+    const payload = { name, template_id: templateId, github_url: githubUrl, admin_password: adminPw, site_title: title || name };
+    if (cfToken) payload.cf_api_token = cfToken;
+    if (cfAccount) payload.cf_account_id = cfAccount;
+    if (cfProfileLabel) payload.cf_profile_label = cfProfileLabel;
+
+    const res = await api('POST', '/api/v1/website-manager/sites/deploy', payload);
+    closeModal('modal-add');
+    toast(`Deploy "${name}" đã bắt đầu!`, 'success');
+    loadSites();
+    setTimeout(() => openDeployModal(name), 300);
+  } catch (e) {
+    showErr(e.message || 'Lỗi không xác định khi gọi API deploy');
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = origHtml;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Deploy terminal modal
+// ═══════════════════════════════════════════════════════════════
+function openDeployModal(siteName, autoScroll = true) {
+  const depSite = document.getElementById('deploy-site-name');
+  if (depSite) depSite.textContent = siteName;
+  
+  const termSite = document.getElementById('terminal-site-name');
+  if (termSite) termSite.textContent = siteName;
+
+  const body = document.getElementById('terminal-body');
+  if (body) body.textContent = '';
+
+  const progressFill = document.getElementById('deploy-progress-fill');
+  if (progressFill) progressFill.style.width = '0%';
+
+  const progressPct = document.getElementById('deploy-progress-pct');
+  if (progressPct) progressPct.textContent = '0%';
+
+  const stepLabel = document.getElementById('deploy-step-label');
+  if (stepLabel) stepLabel.textContent = 'Đang kết nối...';
+
+  openModal('modal-deploy');
+
+  if (_sseConnection) _sseConnection.close();
+  const es = new EventSource(`${API_BASE}/api/v1/website-manager/sites/${siteName}/logs`);
+  _sseConnection = es;
+  const steps = [
+    'Clone template', 'npm install', 'Tạo D1 DB',
+    'Schema SQL', 'wrangler.toml', 'Build OpenNext',
+    'Deploy CF', 'Seed Admin', 'wptoken'
+  ];
+  let stepIdx = 0;
+
+  es.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    const msg = data.message || '';
+    if (data.is_history && body) {
+      body.textContent = '';
+    }
+    // Colorize
+    const lines = msg.split('\n');
+    lines.forEach(line => {
+      const span = document.createElement('span');
+      if (line.includes('❌') || line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || data.is_error) {
+        span.className = 'log-err';
+      } else if (line.includes('✓') || line.includes('thành công') || line.includes('SUCCESS') || line.includes('hoàn tất')) {
+        span.className = 'log-ok';
+      } else if (line.startsWith('[') && line.includes('/9]')) {
+        span.className = 'log-info';
+        // Extract step number
+        const m = line.match(/\[(\d+)\/9\]/);
+        if (m) {
+          stepIdx = parseInt(m[1]);
+          const pct = Math.round((stepIdx / 9) * 100);
+          const pFill = document.getElementById('deploy-progress-fill');
+          if (pFill) pFill.style.width = pct + '%';
+          const pPct = document.getElementById('deploy-progress-pct');
+          if (pPct) pPct.textContent = pct + '%';
+          const sLbl = document.getElementById('deploy-step-label');
+          if (sLbl) sLbl.textContent = steps[stepIdx - 1] || 'Processing...';
+        }
+      } else if (line.includes('CẢNH BÁO') || line.includes('WARNING')) {
+        span.className = 'log-warn';
+      } else {
+        span.className = '';
+      }
+      span.textContent = line + '\n';
+      if (body) body.appendChild(span);
+    });
+    if (autoScroll && body) body.scrollTop = body.scrollHeight;
+
+    if (msg.includes('DEPLOYMENT SUCCESSFUL') || msg.includes('DEPLOY THÀNH CÔNG')) {
+      const pFill = document.getElementById('deploy-progress-fill');
+      if (pFill) pFill.style.width = '100%';
+      const pPct = document.getElementById('deploy-progress-pct');
+      if (pPct) pPct.textContent = '100%';
+      const sLbl = document.getElementById('deploy-step-label');
+      if (sLbl) sLbl.textContent = '✅ Hoàn tất!';
+      loadSites();
+    }
+    if (msg.includes('DEPLOY THẤT BẠI') || msg.includes('DEPLOYMENT FAILED')) {
+      const sLbl = document.getElementById('deploy-step-label');
+      if (sLbl) sLbl.textContent = '❌ Thất bại';
+      loadSites();
+    }
+  };
+  es.onerror = () => {
+    const sLbl = document.getElementById('deploy-step-label');
+    if (sLbl) sLbl.textContent = 'Mất kết nối SSE';
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Edit modal
+// ═══════════════════════════════════════════════════════════════
+function openEditModal(siteId) {
+  const site = _sites.find(s => s.id === siteId);
+  if (!site) return;
+  document.getElementById('edit-site-id').value = site.id;
+  document.getElementById('edit-name').value = site.name;
+  document.getElementById('edit-url').value = site.deploy_url || '';
+  document.getElementById('edit-user-token').value = site.user_token || '';
+  document.getElementById('edit-wp-token').value = site.wp_token || '';
+  document.getElementById('edit-thumbnail').value = site.thumbnail || '';
+  openModal('modal-edit');
+}
+
+document.getElementById('btn-save-edit')?.addEventListener('click', async () => {
+  const id = document.getElementById('edit-site-id').value;
+  try {
+    await api('PUT', `/api/v1/website-manager/sites/${id}`, {
+      deploy_url: document.getElementById('edit-url').value.trim() || null,
+      user_token: document.getElementById('edit-user-token').value.trim() || null,
+      wp_token: document.getElementById('edit-wp-token').value.trim() || null,
+      thumbnail: document.getElementById('edit-thumbnail').value.trim() || null,
+    });
+    toast('Đã lưu thay đổi!', 'success');
+    closeModal('modal-edit');
+    loadSites();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Delete site
+// ═══════════════════════════════════════════════════════════════
+async function deleteSite(id, name) {
+  if (!confirm(`Xóa website "${name}"?\n(Chỉ xóa khỏi danh sách, không xóa tài nguyên Cloudflare)`)) return;
+  try {
+    await api('DELETE', `/api/v1/website-manager/sites/${id}`);
+    toast(`Đã xóa "${name}"`, 'success');
+    loadSites();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Cloudflare modal
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('btn-manage-cf')?.addEventListener('click', () => {
+  renderCfProfilesModal();
+  openModal('modal-cf');
+});
+document.getElementById('btn-cf-setup')?.addEventListener('click', () => {
+  renderCfProfilesModal();
+  openModal('modal-cf');
+});
+
+document.getElementById('btn-save-cf')?.addEventListener('click', async () => {
+  const token = document.getElementById('cf-new-token').value.trim();
+  const account = document.getElementById('cf-new-account').value.trim();
+  const label = document.getElementById('cf-new-label').value.trim() || 'default';
+  if (!token) return toast('API Token là bắt buộc.', 'error');
+  if (!account) return toast('Account ID là bắt buộc.', 'error');
+  try {
+    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label });
+    toast('Đã lưu Cloudflare credentials!', 'success');
+    await loadCfProfiles();
+    renderCfProfilesModal();
+    document.getElementById('cf-new-token').value = '';
+    document.getElementById('cf-new-account').value = '';
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('btn-verify-cf')?.addEventListener('click', async () => {
+  const label = document.getElementById('cf-new-label').value.trim() || 'default';
+  const result = document.getElementById('cf-verify-result');
+  result.textContent = 'Đang xác thực...';
+  result.style.color = 'var(--text2)';
+  try {
+    // Save first, then verify
+    const token = document.getElementById('cf-new-token').value.trim();
+    const account = document.getElementById('cf-new-account').value.trim();
+    if (token && account) {
+      await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label });
+    }
+    const res = await api('POST', `/api/v1/cloud-api/cloudflare/profiles/${label}/test`);
+    result.textContent = res.message;
+    result.style.color = res.status === 'success' ? 'var(--green)' : 'var(--red)';
+  } catch (e) {
+    result.textContent = '❌ ' + e.message;
+    result.style.color = 'var(--red)';
+  }
+});
+
+// Save CF inline from deploy modal
+document.getElementById('btn-save-cf-inline')?.addEventListener('click', async () => {
+  const token = document.getElementById('d-cf-token').value.trim();
+  const account = document.getElementById('d-cf-account').value.trim();
+  if (!token || !account) return toast('Nhập đầy đủ Token và Account ID.', 'error');
+  try {
+    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label: 'default' });
+    toast('Đã lưu vào Cloud Keys!', 'success');
+    await loadCfProfiles();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+// Use selected profile
+document.getElementById('btn-use-profile')?.addEventListener('click', () => {
+  const label = document.getElementById('d-cf-profile').value;
+  if (!label) {
+    document.getElementById('d-cf-token').value = '';
+    document.getElementById('d-cf-account').value = '';
+    document.getElementById('cf-cred-source').textContent = 'Nhập thủ công';
+    return;
+  }
+  // Profile is used server-side, just confirm to user
+  document.getElementById('d-cf-token').value = '';
+  document.getElementById('d-cf-account').value = '';
+  document.getElementById('cf-cred-source').textContent = `Dùng profile: ${label}`;
+  toast(`Sẽ dùng profile "${label}" từ Cloud Keys`, 'success');
+});
+
+// Auto slugify d-name input
+document.getElementById('d-name')?.addEventListener('input', e => {
+  const start = e.target.selectionStart;
+  e.target.value = e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  e.target.setSelectionRange(start, start);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Search
+// ═══════════════════════════════════════════════════════════════
+document.getElementById('search-input')?.addEventListener('input', e => {
+  renderCards(e.target.value.trim().toLowerCase());
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Generic modal controls
+// ═══════════════════════════════════════════════════════════════
+document.querySelectorAll('[data-close]').forEach(btn => {
+  btn.addEventListener('click', () => closeModal(btn.dataset.close));
+});
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => {
+    if (e.target === overlay) closeModal(overlay.id);
+  });
+});
+
+document.getElementById('btn-open-add')?.addEventListener('click', openAddModal);
+
+// ═══════════════════════════════════════════════════════════════
+// Auto-refresh deploying sites
+// ═══════════════════════════════════════════════════════════════
+setInterval(() => {
+  if (_sites.some(s => s.status === 'deploying')) {
+    loadSites();
+  }
+}, 8000);
+
+// ═══════════════════════════════════════════════════════════════
+// Init
+// ═══════════════════════════════════════════════════════════════
+(function init() {
+  loadSites();
+  loadCfProfiles();
+})();
+</script>
+</body>
+</html>

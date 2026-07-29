@@ -11,6 +11,10 @@ class AiNode(BaseNode):
     display_name = "🧠 AI Inference"
     description = "Send prompt to AI model (Ollama or Cloud API)."
     category = "AI"
+    config_schema = {
+        "model": {"type": "string", "description": "Ollama model name (e.g. qwen:latest)."},
+        "system_prompt": {"type": "string", "description": "System prompt guiding how the AI processes the incoming `prompt` input."},
+    }
 
     def _setup_ports(self):
         self.add_input("prompt", PortType.TEXT, "Input prompt")

@@ -11,6 +11,9 @@ class PythonCodeNode(BaseNode):
     display_name = "🐍 Python Code"
     description = "Execute Python code. Access inputs via variables."
     category = "Logic"
+    config_schema = {
+        "code": {"type": "string", "required": True, "description": "Python code to run. Read `input_data` (auto), `text_input`, `json_input`. Pre-imported: json, re, os. Assign the final value to `result`."},
+    }
 
     def _setup_ports(self):
         self.add_input("text_input", PortType.TEXT, "Text input", required=False)

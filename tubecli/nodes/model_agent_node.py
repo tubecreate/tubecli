@@ -12,6 +12,15 @@ class ModelAgentNode(BaseNode):
     description = "AI inference with multiple providers: Ollama, Gemini, ChatGPT, Claude, Grok. Can use existing Agent config."
     icon = "🤖"
     category = "AI"
+    config_schema = {
+        "provider": {"type": "string", "description": "LLM provider. 'auto' reads the global default model+key from Settings (recommended).", "default": "auto", "options": ["auto", "ollama", "gemini", "chatgpt", "claude", "deepseek", "grok"]},
+        "model": {"type": "string", "description": "Model name (e.g. qwen:latest, gemini-2.0-flash). Leave empty with provider='auto'."},
+        "system_prompt": {"type": "string", "description": "System prompt defining the AI's role for this step.", "default": "You are a helpful assistant."},
+        "temperature": {"type": "number", "description": "Sampling temperature 0-1.", "default": 0.7},
+        "max_tokens": {"type": "number", "description": "Max output tokens.", "default": 2048},
+        "agent_name": {"type": "string", "description": "Optional: reuse config from an existing named Agent."},
+        "api_key": {"type": "string", "description": "Optional API key override. Usually leave empty (auto-resolved)."},
+    }
 
     def _setup_ports(self):
         self.add_input("prompt", PortType.TEXT, "User prompt")

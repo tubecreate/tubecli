@@ -68,14 +68,22 @@ class SkillSelector:
         all_skills: List[Dict],
         limit: int = 3,
     ) -> List[Dict]:
-        """Select skills for a specific team agent (only from their allowed_skills)."""
+        """Select skills for a specific team agent (only from their allowed_skills).
+
+        Với tin nhắn ngôn ngữ tự nhiên (nhất là tiếng Việt) mà tên/mô tả skill
+        là tiếng Anh, bộ chấm điểm có thể ra RỖNG — khi đó LLM không thấy skill
+        nào và bịa 'tôi không có công cụ đó'. Fallback: đưa vài skill đầu của
+        agent để model luôn biết mình có gì trong tay."""
         if agent_skills:
             filtered = [s for s in all_skills if s.get("id") in agent_skills]
         else:
             filtered = all_skills
-        
-        msg_lower = message.lower()
-        return self._score_and_select(msg_lower, filtered, limit)
+
+        scored = self._score_and_select(message.lower(), filtered, limit)
+        if scored:
+            return scored
+        # Không skill nào ăn điểm → vẫn cho model thấy toolkit của agent
+        return filtered[:limit]
 
     def _get_intent_categories(self, intent_type: str) -> List[str]:
         """Map intent type to relevant skill categories."""

@@ -8,6 +8,30 @@ import datetime
 from typing import Dict, List, Optional, Any
 
 
+def is_skill_runnable(s) -> bool:
+    """Whether run_skill can actually execute this skill (dict or Skill object).
+
+    Shared by BOTH dispatch tiers: the LLM prompt builder AND the fast-path
+    command matchers. Before this was only enforced in build_system_prompt,
+    so broken skills were hidden from the model yet still hijacked typed
+    commands with 0.99 confidence ("chưa có workflow để thực thi")."""
+    if not isinstance(s, dict):
+        return bool(getattr(s, "is_runnable", True))
+    if "is_runnable" in s:
+        return bool(s["is_runnable"])
+    wf = s.get("workflow_data") or {}
+    fmt = (s.get("skill_format") or "workflow").lower()
+    if fmt == "workflow" and s.get("skill_type") == "Markdown":
+        fmt = "markdown"
+    if fmt == "browser_script":
+        return bool(wf.get("script_id"))
+    if fmt == "markdown":
+        return bool(wf.get("markdown_content") or wf.get("markdown") or wf.get("sop"))
+    if fmt == "extension_action":
+        return bool(wf.get("endpoint"))
+    return bool(wf.get("nodes"))
+
+
 class AgentBrain:
     """The 'brain' of a smart agent: understands user messages and dispatches skills."""
 
@@ -18,10 +42,14 @@ class AgentBrain:
         """Check if user message directly matches a skill's explicit trigger commands.
         Only matches exact commands or 'command + arguments' patterns.
         For natural language intent → let the LLM Brain analyze it.
+        Skips skills that cannot run, so a dead skill never shadows a live one
+        sharing the same command (e.g. 'lồng tiếng').
         """
         msg_clean = re.sub(r'[?!.,;]+$', '', message.strip().lower()).strip()
-        
+
         for skill in skills:
+            if not is_skill_runnable(skill):
+                continue
             commands = skill.get("commands") or []
             for cmd in commands:
                 if not cmd:
@@ -29,7 +57,7 @@ class AgentBrain:
                 cmd_clean = cmd.strip().lower()
                 if len(cmd_clean) < 3:
                     continue  # Skip too-short commands to avoid false matches
-                
+
                 # Exact match or starts with command (e.g. cmd="tải video", msg="tải video tiktok")
                 if msg_clean == cmd_clean or msg_clean.startswith(cmd_clean + " "):
                     return skill
@@ -47,9 +75,13 @@ class AgentBrain:
         """
         skills_desc = ""
         if skills:
+            # Hide skills that run_skill cannot execute (empty workflows etc.)
+            # so the LLM never picks a skill that would immediately fail.
+            runnable_skills = [s for s in skills if is_skill_runnable(s)]
+
             msg_lower = (message or "").lower()
             scored = []
-            for s in skills:
+            for s in runnable_skills:
                 skill_id = s.get("id") or getattr(s, "id", "unknown")
                 skill_name = s.get("name") or getattr(s, "name", "")
                 skill_cmds = s.get("commands") or getattr(s, "commands", [])
@@ -70,25 +102,36 @@ class AgentBrain:
                     matching_desc = sum(1 for w in desc_words if w in msg_lower)
                     score += min(matching_desc, 3)  # cap at 3
 
-                scored.append((score, skill_id, skill_name, skill_desc_text, skill_cmds))
+                scored.append((score, s))
 
             # Show top 8 skills, sorted by relevance
             top = sorted(scored, key=lambda x: -x[0])[:8]
 
             lines = []
-            for score, sid, sname, sdesc, scmds in top:
-                # Include description so LLM understands what each skill DOES
-                desc_short = sdesc[:120] if sdesc else "No description"
-                lines.append(f"  - ID: {sid}\n    Name: {sname}\n    Does: {desc_short}")
+            for score, s in top:
+                sname = s.get("name") or ""
+                sdesc = (s.get("description") or "No description")[:400]
+                block = f"  ### {sname}\n    Does: {sdesc}"
+                input_hint = s.get("input_hint") or ""
+                if input_hint:
+                    block += f"\n    Input: {input_hint[:200]}"
+                when_to_use = s.get("when_to_use") or ""
+                if when_to_use:
+                    block += f"\n    When to use: {when_to_use[:300]}"
+                examples = s.get("examples") or []
+                for ex in examples[:2]:
+                    block += f"\n    Example: {str(ex)[:150]}"
+                lines.append(block)
 
             total = len(skills)
             shown = len(lines)
             skills_desc = (
                 f"\n\n### AVAILABLE SKILLS ({shown}/{total}) — Analyze user INTENT to pick the right one:\n"
                 + "\n".join(lines)
-                + "\nIMPORTANT: If user asks about weather, news, searching info, looking up anything → use the Google Search skill."
-                + "\nIf user sends a DIRECT video link (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → use download_video action."
+                + '\nTo run a skill, output: {"action": "run_skill", "skill_name": "<exact skill Name from the list>", "input": "<what the skill\'s Input field asks for>"}'
+                + "\nIf user sends a DIRECT video link on ANY platform (YouTube, douyin.com/video/xxx, tiktok.com/@.../video/xxx, Facebook, X…) and wants the file → use download_video action."
                 + "\nIf user sends a SHORT link (v.douyin.com/xxx) with intent like 'mới nhất', 'theo dõi', 'post lên kênh' → this is a USER PROFILE link, use the appropriate skill (add_tracker, trigger_tracker) instead of download_video."
+                + "\nIf a skill matches the intent but its required Input (a URL, a file path…) is MISSING from the message → do NOT run any skill and do NOT run a capabilities/status skill instead; reply in plain text asking for exactly that input."
                 + "\nIf no skill matches the intent → reply conversationally.\n"
             )
 
@@ -103,17 +146,18 @@ class AgentBrain:
             "## SYSTEM - AUTONOMOUS EXECUTION MODE:\n"
             "You are an autonomous AI agent. Analyze user INTENT and ACT directly.\n\n"
             "### ACTION FORMAT (output JSON to trigger system):\n"
-            '- Run a skill → {"action": "run_skill", "skill_id": "<ID>", "input": "<user query>"}\n'
+            '- Run a skill → {"action": "run_skill", "skill_name": "<skill name>", "input": "<what the skill needs>"}\n'
             '- Video URL → {"action": "download_video", "url": "<URL>"}\n'
             '- File ops → {"action": "file_action", "operation": "create_folder|create_file|delete|move|copy|list|read", "path": "<REQUIRED: an explicit path on this computer>", "content": "", "destination": ""}\n'
             '- Create team → {"action": "create_team", "template": "dev_team", "name": "<name>"}\n'
-            '- API call → {"action": "run_api", "method": "POST", "endpoint": "/api/v1/..."}\n'
+            '- API call → {"action": "run_api", "method": "POST", "endpoint": "/api/v1/...", "body": {"<param>": "<value>"}} — for POST/PUT the body is REQUIRED and must carry every parameter the endpoint needs (e.g. the URL the user gave). Prefer a matching skill or download_video over run_api.\n'
             '- Create skill → {"action": "create_skill", "name": "<n>", "description": "<d>", "instructions": ["..."]}\n\n'
             "### INTENT ANALYSIS RULES:\n"
             "1. Read the user message carefully to understand their INTENT.\n"
             "2. If the intent matches a skill → output run_skill JSON with the skill ID and user's query.\n"
             "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
-            "4. DIRECT Video URLs (douyin.com/video/xxx, tiktok.com/@.../video/xxx) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
+            "4. DIRECT video URLs on ANY platform (YouTube, douyin.com/video/xxx, tiktok.com/@.../video/xxx, Facebook, X…) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
+            "4b. If the user asks for a video job (download, subtitles, translation…) but the message has NO link or file path → ASK for it in plain text. Never answer with a capabilities list instead, and never invent a run_api call.\n"
             "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop.\n"
             "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
             "6b. NEVER claim you created, copied, moved, saved or deleted a file unless you emitted the JSON action for it in THIS reply. If you cannot do it, say so. Reporting an action you did not take is the worst possible answer.\n"
@@ -123,6 +167,48 @@ class AgentBrain:
         )
         safe_agent_prompt = agent_prompt if agent_prompt is not None else "You are a helpful assistant."
         return static_prompt + safe_agent_prompt + "\n" + skills_desc + memory_section + "\n"
+
+    # ── Skill Resolution (by id or name) ──────────────────────────
+
+    @staticmethod
+    def _resolve_skill_ref(action_data: Dict, skills: List[Dict]) -> Optional[Dict]:
+        """Resolve a run_skill action to a skill dict.
+        Accepts skill_id (backward compat) or skill_name (preferred — LLMs
+        copy names far more reliably than UUIDs). Name matching is
+        case-insensitive and tolerant of emoji/punctuation."""
+        skill_id = action_data.get("skill_id") or ""
+        if skill_id:
+            for s in skills:
+                if s.get("id") == skill_id:
+                    return s
+
+        name = action_data.get("skill_name") or action_data.get("skill") or ""
+        if name:
+            def _norm(x):
+                return "".join(ch for ch in str(x).casefold() if ch.isalnum())
+
+            name_str = str(name)
+            for s in skills:
+                if (s.get("name") or "").lower() == name_str.lower():
+                    return s
+            n = _norm(name_str)
+            if n:
+                for s in skills:
+                    if _norm(s.get("name") or "") == n:
+                        return s
+                if len(n) >= 4:
+                    for s in skills:
+                        if n in _norm(s.get("name") or ""):
+                            return s
+            # Last resort: global registry (handles skills outside the filtered list)
+            try:
+                from tubecli.core.skill import skill_manager
+                sk = skill_manager.find_by_name(name_str)
+                if sk:
+                    return sk.to_dict()
+            except Exception:
+                pass
+        return None
 
     # ── Quick Reply (Minimal Token) ───────────────────────────────
 
@@ -224,17 +310,19 @@ class AgentBrain:
         if action_data:
             action_type = action_data.get("action")
             if action_type == "run_skill":
-                skill_id = action_data.get("skill_id", "")
-                skill_name = "Skill"
-                for s in skills:
-                    if s["id"] == skill_id:
-                        skill_name = s["name"]
-                        break
+                skill_ref = AgentBrain._resolve_skill_ref(action_data, skills)
+                if skill_ref:
+                    return {
+                        "reply": t("brain.running_skill", name=skill_ref.get("name", "Skill")),
+                        "action": "run_skill",
+                        "skill_id": skill_ref.get("id", ""),
+                        "skill_input": action_data.get("input", message),
+                    }
                 return {
-                    "reply": t("brain.running_skill", name=skill_name),
-                    "action": "run_skill",
-                    "skill_id": skill_id,
-                    "skill_input": action_data.get("input", message),
+                    "reply": t("brain.skill_not_found", id=action_data.get("skill_name") or action_data.get("skill_id", "?")),
+                    "action": None,
+                    "skill_id": None,
+                    "skill_input": "",
                 }
             elif action_type == "file_action":
                 guard = AgentBrain._reject_non_file_path(action_data)
@@ -349,18 +437,19 @@ class AgentBrain:
         if action_data:
             action_type = action_data.get("action")
             if action_type == "run_skill":
-                skill_id = action_data.get("skill_id", "")
-                skill_name = "Skill"
-                for s in skills:
-                    if s["id"] == skill_id:
-                        skill_name = s["name"]
-                        break
-
+                skill_ref = AgentBrain._resolve_skill_ref(action_data, skills)
+                if skill_ref:
+                    return {
+                        "reply": t("brain.running_skill", name=skill_ref.get("name", "Skill")),
+                        "action": "run_skill",
+                        "skill_id": skill_ref.get("id", ""),
+                        "skill_input": action_data.get("input", message),
+                    }
                 return {
-                    "reply": t("brain.running_skill", name=skill_name),
-                    "action": "run_skill",
-                    "skill_id": skill_id,
-                    "skill_input": action_data.get("input", message),
+                    "reply": t("brain.skill_not_found", id=action_data.get("skill_name") or action_data.get("skill_id", "?")),
+                    "action": None,
+                    "skill_id": None,
+                    "skill_input": "",
                 }
 
             elif action_type == "file_action":
@@ -519,8 +608,101 @@ class AgentBrain:
             except Exception as e:
                 return f"❌ Error running browser script: {e}"
 
-        # 🟢 If it's a standard Skill with a workflow, run it linearly for 100% reliability
-        if skill.get("skill_type") == "Skill":
+        skill_format = (skill.get("skill_format") or "workflow").lower()
+        # Legacy UI-created markdown skills: skill_type="Markdown", format "workflow"
+        if skill_format == "workflow" and skill.get("skill_type") == "Markdown":
+            skill_format = "markdown"
+
+        # 🟢 Markdown SOP skill: use its content as instructions for one LLM pass
+        if skill_format == "markdown":
+            sop_content = wf_data.get("markdown_content") or wf_data.get("markdown") or wf_data.get("sop") or ""
+            if sop_content:
+                sop_messages = [
+                    {"role": "system", "content": (
+                        "You are an AI agent following a Standard Operating Procedure (SOP).\n"
+                        f"### SOP: {skill.get('name', '')}\n{sop_content}\n\n"
+                        "Follow the SOP to handle the user's request. Reply in the user's language."
+                    )},
+                    {"role": "user", "content": message},
+                ]
+                return AgentBrain._call_llm(agent, sop_messages)
+            return f"❌ Skill '{skill.get('name')}' is a markdown SOP but has no content."
+
+        # 🟢 Extension action skill: call the extension's API endpoint directly
+        if skill_format == "extension_action":
+            endpoint = wf_data.get("endpoint", "")
+            if not endpoint:
+                return f"❌ Skill '{skill.get('name')}' has no endpoint configured."
+            try:
+                import asyncio
+                import requests as _requests
+                from tubecli.config import get_api_port
+                url = f"http://127.0.0.1:{get_api_port()}{endpoint}"
+                method = (wf_data.get("method") or "POST").upper()
+                payload = dict(wf_data.get("payload") or {})
+                input_key = wf_data.get("input_key") or "input"
+                user_input = message
+                if input_key in ("url", "video_url", "link", "source_url"):
+                    # The endpoint wants a URL, not the whole sentence — sending
+                    # "download https://…" as the url breaks every downloader.
+                    m = re.search(r"(https?://\S+|rtmp://\S+)", message)
+                    if m:
+                        user_input = m.group(0).rstrip(".,;?!)")
+                payload.setdefault(input_key, user_input)
+                print(f"[Brain] Running extension action '{skill.get('name')}' → {method} {endpoint}")
+
+                def _do_request():
+                    if method == "GET":
+                        return _requests.get(url, params=payload, timeout=300)
+                    return _requests.request(method, url, json=payload, timeout=300)
+
+                resp = await asyncio.to_thread(_do_request)
+                if resp.status_code >= 400:
+                    # A raw 422 body is a developer artifact — surface WHAT is
+                    # missing, in the UI language, not the validation array.
+                    try:
+                        err = resp.json()
+                    except Exception:
+                        err = None
+                    if resp.status_code == 422 and isinstance(err, dict):
+                        from tubecli.core.bot_i18n import t as _bt
+                        missing = [str((item.get("loc") or ["?"])[-1])
+                                   for item in (err.get("detail") or [])
+                                   if isinstance(item, dict)]
+                        return _bt("vs.api_missing_fields",
+                                   fields=", ".join(missing) or "?")
+                    detail = ""
+                    if isinstance(err, dict):
+                        d = err.get("detail") or err.get("message")
+                        detail = d if isinstance(d, str) else json.dumps(
+                            d, ensure_ascii=False, default=str) if d else ""
+                    return (f"❌ Extension action failed (HTTP {resp.status_code}): "
+                            f"{(detail or resp.text)[:300]}")
+                try:
+                    data = resp.json()
+                except Exception:
+                    return resp.text[:2000]
+                if isinstance(data, dict):
+                    # Endpoints that serve both machines and humans put the
+                    # human text in one field. Prefer it — without this, the
+                    # capabilities call was shown as a raw key-by-key dump of
+                    # the whole JSON body instead of its 'report'.
+                    for report_key in ("report", "message", "summary", "text", "content"):
+                        report = data.get(report_key)
+                        if isinstance(report, str) and len(report.strip()) >= 40:
+                            return report.strip()
+                return AgentBrain.format_skill_result(
+                    agent, skill.get("name", "Skill"),
+                    {"status": "completed", "outputs": {"result": data if isinstance(data, dict) else {"data": data}}},
+                    message,
+                )
+            except Exception as e:
+                return f"❌ Error calling extension action: {e}"
+
+        # 🟢 Any skill with workflow nodes runs linearly for 100% reliability
+        # (execution path is decided by the ACTUAL workflow, not the free-form
+        # skill_type label — previously only skill_type == "Skill" got this).
+        if wf_data.get("nodes"):
             try:
                 print(f"[Brain] Running skill '{skill.get('name')}' via linear workflow...")
                 # Force headless on browser nodes
@@ -531,6 +713,14 @@ class AgentBrain:
                 return await AgentBrain.run_workflow_linear(message, agent, skill)
             except Exception as e:
                 print(f"[Brain] Linear execution failed, falling back to ReAct: {e}")
+        else:
+            # No nodes and no special format → nothing to execute. Tell the
+            # agent clearly instead of letting the ReAct loop flounder.
+            return (
+                f"❌ Skill '{skill.get('name')}' chưa có workflow để thực thi. "
+                f"Hãy mở Dashboard → Skills để hoàn thiện workflow cho skill này, "
+                f"hoặc dùng một skill khác phù hợp."
+            )
 
         from tubecli.nodes.registry import get_node_tool_schemas, create_node_from_dict
         
@@ -1248,6 +1438,29 @@ Rules:
                         return data
                 except Exception:
                     pass
+            # Last resort: a brace-depth scan for NESTED action JSON. The flat
+            # [^{}]* patterns above cannot span an inner object, so
+            # {"action": "run_api", …, "body": {…}} used to slip through here
+            # unrecognized while the telegram dispatcher's laxer parser still
+            # executed it — leaving meta["action"] empty and the two layers
+            # disagreeing about what the model asked for.
+            for start in [m.start() for m in re.finditer(r"\{", text)]:
+                depth = 0
+                for i in range(start, min(len(text), start + 4000)):
+                    if text[i] == "{":
+                        depth += 1
+                    elif text[i] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            candidate = text[start:i + 1]
+                            if '"action"' in candidate:
+                                try:
+                                    data = json.loads(candidate)
+                                    if isinstance(data, dict) and data.get("action"):
+                                        return data
+                                except Exception:
+                                    pass
+                            break
         except Exception:
             pass
         return None
@@ -1266,13 +1479,23 @@ Rules:
         status = result.get("status", "unknown")
         outputs = result.get("outputs", {})
         output_summary = ""
+        has_structured = False  # a dict/list value means "not fit to show raw"
         for node_id, data in outputs.items():
             if isinstance(data, dict):
                 for k, v in data.items():
-                    if not k.startswith("_"): output_summary += f"  {k}: {str(v)[:300]}\n"
-        
+                    if k.startswith("_"):
+                        continue
+                    if isinstance(v, (dict, list)):
+                        # str(v)[:300] used to cut a nested dict mid-word and
+                        # ship it to the user. Keep it for the LLM summary
+                        # below, but never let it pass as "readable text".
+                        has_structured = True
+                        output_summary += f"  {k}: {json.dumps(v, ensure_ascii=False, default=str)[:300]}\n"
+                    else:
+                        output_summary += f"  {k}: {str(v)[:300]}\n"
+
         # If output is short enough and already readable, return directly (skip LLM call)
-        if output_summary and len(output_summary) < 2000:
+        if output_summary and not has_structured and len(output_summary) < 2000:
             # Check if the output looks like plain human text (not raw JSON/code)
             text_lines = [l.strip() for l in output_summary.split("\n") if l.strip()]
             looks_like_text = all(

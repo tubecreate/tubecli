@@ -23,6 +23,9 @@ class Skill:
         skill_format: str = "workflow",
         description: str = "",
         commands: List[str] = None,
+        input_hint: str = "",
+        when_to_use: str = "",
+        examples: List[str] = None,
         schedule_enabled: bool = False,
         schedule_type: str = "daily",
         schedule_value: str = "08:00",
@@ -37,7 +40,7 @@ class Skill:
         self.name = name
         self.workflow_data = workflow_data or {"nodes": [], "connections": []}
         self.skill_type = skill_type
-        
+
         # Backward compatibility for old skills that might not have skill_format
         if "skill_format" in kwargs:
             self.skill_format = kwargs["skill_format"]
@@ -46,6 +49,13 @@ class Skill:
 
         self.description = description
         self.commands = commands or []
+        # ── Tool contract for LLM agents ──
+        # input_hint:  what the "input" string should contain (a URL, a query…)
+        # when_to_use: when the agent should (and should NOT) pick this skill
+        # examples:    sample user messages → expected input
+        self.input_hint = input_hint or ""
+        self.when_to_use = when_to_use or ""
+        self.examples = examples or []
         self.schedule_enabled = schedule_enabled
         self.schedule_type = schedule_type
         self.schedule_value = schedule_value
@@ -53,6 +63,26 @@ class Skill:
         self.last_run = last_run
         self.next_run = next_run
         self.created_at = created_at or datetime.datetime.now().isoformat()
+
+    @property
+    def is_runnable(self) -> bool:
+        """Whether run_skill can actually execute this skill.
+        Non-runnable skills are hidden from the LLM so agents never pick
+        a skill that would immediately fail with 'no workflow nodes'."""
+        wf = self.workflow_data or {}
+        fmt = (self.skill_format or "workflow").lower()
+        # Legacy UI-created markdown skills: skill_type="Markdown", format "workflow"
+        if fmt == "workflow" and self.skill_type == "Markdown":
+            fmt = "markdown"
+        if fmt == "browser_script":
+            return bool(wf.get("script_id"))
+        if fmt == "markdown":
+            # UI historically saved under "markdown"/"sop", server under "markdown_content"
+            return bool(wf.get("markdown_content") or wf.get("markdown") or wf.get("sop"))
+        if fmt == "extension_action":
+            return bool(wf.get("endpoint"))
+        # Default: workflow — needs at least one node
+        return bool(wf.get("nodes"))
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -63,6 +93,10 @@ class Skill:
             "skill_format": self.skill_format,
             "description": self.description,
             "commands": self.commands,
+            "input_hint": self.input_hint,
+            "when_to_use": self.when_to_use,
+            "examples": self.examples,
+            "is_runnable": self.is_runnable,
             "schedule_enabled": self.schedule_enabled,
             "schedule_type": self.schedule_type,
             "schedule_value": self.schedule_value,
@@ -120,6 +154,9 @@ class SkillManager:
             return None
         skill = self.skills[skill_id]
         for k, v in updates.items():
+            # Skip read-only/computed fields (e.g. is_runnable is a property)
+            if k in ("is_runnable", "id"):
+                continue
             if hasattr(skill, k):
                 setattr(skill, k, v)
         self._save()
@@ -138,15 +175,27 @@ class SkillManager:
     def get_all(self) -> List[Skill]:
         return list(self.skills.values())
 
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize a skill name for fuzzy comparison: casefold and keep only
+        alphanumeric characters (drops emoji, spaces, punctuation)."""
+        return "".join(ch for ch in str(name).casefold() if ch.isalnum())
+
     def find_by_name(self, name: str) -> Optional[Skill]:
-        """Find skill by name (case-insensitive, with normalization)."""
-        normalized = name.lower().replace(" ", "").replace("_", "").replace("-", "")
+        """Find skill by name (case-insensitive, emoji/punctuation tolerant)."""
+        if not name:
+            return None
+        normalized = self._normalize_name(name)
         for skill in self.skills.values():
             if skill.name.lower() == name.lower():
                 return skill
-            skill_norm = skill.name.lower().replace(" ", "").replace("_", "").replace("-", "")
-            if skill_norm == normalized:
+            if normalized and self._normalize_name(skill.name) == normalized:
                 return skill
+        # Substring match (e.g. "Google Sheets" vs "📊 Google Sheets Manager")
+        if normalized and len(normalized) >= 4:
+            for skill in self.skills.values():
+                if normalized in self._normalize_name(skill.name):
+                    return skill
         # Also check commands
         for skill in self.skills.values():
             if skill.commands and name in skill.commands:

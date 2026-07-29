@@ -10,6 +10,10 @@ class GoogleAuthNode(BaseNode):
     description = "Authenticate with Google APIs using Auth Manager OAuth or service account JSON."
     icon = "🔐"
     category = "Auth"
+    config_schema = {
+        "scopes": {"type": "string", "description": "Comma-separated OAuth scopes. Usually leave default; node auto-uses saved credentials.", "default": "https://www.googleapis.com/auth/spreadsheets,https://www.googleapis.com/auth/drive"},
+        "credentials_json": {"type": "string", "description": "Optional inline service-account JSON. Leave empty to use saved OAuth from Auth Manager."},
+    }
 
     def _setup_ports(self):
         self.add_output("credentials", PortType.JSON, "Google credentials object")

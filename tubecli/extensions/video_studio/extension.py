@@ -41,6 +41,17 @@ class VideoStudioExtension(Extension):
         except Exception as e:
             logger.warning(f"Could not make ffmpeg discoverable: {e}")
 
+        # Register skills FIRST, then seed specialists — so the orchestrator's
+        # "sees all runnable skills" assignment picks up these video skills on
+        # this same pass instead of waiting for the next discovery.
+        try:
+            from tubecli.extensions.video_studio.skills import register_skills
+
+            stats = register_skills()
+            logger.info(f"Video Studio enabled; skills {stats}")
+        except Exception as e:
+            logger.warning(f"Could not register Video Studio skills: {e}")
+
         # Built-in specialists are seeded by `tubecli init`, so an install that
         # predates a new one never gets it — the Translator Agent, whose model
         # and house style the translation pipeline borrows, would simply be
@@ -53,14 +64,6 @@ class VideoStudioExtension(Extension):
                 logger.info(f"Seeded missing built-in specialists: {added}")
         except Exception as e:
             logger.warning(f"Could not seed built-in specialists: {e}")
-
-        try:
-            from tubecli.extensions.video_studio.skills import register_skills
-
-            stats = register_skills()
-            logger.info(f"Video Studio enabled; skills {stats}")
-        except Exception as e:
-            logger.warning(f"Could not register Video Studio skills: {e}")
 
     def get_routes(self):
         from tubecli.extensions.video_studio.routes import router

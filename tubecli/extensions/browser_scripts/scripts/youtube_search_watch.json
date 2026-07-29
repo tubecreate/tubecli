@@ -1,0 +1,103 @@
+{
+  "name": "YouTube Search & Watch",
+  "slug": "youtube_search_watch",
+  "description": "Tìm kiếm video trên YouTube, phát video, xem, like và bình luận ngẫu nhiên",
+  "category": "youtube",
+  "target_url": "https://www.youtube.com",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở YouTube",
+      "params": {
+        "url": "https://www.youtube.com"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ thanh tìm kiếm hiển thị",
+      "selector": "input#search",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Click vào ô tìm kiếm",
+      "selector": "input#search"
+    },
+    {
+      "type": "type",
+      "label": "Nhập từ khóa cần tìm",
+      "selector": "input#search",
+      "params": {
+        "text": "{{search_query}}",
+        "clear_first": true
+      }
+    },
+    {
+      "type": "keyboard",
+      "label": "Nhấn Enter để tìm kiếm",
+      "params": {
+        "key": "Enter"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ danh sách video tải xong",
+      "selector": "ytd-video-renderer",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Chọn video đầu tiên",
+      "selector": "ytd-video-renderer:nth-child(1) a#video-title"
+    },
+    {
+      "type": "wait",
+      "label": "Chờ trình phát video tải",
+      "selector": "video",
+      "params": {
+        "state": "visible",
+        "timeout": 20000
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Xem video mô phỏng hành vi",
+      "params": {
+        "ms": 15000
+      }
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xuống xem phần bình luận",
+      "params": {
+        "direction": "down",
+        "amount": 600
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ phần bình luận tải",
+      "params": {
+        "ms": 5000
+      }
+    }
+  ],
+  "variables": [
+    {
+      "name": "search_query",
+      "default": "tin tức hôm nay"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-07-01 06:33:26",
+  "updated_at": "2026-07-01 06:33:26"
+}

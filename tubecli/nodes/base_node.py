@@ -51,6 +51,13 @@ class BaseNode:
     description: str = ""
     icon: str = "⚙️"
     category: str = "General"
+    # Declarative description of the keys this node reads from config.
+    # Shape: {key: {"type": "string|number|boolean|object|array",
+    #               "description": "...", "default": ..., "options": [...],
+    #               "required": bool}}
+    # Consumed by the AI workflow builder and tool schemas so LLMs know
+    # exactly how to configure each node instead of guessing.
+    config_schema: Dict[str, Dict[str, Any]] = {}
 
     def __init__(self):
         self.id = f"node_{uuid.uuid4().hex[:8]}"

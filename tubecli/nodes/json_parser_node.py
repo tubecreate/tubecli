@@ -10,6 +10,12 @@ class JsonParserNode(BaseNode):
     description = "Parse, extract, merge, filter, or stringify JSON data."
     icon = "📋"
     category = "Data"
+    config_schema = {
+        "action": {"type": "string", "required": True, "description": "JSON operation.", "default": "parse", "options": ["parse", "stringify", "extract", "filter", "merge", "transform"]},
+        "expression": {"type": "string", "description": "Dot-notation path for extract (e.g. 'data.items[0].name') or key name for filter."},
+        "data2": {"type": "string", "description": "Second JSON (string) for merge action."},
+        "mapping": {"type": "object", "description": "Key rename map for transform action, e.g. {'old_key': 'new_key'}."},
+    }
 
     def _setup_ports(self):
         self.add_input("data", PortType.ANY, "Input data (text or JSON)")

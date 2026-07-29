@@ -720,8 +720,13 @@ class SkillCreateRequest(BaseModel):
     description: str = ""
     workflow_data: Dict = {}
     skill_type: str = "Skill"
+    skill_format: Optional[str] = None
     commands: Optional[List[str]] = []
     trigger: Optional[str] = ""
+    # Tool contract for LLM agents
+    input_hint: Optional[str] = None
+    when_to_use: Optional[str] = None
+    examples: Optional[List[str]] = None
 
 class SkillGenerateRequest(BaseModel):
     prompt: str
@@ -1091,6 +1096,53 @@ async def regenerate_agent_keywords(agent_id: str):
 
     threading.Thread(target=_regen, daemon=True).start()
     return {"status": "success", "message": f"Keyword regeneration started for agent '{agent.name}'. Language: {getattr(agent, 'language', 'auto')}"}
+
+
+class DailyKeywordsUpdateRequest(BaseModel):
+    morning: List[str] = []
+    afternoon: List[str] = []
+    evening: List[str] = []
+    night: List[str] = []
+
+
+@app.put("/api/v1/agents/{agent_id}/daily_keywords")
+async def update_agent_daily_keywords(agent_id: str, req: DailyKeywordsUpdateRequest):
+    """Manually set/override today's evolved keywords for an agent."""
+    import datetime as _dt
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    # Use the agent's timezone so "today" matches what the scheduler sees.
+    now = _dt.datetime.now()
+    tz_str = getattr(agent, "timezone", None)
+    if tz_str and isinstance(tz_str, str) and tz_str.strip():
+        try:
+            from zoneinfo import ZoneInfo
+            now = _dt.datetime.now(ZoneInfo(tz_str.strip()))
+        except Exception:
+            pass
+
+    def _clean(items):
+        seen = []
+        for kw in items or []:
+            kw = str(kw).strip()
+            if kw and kw not in seen:
+                seen.append(kw)
+        return seen
+
+    routine = agent.routine or {}
+    routine["daily_keywords"] = {
+        "date": now.strftime("%Y-%m-%d"),
+        "morning": _clean(req.morning),
+        "afternoon": _clean(req.afternoon),
+        "evening": _clean(req.evening),
+        "night": _clean(req.night),
+    }
+    agent = agent_manager.update(agent_id, routine=routine)
+    return {"status": "success", "agent": agent.to_dict()}
 
 
 @app.get("/api/v1/agents/{agent_id}/history")
@@ -2008,6 +2060,8 @@ async def get_skill(skill_id: str):
 async def create_skill(req: SkillCreateRequest):
     from tubecli.core.skill import skill_manager
     data = req.model_dump()
+    # Drop unset optional fields so Skill defaults apply
+    data = {k: v for k, v in data.items() if v is not None}
     commands = data.get("commands") or []
     trigger = data.pop("trigger", "")
     if trigger and not commands:
@@ -2020,6 +2074,8 @@ async def create_skill(req: SkillCreateRequest):
 async def update_skill_endpoint(skill_id: str, req: SkillCreateRequest):
     from tubecli.core.skill import skill_manager
     data = req.model_dump()
+    # Drop unset optional fields so a partial update never clobbers them
+    data = {k: v for k, v in data.items() if v is not None}
     commands = data.get("commands") or []
     trigger = data.pop("trigger", "")
     if trigger and not commands:
@@ -2135,15 +2191,52 @@ async def run_skill(skill_id: str, input_text: str = ""):
             "data": input_text
         }
         
-    elif getattr(skill, "skill_format", "workflow") == "markdown":
+    elif getattr(skill, "skill_format", "workflow") == "markdown" or getattr(skill, "skill_type", "") == "Markdown":
         # Markdown SOP simply returns its content for LLM context
+        # (legacy UI-created skills carry skill_type="Markdown" with format "workflow")
         return {
             "status": "success",
             "message": "Markdown SOP loaded",
             "action": "load_sop",
-            "sop_content": skill.workflow_data.get("markdown_content", ""),
+            "sop_content": skill.workflow_data.get("markdown_content") or skill.workflow_data.get("markdown") or skill.workflow_data.get("sop") or "",
             "data": input_text
         }
+
+    elif getattr(skill, "skill_format", "workflow") == "extension_action":
+        # Dispatch to an extension endpoint (skills without workflow nodes
+        # that wrap extension features like Subtitle, TTS, Studios...)
+        wf = skill.workflow_data or {}
+        endpoint = wf.get("endpoint", "")
+        if not endpoint:
+            raise HTTPException(400, (
+                f"Skill '{skill.name}' is an extension_action but has no endpoint. "
+                "Set workflow_data.endpoint (e.g. '/api/v1/subtitle/extract')."
+            ))
+        import httpx
+        method = (wf.get("method") or "POST").upper()
+        payload = dict(wf.get("payload") or {})
+        input_key = wf.get("input_key") or "input"
+        payload.setdefault(input_key, input_text)
+        try:
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://internal") as client:
+                if method == "GET":
+                    resp = await client.get(endpoint, params=payload, timeout=300)
+                else:
+                    resp = await client.request(method, endpoint, json=payload, timeout=300)
+            if resp.status_code >= 400:
+                return {
+                    "status": "error",
+                    "message": f"Extension endpoint {endpoint} returned HTTP {resp.status_code}",
+                    "guidance": resp.text[:500],
+                }
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"raw": resp.text[:2000]}
+            return {"status": "success", "message": "Extension action completed", "outputs": data}
+        except Exception as e:
+            raise HTTPException(500, f"Extension action dispatch failed: {e}")
 
     # Default to Workflow Execution
     wf = skill.workflow_data
@@ -2151,7 +2244,13 @@ async def run_skill(skill_id: str, input_text: str = ""):
     connections = wf.get("connections", [])
 
     if not nodes_data:
-        raise HTTPException(400, "Skill has no workflow nodes")
+        # Clear guidance for both humans and AI agents instead of a bare 400
+        raise HTTPException(400, (
+            f"Skill '{skill.name}' has no workflow nodes, so it cannot be executed. "
+            "Open Dashboard → Skills and build its workflow, or set skill_format to "
+            "'extension_action' with workflow_data.endpoint if it wraps an extension feature. "
+            "AI agents: pick a different skill for this task."
+        ))
 
     if input_text:
         for nd in nodes_data:

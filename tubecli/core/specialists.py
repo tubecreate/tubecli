@@ -8,7 +8,12 @@ Each specialist has:
 - allowed_skills: limited skill set (prevents token bloat)
 - system_prompt: tuned for their specific domain
 """
+import re
 from typing import List, Dict
+
+# CJK (Trung/Nhật/Hàn) không có ranh giới từ để chốt \b — với chúng dùng
+# substring; ký tự Latin/số thì chốt whole-word.
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -152,31 +157,59 @@ def register_builtin_specialists(force: bool = False) -> List[str]:
     """
     from tubecli.core.agent import agent_manager
 
-    existing_names = {a.name.lower() for a in agent_manager.get_all()}
+    existing_by_name = {a.name.lower(): a for a in agent_manager.get_all()}
     created = []
+    created_ids = []
 
     # 1. Create Orchestrator first
-    if force or ORCHESTRATOR_AGENT["name"].lower() not in existing_names:
+    if force or ORCHESTRATOR_AGENT["name"].lower() not in existing_by_name:
         agent = agent_manager.create(**ORCHESTRATOR_AGENT)
         created.append(agent.name)
+        created_ids.append(agent.id)
         print(f"[Specialists] ✅ Created orchestrator: {agent.name}")
 
-    # 2. Create Specialists
+    # 2. Create Specialists — hoặc RESYNC định nghĩa cho agent đã tồn tại.
+    # Trước đây agent trùng tên bị bỏ qua hoàn toàn nên specialties trong
+    # data đóng băng ở phiên bản cũ (Video Agent lưu 9 từ khóa trong khi
+    # code có 17 — thiếu reup/mirror/ffmpeg/cắt...). Resync = UNION để giữ
+    # từ khóa người dùng tự thêm.
     for spec_def in BUILTIN_SPECIALISTS:
-        if not force and spec_def["name"].lower() in existing_names:
+        existing = existing_by_name.get(spec_def["name"].lower())
+        if existing and not force:
+            _resync_specialist(agent_manager, existing, spec_def)
             continue
         agent = agent_manager.create(**spec_def)
         created.append(agent.name)
+        created_ids.append(agent.id)
         print(f"[Specialists] ✅ Created specialist: {agent.name} (specialties: {spec_def['specialties'][:3]})")
 
-    # 3. Link specialists' skills by matching categories
-    _auto_assign_skills(agent_manager)
+    # 3. Link skills — CHỈ cho agent mới tạo hoặc agent chưa từng được gán
+    # (allowed_skills rỗng). Trước đây hàm này ghi đè vô điều kiện mỗi
+    # discovery pass, xóa sạch mọi chỉnh tay của người dùng trong UI.
+    _auto_assign_skills(agent_manager, agent_ids=created_ids, include_empty=True)
 
     # 4. Create default team grouping all specialists
     if created:
         _create_default_team(agent_manager)
 
     return created
+
+
+def _resync_specialist(agent_manager, existing, spec_def: Dict):
+    """Đồng bộ specialties từ code vào agent đã tồn tại (union, không phá
+    chỉnh sửa của người dùng). Không đụng model / allowed_skills / prompt."""
+    try:
+        stored = list(getattr(existing, "specialties", []) or [])
+        code_specs = list(spec_def.get("specialties", []) or [])
+        stored_lower = {s.lower() for s in stored}
+        # Chỉ THÊM từ khóa mới từ code; giữ nguyên thứ tự cũ + phần user thêm.
+        merged = stored + [s for s in code_specs if s.lower() not in stored_lower]
+        if len(merged) != len(stored):
+            agent_manager.update(existing.id, specialties=merged)
+            added = len(merged) - len(stored)
+            print(f"[Specialists] ↻ {existing.name}: +{added} specialty mới (resync)")
+    except Exception as e:
+        print(f"[Specialists] Resync warning cho {getattr(existing, 'name', '?')}: {e}")
 
 
 def _create_default_team(agent_manager):
@@ -270,39 +303,75 @@ def _create_default_team(agent_manager):
         print(f"[Specialists] Team creation warning: {e}")
 
 
-def _auto_assign_skills(agent_manager):
-    """Auto-assign skills to specialists based on their specialties."""
+def _auto_assign_skills(agent_manager, agent_ids=None, include_empty=False):
+    """Gán skill cho specialist theo specialties.
+
+    Chỉ chạm agent trong `agent_ids` (agent vừa tạo) và — nếu
+    `include_empty` — cả agent có allowed_skills rỗng (chưa từng được gán).
+    KHÔNG ghi đè agent đã có allowed_skills do người dùng chỉnh tay.
+    Trước đây hàm này ghi đè vô điều kiện mỗi discovery pass nên xóa sạch
+    mọi tùy chỉnh trong UI.
+    """
     try:
         from tubecli.core.skill import skill_manager
+
         all_skills = skill_manager.get_all()
         if not all_skills:
             return
 
+        target_ids = set(agent_ids or [])
+
+        def _kw_in(haystack: str, kw: str) -> bool:
+            """Whole-word match (CJK giữ substring) — 'live' không còn dính
+            'livestream' trong mô tả, 'google' không kéo cả Calendar về Search."""
+            kw = (kw or "").strip().lower()
+            if not kw:
+                return False
+            # CJK không có ranh giới từ → substring; còn lại chốt \b thủ công
+            if _CJK_RE.search(kw):
+                return kw in haystack
+            return re.search(r"(?<!\w)" + re.escape(kw) + r"(?!\w)", haystack) is not None
+
+        runnable_ids = [s.id for s in all_skills if s.is_runnable]
+
         for agent in agent_manager.get_all():
-            specialties = getattr(agent, "specialties", []) or []
             role = getattr(agent, "role", "general") or "general"
-            
+            current = getattr(agent, "allowed_skills", []) or []
+
             if role == "orchestrator":
-                # Orchestrator gets ALL skills
-                agent_manager.update(agent.id, allowed_skills=[s.id for s in all_skills])
+                # Orchestrator điều phối → LUÔN thấy mọi skill CHẠY ĐƯỢC, refresh
+                # mỗi lần (không đặt sau cổng touchable — nếu không, skill thêm
+                # sau lần gán đầu sẽ không bao giờ tới được orchestrator). Bỏ
+                # skill hỏng để không chọn nhầm skill fail ngay.
+                if set(current) != set(runnable_ids):
+                    agent_manager.update(agent.id, allowed_skills=runnable_ids)
                 continue
-            
+
+            # Với specialist: chỉ chạm agent vừa tạo hoặc (include_empty và rỗng),
+            # KHÔNG ghi đè tùy chỉnh tay của người dùng.
+            touchable = (agent.id in target_ids) or (include_empty and not current)
+            if not touchable:
+                continue
+
+            specialties = getattr(agent, "specialties", []) or []
             if role != "specialist" or not specialties:
                 continue
 
             matched_skill_ids = []
             for skill in all_skills:
-                name = (skill.name or "").lower()
-                desc = (skill.description or "").lower()
-                cmds = " ".join(skill.commands or []).lower()
-                haystack = f"{name} {desc} {cmds}"
-                
-                if any(spec.lower() in haystack for spec in specialties):
+                if not skill.is_runnable:
+                    continue
+                haystack = (
+                    f"{(skill.name or '').lower()} "
+                    f"{(skill.description or '').lower()} "
+                    f"{' '.join(skill.commands or []).lower()}"
+                )
+                if any(_kw_in(haystack, spec) for spec in specialties):
                     matched_skill_ids.append(skill.id)
 
             if matched_skill_ids:
                 agent_manager.update(agent.id, allowed_skills=matched_skill_ids)
-                print(f"[Specialists] 🔗 {agent.name}: assigned {len(matched_skill_ids)} skills")
+                print(f"[Specialists] 🔗 {agent.name}: gán {len(matched_skill_ids)} skill")
     except Exception as e:
         print(f"[Specialists] Skill assignment warning: {e}")
 

@@ -9,6 +9,12 @@ class IfNode(BaseNode):
     description = "Route data based on a condition. True → output 1, False → output 2."
     icon = "🔀"
     category = "Logic"
+    config_schema = {
+        "condition": {"type": "string", "description": "Optional Python expression using `data`, e.g. 'len(data) > 5'. If set, overrides value1/operator/value2."},
+        "value1": {"type": "string", "description": "Left value. Leave empty to use the incoming `data`."},
+        "operator": {"type": "string", "description": "Comparison operator.", "default": "equals", "options": ["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with", "greater_than", "less_than", "is_empty", "is_not_empty", "regex"]},
+        "value2": {"type": "string", "description": "Right value to compare against."},
+    }
 
     def _setup_ports(self):
         self.add_input("data", PortType.ANY, "Input data to evaluate")

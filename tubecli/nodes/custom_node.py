@@ -10,6 +10,11 @@ class CustomNode(BaseNode):
     description = "User-defined node with custom code and dynamic input/output ports."
     icon = "⚙️"
     category = "Custom"
+    config_schema = {
+        "code": {"type": "string", "required": True, "description": "Python code. Inputs available as variables named after input_ports; assign outputs to variables named after output_ports."},
+        "input_ports": {"type": "array", "description": "Names of input ports.", "default": ["input"]},
+        "output_ports": {"type": "array", "description": "Names of output ports.", "default": ["output"]},
+    }
 
     def _setup_ports(self):
         # Default ports — will be overridden by config

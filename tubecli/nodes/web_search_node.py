@@ -15,6 +15,9 @@ class WebSearchNode(BaseNode):
     description = "Fast web search via HTTP (no browser needed). Uses DuckDuckGo + Google fallback."
     icon = "🔍"
     category = "Network"
+    config_schema = {
+        "query": {"type": "string", "description": "Fallback search query when the `query` input port is not connected."},
+    }
 
     def _setup_ports(self):
         self.add_input("query", PortType.TEXT, "Search query")

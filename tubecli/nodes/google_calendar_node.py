@@ -11,6 +11,19 @@ class GoogleCalendarNode(BaseNode):
     description = "List, create, update, or delete Google Calendar events. Supports recurring events."
     icon = "📅"
     category = "Integration"
+    config_schema = {
+        "action": {"type": "string", "required": True, "description": "Calendar operation.", "default": "list", "options": ["list", "create", "update", "delete", "quick_add"]},
+        "calendar_id": {"type": "string", "description": "Calendar ID.", "default": "primary"},
+        "summary": {"type": "string", "description": "Event title (for create/update)."},
+        "start_time": {"type": "string", "description": "Start datetime ISO 8601, e.g. 2026-07-09T09:00:00."},
+        "end_time": {"type": "string", "description": "End datetime ISO 8601."},
+        "description": {"type": "string", "description": "Event description."},
+        "location": {"type": "string", "description": "Event location."},
+        "event_id": {"type": "string", "description": "Event ID (for update/delete)."},
+        "recurrence": {"type": "string", "description": "RRULE string for recurring events, e.g. RRULE:FREQ=DAILY."},
+        "time_zone": {"type": "string", "description": "IANA timezone.", "default": "Asia/Ho_Chi_Minh"},
+        "quick_text": {"type": "string", "description": "Natural language event for quick_add, e.g. 'Meeting tomorrow 3pm'."},
+    }
 
     def _setup_ports(self):
         self.add_input("credentials", PortType.JSON, "Google credentials (from Google Auth node)", required=False)

@@ -1,0 +1,94 @@
+{
+  "name": "Google Maps Farming",
+  "slug": "google_maps_farming",
+  "description": "Tự động tìm kiếm địa điểm, xem ảnh 360 độ và đọc đánh giá trên Google Maps",
+  "category": "google",
+  "target_url": "https://www.google.com/maps",
+  "tags": [],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở Google Maps",
+      "params": {
+        "url": "https://www.google.com/maps"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ thanh tìm kiếm hiển thị",
+      "selector": "#searchboxinput",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Click vào thanh tìm kiếm",
+      "selector": "#searchboxinput"
+    },
+    {
+      "type": "type",
+      "label": "Nhập địa điểm ngẫu nhiên",
+      "selector": "#searchboxinput",
+      "params": {
+        "text": "{{search_query}}",
+        "clear_first": true
+      }
+    },
+    {
+      "type": "keyboard",
+      "label": "Nhấn Enter để tìm kiếm",
+      "params": {
+        "key": "Enter"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ kết quả tải xong",
+      "selector": "div[role='feed']",
+      "params": {
+        "state": "visible",
+        "timeout": 15000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Chọn địa điểm đầu tiên",
+      "selector": "div[role='feed'] a"
+    },
+    {
+      "type": "sleep",
+      "label": "Xem chi tiết địa điểm",
+      "params": {
+        "ms": 5000
+      }
+    },
+    {
+      "type": "scroll",
+      "label": "Cuộn xuống xem đánh giá",
+      "params": {
+        "direction": "down",
+        "amount": 500
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Đọc đánh giá và thông tin",
+      "params": {
+        "ms": 4000
+      }
+    }
+  ],
+  "variables": [
+    {
+      "name": "search_query",
+      "default": "coffee shop near me"
+    }
+  ],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": [],
+  "created_at": "2026-07-01 06:33:26",
+  "updated_at": "2026-07-01 06:33:26"
+}
