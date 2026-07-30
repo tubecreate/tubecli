@@ -1,90 +1,90 @@
 ---
 name: "Video Studio"
-description: "Xoá sub gốc bằng nội suy, phân tích kênh, và pipeline reup có duyệt."
+description: "Remove the original burned-in subtitles via interpolation, analyze channels, and an approval-gated reup pipeline."
 version: "1.0.0"
 author: "TubeCreate"
 ---
 
 # 🎬 Video Studio
 
-Bổ sung ba thứ mà hệ thống chưa có: **xoá phụ đề cháy sẵn**, **phân tích kênh**, và **pipeline reup**. Các khâu còn lại (tải video, tách sub, dịch, TTS) nằm ở extension khác — xem luật bên dưới.
+Adds three things the system doesn't have yet: **removing burned-in subtitles**, **channel analysis**, and **a reup pipeline**. The remaining stages (downloading video, extracting subtitles, translation, TTS) live in other extensions — see the rules below.
 
-## 🛑 LUẬT QUAN TRỌNG: thiếu công cụ thì HƯỚNG DẪN, đừng nói "không làm được"
+## 🛑 IMPORTANT RULE: when a tool is missing, GUIDE the user, don't say "can't be done"
 
-Phần lớn khâu video do extension tuỳ chọn đảm nhiệm. Nếu người dùng yêu cầu một việc mà extension chưa cài:
+Most video stages are handled by optional extensions. If the user requests something whose extension isn't installed:
 
-1. **KHÔNG** trả lời chung chung kiểu "tôi không có khả năng đó".
-2. Phát `{"action": "video_capabilities"}` để lấy danh sách chính xác.
-3. Đưa nguyên văn kết quả cho người dùng — nó liệt kê **đúng extension cần cài**, mô tả từng cái, và nhắc vào **Market (`/market`)** rồi **khởi động lại server**.
+1. Do **NOT** give a generic answer like "I don't have that capability".
+2. Emit `{"action": "video_capabilities"}` to get the exact list.
+3. Hand the result verbatim to the user — it lists **exactly which extension to install**, describes each one, and reminds them to go to the **Market (`/market`)** then **restart the server**.
 
-Việc → extension cần:
+Job → extension needed:
 
-| Việc | Cần extension |
+| Job | Extension needed |
 |---|---|
-| Tải video | `video_downloader` |
-| Tách sub / dịch / ghi sub | `subtitle_extractor` |
-| Lồng tiếng (TTS) | `tts_vibevoice` |
-| Xoá sub gốc · phân tích kênh · pipeline | `video_studio` (đã có) |
-| Pipeline reup đầy đủ | cả 4 cái trên |
+| Download video | `video_downloader` |
+| Extract subtitles / translate / burn subtitles | `subtitle_extractor` |
+| Voiceover (TTS) | `tts_vibevoice` |
+| Remove original subtitles · analyze channel · pipeline | `video_studio` (already installed) |
+| Full reup pipeline | all 4 of the above |
 
-## 📥 video_capabilities — xem làm được gì
+## 📥 video_capabilities — see what can be done
 
 ```json
 {"action": "video_capabilities"}
 ```
 
-Dùng TRƯỚC khi từ chối bất kỳ yêu cầu video nào.
+Use BEFORE refusing any video request.
 
-## 📥 analyze_channel — phân tích kênh, gợi ý nội dung
+## 📥 analyze_channel — analyze a channel, suggest content
 
 ```json
 {"action": "analyze_channel", "url": "https://www.youtube.com/@tenkenh"}
 ```
 
-Trả về: chủ đề, đối tượng, giọng điệu, công thức tiêu đề của video ăn khách, và 5-8 ý tưởng video mới kèm hook. Dùng khi người dùng hỏi *"kênh này nói về gì"*, *"nên làm video gì tiếp"*.
+Returns: topic, audience, tone, the title formula of hit videos, and 5-8 new video ideas with hooks. Use when the user asks *"what is this channel about"*, *"what video should I make next"*.
 
-## 📥 remove_hardsub — xoá phụ đề cháy sẵn
+## 📥 remove_hardsub — remove burned-in subtitles
 
 ```json
 {"action": "remove_hardsub", "video_path": "C:/path/video.mp4", "mode": "delogo"}
 ```
 
-`mode`: `delogo` (mặc định — **nội suy** từ viền xung quanh, nền phẳng thì chữ biến mất không để lại vệt), `blur`, `pixel`, `fill`.
+`mode`: `delogo` (default — **interpolates** from the surrounding border; on a flat background the text vanishes without leaving a streak), `blur`, `pixel`, `fill`.
 
-## 📥 reup_video — chạy cả chuỗi
+## 📥 reup_video — run the whole chain
 
 ```json
 {"action": "reup_video", "url": "https://v.douyin.com/xxxx"}
 ```
 
-Tải → tách sub → dịch → che sub gốc → lồng tiếng → ghi sub mới. Tạo thành **task Codex chờ duyệt** — báo số task cho người dùng và nhắc `approve <n>`. **Đừng nói là đã chạy xong**; nó chỉ mới được xếp hàng.
+Download → extract subtitles → translate → mask the original subtitles → voiceover → burn new subtitles. Creates a **Codex task awaiting approval** — report the task number to the user and remind them of `approve <n>`. **Don't say it has finished running**; it has only just been queued.
 
 ## 🌐 HTTP API
 
-| Method | Endpoint | Việc |
+| Method | Endpoint | Job |
 |---|---|---|
-| GET | `/api/v1/video-studio/capabilities` | Làm được gì / thiếu gì |
-| GET | `/api/v1/video-studio/capabilities/{job}` | Chi tiết một việc |
-| POST | `/api/v1/video-studio/hardsub/detect` | Chỉ dò vùng sub, không sửa video |
-| POST | `/api/v1/video-studio/hardsub/remove` | Dò + che |
-| POST | `/api/v1/video-studio/channel/analyze` | Phân tích kênh |
-| POST | `/api/v1/video-studio/pipeline/plan` | Xem pipeline sẽ chạy bước nào |
-| POST | `/api/v1/video-studio/pipeline/reup` | Xếp hàng pipeline thành task Codex |
+| GET | `/api/v1/video-studio/capabilities` | What can be done / what's missing |
+| GET | `/api/v1/video-studio/capabilities/{job}` | Details of one job |
+| POST | `/api/v1/video-studio/hardsub/detect` | Only detect the subtitle region, don't modify the video |
+| POST | `/api/v1/video-studio/hardsub/remove` | Detect + mask |
+| POST | `/api/v1/video-studio/channel/analyze` | Analyze a channel |
+| POST | `/api/v1/video-studio/pipeline/plan` | See which steps the pipeline will run |
+| POST | `/api/v1/video-studio/pipeline/reup` | Queue the pipeline as a Codex task |
 
-## 💡 Ví dụ
+## 💡 Examples
 
-**User:** "https://www.youtube.com/@abc kênh này nói về nội dung gì?"
+**User:** "https://www.youtube.com/@abc what content is this channel about?"
 ```json
 {"action": "analyze_channel", "url": "https://www.youtube.com/@abc"}
 ```
 
-**User:** "reup video này sang tiếng Việt giúp tôi https://v.douyin.com/xxx"
+**User:** "reup this video into Vietnamese for me https://v.douyin.com/xxx"
 ```json
 {"action": "reup_video", "url": "https://v.douyin.com/xxx"}
 ```
 
-**User:** "tách sub video này" — nhưng `subtitle_extractor` chưa cài:
+**User:** "extract the subtitles from this video" — but `subtitle_extractor` isn't installed:
 ```json
 {"action": "video_capabilities"}
 ```
-→ rồi đưa nguyên kết quả cho người dùng để họ biết cài gì.
+→ then hand the raw result to the user so they know what to install.

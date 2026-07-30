@@ -5,32 +5,32 @@ version: "1.0.0"
 author: "TubeCreate"
 ---
 
-# 🎯 Chức năng
-Kỹ năng này giúp Theo Dõi (Monitor) một nền tảng theo định kỳ (ví dụ: Douyin, YouTube, Website). Khi có video mới/bài đăng mới xuất hiện, hệ thống sẽ tự động đóng gói bài đăng đó và giao cho một Biệt đội Agent (Team) hoặc gửi tin nhắn cho người dùng để xử lý.
+# 🎯 Functionality
+This skill lets you Monitor a platform periodically (e.g. Douyin, YouTube, Website). When a new video/post appears, the system automatically packages that post and hands it off to an Agent Team, or sends a message to the user for processing.
 
-> **🛑 LƯU Ý PHÂN BIỆT QUAN TRỌNG:**
-> - Kỹ năng này (`add_tracker`) dùng để theo dõi **KÊNH VIDEO** (YouTube, Douyin, TikTok) hoặc Nguồn cấp dữ liệu thô (để tải video / kích hoạt Team AI xử lý upload video chéo nền tảng).
-> - NẾU người dùng yêu cầu theo dõi **TRANG WEB / BÁO CHÍ** để dịch bài và đăng lên trang **WordPress**: **TUYỆT ĐỐI KHÔNG DÙNG KỸ NĂNG NÀY**. Bạn phải tìm và dùng kỹ năng của Web Crawler (với action: `watch_page`).
-## 📥 Hành động: Thêm Theo Dõi mới (add_tracker)
-Dùng khi người dùng yêu cầu "theo dõi kênh Douyin ABC mỗi x giờ, rồi dùng team AutoReup để xử lý".
+> **🛑 IMPORTANT DISTINCTION:**
+> - This skill (`add_tracker`) is used to monitor **VIDEO CHANNELS** (YouTube, Douyin, TikTok) or raw data feeds (to download videos / trigger an AI Team to handle cross-platform video uploads).
+> - IF the user asks to monitor a **WEBSITE / NEWS SITE** to translate articles and publish them to a **WordPress** site: **NEVER USE THIS SKILL**. You must find and use the Web Crawler skill (with action: `watch_page`).
+## 📥 Action: Add a new Tracker (add_tracker)
+Use when the user asks "monitor Douyin channel ABC every x hours, then use the AutoReup team to handle it".
 
-**Ví dụ:**
-- "Theo dõi youtube https://youtube.com/channel... mỗi 2 giờ, sau đó dùng team room1"
-- "Khi có video mới ở https://v.douyin.com... thì tự gọi team_abcdef"
+**Examples:**
+- "Monitor youtube https://youtube.com/channel... every 2 hours, then use team room1"
+- "When there is a new video at https://v.douyin.com... automatically call team_abcdef"
 
 ```json
 {
   "action": "add_tracker",
   "platform": "youtube", // youtube, douyin, tiktok, website
   "url": "https://...",
-  "interval_minutes": 60, // Thời gian lặp lại (theo phút). Mặc định là 60.
-  "target_team_id": "team_abcdef", // (Tùy chọn) ID của team/workflow xử lý khi có bài mới
-  "instruction": "Tải về và up lên youtube Shorts" // (Tùy chọn) Ghi chú dặn dò
+  "interval_minutes": 60, // Repeat interval (in minutes). Default is 60.
+  "target_team_id": "team_abcdef", // (Optional) ID of the team/workflow that handles new posts
+  "instruction": "Download and upload to youtube Shorts" // (Optional) Instruction note
 }
 ```
 
-## 📥 Hành động: Danh sách Đang Theo dõi (list_trackers)
-Được kích hoạt khi người dùng nói: "Xem danh sách đang theo dõi", "Các kênh dang monitor".
+## 📥 Action: List Active Trackers (list_trackers)
+Triggered when the user says: "Show the list of trackers", "Which channels are being monitored".
 
 ```json
 {
@@ -38,8 +38,8 @@ Dùng khi người dùng yêu cầu "theo dõi kênh Douyin ABC mỗi x giờ, r
 }
 ```
 
-## 📥 Hành động: Xoá Theo Dõi (remove_tracker)
-Được kích hoạt khi người dùng muốn dừng theo dõi. Truyền vào ID của Tracker.
+## 📥 Action: Remove a Tracker (remove_tracker)
+Triggered when the user wants to stop monitoring. Pass in the Tracker ID.
 
 ```json
 {
@@ -48,17 +48,17 @@ Dùng khi người dùng yêu cầu "theo dõi kênh Douyin ABC mỗi x giờ, r
 }
 ```
 
-## 📥 Hành động: Kích hoạt lấy video NGAY (trigger_tracker)
-Dùng khi người dùng yêu cầu "post video mới nhất", "lấy video mới nhất", "tải bài mới nhất lên kênh".
+## 📥 Action: Fetch the video NOW (trigger_tracker)
+Use when the user asks to "post the latest video", "get the latest video", "upload the newest post to the channel".
 
-> **⚡ QUY TẮC PHÂN BIỆT QUAN TRỌNG:**
-> - User nói "**theo dõi**", "**monitor**", "**mỗi X giờ**" → `add_tracker` (tạo cấu hình mới)
-> - User nói "**mới nhất**", "**post lên kênh**", "**tải bài mới**", "**lấy video mới**" → `trigger_tracker` (kích hoạt NGAY)
-> - Nếu đã có tracker cho URL này, LUÔN dùng `trigger_tracker`. KHÔNG tạo thêm tracker trùng lặp!
+> **⚡ IMPORTANT DISTINCTION RULE:**
+> - User says "**monitor**", "**track**", "**every X hours**" → `add_tracker` (create a new config)
+> - User says "**latest**", "**post to channel**", "**upload the new post**", "**get the new video**" → `trigger_tracker` (trigger NOW)
+> - If a tracker already exists for this URL, ALWAYS use `trigger_tracker`. DO NOT create a duplicate tracker!
 
 ```json
 {
   "action": "trigger_tracker",
-  "tracker_id": "" // (Tùy chọn) ID tracker, nếu bỏ trống sẽ dùng tracker gần nhất
+  "tracker_id": "" // (Optional) tracker ID; if left empty, the most recent tracker is used
 }
 ```

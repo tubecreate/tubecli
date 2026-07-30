@@ -1,63 +1,63 @@
 ---
 name: File Manager
-description: Quản lý file và folder trên máy tính
+description: Manage files and folders on the computer
 ---
 
 # File Manager Extension
 
-## Khả năng
-Extension này cho phép AI tạo, xóa, di chuyển, sao chép và liệt kê file/folder trực tiếp trên máy tính của người dùng.
+## Capabilities
+This extension lets the AI create, delete, move, copy and list files/folders directly on the user's computer.
 
-## Hành động có thể thực hiện
+## Available Actions
 
-### 1. Tạo thư mục
+### 1. Create folder
 ```json
 {"action": "file_action", "operation": "create_folder", "path": "~/Desktop/my_folder"}
 ```
 
-### 2. Tạo file
+### 2. Create file
 ```json
-{"action": "file_action", "operation": "create_file", "path": "~/Desktop/note.txt", "content": "Nội dung file"}
+{"action": "file_action", "operation": "create_file", "path": "~/Desktop/note.txt", "content": "File content"}
 ```
 
-### 3. Liệt kê file trong thư mục
+### 3. List files in a folder
 ```json
 {"action": "file_action", "operation": "list", "path": "~/Desktop"}
 ```
 
-### 4. Xóa file hoặc folder
+### 4. Delete a file or folder
 ```json
 {"action": "file_action", "operation": "delete", "path": "~/Desktop/my_folder"}
 ```
 
-### 5. Di chuyển / Đổi tên
+### 5. Move / Rename
 ```json
 {"action": "file_action", "operation": "move", "path": "~/Desktop/old_name.txt", "destination": "~/Desktop/new_name.txt"}
 ```
 
-### 6. Sao chép
+### 6. Copy
 ```json
 {"action": "file_action", "operation": "copy", "path": "~/Desktop/file.txt", "destination": "~/Documents/file_copy.txt"}
 ```
 
-### 7. Đọc nội dung file
+### 7. Read file content
 ```json
 {"action": "file_action", "operation": "read", "path": "~/Desktop/note.txt"}
 ```
 
-## Vùng cho phép
-Chỉ cho phép thao tác trong:
-- `~/Desktop` — Màn hình chính
-- `~/Documents` — Tài liệu
-- `~/Downloads` — Tải về
-- `data/` — Thư mục dữ liệu TubeCLI
+## Allowed Area
+Operations are only allowed within:
+- `~/Desktop` — Main screen
+- `~/Documents` — Documents
+- `~/Downloads` — Downloads
+- `data/` — TubeCLI data folder
 
-## Lưu ý bảo mật
-- KHÔNG được truy cập thư mục hệ thống (Windows, Program Files, etc.)
-- KHÔNG được xóa file quan trọng mà không hỏi xác nhận
-- Luôn thông báo cho người dùng trước khi xóa
+## Security Notes
+- MUST NOT access system directories (Windows, Program Files, etc.)
+- MUST NOT delete important files without asking for confirmation
+- Always notify the user before deleting
 
 ## Workflow Node
-Sử dụng node `file_manager` trong workflow builder:
-- Input: `command` (lệnh dạng text), `path`, `content`, `destination`
-- Output: `result` (kết quả thao tác), `status`
+Use the `file_manager` node in the workflow builder:
+- Input: `command` (text command), `path`, `content`, `destination`
+- Output: `result` (operation result), `status`

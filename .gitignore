@@ -104,3 +104,7 @@ scraped_data/
 scripts_dump*.txt
 create_agent_api.py
 create_persistent_agent.py
+
+# Central/private tooling — untracked 2026-07-29 (giu local, khong public)
+cloud/tubecli-scripts/
+.agents/

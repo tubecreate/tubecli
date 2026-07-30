@@ -5,16 +5,16 @@ description: Manage OAuth credentials & tokens for Google, Facebook, TikTok
 
 # Auth Manager Extension
 
-Kỹ năng này chịu trách nhiệm sinh ra đường dẫn (URL) cấp quyền (Google, Facebook, TikTok) để người dùng có thể nhấp vào và cấp quyền ứng dụng, ví dụ: Quản lý đăng video lên YouTube, Fanpage, TikTok.
+This skill is responsible for generating the authorization URL (Google, Facebook, TikTok) that the user can click to grant app permissions, e.g. managing video uploads to YouTube, Fanpage, TikTok.
 
-## Khi nào dùng
-- Người dùng yêu cầu "gửi tôi link cấp quyền"
-- Người dùng muốn "cấp quyền quản lý kênh youtube mới"
-- Người dùng yêu cầu "cấp quyền facebook/tiktok", "cấp quyền ứng dụng"
+## When to use
+- The user asks to "send me the authorization link"
+- The user wants to "grant permission to manage a new youtube channel"
+- The user asks to "grant facebook/tiktok permission", "grant app permission"
 
-## Cách kích hoạt (AI OUTPUT JSON)
+## How to trigger (AI OUTPUT JSON)
 
-Nếu người dùng yêu cầu link cấp quyền, hãy phân tích nền tảng (provider) và trả về JSON sau:
+If the user asks for an authorization link, analyze the platform (provider) and return the following JSON:
 
 ```json
 {
@@ -24,7 +24,7 @@ Nếu người dùng yêu cầu link cấp quyền, hãy phân tích nền tản
 }
 ```
 
-Các giá trị `provider` hỗ trợ: `google`, `facebook`, `tiktok`.
-Nếu không biết scopes, có thể để trống rỗng `[]`, hệ thống sẽ tự dùng scope mặc định phổ biến nhất.
+Supported `provider` values: `google`, `facebook`, `tiktok`.
+If you don't know the scopes, you can leave it empty `[]`, and the system will automatically use the most common default scope.
 
-> **Lưu ý:** Sau khi bot phản hồi JSON, hệ thống sẽ trả về 1 đường link cho người dùng bấm vào cấp quyền.
+> **Note:** After the bot responds with JSON, the system will return a link for the user to click and grant permission.
