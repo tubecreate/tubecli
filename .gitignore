@@ -108,3 +108,7 @@ create_persistent_agent.py
 # Central/private tooling — untracked 2026-07-29 (giu local, khong public)
 cloud/tubecli-scripts/
 .agents/
+
+# Screenshots referenced by README.md are tracked on purpose; the blanket
+# screenshots/*.png rule above still keeps ad-hoc local captures out.
+!screenshots/dashboard.png

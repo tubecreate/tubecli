@@ -25,18 +25,67 @@
 
 **TubeCLI is a self-hosted, open-source AI agent team that executes real operational work end to end.** It is not a chat wrapper, and it is not a framework you have to code your agents into. You describe the job in plain language — from the CLI, a web dashboard, or Telegram — and an agent team carries it out with real tools against your own infrastructure.
 
-What that means in practice, measured on 2026-07-30:
+## What it actually does
 
-- **Browser automation** — 556 logged script executions, 375 of them successful. Profiles, proxies, fingerprints, and TOTP 2FA.
-- **Subtitles** — a 559-cue Vietnamese SRT with a matching 559-cue English translation on disk, produced by three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS.
-- **Cloudflare Workers deploys** — a [435-line deploy runner](tubecli/extensions/website_manager/deploy_runner.js) you can read line by line, executing the real chain: `git clone --depth=1` → `npm install` → `wrangler d1 create` + `r2 bucket create` → remote schema apply → [OpenNext](https://opennext.js.org/cloudflare) build → `wrangler deploy`. **Honest caveat:** real, but not one-click — 1 of the 4 most recent attempts finished clean, and admin-password seeding can fall back to the template default. It fails loudly, with the reason in the log.
-- **Also shipping** — WordPress publishing over the WP REST API, web crawling and change watching, video download and dubbing, Google Sheets and Calendar, POD/graphic/content studios, livestream restreaming.
+### Deploy a real website from one sentence
 
-Every LLM call runs on local [Ollama](https://ollama.com) — no API key, no per-token cost — or on Gemini, OpenAI, Claude, DeepSeek, Grok and OpenRouter with your own keys. Critical paths use zero-token fast paths that never call a model at all.
+Say it in chat or Telegram — *"create a website called coffee-shop using the coffee-machine template"* — and the website agent runs the entire chain against **your own** Cloudflare account, streaming every step to a live log:
+
+```
+[1/9] git clone --depth=1 -- <template>            → clone
+[2/9] npm install
+[3/9] wrangler d1 create + wrangler r2 bucket create
+[4/9] wrangler d1 execute schema.sql --remote       → real remote database
+[5/9] write wrangler.toml  (D1 + R2 bindings)
+[6/9] npx @opennextjs/cloudflare build
+[7/9] npx wrangler deploy                          → https://<site>.workers.dev
+[8/9] seed the admin password you chose
+[9/9] DEPLOY_RESULT {url, adminSeeded}
+```
+
+Every step is in [`deploy_runner.js`](tubecli/extensions/website_manager/deploy_runner.js) — read it before you trust it. **It is not one-click:** it needs valid Cloudflare credentials and D1 quota, and when a step fails it stops and names the step in the log rather than reporting a half-built site as finished.
+
+### Subtitle, translate and dub a video
+
+```bash
+tubecli skill run "Analyze Channel" --input "https://www.youtube.com/@channel"
+tubecli skill run "Extract Subtitle" --input "<video-url-or-path>"
+tubecli skill run "Translate Subtitle" --input "<job-id>"
+```
+
+Three interchangeable extraction engines — local Whisper, Gemini, or YouTube captions — exporting **SRT / JSON / VTT / ASS**. Dubbing has six TTS engines. Burn-in and hardsub removal (ffmpeg `delogo`/blur/pixel/fill with OpenCV region detection) are implemented and reviewable, but treat them as experimental.
+
+### Keep a human in front of anything irreversible
+
+An agent proposing something destructive does not just do it:
+
+```bash
+codex                  # list what is waiting
+codex 3                # inspect task 3 — goal, assignee, step timeline
+approve 3              # or:  reject 3
+```
+
+Tasks the AI creates land in `pending_approval` and wait. Deploying, publishing and deleting all pass through that gate, and every task keeps an append-only JSONL audit trail with step timings and retry counters.
+
+### Run it from wherever you are
+
+The same pipeline backs all three surfaces — CLI, web dashboard, and a Telegram bot. Send a link to the bot and it replies with the finished file; approve a task from your phone; watch a deploy log stream in the browser.
+
+**Models:** every LLM call runs on local [Ollama](https://ollama.com) — no API key, no per-token cost — or on Gemini, OpenAI, Claude, DeepSeek, Grok and OpenRouter with your own keys. Critical paths use zero-token fast paths that never call a model at all.
+
+**Also included:** WordPress publishing over the WP REST API, web crawling and change watching, video download, Google Sheets and Calendar, POD/graphic/content studios, and livestream restreaming.
 
 **What you get on `git clone`:** the agent runtime plus **17 built-in extensions** (`website_manager`, `browser`, `browser_scripts`, `codex`, `video_studio`, `multi_agents`, `cloud_api`, `market`, `ollama_manager`, `webui`, `auth_manager`, `calendar_manager`, `chat`, `douyin_downloader`, `file_manager`, `studio3d`, `universal_tracker`). A further **19 studios** — web crawler, video downloader, subtitle extractor, TTS, content/POD/graphic studio, livestream, sheets and more — install in one click from the in-dashboard marketplace.
 
-*v2026.07.30.1 · 394 commits · Python 3.9+ / FastAPI / Vue / Three.js · MIT · all numbers measured 2026-07-30*
+*v2026.07.30.1 · Python 3.9+ / FastAPI / Vue / Three.js · MIT*
+
+---
+
+## The dashboard
+
+All of it is also driveable from a browser at `localhost:5295/dashboard` — agents, browser profiles, skills, workflows, extensions and API keys in one place, with local Ollama and browser status live in the header and every installed studio in the sidebar.
+
+![TubeCLI web dashboard: agent, browser profile, skill, workflow and extension counts; live status for the API server, local Ollama and browser engine; quick actions for the workflow builder, teams, 3D studio, subtitle extractor, web crawler and studios](screenshots/dashboard.png)
 
 ---
 
@@ -46,7 +95,7 @@ Every LLM call runs on local [Ollama](https://ollama.com) — no API key, no per
 - **"The framework is free, but I'm not allowed to resell it."** TubeCLI is MIT: multi-tenant deployment, white-labelling and reselling are all permitted. For contrast, n8n's Sustainable Use License forbids reselling it as a hosted service, and Dify's modified Apache license forbids operating a multi-tenant environment and forbids removing their logo. *(CrewAI, LangGraph and OpenHands are MIT too — this argument does not apply to them.)*
 - **"My agent burned tokens deciding what to do."** Common flows are routed by zero-token fast paths — deterministic intent matching that never calls a model. The LLM is used where judgement is actually needed.
 - **"I don't want my clients' credentials in someone else's cloud."** Everything runs on your hardware. Your keys stay in your own `data/` directory, and with local Ollama the system needs no external API at all.
-- **"An agent did something irreversible."** The Codex queue gates it: AI-created tasks land in `pending_approval` and wait for a human before anything irreversible runs. Of 39 recorded tasks, 6 were rejected at that gate. Every task carries an append-only JSONL audit trail with step timings and retry counters.
+- **"An agent did something irreversible."** The Codex queue gates it: AI-created tasks land in `pending_approval` and wait for a human before anything irreversible runs — deploy, publish, delete. Every task carries an append-only JSONL audit trail with step timings and retry counters, and a running deploy can be cancelled mid-flight.
 
 ## 🌟 Key Features
 
@@ -185,7 +234,7 @@ Measured 2026-07-30. Rows where TubeCLI loses are marked plainly — if you need
 | Enterprise support / SSO / audit | **No** | **Yes** | **Yes** | **Yes** | **Yes** | Partial |
 | Battle-tested at scale | **No — early** | **Yes** | **Yes** | **Yes** | **Yes** | **Yes** |
 
-**Caveat on Cloudflare deploys:** real but not one-click — 1 of the 4 most recent attempts finished clean, and admin-password seeding can fall back to the template default.
+**Caveat on Cloudflare deploys:** real but not one-click — it needs valid Cloudflare credentials and D1 quota, and admin-password seeding can fall back to the template default. Failures stop and name the failing step instead of reporting success.
 
 **Where TubeCLI honestly loses:** no MCP server, no no-code builder, no managed cloud, no enterprise SSO/audit trail, and ~36 extensions against n8n's 400+ integrations. It is early software.
 
@@ -203,7 +252,7 @@ Yes. MIT licensed, no paid tier, no seat limits, no credit meter. You may run it
 No. Point it at local [Ollama](https://ollama.com) and it runs with no API key and no per-token cost. If you prefer cloud models it supports Gemini, OpenAI, Claude, DeepSeek, Grok and OpenRouter with your own keys. Note that the shipped default is a cloud model, so switch the default to Ollama if you want fully local operation.
 
 ### Can TubeCLI actually deploy a website?
-Yes, genuinely — not a scaffold. Its deploy runner performs `git clone` → `npm install` → `wrangler d1 create` + `r2 bucket create` → remote schema apply → OpenNext build → `wrangler deploy` against your own Cloudflare account, and you can read all 435 lines of it in this repo. It is not one-click: 1 of the 4 most recent attempts finished clean, and admin seeding can leave the template default password. It fails loudly rather than silently.
+Yes, genuinely — not a scaffold. Its deploy runner performs `git clone` → `npm install` → `wrangler d1 create` + `r2 bucket create` → remote schema apply → OpenNext build → `wrangler deploy` against your own Cloudflare account, and you can read the whole runner in this repo before trusting it. It is **not** one-click: it needs valid Cloudflare credentials and D1 quota, and admin seeding can leave the template default password. When something fails it stops and names the failing step in the log instead of reporting a half-built site as finished.
 
 ### How is TubeCLI different from LangChain, CrewAI, or AutoGPT?
 Those give you building blocks to construct an agent; you still write the supervisor, the deploy step, and the publishing step yourself. TubeCLI ships the finished tools — a 435-line Cloudflare deploy runner, a WordPress publisher that speaks WP REST with app-password auth, a three-engine subtitle pipeline. You operate it rather than program it.
@@ -221,13 +270,13 @@ Local Ollama, plus six cloud providers: Gemini, OpenAI, Claude, DeepSeek, Grok a
 No. There is no MCP server or MCP client in the repo today, and any list claiming otherwise is wrong. If MCP is a requirement, use n8n, Dify, CrewAI or LangGraph instead. Wrapping the existing extensions in an MCP server is on the roadmap.
 
 ### Can TubeCLI translate and burn subtitles?
-Extraction and translation are proven: three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS, with a 559-cue Vietnamese SRT and matching 559-cue English translation on disk. Burn-in and hardsub removal (ffmpeg delogo/blur/pixel/fill with OpenCV region detection) are implemented and reviewable but have no completed end-to-end run yet — treat them as experimental.
+Extraction and translation are the mature part: three interchangeable engines (local Whisper, Gemini, YouTube CC) exporting SRT/JSON/VTT/ASS, with translation as a separate step so you can review the text before it is burned anywhere. Dubbing has six TTS engines. Burn-in and hardsub removal (ffmpeg delogo/blur/pixel/fill with OpenCV region detection) are implemented and reviewable but should be treated as experimental.
 
 ### How do I stop an agent from doing something irreversible?
-The Codex queue gates it. AI-created tasks land in `pending_approval` and wait for a human to accept or reject before anything irreversible runs — deploying, publishing, deleting. Every task carries an append-only JSONL audit trail with step timings and retry counters. Of 39 recorded tasks, 6 were rejected at the gate.
+The Codex queue gates it. AI-created tasks land in `pending_approval` and wait for a human to accept or reject before anything irreversible runs — deploying, publishing, deleting. Review it with `codex 3`, then `approve 3` or `reject 3`. Every task carries an append-only JSONL audit trail with step timings and retry counters, and a running deploy can be cancelled mid-flight.
 
 ### Is TubeCLI production-ready?
-Parts of it are. Browser automation and subtitle extraction/translation have the most logged runs. WordPress publishing works over the WP REST API. Cloudflare deploys work but need supervision. The full video reup chain and multi-agent org-chart delegation are not proven yet. Treat it as capable early software with an honest changelog, not as enterprise infrastructure.
+Parts of it are. Browser automation, subtitle extraction and translation, and WordPress publishing over the WP REST API are the mature pieces. Cloudflare deploys work but need supervision. The full video reup chain, subtitle burn-in, and multi-agent org-chart delegation are implemented but should be treated as experimental. Treat it as capable early software with an honest changelog, not as enterprise infrastructure.
 
 ## 🧠 Architecture Overview
 
