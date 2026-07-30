@@ -3,8 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TubeCLI — Open Source AI Agent CLI System</title>
-    <meta name="description" content="Hệ thống CLI mã nguồn mở để quản lý AI agents, skills, và workflows. AI agents có thể tự đọc và vận hành.">
+    <title>TubeCLI — Hệ thống AI Agent mã nguồn mở tự host | Deploy website, tự động browser, dịch video</title>
+    <meta name="description" content="TubeCLI là hệ thống AI agent mã nguồn mở, tự host (MIT): agent làm việc thật — deploy website lên Cloudflare Workers, crawl web và đăng WordPress, bóc và dịch phụ đề video, tự động hoá browser. Chạy LLM local qua Ollama hoặc cloud.">
+    <meta name="keywords" content="AI agent mã nguồn mở, hệ thống AI agent tự host, tự động hoá AI, AI agent tiếng Việt, multi-agent, LLM local, Ollama, agent tự động deploy website, tự động đăng WordPress, dịch phụ đề tự động, AI agent CLI">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+    <meta name="author" content="TubeCreate Team">
+
+    <!-- NOTE: nếu gắn custom domain cho GitHub Pages (hoặc serve từ tubecreate.com),
+         phải cập nhật mọi URL tuyệt đối bên dưới, docs/sitemap.xml và dòng Sitemap:
+         trong docs/robots.txt sang origin mới. -->
+    <link rel="canonical" href="https://tubecreate.github.io/tubecli/">
+    <link rel="alternate" hreflang="vi" href="https://tubecreate.github.io/tubecli/">
+    <link rel="alternate" hreflang="en" href="https://tubecreate.github.io/tubecli/en.html">
+    <link rel="alternate" hreflang="zh" href="https://tubecreate.github.io/tubecli/zh.html">
+    <link rel="alternate" hreflang="x-default" href="https://tubecreate.github.io/tubecli/en.html">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TubeCLI">
+    <meta property="og:locale" content="vi_VN">
+    <meta property="og:title" content="TubeCLI — Hệ thống AI Agent mã nguồn mở tự host">
+    <meta property="og:description" content="Agent code chỉ viết code. Agent TubeCLI vận hành công việc thật — deploy Cloudflare Workers, đăng WordPress, dịch video — trên máy bạn, bằng key của bạn. Giấy phép MIT.">
+    <meta property="og:url" content="https://tubecreate.github.io/tubecli/">
+    <meta property="og:image" content="https://raw.githubusercontent.com/tubecreate/tubecli/main/screenshots/workflow.png">
+    <meta property="og:image:alt" content="TubeCLI workflow builder điều phối các AI agent">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="TubeCLI — Hệ thống AI Agent mã nguồn mở tự host">
+    <meta name="twitter:description" content="Agent vận hành việc thật: deploy website, đăng WordPress, dịch phụ đề. Tự host, MIT, chạy được LLM local.">
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/tubecreate/tubecli/main/screenshots/workflow.png">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "TubeCLI",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "Windows, macOS, Linux",
+      "softwareVersion": "2026.07.30.1",
+      "dateModified": "2026-07-30",
+      "inLanguage": "vi",
+      "description": "Hệ thống AI agent mã nguồn mở, tự host: agent thực thi công việc vận hành thật — deploy website lên Cloudflare Workers, crawl web và đăng WordPress, bóc và dịch phụ đề video, tự động hoá browser. Chạy trên Ollama local hoặc Gemini, OpenAI, Claude, DeepSeek, Grok, OpenRouter.",
+      "url": "https://github.com/tubecreate/tubecli",
+      "codeRepository": "https://github.com/tubecreate/tubecli",
+      "downloadUrl": "https://github.com/tubecreate/tubecli",
+      "programmingLanguage": ["Python", "JavaScript"],
+      "runtimePlatform": "Python 3.9+",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Organization", "name": "TubeCreate Team", "url": "https://tubecreate.com" }
+    }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }

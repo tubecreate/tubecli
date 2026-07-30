@@ -3,8 +3,133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TubeCLI — Open Source AI Agent CLI System</title>
-    <meta name="description" content="Open-source CLI system to manage AI agents, skills, and workflows. AI agents can read and operate themselves.">
+    <title>TubeCLI — Self-Hosted Open Source AI Agent Team | Deploys Websites, Automates Browsers, Translates Video</title>
+    <meta name="description" content="TubeCLI is a self-hosted, MIT-licensed open source AI agent team that does real operational work: deploys sites to Cloudflare Workers, publishes to WordPress, translates video subtitles and automates browsers. Runs on local Ollama or any cloud LLM.">
+    <meta name="keywords" content="self-hosted AI agents, open source AI agent framework, AI agent automation, multi-agent orchestration, local LLM agents, Ollama agents, agentic AI, AI agent CLI, autonomous agents, browser automation AI, AI deploy website Cloudflare Workers, AutoGPT alternative, CrewAI alternative, self-hosted Manus alternative">
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+    <meta name="author" content="TubeCreate Team">
+
+    <!-- NOTE: if you attach a custom domain to GitHub Pages (or serve this from
+         tubecreate.com), update every absolute URL below, docs/sitemap.xml and the
+         Sitemap: line in docs/robots.txt to the new origin. -->
+    <link rel="canonical" href="https://tubecreate.github.io/tubecli/en.html">
+    <link rel="alternate" hreflang="en" href="https://tubecreate.github.io/tubecli/en.html">
+    <link rel="alternate" hreflang="vi" href="https://tubecreate.github.io/tubecli/">
+    <link rel="alternate" hreflang="zh" href="https://tubecreate.github.io/tubecli/zh.html">
+    <link rel="alternate" hreflang="x-default" href="https://tubecreate.github.io/tubecli/en.html">
+
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TubeCLI">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:title" content="TubeCLI — Self-Hosted Open Source AI Agent Team">
+    <meta property="og:description" content="Coding agents write code. TubeCLI agents run the operations — deploying to Cloudflare Workers, publishing to WordPress, translating video — on your machine, with your keys. MIT licensed.">
+    <meta property="og:url" content="https://tubecreate.github.io/tubecli/en.html">
+    <meta property="og:image" content="https://raw.githubusercontent.com/tubecreate/tubecli/main/screenshots/workflow.png">
+    <meta property="og:image:alt" content="TubeCLI workflow builder orchestrating AI agents">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="TubeCLI — Self-Hosted Open Source AI Agent Team">
+    <meta name="twitter:description" content="Coding agents write code. TubeCLI agents run the operations — on your machine, with your keys. MIT licensed, runs on local Ollama.">
+    <meta name="twitter:image" content="https://raw.githubusercontent.com/tubecreate/tubecli/main/screenshots/workflow.png">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "TubeCLI",
+          "alternateName": "TubeCLI AI Agent System",
+          "applicationCategory": "DeveloperApplication",
+          "operatingSystem": "Windows, macOS, Linux",
+          "softwareVersion": "2026.07.30.1",
+          "dateModified": "2026-07-30",
+          "description": "Self-hosted, open-source AI agent team that executes real operational work end to end: deploying websites to Cloudflare Workers, crawling the web and publishing to WordPress, extracting and translating video subtitles, and automating browsers. Runs on local Ollama or on Gemini, OpenAI, Claude, DeepSeek, Grok and OpenRouter.",
+          "url": "https://github.com/tubecreate/tubecli",
+          "codeRepository": "https://github.com/tubecreate/tubecli",
+          "downloadUrl": "https://github.com/tubecreate/tubecli",
+          "installUrl": "https://github.com/tubecreate/tubecli#-quick-start--installation",
+          "programmingLanguage": ["Python", "JavaScript"],
+          "runtimePlatform": "Python 3.9+",
+          "license": "https://opensource.org/licenses/MIT",
+          "isAccessibleForFree": true,
+          "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+          "author": { "@type": "Organization", "name": "TubeCreate Team", "url": "https://tubecreate.com" },
+          "featureList": [
+            "Deploy websites to Cloudflare Workers end to end (D1, R2, OpenNext, wrangler)",
+            "Crawl the web and publish to WordPress over the REST API",
+            "Extract and translate video subtitles with local Whisper, Gemini or YouTube CC",
+            "Browser automation with profiles, proxies, fingerprints and TOTP 2FA",
+            "Multi-agent teams with sequential, parallel and hierarchical delegation",
+            "Durable task queue with a human approval gate on irreversible actions",
+            "Local LLM via Ollama with no API key, or six cloud providers",
+            "Control from CLI, web dashboard or Telegram",
+            "Skill marketplace with 19 installable studios"
+          ]
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is TubeCLI?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "TubeCLI is a self-hosted, open-source AI agent team that executes operational work end to end — deploying websites to Cloudflare Workers, crawling the web and publishing to WordPress, extracting and translating video subtitles, and automating browsers. It ships 17 built-in extensions plus 19 marketplace studios, and runs from the CLI, a web dashboard, or Telegram."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is TubeCLI free?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. MIT licensed, no paid tier, no seat limits and no credit meter. You may run it for paying clients, multi-tenant and white-labelled. Your only costs are your own infrastructure and whatever LLM you point it at, which can be zero if you use local Ollama."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does TubeCLI need an API key?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. Pointed at local Ollama it runs with no API key and no per-token cost. It also supports Gemini, OpenAI, Claude, DeepSeek, Grok and OpenRouter with your own keys. The shipped default is a cloud model, so switch the default to Ollama for fully local operation."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How is TubeCLI different from LangChain, CrewAI or AutoGPT?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Those give you building blocks to construct an agent; you still write the supervisor, the deploy step and the publishing step yourself. TubeCLI ships the finished tools — a 435-line Cloudflare deploy runner, a WordPress publisher that speaks WP REST with app-password auth, and a three-engine subtitle pipeline. You operate it rather than program it."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Is TubeCLI a self-hosted Manus alternative?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "For operational tasks, yes — both aim at an agent that uses real tools rather than returning code. TubeCLI runs on your hardware, has no credit meter, is MIT so you can resell it, and can run entirely on a local model. It is far less polished and far less battle-tested than a funded hosted product."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Does TubeCLI support MCP?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "No. There is no MCP server or MCP client in the repository today. If MCP is a requirement, use n8n, Dify, CrewAI or LangGraph instead. Wrapping the existing extensions in an MCP server is on the roadmap."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Can I run TubeCLI for my clients and charge for it?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes. The MIT license permits multi-tenant deployment, white-labelling and reselling. For contrast, n8n's Sustainable Use License forbids reselling it as a hosted service and Dify's modified Apache license forbids operating a multi-tenant environment and forbids removing their logo."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }

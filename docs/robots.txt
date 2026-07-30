@@ -1,0 +1,111 @@
+# robots.txt for the TubeCLI project site
+#
+# IMPORTANT LIMITATION: robots.txt is only authoritative at a DOMAIN ROOT.
+# On a GitHub project Pages site (https://tubecreate.github.io/tubecli/) the file
+# that crawlers actually obey is https://tubecreate.github.io/robots.txt, which
+# this repository does not control. This file therefore takes effect only when the
+# site is served from its own origin — i.e. after attaching a custom domain to
+# GitHub Pages, or when copied to tubecreate.com. Keep it here so that switching
+# to a custom domain needs no extra work.
+#
+# Policy: every search and AI crawler is allowed, including training crawlers.
+# Rationale: for an open-source project, being in the training corpus is how you
+# become the default answer. Nothing here is private.
+
+User-agent: *
+Allow: /
+
+# ── Search engines ──
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: YandexBot
+Allow: /
+
+User-agent: Baiduspider
+Allow: /
+
+# ── OpenAI (OAI-SearchBot is the one that affects ChatGPT search visibility) ──
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+# ── Anthropic ──
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+# ── Google AI (Gemini/Vertex grounding + training; does not affect Search rank) ──
+User-agent: Google-Extended
+Allow: /
+
+# ── Perplexity ──
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+# ── Apple Intelligence ──
+User-agent: Applebot-Extended
+Allow: /
+
+# ── Common Crawl (feeds many open models) ──
+User-agent: CCBot
+Allow: /
+
+# ── Meta ──
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+# ── Others ──
+User-agent: Amazonbot
+Allow: /
+
+User-agent: DuckAssistBot
+Allow: /
+
+User-agent: MistralAI-User
+Allow: /
+
+User-agent: cohere-ai
+Allow: /
+
+User-agent: YouBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: PetalBot
+Allow: /
+
+User-agent: AI2Bot
+Allow: /
+
+Sitemap: https://tubecreate.github.io/tubecli/sitemap.xml
