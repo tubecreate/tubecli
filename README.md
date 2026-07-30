@@ -165,7 +165,6 @@ Measured 2026-07-30. Rows where TubeCLI loses are marked plainly — if you need
 
 | | **TubeCLI** | n8n | Dify | CrewAI | LangGraph | OpenHands |
 |---|---|---|---|---|---|---|
-| GitHub stars | **166** | 198k | 150k | 56k | 38k | 82k |
 | What it sells | Work already finished | Workflow platform | Agentic workflow builder | Agent framework | Low-level orchestration | Coding-agent control center |
 | License | **MIT** | Sustainable Use | Modified Apache | MIT | MIT | MIT |
 | Resell as a hosted service | **Yes** | **No** | **No** | Yes | Yes | Yes |
@@ -188,7 +187,7 @@ Measured 2026-07-30. Rows where TubeCLI loses are marked plainly — if you need
 
 **Caveat on Cloudflare deploys:** real but not one-click — 1 of the 4 most recent attempts finished clean, and admin-password seeding can fall back to the template default.
 
-**Where TubeCLI honestly loses:** no MCP server, no no-code builder, no managed cloud, no enterprise SSO/audit trail, ~36 extensions against n8n's 400+ integrations, and 166 stars against 198k. It is early software.
+**Where TubeCLI honestly loses:** no MCP server, no no-code builder, no managed cloud, no enterprise SSO/audit trail, and ~36 extensions against n8n's 400+ integrations. It is early software.
 
 **Where the license comparison does *not* apply:** CrewAI, LangGraph and OpenHands are MIT too — the resale argument only beats n8n, Dify and AutoGPT's platform. Against CrewAI and LangGraph the difference is that they hand you building blocks, while TubeCLI hands you a `wrangler deploy` that already ran.
 
