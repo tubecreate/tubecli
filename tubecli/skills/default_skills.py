@@ -19,7 +19,21 @@ DEFAULT_SKILLS: List[Dict] = [
         "commands": [
             "create sheet", "new spreadsheet", "read sheet", "read google sheet", "write sheet", "append sheet", "sync sheet", "sync data to sheet",
         ],
-        "workflow_data": {"nodes": [], "connections": []},
+        # Runnable-as-guidance (sop) thay vì workflow rỗng chết. Thao tác thật
+        # (tạo/đọc/ghi) đi qua action verb create_sheet của extension sheets_manager
+        # và giao diện /sheets-manager.
+        "workflow_data": {
+            "extension": "sheets_manager",
+            "action": "open_sheets",
+            "sop": (
+                "Bạn giúp người dùng thao tác Google Sheets. Khả năng: tạo Sheet mới, "
+                "đọc dữ liệu tab, ghi/append dữ liệu, liệt kê Sheet đã có.\n"
+                "1. Nếu yêu cầu là TẠO sheet: xác nhận tiêu đề rồi báo hệ thống tạo "
+                "(action create_sheet), trả về link sheet.\n"
+                "2. Nếu ĐỌC/GHI: cần biết sheet nào và tab nào; hỏi lại nếu thiếu.\n"
+                "3. Quản lý trực quan tại /sheets-manager. Trả lời bằng ngôn ngữ của người dùng."
+            ),
+        },
     },
     {
         "name": "🔍 Google Search",

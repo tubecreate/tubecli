@@ -1,11 +1,19 @@
 """
 Cloud API Extension — API routes.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 
-router = APIRouter(prefix="/api/v1/cloud-api", tags=["cloud-api"])
+# Router này chứa CF token + mọi AI API key. Origin-guard chặn trang web
+# cross-origin (evil.com) fetch/CSRF tới đây — cùng cơ chế với website_manager.
+from tubecli.core.origin_guard import guard_origin
+
+router = APIRouter(
+    prefix="/api/v1/cloud-api",
+    tags=["cloud-api"],
+    dependencies=[Depends(guard_origin)],
+)
 
 
 class AddKeyRequest(BaseModel):
@@ -156,6 +164,7 @@ class AddCloudflareKeyRequest(BaseModel):
     api_token: str
     account_id: str
     label: str = "default"
+    email: str = ""   # có email → api_token là Global API Key
 
 
 class TestCloudflareKeyRequest(BaseModel):
@@ -177,7 +186,7 @@ async def api_add_cloudflare_profile(req: AddCloudflareKeyRequest):
         raise HTTPException(400, "API Token là bắt buộc.")
     if not req.account_id:
         raise HTTPException(400, "Account ID là bắt buộc.")
-    result = key_manager.add_cloudflare_key(req.api_token, req.account_id, req.label)
+    result = key_manager.add_cloudflare_key(req.api_token, req.account_id, req.label, req.email)
     if result["status"] == "error":
         raise HTTPException(400, result["message"])
     return result
@@ -214,6 +223,8 @@ async def api_get_cloudflare_creds(label: str = "default"):
         "label": creds["label"],
         "masked_token": masked,
         "account_id": creds["account_id"],
+        "email": creds.get("email", ""),
+        "auth_type": "global_key" if creds.get("email") else "api_token",
         "has_creds": True,
     }
 
@@ -232,6 +243,8 @@ async def api_get_default_cloudflare_creds():
         "has_creds": True,
         "masked_token": masked,
         "account_id": creds["account_id"],
+        "email": creds.get("email", ""),
+        "auth_type": "global_key" if creds.get("email") else "api_token",
         "label": creds["label"],
     }
 

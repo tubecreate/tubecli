@@ -513,14 +513,14 @@
   <div class="header-icon">🌐</div>
   <div>
     <h1>Website Manager</h1>
-    <p>Quản lý và deploy websites Cloudflare Workers</p>
+    <p data-i18n="app.subtitle">Quản lý và deploy websites Cloudflare Workers</p>
   </div>
   <div class="header-actions">
-    <button class="btn btn-ghost btn-sm" id="btn-manage-cf" title="Cấu hình Cloudflare Keys">
-      <span>⚡</span> Cloud Keys
+    <button class="btn btn-ghost btn-sm" id="btn-manage-cf" title="Cloudflare Keys">
+      <span>⚡</span> <span data-i18n="nav.cloud_keys">Cloud Keys</span>
     </button>
     <button class="btn btn-primary" id="btn-open-add">
-      <span>＋</span> Thêm website
+      <span>＋</span> <span data-i18n="nav.add_site">Thêm website</span>
     </button>
   </div>
 </header>
@@ -530,10 +530,10 @@
 
   <!-- Stats -->
   <div class="stats-bar">
-    <div class="stat-card stat-total"><div class="stat-label">Tổng cộng</div><div class="stat-value" id="stat-total">0</div></div>
-    <div class="stat-card stat-active"><div class="stat-label">Đang hoạt động</div><div class="stat-value" id="stat-active">0</div></div>
-    <div class="stat-card stat-deploying"><div class="stat-label">Đang deploy</div><div class="stat-value" id="stat-deploying">0</div></div>
-    <div class="stat-card stat-failed"><div class="stat-label">Thất bại</div><div class="stat-value" id="stat-failed">0</div></div>
+    <div class="stat-card stat-total"><div class="stat-label" data-i18n="stat.total">Tổng cộng</div><div class="stat-value" id="stat-total">0</div></div>
+    <div class="stat-card stat-active"><div class="stat-label" data-i18n="stat.active">Đang hoạt động</div><div class="stat-value" id="stat-active">0</div></div>
+    <div class="stat-card stat-deploying"><div class="stat-label" data-i18n="stat.deploying">Đang deploy</div><div class="stat-value" id="stat-deploying">0</div></div>
+    <div class="stat-card stat-failed"><div class="stat-label" data-i18n="stat.failed">Thất bại</div><div class="stat-value" id="stat-failed">0</div></div>
   </div>
 
   <!-- CF profile bar -->
@@ -541,21 +541,21 @@
     <div class="cf-bar-icon">⚡</div>
     <div class="cf-bar-info">
       <span>Cloudflare Credentials</span>
-      <strong id="cf-bar-text">Chưa cấu hình</strong>
+      <strong id="cf-bar-text" data-i18n="cf.not_configured">Chưa cấu hình</strong>
     </div>
     <div class="cf-status">
       <div class="cf-dot none" id="cf-dot"></div>
-      <span id="cf-status-text" style="color:var(--text2)">Chưa kết nối</span>
+      <span id="cf-status-text" style="color:var(--text2)" data-i18n="cf.not_connected">Chưa kết nối</span>
     </div>
-    <button class="btn btn-cf btn-sm" id="btn-cf-setup">Cấu hình</button>
+    <button class="btn btn-cf btn-sm" id="btn-cf-setup" data-i18n="cf.configure">Cấu hình</button>
   </div>
 
   <!-- Section header -->
   <div class="section-header">
-    <div class="section-title">📋 Danh sách Websites</div>
+    <div class="section-title" data-i18n="section.sites">📋 Danh sách Websites</div>
     <div class="search-box">
       <span style="color:var(--text3)">🔍</span>
-      <input type="text" id="search-input" placeholder="Tìm kiếm website..." />
+      <input type="text" id="search-input" placeholder="Tìm kiếm website..." data-i18n-ph="search.ph" />
     </div>
   </div>
 
@@ -563,7 +563,7 @@
   <div class="cards-grid" id="cards-grid">
     <div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text3);">
       <div class="spinner" style="font-size:1.5rem; display:inline-block;">⟳</div>
-      <div style="margin-top:12px;">Đang tải...</div>
+      <div style="margin-top:12px;" data-i18n="common.loading">Đang tải...</div>
     </div>
   </div>
 
@@ -579,40 +579,40 @@
   <div class="modal modal-xl">
     <div class="modal-header">
       <span style="font-size:1.3rem">🌐</span>
-      <h2>Thêm Website</h2>
+      <h2 data-i18n="add.title">Thêm Website</h2>
       <button class="modal-close" data-close="modal-add">✕</button>
     </div>
     <div class="modal-body">
       <div class="tabs">
-        <button class="tab-btn active" data-tab="tab-manual">📋 Thêm thủ công</button>
-        <button class="tab-btn" data-tab="tab-deploy">🚀 Tạo & Deploy mới</button>
+        <button class="tab-btn active" data-tab="tab-manual" data-i18n="tab.manual">📋 Thêm thủ công</button>
+        <button class="tab-btn" data-tab="tab-deploy" data-i18n="tab.deploy">🚀 Tạo & Deploy mới</button>
       </div>
 
       <!-- Tab: Manual -->
       <div class="tab-pane active" id="tab-manual">
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Tên website *</label>
+            <label class="form-label" data-i18n="form.site_name">Tên website *</label>
             <input class="form-input" id="m-name" placeholder="my-website" />
-            <div class="form-hint">Chữ thường, số, dấu gạch ngang</div>
+            <div class="form-hint" data-i18n="form.name_hint">Chữ thường, số, dấu gạch ngang</div>
           </div>
           <div class="form-group">
-            <label class="form-label">URL Deploy</label>
+            <label class="form-label" data-i18n="form.url_deploy">URL Deploy</label>
             <input class="form-input" id="m-url" placeholder="https://my-website.workers.dev" />
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">User Token</label>
-            <input class="form-input" id="m-user-token" type="password" placeholder="Token người dùng" />
+            <label class="form-label" data-i18n="form.user_token">User Token</label>
+            <input class="form-input" id="m-user-token" type="password" placeholder="Token người dùng" data-i18n-ph="form.user_token_ph" />
           </div>
           <div class="form-group">
-            <label class="form-label">WP Token (Admin JWT)</label>
-            <input class="form-input" id="m-wp-token" type="password" placeholder="Token admin WordPress/CMS" />
+            <label class="form-label" data-i18n="form.wp_token">WP Token (Admin JWT)</label>
+            <input class="form-input" id="m-wp-token" type="password" placeholder="Token admin WordPress/CMS" data-i18n-ph="form.wp_token_ph" />
           </div>
         </div>
         <div class="form-group">
-          <label class="form-label">Thumbnail URL</label>
+          <label class="form-label" data-i18n="form.thumbnail">Thumbnail URL</label>
           <input class="form-input" id="m-thumbnail" placeholder="https://..." />
         </div>
       </div>
@@ -624,10 +624,10 @@
 
         <!-- Theme picker -->
         <div class="form-group">
-          <label class="form-label">📐 Chọn Theme *</label>
+          <label class="form-label" data-i18n="deploy.choose_theme">📐 Chọn Theme *</label>
           <div class="themes-grid" id="themes-grid">
             <div style="color:var(--text3); padding:20px; text-align:center; grid-column:1/-1;">
-              <div class="spinner" style="display:inline-block;">⟳</div> Đang tải themes...
+              <div class="spinner" style="display:inline-block;">⟳</div> <span data-i18n="deploy.loading_themes">Đang tải themes...</span>
             </div>
           </div>
           <input type="hidden" id="d-template-id" />
@@ -636,13 +636,13 @@
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Tên website * <span style="color:var(--text3); font-weight:400; text-transform:none;">(site-name.workers.dev)</span></label>
+            <label class="form-label"><span data-i18n="form.site_name">Tên website *</span> <span style="color:var(--text3); font-weight:400; text-transform:none;">(site-name.workers.dev)</span></label>
             <input class="form-input" id="d-name" placeholder="my-blog" autocomplete="off" />
-            <div class="form-hint">Tự động chuyển thành chữ thường, số, dấu gạch ngang</div>
+            <div class="form-hint" data-i18n="deploy.name_hint">Tự động chuyển thành chữ thường, số, dấu gạch ngang</div>
           </div>
           <div class="form-group">
-            <label class="form-label">Tiêu đề website</label>
-            <input class="form-input" id="d-title" placeholder="Tên hiển thị của website" />
+            <label class="form-label" data-i18n="deploy.site_title">Tiêu đề website</label>
+            <input class="form-input" id="d-title" placeholder="Tên hiển thị của website" data-i18n-ph="deploy.site_title_ph" />
           </div>
         </div>
 
@@ -651,49 +651,50 @@
           <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
             <span style="font-size:1.2rem;">⚡</span>
             <span style="font-size:.9rem; font-weight:700; color:#f6821f;">Cloudflare Credentials</span>
-            <span style="margin-left:auto; font-size:.75rem; color:var(--text3);" id="cf-cred-source">Nhập thủ công</span>
+            <span style="margin-left:auto; font-size:.75rem; color:var(--text3);" id="cf-cred-source" data-i18n="cf.source_manual">Nhập thủ công</span>
           </div>
 
           <!-- Saved profiles dropdown -->
           <div class="form-group" id="cf-profiles-section" style="display:none;">
-            <label class="form-label" style="color:#f6821f;">Profile đã lưu</label>
-            <div style="display:flex; gap:8px;">
-              <select class="form-select" id="d-cf-profile" style="border-color:rgba(246,130,31,.3);">
-                <option value="">-- Nhập thủ công --</option>
-              </select>
-              <button class="btn btn-sm" style="background:rgba(246,130,31,.15); color:#f6821f; border:1px solid rgba(246,130,31,.3);" id="btn-use-profile">Dùng profile này</button>
-            </div>
+            <label class="form-label" style="color:#f6821f;" data-i18n="cf.saved_profile">Profile đã lưu</label>
+            <select class="form-select" id="d-cf-profile" style="border-color:rgba(246,130,31,.3);">
+              <option value="__manual__" data-i18n="cf.manual_entry">➕ Nhập thủ công (thêm mới)</option>
+            </select>
+            <div class="form-hint" id="cf-profile-hint" data-i18n="cf.profile_hint">Chọn profile đã lưu để dùng ngay, hoặc "Nhập thủ công" để thêm credentials mới.</div>
           </div>
 
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">CF API Token *</label>
-              <input class="form-input" id="d-cf-token" type="password" placeholder="cfut_xxxxxxxxxxxx" style="border-color:rgba(246,130,31,.3);" />
-              <div class="form-hint">Tạo tại: Cloudflare Dashboard → API Tokens</div>
+          <!-- Manual credential inputs — chỉ hiện khi KHÔNG chọn profile đã lưu -->
+          <div id="cf-manual-inputs">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label" data-i18n="cf.api_token">CF API Token *</label>
+                <input class="form-input" id="d-cf-token" type="password" placeholder="cfut_xxxxxxxxxxxx" style="border-color:rgba(246,130,31,.3);" />
+                <div class="form-hint" data-i18n="cf.api_token_hint">Tạo tại: Cloudflare Dashboard → API Tokens</div>
+              </div>
+              <div class="form-group">
+                <label class="form-label" data-i18n="cf.account_id">CF Account ID *</label>
+                <input class="form-input" id="d-cf-account" placeholder="32-character hex" style="border-color:rgba(246,130,31,.3);" />
+                <div class="form-hint" data-i18n="cf.account_id_hint">Cloudflare Dashboard → bên phải trang chủ</div>
+              </div>
             </div>
-            <div class="form-group">
-              <label class="form-label">CF Account ID *</label>
-              <input class="form-input" id="d-cf-account" placeholder="32-character hex" style="border-color:rgba(246,130,31,.3);" />
-              <div class="form-hint">Cloudflare Dashboard → bên phải trang chủ</div>
+            <div style="display:flex; gap:8px; align-items:center;">
+              <button class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-save-cf-inline" data-i18n="cf.save_to_keys">💾 Lưu vào Cloud Keys</button>
+              <span style="font-size:.75rem; color:var(--text3);" data-i18n="cf.save_hint">Lưu để dùng lại lần sau</span>
             </div>
-          </div>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-save-cf-inline">💾 Lưu vào Cloud Keys</button>
-            <span style="font-size:.75rem; color:var(--text3);">Lưu để dùng lại lần sau</span>
           </div>
         </div>
 
         <div class="form-group">
-          <label class="form-label">Mật khẩu Admin *</label>
-          <input class="form-input" id="d-admin-pw" type="password" placeholder="Tối thiểu 8 ký tự" />
-          <div class="form-hint">Mật khẩu để đăng nhập trang quản trị /admin</div>
+          <label class="form-label" data-i18n="deploy.admin_pw">Mật khẩu Admin *</label>
+          <input class="form-input" id="d-admin-pw" type="password" placeholder="Tối thiểu 8 ký tự" data-i18n-ph="deploy.admin_pw_ph" />
+          <div class="form-hint" data-i18n="deploy.admin_pw_hint">Mật khẩu để đăng nhập trang quản trị /admin</div>
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-add">Hủy</button>
+      <button class="btn btn-ghost" data-close="modal-add" data-i18n="common.cancel">Hủy</button>
       <button class="btn btn-primary" id="btn-submit-add">
-        <span id="submit-add-icon">＋</span> <span id="submit-add-text">Thêm Website</span>
+        <span id="submit-add-icon">＋</span> <span id="submit-add-text" data-i18n="add.submit_manual">Thêm Website</span>
       </button>
     </div>
   </div>
@@ -716,18 +717,19 @@
           <div class="terminal-dot" style="background:#ef4444;"></div>
           <div class="terminal-dot" style="background:#f59e0b;"></div>
           <div class="terminal-dot" style="background:#10b981;"></div>
-          <span class="terminal-title">Deploy Log — <span id="terminal-site-name"></span></span>
+          <span class="terminal-title"><span data-i18n="deploy.log">Deploy Log</span> — <span id="terminal-site-name"></span></span>
         </div>
-        <div class="terminal-body" id="terminal-body">Đang kết nối log stream...</div>
+        <div class="terminal-body" id="terminal-body" data-i18n="deploy.connecting_stream">Đang kết nối log stream...</div>
         <div class="deploy-progress">
-          <span style="font-size:.75rem; color:var(--text2);" id="deploy-step-label">Đang chuẩn bị...</span>
+          <span style="font-size:.75rem; color:var(--text2);" id="deploy-step-label" data-i18n="deploy.preparing">Đang chuẩn bị...</span>
           <div class="progress-bar"><div class="progress-fill" id="deploy-progress-fill" style="width:0%"></div></div>
           <span class="progress-label" id="deploy-progress-pct">0%</span>
         </div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-deploy">Đóng</button>
+      <button class="btn btn-danger" id="btn-cancel-deploy" style="display:none;" data-i18n="deploy.cancel_btn">🛑 Hủy deploy</button>
+      <button class="btn btn-ghost" data-close="modal-deploy" data-i18n="common.close">Đóng</button>
     </div>
   </div>
 </div>
@@ -743,7 +745,7 @@
       <button class="modal-close" data-close="modal-cf">✕</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:.85rem; color:var(--text2); margin-bottom:20px;">
+      <p style="font-size:.85rem; color:var(--text2); margin-bottom:20px;" data-i18n-html="cfm.desc">
         Lưu API Token và Account ID để tái sử dụng khi deploy website. Dữ liệu lưu trong <strong>Cloud Keys</strong>.
       </p>
 
@@ -752,30 +754,35 @@
 
       <!-- Add new -->
       <div style="border:1px solid rgba(246,130,31,.2); border-radius:var(--radius); padding:16px; background:rgba(246,130,31,.04);">
-        <div style="font-size:.85rem; font-weight:700; color:#f6821f; margin-bottom:14px;">➕ Thêm / Cập nhật Profile</div>
+        <div style="font-size:.85rem; font-weight:700; color:#f6821f; margin-bottom:14px;" data-i18n="cfm.add_update">➕ Thêm / Cập nhật Profile</div>
         <div class="form-group">
-          <label class="form-label">Tên profile</label>
+          <label class="form-label" data-i18n="cfm.profile_name">Tên profile</label>
           <input class="form-input" id="cf-new-label" value="default" />
         </div>
         <div class="form-group">
-          <label class="form-label">CF API Token *</label>
-          <input class="form-input" id="cf-new-token" type="password" placeholder="cfut_xxxxxxxxxxxx" />
-          <div class="form-hint">Cloudflare Dashboard → My Profile → API Tokens → Create Token</div>
+          <label class="form-label" data-i18n="cfm.token_or_key">CF API Token / Global API Key *</label>
+          <input class="form-input" id="cf-new-token" type="password" placeholder="cfut_xxxx (API Token) hoặc Global API Key" data-i18n-ph="cfm.token_ph" />
+          <div class="form-hint" data-i18n="cfm.token_hint">API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (cần điền Email bên dưới)</div>
         </div>
         <div class="form-group">
-          <label class="form-label">CF Account ID *</label>
+          <label class="form-label"><span data-i18n="cfm.email">CF Email</span> <span style="color:var(--text3);font-weight:400;" data-i18n="cfm.email_note">(chỉ khi dùng Global API Key)</span></label>
+          <input class="form-input" id="cf-new-email" type="email" placeholder="email@cloudflare-account.com — để trống nếu dùng API Token" data-i18n-ph="cfm.email_ph" />
+          <div class="form-hint" data-i18n="cfm.email_hint">Có email → xác thực kiểu Global API Key (X-Auth-Email + X-Auth-Key). Để trống → API Token (Bearer).</div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" data-i18n="cf.account_id">CF Account ID *</label>
           <input class="form-input" id="cf-new-account" placeholder="32-character hexadecimal" />
-          <div class="form-hint">Cloudflare Dashboard → Trang chủ → sidebar phải</div>
+          <div class="form-hint" data-i18n="cfm.account_hint">Cloudflare Dashboard → Trang chủ → sidebar phải</div>
         </div>
         <div style="display:flex; gap:10px;">
-          <button class="btn btn-cf" id="btn-save-cf" style="flex:1;">💾 Lưu Credentials</button>
-          <button class="btn btn-ghost btn-sm" id="btn-verify-cf">✓ Xác thực</button>
+          <button class="btn btn-cf" id="btn-save-cf" style="flex:1;" data-i18n="cfm.save">💾 Lưu Credentials</button>
+          <button class="btn btn-ghost btn-sm" id="btn-verify-cf" data-i18n="cfm.verify">✓ Xác thực</button>
         </div>
         <div id="cf-verify-result" style="margin-top:10px; font-size:.8rem;"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-cf">Đóng</button>
+      <button class="btn btn-ghost" data-close="modal-cf" data-i18n="common.close">Đóng</button>
     </div>
   </div>
 </div>
@@ -787,35 +794,35 @@
   <div class="modal modal-sm">
     <div class="modal-header">
       <span>✏️</span>
-      <h2>Chỉnh sửa Website</h2>
+      <h2 data-i18n="edit.title">Chỉnh sửa Website</h2>
       <button class="modal-close" data-close="modal-edit">✕</button>
     </div>
     <div class="modal-body">
       <input type="hidden" id="edit-site-id" />
       <div class="form-group">
-        <label class="form-label">Tên website</label>
+        <label class="form-label" data-i18n="form.site_name_plain">Tên website</label>
         <input class="form-input" id="edit-name" disabled style="opacity:.6;" />
       </div>
       <div class="form-group">
-        <label class="form-label">URL Deploy</label>
+        <label class="form-label" data-i18n="form.url_deploy">URL Deploy</label>
         <input class="form-input" id="edit-url" />
       </div>
       <div class="form-group">
-        <label class="form-label">User Token</label>
+        <label class="form-label" data-i18n="form.user_token">User Token</label>
         <input class="form-input" id="edit-user-token" type="password" />
       </div>
       <div class="form-group">
-        <label class="form-label">WP Token</label>
+        <label class="form-label" data-i18n="form.wp_token_plain">WP Token</label>
         <input class="form-input" id="edit-wp-token" type="password" />
       </div>
       <div class="form-group">
-        <label class="form-label">Thumbnail URL</label>
+        <label class="form-label" data-i18n="form.thumbnail">Thumbnail URL</label>
         <input class="form-input" id="edit-thumbnail" />
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" data-close="modal-edit">Hủy</button>
-      <button class="btn btn-primary" id="btn-save-edit">💾 Lưu thay đổi</button>
+      <button class="btn btn-ghost" data-close="modal-edit" data-i18n="common.cancel">Hủy</button>
+      <button class="btn btn-primary" id="btn-save-edit" data-i18n="edit.save">💾 Lưu thay đổi</button>
     </div>
   </div>
 </div>
@@ -829,6 +836,178 @@ let _sites = [];
 let _templates = [];
 let _cfProfiles = [];
 let _sseConnection = null;
+
+// ═══════════════════════════════════════════════════════════════
+// i18n — đa ngôn ngữ (vi + en). Trước đây hardcode tiếng Việt.
+// ═══════════════════════════════════════════════════════════════
+const I18N = {
+  vi: {
+    'app.subtitle': 'Quản lý và deploy websites Cloudflare Workers',
+    'nav.cloud_keys': 'Cloud Keys', 'nav.add_site': 'Thêm website',
+    'stat.total': 'Tổng cộng', 'stat.active': 'Đang hoạt động', 'stat.deploying': 'Đang deploy', 'stat.failed': 'Thất bại',
+    'cf.not_configured': 'Chưa cấu hình', 'cf.not_connected': 'Chưa kết nối', 'cf.configure': 'Cấu hình',
+    'cf.profiles_count': '{n} profile', 'cf.bar_summary': '{label} · Account: {acc}',
+    'section.sites': '📋 Danh sách Websites', 'search.ph': 'Tìm kiếm website...', 'common.loading': 'Đang tải...',
+    'add.title': 'Thêm Website', 'tab.manual': '📋 Thêm thủ công', 'tab.deploy': '🚀 Tạo & Deploy mới',
+    'form.site_name': 'Tên website *', 'form.site_name_plain': 'Tên website', 'form.name_hint': 'Chữ thường, số, dấu gạch ngang',
+    'form.url_deploy': 'URL Deploy', 'form.user_token': 'User Token', 'form.user_token_ph': 'Token người dùng',
+    'form.wp_token': 'WP Token (Admin JWT)', 'form.wp_token_plain': 'WP Token', 'form.wp_token_ph': 'Token admin WordPress/CMS',
+    'form.thumbnail': 'Thumbnail URL',
+    'deploy.choose_theme': '📐 Chọn Theme *', 'deploy.loading_themes': 'Đang tải themes...',
+    'deploy.name_hint': 'Tự động chuyển thành chữ thường, số, dấu gạch ngang',
+    'deploy.site_title': 'Tiêu đề website', 'deploy.site_title_ph': 'Tên hiển thị của website',
+    'deploy.admin_pw': 'Mật khẩu Admin *', 'deploy.admin_pw_ph': 'Tối thiểu 8 ký tự', 'deploy.admin_pw_hint': 'Mật khẩu để đăng nhập trang quản trị /admin',
+    'deploy.log': 'Deploy Log', 'deploy.connecting_stream': 'Đang kết nối log stream...', 'deploy.preparing': 'Đang chuẩn bị...',
+    'deploy.connecting': 'Đang kết nối...', 'deploy.cancel_btn': '🛑 Hủy deploy', 'deploy.cancelling': 'Đang hủy...',
+    'deploy.done': '✅ Hoàn tất!', 'deploy.failed': '❌ Thất bại', 'deploy.cancelled': '🛑 Đã hủy',
+    'deploy.reconnecting': 'Đang kết nối lại...', 'deploy.lost': 'Mất kết nối (đã dừng thử lại)',
+    'deploy.confirm_cancel': 'Hủy deploy "{name}"? Tiến trình đang chạy (git/npm/wrangler) sẽ bị dừng.',
+    'deploy.cancel_sent': 'Đã gửi lệnh hủy deploy.', 'deploy.started': 'Deploy "{name}" đã bắt đầu!',
+    'add.submit_manual': 'Thêm Website', 'add.submit_deploy': 'Deploy Website',
+    'cf.saved_profile': 'Profile đã lưu', 'cf.manual_entry': '➕ Nhập thủ công (thêm mới)',
+    'cf.profile_hint': 'Chọn profile đã lưu để dùng ngay, hoặc "Nhập thủ công" để thêm credentials mới.',
+    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Tạo tại: Cloudflare Dashboard → API Tokens',
+    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': 'Cloudflare Dashboard → bên phải trang chủ',
+    'cf.save_to_keys': '💾 Lưu vào Cloud Keys', 'cf.save_hint': 'Lưu để dùng lại lần sau',
+    'cf.source_manual': 'Nhập thủ công', 'cf.source_profile': 'Dùng profile: {label}',
+    'cf.saved': 'Đã lưu Cloudflare credentials!', 'cf.err_need_both': 'Nhập đầy đủ Token và Account ID.',
+    'cf.err_token_required': 'API Token / Global API Key là bắt buộc.', 'cf.err_account_required': 'Account ID là bắt buộc.',
+    'common.timeout': 'Hết thời gian phản hồi (Timeout). Vui lòng thử lại.',
+    'cfm.desc': 'Lưu API Token và Account ID để tái sử dụng khi deploy website. Dữ liệu lưu trong <strong>Cloud Keys</strong>.',
+    'cfm.add_update': '➕ Thêm / Cập nhật Profile', 'cfm.profile_name': 'Tên profile',
+    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'cfut_xxxx (API Token) hoặc Global API Key',
+    'cfm.token_hint': 'API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (cần điền Email bên dưới)',
+    'cfm.email': 'CF Email', 'cfm.email_note': '(chỉ khi dùng Global API Key)',
+    'cfm.email_ph': 'email@cloudflare-account.com — để trống nếu dùng API Token',
+    'cfm.email_hint': 'Có email → xác thực kiểu Global API Key (X-Auth-Email + X-Auth-Key). Để trống → API Token (Bearer).',
+    'cfm.account_hint': 'Cloudflare Dashboard → Trang chủ → sidebar phải',
+    'cfm.save': '💾 Lưu Credentials', 'cfm.verify': '✓ Xác thực', 'cfm.verifying': 'Đang xác thực...',
+    'cfm.no_profiles': 'Chưa có profile nào.', 'cfm.confirm_delete': 'Xóa profile "{label}"?', 'cfm.deleted': 'Đã xóa profile!',
+    'edit.title': 'Chỉnh sửa Website', 'edit.save': '💾 Lưu thay đổi', 'edit.saved': 'Đã lưu thay đổi!',
+    'edit.token_current': 'Hiện tại: {v}', 'edit.token_none': 'Chưa có',
+    'common.cancel': 'Hủy', 'common.close': 'Đóng', 'common.retry': 'Thử lại', 'common.copied': 'Đã copy!',
+    'card.no_url': 'Chưa có URL', 'card.open': '↗ Mở', 'card.logs': '📋 Xem log', 'card.edit': '✏️ Sửa',
+    'card.warn_default_pw': '⚠️ Chưa seed được mật khẩu admin — site đang dùng mật khẩu MẶC ĐỊNH của template. Hãy deploy lại hoặc đổi trong trang admin.',
+    'card.masked': 'Đã che vì lý do bảo mật',
+    'empty.none_title': 'Chưa có website nào', 'empty.none_desc': 'Nhấn "+ Thêm website" để bắt đầu.',
+    'empty.add_first': '＋ Thêm website đầu tiên', 'empty.notfound_title': 'Không tìm thấy', 'empty.notfound_desc': 'Không có website khớp với "{q}"',
+    'empty.load_fail_title': 'Không thể tải danh sách',
+    'toast.added': 'Website "{name}" đã được thêm!', 'toast.deleted': 'Đã xóa "{name}"',
+    'confirm.delete_site': 'Xóa website "{name}"?\n(Chỉ xóa khỏi danh sách, không xóa tài nguyên Cloudflare)',
+    'err.name_required': 'Tên website là bắt buộc.', 'err.pick_theme': 'Vui lòng nhấp chọn một Theme ở danh sách phía trên.',
+    'err.name_empty': 'Vui lòng nhập Tên website.', 'err.name_invalid': 'Tên website chỉ được chứa chữ thường, số và dấu gạch ngang (VD: my-website).',
+    'err.pw_empty': 'Vui lòng nhập Mật khẩu Admin.', 'err.pw_short': 'Mật khẩu Admin phải có tối thiểu 8 ký tự.',
+    'deploy.err_cf_creds': 'Chưa cấu hình Cloudflare! Chọn một profile đã lưu, hoặc nhập CF API Token + Account ID.',
+    'err.deploy_unknown': 'Lỗi không xác định khi gọi API deploy', 'err.load_fail': 'Lỗi tải themes: {e}',
+    'step.clone': 'Clone template', 'step.npm': 'npm install', 'step.d1': 'Tạo D1 DB', 'step.schema': 'Schema SQL',
+    'step.toml': 'wrangler.toml', 'step.build': 'Build OpenNext', 'step.deploy': 'Deploy CF', 'step.seed': 'Seed Admin', 'step.token': 'wptoken',
+  },
+  en: {
+    'app.subtitle': 'Manage and deploy Cloudflare Workers websites',
+    'nav.cloud_keys': 'Cloud Keys', 'nav.add_site': 'Add website',
+    'stat.total': 'Total', 'stat.active': 'Active', 'stat.deploying': 'Deploying', 'stat.failed': 'Failed',
+    'cf.not_configured': 'Not configured', 'cf.not_connected': 'Not connected', 'cf.configure': 'Configure',
+    'cf.profiles_count': '{n} profile(s)', 'cf.bar_summary': '{label} · Account: {acc}',
+    'section.sites': '📋 Websites', 'search.ph': 'Search websites...', 'common.loading': 'Loading...',
+    'add.title': 'Add Website', 'tab.manual': '📋 Add manually', 'tab.deploy': '🚀 Create & Deploy',
+    'form.site_name': 'Site name *', 'form.site_name_plain': 'Site name', 'form.name_hint': 'Lowercase, digits, hyphens',
+    'form.url_deploy': 'Deploy URL', 'form.user_token': 'User Token', 'form.user_token_ph': 'User token',
+    'form.wp_token': 'WP Token (Admin JWT)', 'form.wp_token_plain': 'WP Token', 'form.wp_token_ph': 'WordPress/CMS admin token',
+    'form.thumbnail': 'Thumbnail URL',
+    'deploy.choose_theme': '📐 Choose Theme *', 'deploy.loading_themes': 'Loading themes...',
+    'deploy.name_hint': 'Auto-converted to lowercase, digits, hyphens',
+    'deploy.site_title': 'Site title', 'deploy.site_title_ph': 'Website display name',
+    'deploy.admin_pw': 'Admin password *', 'deploy.admin_pw_ph': 'At least 8 characters', 'deploy.admin_pw_hint': 'Password to log into the /admin panel',
+    'deploy.log': 'Deploy Log', 'deploy.connecting_stream': 'Connecting to log stream...', 'deploy.preparing': 'Preparing...',
+    'deploy.connecting': 'Connecting...', 'deploy.cancel_btn': '🛑 Cancel deploy', 'deploy.cancelling': 'Cancelling...',
+    'deploy.done': '✅ Done!', 'deploy.failed': '❌ Failed', 'deploy.cancelled': '🛑 Cancelled',
+    'deploy.reconnecting': 'Reconnecting...', 'deploy.lost': 'Connection lost (stopped retrying)',
+    'deploy.confirm_cancel': 'Cancel deploy "{name}"? The running process (git/npm/wrangler) will be killed.',
+    'deploy.cancel_sent': 'Cancel request sent.', 'deploy.started': 'Deploy "{name}" started!',
+    'add.submit_manual': 'Add Website', 'add.submit_deploy': 'Deploy Website',
+    'cf.saved_profile': 'Saved profile', 'cf.manual_entry': '➕ Manual entry (new)',
+    'cf.profile_hint': 'Pick a saved profile to use immediately, or "Manual entry" to add new credentials.',
+    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Create at: Cloudflare Dashboard → API Tokens',
+    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': 'Cloudflare Dashboard → right sidebar of home',
+    'cf.save_to_keys': '💾 Save to Cloud Keys', 'cf.save_hint': 'Save for later use',
+    'cf.source_manual': 'Manual entry', 'cf.source_profile': 'Using profile: {label}',
+    'cf.saved': 'Cloudflare credentials saved!', 'cf.err_need_both': 'Enter both Token and Account ID.',
+    'cf.err_token_required': 'API Token / Global API Key is required.', 'cf.err_account_required': 'Account ID is required.',
+    'common.timeout': 'Response timed out. Please try again.',
+    'cfm.desc': 'Save API Token and Account ID to reuse when deploying. Stored in <strong>Cloud Keys</strong>.',
+    'cfm.add_update': '➕ Add / Update Profile', 'cfm.profile_name': 'Profile name',
+    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'cfut_xxxx (API Token) or Global API Key',
+    'cfm.token_hint': 'API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (fill Email below)',
+    'cfm.email': 'CF Email', 'cfm.email_note': '(only for Global API Key)',
+    'cfm.email_ph': 'email@cloudflare-account.com — leave empty for API Token',
+    'cfm.email_hint': 'With email → Global API Key auth (X-Auth-Email + X-Auth-Key). Empty → API Token (Bearer).',
+    'cfm.account_hint': 'Cloudflare Dashboard → home → right sidebar',
+    'cfm.save': '💾 Save Credentials', 'cfm.verify': '✓ Verify', 'cfm.verifying': 'Verifying...',
+    'cfm.no_profiles': 'No profiles yet.', 'cfm.confirm_delete': 'Delete profile "{label}"?', 'cfm.deleted': 'Profile deleted!',
+    'edit.title': 'Edit Website', 'edit.save': '💾 Save changes', 'edit.saved': 'Changes saved!',
+    'edit.token_current': 'Current: {v}', 'edit.token_none': 'None',
+    'common.cancel': 'Cancel', 'common.close': 'Close', 'common.retry': 'Retry', 'common.copied': 'Copied!',
+    'card.no_url': 'No URL yet', 'card.open': '↗ Open', 'card.logs': '📋 View log', 'card.edit': '✏️ Edit',
+    'card.warn_default_pw': '⚠️ Admin password not seeded — the site is using the template DEFAULT password. Re-deploy or change it in the admin panel.',
+    'card.masked': 'Masked for security',
+    'empty.none_title': 'No websites yet', 'empty.none_desc': 'Click "+ Add website" to start.',
+    'empty.add_first': '＋ Add your first website', 'empty.notfound_title': 'Not found', 'empty.notfound_desc': 'No website matches "{q}"',
+    'empty.load_fail_title': 'Could not load the list',
+    'toast.added': 'Website "{name}" added!', 'toast.deleted': 'Deleted "{name}"',
+    'confirm.delete_site': 'Delete website "{name}"?\n(Only removes it from the list, does not delete Cloudflare resources)',
+    'err.name_required': 'Site name is required.', 'err.pick_theme': 'Please pick a Theme from the list above.',
+    'err.name_empty': 'Please enter a site name.', 'err.name_invalid': 'Site name may only contain lowercase letters, digits and hyphens (e.g. my-website).',
+    'err.pw_empty': 'Please enter an Admin password.', 'err.pw_short': 'Admin password must be at least 8 characters.',
+    'deploy.err_cf_creds': 'Cloudflare not configured! Pick a saved profile, or enter CF API Token + Account ID.',
+    'err.deploy_unknown': 'Unknown error calling the deploy API', 'err.load_fail': 'Failed to load themes: {e}',
+    'step.clone': 'Clone template', 'step.npm': 'npm install', 'step.d1': 'Create D1 DB', 'step.schema': 'Schema SQL',
+    'step.toml': 'wrangler.toml', 'step.build': 'Build OpenNext', 'step.deploy': 'Deploy CF', 'step.seed': 'Seed Admin', 'step.token': 'wptoken',
+  },
+};
+
+// Ngôn ngữ ĐI THEO GLOBAL SETTING của app (GET /api/v1/settings/language) —
+// KHÔNG phải lựa chọn riêng của trang. Dict hiện có vi + en; ngôn ngữ global
+// khác (ja/ko/zh...) tạm fallback về 'en'. Mặc định 'vi' trước khi fetch xong.
+let _lang = 'vi';
+
+function _mapLang(g) {
+  g = (g || '').toLowerCase();
+  if (I18N[g]) return g;          // có sẵn trong dict (vi/en)
+  if (g.startsWith('vi')) return 'vi';
+  return 'en';                    // fallback cho ngôn ngữ chưa dịch
+}
+
+function t(key, vars) {
+  let s = (I18N[_lang] && I18N[_lang][key]) || (I18N.vi[key]) || key;
+  if (vars) for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
+  return s;
+}
+
+function applyI18n() {
+  document.documentElement.lang = _lang;
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => { el.placeholder = t(el.dataset.i18nPh); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+}
+
+function _applyLang(lang) {
+  const mapped = _mapLang(lang);
+  if (mapped === _lang) { applyI18n(); return; }
+  _lang = mapped;
+  applyI18n();
+  // Re-render các phần động (card/stats/cf bar/deploy dropdown) theo ngôn ngữ mới
+  try { renderCards(document.getElementById('search-input')?.value || ''); } catch (e) {}
+  try { renderCfBar(); } catch (e) {}
+  try { renderCfProfilesInDeploy(); } catch (e) {}
+}
+
+// Lấy ngôn ngữ global từ app rồi áp dụng. Lỗi mạng → giữ mặc định.
+async function loadGlobalLang() {
+  try {
+    const data = await api('GET', '/api/v1/settings/language');
+    _applyLang(data.language);
+  } catch (e) { applyI18n(); }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // Utilities
@@ -846,7 +1025,7 @@ async function api(method, url, body, timeoutMs = 30000) {
     return data;
   } catch (e) {
     clearTimeout(timer);
-    if (e.name === 'AbortError') throw new Error('Hết thời gian phản hồi (Timeout). Vui lòng thử lại.');
+    if (e.name === 'AbortError') throw new Error(t('common.timeout'));
     throw e;
   }
 }
@@ -855,7 +1034,7 @@ function toast(msg, type = 'info') {
   const c = document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = `toast ${type}`;
-  el.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${msg}</span>`;
+  el.innerHTML = `<span>${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span><span>${esc(msg)}</span>`;
   c.appendChild(el);
   setTimeout(() => el.remove(), 4000);
 }
@@ -865,13 +1044,38 @@ function mask(val) {
   return val.slice(0, 4) + '••••' + val.slice(-4);
 }
 
+// Escape để chống XSS lưu trữ: dữ liệu site (name/thumbnail/url) và template (từ
+// host ngoài autoweb.tubecreate.com) trước đây được nhét thẳng vào innerHTML.
+function esc(v) {
+  return String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// URL an toàn cho href: esc() KHÔNG chặn scheme javascript:/data: → click chạy
+// JS trong trang admin. Chỉ chấp nhận http/https, còn lại trả '#'.
+function safeUrl(v) {
+  const s = String(v == null ? '' : v).trim();
+  return /^https?:\/\//i.test(s) ? esc(s) : '#';
+}
+
 function openModal(id) { document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModal(id) {
+  document.getElementById(id).classList.remove('open');
+  // Đóng SSE khi rời modal log để không rò kết nối chạy nền.
+  if (id === 'modal-deploy' && _sseConnection) {
+    _sseConnection.close();
+    _sseConnection = null;
+  }
+}
 
 function statusBadge(status) {
   const map = { active: 'badge-active', deploying: 'badge-deploying', failed: 'badge-failed' };
-  const label = { active: '✓ Active', deploying: '⟳ Deploying', failed: '✗ Failed' };
-  return `<div class="status-badge ${map[status] || 'badge-active'}">${label[status] || status}</div>`;
+  const icon = { active: '✓', deploying: '⟳', failed: '✗' };
+  const key = { active: 'stat.active', deploying: 'stat.deploying', failed: 'stat.failed' };
+  const label = key[status] ? `${icon[status]} ${t(key[status])}` : status;
+  // esc() cả nhánh fallback — status là field tự do từ API, không escape = stored XSS.
+  return `<div class="status-badge ${map[status] || 'badge-active'}">${esc(label)}</div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -887,9 +1091,9 @@ async function loadSites() {
     document.getElementById('cards-grid').innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">⚠️</div>
-        <div class="empty-title">Không thể tải danh sách</div>
-        <div class="empty-desc">${e.message}</div>
-        <button class="btn btn-ghost" onclick="loadSites()">Thử lại</button>
+        <div class="empty-title">${t('empty.load_fail_title')}</div>
+        <div class="empty-desc">${esc(e.message)}</div>
+        <button class="btn btn-ghost" onclick="loadSites()">${t('common.retry')}</button>
       </div>`;
   }
 }
@@ -909,9 +1113,9 @@ function renderCards(filter = '') {
     grid.innerHTML = `
       <div class="empty-state">
         <div class="empty-icon">🌐</div>
-        <div class="empty-title">${filter ? 'Không tìm thấy' : 'Chưa có website nào'}</div>
-        <div class="empty-desc">${filter ? `Không có website khớp với "${filter}"` : 'Nhấn "+ Thêm website" để bắt đầu.'}</div>
-        ${!filter ? '<button class="btn btn-primary" onclick="openAddModal()">＋ Thêm website đầu tiên</button>' : ''}
+        <div class="empty-title">${filter ? t('empty.notfound_title') : t('empty.none_title')}</div>
+        <div class="empty-desc">${filter ? t('empty.notfound_desc', { q: esc(filter) }) : t('empty.none_desc')}</div>
+        ${!filter ? `<button class="btn btn-primary" onclick="openAddModal()">${t('empty.add_first')}</button>` : ''}
       </div>`;
     return;
   }
@@ -928,67 +1132,56 @@ function renderCards(filter = '') {
   grid.querySelectorAll('.btn-logs').forEach(btn => {
     btn.addEventListener('click', () => openDeployModal(btn.dataset.name, false));
   });
-  grid.querySelectorAll('[data-copy]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      navigator.clipboard.writeText(btn.dataset.copy);
-      toast('Đã copy!', 'success');
-    });
-  });
-  grid.querySelectorAll('.token-toggle').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tgt = document.getElementById(btn.dataset.target);
-      const hidden = tgt.dataset.hidden === 'true';
-      tgt.textContent = hidden ? tgt.dataset.real : mask(tgt.dataset.real);
-      tgt.dataset.hidden = !hidden;
-      btn.textContent = hidden ? '🙈' : '👁';
-    });
-  });
 }
 
 function buildCard(s) {
+  const name = esc(s.name);
+  const id = esc(s.id);
+  const status = esc(s.status || 'active');
   const thumb = s.thumbnail
-    ? `<img src="${s.thumbnail}" alt="${s.name}" onerror="this.style.display='none'" />`
+    ? `<img src="${esc(s.thumbnail)}" alt="${name}" onerror="this.style.display='none'" />`
     : `<span>🌐</span>`;
-  const userReal = s.user_token || '';
-  const wpReal = s.wp_token || '';
-  const userMasked = mask(userReal);
-  const wpMasked = mask(wpReal);
-  const urlDisplay = s.deploy_url || 'Chưa deploy';
+  // Token từ API đã bị MASK (secret thật không gửi ra client). Chỉ hiển thị giá
+  // trị đã che — KHÔNG có nút 👁/📋 nữa vì chúng chỉ thao tác trên chuỗi masked
+  // (gây hiểu nhầm là copy được token thật).
+  const userMaskedDisp = s.user_token ? esc(s.user_token) : '';
+  const wpMaskedDisp = s.wp_token ? esc(s.wp_token) : '';
+  const urlHref = safeUrl(s.deploy_url);
+  const urlText = esc(s.deploy_url || '');
 
   return `
-  <div class="site-card ${s.status || 'active'}">
+  <div class="site-card ${status}">
     <div class="card-thumb">
       ${thumb}
       <div class="card-thumb-overlay"></div>
       ${statusBadge(s.status || 'active')}
     </div>
     <div class="card-body">
-      <div class="card-name">${s.name}</div>
+      <div class="card-name">${name}</div>
       ${s.deploy_url
-        ? `<a href="${s.deploy_url}" target="_blank" class="card-url">🔗 ${s.deploy_url} ↗</a>`
-        : `<div class="card-url" style="color:var(--text3);">Chưa có URL</div>`}
+        ? `<a href="${urlHref}" target="_blank" rel="noopener noreferrer" class="card-url">🔗 ${urlText} ↗</a>`
+        : `<div class="card-url" style="color:var(--text3);">${t('card.no_url')}</div>`}
+      ${s.deploy_warning === 'admin_default_password'
+        ? `<div style="margin-top:6px;padding:6px 8px;border-radius:6px;background:rgba(230,160,20,.14);color:var(--warn,#e6a014);font-size:.75rem;">${t('card.warn_default_pw')}</div>`
+        : ''}
 
-      ${userReal ? `
+      ${userMaskedDisp ? `
       <div class="token-row">
         <span class="token-label">User Token</span>
-        <span class="token-value" id="ut-${s.id}" data-real="${userReal}" data-hidden="true">${userMasked}</span>
-        <button class="token-toggle" data-target="ut-${s.id}">👁</button>
-        <button class="token-copy" data-copy="${userReal}" title="Copy">📋</button>
+        <span class="token-value" title="${t('card.masked')}">${userMaskedDisp}</span>
       </div>` : ''}
 
-      ${wpReal ? `
+      ${wpMaskedDisp ? `
       <div class="token-row">
         <span class="token-label">WP Token</span>
-        <span class="token-value" id="wp-${s.id}" data-real="${wpReal}" data-hidden="true">${wpMasked}</span>
-        <button class="token-toggle" data-target="wp-${s.id}">👁</button>
-        <button class="token-copy" data-copy="${wpReal}" title="Copy">📋</button>
+        <span class="token-value" title="${t('card.masked')}">${wpMaskedDisp}</span>
       </div>` : ''}
 
       <div class="card-actions">
-        ${s.deploy_url ? `<a href="${s.deploy_url}" target="_blank" class="btn btn-ghost btn-sm">↗ Mở</a>` : ''}
-        ${s.status === 'deploying' ? `<button class="btn btn-ghost btn-sm btn-logs" data-name="${s.name}">📋 Xem log</button>` : ''}
-        <button class="btn btn-ghost btn-sm btn-edit" data-id="${s.id}">✏️ Sửa</button>
-        <button class="btn btn-danger btn-sm btn-delete" data-id="${s.id}" data-name="${s.name}">🗑</button>
+        ${s.deploy_url ? `<a href="${urlHref}" target="_blank" rel="noopener noreferrer" class="btn btn-ghost btn-sm">${t('card.open')}</a>` : ''}
+        ${(s.status === 'deploying' || s.status === 'failed') ? `<button class="btn btn-ghost btn-sm btn-logs" data-name="${name}">${t('card.logs')}</button>` : ''}
+        <button class="btn btn-ghost btn-sm btn-edit" data-id="${id}">${t('card.edit')}</button>
+        <button class="btn btn-danger btn-sm btn-delete" data-id="${id}" data-name="${name}">🗑</button>
       </div>
     </div>
   </div>`;
@@ -1012,14 +1205,14 @@ function renderCfBar() {
   const statusText = document.getElementById('cf-status-text');
   if (_cfProfiles.length > 0) {
     const def = _cfProfiles.find(p => p.label === 'default') || _cfProfiles[0];
-    text.textContent = `${def.label} · Account: ${def.account_id ? def.account_id.slice(0, 8) + '...' : 'N/A'}`;
+    text.textContent = t('cf.bar_summary', { label: def.label, acc: def.account_id ? def.account_id.slice(0, 8) + '...' : 'N/A' });
     dot.className = 'cf-dot ok';
-    statusText.textContent = `${_cfProfiles.length} profile(s)`;
+    statusText.textContent = t('cf.profiles_count', { n: _cfProfiles.length });
     statusText.style.color = 'var(--green)';
   } else {
-    text.textContent = 'Chưa cấu hình Cloudflare credentials';
+    text.textContent = t('cf.not_configured');
     dot.className = 'cf-dot none';
-    statusText.textContent = 'Chưa kết nối';
+    statusText.textContent = t('cf.not_connected');
     statusText.style.color = 'var(--text2)';
   }
 }
@@ -1027,48 +1220,61 @@ function renderCfBar() {
 function renderCfProfilesInDeploy() {
   const section = document.getElementById('cf-profiles-section');
   const sel = document.getElementById('d-cf-profile');
-  const source = document.getElementById('cf-cred-source');
-  sel.innerHTML = '<option value="">-- Nhập thủ công --</option>';
+  sel.innerHTML = `<option value="__manual__">${t('cf.manual_entry')}</option>`;
   if (_cfProfiles.length > 0) {
     section.style.display = 'block';
     _cfProfiles.forEach(p => {
-      sel.innerHTML += `<option value="${p.label}">${p.label} (${p.account_id ? p.account_id.slice(0,12)+'...' : '—'})</option>`;
+      sel.innerHTML += `<option value="${esc(p.label)}">${esc(p.label)} (${p.account_id ? esc(p.account_id.slice(0,12))+'...' : '—'})</option>`;
     });
-    // Auto-select default
+    // Auto-select 'default' profile nếu có → ẩn ô nhập tay
     const def = _cfProfiles.find(p => p.label === 'default');
-    if (def) {
-      sel.value = 'default';
-      source.textContent = 'Từ Cloud Keys';
-    }
+    sel.value = def ? 'default' : '__manual__';
   } else {
     section.style.display = 'none';
+    sel.value = '__manual__';
   }
+  updateCfMode();
+}
+
+// Chọn profile đã lưu → ẩn ô nhập token/account (creds lấy từ Cloud Keys ở server).
+// Chọn 'Nhập thủ công' → hiện ô nhập.
+function updateCfMode() {
+  const sel = document.getElementById('d-cf-profile');
+  const manual = document.getElementById('cf-manual-inputs');
+  const source = document.getElementById('cf-cred-source');
+  const isManual = !sel || sel.value === '__manual__' || sel.value === '';
+  if (manual) manual.style.display = isManual ? '' : 'none';
+  if (source) source.textContent = isManual ? t('cf.source_manual')
+                                             : t('cf.source_profile', { label: sel.value });
 }
 
 function renderCfProfilesModal() {
   const list = document.getElementById('cf-profiles-list');
   if (!_cfProfiles.length) {
-    list.innerHTML = '<div style="color:var(--text3); font-size:.85rem; text-align:center; padding:16px;">Chưa có profile nào.</div>';
+    list.innerHTML = `<div style="color:var(--text3); font-size:.85rem; text-align:center; padding:16px;">${t('cfm.no_profiles')}</div>`;
     return;
   }
   list.innerHTML = _cfProfiles.map(p => `
     <div style="display:flex; align-items:center; gap:12px; padding:10px; background:var(--surface2); border-radius:var(--radius-sm); margin-bottom:8px; border:1px solid var(--border);">
       <span style="font-size:1.1rem;">⚡</span>
       <div style="flex:1;">
-        <div style="font-size:.88rem; font-weight:700;">${p.label}</div>
-        <div style="font-size:.73rem; color:var(--text2);">Token: ${p.masked_token} · Account: ${p.account_id || '—'}</div>
+        <div style="font-size:.88rem; font-weight:700;">${esc(p.label)}</div>
+        <div style="font-size:.73rem; color:var(--text2);">Token: ${esc(p.masked_token)} · Account: ${esc(p.account_id || '—')}</div>
       </div>
       <div class="cf-dot ${p.active ? 'ok' : 'none'}"></div>
-      <button class="btn btn-ghost btn-sm" onclick="deleteCfProfile('${p.label}')">🗑</button>
+      <button class="btn btn-ghost btn-sm" data-cf-del="${esc(p.label)}">🗑</button>
     </div>
   `).join('');
+  list.querySelectorAll('[data-cf-del]').forEach(btn => {
+    btn.addEventListener('click', () => deleteCfProfile(btn.dataset.cfDel));
+  });
 }
 
 async function deleteCfProfile(label) {
-  if (!confirm(`Xóa profile "${label}"?`)) return;
+  if (!confirm(t('cfm.confirm_delete', { label }))) return;
   try {
     await api('DELETE', `/api/v1/cloud-api/cloudflare/profiles/${label}`);
-    toast('Đã xóa profile!', 'success');
+    toast(t('cfm.deleted'), 'success');
     await loadCfProfiles();
     renderCfProfilesModal();
   } catch (e) { toast(e.message, 'error'); }
@@ -1077,35 +1283,47 @@ async function deleteCfProfile(label) {
 // ═══════════════════════════════════════════════════════════════
 // Templates
 // ═══════════════════════════════════════════════════════════════
-async function loadTemplates() {
+async function loadTemplates(force = false) {
+  // Cache: openAddModal gọi mỗi lần mở → không fetch lại nếu đã có (endpoint này
+  // đi ra host ngoài, mỗi lần tối đa 10s). Bấm "Tải lại" thì force.
+  if (!force && _templates.length) { renderThemes(); return; }
   try {
     const data = await api('GET', '/api/v1/website-manager/templates');
     _templates = data.templates || [];
     renderThemes();
   } catch (e) {
-    document.getElementById('themes-grid').innerHTML = `<div style="color:var(--red); grid-column:1/-1;">Lỗi tải themes: ${e.message}</div>`;
+    document.getElementById('themes-grid').innerHTML = `<div style="color:var(--red); grid-column:1/-1;">${t('err.load_fail', { e: esc(e.message) })}</div>`;
   }
 }
 
 function renderThemes() {
   const grid = document.getElementById('themes-grid');
+  // Dữ liệu template đến từ host ngoài (autoweb.tubecreate.com) — KHÔNG nhét vào
+  // onclick inline (chỉ một dấu ' là thoát ra chạy JS tuỳ ý trong trang admin
+  // đang giữ CF token). Escape mọi field + gắn listener qua dataset.
+  const safeColor = (c) => /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? c : '#1a2332';
   grid.innerHTML = _templates.map(t => `
-    <div class="theme-card" data-id="${t.id}" data-github="${t.githubUrl || ''}" onclick="selectTheme('${t.id}', '${t.githubUrl || ''}')">
-      <div class="theme-thumb" style="background:${t.color || '#1a2332'}22;">
-        ${t.thumbnail ? `<img src="https://autoweb.tubecreate.com${t.thumbnail}" alt="${t.name}" onerror="this.style.display='none'" />` : '🌐'}
+    <div class="theme-card" data-id="${esc(t.id)}" data-github="${esc(t.githubUrl || '')}">
+      <div class="theme-thumb" style="background:${safeColor(t.color)}22;">
+        ${t.thumbnail ? `<img src="https://autoweb.tubecreate.com${esc(t.thumbnail)}" alt="${esc(t.name)}" onerror="this.style.display='none'" />` : '🌐'}
         <div class="theme-check">✓</div>
       </div>
       <div class="theme-info">
-        <div class="theme-name">${t.name}</div>
-        <div class="theme-tags">${(t.tags || []).map(tag => `<span class="theme-tag">${tag}</span>`).join('')}</div>
+        <div class="theme-name">${esc(t.name)}</div>
+        <div class="theme-tags">${(t.tags || []).map(tag => `<span class="theme-tag">${esc(tag)}</span>`).join('')}</div>
       </div>
     </div>
   `).join('');
+  grid.querySelectorAll('.theme-card').forEach(card => {
+    card.addEventListener('click', () => selectTheme(card.dataset.id, card.dataset.github));
+  });
 }
 
 function selectTheme(id, githubUrl) {
   document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
-  document.querySelector(`.theme-card[data-id="${id}"]`)?.classList.add('selected');
+  // CSS.escape: id đến từ host ngoài, có thể chứa " hoặc ] làm vỡ selector.
+  const sel = window.CSS && CSS.escape ? CSS.escape(id) : id;
+  try { document.querySelector(`.theme-card[data-id="${sel}"]`)?.classList.add('selected'); } catch (_) {}
   document.getElementById('d-template-id').value = id;
   document.getElementById('d-github-url').value = githubUrl;
 }
@@ -1129,10 +1347,10 @@ function switchTab(tabId) {
   const submitText = document.getElementById('submit-add-text');
   const submitIcon = document.getElementById('submit-add-icon');
   if (tabId === 'tab-deploy') {
-    submitText.textContent = 'Deploy Website';
+    submitText.textContent = t('add.submit_deploy');
     submitIcon.textContent = '🚀';
   } else {
-    submitText.textContent = 'Thêm Website';
+    submitText.textContent = t('add.submit_manual');
     submitIcon.textContent = '＋';
   }
 }
@@ -1152,7 +1370,7 @@ document.getElementById('btn-submit-add').addEventListener('click', async () => 
 
 async function submitManual() {
   const name = document.getElementById('m-name').value.trim();
-  if (!name) return toast('Tên website là bắt buộc.', 'error');
+  if (!name) return toast(t('err.name_required'), 'error');
   try {
     await api('POST', '/api/v1/website-manager/sites', {
       name,
@@ -1161,7 +1379,7 @@ async function submitManual() {
       thumbnail: document.getElementById('m-thumbnail').value.trim(),
       deploy_url: document.getElementById('m-url').value.trim(),
     });
-    toast(`Website "${name}" đã được thêm!`, 'success');
+    toast(t('toast.added', { name }), 'success');
     closeModal('modal-add');
     loadSites();
   } catch (e) { toast(e.message, 'error'); }
@@ -1178,7 +1396,9 @@ async function submitDeploy() {
   const adminPw = document.getElementById('d-admin-pw').value.trim();
   const cfToken = document.getElementById('d-cf-token').value.trim();
   const cfAccount = document.getElementById('d-cf-account').value.trim();
-  const cfProfileLabel = document.getElementById('d-cf-profile').value;
+  const _cfSel = document.getElementById('d-cf-profile').value;
+  const cfProfileLabel = (_cfSel === '__manual__' || _cfSel === '') ? '' : _cfSel;
+  const useProfile = !!cfProfileLabel;
 
   const showErr = (msg) => {
     if (errBanner) {
@@ -1189,27 +1409,27 @@ async function submitDeploy() {
     toast(msg, 'error');
   };
 
-  if (!templateId) return showErr('Vui lòng nhấp chọn một Theme ở danh sách phía trên.');
+  if (!templateId) return showErr(t('err.pick_theme'));
 
   // Auto-slugify name
   name = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
   document.getElementById('d-name').value = name;
 
-  if (!name) return showErr('Vui lòng nhập Tên website.');
-  if (!/^[a-z0-9\-]+$/.test(name)) return showErr('Tên website chỉ được chứa chữ thường, số và dấu gạch ngang (VD: my-website).');
-  if (!adminPw) return showErr('Vui lòng nhập Mật khẩu Admin.');
-  if (adminPw.length < 8) return showErr('Mật khẩu Admin phải có tối thiểu 8 ký tự.');
+  if (!name) return showErr(t('err.name_empty'));
+  if (!/^[a-z0-9\-]+$/.test(name)) return showErr(t('err.name_invalid'));
+  if (!adminPw) return showErr(t('err.pw_empty'));
+  if (adminPw.length < 8) return showErr(t('err.pw_short'));
 
-  // Check CF credentials resolution
-  if (!cfToken && !cfAccount && !cfProfileLabel && _cfProfiles.length === 0) {
-    return showErr('Chưa cấu hình Cloudflare Credentials! Hãy chọn profile hoặc nhập CF API Token + Account ID.');
+  // Check CF credentials resolution: dùng profile đã lưu HOẶC nhập tay đủ token+account
+  if (!useProfile && (!cfToken || !cfAccount)) {
+    return showErr(t('deploy.err_cf_creds'));
   }
 
   // Visual button feedback
   const submitBtn = document.getElementById('btn-submit-add');
   const origHtml = submitBtn.innerHTML;
   submitBtn.disabled = true;
-  submitBtn.innerHTML = '<div class="spinner" style="display:inline-block">⟳</div> Đang khởi tạo deploy...';
+  submitBtn.innerHTML = `<div class="spinner" style="display:inline-block">⟳</div> ${t('deploy.connecting')}`;
 
   try {
     const payload = { name, template_id: templateId, github_url: githubUrl, admin_password: adminPw, site_title: title || name };
@@ -1219,11 +1439,11 @@ async function submitDeploy() {
 
     const res = await api('POST', '/api/v1/website-manager/sites/deploy', payload);
     closeModal('modal-add');
-    toast(`Deploy "${name}" đã bắt đầu!`, 'success');
+    toast(t('deploy.started', { name }), 'success');
     loadSites();
     setTimeout(() => openDeployModal(name), 300);
   } catch (e) {
-    showErr(e.message || 'Lỗi không xác định khi gọi API deploy');
+    showErr(e.message || t('err.deploy_unknown'));
   } finally {
     submitBtn.disabled = false;
     submitBtn.innerHTML = origHtml;
@@ -1250,76 +1470,135 @@ function openDeployModal(siteName, autoScroll = true) {
   if (progressPct) progressPct.textContent = '0%';
 
   const stepLabel = document.getElementById('deploy-step-label');
-  if (stepLabel) stepLabel.textContent = 'Đang kết nối...';
+  if (stepLabel) stepLabel.textContent = t('deploy.connecting');
+
+  // Nút Hủy: chỉ hiện khi đang theo dõi một deploy đang chạy (autoScroll=true khi
+  // mở ngay sau khi bấm Deploy; hoặc site đang ở trạng thái 'deploying').
+  const cancelBtn = document.getElementById('btn-cancel-deploy');
+  const siteRec = _sites.find(s => s.name === siteName);
+  const isRunning = autoScroll || (siteRec && siteRec.status === 'deploying');
+  if (cancelBtn) {
+    cancelBtn.style.display = isRunning ? '' : 'none';
+    cancelBtn.disabled = false;
+    cancelBtn.textContent = t('deploy.cancel_btn');
+    cancelBtn.onclick = async () => {
+      if (!confirm(t('deploy.confirm_cancel', { name: siteName }))) return;
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = t('deploy.cancelling');
+      try {
+        await api('POST', `/api/v1/website-manager/sites/${encodeURIComponent(siteName)}/cancel`);
+        toast(t('deploy.cancel_sent'), 'info');
+      } catch (e) {
+        toast(e.message, 'error');
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = t('deploy.cancel_btn');
+      }
+    };
+  }
 
   openModal('modal-deploy');
 
-  if (_sseConnection) _sseConnection.close();
-  const es = new EventSource(`${API_BASE}/api/v1/website-manager/sites/${siteName}/logs`);
+  if (_sseConnection) { _sseConnection.close(); _sseConnection = null; }
+  const es = new EventSource(`${API_BASE}/api/v1/website-manager/sites/${encodeURIComponent(siteName)}/logs`);
   _sseConnection = es;
   const steps = [
-    'Clone template', 'npm install', 'Tạo D1 DB',
-    'Schema SQL', 'wrangler.toml', 'Build OpenNext',
-    'Deploy CF', 'Seed Admin', 'wptoken'
+    t('step.clone'), t('step.npm'), t('step.d1'),
+    t('step.schema'), t('step.toml'), t('step.build'),
+    t('step.deploy'), t('step.seed'), t('step.token')
   ];
   let stepIdx = 0;
+  const MAX_LOG_NODES = 2000;     // giới hạn DOM để không phình vô hạn (O(n²) reflow)
+  let _pending = [];              // gom nhiều message rồi flush 1 lần / frame
+  let _rafScheduled = false;
+  let _errCount = 0;              // đóng SSE sau vài lỗi liên tiếp (khỏi auto-reconnect vô hạn)
+  let _done = false;
+
+  function classifyLine(line, isError) {
+    if (line.includes('❌') || line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || isError) return 'log-err';
+    if (line.includes('✓') || line.includes('thành công') || line.includes('SUCCESS') || line.includes('hoàn tất')) return 'log-ok';
+    if (line.startsWith('[') && line.includes('/9]')) return 'log-info';
+    if (line.includes('CẢNH BÁO') || line.includes('WARNING')) return 'log-warn';
+    return '';
+  }
+
+  function flush() {
+    _rafScheduled = false;
+    if (!body || !_pending.length) { _pending = []; return; }
+    const frag = document.createDocumentFragment();
+    for (const [line, cls] of _pending) {
+      const span = document.createElement('span');
+      span.className = cls;
+      span.textContent = line + '\n';
+      frag.appendChild(span);
+    }
+    _pending = [];
+    body.appendChild(frag);
+    // Cắt bớt node cũ để giữ tối đa MAX_LOG_NODES dòng
+    while (body.childNodes.length > MAX_LOG_NODES) body.removeChild(body.firstChild);
+    if (autoScroll) body.scrollTop = body.scrollHeight;
+  }
+
+  function setProgress(idx) {
+    const pct = Math.round((idx / 9) * 100);
+    const pFill = document.getElementById('deploy-progress-fill');
+    if (pFill) pFill.style.width = pct + '%';
+    const pPct = document.getElementById('deploy-progress-pct');
+    if (pPct) pPct.textContent = pct + '%';
+    const sLbl = document.getElementById('deploy-step-label');
+    if (sLbl) sLbl.textContent = steps[idx - 1] || 'Processing...';
+  }
 
   es.onmessage = (e) => {
-    const data = JSON.parse(e.data);
+    _errCount = 0;  // nhận được message → kết nối ổn
+    let data;
+    try { data = JSON.parse(e.data); } catch (_) { return; }
     const msg = data.message || '';
-    if (data.is_history && body) {
-      body.textContent = '';
-    }
-    // Colorize
-    const lines = msg.split('\n');
-    lines.forEach(line => {
-      const span = document.createElement('span');
-      if (line.includes('❌') || line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || data.is_error) {
-        span.className = 'log-err';
-      } else if (line.includes('✓') || line.includes('thành công') || line.includes('SUCCESS') || line.includes('hoàn tất')) {
-        span.className = 'log-ok';
-      } else if (line.startsWith('[') && line.includes('/9]')) {
-        span.className = 'log-info';
-        // Extract step number
-        const m = line.match(/\[(\d+)\/9\]/);
-        if (m) {
-          stepIdx = parseInt(m[1]);
-          const pct = Math.round((stepIdx / 9) * 100);
-          const pFill = document.getElementById('deploy-progress-fill');
-          if (pFill) pFill.style.width = pct + '%';
-          const pPct = document.getElementById('deploy-progress-pct');
-          if (pPct) pPct.textContent = pct + '%';
-          const sLbl = document.getElementById('deploy-step-label');
-          if (sLbl) sLbl.textContent = steps[stepIdx - 1] || 'Processing...';
-        }
-      } else if (line.includes('CẢNH BÁO') || line.includes('WARNING')) {
-        span.className = 'log-warn';
-      } else {
-        span.className = '';
-      }
-      span.textContent = line + '\n';
-      if (body) body.appendChild(span);
-    });
-    if (autoScroll && body) body.scrollTop = body.scrollHeight;
+    if (data.is_history && body) { body.textContent = ''; _pending = []; }
 
-    if (msg.includes('DEPLOYMENT SUCCESSFUL') || msg.includes('DEPLOY THÀNH CÔNG')) {
+    // Ẩn dòng marker máy-đọc khỏi hiển thị người dùng
+    const lines = msg.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('DEPLOY_RESULT ')) continue;
+      _pending.push([line, classifyLine(line, data.is_error)]);
+      const m = line.match(/\[(\d+)\/9\]/);
+      if (m) { stepIdx = parseInt(m[1]); setProgress(stepIdx); }
+    }
+    if (!_rafScheduled) { _rafScheduled = true; requestAnimationFrame(flush); }
+
+    const hideCancel = () => { const b = document.getElementById('btn-cancel-deploy'); if (b) b.style.display = 'none'; };
+    if (!_done && (msg.includes('__DEPLOY_DONE__') || msg.includes('DEPLOY HOÀN TẤT'))) {
+      _done = true;
       const pFill = document.getElementById('deploy-progress-fill');
       if (pFill) pFill.style.width = '100%';
       const pPct = document.getElementById('deploy-progress-pct');
       if (pPct) pPct.textContent = '100%';
       const sLbl = document.getElementById('deploy-step-label');
-      if (sLbl) sLbl.textContent = '✅ Hoàn tất!';
+      if (sLbl) sLbl.textContent = t('deploy.done');
+      hideCancel();
+      es.close(); _sseConnection = null;   // deploy xong → đóng SSE, không để reconnect
       loadSites();
     }
-    if (msg.includes('DEPLOY THẤT BẠI') || msg.includes('DEPLOYMENT FAILED')) {
+    if (!_done && (msg.includes('DEPLOY THẤT BẠI') || msg.includes('DEPLOYMENT FAILED') || msg.includes('Đã HỦY'))) {
+      _done = true;
       const sLbl = document.getElementById('deploy-step-label');
-      if (sLbl) sLbl.textContent = '❌ Thất bại';
+      if (sLbl) sLbl.textContent = msg.includes('HỦY') ? t('deploy.cancelled') : t('deploy.failed');
+      hideCancel();
+      es.close(); _sseConnection = null;
       loadSites();
     }
   };
   es.onerror = () => {
+    _errCount++;
     const sLbl = document.getElementById('deploy-step-label');
-    if (sLbl) sLbl.textContent = 'Mất kết nối SSE';
+    // Nếu đã xong hoặc lỗi lặp nhiều lần: ĐÓNG hẳn (trước đây chỉ đổi label →
+    // trình duyệt tự reconnect ~3s vô hạn, mỗi lần re-stream toàn bộ log → nóng CPU)
+    if (_done || _errCount >= 3) {
+      es.close();
+      if (_sseConnection === es) _sseConnection = null;
+      if (sLbl && !_done) sLbl.textContent = t('deploy.lost');
+    } else if (sLbl) {
+      sLbl.textContent = t('deploy.reconnecting');
+    }
   };
 }
 
@@ -1332,22 +1611,32 @@ function openEditModal(siteId) {
   document.getElementById('edit-site-id').value = site.id;
   document.getElementById('edit-name').value = site.name;
   document.getElementById('edit-url').value = site.deploy_url || '';
-  document.getElementById('edit-user-token').value = site.user_token || '';
-  document.getElementById('edit-wp-token').value = site.wp_token || '';
   document.getElementById('edit-thumbnail').value = site.thumbnail || '';
+  // Token đến từ API đã bị MASK. KHÔNG prefill (sẽ ghi đè token thật bằng chuỗi
+  // masked). Để trống + hiển thị giá trị masked làm placeholder; chỉ khi người
+  // dùng gõ mới thì mới cập nhật.
+  const ut = document.getElementById('edit-user-token');
+  const wt = document.getElementById('edit-wp-token');
+  ut.value = ''; ut.placeholder = site.user_token ? t('edit.token_current', { v: site.user_token }) : t('edit.token_none');
+  wt.value = ''; wt.placeholder = site.wp_token ? t('edit.token_current', { v: site.wp_token }) : t('edit.token_none');
   openModal('modal-edit');
 }
 
 document.getElementById('btn-save-edit')?.addEventListener('click', async () => {
   const id = document.getElementById('edit-site-id').value;
   try {
-    await api('PUT', `/api/v1/website-manager/sites/${id}`, {
-      deploy_url: document.getElementById('edit-url').value.trim() || null,
-      user_token: document.getElementById('edit-user-token').value.trim() || null,
-      wp_token: document.getElementById('edit-wp-token').value.trim() || null,
-      thumbnail: document.getElementById('edit-thumbnail').value.trim() || null,
-    });
-    toast('Đã lưu thay đổi!', 'success');
+    // deploy_url/thumbnail không nhạy cảm → gửi luôn (cho phép xoá trắng). Token
+    // chỉ gửi khi người dùng thực sự gõ giá trị mới (tránh ghi đè bằng masked).
+    const payload = {
+      deploy_url: document.getElementById('edit-url').value.trim(),
+      thumbnail: document.getElementById('edit-thumbnail').value.trim(),
+    };
+    const utv = document.getElementById('edit-user-token').value.trim();
+    const wtv = document.getElementById('edit-wp-token').value.trim();
+    if (utv) payload.user_token = utv;
+    if (wtv) payload.wp_token = wtv;
+    await api('PUT', `/api/v1/website-manager/sites/${encodeURIComponent(id)}`, payload);
+    toast(t('edit.saved'), 'success');
     closeModal('modal-edit');
     loadSites();
   } catch (e) { toast(e.message, 'error'); }
@@ -1357,10 +1646,10 @@ document.getElementById('btn-save-edit')?.addEventListener('click', async () => 
 // Delete site
 // ═══════════════════════════════════════════════════════════════
 async function deleteSite(id, name) {
-  if (!confirm(`Xóa website "${name}"?\n(Chỉ xóa khỏi danh sách, không xóa tài nguyên Cloudflare)`)) return;
+  if (!confirm(t('confirm.delete_site', { name }))) return;
   try {
     await api('DELETE', `/api/v1/website-manager/sites/${id}`);
-    toast(`Đã xóa "${name}"`, 'success');
+    toast(t('toast.deleted', { name }), 'success');
     loadSites();
   } catch (e) { toast(e.message, 'error'); }
 }
@@ -1380,30 +1669,33 @@ document.getElementById('btn-cf-setup')?.addEventListener('click', () => {
 document.getElementById('btn-save-cf')?.addEventListener('click', async () => {
   const token = document.getElementById('cf-new-token').value.trim();
   const account = document.getElementById('cf-new-account').value.trim();
+  const email = document.getElementById('cf-new-email').value.trim();
   const label = document.getElementById('cf-new-label').value.trim() || 'default';
-  if (!token) return toast('API Token là bắt buộc.', 'error');
-  if (!account) return toast('Account ID là bắt buộc.', 'error');
+  if (!token) return toast(t('cf.err_token_required'), 'error');
+  if (!account) return toast(t('cf.err_account_required'), 'error');
   try {
-    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label });
-    toast('Đã lưu Cloudflare credentials!', 'success');
+    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label, email });
+    toast(t('cf.saved'), 'success');
     await loadCfProfiles();
     renderCfProfilesModal();
     document.getElementById('cf-new-token').value = '';
     document.getElementById('cf-new-account').value = '';
+    document.getElementById('cf-new-email').value = '';
   } catch (e) { toast(e.message, 'error'); }
 });
 
 document.getElementById('btn-verify-cf')?.addEventListener('click', async () => {
   const label = document.getElementById('cf-new-label').value.trim() || 'default';
   const result = document.getElementById('cf-verify-result');
-  result.textContent = 'Đang xác thực...';
+  result.textContent = t('cfm.verifying');
   result.style.color = 'var(--text2)';
   try {
-    // Save first, then verify
+    // Save first (kèm email nếu là Global API Key), rồi verify
     const token = document.getElementById('cf-new-token').value.trim();
     const account = document.getElementById('cf-new-account').value.trim();
+    const email = document.getElementById('cf-new-email').value.trim();
     if (token && account) {
-      await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label });
+      await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label, email });
     }
     const res = await api('POST', `/api/v1/cloud-api/cloudflare/profiles/${label}/test`);
     result.textContent = res.message;
@@ -1418,29 +1710,18 @@ document.getElementById('btn-verify-cf')?.addEventListener('click', async () => 
 document.getElementById('btn-save-cf-inline')?.addEventListener('click', async () => {
   const token = document.getElementById('d-cf-token').value.trim();
   const account = document.getElementById('d-cf-account').value.trim();
-  if (!token || !account) return toast('Nhập đầy đủ Token và Account ID.', 'error');
+  const email = (document.getElementById('cf-new-email')?.value || '').trim();
+  if (!token || !account) return toast(t('cf.err_need_both'), 'error');
   try {
-    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label: 'default' });
-    toast('Đã lưu vào Cloud Keys!', 'success');
+    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label: 'default', email });
+    toast(t('cf.saved'), 'success');
     await loadCfProfiles();
+    renderCfProfilesInDeploy();  // refresh dropdown + auto-chọn 'default' vừa lưu (ẩn ô nhập)
   } catch (e) { toast(e.message, 'error'); }
 });
 
-// Use selected profile
-document.getElementById('btn-use-profile')?.addEventListener('click', () => {
-  const label = document.getElementById('d-cf-profile').value;
-  if (!label) {
-    document.getElementById('d-cf-token').value = '';
-    document.getElementById('d-cf-account').value = '';
-    document.getElementById('cf-cred-source').textContent = 'Nhập thủ công';
-    return;
-  }
-  // Profile is used server-side, just confirm to user
-  document.getElementById('d-cf-token').value = '';
-  document.getElementById('d-cf-account').value = '';
-  document.getElementById('cf-cred-source').textContent = `Dùng profile: ${label}`;
-  toast(`Sẽ dùng profile "${label}" từ Cloud Keys`, 'success');
-});
+// Đổi profile trong form deploy → ẩn/hiện ô nhập tay
+document.getElementById('d-cf-profile')?.addEventListener('change', updateCfMode);
 
 // Auto slugify d-name input
 document.getElementById('d-name')?.addEventListener('input', e => {
@@ -1483,6 +1764,8 @@ setInterval(() => {
 // Init
 // ═══════════════════════════════════════════════════════════════
 (function init() {
+  applyI18n();          // render tạm bằng mặc định
+  loadGlobalLang();     // rồi áp ngôn ngữ theo global setting của app
   loadSites();
   loadCfProfiles();
 })();

@@ -387,12 +387,19 @@ class KeyManager:
         api_token: str,
         account_id: str,
         label: str = "default",
+        email: str = "",
     ) -> dict:
-        """Store Cloudflare API Token + Account ID as a compound credential."""
+        """Store Cloudflare credential.
+
+        - Nếu có `email` → coi api_token là GLOBAL API KEY (xác thực bằng cặp
+          X-Auth-Email + X-Auth-Key).
+        - Nếu không có email → API Token (Authorization: Bearer).
+        """
         import datetime as _dt
         self._keys.setdefault("cloudflare", {})[label] = {
             "key": api_token,
             "account_id": account_id,
+            "email": (email or "").strip(),
             "active": True,
             "added_at": _dt.datetime.now().isoformat(),
         }
@@ -403,7 +410,7 @@ class KeyManager:
         }
 
     def get_cloudflare_creds(self, label: str = "default") -> dict:
-        """Return {api_token, account_id} for a Cloudflare credential label."""
+        """Return {api_token, account_id, email} for a Cloudflare credential label."""
         self._load()
         entries = self._keys.get("cloudflare", {})
         entry = entries.get(label) if isinstance(entries, dict) else None
@@ -411,14 +418,16 @@ class KeyManager:
             return {
                 "api_token": entry.get("key", ""),
                 "account_id": entry.get("account_id", ""),
+                "email": entry.get("email", ""),
                 "label": label,
             }
         # Fallback to environment variables
-        api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get("CLOUDFLARE_API_KEY", "")
         account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        email = os.environ.get("CLOUDFLARE_EMAIL", "")
         if api_token or account_id:
-            return {"api_token": api_token, "account_id": account_id, "label": "env"}
-        return {"api_token": "", "account_id": "", "label": None}
+            return {"api_token": api_token, "account_id": account_id, "email": email, "label": "env"}
+        return {"api_token": "", "account_id": "", "email": "", "label": None}
 
     def list_cloudflare_keys(self) -> list:
         """List all stored Cloudflare credential profiles (masked)."""
@@ -436,31 +445,55 @@ class KeyManager:
                 "label": label,
                 "masked_token": masked,
                 "account_id": entry.get("account_id", ""),
+                "email": entry.get("email", ""),
+                "auth_type": "global_key" if entry.get("email") else "api_token",
                 "active": entry.get("active", False),
                 "added_at": entry.get("added_at", ""),
             })
         return result
 
     def test_cloudflare_key(self, label: str = "default") -> dict:
-        """Verify Cloudflare credentials by calling the accounts API."""
+        """Verify Cloudflare credentials.
+
+        - Có email → Global API Key: GET /user với X-Auth-Email + X-Auth-Key.
+        - Không email → API Token: GET /user/tokens/verify với Bearer.
+        """
         creds = self.get_cloudflare_creds(label)
         if not creds.get("api_token"):
-            return {"status": "error", "message": "Không tìm thấy Cloudflare API Token."}
+            return {"status": "error", "message": "Không tìm thấy Cloudflare API Token/Key."}
+        email = (creds.get("email") or "").strip()
         try:
             import urllib.request
             import urllib.error
-            req = urllib.request.Request(
-                "https://api.cloudflare.com/client/v4/user/tokens/verify",
-                headers={"Authorization": f"Bearer {creds['api_token']}", "Content-Type": "application/json"},
-            )
+            if email:
+                # Global API Key
+                req = urllib.request.Request(
+                    "https://api.cloudflare.com/client/v4/user",
+                    headers={
+                        "X-Auth-Email": email,
+                        "X-Auth-Key": creds["api_token"],
+                        "Content-Type": "application/json",
+                    },
+                )
+                ok_msg = "✅ Cloudflare Global API Key hợp lệ!"
+            else:
+                # API Token
+                req = urllib.request.Request(
+                    "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                    headers={"Authorization": f"Bearer {creds['api_token']}", "Content-Type": "application/json"},
+                )
+                ok_msg = "✅ Cloudflare API Token hợp lệ!"
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
                 if data.get("success"):
-                    return {"status": "success", "message": "✅ Cloudflare API Token hợp lệ!", "result": data.get("result", {})}
+                    return {"status": "success", "message": ok_msg, "result": data.get("result", {})}
                 errors = ", ".join([e.get("message", "") for e in data.get("errors", [])])
-                return {"status": "error", "message": f"Token không hợp lệ: {errors}"}
+                return {"status": "error", "message": f"Không hợp lệ: {errors}"}
+        except urllib.error.HTTPError as e:
+            hint = " (Global API Key cần đúng email; hoặc dùng API Token thì bỏ trống email)" if e.code == 401 else ""
+            return {"status": "error", "message": f"Lỗi kiểm tra: HTTP {e.code}{hint}"}
         except Exception as e:
-            return {"status": "error", "message": f"Lỗi kiểm tra token: {e}"}
+            return {"status": "error", "message": f"Lỗi kiểm tra: {e}"}
 
 
 # Global singleton

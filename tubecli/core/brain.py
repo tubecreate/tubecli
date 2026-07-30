@@ -23,10 +23,12 @@ def is_skill_runnable(s) -> bool:
     fmt = (s.get("skill_format") or "workflow").lower()
     if fmt == "workflow" and s.get("skill_type") == "Markdown":
         fmt = "markdown"
+    # Mirror Skill.is_runnable (core/skill.py): a SOP / how-to makes any skill
+    # runnable — it returns that text.
+    if wf.get("sop") or wf.get("markdown_content") or wf.get("markdown"):
+        return True
     if fmt == "browser_script":
         return bool(wf.get("script_id"))
-    if fmt == "markdown":
-        return bool(wf.get("markdown_content") or wf.get("markdown") or wf.get("sop"))
     if fmt == "extension_action":
         return bool(wf.get("endpoint"))
     return bool(wf.get("nodes"))
@@ -613,8 +615,13 @@ class AgentBrain:
         if skill_format == "workflow" and skill.get("skill_type") == "Markdown":
             skill_format = "markdown"
 
-        # 🟢 Markdown SOP skill: use its content as instructions for one LLM pass
-        if skill_format == "markdown":
+        # 🟢 Markdown SOP skill (or any skill carrying a SOP): use its content
+        # as instructions for one LLM pass. The studio "Extension Skill" cards
+        # are format="workflow" with only a sop — catch them here too so they
+        # answer with their how-to instead of "chưa có workflow".
+        _has_sop = wf_data.get("sop") or wf_data.get("markdown_content") or wf_data.get("markdown")
+        # extension_action WITH an endpoint prefers the endpoint (không lấy sop)
+        if skill_format == "markdown" or (_has_sop and not (skill_format == "extension_action" and wf_data.get("endpoint"))):
             sop_content = wf_data.get("markdown_content") or wf_data.get("markdown") or wf_data.get("sop") or ""
             if sop_content:
                 sop_messages = [

@@ -74,11 +74,16 @@ class Skill:
         # Legacy UI-created markdown skills: skill_type="Markdown", format "workflow"
         if fmt == "workflow" and self.skill_type == "Markdown":
             fmt = "markdown"
+        # A skill carrying a SOP / how-to markdown can ALWAYS run: it returns
+        # that text. The "Extension Skill" studio cards (Content/Graphic/POD/
+        # EduVideo/Script Studio, Subtitle Extractor, TTS) are format="workflow"
+        # with only a sop → they used to count as dead and show "chưa có
+        # workflow". Treating the sop as runnable turns them into useful how-to
+        # responders instead. (Empty cards with no sop stay non-runnable.)
+        if wf.get("sop") or wf.get("markdown_content") or wf.get("markdown"):
+            return True
         if fmt == "browser_script":
             return bool(wf.get("script_id"))
-        if fmt == "markdown":
-            # UI historically saved under "markdown"/"sop", server under "markdown_content"
-            return bool(wf.get("markdown_content") or wf.get("markdown") or wf.get("sop"))
         if fmt == "extension_action":
             return bool(wf.get("endpoint"))
         # Default: workflow — needs at least one node

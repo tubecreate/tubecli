@@ -107,15 +107,19 @@ BUILTIN_SPECIALISTS = [
     },
     {
         "name": "Web Agent",
-        "description": "Collect web data, crawl pages, and monitor changes",
+        "description": "Collect web data, crawl pages, monitor changes, and create/deploy websites",
         "role": "specialist",
         "specialties": ["web", "crawler", "scrape", "watcher", "monitor", "wordpress",
-                        "theo dõi web"],
+                        "theo dõi web", "website", "deploy", "tạo web", "dựng web",
+                        "quản lý web"],
         "system_prompt": (
-            "You are Web Agent — a web data collection specialist.\n"
-            "Task: Crawl web pages, extract content, and publish to WordPress.\n"
+            "You are Web Agent — a web specialist.\n"
+            "Tasks: (1) Crawl web pages & extract content; (2) publish posts to WordPress;\n"
+            "(3) create/deploy websites to Cloudflare and manage them.\n"
             "When receiving a web URL → crawl and return the content.\n"
-            "When asked to publish a post → create content and publish via API."
+            "When asked to publish a post → create content and publish via API.\n"
+            "When asked to create/deploy a website → use the 'Tạo Website' skill "
+            "(needs a site name + a template). To review sites → use 'Quản lý Website'."
         ),
         "avatar_icon": "LANGUAGE",
         "avatar_color": "purple",
@@ -188,11 +192,31 @@ def register_builtin_specialists(force: bool = False) -> List[str]:
     # discovery pass, xóa sạch mọi chỉnh tay của người dùng trong UI.
     _auto_assign_skills(agent_manager, agent_ids=created_ids, include_empty=True)
 
+    # 3b. Prune dangling skill IDs khỏi MỌI agent (skill đã bị xóa để lại ID
+    # chết trong allowed_skills — vd 4 stub sheets_* vừa dọn, hay ID cũ của
+    # Personal Assistant). Chạy mỗi discovery, rẻ.
+    _prune_dangling_skills(agent_manager)
+
     # 4. Create default team grouping all specialists
     if created:
         _create_default_team(agent_manager)
 
     return created
+
+
+def _prune_dangling_skills(agent_manager):
+    """Bỏ khỏi allowed_skills của mọi agent các ID không còn trong kho skill."""
+    try:
+        from tubecli.core.skill import skill_manager
+        valid = {s.id for s in skill_manager.get_all()}
+        for agent in agent_manager.get_all():
+            allowed = getattr(agent, "allowed_skills", []) or []
+            kept = [sid for sid in allowed if sid in valid]
+            if len(kept) != len(allowed):
+                agent_manager.update(agent.id, allowed_skills=kept)
+                print(f"[Specialists] 🧹 {agent.name}: bỏ {len(allowed) - len(kept)} skill ID chết")
+    except Exception as e:
+        print(f"[Specialists] Prune dangling warning: {e}")
 
 
 def _resync_specialist(agent_manager, existing, spec_def: Dict):

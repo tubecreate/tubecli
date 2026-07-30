@@ -19,6 +19,7 @@ from tubecli.core.agent import agent_manager
 from tubecli.core.brain import AgentBrain
 from tubecli.core.intent_router import intent_router, IntentResult
 from tubecli.core.skill_selector import skill_selector
+from tubecli.core import intent_handlers
 from tubecli.core.telegram_actions import (
     execute_download, execute_upload_sequence, execute_reup_sequence,
     handle_extension_action, clean_reply_text,
@@ -496,30 +497,21 @@ class TelegramListener:
                     except Exception as e:
                         return f"⚠️ Skill lỗi: {str(e)[:200]}"
 
-        # ── Fast-path: Phân tích kênh (0-token, chạy skill deterministic) ──
-        if intent.intent_type == "channel_analyze":
-            context["_agent_badge"] = "📊 Analyze Channel"
-            url = (intent.extracted_data or {}).get("url", "")
-            sid = (intent.matched_skills or [None])[0]
-            skill_obj = skill_manager.get(sid) if sid else None
-            if skill_obj and url:
-                self._enrich_agent_config(agent_dict)
-                try:
-                    reply = await asyncio.wait_for(
-                        AgentBrain.autonomous_run(message=url, agent=agent_dict,
-                                                  skill=skill_obj.to_dict()),
-                        timeout=240,
-                    )
-                    result = await handle_extension_action(reply, agent_dict, context)
-                except asyncio.TimeoutError:
-                    result = "⏰ Phân tích kênh chạy quá lâu (>4 phút)."
-                except Exception as e:
-                    result = f"⚠️ Lỗi phân tích kênh: {str(e)[:200]}"
-            else:
-                result = "⚠️ Chưa gán skill Analyze Channel cho agent, hoặc thiếu URL kênh."
-            self._save_history(agent_id, agent_dict, text, result, history,
-                               skill_used="Analyze Channel", chat_id=chat_id)
-            return result
+        # ── Shared skip_llm handlers (registry chung 2 kênh) ──────────
+        # read_page, channel_analyze... định nghĩa MỘT lần trong
+        # core/intent_handlers.py; đây là nơi DUY NHẤT đọc skip_llm.
+        if getattr(intent, "skip_llm", False) and intent_handlers.has_handler(intent.intent_type):
+            hmeta = intent_handlers.meta_for(intent.intent_type)
+            if hmeta.get("badge"):
+                context["_agent_badge"] = hmeta["badge"]
+            self._enrich_agent_config(agent_dict)
+            handled = await intent_handlers.dispatch(intent, agent_dict, get_user_lang(chat_id))
+            if handled is not None:
+                result = await handle_extension_action(handled, agent_dict, context)
+                self._save_history(agent_id, agent_dict, text, result, history,
+                                   skill_used=hmeta.get("skill_used") or None, chat_id=chat_id)
+                return result
+            # handler tự bỏ → rơi xuống xử lý mặc định
 
         # ── Tracker / Live / List Action Bypass ──
         if intent.intent_type in ("tracker_action", "live_action", "list_channels_action", "list_templates_action"):
@@ -679,19 +671,7 @@ class TelegramListener:
             self._save_history(agent_id, agent_dict, text, result, history, chat_id=chat_id)
             return result
 
-        # ── Fast-path: Read a specific web page + summarize (0-token đọc) ──
-        if intent.intent_type == "read_page":
-            context["_agent_badge"] = "🌐 Web Reader"
-            url = (intent.extracted_data or {}).get("url", "")
-            task = (intent.extracted_data or {}).get("task", text)
-            from tubecli.core.web_reader import read_and_summarize
-            self._enrich_agent_config(agent_dict)
-            result = await asyncio.to_thread(
-                read_and_summarize, url, task, agent_dict, get_user_lang(chat_id)
-            )
-            self._save_history(agent_id, agent_dict, text, result, history,
-                               skill_used="Web Reader", chat_id=chat_id)
-            return result
+        # (read_page + channel_analyze giờ do registry chung ở trên xử lý)
 
         # ── Fast-path: Subtitle Pipeline (URL + subtitle + optional upload) ──
         if intent.intent_type == "subtitle_pipeline":
