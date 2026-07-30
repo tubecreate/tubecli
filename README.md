@@ -19,7 +19,7 @@
   <a href="https://github.com/tubecreate/tubecli/blob/main/LICENSE"><img src="https://img.shields.io/badge/LICENSE-MIT-00897b?style=for-the-badge&labelColor=333333" alt="MIT License — free to resell and white-label" /></a>
   <img src="https://img.shields.io/badge/SELF--HOSTED-YES-4c1?style=for-the-badge&labelColor=333333" alt="Self-hosted AI agents, no cloud required" />
   <img src="https://img.shields.io/badge/LOCAL_LLM-OLLAMA-ff6b35?style=for-the-badge&labelColor=333333" alt="Runs on local LLM via Ollama" />
-  <img src="https://img.shields.io/badge/PYTHON-3.9+-0078d4?style=for-the-badge&logo=python&logoColor=white&labelColor=333333" alt="Python 3.9+" />
+  <img src="https://img.shields.io/badge/PYTHON-3.10+-0078d4?style=for-the-badge&logo=python&logoColor=white&labelColor=333333" alt="Python 3.10+" />
   <img src="https://img.shields.io/badge/API-FASTAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white&labelColor=333333" alt="FastAPI backend" />
 </p>
 
@@ -77,7 +77,7 @@ The same pipeline backs all three surfaces — CLI, web dashboard, and a Telegra
 
 **What you get on `git clone`:** the agent runtime plus **17 built-in extensions** (`website_manager`, `browser`, `browser_scripts`, `codex`, `video_studio`, `multi_agents`, `cloud_api`, `market`, `ollama_manager`, `webui`, `auth_manager`, `calendar_manager`, `chat`, `douyin_downloader`, `file_manager`, `studio3d`, `universal_tracker`). A further **19 studios** — web crawler, video downloader, subtitle extractor, TTS, content/POD/graphic studio, livestream, sheets and more — install in one click from the in-dashboard marketplace.
 
-*v2026.07.30.1 · Python 3.9+ / FastAPI / Vue / Three.js · MIT*
+*v2026.07.30.1 · Python 3.10+ / FastAPI / Vue / Three.js · MIT*
 
 ---
 
@@ -141,7 +141,7 @@ It will automatically install Python, Git (if missing), clone the repo, and set 
 ### Option 2: Manual Installation (For Developers)
 
 #### Prerequisites
-- Python 3.9+
+- Python 3.10+
 - Ollama (Optional, required for local AI execution)
 - Git
 

@@ -39,9 +39,9 @@
 
 Консольная (headless) CLI-система для установки, управления и оркестровки **агентов ИИ**, **навыков (skills)** и **процессов (workflows)**. Разработана таким образом, чтобы агенты ИИ могли самостоятельно понимать, устанавливать и эксплуатировать всю систему.
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 Ключевые особенности
 

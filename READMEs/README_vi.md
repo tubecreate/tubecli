@@ -39,9 +39,9 @@
 
 Hệ thống CLI không giao diện (headless) để cài đặt, quản lý và điều phối các **agent AI**, **skill (kỹ năng)** và **workflow (luồng công việc)**. Được thiết kế để các agent AI có thể tự hiểu, cài đặt và vận hành toàn bộ hệ thống một cách tự động.
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 Tính năng chính
 

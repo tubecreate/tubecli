@@ -39,9 +39,9 @@
 
 **Yapay zeka ajanları (agents)**, **yetenekler (skills)** ve **iş akışlarını (workflows)** yüklemek, yönetmek ve koordine etmek için tasarlanmış arayüzsüz (headless) bir CLI sistemi. Yapay zeka ajanlarının tüm sistemi otonom olarak anlayabilmesi, yükleyebilmesi ve çalıştırabilmesi için tasarlanmıştır.
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 Önemli Özellikler
 

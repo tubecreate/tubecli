@@ -36,6 +36,40 @@ app.add_middleware(
 )
 
 
+# ── Cross-origin guard for the whole API surface ─────────────────────────
+# CORS above is deliberately permissive so any local tool can call the API. That
+# alone would let ANY web page the user happens to have open drive this server
+# through their own browser: it binds to loopback, but the attacker's JavaScript
+# runs inside the victim's browser, which is already on loopback. The dangerous
+# reach is not only credential endpoints — POST /api/v1/extensions/install does
+# git clone + pip install + npm install, i.e. arbitrary code execution.
+#
+# Guarding router-by-router missed that: only two extension routers carried the
+# dependency, leaving every route defined here unprotected. A middleware covers
+# the entire surface at once and cannot be forgotten when a route is added.
+#
+# Requests with no Origin header (curl, the CLI itself, Telegram, any
+# server-side client) are untouched. Browser requests are allowed only from
+# loopback, or from a host listed in TUBECLI_ALLOWED_ORIGIN_HOSTS for people who
+# deliberately serve the dashboard on a LAN address.
+@app.middleware("http")
+async def _guard_cross_origin(request: Request, call_next):
+    if request.method != "OPTIONS":  # let CORS preflight through
+        try:
+            from tubecli.core.origin_guard import is_origin_allowed
+            if not is_origin_allowed(request.headers.get("origin"),
+                                     request.headers.get("host", "")):
+                from fastapi.responses import JSONResponse
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Cross-origin request refused. Open the dashboard "
+                                       "from this machine, or set TUBECLI_ALLOWED_ORIGIN_HOSTS."},
+                )
+        except Exception:
+            pass  # never let the guard itself take the server down
+    return await call_next(request)
+
+
 def check_and_generate_daily_keywords(agent, now_dt):
     """Checks if daily evolved keywords exist for the current date. Generates them via LLM if not."""
     import json

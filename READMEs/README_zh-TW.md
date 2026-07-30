@@ -39,9 +39,9 @@
 
 一個無頭（headless）的 CLI 系統，用於安裝、管理和協調 **AI Agent**、**技能（skills）**和**工作流（workflows）**。專為 AI Agent 設計，使其能夠自主理解、安裝和運行整個系統。
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 主要功能
 

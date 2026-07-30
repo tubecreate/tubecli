@@ -39,9 +39,9 @@
 
 **AI エージェント**、**スキル**、および**ワークフロー**をインストール、管理、およびオーケストレーションするためのヘッドレス CLI システム。AI エージェントがシステム全体を自律的に理解、インストール、および操作できるように設計されています。
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 主な機能
 

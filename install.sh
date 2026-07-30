@@ -44,7 +44,7 @@ fi
 
 if [[ "$OS" == "unknown" ]]; then
     echo -e "${RED}[!] Unsupported operating system: $OSTYPE${NC}"
-    echo "Please install Python 3.9+ and Git manually, then run: pip install -e ."
+    echo "Please install Python 3.10+ and Git manually, then run: pip install -e ."
     exit 1
 fi
 echo -e "${GREEN}[OK] Detected OS: $OS${NC}"
@@ -93,24 +93,28 @@ install_deps_macos() {
 
 check_python() {
     if command_exists python3; then
-        # Check version >= 3.9
+        # Check version >= 3.10
         local py_version
         py_version=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
         local major
         local minor
         major=$(echo "$py_version" | cut -d. -f1)
         minor=$(echo "$py_version" | cut -d. -f2)
-        if [[ "$major" -eq 3 && "$minor" -ge 9 ]]; then
+        # Must match requires-python in pyproject.toml (>=3.10). Accepting 3.9
+        # here printed a green [OK] and then let pip refuse the package, and
+        # because this check "passed" the brew/apt rescue path below never ran.
+        if [[ "$major" -eq 3 && "$minor" -ge 10 ]]; then
             echo -e "${GREEN}[OK] Python $py_version found${NC}"
             return 0
         fi
+        echo -e "${YELLOW}[!] Python $py_version found, but TubeCLI needs 3.10 or newer.${NC}"
     fi
     return 1
 }
 
 # Ensure Git and Python
 if ! command_exists git || ! check_python; then
-    echo -e "${YELLOW}[*] Missing Git or Python 3.9+. Attempting to install...${NC}"
+    echo -e "${YELLOW}[*] Missing Git or Python 3.10+. Attempting to install...${NC}"
     if [[ "$OS" == "linux" ]]; then
         install_deps_linux || { echo -e "${RED}[!] Failed to install dependencies via package manager.${NC}"; exit 1; }
     elif [[ "$OS" == "macos" ]]; then
@@ -119,7 +123,7 @@ if ! command_exists git || ! check_python; then
     
     # Check again
     if ! command_exists git || ! check_python; then
-        echo -e "${RED}[!] Failed to ensure Python 3.9+ and Git are installed.${NC}"
+        echo -e "${RED}[!] Failed to ensure Python 3.10+ and Git are installed.${NC}"
         exit 1
     fi
 fi

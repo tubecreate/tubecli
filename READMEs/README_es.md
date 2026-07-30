@@ -39,9 +39,9 @@
 
 Un sistema CLI sin interfaz (headless) para instalar, gestionar y orquestar **agentes de IA**, **habilidades (skills)** y **flujos de trabajo (workflows)**. Diseñado para que los agentes de IA puedan comprender, instalar y operar todo el sistema de forma autónoma.
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 Características Clave
 

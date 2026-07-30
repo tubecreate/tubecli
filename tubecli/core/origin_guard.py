@@ -53,10 +53,22 @@ def _host_of(value: str) -> str:
         return ""
 
 
-def guard_origin(request: Request):
-    origin = request.headers.get("origin")
+def is_origin_allowed(origin: str, host: str = "") -> bool:
+    """Bản trả bool, không raise — dùng cho middleware bọc toàn bộ API surface.
+
+    `host` hiện chưa dùng để quyết định (xem chú thích về DNS rebinding ở trên:
+    Host header do kẻ tấn công điều khiển nên KHÔNG được tin). Giữ tham số để
+    caller truyền vào mà không phải sửa lại chữ ký sau này.
+    """
     if not origin:
-        return  # không phải trình duyệt → bỏ qua
-    if _host_of(origin) in _allowed_hosts():
+        return True   # không phải trình duyệt → không có nguy cơ cross-site
+    return _host_of(origin) in _allowed_hosts()
+
+
+def guard_origin(request: Request):
+    """Dependency cho từng router. Middleware toàn cục trong api/server.py đã
+    bọc mọi route; giữ hàm này cho các router muốn nêu rõ yêu cầu tại chỗ."""
+    if is_origin_allowed(request.headers.get("origin"),
+                         request.headers.get("host", "")):
         return
     raise HTTPException(403, "Cross-origin request bị từ chối.")

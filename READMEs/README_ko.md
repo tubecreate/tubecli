@@ -39,9 +39,9 @@
 
 **AI 에이전트**, **기술(skills)**, 및 **워크플로(workflows)**를 설치, 관리 및 오케스트레이션하기 위한 헤드리스 CLI 시스템. AI 에이전트가 시스템 전체를 자율적으로 이해하고 설치 및 운영할 수 있도록 설계되었습니다.
 
-![3D Studio Office Builder](screenshots/studio3d_builder.png)
+![3D Studio Office Builder](../screenshots/studio3d_builder.png)
 <br>
-![3D Studio Agent Teams](screenshots/studio3d_teams.png)
+![3D Studio Agent Teams](../screenshots/studio3d_teams.png)
 
 ## 🌟 주요 기능
 
