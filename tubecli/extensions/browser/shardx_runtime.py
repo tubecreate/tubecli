@@ -172,6 +172,69 @@ LINUX_APT_PACKAGES = (
 )
 
 
+def download(url: str, dest: Path, on_progress=None, attempts: int = 4) -> None:
+    """Fetch `url` to `dest`, resuming across dropped connections.
+
+    The engine archive is >200 MB, and the previous implementation was a single
+    `requests.get(..., timeout=300)` with no retry. Two consequences, both of which
+    look identical to a frozen program:
+
+    * `timeout` in requests is per socket read, not for the transfer, so a
+      connection that dies without closing blocks for the full 300 s on every
+      chunk. A short read timeout turns that into a fast, retryable error.
+    * A failure at 97% discarded 200 MB and started again. Range requests resume
+      from whatever is already on disk instead.
+
+    `on_progress(received, total, speed_bps)` is called as bytes arrive.
+    """
+    import time
+    import requests
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    last_err = None
+
+    for attempt in range(1, attempts + 1):
+        have = dest.stat().st_size if dest.exists() else 0
+        headers = {"Range": f"bytes={have}-"} if have else {}
+        try:
+            # (connect timeout, read timeout). 30 s without a single byte means the
+            # transfer is dead, not slow — a healthy CDN sends something long before.
+            with requests.get(url, stream=True, timeout=(15, 30), headers=headers) as r:
+                if have and r.status_code == 200:
+                    # Server ignored the Range header; start over rather than
+                    # appending a second full copy onto the first partial one.
+                    have = 0
+                    dest.unlink(missing_ok=True)
+                elif have and r.status_code != 206:
+                    r.raise_for_status()
+                else:
+                    r.raise_for_status()
+
+                total = int(r.headers.get("content-length", 0)) + have
+                received = have
+                started = time.monotonic()
+                mode = "ab" if have else "wb"
+                with dest.open(mode) as f:
+                    for chunk in r.iter_content(chunk_size=1 << 18):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        received += len(chunk)
+                        if on_progress:
+                            elapsed = max(time.monotonic() - started, 0.001)
+                            speed = (received - have) / elapsed
+                            on_progress(received, total, speed)
+            return
+        except Exception as e:            # noqa: BLE001 - reported to the user below
+            last_err = e
+            if attempt < attempts:
+                if on_progress:
+                    on_progress(-1, 0, 0.0)   # signals "retrying" to the caller
+                time.sleep(min(2 ** attempt, 10))
+
+    raise RuntimeError(f"download failed after {attempts} attempts: {last_err}")
+
+
 def extract(archive: Path, dest: Path) -> None:
     """Extract an engine archive, preserving what the engine needs to run.
 
@@ -245,13 +308,35 @@ def fetch_manifest(timeout: float = 8.0) -> dict:
 
 
 def available_versions() -> list:
-    """Engine versions offerable on this host.
+    """ShardX engine versions that can actually be downloaded on this host.
 
-    On Windows this is ShardX plus BAS. Everywhere else it is ShardX only —
-    listing BAS elsewhere offered a download of Windows executables.
+    ShardBrowser's manifest publishes one archive per platform, unversioned, for
+    the current chromium version — that is what PUB_BASE serves. The versioned
+    archives behind the worker are extra uploads, and only the Windows ones exist:
+    ShardX-Windows-148.*.zip answers 200 while ShardX-Linux-148.*.zip answers 404.
+    Offering those on Linux meant offering a download that always fails, so list
+    them only where they exist.
     """
-    shardx = ["149.0.7827.103", "148.0.7778.216", "148.0.7778.97"]
-    manifest_version = fetch_manifest().get("chromium_version")
-    if manifest_version and manifest_version not in shardx:
-        shardx.insert(0, manifest_version)
-    return shardx
+    pinned = fetch_manifest().get("chromium_version") or PINNED_VERSION
+    if sys.platform == "win32":
+        extra = ["148.0.7778.216", "148.0.7778.97"]
+        return [pinned] + [v for v in extra if v != pinned]
+    return [pinned]
+
+
+def preflight() -> Optional[str]:
+    """Anything that would make an install fail, checked before downloading.
+
+    The engine archive is over 200 MB. Discovering afterwards that `unzip` is
+    missing means the user waited through the whole transfer to be told the
+    install could not have worked in the first place.
+    """
+    spec = host_spec()
+    if not spec.supported:
+        return spec.reason
+    if sys.platform != "win32" and not shutil.which("unzip"):
+        return ("The system `unzip` command is required to install the engine, and "
+                "it is not on this system. Install it first: "
+                "`apt install unzip` (Debian/Ubuntu), `dnf install unzip` (Fedora), "
+                "`apk add unzip` (Alpine).")
+    return None

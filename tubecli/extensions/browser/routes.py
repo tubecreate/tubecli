@@ -683,11 +683,19 @@ async def api_download_engine(version: str, request: Request):
     progress_file = os.path.join(ext_dir, "data", "engine", f"{version}.progress.json")
     os.makedirs(os.path.dirname(progress_file), exist_ok=True)
     
-    def write_progress(status, percent=0, error=""):
+    def write_progress(status, percent=0, message=""):
         import json as _json
         data = {"version": version, "status": status, "percent": percent}
-        if error:
-            data["error"] = error
+        if message:
+            # Informational text goes in `message`; `error` is set only when the
+            # status really is an error. Everything used to land in `error`, and
+            # the UI's poll loop skips any response carrying that field — so the
+            # moment the backend reported "Extracting...", the progress bar stopped
+            # updating and stopped noticing completion. A long extraction then
+            # looked exactly like a frozen download.
+            data["message"] = message
+            if status == "error":
+                data["error"] = message
         try:
             tmp_progress = progress_file + ".tmp"
             with open(tmp_progress, "w") as f:
@@ -706,9 +714,12 @@ async def api_download_engine(version: str, request: Request):
         # Refuse loudly rather than downloading something that cannot run. This
         # path used to build a Windows URL and an %APPDATA% directory regardless
         # of the OS, which is why a Linux user saw nothing happen at all.
-        if not spec.supported:
-            write_progress("error", 0, spec.reason)
-            return {"success": False, "message": spec.reason}
+        # preflight also catches a missing `unzip` now — better to say so before
+        # the 200 MB transfer than after it.
+        blocker = sx.preflight()
+        if blocker:
+            write_progress("error", 0, blocker)
+            return {"success": False, "message": blocker}
 
         target_dir = sx.engine_dir(version_num)
         os.makedirs(target_dir, exist_ok=True)
@@ -724,28 +735,33 @@ async def api_download_engine(version: str, request: Request):
                     f"for {spec.plat}...",
                 )
 
-                # verify=True. TLS verification was disabled here, which turned an
-                # engine download into something a network attacker could replace.
-                resp = requests.get(url, stream=True, timeout=300)
-                if resp.status_code != 200:
-                    write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
-                    return
-
-                total_size = int(resp.headers.get("content-length", 0))
-                downloaded = 0
                 write_progress("downloading", 5, f"Downloading ShardX engine ({spec.plat})...")
 
                 engine_tmp = os.path.join(ext_dir, "data", "engine")
                 os.makedirs(engine_tmp, exist_ok=True)
                 tmp_zip = os.path.join(engine_tmp, f"{version}.zip")
-                with open(tmp_zip, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=1024 * 256):
-                        if chunk:
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            if total_size > 0:
-                                pct = int((downloaded / total_size) * 80) + 5
-                                write_progress("downloading", min(pct, 85))
+
+                def on_progress(received, total, speed):
+                    # received < 0 is the retry signal from the downloader.
+                    if received < 0:
+                        write_progress("downloading", 5, "Connection dropped — retrying...")
+                        return
+                    if total <= 0:
+                        return
+                    pct = min(int((received / total) * 80) + 5, 85)
+                    # Show the actual megabytes and speed. A bare percentage that
+                    # stops moving is indistinguishable from a frozen program, which
+                    # is exactly how a slow 200 MB transfer read to users.
+                    write_progress(
+                        "downloading", pct,
+                        f"{received / 1048576:.0f} / {total / 1048576:.0f} MB "
+                        f"({speed / 1048576:.1f} MB/s)",
+                    )
+
+                # Resumes across dropped connections instead of restarting the
+                # whole 200 MB transfer, and fails fast on a dead socket rather
+                # than blocking for the full timeout on every chunk.
+                sx.download(url, Path(tmp_zip), on_progress=on_progress)
 
                 write_progress("extracting", 90, "Extracting ShardX engine...")
                 try:

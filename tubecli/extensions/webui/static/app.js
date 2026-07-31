@@ -4347,6 +4347,7 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
     const progressBar = document.getElementById('download-progress-bar');
     const percentText = document.getElementById('download-percent');
     const titleText = document.getElementById('download-title');
+    const detailsText = document.getElementById('download-details');
     
     titleText.textContent = T('browser.installing_version', {version: version});
     progressBar.style.width = '0%';
@@ -4375,15 +4376,26 @@ async function installEngineVersionProgress(version, downloadUrl = '') {
             await new Promise(r => setTimeout(r, 1000));
             const status = await apiGet('/api/v1/browser/engine/status/' + version);
             
-            if (!status || status.error) {
+            // Only a real failure aborts the poll. This used to `continue` on any
+            // response carrying an `error` field, but the backend put every
+            // informational line there too — so as soon as it said "Extracting...",
+            // the bar stopped moving and completion was never detected. A long
+            // extract was indistinguishable from a hang.
+            if (!status) {
                 console.warn('Status check failed', status);
                 continue;
             }
-            
+
             if (status.percent !== undefined) {
                 const p = Math.min(100, Math.max(0, status.percent));
                 progressBar.style.width = p + '%';
                 percentText.textContent = Math.round(p) + '%';
+            }
+
+            // Show what it is actually doing, so "slow" is distinguishable from
+            // "stuck" — bytes and speed while downloading, then extracting.
+            if (status.message && detailsText) {
+                detailsText.textContent = status.message;
             }
             
             if (status.status === 'completed') {
