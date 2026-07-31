@@ -539,8 +539,14 @@ class ExtensionManager:
         extension = self._extensions.get(name)
         if not extension:
             return False
+        # register() already calls on_enable() for anything the saved config marks
+        # enabled, and `tubecli init` then calls enable() for every system
+        # extension — so every on_enable() ran twice on a normal startup, doing its
+        # setup twice and printing its errors twice.
+        already_enabled = extension.enabled
         extension.enabled = True
-        extension.on_enable()
+        if not already_enabled:
+            extension.on_enable()
         self._config.setdefault(name, {})["enabled"] = True
         self._save_config()
         return True

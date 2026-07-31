@@ -240,6 +240,33 @@ check_pip_and_venv() {
 
 check_pip_and_venv || exit 1
 
+# Node is optional — only browser automation and the website deploy runner need it —
+# but install.ps1 installs it on Windows while this script never did, so Linux users
+# always landed in the control panel with browser automation broken. Best effort,
+# never fatal.
+check_node() {
+    command_exists npm && return 0
+    echo -e "${YELLOW}[*] Node.js not found. It is only needed for browser automation${NC}"
+    echo -e "${YELLOW}    and website deployment; installing it now (optional)...${NC}"
+    if command_exists apt-get || command_exists dnf || command_exists yum \
+       || command_exists pacman || command_exists zypper || command_exists apk; then
+        if command_exists apk; then
+            install_system_packages nodejs npm >/dev/null 2>&1 || true
+        else
+            install_system_packages nodejs npm >/dev/null 2>&1 \
+                || install_system_packages nodejs >/dev/null 2>&1 || true
+        fi
+    fi
+    if command_exists npm; then
+        echo -e "${GREEN}[OK] Node.js installed${NC}"
+    else
+        echo -e "${YELLOW}[!] Could not install Node.js. TubeCLI will still work;${NC}"
+        echo -e "${YELLOW}    browser automation stays off until you install it from https://nodejs.org${NC}"
+    fi
+}
+
+check_node
+
 # --- Install TubeCLI ---
 
 TARGET_DIR=""

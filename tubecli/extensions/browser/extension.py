@@ -22,32 +22,42 @@ class BrowserExtension(Extension):
         node_modules = os.path.join(ext_dir, "node_modules")
         
         if not os.path.exists(node_modules):
-            try:
-                from rich.console import Console
-                console = Console()
-                console.print("\n[cyan]📦 Installing browser automation dependencies (Playwright)...[/cyan]")
-                console.print("[dim]This may take a few minutes as it downloads Chromium binaries.[/dim]")
-            except ImportError:
-                print("\n📦 Installing browser automation dependencies (Playwright)...")
-                print("This may take a few minutes as it downloads Chromium binaries.")
-                
-            try:
-                # Run npm install, which automatically runs postinstall scripts to download browsers
-                subprocess.run(["npm", "install"], cwd=ext_dir, check=True, shell=True)
+            import shutil
+
+            def say(msg):
                 try:
-                    console.print("[green]✅ Browser dependencies installed successfully.[/green]\n")
-                except NameError:
-                    print("✅ Browser dependencies installed successfully.\n")
+                    from rich.console import Console
+                    Console().print(msg)
+                except Exception:
+                    import re as _re
+                    print(_re.sub(r"\[/?[a-z ]+\]", "", msg))
+
+            # Check for npm before running it. shell=True used to hide this: on
+            # POSIX a missing command makes /bin/sh exit 127, which Python reports
+            # as CalledProcessError, so the FileNotFoundError branch that explained
+            # how to fix it was dead code and the user saw a raw exit status.
+            npm = shutil.which("npm")
+            if not npm:
+                say("\n[yellow]Browser automation is unavailable: Node.js (npm) is not installed.[/yellow]")
+                say("[dim]Everything else works. To enable it, install Node.js from "
+                    "https://nodejs.org (or your package manager), then run "
+                    "`tubecli extension enable browser`.[/dim]\n")
+                return
+
+            say("\n[cyan]📦 Installing browser automation dependencies (Playwright)...[/cyan]")
+            say("[dim]This may take a few minutes as it downloads Chromium binaries.[/dim]")
+            try:
+                # shell=False. With shell=True and a list, POSIX passes only the
+                # first element as the command and binds the rest to $0, $1... —
+                # so this ran a bare `npm` with no arguments and never installed
+                # anything on Linux or macOS.
+                subprocess.run([npm, "install"], cwd=ext_dir, check=True)
+                say("[green]✅ Browser dependencies installed successfully.[/green]\n")
             except subprocess.CalledProcessError as e:
-                try:
-                    console.print(f"[red]❌ Failed to install browser dependencies: {e}[/red]\n")
-                except NameError:
-                    print(f"❌ Failed to install browser dependencies: {e}\n")
-            except FileNotFoundError:
-                try:
-                    console.print("[red]❌ 'npm' command not found. Please install Node.js (https://nodejs.org).[/red]\n")
-                except NameError:
-                    print("❌ 'npm' command not found. Please install Node.js (https://nodejs.org).\n")
+                say(f"[yellow]Could not install browser dependencies (npm exited "
+                    f"{e.returncode}).[/yellow]")
+                say("[dim]Everything else works. Retry later with "
+                    "`tubecli extension enable browser`.[/dim]\n")
 
     def get_commands(self):
         from .commands import browser_group
