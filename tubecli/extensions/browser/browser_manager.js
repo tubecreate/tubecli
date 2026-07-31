@@ -1504,18 +1504,37 @@ export class BrowserManager {
             // (b) Pick from bundled ShardX fingerprint library
             const appdata = process.env.APPDATA;
             const localappdata = process.env.LOCALAPPDATA;
+            const home = process.env.HOME || process.env.USERPROFILE;
             const extDir = path.dirname(fileURLToPath(import.meta.url));
             const localWorkspaceFpDir = path.resolve(extDir, '..', '..', '..', '..', 'shardx_fps', 'shardx-fingerprints');
+            // Every entry here was a Windows path (APPDATA / LOCALAPPDATA are
+            // undefined elsewhere) apart from a developer-machine folder. On Linux
+            // and macOS the loop therefore found nothing, shardxFpFile stayed null,
+            // --fingerprint-profile was never passed, and the engine ran with no
+            // fingerprint at all — silently, since nothing checked.
             const shardxFpDirs = [
                 localWorkspaceFpDir,
-                appdata   ? path.join(appdata,      'shardx-launcher', 'runtime', 'fingerprints') : null,
-                localappdata ? path.join(localappdata, 'shardx-sdk',      'fingerprints')            : null,
+                appdata      ? path.join(appdata, 'shardx-launcher', 'runtime', 'fingerprints') : null,
+                localappdata ? path.join(localappdata, 'shardx-sdk', 'fingerprints') : null,
+                home && process.platform === 'darwin'
+                    ? path.join(home, 'Library', 'Application Support', 'shardx-launcher', 'runtime', 'fingerprints') : null,
+                home && process.platform === 'darwin'
+                    ? path.join(home, 'Library', 'Application Support', 'shardx-sdk', 'fingerprints') : null,
+                home && process.platform === 'linux'
+                    ? path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'shardx-launcher', 'runtime', 'fingerprints') : null,
+                home && process.platform === 'linux'
+                    ? path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'shardx-sdk', 'fingerprints') : null,
             ].filter(Boolean);
 
             let bundledFp = null;
             for (const fpDir of shardxFpDirs) {
                 if (!await fs.pathExists(fpDir)) continue;
-                const files = (await fs.readdir(fpDir)).filter(f => f.endsWith('.json') && f.startsWith('win'));
+                const all = (await fs.readdir(fpDir)).filter(f => f.endsWith('.json'));
+                // Prefer Windows fingerprints — presenting as the most common
+                // platform is the point of a spoofed profile — but take whatever the
+                // library has rather than finding nothing and launching bare.
+                let files = all.filter(f => f.startsWith('win'));
+                if (files.length === 0) files = all;
                 if (files.length > 0) {
                     // Pick a stable fingerprint per profile name (hash-based, consistent across runs)
                     const idx = profileName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % files.length;

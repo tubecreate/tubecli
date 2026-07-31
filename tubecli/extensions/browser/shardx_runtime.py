@@ -143,6 +143,52 @@ def archive_url(version: str) -> str:
     return f"{WORKER_BASE}/ShardX-{spec.plat}-{version}.zip"
 
 
+FINGERPRINTS_ARCHIVE = "ShardX-Fingerprints.zip"
+
+
+def fingerprints_dir() -> Path:
+    """Where the engine looks for the ShardX fingerprint library."""
+    return launcher_root() / "runtime" / "fingerprints"
+
+
+def fingerprints_installed() -> bool:
+    d = fingerprints_dir()
+    return d.is_dir() and any(d.glob("*.json"))
+
+
+def install_fingerprints(on_progress=None) -> bool:
+    """Fetch the ShardX fingerprint library.
+
+    Without it a profile launches with no --fingerprint-profile at all, which
+    silently defeats the entire point of a browser profile. The engine download
+    never fetched it, and on Windows it was only ever present because the ShardX
+    Launcher had been installed separately.
+    """
+    dest = fingerprints_dir()
+    if fingerprints_installed():
+        return True
+    tmp = dest.parent / f".{FINGERPRINTS_ARCHIVE}.tmp"
+    try:
+        download(f"{PUB_BASE}/{FINGERPRINTS_ARCHIVE}", tmp, on_progress=on_progress)
+        extract(tmp, dest)
+        # The archive carries its own top-level folder; flatten so the engine's
+        # lookup finds *.json directly in the fingerprints directory.
+        if not any(dest.glob("*.json")):
+            for sub in dest.iterdir():
+                if sub.is_dir() and any(sub.glob("*.json")):
+                    for f in sub.glob("*.json"):
+                        f.replace(dest / f.name)
+                    break
+        return fingerprints_installed()
+    except Exception:
+        return False
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def missing_linux_libraries() -> list:
     """Shared libraries Chromium needs that this machine does not have.
 

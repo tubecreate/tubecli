@@ -812,6 +812,18 @@ async def api_download_engine(version: str, request: Request):
                     )
                     return
 
+                # The fingerprint library ships separately from the engine and was
+                # never fetched. Without it the launcher finds no fingerprint file,
+                # skips --fingerprint-profile entirely, and the profile runs with
+                # the engine's real fingerprint — the one thing a profile exists to
+                # prevent.
+                if not sx.fingerprints_installed():
+                    write_progress("extracting", 93, "Installing ShardX fingerprint library...")
+                    if not sx.install_fingerprints():
+                        write_progress("extracting", 94,
+                                       "Warning: fingerprint library could not be installed; "
+                                       "profiles would use the engine's own fingerprint.")
+
                 missing = sx.missing_linux_libraries()
                 if missing:
                     # Chromium will not start without these, so install them the
