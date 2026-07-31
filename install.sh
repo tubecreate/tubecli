@@ -86,7 +86,10 @@ install_system_packages() {
     if command_exists apt-get; then
         echo -e "${YELLOW}[*] Installing $* via apt...${NC}"
         $SUDO apt-get update -qq || rc=$?
-        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" || rc=$?
+        # -q, not -qq: -qq prints nothing at all, so a multi-minute download looked
+        # like the installer had frozen. -q keeps the per-package lines without the
+        # terminal-control progress bar.
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@" || rc=$?
     elif command_exists dnf; then
         echo -e "${YELLOW}[*] Installing $* via dnf...${NC}"
         $SUDO dnf install -y -q "$@" || rc=$?
@@ -247,14 +250,17 @@ check_pip_and_venv || exit 1
 check_node() {
     command_exists npm && return 0
     echo -e "${YELLOW}[*] Node.js not found. It is only needed for browser automation${NC}"
-    echo -e "${YELLOW}    and website deployment; installing it now (optional)...${NC}"
+    echo -e "${YELLOW}    and website deployment; installing it now (optional).${NC}"
+    echo -e "${YELLOW}    This downloads ~100 MB and can take a few minutes.${NC}"
     if command_exists apt-get || command_exists dnf || command_exists yum \
        || command_exists pacman || command_exists zypper || command_exists apk; then
+        # Output deliberately NOT sent to /dev/null. Suppressing it left the
+        # installer sitting silent for minutes on a large download, which reads as
+        # a hang — the user cannot tell progress from a freeze.
         if command_exists apk; then
-            install_system_packages nodejs npm >/dev/null 2>&1 || true
+            install_system_packages nodejs npm || true
         else
-            install_system_packages nodejs npm >/dev/null 2>&1 \
-                || install_system_packages nodejs >/dev/null 2>&1 || true
+            install_system_packages nodejs npm || install_system_packages nodejs || true
         fi
     fi
     if command_exists npm; then
