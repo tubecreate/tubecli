@@ -1373,11 +1373,20 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
         retries = 20
         for attempt in range(retries):
             try:
-                local_ws = await session.ws_connect(f"http://localhost:{port}", timeout=5)
+                # 127.0.0.1 rather than "localhost", to match the address the
+                # preview server is checked on and to avoid an IPv6-first lookup
+                # against an IPv4-only listener.
+                local_ws = await session.ws_connect(f"http://127.0.0.1:{port}", timeout=5)
                 break
             except (aiohttp.ClientConnectorError, aiohttp.WSServerHandshakeError) as e:
                 if attempt == retries - 1:
-                    preview_logger.error(f"[WS Proxy] Failed to connect to localhost:{port} after {retries} attempts: {e}")
+                    preview_logger.error(
+                        f"[WS Proxy] Failed to connect to 127.0.0.1:{port} after "
+                        f"{retries} attempts: {type(e).__name__}: {e}")
+                    try:
+                        await websocket.close(code=1011, reason=str(e)[:120])
+                    except Exception:
+                        pass
                     raise e
                 await asyncio.sleep(0.5)
                 
@@ -1444,17 +1453,28 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
 async def proxy_screenshot(port: int):
     """Proxy screenshot from local preview server for remote access."""
     import asyncio
+    detail = "Preview server unavailable"
     try:
         import requests as _requests
+        # 127.0.0.1, not "localhost": in a container localhost can resolve to ::1
+        # first while the node server listens on IPv4 only, and the connection is
+        # then refused for a server that is running perfectly well.
         resp = await asyncio.to_thread(
-            _requests.get, f"http://localhost:{port}/screenshot", timeout=10
+            _requests.get, f"http://127.0.0.1:{port}/screenshot", timeout=10
         )
         if resp.status_code == 200:
             from fastapi.responses import Response
             return Response(content=resp.content, media_type="image/jpeg")
+        # Pass the preview server's own words through. A bare "unavailable" said
+        # nothing about a browser that failed to start inside it.
+        body = (resp.text or "")[:300]
+        detail = f"Preview server returned {resp.status_code}: {body}" if body else \
+                 f"Preview server returned {resp.status_code}"
+        preview_logger.error(f"[Screenshot Proxy] {detail}")
     except Exception as e:
-        preview_logger.error(f"[Screenshot Proxy] Error: {e}")
-    raise HTTPException(502, "Preview server unavailable")
+        detail = f"Could not reach preview server on port {port}: {e}"
+        preview_logger.error(f"[Screenshot Proxy] {detail}")
+    raise HTTPException(502, detail)
 
 
 @router.post("/preview/upload/{port}")

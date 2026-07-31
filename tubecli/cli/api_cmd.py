@@ -1,6 +1,7 @@
 """
 tubecli api — Start/stop the REST API server.
 """
+import os
 import click
 from rich.console import Console
 from tubecli.config import SUPPORTED_LANGUAGES
@@ -28,6 +29,13 @@ def start(port, host, lang, quiet):
     import uvicorn
 
     actual_port = port or get_api_port()
+
+    # Reaches the extension loader, which prints a line per registered router.
+    # Set before the app is imported so those prints never happen — otherwise
+    # `api start --quiet &` still filled the terminal with routine startup output
+    # and looked like it had hung instead of started.
+    if quiet:
+        os.environ["TUBECLI_QUIET"] = "1"
 
     # 127.0.0.1 keeps the API off the LAN, which is what you want on a desktop.
     # Inside a container it instead makes the dashboard unreachable from anywhere:

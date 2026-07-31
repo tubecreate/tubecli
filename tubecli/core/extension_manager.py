@@ -642,10 +642,19 @@ class ExtensionManager:
                     for r in routers:
                         app.include_router(r)
                     logger.info(f"Registered API routes for extension '{extension.name}'")
-                    print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
+                    # Duplicated the logger line above, and no flag reached it — so
+                    # `api start --quiet` still printed 17 lines of routine startup
+                    # chatter. Backgrounded with `&`, that reads as the server having
+                    # hung rather than having started.
+                    if not os.environ.get("TUBECLI_QUIET"):
+                        print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
             except Exception as e:
                 import traceback
-                print(f"FAILED to register API routes for extension '{extension.name}': {e}")
+                # Failures are always shown: quiet is about routine noise, not about
+                # hiding something that went wrong.
+                logger.error(f"Failed to register API routes for extension '{extension.name}': {e}")
+                print(f"FAILED to register API routes for extension '{extension.name}': {e}",
+                      file=sys.stderr)
                 traceback.print_exc()
 
     # ── Extension Nodes Registration ────────────────────────────
