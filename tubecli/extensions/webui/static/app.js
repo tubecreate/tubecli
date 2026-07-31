@@ -1480,13 +1480,26 @@ async function renderBrowserExt(el) {
     const runningProfiles = runningInstances.map(i => i.profile);
     _lastRunningProfiles = runningProfiles.slice().sort().join(',');
     startBrowserStatusPoller(el);
-    let h = `<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button><button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:#c4b5fd;" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button></div>`;
+    // Hide controls that cannot do anything on this host. BAS is Windows-only, so
+    // its fingerprint key is meaningless elsewhere; and a browser window cannot
+    // appear on a headless server or inside a container, which left the launch
+    // button spinning on "Initializing browser..." forever.
+    const plat = data?.platform || {};
+    const basAvailable = plat.bas_available !== false;
+    const canOpenWindow = plat.can_open_window !== false;
+
+    let h = `<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button>`
+        + (basAvailable ? `<button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:#c4b5fd;" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button>` : '')
+        + `</div>`;
+    if (!canOpenWindow) {
+        h += `<div class="status-bar" style="background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.35)">${T('browser.remote_only', 'No display on this machine, so profiles open in Remote (browser tab) instead of a local window.')}</div>`;
+    }
     if (runningInstances.length > 0) h += `<div class="status-bar"><span class="pulse-dot"></span> ${runningInstances.length} ${T('status.running')}</div>`;
     if (profiles.length === 0) h += `<p class="text-muted">${T('browser.no_profiles')}</p>`;
     else h += '<div class="cards-grid">' + profiles.map(p => {
         const isR = runningProfiles.includes(p.name);
         const hasGA = p.google_account && p.google_account.email;
-        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>`}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
+        return `<div class="card" style="position:relative"><button class="btn-settings" onclick="showProfileSettings('${esc(p.name)}')" title="${T('browser.settings', 'Settings')}">⚙️</button><div class="card-icon">🌐</div><h3>${esc(p.name)} ${isR ? '<span class="pulse-dot" style="display:inline-block"></span>' : ''}</h3><p class="card-meta">${esc(p.proxy||T('browser.no_proxy'))}</p><p class="card-desc">${p.has_fingerprint ? T('browser.fp_ok', '🧬 FP OK') : `<span style="color:var(--orange)">${T('browser.no_fp', '⚠️ No FP')}</span>`} ${p.has_cookies ? '🍪' : ''} ${hasGA ? '<span style="color:var(--green)">🔐 ' + esc(p.google_account.email) + '</span>' : ''}</p><div class="card-footer" style="flex-wrap:wrap;gap:8px"><span class="tag green">${esc((p.created_at||'').slice(0,10))}</span><div class="card-actions">${isR ? `<button class="btn-sm btn-danger" onclick="stopProfile('${esc(p.name)}',this)">⏹</button>` : (canOpenWindow ? `<button class="btn-sm" onclick="launchProfile('${esc(p.name)}',this)">▶</button>` : '')}<button class="btn-sm" onclick="openWSProfile('${esc(p.name)}')" title="Mở Browser Remote (Tab mới)" style="background:linear-gradient(135deg,#06b6d4,#3b82f6);color:#fff">🌐 Remote</button><button class="btn-danger" onclick="deleteProfile('${esc(p.name)}');setTimeout(()=>renderBrowserExt(getBrowserBody()),500)">✕</button></div></div></div>`;
     }).join('') + '</div>';
     el.innerHTML = h;
 }

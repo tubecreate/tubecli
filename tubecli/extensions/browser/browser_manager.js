@@ -1608,7 +1608,36 @@ export class BrowserManager {
             launchArgs.push('--start-maximized');
         }
 
-        if (headless) launchArgs.push('--headless=new');
+        // Headless is decided once here and passed to Playwright as an option;
+        // pushing --headless as a raw arg as well would fight with it.
+        let effectiveHeadless = headless;
+
+        // Linux-only flags. Without these the engine starts and exits immediately,
+        // and because nothing surfaced the exit reason the Remote page simply sat
+        // on "Initializing browser..." forever.
+        if (process.platform === 'linux') {
+            // Chromium refuses to run as root unless the sandbox is disabled
+            // ("Running as root without --no-sandbox is not supported"), and inside
+            // a container root is the normal case.
+            const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+            if (isRoot && !launchArgs.includes('--no-sandbox')) {
+                launchArgs.push('--no-sandbox', '--disable-setuid-sandbox');
+                console.log('[ShardX] Running as root — added --no-sandbox');
+            }
+            // Containers get a 64 MB /dev/shm by default, which Chromium exhausts
+            // and then crashes; this makes it use /tmp instead.
+            if (!launchArgs.includes('--disable-dev-shm-usage')) {
+                launchArgs.push('--disable-dev-shm-usage');
+            }
+            // No display means no on-screen window is possible; run headless rather
+            // than dying on "Missing X server or $DISPLAY". Remote streams over CDP,
+            // so headless is exactly what it needs anyway.
+            if (!effectiveHeadless && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
+                effectiveHeadless = true;
+                launchArgs.push('--disable-gpu');
+                console.log('[ShardX] No DISPLAY — running headless');
+            }
+        }
 
         // Proxy
         if (proxy) {
@@ -1634,7 +1663,7 @@ export class BrowserManager {
             console.log(`[ShardX] Spawning: ${shardxExePath}`);
             const context = await chromium.launchPersistentContext(profilePath, {
                 executablePath: shardxExePath,
-                headless,
+                headless: effectiveHeadless,
                 viewport: null, // Disable default Playwright viewport override to allow window-size / start-maximized
                 args: launchArgs,
                 ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
@@ -1653,8 +1682,31 @@ export class BrowserManager {
             console.log('[ShardX] ✅ Browser launched successfully.');
             return context;
         } catch (e) {
-            console.error(`[ShardX] Launch failed: ${e.message}`);
-            throw e;
+            // Chromium's own stderr comes back inside the Playwright error, but as
+            // one long blob nobody reads. Translate the causes that actually happen
+            // on Linux into something the caller can act on, and keep the original
+            // text attached.
+            let hint = '';
+            const msg = String(e.message || '');
+            if (/root without --no-sandbox/i.test(msg)) {
+                hint = 'Chromium will not run as root without --no-sandbox.';
+            } else if (/error while loading shared libraries|cannot open shared object/i.test(msg)) {
+                const lib = (msg.match(/(lib[\w.+-]+\.so[\w.]*)/) || [])[1] || 'a shared library';
+                hint = `The engine is missing ${lib}. Install the Chromium runtime libraries `
+                     + `(Debian/Ubuntu: apt install -y libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 `
+                     + `libcups2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 `
+                     + `libpango-1.0-0 libcairo2 libasound2).`;
+            } else if (/Missing X server|DISPLAY/i.test(msg)) {
+                hint = 'No display is available; this profile has to run headless (use Remote).';
+            } else if (/EACCES|permission denied/i.test(msg)) {
+                hint = `The engine binary is not executable: chmod +x "${shardxExePath}".`;
+            } else if (/ENOENT/i.test(msg)) {
+                hint = `The engine binary was not found at ${shardxExePath}. Reinstall it from the Browser page.`;
+            }
+            console.error(`[ShardX] Launch failed: ${hint || msg}`);
+            const err = new Error(hint ? `${hint} (${msg.split('\n')[0]})` : msg);
+            err.cause = e;
+            throw err;
         }
     }
 

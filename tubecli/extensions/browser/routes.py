@@ -69,8 +69,27 @@ class StopRequest(BaseModel):
 @router.get("/profiles")
 async def api_list_profiles():
     from .profile_manager import list_profiles
+    from . import shardx_runtime as sx
     profiles = await asyncio.to_thread(list_profiles)
-    return {"profiles": profiles}
+    # The page needs to know the host to decide what to show. A BAS key is
+    # meaningless where BAS cannot run, and launching a window on the machine only
+    # makes sense where there is a display — on a headless server or in a container
+    # that button could never do anything.
+    return {
+        "profiles": profiles,
+        "platform": {
+            "os": sys.platform,
+            "bas_available": sx.supports_bas(),
+            "can_open_window": _has_display(),
+        },
+    }
+
+
+def _has_display() -> bool:
+    """Whether a browser window could appear on this machine at all."""
+    if sys.platform in ("win32", "darwin"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 @router.post("/profiles")
 async def api_create_profile(req: ProfileCreateRequest):
