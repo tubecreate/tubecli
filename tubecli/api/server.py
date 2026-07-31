@@ -967,10 +967,21 @@ async def perform_git_update():
                         shell=True, cwd=repo,
                     )
                 else:
-                    subprocess.Popen(
-                        [sys.executable, "-m", "tubecli.main", "init"],
-                        cwd=repo, start_new_session=True,
-                    )
+                    # `init` opens the interactive control panel, a loop that reads
+                    # from stdin. Restarted detached on a headless host it hits EOF
+                    # on the first prompt and aborts — so updating from the web
+                    # killed this server (os._exit below) and replaced it with a
+                    # process that died immediately, leaving no API at all.
+                    # Restart what was actually running: the API server. The control
+                    # panel is only restarted when a terminal is attached to it.
+                    if os.environ.get("TUBECLI_CLI_PID") and sys.stdin and sys.stdin.isatty():
+                        args = [sys.executable, "-m", "tubecli.main", "init"]
+                    else:
+                        args = [sys.executable, "-m", "tubecli.main", "api", "start"]
+                        port_env = os.environ.get("TUBECLI_PORT")
+                        if port_env:
+                            args += ["--port", port_env]
+                    subprocess.Popen(args, cwd=repo, start_new_session=True)
             except Exception:
                 pass
             time.sleep(1)
@@ -988,17 +999,27 @@ async def perform_git_update():
     except Exception as e:
         return {"status": "error", "output": str(e)}
 
-VERSION_CHECK_CACHE = {"data": None}
+VERSION_CHECK_CACHE = {"data": None, "last_check": 0.0}
+# The cache had no expiry: any result was kept for the life of the process, and
+# `last_check` was written but never read. A release published while the server ran
+# stayed invisible until someone restarted it — which is precisely the situation an
+# update check exists for.
+VERSION_CHECK_TTL = 1800  # 30 minutes
 
 @app.get("/api/v1/version/check")
-async def check_for_updates():
-    """Check GitHub for newer version by reading pyproject.toml from main branch (checked once per server startup)."""
-    global VERSION_CHECK_CACHE
-    if VERSION_CHECK_CACHE["data"] is not None:
-        return VERSION_CHECK_CACHE["data"]
+async def check_for_updates(force: bool = False):
+    """Check GitHub for a newer version by reading pyproject.toml on main.
 
+    Cached for VERSION_CHECK_TTL; pass ?force=true to bypass, which is what a
+    "check now" button should do.
+    """
+    global VERSION_CHECK_CACHE
     import httpx, re, time
     now = time.time()
+    if (VERSION_CHECK_CACHE["data"] is not None
+            and not force
+            and now - VERSION_CHECK_CACHE.get("last_check", 0) < VERSION_CHECK_TTL):
+        return VERSION_CHECK_CACHE["data"]
     from tubecli import __version__
     print(f"[VersionCheck] Local version: {__version__}")
     try:
