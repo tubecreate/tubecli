@@ -376,6 +376,25 @@ if [[ ":$PATH:" != *":$LOCAL_BIN:"* ]]; then
     fi
 fi
 
+# The profile edit only helps future shells, and `curl | bash` runs the installer
+# in a subshell so the export above never reaches the caller's shell either — the
+# first thing users hit after a successful install was "tubecli: command not
+# found". When /usr/local/bin is writable it is already on PATH everywhere, so a
+# link there makes the command work immediately, in this shell and in any other.
+if [[ -w /usr/local/bin ]] || [[ "$(id -u)" -eq 0 ]]; then
+    TUBECLI_BIN=""
+    for cand in "$LOCAL_BIN/tubecli" "$TARGET_DIR/.venv/bin/tubecli" "$(command -v tubecli 2>/dev/null)"; do
+        if [[ -n "$cand" && -x "$cand" && "$cand" != "/usr/local/bin/tubecli" ]]; then
+            TUBECLI_BIN="$cand"
+            break
+        fi
+    done
+    if [[ -n "$TUBECLI_BIN" ]]; then
+        ln -sf "$TUBECLI_BIN" /usr/local/bin/tubecli 2>/dev/null \
+            && echo -e "${GREEN}[OK] Linked tubecli into /usr/local/bin${NC}"
+    fi
+fi
+
 # --- Initialize ---
 
 if command_exists tubecli; then
