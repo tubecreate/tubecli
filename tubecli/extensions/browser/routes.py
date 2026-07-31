@@ -1477,6 +1477,39 @@ async def proxy_screenshot(port: int):
     raise HTTPException(502, detail)
 
 
+@router.post("/preview/control/{port}/{action:path}")
+async def proxy_preview_control(port: int, action: str, request: Request):
+    """Forward a control command to the preview server running on this machine.
+
+    The viewer used to POST to http://localhost:<port>/navigate straight from the
+    page. That only works when the browser and the preview server are the same
+    machine — from any remote dashboard, and from a container where only 5295 is
+    published, it is ERR_CONNECTION_REFUSED. Everything goes through the API now,
+    which is on the machine that owns the port.
+    """
+    import asyncio
+    allowed = {"navigate", "pick/start", "pick/stop", "back", "forward", "reload", "click", "type"}
+    if action not in allowed:
+        raise HTTPException(400, f"Unknown preview action '{action}'")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        import requests as _requests
+        resp = await asyncio.to_thread(
+            _requests.post, f"http://127.0.0.1:{port}/{action}", json=body, timeout=30
+        )
+        try:
+            return resp.json()
+        except Exception:
+            return {"status": "ok" if resp.status_code < 400 else "error",
+                    "code": resp.status_code, "body": (resp.text or "")[:300]}
+    except Exception as e:
+        preview_logger.error(f"[Preview Control] {action} -> {e}")
+        raise HTTPException(502, f"Preview server did not accept '{action}': {e}")
+
+
 @router.post("/preview/upload/{port}")
 async def api_preview_upload_files(port: int, files: List[UploadFile] = File(...)):
     """Upload files for the file chooser dialog of browser at port."""
