@@ -137,6 +137,32 @@ def init_cmd(lang, port, no_menu, no_wizard):
     _run_control_panel()
 
 
+def _can_open_browser() -> bool:
+    """Whether launching a GUI browser could plausibly work.
+
+    On a headless server or inside a container there is no display, so
+    webbrowser.open() either returns False or — worse — launches a text-mode
+    browser over the top of the control panel.
+    """
+    import sys
+    if os.name == "nt" or sys.platform == "darwin":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _in_container() -> bool:
+    """Detect Docker/Kubernetes, so we can warn that 127.0.0.1 is the container's
+    own loopback and is not reachable from the user's browser unless the port was
+    published."""
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", "r", encoding="utf-8") as f:
+            return any(m in f.read() for m in ("docker", "containerd", "kubepods"))
+    except Exception:
+        return False
+
+
 def _kill_server_on_port(port: int) -> int:
     """Kill any process listening on the given port and wait for it to be released.
 
@@ -712,8 +738,24 @@ def _run_control_panel():
                     
                     console.print(f"[green]  {t('panel.api_ready')}[/green]")
                 
-                webbrowser.open(dashboard_url)
-                console.print(t("panel.dashboard_opened", url=dashboard_url))
+                # webbrowser.open() returns False when it cannot find a browser,
+                # which is the normal case on a headless server or inside a
+                # container. Ignoring that return value made the panel claim it had
+                # opened a dashboard that never appeared, and left the user with no
+                # address to open by hand.
+                opened = False
+                if _can_open_browser():
+                    try:
+                        opened = bool(webbrowser.open(dashboard_url))
+                    except Exception:
+                        opened = False
+
+                if opened:
+                    console.print(t("panel.dashboard_opened", url=dashboard_url))
+                else:
+                    console.print(t("panel.dashboard_manual", url=dashboard_url))
+                    if _in_container():
+                        console.print(t("panel.dashboard_container_hint", port=port))
             except Exception:
                 console.print(t("panel.dashboard_error", url=f"http://localhost:{port}/dashboard"))
                 
@@ -842,11 +884,17 @@ def _run_control_panel():
             if not docs_path.exists():
                 docs_path = BASE_DIR / "docs" / "index.html"
             if docs_path.exists():
-                try:
-                    import webbrowser
-                    webbrowser.open(f"file://{docs_path.absolute()}")
-                except Exception:
-                    console.print(f"Open this file in your browser: {docs_path}")
+                # Same headless problem as option 1: with no display this silently
+                # did nothing at all, so the menu item looked broken.
+                opened = False
+                if _can_open_browser():
+                    try:
+                        import webbrowser
+                        opened = bool(webbrowser.open(f"file://{docs_path.absolute()}"))
+                    except Exception:
+                        opened = False
+                if not opened:
+                    console.print(t("panel.docs_manual", path=docs_path))
             else:
                 console.print(t("panel.docs_not_found"))
 
