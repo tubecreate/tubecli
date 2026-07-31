@@ -153,17 +153,19 @@ pip install -e .
 ```
 
 ### 2. Initialize Workspace
-Run the initialization command to setup the `data/` directory, extract default skills, activate core extensions, and configure the default port.
+`init` sets up the `data/` directory, extracts default skills, activates core extensions and configures the port. On first run it also walks you through picking an AI model.
 ```bash
 tubecli init --lang en --port 5295
 ```
+It then hands over to an interactive control panel, which starts the API server for you and stays in the foreground — press `1` to open the dashboard. This is the normal way to run TubeCLI day to day.
 
-### 3. Start the Web Dashboard
-After initialization, start the API server to access the GUI.
+### 3. Or run it headless
+If you would rather not use the control panel — in a script, a Dockerfile, or over SSH — set up and exit, then start the server yourself:
 ```bash
+tubecli init --lang en --port 5295 --no-menu
 tubecli api start
 ```
-Open your browser and navigate to: **http://localhost:5295/dashboard**
+Either way the dashboard is at **http://localhost:5295/dashboard** (plain **http://localhost:5295** redirects there).
 
 ## 💻 CLI Usage
 

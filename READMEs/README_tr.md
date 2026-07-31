@@ -25,7 +25,7 @@
 </p>
 
 <p align="center">
-    <img src="https://img.shields.io/badge/PYTHON-3.9+-0078d4?style=for-the-badge&logo=python&logoColor=white&labelColor=333333" alt="Python" />
+    <img src="https://img.shields.io/badge/PYTHON-3.10+-0078d4?style=for-the-badge&logo=python&logoColor=white&labelColor=333333" alt="Python" />
     <img src="https://img.shields.io/badge/API-FASTAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white&labelColor=333333" alt="FastAPI" />
     <img src="https://img.shields.io/badge/UI-VUE.JS-4FC08D?style=for-the-badge&logo=vue.js&logoColor=white&labelColor=333333" alt="Vue.js" />
     <img src="https://img.shields.io/badge/3D-THREE.JS-000000?style=for-the-badge&logo=three.js&logoColor=white&labelColor=333333" alt="Three.js" />
@@ -79,7 +79,7 @@ Python, Git (eksikse) otomatik olarak yüklenecek, depo klonlanacak ve A'dan Z'y
 ### Seçenek 2: Manuel Kurulum (Geliştiriciler için)
 
 #### Gereksinimler
-- Python 3.9+
+- Python 3.10+
 - Ollama (İsteğe bağlı, yerel yapay zeka yürütmesi için gereklidir)
 - Git
 
