@@ -3,10 +3,13 @@ set -euo pipefail
 
 # Usage: curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash
 
-REPO_URL="https://github.com/tubecreate/tubecli.git"
-BRANCH="main"
-INSTALL_DIR="${HOME}/tubecli"
+# Overridable so a fork, a mirror, an air-gapped copy or a test harness can point
+# this at another source without editing the script.
+REPO_URL="${TUBECLI_REPO_URL:-https://github.com/tubecreate/tubecli.git}"
+BRANCH="${TUBECLI_BRANCH:-main}"
+INSTALL_DIR="${TUBECLI_INSTALL_DIR:-${HOME}/tubecli}"
 LANG_VAL="en"
+SUPPORTED_LANGS="zh zh-TW vi en ja ko es tr ru"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -23,6 +26,17 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+# Validate now, not after a full install. An unsupported code used to travel all
+# the way to `tubecli init --lang`, which rejects it with a click error long after
+# the installer has finished printing success.
+case " $SUPPORTED_LANGS " in
+  *" $LANG_VAL "*) ;;
+  *)
+    echo "[!] Unsupported language '$LANG_VAL'. Choose one of: $SUPPORTED_LANGS" >&2
+    exit 2
+    ;;
+esac
 
 BOLD='\033[1m'
 CYAN='\033[38;5;51m'
@@ -128,12 +142,61 @@ if ! command_exists git || ! check_python; then
     fi
 fi
 
+# Having python3 does not mean having pip or venv. Debian and Ubuntu ship them as
+# separate packages, so a container base image or a minimal server passes the check
+# above and then dies on the install command with a message about neither. Ask for
+# them by name here, while we can still say which package to install.
+check_pip_and_venv() {
+    local missing=()
+    python3 -m pip --version >/dev/null 2>&1 || missing+=("pip")
+    python3 -m venv --help  >/dev/null 2>&1 || missing+=("venv")
+    [[ ${#missing[@]} -eq 0 ]] && return 0
+
+    local names verb
+    names=$(IFS=' ' ; echo "${missing[*]}" | sed 's/ / and /')
+    if [[ ${#missing[@]} -gt 1 ]]; then verb="are"; else verb="is"; fi
+    echo -e "${YELLOW}[!] Python is installed, but $names $verb not available.${NC}"
+
+    # Always end with something the user can actually run. An earlier version only
+    # printed a command when it recognised apt/dnf/pacman, so on Alpine, openSUSE,
+    # NixOS or any unrecognised distro the message was "this is missing, run the
+    # installer again" with no way to make it not missing.
+    if command_exists apt-get; then
+        echo -e "${YELLOW}    Install with:${NC} sudo apt install python3-pip python3-venv"
+    elif command_exists dnf; then
+        echo -e "${YELLOW}    Install with:${NC} sudo dnf install python3-pip"
+    elif command_exists yum; then
+        echo -e "${YELLOW}    Install with:${NC} sudo yum install python3-pip"
+    elif command_exists pacman; then
+        echo -e "${YELLOW}    Install with:${NC} sudo pacman -S python-pip"
+    elif command_exists zypper; then
+        echo -e "${YELLOW}    Install with:${NC} sudo zypper install python3-pip python3-virtualenv"
+    elif command_exists apk; then
+        echo -e "${YELLOW}    Install with:${NC} sudo apk add py3-pip"
+    elif command_exists brew; then
+        echo -e "${YELLOW}    Install with:${NC} brew install python"
+    else
+        echo -e "${YELLOW}    Install your distribution's python3-pip and python3-venv packages,${NC}"
+        echo -e "${YELLOW}    or try:${NC} python3 -m ensurepip --upgrade"
+    fi
+    echo -e "${YELLOW}    Then run this installer again.${NC}"
+    return 1
+}
+
+check_pip_and_venv || exit 1
+
 # --- Install TubeCLI ---
 
 TARGET_DIR=""
 
-if [[ -f "./setup.py" && -d "./tubecli" ]]; then
-    echo -e "${GREEN}[*] Local setup.py detected, installing from current directory.${NC}"
+# This tested ./setup.py, which this project does not have (it is pyproject-only),
+# so the branch was dead: running the installer from inside a checkout cloned a
+# second copy into ~/tubecli and installed that one instead. Check for the manifest
+# that actually exists, and confirm it is TubeCLI rather than whatever project the
+# user happened to be standing in.
+if [[ -d "./tubecli" ]] && { [[ -f "./pyproject.toml" ]] || [[ -f "./setup.py" ]]; } \
+   && grep -q '^name = "tubecli"' ./pyproject.toml 2>/dev/null; then
+    echo -e "${GREEN}[*] TubeCLI source detected here, installing from the current directory.${NC}"
     TARGET_DIR="$PWD"
 else
     echo -e "${YELLOW}[*] Cloning TubeCLI repository to $INSTALL_DIR...${NC}"
@@ -152,11 +215,50 @@ python3 -m pip install --upgrade pip >/dev/null 2>&1 || true
 echo -e "${YELLOW}[*] Installing TubeCLI (this may take a few minutes)...${NC}"
 cd "$TARGET_DIR"
 
-# Install in development mode
-if ! python3 -m pip install -e . ; then
-    echo -e "${RED}[!] pip install failed.${NC}"
+# Install in development mode.
+#
+# The plain call is kept as the first attempt so machines where it already works
+# keep behaving exactly as before. What is new is the fallback: on Debian 12+,
+# Ubuntu 23.04+ and Homebrew Python, pip refuses to touch the system interpreter
+# (PEP 668, "externally-managed-environment"). This script used to print
+# "pip install failed." and exit 1 there, which is every one of those users, and
+# on macOS the brew branch above installs the very interpreter that then refuses.
+PIP_LOG="$(mktemp 2>/dev/null || echo /tmp/tubecli-pip.log)"
+# `set +e` around this on purpose. The script runs under `set -euo pipefail`
+# (line 2), so a failing pip would abort right here and none of the recovery below
+# would ever run — the user would just get a silent exit 1.
+set +e
+python3 -m pip install -e . 2>&1 | tee "$PIP_LOG"
+# PIPESTATUS[0], not $?: the exit status of a pipeline is tee's, which is always 0,
+# so testing $? here would treat every pip failure as a success.
+PIP_RC=${PIPESTATUS[0]}
+set -e
+if [[ "$PIP_RC" -eq 0 ]]; then
+    :
+elif grep -q "externally-managed-environment" "$PIP_LOG"; then
+    echo -e "${YELLOW}[!] This Python is managed by your OS and will not accept packages directly.${NC}"
+    echo -e "${YELLOW}[*] Installing into a private virtualenv instead...${NC}"
+    if ! python3 -m venv "$TARGET_DIR/.venv"; then
+        echo -e "${RED}[!] Could not create a virtualenv.${NC}"
+        echo -e "${YELLOW}    Install the venv package first, then re-run this script:${NC}"
+        echo -e "      sudo apt install python3-venv     ${YELLOW}# Debian/Ubuntu${NC}"
+        exit 1
+    fi
+    "$TARGET_DIR/.venv/bin/python" -m pip install --upgrade pip >/dev/null 2>&1 || true
+    if ! "$TARGET_DIR/.venv/bin/python" -m pip install -e . ; then
+        echo -e "${RED}[!] pip install failed inside the virtualenv too.${NC}"
+        exit 1
+    fi
+    # Put a launcher on PATH so `tubecli` works without activating anything.
+    mkdir -p "$HOME/.local/bin"
+    printf '#!/bin/sh\nexec "%s/.venv/bin/tubecli" "$@"\n' "$TARGET_DIR" > "$HOME/.local/bin/tubecli"
+    chmod +x "$HOME/.local/bin/tubecli"
+    echo -e "${GREEN}[OK] Installed in $TARGET_DIR/.venv (launcher: ~/.local/bin/tubecli)${NC}"
+else
+    echo -e "${RED}[!] pip install failed. Full output above; log kept at $PIP_LOG${NC}"
     exit 1
 fi
+rm -f "$PIP_LOG" 2>/dev/null || true
 
 # --- Ensure PATH ---
 
@@ -187,14 +289,46 @@ fi
 
 if command_exists tubecli; then
     echo -e "${GREEN}[OK] TubeCLI installed successfully!${NC}"
-    echo -e "${YELLOW}[*] Initializing TubeCLI Workspace...${NC}"
-    if tubecli init --lang "$LANG_VAL" --port 5295; then
-        echo -e "${GREEN}[OK] Workspace Initialized.${NC}"
-    else
-        echo -e "${YELLOW}[!] Failed to run 'tubecli init'. You may need to run it manually.${NC}"
+
+    # `tubecli init` is an interactive prompt-driven app. Under the advertised
+    # `curl -fsSL ... | bash` it inherited the curl pipe as stdin, so the wizard
+    # read the installer's own remaining source as the user's answers — and
+    # consumed those lines, so bash never ran them. Read the keyboard directly
+    # instead, and when there is no terminal at all, skip the wizard and say so
+    # rather than pretending it ran.
+    TTY_IN=""
+    if [[ -t 0 ]]; then
+        TTY_IN=""                      # stdin already is the terminal
+    elif (exec 3</dev/tty) 2>/dev/null; then
+        TTY_IN="/dev/tty"
     fi
-    
+
+    if [[ -t 0 || -n "$TTY_IN" ]]; then
+        echo -e "${YELLOW}[*] Initializing TubeCLI Workspace...${NC}"
+        # `set +e` again: under `set -e` a wizard that the user quits would abort the
+        # script before the message below, so they would never be told how to resume.
+        set +e
+        if [[ -n "$TTY_IN" ]]; then
+            tubecli init --lang "$LANG_VAL" --port 5295 < "$TTY_IN"
+        else
+            tubecli init --lang "$LANG_VAL" --port 5295
+        fi
+        INIT_RC=$?
+        set -e
+        if [[ "$INIT_RC" -eq 0 ]]; then
+            echo -e "${GREEN}[OK] Workspace Initialized.${NC}"
+        else
+            echo -e "${YELLOW}[!] 'tubecli init' did not finish. Run it yourself when ready:${NC}"
+            echo -e "      tubecli init"
+        fi
+    else
+        echo -e "${YELLOW}[!] No terminal available, so the setup wizard was skipped.${NC}"
+        echo -e "${YELLOW}    Finish setup yourself with:${NC}"
+        echo -e "      tubecli init"
+    fi
+
     echo -e "\n${CYAN}Installation Complete! You can now use the 'tubecli' command.${NC}"
+    echo -e "${CYAN}Dashboard: http://127.0.0.1:5295/dashboard  (start it with 'tubecli api start')${NC}"
     echo -e "${YELLOW}Note: You may need to restart your terminal or run 'source ~/.bashrc' (or ~/.zshrc) for the 'tubecli' command to be available.${NC}"
 else
     echo -e "${YELLOW}[!] TubeCLI installed, but the 'tubecli' command is not in your PATH.${NC}"

@@ -3,6 +3,10 @@ param(
     [string]$RepoUrl = "https://github.com/tubecreate/tubecli.git",
     [string]$Branch = "main",
     [string]$InstallDir,
+    # Must stay in sync with SUPPORTED_LANGUAGES in tubecli/config.py. Untyped,
+    # `tubecli init --lang de` got all the way to the end of the installer and then
+    # died on a click Choice error with exit 2, long after the green banners.
+    [ValidateSet('zh', 'zh-TW', 'vi', 'en', 'ja', 'ko', 'es', 'tr', 'ru')]
     [string]$Lang = "en"
 )
 
@@ -12,13 +16,20 @@ $script:InstallExitCode = 0
 
 function Fail-Install {
     param([int]$Code = 1)
+    # No `return $false` here: at script scope that value would print as stray
+    # "False" output. Callers pair this with Complete-Install -Succeeded:$false.
     $script:InstallExitCode = $Code
-    return $false
 }
 
 function Complete-Install {
     param([bool]$Succeeded)
     if ($Succeeded) { return }
+    # A failed install must never report success. Fail-Install had no callers at
+    # all, so $InstallExitCode was permanently 0 and every failure path either
+    # `exit 0`-ed or threw the self-contradicting "failed with exit code 0".
+    # This floor makes that impossible even if a future failure site forgets to
+    # call Fail-Install.
+    if ($script:InstallExitCode -eq 0) { $script:InstallExitCode = 1 }
     if ($PSCommandPath) { exit $script:InstallExitCode }
     throw "TubeCLI installation failed with exit code $($script:InstallExitCode)."
 }
@@ -80,11 +91,18 @@ function Check-Python {
 function Install-Python {
     Write-Host "[*] Installing Python 3.11..." -ForegroundColor Yellow
 
-    # Try winget
+    # NOTE on `| Out-Host` and `$null = Read-Host` below, in all three Install-*
+    # functions: every uncaptured value in a PowerShell function joins its return
+    # value. winget's stdout and Read-Host's answer used to do exactly that, so
+    # `return $false` really returned an Object[] of [winget text..., answer, $false],
+    # and PowerShell coerces a non-empty array to $true. `if (-not (Install-Python))`
+    # was therefore never true and the failure branch never ran.
+    # Out-Host rather than Out-Null on purpose: it still shows winget's progress,
+    # it just keeps it out of the pipeline.
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "  Using winget..." -ForegroundColor Gray
-        winget install --id Python.Python.3.11 --source winget --accept-package-agreements --accept-source-agreements --override "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0"
-        
+        winget install --id Python.Python.3.11 --source winget --accept-package-agreements --accept-source-agreements --override "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0" | Out-Host
+
         # Refresh PATH
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
@@ -101,7 +119,7 @@ function Install-Python {
     Write-Host "  IMPORTANT: Check 'Add Python to PATH' during installation!" -ForegroundColor Yellow
     Write-Host ""
     try { Start-Process "https://www.python.org/downloads/" } catch {}
-    Read-Host "  Press Enter after installing Python..."
+    $null = Read-Host "  Press Enter after installing Python..."
 
     # Refresh PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -132,8 +150,8 @@ function Install-Git {
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "  Using winget..." -ForegroundColor Gray
-        winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements
-        
+        winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Host
+
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
         if (Check-Git) {
@@ -148,7 +166,7 @@ function Install-Git {
     Write-Host "      https://git-scm.com/download/win" -ForegroundColor Cyan
     Write-Host ""
     try { Start-Process "https://git-scm.com/download/win" } catch {}
-    Read-Host "  Press Enter after installing Git..."
+    $null = Read-Host "  Press Enter after installing Git..."
 
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
@@ -179,8 +197,8 @@ function Install-Node {
 
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         Write-Host "  Using winget..." -ForegroundColor Gray
-        winget install --id OpenJS.NodeJS --source winget --accept-package-agreements --accept-source-agreements
-        
+        winget install --id OpenJS.NodeJS --source winget --accept-package-agreements --accept-source-agreements | Out-Host
+
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         
         if (Check-Node) {
@@ -195,7 +213,7 @@ function Install-Node {
     Write-Host "      https://nodejs.org/" -ForegroundColor Cyan
     Write-Host ""
     try { Start-Process "https://nodejs.org/" } catch {}
-    Read-Host "  Press Enter after installing Node.js (or press Enter to skip)..."
+    $null = Read-Host "  Press Enter after installing Node.js (or press Enter to skip)..."
 
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
 
@@ -252,28 +270,42 @@ function Ensure-PythonScriptsInPath {
 # Stop any running TubeCLI processes to prevent file lock during install
 Write-Host "[*] Stopping running TubeCLI processes..." -ForegroundColor Yellow
 $killedCount = 0
+
+# NOTE: the loop below must not use $pid - that is a read-only automatic variable
+# holding this shell's own PID, and assigning to it throws a TERMINATING error.
+# It used to, inside one big try/catch, so the throw skipped steps 2 and 3 as well:
+# nothing was ever killed, the file handle stayed locked, pip failed on the copy
+# step, and the script still printed a green "No running TubeCLI processes found".
+# Each step also gets its own try now, so one failure can't silence the others.
 try {
     # 1. Kill API server by port
-    $netstatOut = netstat -ano 2>$null | Select-String ":5295\s" | Select-String "LISTENING"
+    $netstatOut = netstat -ano | Select-String ":5295\s" | Select-String "LISTENING"
     foreach ($line in $netstatOut) {
         $parts = $line.ToString().Trim() -split '\s+'
-        $pid = $parts[-1]
-        if ($pid -and $pid -ne "0") {
-            Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue
+        $procId = $parts[-1]
+        if ($procId -and $procId -ne "0" -and $procId -match '^\d+$' -and [int]$procId -ne $PID) {
+            Stop-Process -Id ([int]$procId) -Force -ErrorAction SilentlyContinue
             $killedCount++
         }
     }
+} catch { }
+
+try {
     # 2. Kill tubecli.exe CLI process via PowerShell
     Get-Process -Name "tubecli" -ErrorAction SilentlyContinue | ForEach-Object {
         Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
         $killedCount++
     }
-    # 3. Fallback: taskkill /F /IM ensures Windows releases the file handle
-    $taskKillOut = taskkill /F /IM "tubecli.exe" 2>&1
+} catch { }
+
+try {
+    # 3. Fallback: taskkill /F /IM ensures Windows releases the file handle.
+    # Routed through cmd so its "process not found" stderr is swallowed there -
+    # redirecting a native command's stderr inside PS 5.1 wraps each line in a
+    # NativeCommandError and would print a red ERROR during a normal install.
+    cmd /c "taskkill /F /IM tubecli.exe >nul 2>nul"
     if ($LASTEXITCODE -eq 0) { $killedCount++ }
-} catch {
-    # Silently continue if process cleanup fails
-}
+} catch { }
 if ($killedCount -gt 0) {
     Write-Host "[OK] Stopped $killedCount running process(es)" -ForegroundColor Green
     Start-Sleep -Seconds 3  # Wait for Windows to fully release file handles
@@ -295,22 +327,32 @@ try {
     }
 } catch {}
 
+# @(...)[-1] rather than `-not (...)`: the Install-* functions are fixed at the
+# source now, but taking the last emitted value means a future stray write into
+# the output stream still cannot turn a failure into a success. Note that the
+# obvious-looking `(Install-Python) -ne $true` would NOT work - against an array
+# PowerShell filters instead of comparing, and a non-empty result is truthy.
 if (-not (Check-Python)) {
-    if (-not (Install-Python)) {
+    if (@(Install-Python)[-1] -ne $true) {
+        Write-Host "[!] Python 3.10+ is required and could not be installed." -ForegroundColor Red
+        Fail-Install
         Complete-Install -Succeeded:$false
         return
     }
 }
 
 if (-not (Check-Git)) {
-    if (-not (Install-Git)) {
+    if (@(Install-Git)[-1] -ne $true) {
+        Write-Host "[!] Git is required and could not be installed." -ForegroundColor Red
+        Fail-Install
         Complete-Install -Succeeded:$false
         return
     }
 }
 
+# Node stays a warning on purpose: only the browser extension needs it.
 if (-not (Check-Node)) {
-    if (-not (Install-Node)) {
+    if (@(Install-Node)[-1] -ne $true) {
         Write-Host "[!] Warning: Node.js installation failed or requires a terminal restart. The browser extension might not work until Node.js is installed manually." -ForegroundColor Yellow
     }
 }
@@ -326,11 +368,34 @@ if ((Test-Path ".\setup.py") -or (Test-Path ".\pyproject.toml")) {
     $targetDir = (Get-Location).Path
 } else {
     Write-Host "[*] Cloning TubeCLI repository to $InstallDir..." -ForegroundColor Yellow
+    # Both git calls used to run unchecked. A clone blocked by a proxy, or a pull
+    # against a directory that is not a git repo (exit 128), left the old code -
+    # or no code - in place while the installer carried on printing success.
     if (-not (Test-Path $InstallDir)) {
         git clone -b $Branch $RepoUrl $InstallDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[!] Could not download TubeCLI (git clone failed, exit $LASTEXITCODE)." -ForegroundColor Red
+            Write-Host "    Check your internet connection, proxy, or company firewall, then run this again." -ForegroundColor Yellow
+            Fail-Install
+            Complete-Install -Succeeded:$false
+            return
+        }
+    } elseif (-not (Test-Path (Join-Path $InstallDir ".git"))) {
+        Write-Host "[!] $InstallDir already exists but is not a TubeCLI checkout." -ForegroundColor Red
+        Write-Host "    Move or delete it, or re-run with -InstallDir <another path>." -ForegroundColor Yellow
+        Fail-Install
+        Complete-Install -Succeeded:$false
+        return
     } else {
         Write-Host "  Directory exists, pulling latest changes..." -ForegroundColor Gray
         git -C $InstallDir pull origin $Branch
+        if ($LASTEXITCODE -ne 0) {
+            # Not fatal: the existing checkout is still installable, and stopping
+            # here would strand anyone offline. But say so, instead of letting the
+            # user believe they upgraded.
+            Write-Host "[!] Could not fetch updates (git pull failed, exit $LASTEXITCODE)." -ForegroundColor Yellow
+            Write-Host "    Continuing with the version already in $InstallDir." -ForegroundColor Yellow
+        }
     }
     $targetDir = $InstallDir
 }
@@ -359,6 +424,7 @@ try {
         Write-Host "[!] pip install failed after 3 attempts." -ForegroundColor Red
         Write-Host "    Please close all TubeCLI windows and terminals, then try again." -ForegroundColor Yellow
         Set-Location $prevDir
+        Fail-Install
         Complete-Install -Succeeded:$false
         return
     }
@@ -379,7 +445,7 @@ if (-not $tubecliCmd) {
 # We always create launcher and shortcuts because the installation was successful!
 Write-Host "[OK] TubeCLI installed successfully!" -ForegroundColor Green
 
-# ── Create Launcher & Shortcuts (BEFORE init, since init blocks) ──
+# -- Create Launcher & Shortcuts (BEFORE init, since init blocks) --
 Write-Host ""
 Write-Host "[*] Creating launcher and shortcuts..." -ForegroundColor Yellow
 
@@ -500,6 +566,24 @@ try {
     Write-Host "  [!] Could not create Start Menu shortcut: $_" -ForegroundColor Yellow
 }
 
+# Prove it before announcing it. "Installation Complete!" used to be printed on
+# hope alone - pip could have succeeded while the console script was unusable, and
+# the user was told to double-click a shortcut that would then do nothing.
+Write-Host "[*] Verifying installation..." -ForegroundColor Yellow
+if ($tubecliCmd) {
+    tubecli --version | Out-Host
+} else {
+    python -m tubecli.main --version | Out-Host
+}
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[!] TubeCLI was installed but does not run (exit $LASTEXITCODE)." -ForegroundColor Red
+    Write-Host "    Close this window, open a NEW terminal, and run: tubecli --version" -ForegroundColor Yellow
+    Write-Host "    If it still fails, please report the output above." -ForegroundColor Yellow
+    Fail-Install
+    Complete-Install -Succeeded:$false
+    return
+}
+
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Installation Complete!" -ForegroundColor Green
@@ -510,13 +594,30 @@ Write-Host "    1. Double-click 'TubeCLI' on your Desktop" -ForegroundColor Cyan
 Write-Host "    2. Search 'TubeCLI' in Start Menu" -ForegroundColor Cyan
 Write-Host "    3. Type 'tubecli' in any terminal" -ForegroundColor Cyan
 Write-Host ""
+Write-Host "  Dashboard: http://127.0.0.1:5295/dashboard" -ForegroundColor Cyan
+Write-Host "  (the control panel opening next starts it for you - pick option 1)" -ForegroundColor Gray
+Write-Host ""
 
-# ── Run init LAST (blocks with interactive menu) ──
+# -- Run init LAST (blocks with interactive menu) --
+# These instructions are printed before init on purpose: init does not return, it
+# hands over to the control panel, so anything printed after would never be seen.
 Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
 if ($tubecliCmd) {
     tubecli init --lang $Lang --port 5295
 } else {
     python -m tubecli.main init --lang $Lang --port 5295
+}
+$initExit = $LASTEXITCODE
+
+# Was unconditionally -Succeeded:$true, so a wizard that died still ended the
+# installer with a success status.
+if ($initExit -ne 0) {
+    Write-Host ""
+    Write-Host "[!] Setup did not finish cleanly (exit $initExit)." -ForegroundColor Yellow
+    Write-Host "    TubeCLI itself is installed - run 'tubecli init' again when ready." -ForegroundColor Yellow
+    Fail-Install -Code $initExit
+    Complete-Install -Succeeded:$false
+    return
 }
 
 Complete-Install -Succeeded:$true
