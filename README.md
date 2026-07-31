@@ -77,7 +77,7 @@ The same pipeline backs all three surfaces — CLI, web dashboard, and a Telegra
 
 **What you get on `git clone`:** the agent runtime plus **17 built-in extensions** (`website_manager`, `browser`, `browser_scripts`, `codex`, `video_studio`, `multi_agents`, `cloud_api`, `market`, `ollama_manager`, `webui`, `auth_manager`, `calendar_manager`, `chat`, `douyin_downloader`, `file_manager`, `studio3d`, `universal_tracker`). A further **19 studios** — web crawler, video downloader, subtitle extractor, TTS, content/POD/graphic studio, livestream, sheets and more — install in one click from the in-dashboard marketplace.
 
-*v2026.07.31.1 · Python 3.10+ / FastAPI / Vue / Three.js · MIT*
+*v2026.07.31.2 · Python 3.10+ / FastAPI / Vue / Three.js · MIT*
 
 ---
 
