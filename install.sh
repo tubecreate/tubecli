@@ -157,22 +157,30 @@ check_pip_and_venv() {
     if [[ ${#missing[@]} -gt 1 ]]; then verb="are"; else verb="is"; fi
     echo -e "${YELLOW}[!] Python is installed, but $names $verb not available.${NC}"
 
+    # Only prefix sudo when it is both needed and present. Inside a container the
+    # user is already root and sudo is usually not installed, so a copied
+    # "sudo apt install ..." answers with "sudo: command not found".
+    local SUDO=""
+    if [[ "$(id -u)" -ne 0 ]] && command_exists sudo; then
+        SUDO="sudo "
+    fi
+
     # Always end with something the user can actually run. An earlier version only
     # printed a command when it recognised apt/dnf/pacman, so on Alpine, openSUSE,
     # NixOS or any unrecognised distro the message was "this is missing, run the
     # installer again" with no way to make it not missing.
     if command_exists apt-get; then
-        echo -e "${YELLOW}    Install with:${NC} sudo apt install python3-pip python3-venv"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}apt install python3-pip python3-venv"
     elif command_exists dnf; then
-        echo -e "${YELLOW}    Install with:${NC} sudo dnf install python3-pip"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}dnf install python3-pip"
     elif command_exists yum; then
-        echo -e "${YELLOW}    Install with:${NC} sudo yum install python3-pip"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}yum install python3-pip"
     elif command_exists pacman; then
-        echo -e "${YELLOW}    Install with:${NC} sudo pacman -S python-pip"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}pacman -S python-pip"
     elif command_exists zypper; then
-        echo -e "${YELLOW}    Install with:${NC} sudo zypper install python3-pip python3-virtualenv"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}zypper install python3-pip python3-virtualenv"
     elif command_exists apk; then
-        echo -e "${YELLOW}    Install with:${NC} sudo apk add py3-pip"
+        echo -e "${YELLOW}    Install with:${NC} ${SUDO}apk add py3-pip"
     elif command_exists brew; then
         echo -e "${YELLOW}    Install with:${NC} brew install python"
     else
