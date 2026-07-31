@@ -53,6 +53,41 @@ def start(port, host, lang, quiet):
     )
 
 
+@api_cmd.command("stop")
+@click.option("--port", "-p", default=None, type=int, help="Port number")
+def stop(port):
+    """Stop the API server.
+
+    This command is documented in every README but never existed, so `tubecli api
+    stop` answered "Error: No such command 'stop'" for anyone who followed the docs.
+    """
+    from tubecli.config import get_api_port
+    from tubecli.cli.init_cmd import _kill_server_on_port
+
+    actual_port = port or get_api_port()
+
+    # Say nothing was running rather than claiming a stop that did not happen.
+    import requests
+    try:
+        requests.get(f"http://127.0.0.1:{actual_port}/api/v1/health", timeout=3)
+        was_running = True
+    except Exception:
+        was_running = False
+
+    if not was_running:
+        console.print(f"\n[yellow]No API server is running on port {actual_port}.[/yellow]\n")
+        return
+
+    killed = _kill_server_on_port(actual_port)
+    if killed:
+        console.print(f"\n[bold green][OK][/bold green] [green]API server stopped[/green] (port {actual_port})\n")
+    else:
+        console.print(
+            f"\n[bold yellow][!][/bold yellow] [yellow]Something is still listening on port "
+            f"{actual_port} and could not be stopped.[/yellow]\n"
+        )
+
+
 @api_cmd.command("status")
 def status():
     """Check if the API server is running."""

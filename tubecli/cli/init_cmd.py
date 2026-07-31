@@ -11,6 +11,14 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from tubecli.config import SUPPORTED_LANGUAGES
+# Bound at module scope on purpose. Every t() in this file used to rely on a local
+# `from tubecli.i18n import t` inside whichever function needed it, and two call
+# sites in _auto_set_agent_model had none — so saving an API key raised
+# NameError: name 't' is not defined right under the green "key saved" line, and
+# from control panel option 2 the NameError escaped the try (which only guarded
+# ValueError/ImportError) and killed the CLI. t() reads the catalogue at call time,
+# so importing it here does not freeze the language.
+from tubecli.i18n import t
 
 console = Console()
 
@@ -20,8 +28,17 @@ console = Console()
               help="Set UI language")
 @click.option("--port", type=int, default=None,
               help="Set API server port (default: 5295)")
-def init_cmd(lang, port):
-    """Initialize TubeCLI workspace and install default skills."""
+@click.option("--no-menu", is_flag=True, default=False,
+              help="Set up the workspace and exit, instead of opening the control panel.")
+@click.option("--no-wizard", is_flag=True, default=False,
+              help="Skip the first-run setup wizard (for scripted or headless installs).")
+def init_cmd(lang, port, no_menu, no_wizard):
+    """Initialize TubeCLI workspace and install default skills.
+
+    By default this hands over to the interactive control panel and does not return —
+    the panel also starts the API server for you. Pass --no-menu when you want plain
+    setup that exits, e.g. in a script, a Dockerfile, or CI.
+    """
     from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES, BASE_DIR
     from tubecli.i18n import load_language, t
 
@@ -108,30 +125,57 @@ def init_cmd(lang, port):
 
     # 6. Check if first run → launch Setup Wizard
     from tubecli.config import get_setting
-    if not get_setting("setup_completed"):
+    if not no_wizard and not get_setting("setup_completed"):
         _run_setup_wizard()
 
     # 7. Launch Interactive Menu
+    if no_menu:
+        from tubecli.config import get_api_port
+        console.print(t("init.setup_done_no_menu", port=get_api_port()))
+        return
+
     _run_control_panel()
 
 
-def _kill_server_on_port(port: int):
-    """Kill any process listening on the given port (cross-platform) and wait for it to be released."""
+def _kill_server_on_port(port: int) -> int:
+    """Kill any process listening on the given port and wait for it to be released.
+
+    Returns how many processes were killed.
+
+    Matching is deliberately strict. `findstr :5295` used to decide this, which also
+    matches :52950-:52959 and matches the *foreign* address column as well, so
+    starting TubeCLI could taskkill /F an unrelated application that happened to be
+    on a nearby port. Parse the columns instead and require the LOCAL address to end
+    in exactly this port.
+    """
     import subprocess, os, time, socket
+    killed = 0
     try:
         if os.name == "nt":
             result = subprocess.run(
-                f"netstat -ano | findstr :{port}",
-                shell=True, capture_output=True, text=True
+                ["netstat", "-ano", "-p", "TCP"],
+                capture_output=True, text=True
             )
+            seen = set()
             for line in result.stdout.splitlines():
-                if "LISTENING" in line:
-                    parts = line.strip().split()
-                    pid = parts[-1]
-                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, capture_output=True)
+                parts = line.split()
+                # proto, local, foreign, state, pid
+                if len(parts) < 5 or parts[0].upper() != "TCP":
+                    continue
+                if parts[3].upper() != "LISTENING":
+                    continue
+                if not parts[1].endswith(f":{port}"):
+                    continue
+                pid = parts[-1]
+                if not pid.isdigit() or pid in seen or int(pid) == os.getpid():
+                    continue
+                seen.add(pid)
+                subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True)
+                killed += 1
         else:
-            subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
-        
+            r = subprocess.run(["fuser", "-k", f"{port}/tcp"], capture_output=True)
+            killed = 1 if r.returncode == 0 else 0
+
         # Wait up to 3 seconds for the socket to be completely released by the OS
         for _ in range(6):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -143,6 +187,7 @@ def _kill_server_on_port(port: int):
             time.sleep(0.5)
     except Exception:
         pass
+    return killed
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -259,27 +304,7 @@ def _wizard_step_ai(t):
                     try:
                         idx = int(sel) - 1
                         if 0 <= idx < len(models):
-                            selected_model = models[idx]
-                            # Update global config
-                            try:
-                                from tubecli.extensions.webui.routes import _DEFAULT_SETTINGS, _settings_path
-                                import json, os
-                                p = _settings_path()
-                                existing = _DEFAULT_SETTINGS.copy()
-                                if os.path.exists(p):
-                                    with open(p, "r", encoding="utf-8") as f:
-                                        existing.update(json.load(f))
-                                existing["default_model"] = selected_model
-                                with open(p, "w", encoding="utf-8") as f:
-                                    json.dump(existing, f, indent=2, ensure_ascii=False)
-                                    
-                                from tubecli.core.agent import agent_manager
-                                for agent in agent_manager.get_all():
-                                    agent_manager.update(agent.id, model=selected_model)
-                                    
-                                console.print(f"[green]{t('wizard.auto_set_ai', model=selected_model)}[/green]")
-                            except Exception as e:
-                                console.print(f"[red]{t('wizard.config_save_error', error=e)}[/red]")
+                            _apply_local_model(models[idx])
                         else:
                             console.print(t("panel.invalid_selection"))
                     except ValueError:
@@ -307,16 +332,57 @@ def _save_api_key(provider_id: str, key: str):
         console.print(f"[red]{e}[/red]")
 
 
+def _default_model_for(provider_id: str):
+    """First model the cloud_api registry lists for this provider, or None.
+
+    The wizard used to carry its own hardcoded map, which drifted: it pinned every
+    agent to "gemini-1.5-flash", a model the app's own registry does not list, and it
+    covered only four providers so grok/openrouter/9router silently got nothing. The
+    registry in cloud_api/extension.py is the single source of truth; read it.
+    """
+    try:
+        from tubecli.extensions.cloud_api.extension import PROVIDERS
+        models = (PROVIDERS.get(provider_id) or {}).get("models") or []
+        return models[0] if models else None
+    except Exception:
+        return None
+
+
+def _apply_local_model(model_name: str) -> bool:
+    """Make an installed Ollama model the one the app actually uses.
+
+    Downloading a model is not the same as selecting it. Control panel option 4
+    installed one and stopped there, so agents stayed on their old default and chat
+    still answered "No AI model is available yet" — after the user had done every
+    step the app asked for. Both the wizard and option 4 route through here so they
+    cannot drift apart again.
+    """
+    try:
+        from tubecli.extensions.webui.routes import _DEFAULT_SETTINGS, _settings_path
+        import json, os
+        p = _settings_path()
+        existing = _DEFAULT_SETTINGS.copy()
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                existing.update(json.load(f))
+        existing["default_model"] = model_name
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2, ensure_ascii=False)
+
+        from tubecli.core.agent import agent_manager
+        for agent in agent_manager.get_all():
+            agent_manager.update(agent.id, model=model_name)
+
+        console.print(f"[green]{t('wizard.auto_set_ai', model=model_name)}[/green]")
+        return True
+    except Exception as e:
+        console.print(f"[red]{t('wizard.config_save_error', error=e)}[/red]")
+        return False
+
+
 def _auto_set_agent_model(provider_id: str, key: str):
     """Auto-update all agents to use the cloud model when a key is saved."""
-    # Map provider → default cloud model
-    model_map = {
-        "gemini": "gemini-1.5-flash",
-        "openai": "gpt-4o-mini",
-        "claude": "claude-sonnet-4-20250514",
-        "deepseek": "deepseek-v4-flash",
-    }
-    model = model_map.get(provider_id)
+    model = _default_model_for(provider_id)
     if not model:
         return
 
@@ -705,7 +771,13 @@ def _run_control_panel():
                         
             except ImportError:
                 console.print(t("panel.cloud_api_error"))
-                
+            except Exception as e:
+                # A bug inside one menu item must not take the whole control panel
+                # down: this block used to guard only ValueError/ImportError, so a
+                # NameError from _auto_set_agent_model escaped and ended the session
+                # right after the user's key had been saved.
+                console.print(f"[red]{e}[/red]")
+
         elif choice == "3":
             console.print(t("panel.agent_management"))
             import sys
@@ -716,9 +788,17 @@ def _run_control_panel():
             
         elif choice == "4":
             if not is_ollama_installed():
+                # Don't dead-end here. The setup wizard sends people to this menu
+                # item precisely because they picked the free, no-API-key path, so
+                # "please install it first" with no link left them with nowhere to go.
                 console.print(t("panel.ollama_not_installed_short"))
-                continue
-                
+                console.print(t("panel.ollama_download_page"))
+                from tubecli.core.ollama_utils import install_ollama
+                if click.confirm(t("init.ollama_install_confirm"), default=True):
+                    install_ollama()
+                if not is_ollama_installed():
+                    continue
+
             console.print(t("panel.model_installer_title"))
             recs = get_recommended_models()
             
@@ -730,7 +810,11 @@ def _run_control_panel():
             m_choice = click.prompt(t("panel.select_model"), type=int, default=1)
             if 1 <= m_choice <= len(recs):
                 model_name = recs[m_choice-1]['name']
-                install_model(model_name)
+                # Select it as well as install it — downloading alone left agents on
+                # their old default, so the free path finished every step and still
+                # could not answer a message.
+                if install_model(model_name):
+                    _apply_local_model(model_name)
             else:
                 console.print(t("panel.install_cancelled"))
                 

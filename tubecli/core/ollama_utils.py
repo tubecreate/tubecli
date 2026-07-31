@@ -20,13 +20,56 @@ def is_ollama_installed() -> bool:
 
 
 def install_ollama():
-    """Download and run the official Windows Ollama installer."""
+    """Install Ollama using whatever mechanism the current platform provides.
+
+    Ollama is the path we advertise as free and key-less, so it has to work on
+    more than Windows. Previously every non-Windows user hit
+    "auto-install is Windows only" and the setup wizard had nowhere left to send
+    them.
+    """
     from tubecli.i18n import t
 
-    if os.name != "nt":
-        console.print(t("ollama.auto_install_windows_only"))
+    if os.name == "nt":
+        return _install_ollama_windows()
+
+    if sys.platform == "darwin":
+        if shutil.which("brew"):
+            return _run_installer(["brew", "install", "ollama"])
         console.print(t("ollama.manual_install"))
         return False
+
+    # Linux / WSL: the vendor's own one-liner, the same one ollama.com documents.
+    if shutil.which("curl") and shutil.which("sh"):
+        return _run_installer(["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"])
+
+    console.print(t("ollama.manual_install"))
+    return False
+
+
+def _run_installer(cmd: list) -> bool:
+    """Run a package-manager install command and report whether it took effect."""
+    from tubecli.i18n import t
+
+    console.print(t("ollama.running_cmd", cmd=" ".join(cmd)))
+    try:
+        subprocess.run(cmd, check=False)
+    except Exception as e:
+        console.print(t("ollama.install_failed", error=e))
+        console.print(t("ollama.install_manual"))
+        return False
+
+    if is_ollama_installed():
+        console.print(t("ollama.install_finished"))
+        return True
+    # Installed-but-not-on-PATH-yet is the common case; say so instead of
+    # letting it look like a silent failure.
+    console.print(t("ollama.restart_note"))
+    return False
+
+
+def _install_ollama_windows():
+    """Download and run the official Windows Ollama installer."""
+    from tubecli.i18n import t
 
     installer_url = "https://ollama.com/download/OllamaSetup.exe"
     temp_dir = Path(os.environ.get("TEMP") or os.environ.get("TMPDIR") or "/tmp")
