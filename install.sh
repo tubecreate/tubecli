@@ -250,12 +250,61 @@ check_pip_and_venv || exit 1
 # but install.ps1 installs it on Windows while this script never did, so Linux users
 # always landed in the control panel with browser automation broken. Best effort,
 # never fatal.
+NODE_MIN_MAJOR=20
+
+node_major() {
+    command_exists node || { echo 0; return; }
+    node -v 2>/dev/null | sed 's/^v//' | cut -d. -f1
+}
+
 check_node() {
-    command_exists npm && return 0
+    # A version check, not just a presence check. Debian 12 packages Node 18 while
+    # Playwright requires 20 or newer, so `apt install nodejs` satisfied
+    # command_exists and then the browser engine refused to start with
+    # "Playwright requires Node.js 20 or higher" — a failure that only showed up
+    # deep inside the preview server's own log.
+    local have
+    have=$(node_major)
+    if [[ "$have" -ge "$NODE_MIN_MAJOR" ]] && command_exists npm; then
+        echo -e "${GREEN}[OK] Node.js v$(node -v | sed 's/^v//') found${NC}"
+        return 0
+    fi
+    if [[ "$have" -gt 0 && "$have" -lt "$NODE_MIN_MAJOR" ]]; then
+        echo -e "${YELLOW}[!] Node.js v${have} is installed, but browser automation needs ${NODE_MIN_MAJOR}+.${NC}"
+        # The distribution package is the old one, so installing from NodeSource is
+        # the only way to satisfy this on Debian/Ubuntu stable.
+        if command_exists curl && command_exists apt-get; then
+            echo -e "${YELLOW}[*] Installing Node.js ${NODE_MIN_MAJOR}.x from NodeSource...${NC}"
+            if curl -fsSL "https://deb.nodesource.com/setup_${NODE_MIN_MAJOR}.x" -o /tmp/nodesource_setup.sh; then
+                $SUDO bash /tmp/nodesource_setup.sh >/dev/null 2>&1 || true
+                rm -f /tmp/nodesource_setup.sh
+                install_system_packages nodejs || true
+            fi
+        fi
+        have=$(node_major)
+        if [[ "$have" -ge "$NODE_MIN_MAJOR" ]]; then
+            echo -e "${GREEN}[OK] Node.js v$(node -v | sed 's/^v//') installed${NC}"
+        else
+            echo -e "${YELLOW}[!] Still on Node.js v${have}. TubeCLI works, but browser${NC}"
+            echo -e "${YELLOW}    automation stays off until Node ${NODE_MIN_MAJOR}+ is installed:${NC}"
+            echo -e "${YELLOW}    https://github.com/nodesource/distributions${NC}"
+        fi
+        return 0
+    fi
+
     echo -e "${YELLOW}[*] Node.js not found. It is only needed for browser automation${NC}"
     echo -e "${YELLOW}    and website deployment; installing it now (optional).${NC}"
     echo -e "${YELLOW}    This downloads ~100 MB and can take a few minutes.${NC}"
-    if command_exists apt-get || command_exists dnf || command_exists yum \
+    # Prefer NodeSource on Debian/Ubuntu: their own package is Node 18, which
+    # Playwright rejects, so installing it would only lead back here.
+    if command_exists curl && command_exists apt-get; then
+        echo -e "${YELLOW}[*] Installing Node.js ${NODE_MIN_MAJOR}.x from NodeSource...${NC}"
+        if curl -fsSL "https://deb.nodesource.com/setup_${NODE_MIN_MAJOR}.x" -o /tmp/nodesource_setup.sh; then
+            $SUDO bash /tmp/nodesource_setup.sh >/dev/null 2>&1 || true
+            rm -f /tmp/nodesource_setup.sh
+        fi
+        install_system_packages nodejs || true
+    elif command_exists apt-get || command_exists dnf || command_exists yum \
        || command_exists pacman || command_exists zypper || command_exists apk; then
         # Output deliberately NOT sent to /dev/null. Suppressing it left the
         # installer sitting silent for minutes on a large download, which reads as
@@ -266,8 +315,13 @@ check_node() {
             install_system_packages nodejs npm || install_system_packages nodejs || true
         fi
     fi
-    if command_exists npm; then
-        echo -e "${GREEN}[OK] Node.js installed${NC}"
+
+    have=$(node_major)
+    if [[ "$have" -ge "$NODE_MIN_MAJOR" ]]; then
+        echo -e "${GREEN}[OK] Node.js v$(node -v | sed 's/^v//') installed${NC}"
+    elif [[ "$have" -gt 0 ]]; then
+        echo -e "${YELLOW}[!] Installed Node.js v${have}, but browser automation needs ${NODE_MIN_MAJOR}+.${NC}"
+        echo -e "${YELLOW}    Everything else works. See https://github.com/nodesource/distributions${NC}"
     else
         echo -e "${YELLOW}[!] Could not install Node.js. TubeCLI will still work;${NC}"
         echo -e "${YELLOW}    browser automation stays off until you install it from https://nodejs.org${NC}"

@@ -22,6 +22,9 @@ router = APIRouter(prefix="/api/v1/browser", tags=["browser"])
 
 # Track download processes
 download_processes = {}
+# Versions the user asked to cancel. Downloads run in a thread, not a subprocess,
+# so there is nothing to terminate — the transfer loop checks this instead.
+download_cancelled = set()
 
 
 class ProfileCreateRequest(BaseModel):
@@ -585,11 +588,14 @@ async def api_get_engine_versions():
                         "path": "-"
                     })
 
-            # 2b. Add ShardX versions (for ShardBrowser compatibility)
+            # 2b. ShardX versions this host can actually download. The list used to
+            # be hardcoded, so Linux was offered 148.0.7778.97 and 148.0.7778.216 —
+            # verified to answer 404, because only the Windows archives for those
+            # versions were ever uploaded. Offering an Install button for a
+            # guaranteed failure is worse than not listing it.
             shardx_versions = [
-                {"bas_version": "ShardX-148.0.7778.97", "browser_version": "ShardX 148.0.7778.97", "download_url": ""},
-                {"bas_version": "ShardX-148.0.7778.216", "browser_version": "ShardX 148.0.7778.216", "download_url": ""},
-                {"bas_version": "ShardX-149.0.7827.103", "browser_version": "ShardX 149.0.7827.103", "download_url": ""},
+                {"bas_version": f"ShardX-{v}", "browser_version": f"ShardX {v}", "download_url": ""}
+                for v in sx.available_versions()
             ]
             for sv in shardx_versions:
                 versions.append({
@@ -761,6 +767,10 @@ async def api_download_engine(version: str, request: Request):
                 tmp_zip = os.path.join(engine_tmp, f"{version}.zip")
 
                 def on_progress(received, total, speed):
+                    # Cancelling is a flag, not a signal to a process — raising here
+                    # is what actually stops the transfer.
+                    if version in download_cancelled:
+                        raise RuntimeError("cancelled by user")
                     # received < 0 is the retry signal from the downloader.
                     if received < 0:
                         write_progress("downloading", 5, "Connection dropped — retrying...")
@@ -850,11 +860,15 @@ async def api_download_engine(version: str, request: Request):
                 return
         
         def run_bg_shardx():
+            # Clear any stale cancel from a previous attempt, or this download would
+            # abort immediately on its first progress callback.
+            download_cancelled.discard(version)
             download_processes[version] = True
             try:
                 download_and_extract_shardx()
             finally:
                 download_processes.pop(version, None)
+                download_cancelled.discard(version)
         
         threading.Thread(target=run_bg_shardx, daemon=True).start()
         return {"status": "started", "version": version}
@@ -980,29 +994,29 @@ async def api_download_engine(version: str, request: Request):
     
     # Run download in background thread
     def run_bg():
+        download_cancelled.discard(version)
         download_processes[version] = True
         try:
             download_and_extract()
         finally:
             download_processes.pop(version, None)
+            download_cancelled.discard(version)
     
     threading.Thread(target=run_bg, daemon=True).start()
     return {"status": "started", "version": version}
 
 @router.post("/engine/cancel/{version}")
 async def api_cancel_engine(version: str):
+    """Ask an in-flight engine download to stop.
+
+    This used to treat download_processes[version] as a subprocess and call
+    proc.pid — but both download paths store the literal True and run in a thread,
+    so cancelling answered 500 with "'bool' object has no attribute 'pid'". There
+    is no process to kill; the download loop watches this flag instead.
+    """
     version = version.replace("BAS ", "").replace("BAS-", "").strip()
     if version in download_processes:
-        proc = download_processes[version]
-        try:
-            import psutil
-            parent = psutil.Process(proc.pid)
-            for child in parent.children(recursive=True):
-                child.terminate()
-            parent.terminate()
-        except:
-            proc.terminate()
-            
+        download_cancelled.add(version)
         download_processes.pop(version, None)
         return {"status": "cancelled"}
     return {"status": "not_running"}
@@ -1241,6 +1255,25 @@ async def launch_preview(request: Request):
         if not _shutil.which("node"):
             raise HTTPException(500, "Node.js is required for browser preview but `node` "
                                      "is not installed. Install Node.js, then try again.")
+
+        # Playwright needs Node 20+. Debian 12 and Ubuntu 22.04 package Node 18, so
+        # this passes a plain presence check and then fails inside the preview
+        # server with "Playwright requires Node.js 20 or higher" — visible only in
+        # its own log, while the page showed a spinner. Say it here instead.
+        try:
+            _nv = subprocess.run(["node", "-v"], capture_output=True, text=True, timeout=10).stdout
+            _major = int(_nv.strip().lstrip("v").split(".")[0])
+        except Exception:
+            _major = 0
+        if 0 < _major < 20:
+            raise HTTPException(
+                500,
+                f"Browser automation needs Node.js 20 or newer; this system has "
+                f"v{_major}. On Debian/Ubuntu the distribution package is Node 18, "
+                f"so install from NodeSource:\n"
+                f"  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -\n"
+                f"  apt-get install -y nodejs",
+            )
 
         browser_ext_nm = os.path.join(ext_dir, "node_modules")
         if not os.path.isdir(browser_ext_nm):
