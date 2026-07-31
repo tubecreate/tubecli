@@ -17,6 +17,12 @@ dependencies = [
     "click>=8.0",
     "fastapi>=0.100",
     "uvicorn>=0.20",
+    # uvicorn speaks WebSocket only when a protocol library is present. Without it
+    # every @app.websocket route answers 404 while logging "No supported WebSocket
+    # library detected" — which is how the browser preview lost its live stream on
+    # a clean install. It worked on developer machines only because something else
+    # had pulled websockets in.
+    "websockets>=12.0",
     "pydantic>=2.0",
     "python-multipart>=0.0.6",
     "uuid7",

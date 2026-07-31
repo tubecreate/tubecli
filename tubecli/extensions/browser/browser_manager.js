@@ -519,7 +519,7 @@ export class BrowserManager {
                 const settings = await fs.readJson(settingsPath);
                 if (settings.bas_fingerprint_key && settings.bas_fingerprint_key.trim()) {
                     this.serviceKey = settings.bas_fingerprint_key.trim();
-                    plugin.setServiceKey(this.serviceKey);
+                    plugin?.setServiceKey(this.serviceKey);
                     console.log('Service key loaded from settings.');
                     return this.serviceKey;
                 }
@@ -535,7 +535,7 @@ export class BrowserManager {
             if (response.data && response.data.status === 'success' && response.data.key) {
                 // Decode Base64 key
                 this.serviceKey = Buffer.from(response.data.key, 'base64').toString('utf8');
-                plugin.setServiceKey(this.serviceKey);
+                plugin?.setServiceKey(this.serviceKey);
                 console.log('Service key fetched and decoded from API.');
                 return this.serviceKey;
             }
@@ -774,6 +774,16 @@ export class BrowserManager {
         // Map common OS names to Security Browser expected tags
         const tagMap = { 'Windows': 'Microsoft Windows', 'macOS': 'Mac OS X' };
         const mappedTags = tags.map(t => tagMap[t] || t);
+
+        // This service supplies fingerprints for the BAS plugin. Without the plugin
+        // the result cannot be used by anything, and asking anyway cost about seven
+        // seconds of retries and printed "404" and "Query limit reached" during an
+        // otherwise healthy ShardX launch. ShardX carries its own fingerprint via
+        // --fingerprint-profile.
+        if (!plugin) {
+            console.log('Skipping BAS fingerprint service (ShardX supplies its own fingerprint).');
+            return null;
+        }
 
         // 2. Fetch via PHP API (key stays on server)
         console.log(`Fetching fingerprint via api.tubecreate.com [tags: ${mappedTags.join(',')}, size: ${windowSize ? `${windowSize.width}x${windowSize.height}` : 'default'}]...`);
@@ -1042,14 +1052,17 @@ export class BrowserManager {
         const normalized = this.normalizeProxy(proxyString);
         if (normalized) {
             console.log(`Applying proxy: ${normalized}`);
-            plugin.useProxy(normalized, {
+            // Optional-chained: these configure the BAS plugin, so without it they
+            // are no-ops. Left bare they threw "Cannot set properties of null",
+            // which aborted the launch before the ShardX path was even reached.
+            plugin?.useProxy(normalized, {
                 changeTimezone: true,
                 changeGeolocation: true
             });
         } else {
             console.log('No proxy configured. Clearing proxy settings.');
             // Directly unset the proxy property to ensure no proxy is sent to the engine
-            plugin.proxy = null;
+            if (plugin) plugin.proxy = null;
         }
     }
 
@@ -1099,7 +1112,7 @@ export class BrowserManager {
         const skipFingerprintPath = path.join(profilePath, 'skip_fingerprint.txt');
         if (await fs.pathExists(skipFingerprintPath)) {
             console.warn(`\n[Launch] 🛡️ BYPASS DETECTED: skipping fingerprint application to force Free Mode!\n`);
-            try { plugin.setServiceKey(''); } catch(ex){}
+            try { plugin?.setServiceKey(''); } catch(ex){}
             fingerprint = null;
         }
 
@@ -1259,7 +1272,7 @@ export class BrowserManager {
     
                     if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
                         console.log(`[Launch] Using browser version: ${targetChromiumVer}`);
-                        plugin.useBrowserVersion(targetChromiumVer);
+                        plugin?.useBrowserVersion(targetChromiumVer);
                         
                         // CRITICAL HOTFIX: The plugin's engine.js ignores useBrowserVersion() when 
                         // deciding which FastExecuteScript.exe to spawn, relying on project.xml instead.
