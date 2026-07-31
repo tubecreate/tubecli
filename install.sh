@@ -71,26 +71,61 @@ command_exists() {
 
 # --- Install Dependencies ---
 
-install_deps_linux() {
+# Prefix sudo only when it is both needed and available. Every call below used to
+# hardcode it, so inside a container — where the user is already root and sudo is
+# usually not installed — each one failed with "sudo: command not found".
+SUDO=""
+if [[ "$(id -u)" -ne 0 ]] && command_exists sudo; then
+    SUDO="sudo"
+fi
+
+# Install the named packages with whatever package manager exists.
+# Returns non-zero if there is no package manager, or if it genuinely failed.
+install_system_packages() {
+    local rc=0
     if command_exists apt-get; then
-        echo -e "${YELLOW}[*] Installing dependencies via apt...${NC}"
-        sudo apt-get update -qq
-        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git python3 python3-pip python3-venv >/dev/null 2>&1
-        return 0
+        echo -e "${YELLOW}[*] Installing $* via apt...${NC}"
+        $SUDO apt-get update -qq || rc=$?
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@" || rc=$?
     elif command_exists dnf; then
-        echo -e "${YELLOW}[*] Installing dependencies via dnf...${NC}"
-        sudo dnf install -y -q git python3 python3-pip >/dev/null 2>&1
-        return 0
+        echo -e "${YELLOW}[*] Installing $* via dnf...${NC}"
+        $SUDO dnf install -y -q "$@" || rc=$?
     elif command_exists yum; then
-        echo -e "${YELLOW}[*] Installing dependencies via yum...${NC}"
-        sudo yum install -y -q git python3 python3-pip >/dev/null 2>&1
-        return 0
+        echo -e "${YELLOW}[*] Installing $* via yum...${NC}"
+        $SUDO yum install -y -q "$@" || rc=$?
     elif command_exists pacman; then
-        echo -e "${YELLOW}[*] Installing dependencies via pacman...${NC}"
-        sudo pacman -Sy --noconfirm git python python-pip >/dev/null 2>&1
-        return 0
+        echo -e "${YELLOW}[*] Installing $* via pacman...${NC}"
+        $SUDO pacman -Sy --noconfirm "$@" || rc=$?
+    elif command_exists zypper; then
+        echo -e "${YELLOW}[*] Installing $* via zypper...${NC}"
+        $SUDO zypper --non-interactive install "$@" || rc=$?
+    elif command_exists apk; then
+        echo -e "${YELLOW}[*] Installing $* via apk...${NC}"
+        $SUDO apk add --quiet "$@" || rc=$?
+    else
+        return 1
     fi
-    return 1
+    return $rc
+}
+
+# Package names differ per distribution; venv is only a separate package on Debian
+# and openSUSE.
+python_packages() {
+    if command_exists apt-get;   then echo "python3 python3-pip python3-venv"
+    elif command_exists zypper;  then echo "python3 python3-pip python3-virtualenv"
+    elif command_exists pacman;  then echo "python python-pip"
+    elif command_exists apk;     then echo "python3 py3-pip"
+    else                              echo "python3 python3-pip"   # dnf / yum
+    fi
+}
+
+install_deps_linux() {
+    # Previously every branch ended in an unconditional `return 0` with output sent
+    # to /dev/null, so a package manager that failed — no network, no sudo, locked
+    # dpkg — was reported as success and the script carried on. Let the real status
+    # through, and stop hiding the errors that explain it.
+    # shellcheck disable=SC2046
+    install_system_packages git $(python_packages)
 }
 
 install_deps_macos() {
@@ -146,48 +181,60 @@ fi
 # separate packages, so a container base image or a minimal server passes the check
 # above and then dies on the install command with a message about neither. Ask for
 # them by name here, while we can still say which package to install.
-check_pip_and_venv() {
+missing_pip_venv() {
     local missing=()
     python3 -m pip --version >/dev/null 2>&1 || missing+=("pip")
     python3 -m venv --help  >/dev/null 2>&1 || missing+=("venv")
-    [[ ${#missing[@]} -eq 0 ]] && return 0
+    echo "${missing[@]:-}"
+}
 
-    local names verb
-    names=$(IFS=' ' ; echo "${missing[*]}" | sed 's/ / and /')
-    if [[ ${#missing[@]} -gt 1 ]]; then verb="are"; else verb="is"; fi
+check_pip_and_venv() {
+    local missing names verb
+    missing=$(missing_pip_venv)
+    [[ -z "$missing" ]] && return 0
+
+    names=$(echo "$missing" | sed 's/ / and /')
+    [[ "$missing" == *" "* ]] && verb="are" || verb="is"
     echo -e "${YELLOW}[!] Python is installed, but $names $verb not available.${NC}"
 
-    # Only prefix sudo when it is both needed and present. Inside a container the
-    # user is already root and sudo is usually not installed, so a copied
-    # "sudo apt install ..." answers with "sudo: command not found".
-    local SUDO=""
-    if [[ "$(id -u)" -ne 0 ]] && command_exists sudo; then
-        SUDO="sudo "
+    # Install it rather than telling the user to. This script already installs
+    # system packages when Python or Git are missing; it just never reached that
+    # code when they were present, which is the common case — a distro image with
+    # python3 but no pip. Printing "install this, then run me again" made the user
+    # do by hand what the installer was already equipped to do.
+    if install_system_packages $(python_packages); then
+        missing=$(missing_pip_venv)
+        if [[ -z "$missing" ]]; then
+            echo -e "${GREEN}[OK] pip and venv are now available.${NC}"
+            return 0
+        fi
     fi
 
-    # Always end with something the user can actually run. An earlier version only
-    # printed a command when it recognised apt/dnf/pacman, so on Alpine, openSUSE,
-    # NixOS or any unrecognised distro the message was "this is missing, run the
-    # installer again" with no way to make it not missing.
+    # Automatic install did not work; say exactly what to run. sudo is prefixed only
+    # when the user is not root and sudo exists, because inside a container a copied
+    # "sudo apt install ..." answers "sudo: command not found".
+    local pfx=""
+    [[ -n "$SUDO" ]] && pfx="$SUDO "
+    echo -e "${RED}[!] Could not install them automatically.${NC}"
     if command_exists apt-get; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}apt install python3-pip python3-venv"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}apt-get update && ${pfx}apt-get install -y python3-pip python3-venv"
     elif command_exists dnf; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}dnf install python3-pip"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}dnf install -y python3-pip"
     elif command_exists yum; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}yum install python3-pip"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}yum install -y python3-pip"
     elif command_exists pacman; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}pacman -S python-pip"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}pacman -Sy --noconfirm python-pip"
     elif command_exists zypper; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}zypper install python3-pip python3-virtualenv"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}zypper install -y python3-pip python3-virtualenv"
     elif command_exists apk; then
-        echo -e "${YELLOW}    Install with:${NC} ${SUDO}apk add py3-pip"
+        echo -e "${YELLOW}    Run:${NC} ${pfx}apk add py3-pip"
     elif command_exists brew; then
-        echo -e "${YELLOW}    Install with:${NC} brew install python"
+        echo -e "${YELLOW}    Run:${NC} brew install python"
     else
         echo -e "${YELLOW}    Install your distribution's python3-pip and python3-venv packages,${NC}"
         echo -e "${YELLOW}    or try:${NC} python3 -m ensurepip --upgrade"
     fi
-    echo -e "${YELLOW}    Then run this installer again.${NC}"
+    echo -e "${YELLOW}    The errors above say why it failed. Then run this installer again.${NC}"
     return 1
 }
 
