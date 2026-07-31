@@ -373,6 +373,37 @@
             logPanel.scrollTop = logPanel.scrollHeight;
         }
 
+        // Wait for the one-time npm install to finish, then launch. Shows npm's own
+        // last line so a multi-minute step reads as progress rather than a freeze.
+        async function pollDepsThenRetry() {
+            for (let i = 0; i < 90; i++) {                 // ~7.5 minutes
+                await new Promise(r => setTimeout(r, 5000));
+                let s;
+                try {
+                    s = await (await fetch(`${API_BASE}/api/v1/browser/deps/status`)).json();
+                } catch (e) { continue; }
+
+                if (s.installed) {
+                    appendLog('Browser dependencies installed.', 'success');
+                    loaderSub.style.color = '';
+                    initBrowser();
+                    return;
+                }
+                if (s.error) {
+                    loaderSub.style.color = 'var(--red)';
+                    loaderSub.style.whiteSpace = 'pre-line';
+                    loaderSub.textContent = s.error;
+                    appendLog(s.error, 'error');
+                    return;
+                }
+                const last = (s.log || []).filter(Boolean).pop();
+                if (last) loaderSub.textContent = 'Installing browser automation...\n' + last;
+            }
+            loaderSub.style.color = 'var(--red)';
+            loaderSub.textContent = 'Dependency install is taking unusually long. '
+                + 'Check the server log for npm output.';
+        }
+
         // Initialize & Launch Browser via API
         async function initBrowser() {
             try {
@@ -384,6 +415,19 @@
                 });
                 
                 const data = await res.json();
+
+                // 503 means the server is setting itself up (installing the npm
+                // dependencies, which pulls browser binaries and takes minutes).
+                // Wait and retry instead of turning a one-time setup step into a
+                // dead end the user has to resolve by hand.
+                if (res.status === 503) {
+                    loaderSub.style.color = 'var(--text-muted)';
+                    loaderSub.textContent = data.detail || 'Preparing browser automation...';
+                    appendLog(data.detail || 'Installing browser dependencies...', 'info');
+                    pollDepsThenRetry();
+                    return;
+                }
+
                 if (res.ok && data.status === 'launched' && data.port) {
                     previewSession = data;
                     appendLog(T('browser.started_on_port', { port: data.port }), 'success');

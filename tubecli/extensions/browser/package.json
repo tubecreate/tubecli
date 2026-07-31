@@ -21,8 +21,11 @@
     "minimist": "^1.2.8",
     "node-fetch": "^2.7.0",
     "playwright": "^1.58.1",
-    "playwright-with-fingerprints": "^2.3.4",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "//": "playwright-with-fingerprints pulls browser-with-fingerprints, which declares os=win32 and fails the whole install with EBADPLATFORM on Linux and macOS. It is the BAS engine binding, and BAS is Windows-only anyway — ShardX does its own fingerprinting through --fingerprint-profile. Optional so npm installs everything else on those platforms instead of refusing outright.",
+    "playwright-with-fingerprints": "^2.3.4"
   },
   "description": ""
 }

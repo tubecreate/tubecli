@@ -1,5 +1,26 @@
 
-import { plugin } from 'playwright-with-fingerprints';
+// Loaded dynamically, not as a static import. playwright-with-fingerprints is the
+// BAS binding and its npm package declares os=win32, so it is simply not installed
+// on Linux or macOS. A static import makes this whole module unloadable there —
+// which took preview_server.cjs down with it, since that imports BrowserManager.
+// Only the BAS launch path touches it; ShardX does its own fingerprinting.
+let plugin = null;
+try {
+    ({ plugin } = await import('playwright-with-fingerprints'));
+} catch (e) {
+    console.log('[BrowserManager] BAS fingerprint plugin not available on this platform — ShardX only.');
+}
+
+function requirePlugin() {
+    if (!plugin) {
+        throw new Error(
+            'This profile uses a BAS engine, which only runs on Windows. '
+            + 'Edit the profile to use a ShardX engine instead.'
+        );
+    }
+    return plugin;
+}
+
 import fs from 'fs-extra';
 import path from 'path';
 import axios from 'axios';
@@ -1279,6 +1300,11 @@ export class BrowserManager {
         // ═══════════════════════════════════════════════════════════════
         // BAS (Security Browser) LAUNCH PATH — uses playwright-with-fingerprints plugin
         // ═══════════════════════════════════════════════════════════════
+
+        // Stop here with a sentence the user can act on. Without the plugin every
+        // call below would be a TypeError on null, which says nothing about the
+        // actual problem: this profile is pinned to a Windows-only engine.
+        requirePlugin();
 
         // Apply fingerprint with retry logic (BAS only)
         if (fingerprint) {

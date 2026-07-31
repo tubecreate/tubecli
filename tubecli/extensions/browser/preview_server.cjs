@@ -10,7 +10,18 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const minimist = require('minimist');
-const { plugin } = require('playwright-with-fingerprints');
+// Optional. playwright-with-fingerprints is the BAS binding, and BAS ships Windows
+// binaries only — its npm package declares os=win32 and is not installed on Linux
+// or macOS. Requiring it at the top made this file impossible to load there, so
+// the preview server exited before it could listen and the viewer waited forever.
+// ShardX does its own fingerprinting through --fingerprint-profile and needs none
+// of this.
+let plugin = null;
+try {
+    ({ plugin } = require('playwright-with-fingerprints'));
+} catch (e) {
+    console.log('[Preview] BAS fingerprint plugin unavailable on this platform; using ShardX only.');
+}
 const crypto = require('crypto');
 const { Server: WebSocketServer } = require('ws');
 
@@ -80,7 +91,7 @@ function broadcast(data) {
     }
 
     log('Launching preview browser using BrowserManager...');
-    plugin.setWorkingFolder(path.join(__dirname, 'data'));
+    if (plugin) plugin.setWorkingFolder(path.join(__dirname, 'data'));
     const browserManager = new BrowserManager({ baseDir: profilesDir });
 
     async function getElementInfo(x, y) {
@@ -468,8 +479,22 @@ function broadcast(data) {
         if (!success) {
             throw new Error(`Failed to launch browser after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
         }
-    } else {
+    } else if (plugin) {
         const browser = await plugin.launch({ headless: true });
+        context = await browser.newContext();
+    } else {
+        // No profile storage and no BAS plugin (Linux/macOS). Plain Playwright
+        // Chromium is enough for a scratch preview; the fingerprinted path is the
+        // profile branch above, which runs on ShardX.
+        const { chromium } = require('playwright');
+        const args = ['--window-size=1280,900'];
+        if (process.platform === 'linux') {
+            args.push('--disable-dev-shm-usage');
+            if (typeof process.getuid === 'function' && process.getuid() === 0) {
+                args.push('--no-sandbox', '--disable-setuid-sandbox');
+            }
+        }
+        const browser = await chromium.launch({ headless: true, args });
         context = await browser.newContext();
     }
 

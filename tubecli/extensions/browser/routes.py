@@ -1128,6 +1128,80 @@ async def api_get_result(token: str, command_id: str):
 
 import logging
 _preview_processes = {}
+
+# ── Node dependency bootstrap ────────────────────────────────────────────────
+# The extension installs its npm packages in on_enable(), which runs once. A host
+# that had no Node at that moment — the normal case on Linux, where the installer
+# adds Node in the same run — therefore never got them, and nothing ever retried.
+# Install them on demand instead, in the background, because the playwright
+# postinstall pulls browser binaries and takes minutes.
+_deps_state = {"running": False, "done": False, "error": None, "log": []}
+
+
+def browser_deps_installed() -> bool:
+    return os.path.isdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), "node_modules"))
+
+
+def start_browser_deps_install() -> dict:
+    """Kick off `npm install` for this extension unless it is already running."""
+    import shutil as _shutil
+    import threading
+
+    if browser_deps_installed():
+        return {"status": "installed"}
+    if _deps_state["running"]:
+        return {"status": "installing"}
+
+    npm = _shutil.which("npm")
+    if not npm:
+        return {"status": "error",
+                "message": "Node.js (npm) is not installed, so browser automation "
+                           "cannot be set up. Install Node.js from https://nodejs.org "
+                           "or your package manager, then try again."}
+
+    ext_dir = os.path.dirname(os.path.abspath(__file__))
+    _deps_state.update({"running": True, "done": False, "error": None, "log": []})
+
+    def run():
+        try:
+            proc = subprocess.Popen(
+                [npm, "install", "--no-audit", "--no-fund"],
+                cwd=ext_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+            )
+            for line in proc.stdout:
+                line = line.rstrip()
+                if line:
+                    _deps_state["log"] = (_deps_state["log"] + [line])[-40:]
+            proc.wait()
+            if proc.returncode != 0 or not browser_deps_installed():
+                tail = "\n".join(_deps_state["log"][-8:]) or "(no output)"
+                _deps_state["error"] = f"npm install failed (exit {proc.returncode}).\n{tail}"
+            else:
+                _deps_state["done"] = True
+        except Exception as e:
+            _deps_state["error"] = str(e)
+        finally:
+            _deps_state["running"] = False
+
+    threading.Thread(target=run, daemon=True).start()
+    return {"status": "installing"}
+
+
+@router.get("/deps/status")
+async def api_browser_deps_status():
+    """Whether browser automation dependencies are present or being installed."""
+    return {
+        "installed": browser_deps_installed(),
+        "installing": _deps_state["running"],
+        "error": _deps_state["error"],
+        "log": _deps_state["log"][-8:],
+    }
+
+
+@router.post("/deps/install")
+async def api_browser_deps_install():
+    return start_browser_deps_install()
 preview_logger = logging.getLogger("Browser.Preview")
 
 @router.post("/preview/launch")
@@ -1158,9 +1232,17 @@ async def launch_preview(request: Request):
 
         browser_ext_nm = os.path.join(ext_dir, "node_modules")
         if not os.path.isdir(browser_ext_nm):
-            raise HTTPException(500, "Browser automation dependencies are not installed. "
-                                     f"Run `npm install` in {ext_dir}, or re-enable the "
-                                     "browser extension to install them.")
+            # Install them rather than handing the user a command. 503 with a
+            # retry-after tells the page this is a wait, not a dead end.
+            started = start_browser_deps_install()
+            if started.get("status") == "error":
+                raise HTTPException(500, started["message"])
+            raise HTTPException(
+                503,
+                "Installing browser automation dependencies (a few minutes — it also "
+                "downloads browser binaries). This page will keep retrying.",
+                headers={"Retry-After": "20", "X-TubeCLI-Installing": "deps"},
+            )
 
         # Find available port
         import socket
