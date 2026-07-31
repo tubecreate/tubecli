@@ -178,10 +178,15 @@ async def send_message(session_id: str, req: SendMessageRequest):
 
     from tubecli.i18n import t
 
-    # Safety net 1: raw Ollama connection errors can still leak through paths
-    # that bypass _call_llm's fallback (workflow nodes, browser scripts).
-    # Never show a stacktrace to the user — show what to do instead.
-    if "[Ollama Error]" in (reply or ""):
+    # Safety net 1: raw provider errors can still leak through paths that bypass
+    # _call_llm's fallback (workflow nodes, browser scripts). Never show a
+    # stacktrace to the user — show what to do instead.
+    # The cloud prefixes matter as much as the Ollama one: a missing dependency or
+    # a bad key came back as "[OpenAI Error] No module named 'openai'" and was
+    # stored as the assistant's turn, so the user's own history then claimed the
+    # AI had said it.
+    if any(m in (reply or "") for m in ("[Ollama Error]", "[OpenAI Error]",
+                                        "[Gemini Error]", "[Claude Error]")):
         friendly = t("brain.no_model_available")
         if friendly != "brain.no_model_available":  # key resolved
             reply = friendly

@@ -27,6 +27,11 @@ dependencies = [
     "pyotp>=2.9",
     "gmssl",
     "httpx>=0.24",
+    # brain._call_openai is the only transport for openai/chatgpt/deepseek/grok/
+    # openrouter/9router and any OpenAI-compatible provider in the registry, so a
+    # fresh install without this answered every one of them with
+    # "[OpenAI Error] No module named 'openai'" printed as the assistant's reply.
+    "openai>=1.0",
     "beautifulsoup4>=4.12.0",
     "lxml",
     "pyyaml",

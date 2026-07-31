@@ -1114,7 +1114,13 @@ Rules:
             except Exception as e:
                 print(f"[Brain] Cloud fallback {provider} raised: {e}")
                 continue
-            if result and not any(m in result for m in ["[Error]", "[Ollama Error]", "429", "quota", "rate limit"]):
+            # The provider-specific prefixes belong here too. Without them a string
+            # like "[OpenAI Error] No module named 'openai'" counted as a successful
+            # recovery: it was printed as "✅ Recovered via …" and returned to the
+            # user as the assistant's answer.
+            _FAILED = ["[Error]", "[Ollama Error]", "[OpenAI Error]", "[Gemini Error]",
+                       "[Claude Error]", "429", "quota", "rate limit"]
+            if result and not any(m in result for m in _FAILED):
                 print(f"[Brain] ✅ Recovered via {provider}/{alt_model}")
                 return result
         return None
@@ -1288,7 +1294,10 @@ Rules:
 
     @staticmethod
     def _call_openai(model: str, api_key: str, messages: List[Dict], base_url: str = None, temperature: float = 0.7) -> str:
-        if not api_key: return "[Error] No API key."
+        if not api_key:
+            # This surfaces straight into chat, so it has to say where to fix it.
+            from tubecli.i18n import t
+            return t("brain.no_api_key", model=model)
         try:
             from openai import OpenAI
             client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
