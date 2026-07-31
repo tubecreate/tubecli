@@ -16,7 +16,8 @@ def api_cmd():
 
 @api_cmd.command("start")
 @click.option("--port", "-p", default=None, type=int, help="Port number")
-@click.option("--host", "-h", default="127.0.0.1", help="Host to bind")
+@click.option("--host", "-h", default=None,
+              help="Host to bind. Defaults to 127.0.0.1, or 0.0.0.0 inside a container.")
 @click.option("--lang", "-l", default=None, type=click.Choice(SUPPORTED_LANGUAGES),
               help="UI language. Saves to settings.")
 @click.option("--quiet", "-q", is_flag=True, default=False,
@@ -27,6 +28,17 @@ def start(port, host, lang, quiet):
     import uvicorn
 
     actual_port = port or get_api_port()
+
+    # 127.0.0.1 keeps the API off the LAN, which is what you want on a desktop.
+    # Inside a container it instead makes the dashboard unreachable from anywhere:
+    # the socket listens on the container's own loopback while Docker forwards
+    # published ports to the container's eth0, so even `-p 5295:5295` is refused.
+    # There the container is the isolation boundary and the user has already chosen
+    # which ports to publish. The origin guard still refuses cross-site browser
+    # requests in both cases.
+    if host is None:
+        from tubecli.cli.init_cmd import _in_container
+        host = "0.0.0.0" if _in_container() else "127.0.0.1"
 
     # Apply language if provided
     if lang:

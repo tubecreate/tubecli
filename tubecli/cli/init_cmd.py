@@ -607,6 +607,17 @@ def _run_control_panel():
         env["PYTHONPATH"] = project_root + os.path.pathsep + env.get("PYTHONPATH", "")
         
         python_exe = sys.executable
+
+        # Binding 127.0.0.1 is right on a desktop — it keeps the API off the LAN.
+        # Inside a container it makes the dashboard unreachable no matter what:
+        # the socket then listens on the *container's* loopback, while Docker
+        # forwards published ports to the container's eth0, so `-p 5295:5295`
+        # still refuses the connection. In a container the container itself is the
+        # isolation boundary and the user already chose which ports to publish, so
+        # bind all interfaces there. The origin guard still refuses cross-site
+        # browser requests either way.
+        host_arg = " --host 0.0.0.0" if _in_container() else ""
+
         if os.name == "nt":
             if quiet:
                 cmd = f'"{python_exe}" -m tubecli.main api start --quiet --lang {cur_lang}'
@@ -621,7 +632,7 @@ def _run_control_panel():
                 cmd = f'start "TubeCLI API Logs" cmd /k ""{python_exe}" -m tubecli.main api start --lang {cur_lang}"'
                 subprocess.Popen(cmd, shell=True, env=env, cwd=project_root)
         else:
-            cmd = f'"{python_exe}" -m tubecli.main api start{" --quiet" if quiet else ""} --lang {cur_lang}'
+            cmd = f'"{python_exe}" -m tubecli.main api start{" --quiet" if quiet else ""} --lang {cur_lang}{host_arg}'
             kwargs = {"shell": True, "env": env, "cwd": project_root}
             if quiet:
                 kwargs["stdout"] = subprocess.DEVNULL
