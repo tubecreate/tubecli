@@ -29,6 +29,26 @@ class Port:
         self.id = f"port_{uuid.uuid4().hex[:8]}"
 
 
+def NodePort(name: str, port_type: PortType, description: str = "",
+             required: bool = True, is_input: bool = True) -> Port:
+    """Compatibility shim for extensions published against the older node API.
+
+    Marketplace extensions (subtitle_extractor, video_manager) do
+    `from tubecli.nodes.base_node import NodePort` and call it as
+    NodePort(name, port_type, description, required=...). That import currently
+    raises ImportError, so their nodes never register and the CLI prints
+    "Could not load ... nodes" on every command.
+
+    A plain `NodePort = Port` alias would be worse than the error it fixes: Port
+    takes is_input third, so the description string would bind to is_input and the
+    node would load with silently wrong metadata. Adapt the argument order instead.
+    Direction is decided by which list the port is appended to (self.inputs /
+    self.outputs); is_input is not read anywhere.
+    """
+    return Port(name=name, port_type=port_type, is_input=is_input,
+                description=description, required=required)
+
+
 @dataclass
 class NodeConfig:
     """Configuration values for a node."""
