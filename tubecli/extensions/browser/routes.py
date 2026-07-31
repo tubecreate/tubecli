@@ -795,11 +795,19 @@ async def api_download_engine(version: str, request: Request):
 
                 missing = sx.missing_linux_libraries()
                 if missing:
+                    # Chromium will not start without these, so install them the
+                    # same way as unzip rather than ending on a green "completed"
+                    # for an engine that cannot run.
+                    write_progress("extracting", 95,
+                                   f"Installing {len(missing)} required system libraries...")
+                    sx.install_packages(sx.LINUX_APT_PACKAGES.split())
+                    missing = sx.missing_linux_libraries()
+                if missing:
                     write_progress(
                         "completed", 100,
-                        f"Installed, but {len(missing)} system libraries are missing "
-                        f"so the engine will not start yet. Install them with: "
-                        f"sudo apt install -y {sx.LINUX_APT_PACKAGES}",
+                        f"Installed, but {len(missing)} system libraries are still "
+                        f"missing so the engine will not start yet. Run: "
+                        f"{sx.manual_install_hint(sx.LINUX_APT_PACKAGES.split())}",
                     )
                     return
 

@@ -324,6 +324,70 @@ def available_versions() -> list:
     return [pinned]
 
 
+def _package_manager() -> Optional[list]:
+    """Install-command prefix for this distro's package manager, or None."""
+    for exe, cmd in (
+        ("apt-get", ["apt-get", "install", "-y", "-q"]),
+        ("dnf",     ["dnf", "install", "-y", "-q"]),
+        ("yum",     ["yum", "install", "-y", "-q"]),
+        ("pacman",  ["pacman", "-Sy", "--noconfirm"]),
+        ("zypper",  ["zypper", "--non-interactive", "install"]),
+        ("apk",     ["apk", "add", "--quiet"]),
+    ):
+        if shutil.which(exe):
+            return cmd
+    return None
+
+
+def _can_install_packages() -> Optional[list]:
+    """Command prefix that can install packages without prompting, or None.
+
+    Root needs no prefix. A non-root user only qualifies with passwordless sudo —
+    we must never leave a server process blocked on a password prompt nobody can
+    see.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        return []
+    if shutil.which("sudo"):
+        try:
+            r = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                return ["sudo", "-n"]
+        except Exception:
+            pass
+    return None
+
+
+def install_packages(names: list, timeout: int = 600) -> bool:
+    """Install system packages when this process can do so without prompting.
+
+    Returns False rather than raising, and never blocks on a password prompt: a
+    server process waiting on sudo would hang with nothing on screen to explain it.
+    """
+    cmd = _package_manager()
+    prefix = _can_install_packages()
+    if not cmd or prefix is None or not names:
+        return False
+    try:
+        env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+        if cmd[0] == "apt-get":
+            subprocess.run(prefix + ["apt-get", "update", "-qq"],
+                           capture_output=True, timeout=timeout, env=env)
+        r = subprocess.run(prefix + cmd + list(names),
+                           capture_output=True, timeout=timeout, env=env)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def manual_install_hint(names: list) -> str:
+    """The exact command to run by hand, with sudo only when it is needed."""
+    cmd = _package_manager()
+    need_sudo = _can_install_packages() is None
+    base = " ".join(cmd) if cmd else "your package manager install"
+    return f"{'sudo ' if need_sudo else ''}{base} {' '.join(names)}"
+
+
 def preflight() -> Optional[str]:
     """Anything that would make an install fail, checked before downloading.
 
@@ -334,9 +398,17 @@ def preflight() -> Optional[str]:
     spec = host_spec()
     if not spec.supported:
         return spec.reason
+
     if sys.platform != "win32" and not shutil.which("unzip"):
-        return ("The system `unzip` command is required to install the engine, and "
-                "it is not on this system. Install it first: "
-                "`apt install unzip` (Debian/Ubuntu), `dnf install unzip` (Fedora), "
-                "`apk add unzip` (Alpine).")
+        # Install it rather than handing back a command to type. The user asked
+        # for the engine, and this process can usually do it — the same reasoning
+        # the installer applies to pip and venv.
+        install_packages(["unzip"])
+        if shutil.which("unzip"):
+            return None
+        blocked = _can_install_packages() is None
+        return (f"`unzip` is required to install the engine and could not be "
+                f"installed automatically"
+                f"{' — this process is not root and sudo would prompt for a password' if blocked else ''}. "
+                f"Run: {manual_install_hint(['unzip'])}")
     return None

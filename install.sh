@@ -114,11 +114,14 @@ install_system_packages() {
 # Package names differ per distribution; venv is only a separate package on Debian
 # and openSUSE.
 python_packages() {
-    if command_exists apt-get;   then echo "python3 python3-pip python3-venv"
-    elif command_exists zypper;  then echo "python3 python3-pip python3-virtualenv"
-    elif command_exists pacman;  then echo "python python-pip"
-    elif command_exists apk;     then echo "python3 py3-pip"
-    else                              echo "python3 python3-pip"   # dnf / yum
+    # unzip is not optional: the browser engine archive can only be extracted with
+    # it (Python's zipfile loses symlinks and exec bits), and discovering that
+    # after a 200 MB download is a bad way to find out.
+    if command_exists apt-get;   then echo "python3 python3-pip python3-venv unzip"
+    elif command_exists zypper;  then echo "python3 python3-pip python3-virtualenv unzip"
+    elif command_exists pacman;  then echo "python python-pip unzip"
+    elif command_exists apk;     then echo "python3 py3-pip unzip"
+    else                              echo "python3 python3-pip unzip"   # dnf / yum
     fi
 }
 
