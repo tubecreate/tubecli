@@ -7,38 +7,47 @@ AI prompts and internal structures remain in English.
 _TRANSLATIONS = {}
 _CURRENT_LANG = "en"
 
+# Catalogues are maintained by hand and drift apart, so a key present in en is
+# often missing in one of the other eight. Without a fallback layer t() returned
+# the key itself, which surfaces to the user as literal text like
+# "panel.ollama_not_installed_short" and reads as a broken program. English is
+# loaded underneath every language so a missing key degrades to readable English
+# instead. Merge order matters: English first, then the chosen language on top.
+_FALLBACK: dict = {}
+
+
+def _english() -> dict:
+    global _FALLBACK
+    if not _FALLBACK:
+        from tubecli.i18n import en
+        _FALLBACK = dict(en.MESSAGES)
+    return _FALLBACK
+
+
+_MODULES = {
+    "vi": "vi", "zh": "zh", "zh-TW": "zh_tw", "ja": "ja",
+    "ko": "ko", "es": "es", "tr": "tr", "ru": "ru", "en": "en",
+}
+
 
 def load_language(lang: str):
-    """Load translation catalog for the given language code."""
+    """Load translation catalog for the given language code.
+
+    English is always merged underneath, so a key missing from the requested
+    language falls back to readable English rather than leaking the key name.
+    """
     global _TRANSLATIONS, _CURRENT_LANG
     _CURRENT_LANG = lang
-    if lang == "vi":
-        from tubecli.i18n import vi
-        _TRANSLATIONS = dict(vi.MESSAGES)
-    elif lang == "zh":
-        from tubecli.i18n import zh
-        _TRANSLATIONS = dict(zh.MESSAGES)
-    elif lang == "zh-TW":
-        from tubecli.i18n import zh_tw
-        _TRANSLATIONS = dict(zh_tw.MESSAGES)
-    elif lang == "ja":
-        from tubecli.i18n import ja
-        _TRANSLATIONS = dict(ja.MESSAGES)
-    elif lang == "ko":
-        from tubecli.i18n import ko
-        _TRANSLATIONS = dict(ko.MESSAGES)
-    elif lang == "es":
-        from tubecli.i18n import es
-        _TRANSLATIONS = dict(es.MESSAGES)
-    elif lang == "tr":
-        from tubecli.i18n import tr
-        _TRANSLATIONS = dict(tr.MESSAGES)
-    elif lang == "ru":
-        from tubecli.i18n import ru
-        _TRANSLATIONS = dict(ru.MESSAGES)
-    else:
-        from tubecli.i18n import en
-        _TRANSLATIONS = dict(en.MESSAGES)
+    catalog = dict(_english())
+    mod_name = _MODULES.get(lang)
+    if mod_name and mod_name != "en":
+        try:
+            import importlib
+            mod = importlib.import_module(f"tubecli.i18n.{mod_name}")
+            catalog.update(mod.MESSAGES)
+        except Exception:
+            pass  # keep English rather than failing to start
+    _TRANSLATIONS = catalog
 
 
 def get_current_language() -> str:

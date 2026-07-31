@@ -783,6 +783,21 @@ class WorkflowSaveRequest(BaseModel):
     workflow_data: Dict
 
 
+# ── Root ─────────────────────────────────────────────────────────
+
+@app.get("/", include_in_schema=False)
+async def root():
+    """Send the bare origin to the dashboard.
+
+    There was no route here, so http://127.0.0.1:5295 — the address printed by the
+    installers, the CLI banner and the "no API key" message — answered
+    {"detail":"Not Found"}. That is the first thing a new user sees after a
+    successful install, and it reads as a broken program.
+    """
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/dashboard")
+
+
 # ── Health ───────────────────────────────────────────────────────
 
 @app.get("/api/v1/health")
@@ -2512,16 +2527,23 @@ async def extension_locale(name: str, lang: str):
     if not extension or not extension.extension_dir:
         return {}
     locales_dir = os.path.join(extension.extension_dir, "locales")
-    # Try requested lang first, then "en" fallback
-    for try_lang in [lang, "en"]:
+    # `json` was never imported in this scope, so json.load() raised NameError,
+    # the bare `except Exception` swallowed it, and this endpoint always returned
+    # {} — every caller got zero strings and rendered raw keys.
+    import json
+    # English underneath, requested language on top, so a partially translated
+    # locale file degrades to English per key rather than leaking key names.
+    merged = {}
+    for try_lang in (["en", lang] if lang != "en" else ["en"]):
         locale_path = os.path.join(locales_dir, f"{try_lang}.json")
-        if os.path.isfile(locale_path):
-            try:
-                with open(locale_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-    return {}
+        if not os.path.isfile(locale_path):
+            continue
+        try:
+            with open(locale_path, "r", encoding="utf-8") as f:
+                merged.update(json.load(f))
+        except Exception:
+            pass
+    return merged
 
 
 class ExtensionInstallRequest(BaseModel):
@@ -3108,16 +3130,19 @@ async def get_aggregated_i18n(lang: str):
             locales_dir = os.path.join(ext_dir, "locales")
             if not os.path.isdir(locales_dir):
                 continue
-            for try_lang in [lang, "en"]:
+            # English underneath, then the requested language on top. The previous
+            # version `break`ed after the first file it found, so an extension that
+            # shipped vi.json missing a few keys leaked those key names into the UI
+            # as literal text instead of degrading to English.
+            for try_lang in (["en", lang] if lang != "en" else ["en"]):
                 locale_path = os.path.join(locales_dir, f"{try_lang}.json")
-                if os.path.isfile(locale_path):
-                    try:
-                        with open(locale_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                        merged.update(data)
-                    except Exception:
-                        pass
-                    break
+                if not os.path.isfile(locale_path):
+                    continue
+                try:
+                    with open(locale_path, "r", encoding="utf-8") as f:
+                        merged.update(json.load(f))
+                except Exception:
+                    pass
 
     # 1. Built-in extensions: tubecli/extensions/*/locales/
     builtin_ext_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "extensions")
@@ -3127,12 +3152,8 @@ async def get_aggregated_i18n(lang: str):
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR
     _load_locales_from_dir(str(EXTENSIONS_EXTERNAL_DIR))
 
-    merged["_DEBUG"] = {
-        "__file__": __file__,
-        "builtin_ext_dir": builtin_ext_dir,
-        "external_ext_dir": str(EXTENSIONS_EXTERNAL_DIR)
-    }
-
+    # No _DEBUG block here: this endpoint is reachable from the browser and was
+    # returning absolute install paths (which include the OS username).
     return merged
 
 

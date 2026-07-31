@@ -48,7 +48,8 @@ MESSAGES = {
     "panel.models_recommended": "\n[bold]Models recommended for your system RAM:[/bold]",
     "panel.select_model": "\nSelect model to install",
     "panel.install_cancelled": "[yellow]Installation cancelled.[/yellow]",
-    "panel.ollama_not_installed_short": "\n[red]Ollama is not installed. Please install it first.[/red]",
+    "panel.ollama_not_installed_short": "\n[red]Ollama is not installed yet — it runs AI models locally, for free, with no API key.[/red]",
+    "panel.ollama_download_page": "  Download page: [cyan]https://ollama.com/download[/cyan]",
     "panel.browser_profiles": "\n[cyan]Browser Profiles:[/cyan]",
     "panel.browser_help": "\n[yellow]Run 'tubecli browser launch <profile-name>' to start a browser.[/yellow]",
     "panel.documentation": "\n[cyan]Documentation:[/cyan]",
@@ -86,7 +87,8 @@ MESSAGES = {
     "wizard.enter_api_key": "Paste API Key (or press Enter to skip)",
     "wizard.key_saved": "saved successfully!",
     "wizard.ollama_ready": "[green]Ollama is already installed. You can select a model from main menu (option 4).[/green]",
-    "wizard.ollama_not_ready": "[yellow]Ollama is not installed. Choose option 4 from main menu later.[/yellow]",
+    "init.setup_done_no_menu": "\n[green]Workspace ready.[/green]\n  Start the server:  [cyan]tubecli api start[/cyan]\n  Then open:         [cyan]http://127.0.0.1:{port}/dashboard[/cyan]\n  Control panel:     [cyan]tubecli init[/cyan]\n",
+    "wizard.ollama_not_ready":"[yellow]Ollama is not installed yet. Pick option 4 in the main menu — it will install Ollama for you, then let you choose a model.[/yellow]",
 
     # Step 2: Telegram
     "wizard.telegram_title": "[bold white]Step 2/3 — Connect Telegram[/bold white]",
@@ -181,7 +183,8 @@ MESSAGES = {
     "brain.file_action_not_a_path": "⚠️ '{path}' is a web address, not a file path, so there is nothing to open on disk.\n\nTell me what you want done with that link — analyse the content, download it, track the channel — and I will use the right tool.",
     "brain.empty_response": "⚠️ The model returned an empty response.\n\nThis usually means a reasoning model spent its whole token budget on thinking. Send the message again, or pick a different model with the selector above.",
     "brain.no_model_available": "⚠️ No AI model is available yet.\n\nThis agent points at a local Ollama model, but Ollama is not running on this machine and no cloud AI key is configured.\n\nPick one of these to get going:\n1. Add a cloud API key in Dashboard → Cloud API Keys (Gemini, DeepSeek, OpenAI…), then pick a model with the model selector in Chat.\n2. Or install Ollama from https://ollama.com and run `ollama pull qwen:latest`.",
-    "brain.workflow_error_guidance": "Workflow encountered an error. Check: (1) credentials are correct, (2) spreadsheet_id exists, (3) APIs are enabled.",
+    "brain.no_api_key": "⚠️ No API key is configured for `{model}`, so the request cannot be sent.\n\nAdd one in Dashboard → Cloud API Keys (http://127.0.0.1:5295), or run `tubecli init` and pick \"Cloud API Keys\". Then reselect the model in Chat.\n\nPrefer not to use a cloud key? Install Ollama (https://ollama.com) and run `ollama pull qwen:latest` to run a model locally for free.",
+    "brain.workflow_error_guidance":"Workflow encountered an error. Check: (1) credentials are correct, (2) spreadsheet_id exists, (3) APIs are enabled.",
 
     # ── ollama_utils ──────────────────────────────────────────
     "ollama.auto_install_windows_only": "[yellow]Auto-install is currently only supported on Windows.[/yellow]",
@@ -194,6 +197,7 @@ MESSAGES = {
     "ollama.restart_note": "[yellow]Note: You might need to restart your terminal for 'ollama' command to be recognized.[/yellow]",
     "ollama.install_failed": "[bold red]Failed to download or run Ollama installer:[/bold red] {error}",
     "ollama.install_manual": "Please install manually from: https://ollama.com/download",
+    "ollama.running_cmd": "\n[cyan]Running:[/cyan] [yellow]{cmd}[/yellow]",
     "ollama.not_installed": "[red]Ollama is not installed. Cannot pull model.[/red]",
     "ollama.pulling": "\n[bold cyan]Pulling model '{name}'... (This may take a while)[/bold cyan]",
     "ollama.pull_failed": "\n[bold red]Failed to pull model '{name}'.[/bold red]",
