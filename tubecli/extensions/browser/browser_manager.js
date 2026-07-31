@@ -1104,33 +1104,67 @@ export class BrowserManager {
                     isShardX = true;
                     isShardXProfile = true;
                     const versionNum = targetChromiumVer.replace('ShardX', '').replace(/^\s*-\s*/, '').trim();
-                    const appdata = process.env.APPDATA;
-                    if (appdata) {
-                        let p1 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, `ShardX-Windows-${versionNum}`, 'chrome.exe');
-                        let p2 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, 'chrome.exe');
-                        let p3 = path.join(appdata, 'shardx-launcher', 'runtime', 'engines', versionNum, 'ShardX-Windows', 'chrome.exe');
-                        if (await fs.pathExists(p1)) {
-                            shardxExePath = p1;
-                        } else if (await fs.pathExists(p2)) {
-                            shardxExePath = p2;
-                        } else if (await fs.pathExists(p3)) {
-                            shardxExePath = p3;
+
+                    // Engine root per OS. Only Windows and macOS were handled, so
+                    // on Linux shardxExePath stayed null and the launch died with
+                    // "not found — install it in ShardBrowser first" even when the
+                    // Linux engine was installed.
+                    const home = process.env.HOME || process.env.USERPROFILE;
+                    let engineRoot = null;
+                    if (process.platform === 'win32') {
+                        const appdata = process.env.APPDATA || (home && path.join(home, 'AppData', 'Roaming'));
+                        if (appdata) engineRoot = path.join(appdata, 'shardx-launcher');
+                    } else if (process.platform === 'darwin') {
+                        if (home) engineRoot = path.join(home, 'Library', 'Application Support', 'shardx-launcher');
+                    } else if (home) {
+                        engineRoot = path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'shardx-launcher');
+                    }
+
+                    if (engineRoot) {
+                        const verDir = path.join(engineRoot, 'runtime', 'engines', versionNum);
+                        // Layouts differ between the launcher's own installs and the
+                        // plain CDN archives, so try each.
+                        let candidates = [];
+                        if (process.platform === 'win32') {
+                            candidates = [
+                                path.join(verDir, `ShardX-Windows-${versionNum}`, 'chrome.exe'),
+                                path.join(verDir, 'ShardX-Windows', 'chrome.exe'),
+                                path.join(verDir, 'chrome.exe'),
+                            ];
+                        } else if (process.platform === 'darwin') {
+                            candidates = [
+                                path.join(verDir, `ShardX-Mac-arm64-${versionNum}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
+                                path.join(verDir, 'ShardX-Mac-arm64', 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
+                            ];
+                        } else {
+                            candidates = [
+                                path.join(verDir, `ShardX-Linux-${versionNum}`, 'chrome'),
+                                path.join(verDir, 'ShardX-Linux', 'chrome'),
+                                path.join(verDir, 'chrome'),
+                            ];
+                        }
+                        for (const c of candidates) {
+                            if (await fs.pathExists(c)) { shardxExePath = c; break; }
                         }
                     }
-                    
+
                     if (!shardxExePath) {
-                        // macOS support fallback
-                        const home = process.env.HOME || process.env.USERPROFILE;
-                        if (home) {
-                            let pMac = path.join(home, 'Library', 'Application Support', 'shardx-launcher', 'runtime', 'engines', versionNum, `ShardX-Mac-arm64-${versionNum}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX');
-                            if (await fs.pathExists(pMac)) {
-                                shardxExePath = pMac;
+                        throw new Error(`ShardX browser engine (${versionNum}) not found for ${process.platform}. Download it from the Browser page, or install ShardBrowser.`);
+                    }
+
+                    // Archives zipped on Windows carry no Unix exec bit, so the
+                    // engine extracts fine and then fails to spawn with EACCES.
+                    if (process.platform !== 'win32') {
+                        try {
+                            await fs.chmod(shardxExePath, 0o755);
+                            const engineDir = path.dirname(shardxExePath);
+                            for (const helper of ['chrome_crashpad_handler', 'chrome_sandbox', 'chrome-sandbox']) {
+                                const hp = path.join(engineDir, helper);
+                                if (await fs.pathExists(hp)) await fs.chmod(hp, 0o755);
                             }
+                        } catch (e) {
+                            console.log(`[Launch] Could not set exec bits on ShardX engine: ${e.message}`);
                         }
-                    }
-                    
-                    if (!shardxExePath) {
-                        throw new Error(`ShardX browser engine (${versionNum}) not found. Please install it in ShardBrowser first.`);
                     }
                     
                     targetChromiumVer = versionNum;

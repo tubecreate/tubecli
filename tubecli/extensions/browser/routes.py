@@ -5,10 +5,13 @@ from fastapi import APIRouter, HTTPException, Request, File, UploadFile
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import os
+import sys
+import platform
 import json
 import subprocess
 import threading
 import asyncio
+from pathlib import Path
 
 # Note: psutil and requests are imported lazily inside handlers to avoid
 # preventing route registration when these packages aren't installed.
@@ -537,6 +540,15 @@ async def api_get_engine_versions():
                  "download_url": "http://downloads.bablosoft.com/distr/FastExecuteScript64/29.5.0/FastExecuteScript.x64.zip"},
             ]
             
+            # BAS ships Windows PE binaries only. Listing it on Linux or macOS
+            # offered a download that could never run — and the failure was silent,
+            # because nothing downstream checked the platform either.
+            from . import shardx_runtime as sx
+            if not sx.supports_bas():
+                versions = [v for v in versions
+                            if str(v.get("name", "")).startswith("ShardX")]
+                fallback_versions = []
+
             existing_bas_versions = set(v.get("bas_version") for v in versions)
             for fv in fallback_versions:
                 if fv["bas_version"] not in existing_bas_versions:
@@ -581,32 +593,14 @@ async def api_get_engine_versions():
                     continue
                 
                 if v.get("is_shardx"):
-                    # Check ShardX local installation in AppData
+                    # Resolved per OS now. This used to read %APPDATA% and look for
+                    # chrome.exe, so on Linux and macOS an installed engine was
+                    # always reported as missing.
                     version_num = bas_ver.replace("ShardX-", "")
-                    appdata = os.environ.get("APPDATA")
-                    is_installed = False
-                    chrome_path = ""
-                    if appdata:
-                        # Path: %APPDATA%/shardx-launcher/runtime/engines/<version>/ShardX-Windows-<version>/chrome.exe
-                        chrome_path = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, f"ShardX-Windows-{version_num}", "chrome.exe")
-                        is_installed = os.path.isfile(chrome_path)
-                        
-                        # Fallback check for flat layout
-                        if not is_installed:
-                            chrome_path_alt = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, "chrome.exe")
-                            is_installed = os.path.isfile(chrome_path_alt)
-                            if is_installed:
-                                chrome_path = chrome_path_alt
-                        
-                        # Fallback check for Windows folder without version
-                        if not is_installed:
-                            chrome_path_alt2 = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num, "ShardX-Windows", "chrome.exe")
-                            is_installed = os.path.isfile(chrome_path_alt2)
-                            if is_installed:
-                                chrome_path = chrome_path_alt2
-                                
-                    v["downloaded"] = is_installed
-                    v["path"] = os.path.dirname(chrome_path) if is_installed else "-"
+                    chrome = sx.binary_path(version_num)
+                    installed = bool(chrome and chrome.exists())
+                    v["downloaded"] = installed
+                    v["path"] = str(chrome.parent) if installed else "-"
                 else:
                     script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
                     is_installed = os.path.isdir(script_dir) and os.path.isfile(
@@ -625,11 +619,37 @@ async def api_get_engine_versions():
             # Sort: newest first
             versions.sort(key=lambda x: x.get("bas_version", ""), reverse=True)
 
+            spec = sx.host_spec()
             result = {
                 "success": True,
                 "versions": versions,
                 "bas_key_configured": bool(_get_bas_key()),
+                # Platform facts the UI needs in order to explain itself. Without
+                # these it had no way to say why a list was empty or why a download
+                # would not run, so it said nothing at all.
+                "platform": {
+                    "os": sys.platform,
+                    "arch": platform.machine(),
+                    "engine": spec.plat,
+                    "supported": spec.supported,
+                    "bas_available": sx.supports_bas(),
+                },
             }
+            if not spec.supported:
+                result["platform_error"] = spec.reason
+            elif not sx.supports_bas():
+                result["platform_note"] = (
+                    "BAS engines are Windows-only, so only ShardX is listed here."
+                )
+            missing_libs = sx.missing_linux_libraries()
+            if missing_libs:
+                result["missing_libraries"] = missing_libs
+                result["missing_libraries_hint"] = (
+                    f"ShardX needs shared libraries this system does not have "
+                    f"({', '.join(missing_libs[:4])}"
+                    f"{'...' if len(missing_libs) > 4 else ''}). "
+                    f"On Debian/Ubuntu: sudo apt install -y {sx.LINUX_APT_PACKAGES}"
+                )
             if api_error and not any(v.get("is_private") for v in versions):
                 result["warning"] = api_error
             return result
@@ -643,6 +663,11 @@ async def api_get_engine_versions():
 
 @router.post("/engine/download/{version}")
 async def api_download_engine(version: str, request: Request):
+    # Bound for the whole endpoint: both the ShardX and the BAS branch need it,
+    # and importing it inside the ShardX branch alone left the BAS branch with an
+    # unbound name.
+    from . import shardx_runtime as sx
+
     ext_dir = os.path.dirname(__file__)
     version = version.replace("BAS ", "").replace("BAS-", "").strip()
     
@@ -676,34 +701,43 @@ async def api_download_engine(version: str, request: Request):
     
     if version.startswith("ShardX-"):
         version_num = version.replace("ShardX-", "").replace("ShardX ", "").strip()
-        appdata = os.environ.get("APPDATA")
-        if not appdata:
-            appdata = os.path.expanduser("~\\AppData\\Roaming")
-        target_dir = os.path.join(appdata, "shardx-launcher", "runtime", "engines", version_num)
+        spec = sx.host_spec()
+
+        # Refuse loudly rather than downloading something that cannot run. This
+        # path used to build a Windows URL and an %APPDATA% directory regardless
+        # of the OS, which is why a Linux user saw nothing happen at all.
+        if not spec.supported:
+            write_progress("error", 0, spec.reason)
+            return {"success": False, "message": spec.reason}
+
+        target_dir = sx.engine_dir(version_num)
         os.makedirs(target_dir, exist_ok=True)
-        
+
         def download_and_extract_shardx():
-            import zipfile
             import requests
-            
-            if version_num == "149.0.7827.103":
-                url = "https://pub-e57a7c60f6934eb09a6600bf2fc59cdc.r2.dev/ShardX-Windows.zip"
-            else:
-                url = f"https://cf-r2-worker.tubecli.workers.dev/ShardX-Windows-{version_num}.zip"
+
+            url = sx.archive_url(version_num)
             try:
-                write_progress("downloading", 3, f"Connecting to Cloudflare R2 worker..." if "cf-r2" in url else "Connecting to ProxyShard CDN...")
-                
-                resp = requests.get(url, stream=True, timeout=300, verify=False)
+                write_progress(
+                    "downloading", 3,
+                    f"Connecting to {'Cloudflare R2 worker' if 'cf-r2' in url else 'ProxyShard CDN'} "
+                    f"for {spec.plat}...",
+                )
+
+                # verify=True. TLS verification was disabled here, which turned an
+                # engine download into something a network attacker could replace.
+                resp = requests.get(url, stream=True, timeout=300)
                 if resp.status_code != 200:
                     write_progress("error", 0, f"HTTP {resp.status_code} from {url}")
                     return
-                
+
                 total_size = int(resp.headers.get("content-length", 0))
                 downloaded = 0
-                
-                write_progress("downloading", 5, "Downloading ShardX engine...")
-                
-                tmp_zip = os.path.join(ext_dir, "data", "engine", f"{version}.zip")
+                write_progress("downloading", 5, f"Downloading ShardX engine ({spec.plat})...")
+
+                engine_tmp = os.path.join(ext_dir, "data", "engine")
+                os.makedirs(engine_tmp, exist_ok=True)
+                tmp_zip = os.path.join(engine_tmp, f"{version}.zip")
                 with open(tmp_zip, "wb") as f:
                     for chunk in resp.iter_content(chunk_size=1024 * 256):
                         if chunk:
@@ -712,28 +746,50 @@ async def api_download_engine(version: str, request: Request):
                             if total_size > 0:
                                 pct = int((downloaded / total_size) * 80) + 5
                                 write_progress("downloading", min(pct, 85))
-                
+
                 write_progress("extracting", 90, "Extracting ShardX engine...")
-                
                 try:
-                    with zipfile.ZipFile(tmp_zip, "r") as zf:
-                        zf.extractall(target_dir)
-                except zipfile.BadZipFile:
+                    # Goes through shardx_runtime: on POSIX it uses the system
+                    # unzip and then restores exec bits, because zipfile drops
+                    # symlinks and permissions and the engine will not launch.
+                    sx.extract(Path(tmp_zip), Path(target_dir))
+                except Exception as e:
                     try:
                         os.remove(tmp_zip)
-                    except:
+                    except OSError:
                         pass
-                    write_progress("error", 0, "Downloaded ShardX zip file is corrupt")
+                    write_progress("error", 0, str(e)[:300])
                     return
-                
+
                 try:
                     os.remove(tmp_zip)
-                except:
+                except OSError:
                     pass
-                
+
+                # Confirm the thing we just installed is actually runnable, rather
+                # than reporting success because the extract did not raise.
+                chrome = sx.binary_path(version_num)
+                if not (chrome and chrome.exists()):
+                    write_progress(
+                        "error", 0,
+                        f"Extracted, but no ShardX executable was found at "
+                        f"{chrome}. The archive layout may have changed.",
+                    )
+                    return
+
+                missing = sx.missing_linux_libraries()
+                if missing:
+                    write_progress(
+                        "completed", 100,
+                        f"Installed, but {len(missing)} system libraries are missing "
+                        f"so the engine will not start yet. Install them with: "
+                        f"sudo apt install -y {sx.LINUX_APT_PACKAGES}",
+                    )
+                    return
+
                 write_progress("completed", 100)
                 return
-                
+
             except Exception as e:
                 write_progress("error", 0, f"Download failed: {str(e)[:300]}")
                 return
@@ -750,7 +806,17 @@ async def api_download_engine(version: str, request: Request):
 
     download_url = body.get("download_url", "")
     bas_version = body.get("bas_version") or version
-    
+
+    # BAS ships Windows PE binaries. The engine list no longer offers it elsewhere,
+    # but this endpoint is reachable directly, and downloading 150 MB of Windows
+    # executables onto a Linux box only to have nothing happen is exactly the
+    # silent failure this whole change exists to remove.
+    if not sx.supports_bas():
+        msg = (f"BAS engines only run on Windows; this machine is {sys.platform}. "
+               f"Use a ShardX engine instead — it has a native build for this platform.")
+        write_progress("error", 0, msg)
+        return {"success": False, "message": msg}
+
     # If no download_url provided, construct Security Browser URL
     if not download_url:
         download_url = f"http://downloads.bablosoft.com/distr/FastExecuteScript64/{bas_version}/FastExecuteScript.x64.zip"
@@ -789,7 +855,10 @@ async def api_download_engine(version: str, request: Request):
             try:
                 write_progress("downloading", 3, f"Trying {url_label} server...")
                 
-                resp = requests.get(url, stream=True, timeout=300, verify=False)
+                # verify defaults to True. It was disabled here, on a download whose
+                # contents are then executed — anyone able to intercept the
+                # connection could have swapped the engine for their own binary.
+                resp = requests.get(url, stream=True, timeout=300)
                 if resp.status_code != 200:
                     if url_label == "local":
                         write_progress("downloading", 3, f"Local server returned {resp.status_code}, switching to Cloudflare R2 proxy...")
