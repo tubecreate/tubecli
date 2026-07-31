@@ -321,6 +321,12 @@
     <div class="container" id="screenContainer">
         <div id="canvasWrapper" style="position:relative; display:inline-block; max-width:100%; max-height:100%; line-height:0;">
             <canvas id="previewCanvas" style="cursor: default; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8); outline: none; border-radius: 2px;"></canvas>
+            <!-- Fallback frame, shown when the CDP screencast is unavailable and the
+                 page falls back to polling screenshots. The script has always
+                 referenced #previewImg, but the element was never in the markup, so
+                 startScreenshotStream() threw on null and the fallback could never
+                 run — leaving the page stuck on "Initializing browser...". -->
+            <img id="previewImg" alt="" style="display:none; max-width:100%; max-height:100%; object-fit:contain; background:#000; box-shadow:0 4px 20px rgba(0,0,0,0.8); border-radius:2px;" />
             <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid #ff3366;background:rgba(255,51,102,0.15);display:none;z-index:10;box-sizing:border-box;"></div>
         </div>
         <div id="inspectInfo" style="position:absolute;bottom:15px;left:15px;background:rgba(10,10,15,0.9);color:#fff;padding:12px;border-radius:8px;font:13px monospace;z-index:10;pointer-events:none;display:none;border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 30px rgba(0,0,0,0.5);"></div>
@@ -389,6 +395,13 @@
                 appendLog(T('browser.launch_error', { error: e.message }), 'error');
                 loaderSub.textContent = T('browser.error', { error: e.message });
                 loaderSub.style.color = 'var(--red)';
+                // The server now returns the reason node failed to start, which is
+                // several lines of its own output — keep the newlines readable
+                // instead of collapsing it into one unreadable run.
+                loaderSub.style.whiteSpace = 'pre-line';
+                loaderSub.style.textAlign = 'left';
+                loaderSub.style.maxWidth = '680px';
+                loaderSub.style.margin = '8px auto 0';
                 statusDot.className = 'status-dot offline';
                 statusText.textContent = 'Launch Error';
             }
@@ -577,12 +590,25 @@
         function startScreenshotStream(port) {
             if (screenshotInterval) return;
             appendLog(T('browser.starting_fallback_screenshots'), 'info');
-            
-            canvas.style.display = 'none';
+
+            // Guard every element. This function is the recovery path — it runs
+            // when the WebSocket has already failed — so an exception here left the
+            // user with a spinner and two red console lines and nothing else.
+            if (!imgFallback) {
+                appendLog('Preview fallback element missing; cannot display frames.', 'error');
+                if (loader) {
+                    const sub = document.getElementById('loader-subtext');
+                    if (sub) sub.textContent = 'Preview unavailable — see the log panel.';
+                }
+                return;
+            }
+            if (canvas) canvas.style.display = 'none';
             imgFallback.style.display = 'block';
-            
-            loader.style.opacity = 0;
-            setTimeout(() => loader.style.display = 'none', 500);
+
+            if (loader) {
+                loader.style.opacity = 0;
+                setTimeout(() => loader.style.display = 'none', 500);
+            }
             
             let loading = false;
             screenshotInterval = setInterval(() => {

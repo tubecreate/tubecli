@@ -1150,6 +1150,18 @@ async def launch_preview(request: Request):
         ext_dir = os.path.dirname(os.path.abspath(__file__))
         preview_path = os.path.join(ext_dir, "preview_server.cjs")
 
+        # Fail with a reason rather than letting Popen raise a bare FileNotFoundError.
+        import shutil as _shutil
+        if not _shutil.which("node"):
+            raise HTTPException(500, "Node.js is required for browser preview but `node` "
+                                     "is not installed. Install Node.js, then try again.")
+
+        browser_ext_nm = os.path.join(ext_dir, "node_modules")
+        if not os.path.isdir(browser_ext_nm):
+            raise HTTPException(500, "Browser automation dependencies are not installed. "
+                                     f"Run `npm install` in {ext_dir}, or re-enable the "
+                                     "browser extension to install them.")
+
         # Find available port
         import socket
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -1159,10 +1171,13 @@ async def launch_preview(request: Request):
 
         # Build environment and NODE_PATH
         env = os.environ.copy()
-        browser_ext_nm = os.path.join(ext_dir, "node_modules")
-        if os.path.isdir(browser_ext_nm):
-            existing = env.get("NODE_PATH", "")
-            env["NODE_PATH"] = browser_ext_nm + (";" + existing if existing else "")
+        existing = env.get("NODE_PATH", "")
+        # os.pathsep, not ";". On Linux a semicolon is an ordinary character, so
+        # "a;b" was read as one directory named "a;b", NODE_PATH resolved to
+        # nothing, and preview_server.cjs died on require('minimist') before it
+        # ever listened — which is why the preview WebSocket had nothing to
+        # connect to and the page sat on "Initializing browser...".
+        env["NODE_PATH"] = browser_ext_nm + (os.pathsep + existing if existing else "")
 
         from .profile_manager import PROFILES_DIR
         proc = subprocess.Popen(
@@ -1175,18 +1190,60 @@ async def launch_preview(request: Request):
         )
         
         import threading
+        from collections import deque
+        # Keep the first lines around. When node dies on startup its reason is the
+        # only useful thing on screen, and it used to scroll past into the server
+        # log while the API cheerfully reported success.
+        early_output = deque(maxlen=40)
+
         def log_proc_output(p, name):
             try:
                 for line in p.stdout:
+                    early_output.append(line.rstrip())
                     print(f"[PreviewServer][{name}] {line.rstrip()}", flush=True)
             except Exception as e:
                 print(f"[PreviewServer][{name}] Error reading stdout: {e}", flush=True)
             finally:
                 try: p.stdout.close()
                 except: pass
-                
+
         t = threading.Thread(target=log_proc_output, args=(proc, profile), daemon=True)
         t.start()
+
+        # Do not claim "launched" until the preview server is actually listening.
+        # Returning immediately meant a node process that died on startup still
+        # produced a success response, and the page then opened a WebSocket to a
+        # port with nothing behind it and waited on "Initializing browser..."
+        # forever with no error anywhere.
+        import socket as _socket
+        deadline = time.time() + 25
+        listening = False
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                await asyncio.sleep(0.2)      # let the reader thread drain
+                detail = "\n".join(list(early_output)[-15:]) or "(no output)"
+                raise HTTPException(
+                    500,
+                    f"Browser preview failed to start (node exited with code "
+                    f"{proc.returncode}).\n{detail}",
+                )
+            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    listening = True
+                    break
+            await asyncio.sleep(0.4)
+
+        if not listening:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+            detail = "\n".join(list(early_output)[-15:]) or "(no output)"
+            raise HTTPException(
+                500,
+                f"Browser preview did not start listening on port {port} within 25s.\n{detail}",
+            )
 
         session_id = f"preview_{int(time.time())}"
         _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile}
