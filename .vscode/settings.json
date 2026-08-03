@@ -1,1 +1,51 @@
-{}
+{
+  "//": "This workspace holds 487,065 files across 61,935 directories — data/ alone is 422,228. Windows needs one ReadDirectoryChangesW handle per watched directory, so with no excludes the editor's extension host sat at ~97% of a core with 300k+ syscalls per second and zero bytes read: a watcher spinning over tens of thousands of directories it has no reason to watch. Nothing excluded here is source.",
+
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.git/subtree-cache/**": true,
+    "**/node_modules/**": true,
+    "**/.venv/**": true,
+    "**/venv/**": true,
+    "**/__pycache__/**": true,
+    "**/*.pyc": true,
+    "**/.mypy_cache/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true,
+    "**/data/**": true,
+    "**/scratch/**": true,
+    "**/profiles/**": true,
+    "**/dist/**": true,
+    "**/build/**": true,
+    "**/*.egg-info/**": true
+  },
+
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.venv": true,
+    "**/__pycache__": true,
+    "**/data": true,
+    "**/scratch": true,
+    "**/profiles": true,
+    "**/*.egg-info": true,
+    "**/package-lock.json": true,
+    "**/uv.lock": true
+  },
+
+  "//files.exclude": "Deliberately minimal. Hiding directories from the tree makes them hard to inspect when something breaks, and the CPU problem was the watcher, not the tree.",
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  },
+
+  "python.analysis.exclude": [
+    "**/node_modules/**",
+    "**/data/**",
+    "**/.venv/**",
+    "**/scratch/**"
+  ],
+
+  "files.eol": "\n",
+  "[python]": { "editor.tabSize": 4 },
+  "[json]": { "editor.tabSize": 2 }
+}
