@@ -6,7 +6,6 @@ produces one clear message instead of a raw OSError deep in a filter chain.
 """
 import logging
 import os
-import shutil
 import subprocess
 from typing import List, Optional, Tuple
 
@@ -68,14 +67,86 @@ def _known_dirs() -> List[str]:
     return dirs
 
 
+def _runs(exe: str) -> bool:
+    """Does this binary actually start?
+
+    Existing on disk is not the same as working. A conda install ships
+    Library/bin/ffprobe.exe that dies at load with 0xC0000139
+    STATUS_ENTRYPOINT_NOT_FOUND because a sibling DLL does not export what it
+    links against — and shutil.which() finds it first, because the server runs
+    on that same conda Python. The old code accepted it and never reached the
+    working copy further down the list, so every probe failed with a raw
+    "non-zero exit status 3221225785" and the UI told the user to install
+    FFmpeg, which was already installed.
+
+    One extra subprocess per binary per process; the result is cached below.
+    """
+    try:
+        r = subprocess.run(
+            [exe, "-version"], capture_output=True, timeout=15,
+            creationflags=_NO_WINDOW,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0 and b"version" in (r.stdout or b"").lower()
+
+
+# name -> resolved path, or None once every candidate has been rejected.
+_RESOLVED: dict = {}
+
+
 def _which(name: str) -> Optional[str]:
-    found = shutil.which(name)
-    if found:
-        return found
-    for d in _known_dirs():
-        candidate = os.path.join(d, _exe(name))
-        if os.path.isfile(candidate):
+    if name in _RESOLVED:
+        return _RESOLVED[name]
+    result = _which_uncached(name)
+    _RESOLVED[name] = result
+    return result
+
+
+def _path_candidates(name: str) -> List[str]:
+    """Every match on PATH, in order — not just the first.
+
+    shutil.which() stops at the first hit, which is the wrong shape once a hit
+    can be rejected: on this machine entry one is conda's broken copy and the
+    working one is further down the same PATH, so stopping early loses it.
+    """
+    out: List[str] = []
+    exe = _exe(name)
+    for d in (os.environ.get("PATH") or "").split(os.pathsep):
+        d = d.strip().strip('"')
+        if not d:
+            continue
+        candidate = os.path.join(d, exe)
+        if os.path.isfile(candidate) and candidate not in out:
+            out.append(candidate)
+    return out
+
+
+def _which_uncached(name: str) -> Optional[str]:
+    # Every candidate is probed and a broken one is skipped rather than
+    # returned. Order is unchanged in spirit: PATH first, then known installs.
+    rejected: List[str] = []
+    seen = set()
+    candidates = _path_candidates(name)
+    candidates += [os.path.join(d, _exe(name)) for d in _known_dirs()]
+    for candidate in candidates:
+        key = os.path.normcase(os.path.normpath(candidate))
+        if key in seen or not os.path.isfile(candidate):
+            continue
+        seen.add(key)
+        if _runs(candidate):
+            if rejected:
+                logger.warning(
+                    "[VideoStudio] %s at %s does not run (skipped); using %s",
+                    name, rejected[0], candidate,
+                )
             return candidate
+        rejected.append(candidate)
+    if rejected:
+        logger.warning(
+            "[VideoStudio] found %d copies of %s, none of which run: %s",
+            len(rejected), name, ", ".join(rejected[:3]),
+        )
     # Last resort: the copy pip pulls in with imageio-ffmpeg. Its file is named
     # ffmpeg-win-x86_64-v7.1.exe, NOT ffmpeg.exe — so it is only ever usable as
     # a full path. Never hand its DIRECTORY to a tool that looks for
