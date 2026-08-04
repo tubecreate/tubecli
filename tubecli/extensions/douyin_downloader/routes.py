@@ -18,6 +18,23 @@ _downloader = None
 _settings = None
 
 
+def _settings_path():
+    """Canonical path to the shared downloader settings.
+
+    data/downloader_settings.json is a hardlink onto this file, so both names
+    address the same inode and either spelling works today. Naming the real one
+    is what lets the compat shim be removed later. video_downloader owns the
+    file even though this built-in extension is called douyin_downloader — the
+    two share it.
+    """
+    try:
+        from tubecli.config import ext_data_path
+        return ext_data_path("video_downloader", "downloader_settings.json")
+    except Exception:
+        import os
+        return os.path.join(os.environ.get("TUBECLI_DATA_DIR", "data"),
+                            "downloader_settings.json")
+
 def _get_downloader():
     global _downloader
     if _downloader is None:
@@ -33,8 +50,7 @@ def _get_settings():
     global _settings
     if _settings is None:
         import json
-        data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
-        path = os.path.join(data_dir, "downloader_settings.json")
+        path = str(_settings_path())
         _settings = {
             "cookie_douyin": "",
             "cookie_tiktok": "",
@@ -332,8 +348,7 @@ def _parse_cookie_input(value: str) -> str:
 async def update_settings(req: SettingsUpdate):
     """Update downloader settings."""
     import json
-    data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
-    path = os.path.join(data_dir, "downloader_settings.json")
+    path = str(_settings_path())
     settings = _get_settings()
     updates = req.model_dump(exclude_none=True)
     # Auto-convert cookie formats

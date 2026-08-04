@@ -29,8 +29,8 @@ class BrowserScriptsExtension(Extension):
     def _init_database(self):
         """Initialize SQLite database."""
         try:
-            from tubecli.config import DATA_DIR
-            db_dir = os.path.join(str(DATA_DIR), "extensions_data", "browser_scripts")
+            from tubecli.config import ext_data_dir
+            db_dir = str(ext_data_dir("browser_scripts"))
             os.makedirs(db_dir, exist_ok=True)
             db_path = os.path.join(db_dir, "scripts.db")
             

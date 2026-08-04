@@ -517,7 +517,7 @@ class UniversalTracker:
         """Apply FFmpeg effects using video_editor engine."""
         try:
             import importlib.util
-            from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
+            from tubecli.config import EXTENSIONS_EXTERNAL_DIR, ext_data_path
             
             ve_dir = str(EXTENSIONS_EXTERNAL_DIR / "video_editor")
             engine_path = os.path.join(ve_dir, "video_engine.py")
@@ -529,7 +529,8 @@ class UniversalTracker:
             engine = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(engine)
             
-            output_dir = os.path.join(str(DATA_DIR), "video_editor", "exports")
+            # data/video_editor is a junction onto this; name the real place.
+            output_dir = str(ext_data_path("video_editor", "exports"))
             os.makedirs(output_dir, exist_ok=True)
             
             current_input = file_path

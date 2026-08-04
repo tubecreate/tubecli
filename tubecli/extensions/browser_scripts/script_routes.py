@@ -51,8 +51,8 @@ def _store():
 
     store = _store_mod.ScriptStore.get_instance()
     if store is None:
-        from tubecli.config import DATA_DIR
-        scripts_dir = os.path.join(str(DATA_DIR), "extensions_data", "browser_scripts")
+        from tubecli.config import ext_data_dir
+        scripts_dir = str(ext_data_dir("browser_scripts"))
         store = _store_mod.ScriptStore.get_instance(scripts_dir)
     return store
 
@@ -69,8 +69,8 @@ def _db():
 
     db = _db_mod.ScriptDatabase.get_instance()
     if db is None:
-        from tubecli.config import DATA_DIR
-        db_dir = os.path.join(str(DATA_DIR), "extensions_data", "browser_scripts")
+        from tubecli.config import ext_data_dir
+        db_dir = str(ext_data_dir("browser_scripts"))
         os.makedirs(db_dir, exist_ok=True)
         db_path = os.path.join(db_dir, "scripts.db")
         db = _db_mod.ScriptDatabase.get_instance(db_path)
@@ -93,10 +93,15 @@ def _get_node_env():
 
 
 def _get_profiles_dir():
-    """Get browser profiles directory from TubeCLI config."""
+    """Get browser profiles directory from TubeCLI config.
+
+    data/browser_profiles is a junction onto this path, so the old spelling
+    still worked — but every caller that keeps using it keeps the compat shim
+    alive, and the scanner has to treat it as an alias.
+    """
     try:
-        from tubecli.config import DATA_DIR
-        return os.path.join(str(DATA_DIR), "browser_profiles")
+        from tubecli.config import ext_data_path
+        return str(ext_data_path("browser", "browser_profiles"))
     except Exception:
         return ""
 

@@ -31,7 +31,9 @@ class DownloaderExtension(Extension):
         dl_dir = os.path.join(data_dir, "downloads")
         os.makedirs(dl_dir, exist_ok=True)
         # Load/create settings
-        self.settings_path = os.path.join(data_dir, SETTINGS_FILE)
+        # data/downloader_settings.json is a hardlink onto this file.
+        from tubecli.config import ext_data_path
+        self.settings_path = str(ext_data_path("video_downloader", SETTINGS_FILE))
         self.settings = self._load_settings()
 
     def _load_settings(self):

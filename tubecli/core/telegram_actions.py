@@ -738,7 +738,7 @@ async def execute_reup_sequence(
         import sys
         
         # Load video_engine using the canonical config path
-        from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
+        from tubecli.config import EXTENSIONS_EXTERNAL_DIR, ext_data_path
         ve_dir = str(EXTENSIONS_EXTERNAL_DIR / "video_editor")
         engine_path = os.path.join(ve_dir, "video_engine.py")
         
@@ -747,7 +747,8 @@ async def execute_reup_sequence(
             engine = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(engine)
             
-            output_dir = os.path.join(str(DATA_DIR), "video_editor", "exports")
+            # data/video_editor is a junction onto this; name the real place.
+            output_dir = str(ext_data_path("video_editor", "exports"))
             os.makedirs(output_dir, exist_ok=True)
             
             current_input = video_path

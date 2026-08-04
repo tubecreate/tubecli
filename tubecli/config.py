@@ -14,8 +14,52 @@ AGENTS_FILE = DATA_DIR / "agents.json"
 SKILLS_FILE = DATA_DIR / "skills.json"
 WORKFLOWS_DIR = DATA_DIR / "workflows"
 LOGS_DIR = DATA_DIR / "logs"
-EXTENSIONS_EXTERNAL_DIR = DATA_DIR / "extensions_external"
-EXTENSIONS_DATA_DIR = DATA_DIR / "extensions_data"
+EXTENSIONS_EXTERNAL_DIR = DATA_DIR / "extensions_external"   # extension CODE
+EXTENSIONS_DATA_DIR = DATA_DIR / "extensions_data"           # extension DATA
+
+
+# ── Where an extension's data lives ──────────────────────────────────
+#
+# Use ext_data_dir()/ext_data_path() instead of joining a path by hand.
+#
+# Extension data used to sit loose in data/ — data/browser_profiles,
+# data/auth_manager.json — and was moved under extensions_data/<ext>/ so each
+# extension owns one subtree. migrate_and_link_extensions_data() still leaves a
+# junction (or, for files, a hardlink) at every old location so code that was
+# never updated keeps working; there are 23 junctions and 12 hardlinks in data/
+# today, all pointing back in here.
+#
+# That shim is the thing being retired. Every caller that names an old path
+# keeps it alive, and each one is also a directory the disk-usage scanner has to
+# recognise as an alias or it counts the same bytes twice. Route new code
+# through these helpers and the shim can eventually be deleted outright.
+#
+# A few extensions keep their data under a differently-named folder than the
+# extension itself; those are the only entries that need naming here.
+_EXT_DATA_ALIASES = {
+    "browser_profiles": ("browser", "browser_profiles"),
+    "ytdl_downloads": ("video_downloader", "ytdl_downloads"),
+    "web_crawler_exports": ("web_crawler", "web_crawler_exports"),
+}
+
+
+def ext_data_dir(extension: str) -> Path:
+    """Canonical data directory for one extension. Does not create it."""
+    return EXTENSIONS_DATA_DIR / extension
+
+
+def ext_data_path(extension: str, *parts: str) -> Path:
+    """Canonical path to something inside an extension's data directory.
+
+    ext_data_path("browser", "browser_profiles") and the legacy folder name
+    ext_data_path("browser_profiles") both resolve to the same place, so a call
+    site can be moved over without first working out which extension owns the
+    folder.
+    """
+    if not parts and extension in _EXT_DATA_ALIASES:
+        owner, folder = _EXT_DATA_ALIASES[extension]
+        return EXTENSIONS_DATA_DIR / owner / folder
+    return EXTENSIONS_DATA_DIR.joinpath(extension, *parts)
 
 # ── Memory ───────────────────────────────────────────────────────────
 MEMORY_DIR = DATA_DIR / "memory"
@@ -330,14 +374,32 @@ def migrate_and_link_extensions_data():
                 except Exception as e:
                     print(f"[Migration] Error moving file {filename}: {e}")
 
-            # Ensure destination parent exists and file is created
-            if not new_file_path.exists():
+            # Ensure destination parent exists and file is created.
+            #
+            # JSON only. A non-JSON entry that is absent is left absent, because
+            # this shim exists to keep MOVED data reachable, and inventing an
+            # empty file is not that.
+            #
+            # content_studio is why. It migrates its SQLite database into JSON,
+            # renames content_studio.db to .migrated and is then done with it —
+            # but the name is in file_mapping, so the next boot found it
+            # "missing" and touch()'d a 0-byte database back into place. The
+            # extension then saw an old DB plus a finished index, tried to
+            # rename it again, and hit FileExistsError because .migrated was
+            # already there — printing "Could not rename old DB" on every single
+            # start, forever. Reproduced against a throwaway data dir.
+            #
+            # The other non-JSON entry, ytdl_cookies.txt, is written by
+            # video_downloader when it converts a cookie string; an empty one
+            # was never read by anything.
+            if not new_file_path.exists() and filename.endswith(".json"):
                 new_file_path.parent.mkdir(parents=True, exist_ok=True)
-                if filename.endswith(".json"):
-                    with open(new_file_path, "w", encoding="utf-8") as f:
-                        f.write("{}")
-                else:
-                    new_file_path.touch()
+                with open(new_file_path, "w", encoding="utf-8") as f:
+                    f.write("{}")
+            if not new_file_path.exists():
+                # Nothing to link. Skip rather than hardlink a file that is not
+                # there, which would only raise inside create_file_link.
+                continue
 
             # Link the files
             create_file_link(new_file_path, old_file_path)

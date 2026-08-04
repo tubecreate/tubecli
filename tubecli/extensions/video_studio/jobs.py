@@ -77,9 +77,20 @@ def _resolve_download_path(name: str) -> str:
         return name
 
     base = os.path.basename(name.replace("\\", "/"))
+    # Canonical location first. The three data/ytdl_downloads spellings below
+    # only ever resolved through the junction the boot migration leaves behind;
+    # they stay as a fallback for an install whose migration has not run yet,
+    # and go away with the shim.
     candidates = []
+    try:
+        from tubecli.config import ext_data_path
+
+        candidates.append(str(ext_data_path("video_downloader", "ytdl_downloads")))
+    except Exception:
+        pass
     env_dir = os.environ.get("TUBECLI_DATA_DIR")
     if env_dir:
+        candidates.append(os.path.join(env_dir, "extensions_data", "video_downloader", "ytdl_downloads"))
         candidates.append(os.path.join(env_dir, "ytdl_downloads"))
     try:
         from tubecli.config import DATA_DIR
