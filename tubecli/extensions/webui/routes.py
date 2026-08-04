@@ -1,7 +1,7 @@
 """
 WebUI API routes — serve dashboard and workflow static files via FastAPI.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 import os
 import mimetypes
@@ -249,15 +249,37 @@ async def file_manager_page():
     return {"error": "File Manager page not found"}
 
 
+def _serve_from(base_dir: str, filename: str, label: str):
+    """Serve `filename` from `base_dir`, and from nowhere else.
+
+    This used to be os.path.join(base_dir, filename) followed by os.path.exists.
+    Starlette normalises a literal "../" out of the URL path before routing, so
+    that looked safe — but percent-encoded traversal is decoded AFTER routing and
+    arrives at the handler intact. Confirmed: five encoded variants
+    (%2e%2e%2f, ..%2f, ..%5c, %252e%252e%252f and %2e%2e/) each returned 200, and
+    the reach was not limited to the extension — data/cloud_api_keys.json and
+    C:\\Windows\\win.ini both came back. That is arbitrary file read, and the API
+    keys are the worst possible thing to hand out.
+
+    realpath on both sides is what actually closes it: it resolves the traversal
+    and any symlink before the comparison, so containment is decided on the real
+    location rather than on the string the caller supplied.
+    """
+    if not base_dir:
+        raise HTTPException(404, f"{label} not found")
+    root = os.path.realpath(base_dir)
+    target = os.path.realpath(os.path.join(root, filename))
+    if target != root and not target.startswith(root + os.sep):
+        raise HTTPException(403, "Path is outside the extension directory")
+    if not os.path.isfile(target):
+        raise HTTPException(404, f"File {filename} not found")
+    return FileResponse(target)
+
+
 @router.get("/file-manager-static/{filename:path}")
 async def serve_file_manager_static(filename: str):
     """Serve File Manager static files (JS, CSS)."""
-    fm_dir = _find_file_manager_dir()
-    if fm_dir:
-        filepath = os.path.join(fm_dir, filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(_find_file_manager_dir(), filename, "File Manager")
 
 
 
@@ -368,11 +390,8 @@ async def video_editor_page():
 async def serve_video_editor_static(filename: str):
     """Serve Video Editor static files (JS, CSS)."""
     ve_dir = _find_video_editor_dir()
-    if ve_dir:
-        filepath = os.path.join(ve_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(ve_dir, "static") if ve_dir else "",
+                       filename, "Video Editor")
 
 
 @router.get("/video/processing")
@@ -420,11 +439,8 @@ async def sheets_manager_page():
 async def serve_sheets_manager_static(filename: str):
     """Serve Sheets Manager static files (JS, CSS)."""
     sm_dir = _find_sheets_manager_dir()
-    if sm_dir:
-        filepath = os.path.join(sm_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(sm_dir, "static") if sm_dir else "",
+                       filename, "Sheets Manager")
 
 
 def _find_livestream_dir():
@@ -470,20 +486,14 @@ async def livestream_page():
 async def serve_livestream_static(filename: str):
     """Serve Livestream Manager static files (JS, CSS)."""
     ls_dir = _find_livestream_dir()
-    if ls_dir:
-        filepath = os.path.join(ls_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(ls_dir, "static") if ls_dir else "",
+                       filename, "Livestream Manager")
 
 
 @router.get("/static/{filename:path}")
 async def serve_static(filename: str):
     """Serve static files (JS, CSS, etc.)."""
-    filepath = os.path.join(STATIC_DIR, filename)
-    if os.path.exists(filepath):
-        return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(STATIC_DIR, filename, "Dashboard asset")
 
 
 def _find_web_crawler_dir():
@@ -531,11 +541,8 @@ async def web_crawler_page():
 async def serve_web_crawler_static(filename: str):
     """Serve Web Crawler static files (JS, CSS)."""
     wc_dir = _find_web_crawler_dir()
-    if wc_dir:
-        filepath = os.path.join(wc_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(wc_dir, "static") if wc_dir else "",
+                       filename, "Web Crawler")
 
 
 def _find_video_manager_dir():
@@ -583,11 +590,8 @@ async def video_manager_page():
 async def serve_video_manager_static(filename: str):
     """Serve Video Manager static files."""
     vm_dir = _find_video_manager_dir()
-    if vm_dir:
-        filepath = os.path.join(vm_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(vm_dir, "static") if vm_dir else "",
+                       filename, "Video Manager")
 
 
 def _find_subtitle_extractor_dir():
@@ -635,11 +639,8 @@ async def subtitle_extractor_page():
 async def serve_subtitle_extractor_static(filename: str):
     """Serve Subtitle Extractor static files."""
     se_dir = _find_subtitle_extractor_dir()
-    if se_dir:
-        filepath = os.path.join(se_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(se_dir, "static") if se_dir else "",
+                       filename, "Subtitle Extractor")
 
 
 def _find_tts_vibevoice_dir():
@@ -687,11 +688,8 @@ async def tts_vibevoice_page():
 async def serve_tts_vibevoice_static(filename: str):
     """Serve TTS VibeVoice static files (JS, CSS, i18n)."""
     tts_dir = _find_tts_vibevoice_dir()
-    if tts_dir:
-        filepath = os.path.join(tts_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(tts_dir, "static") if tts_dir else "",
+                       filename, "TTS VibeVoice")
 
 
 def _find_ai_arena_dir():
@@ -739,11 +737,8 @@ async def ai_arena_page():
 async def serve_ai_arena_static(filename: str):
     """Serve AI Arena static files (JS, CSS)."""
     arena_dir = _find_ai_arena_dir()
-    if arena_dir:
-        filepath = os.path.join(arena_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(arena_dir, "static") if arena_dir else "",
+                       filename, "AI Arena")
 
 
 def _find_template_designer_dir():
@@ -791,11 +786,8 @@ async def template_designer_page():
 async def serve_template_designer_static(filename: str):
     """Serve Template Designer static files (JS, CSS)."""
     td_dir = _find_template_designer_dir()
-    if td_dir:
-        filepath = os.path.join(td_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(td_dir, "static") if td_dir else "",
+                       filename, "Template Designer")
 
 
 def _find_edu_video_studio_dir():
@@ -843,8 +835,5 @@ async def edu_video_studio_page():
 async def serve_edu_video_studio_static(filename: str):
     """Serve EduVideo Studio static files (JS, CSS)."""
     ev_dir = _find_edu_video_studio_dir()
-    if ev_dir:
-        filepath = os.path.join(ev_dir, "static", filename)
-        if os.path.exists(filepath):
-            return FileResponse(filepath)
-    return {"error": f"File {filename} not found"}
+    return _serve_from(os.path.join(ev_dir, "static") if ev_dir else "",
+                       filename, "EduVideo Studio")
