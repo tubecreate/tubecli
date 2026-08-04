@@ -28,6 +28,33 @@ BLOCKED_PATHS = [
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 
 
+def _safe_str(value: str) -> str:
+    """Make a filesystem string safe to hand to the JSON encoder.
+
+    On POSIX a filename may hold bytes that are not valid UTF-8, and os.listdir /
+    glob hand them back as lone surrogates — PEP 383's surrogateescape. Starlette
+    renders a response with json.dumps(..., ensure_ascii=False).encode("utf-8")
+    (verified against the installed starlette 0.50.0) and that encoder raises
+    UnicodeEncodeError on a lone surrogate, so a single oddly-named file used to
+    take down the entire /list, /search and /info response it appeared in — the
+    user saw a 500 for a folder that is perfectly readable, with nothing naming
+    the file at fault. Windows cannot hit this (NTFS names are valid UTF-16).
+
+    Repaired strings are for display only: the repair is lossy, so a client
+    cannot use the returned path to reach that particular file. That is a real
+    limitation and it is unavoidable — the name simply has no JSON spelling.
+
+    Duplicated from cleanup._safe_str rather than imported, because this module
+    is the sandbox every other part of the extension depends on and it must not
+    gain an import edge to a 1,643-line module that can fail to load.
+    """
+    try:
+        value.encode("utf-8")
+        return value
+    except UnicodeEncodeError:
+        return value.encode("utf-8", "replace").decode("utf-8", "replace")
+
+
 class FileService:
     """Sandboxed file operations service."""
 
@@ -59,9 +86,30 @@ class FileService:
 
     def _validate_path(self, path: str) -> str:
         """Validate and normalize path. Raises ValueError if blocked."""
-        # Expand ~ and environment variables
-        expanded = os.path.expanduser(os.path.expandvars(path))
+        # os.path.expandvars is deliberately NOT called here. "%NAME%" is a legal
+        # directory name on Windows and "$NAME"/"${NAME}" are legal on Linux and
+        # macOS, so expanding them retargeted the operation at a DIFFERENT,
+        # existing object without telling anyone: delete() on a folder literally
+        # named "%USERNAME%" returned {"status": "deleted", ...\ADMIN} — the
+        # sibling data folder was destroyed, the selected one survived, and the
+        # API reported success (reproduced). Every caller — the WebUI, the chat
+        # /reveal endpoint, cleanup and disk usage — hands over a real filesystem
+        # path, never a shell string, so there was never anything to expand.
+        expanded = os.path.expanduser(path)
         normalized = os.path.normpath(os.path.abspath(expanded))
+
+        # "~/..." survives because SKILL.md tells the model to address the sandbox
+        # that way. "~name" does not: it is indistinguishable from a real
+        # directory of that name, and expanduser rewrites it to someone's home
+        # directory. Guessing wrong there is the same silent-retarget failure, so
+        # name both paths and refuse instead of picking one.
+        if expanded != path and not (path == "~" or path[:2] in ("~/", "~" + os.sep)):
+            raise ValueError(
+                f"Từ chối vì đường dẫn bị diễn giải thành một đường dẫn khác:\n"
+                f"  bạn yêu cầu: {path}\n"
+                f"  hệ thống hiểu thành: {expanded}\n"
+                f"Hãy dùng đường dẫn tuyệt đối đầy đủ."
+            )
         # Resolve symlinks/junctions too: a link inside an allowed root must
         # not be a way to reach a blocked one.
         try:
@@ -88,11 +136,17 @@ class FileService:
         return normalized
 
     def _file_info(self, path: str) -> Dict[str, Any]:
-        """Get file/folder info dict."""
+        """Get file/folder info dict.
+
+        `path` keeps its exact OS spelling for os.stat here; only the two strings
+        that end up in the JSON response are passed through _safe_str, because
+        every caller of this method (list_dir, search, info, GET /info) feeds the
+        result straight to the response encoder.
+        """
         stat = os.stat(path)
         return {
-            "name": os.path.basename(path),
-            "path": path,
+            "name": _safe_str(os.path.basename(path)),
+            "path": _safe_str(path),
             "is_dir": os.path.isdir(path),
             "size": stat.st_size if os.path.isfile(path) else 0,
             "size_human": self._human_size(stat.st_size) if os.path.isfile(path) else "",
@@ -126,7 +180,11 @@ class FileService:
             try:
                 items.append(self._file_info(full))
             except (PermissionError, OSError):
-                items.append({"name": entry, "path": full, "error": "Permission denied"})
+                # Same repair as _file_info: this branch is the one an
+                # undecodable name is most likely to reach, so leaving it raw
+                # would still poison the whole listing at encode time.
+                items.append({"name": _safe_str(entry), "path": _safe_str(full),
+                              "error": "Permission denied"})
 
         return {
             "path": safe_path,

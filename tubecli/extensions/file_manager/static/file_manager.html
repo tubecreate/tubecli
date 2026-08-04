@@ -1,171 +1,1261 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>File Manager — TubeCLI</title>
-    <link rel="stylesheet" href="/file-manager-static/file_manager.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>File Manager — TubeCLI</title>
+
+<!--
+  Fonts are a progressive enhancement only. The Google stylesheet is requested with
+  media="print" so it can never block first paint, and the CSS declares a complete
+  system stack, so the page is correct with no internet at all. Icons are an inline
+  SVG sprite rather than an icon font: a failed icon-font load renders the ligature
+  name as literal text ("folder_open") and reflows every toolbar.
+-->
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=3">
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      media="print" onload="this.media='all'">
+
+<script>
+/*
+ * Pre-paint language guess.
+ *
+ * <html lang> should be right before first paint, but the authoritative app
+ * language only arrives from /api/v1/settings/language. 'tubecli_lang' is the same
+ * key the dashboard writes in changeLanguage(), so this is the app's own last known
+ * value rather than a hardcoded locale. navigator.language is the final fallback,
+ * and the i18n loader below corrects both once the API answers.
+ */
+(function () {
+    try {
+        var cached = localStorage.getItem('tubecli_lang');
+        document.documentElement.lang = cached || (navigator.language || 'en').slice(0, 2);
+    } catch (e) {
+        /* Private-mode browsers throw on localStorage; the served lang stands. */
+    }
+})();
+</script>
 </head>
 <body>
-    <!-- Header -->
-    <header class="fm-header">
-        <div class="fm-header-left">
-            <a href="/dashboard" class="fm-back-btn" title="Dashboard">
-                <span class="material-icons-round">arrow_back</span>
-            </a>
-            <div class="fm-logo">
-                <span class="material-icons-round">folder_open</span>
-                <h1>File Manager</h1>
-            </div>
-        </div>
-        <div class="fm-header-center">
-            <div class="fm-breadcrumb" id="breadcrumb"></div>
-        </div>
-        <div class="fm-header-right">
-            <div class="fm-search-box">
-                <span class="material-icons-round">search</span>
-                <input type="text" id="searchInput" placeholder="Search files...">
-            </div>
-            <label class="fm-toggle" title="Show hidden files">
-                <input type="checkbox" id="showHidden">
-                <span class="material-icons-round">visibility</span>
-            </label>
-        </div>
-    </header>
 
-    <!-- Toolbar -->
-    <div class="fm-toolbar">
-        <div class="fm-toolbar-left">
-            <button class="fm-btn fm-btn-primary" onclick="FM.createFolder()" title="New Folder">
-                <span class="material-icons-round">create_new_folder</span>
-                <span class="fm-btn-text">New Folder</span>
-            </button>
-            <button class="fm-btn" onclick="FM.createFile()" title="New File">
-                <span class="material-icons-round">note_add</span>
-                <span class="fm-btn-text">New File</span>
-            </button>
-            <div class="fm-divider"></div>
-            <button class="fm-btn" onclick="FM.renameSelected()" title="Rename" id="btnRename" disabled>
-                <span class="material-icons-round">edit</span>
-            </button>
-            <button class="fm-btn fm-btn-danger" onclick="FM.deleteSelected()" title="Delete" id="btnDelete" disabled>
-                <span class="material-icons-round">delete</span>
-            </button>
-            <button class="fm-btn" onclick="FM.copySelected()" title="Copy" id="btnCopy" disabled>
-                <span class="material-icons-round">content_copy</span>
-            </button>
-            <button class="fm-btn" onclick="FM.pasteClipboard()" title="Paste" id="btnPaste" disabled>
-                <span class="material-icons-round">content_paste</span>
-            </button>
-        </div>
-        <div class="fm-toolbar-right">
-            <button class="fm-btn" onclick="FM.refresh()" title="Refresh">
-                <span class="material-icons-round">refresh</span>
-            </button>
-            <div class="fm-view-toggle">
-                <button class="fm-btn active" id="viewGrid" onclick="FM.setView('grid')">
-                    <span class="material-icons-round">grid_view</span>
-                </button>
-                <button class="fm-btn" id="viewList" onclick="FM.setView('list')">
-                    <span class="material-icons-round">view_list</span>
-                </button>
-            </div>
-        </div>
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     Icon sprite — inline so the page chrome needs no network.
+     Each icon is a <symbol viewBox="0 0 24 24">, so a referencing <svg> needs no
+     viewBox of its own and the geometry scales to whatever size CSS gives it.
+     Symbols not referenced by this markup are for JS-rendered content (file-type
+     icons, quick-access entries, volume rows, toast severities).
+     ═══════════════════════════════════════════════════════════════════════ -->
+<svg class="fm-sprite" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M14 9l-5-5-5 5"/><path d="M9 4v12a4 4 0 0 0 4 4h7"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14h6"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></symbol>
+    <symbol id="i-file-plus" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/><path d="M12 18v-6"/><path d="M9 15h6"/></symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.18"/><path d="M7 2v20"/><path d="M17 2v20"/><path d="M2 12h20"/><path d="M2 7h5"/><path d="M2 17h5"/><path d="M17 17h5"/><path d="M17 7h5"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/></symbol>
+    <symbol id="i-archive" viewBox="0 0 24 24"><path d="M21 8v13H3V8"/><rect x="1.5" y="3.5" width="21" height="4.5" rx="1"/><path d="M10 12h4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3.5 6h.01"/><path d="M3.5 12h.01"/><path d="M3.5 18h.01"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-panel-right" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3"/><path d="M9 5l3-3 3 3"/><path d="M15 19l-3 3-3-3"/><path d="M19 9l3 3-3 3"/><path d="M2 12h20"/><path d="M12 2v20"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></symbol>
+    <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M15 9l-6 6"/><path d="M9 9l6 6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+    <symbol id="i-hard-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 5v14c0 1.66-4 3-9 3s-9-1.34-9-3V5"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/></symbol>
+    <symbol id="i-pie" viewBox="0 0 24 24"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></symbol>
+    <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M11 3l1.7 4.6L17.3 9.3l-4.6 1.7L11 15.6 9.3 11 4.7 9.3 9.3 7.6z"/><path d="M18.5 14.5l.85 2.15 2.15.85-2.15.85-.85 2.15-.85-2.15-2.15-.85 2.15-.85z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3.5l14 8.5-14 8.5z"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+    <symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-folder-off" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M2 2l20 20"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></symbol>
+    <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/><path d="M9 15l3 3 3-6"/></symbol>
+  </defs>
+</svg>
+
+
+<div id="fm-app" class="fm-app" data-view="files" data-rail="open" data-panel="closed">
+
+  <!-- ══════════════════ HEADER ══════════════════ -->
+  <header class="fm-header">
+
+    <div class="fm-header-left">
+      <button type="button" class="fm-icon-btn fm-rail-toggle" data-fm-action="toggle-rail"
+              data-i18n-title="fm.nav.quick_access" aria-expanded="true" aria-controls="fm-rail">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-list"/></svg>
+        <span class="fm-sr" data-i18n="fm.nav.quick_access"></span>
+      </button>
+
+      <a href="/dashboard#/dashboard" target="_top" class="fm-back" data-i18n-title="fm.nav.back">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-left"/></svg>
+        <span class="fm-back-label" data-i18n="fm.nav.back"></span>
+      </a>
+
+      <div class="fm-brand">
+        <span class="fm-brand-mark" aria-hidden="true">
+          <svg class="fm-ico" aria-hidden="true"><use href="#i-folder"/></svg>
+        </span>
+        <span class="fm-brand-text">
+          <span class="fm-brand-title" data-i18n="fm.nav.title"></span>
+          <span class="fm-brand-sub" data-i18n="fm.nav.subtitle"></span>
+        </span>
+      </div>
     </div>
-    <!-- Picker Mode Banner (shown via JS when ?mode=picker) -->
-    <div id="pickerBanner" style="display:none;background:#0f3460;border-bottom:2px solid #3b82f6;padding:10px 20px;flex-shrink:0;flex-direction:row;align-items:center;justify-content:space-between;gap:12px;">
-        <span style="color:#93c5fd;font-size:13px;font-weight:500;">📂 Chế độ chọn file — nhấp đơn để chọn, double-click để xác nhận ngay</span>
-        <button id="btnPickerSelect" onclick="FM.confirmPick()"
-            style="background:#3b82f6;color:#fff;border:none;border-radius:7px;padding:7px 18px;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4;pointer-events:none;transition:all .2s;white-space:nowrap;">
-            ✅ Chọn file này
+
+    <div class="fm-header-center">
+      <nav class="fm-breadcrumb fm-scroll-x" id="breadcrumb" data-i18n-aria-label="fm.common.path"></nav>
+    </div>
+
+    <div class="fm-header-right">
+      <div class="fm-search">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-search"/></svg>
+        <input type="search" id="searchInput" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="fm.browse.search_placeholder"
+               data-i18n-aria-label="fm.common.search">
+      </div>
+
+      <div class="fm-segmented" role="group" data-i18n-aria-label="fm.common.type">
+        <button type="button" class="fm-seg-btn is-active" id="viewGrid" data-fm-action="view-grid"
+                data-i18n-title="fm.browse.view_grid" aria-pressed="true">
+          <svg class="fm-ico" aria-hidden="true"><use href="#i-grid"/></svg>
+          <span class="fm-sr" data-i18n="fm.browse.view_grid"></span>
         </button>
+        <button type="button" class="fm-seg-btn" id="viewList" data-fm-action="view-list"
+                data-i18n-title="fm.browse.view_list" aria-pressed="false">
+          <svg class="fm-ico" aria-hidden="true"><use href="#i-list"/></svg>
+          <span class="fm-sr" data-i18n="fm.browse.view_list"></span>
+        </button>
+      </div>
+
+      <label class="fm-icon-btn fm-check-btn" data-i18n-title="fm.browse.show_hidden">
+        <input type="checkbox" id="showHidden">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-eye"/></svg>
+        <span class="fm-sr" data-i18n="fm.browse.show_hidden"></span>
+      </label>
+
+      <button type="button" class="fm-icon-btn" data-fm-action="toggle-panel"
+              data-i18n-title="fm.browse.properties" aria-expanded="false" aria-controls="propertiesPanel">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-panel-right"/></svg>
+        <span class="fm-sr" data-i18n="fm.browse.properties"></span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ══════════════════ VIEW TABS ══════════════════ -->
+  <div class="fm-viewbar">
+    <div class="fm-tabs fm-scroll-x" role="tablist" data-i18n-aria-label="fm.nav.title">
+      <button type="button" class="fm-tab is-active" role="tab" id="fm-tab-files"
+              aria-selected="true" aria-controls="fm-view-files" data-fm-action="view" data-fm-view="files">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-folder"/></svg>
+        <span data-i18n="fm.nav.browse"></span>
+      </button>
+      <button type="button" class="fm-tab" role="tab" id="fm-tab-storage"
+              aria-selected="false" aria-controls="fm-view-storage" data-fm-action="view" data-fm-view="storage">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-pie"/></svg>
+        <span data-i18n="fm.nav.usage"></span>
+      </button>
+      <button type="button" class="fm-tab" role="tab" id="fm-tab-cleanup"
+              aria-selected="false" aria-controls="fm-view-cleanup" data-fm-action="view" data-fm-view="cleanup">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-sparkle"/></svg>
+        <span data-i18n="fm.nav.cleanup"></span>
+      </button>
     </div>
 
-    <!-- Main Content -->
-    <div class="fm-main">
-        <!-- Sidebar -->
-        <aside class="fm-sidebar" id="sidebar">
-            <div class="fm-sidebar-section">
-                <h3>Quick Access</h3>
-                <div id="quickAccess"></div>
-            </div>
-        </aside>
-
-        <!-- File Area -->
-        <main class="fm-content">
-            <div class="fm-file-grid" id="fileGrid"></div>
-            <div class="fm-empty" id="emptyState" style="display:none">
-                <span class="material-icons-round">folder_off</span>
-                <p>Empty folder</p>
-            </div>
-            <div class="fm-loading" id="loading" style="display:none">
-                <div class="fm-spinner"></div>
-                <p>Loading...</p>
-            </div>
-        </main>
-
-        <!-- Properties Panel -->
-        <aside class="fm-properties" id="propertiesPanel" style="display:none">
-            <div class="fm-prop-header">
-                <h3>Properties</h3>
-                <button class="fm-btn-icon" onclick="FM.closeProperties()">
-                    <span class="material-icons-round">close</span>
-                </button>
-            </div>
-            <div class="fm-prop-body" id="propertiesBody"></div>
-        </aside>
+    <div class="fm-viewbar-right">
+      <span class="fm-scope" id="fm-scope-path"></span>
     </div>
+  </div>
 
-    <!-- Status Bar -->
-    <footer class="fm-status">
-        <span id="statusInfo">Ready</span>
-        <span id="statusCount"></span>
-    </footer>
+  <!-- ══════════════════ PICKER BANNER ══════════════════ -->
+  <div class="fm-banner" id="pickerBanner" hidden>
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-cursor"/></svg>
+    <span class="fm-banner-text" data-i18n="fm.picker.hint"></span>
+    <button type="button" class="fm-btn fm-btn-primary" id="btnPickerSelect" data-fm-action="picker-confirm" disabled>
+      <svg class="fm-ico" aria-hidden="true"><use href="#i-check"/></svg>
+      <span data-i18n="fm.picker.select"></span>
+    </button>
+  </div>
 
-    <!-- Context Menu -->
-    <div class="fm-context-menu" id="contextMenu" style="display:none">
-        <div class="fm-ctx-item" onclick="FM.openItem()">
-            <span class="material-icons-round">open_in_new</span> Open
-        </div>
-        <div class="fm-ctx-item" onclick="FM.renameSelected()">
-            <span class="material-icons-round">edit</span> Rename
-        </div>
-        <div class="fm-ctx-item" onclick="FM.copySelected()">
-            <span class="material-icons-round">content_copy</span> Copy
-        </div>
-        <div class="fm-ctx-item" onclick="FM.moveSelected()">
-            <span class="material-icons-round">drive_file_move</span> Move to...
-        </div>
-        <hr>
-        <div class="fm-ctx-item" onclick="FM.showProperties()">
-            <span class="material-icons-round">info</span> Properties
-        </div>
-        <hr>
-        <div class="fm-ctx-item fm-ctx-danger" onclick="FM.deleteSelected()">
-            <span class="material-icons-round">delete</span> Delete
-        </div>
-    </div>
+  <!-- ══════════════════ BODY ══════════════════ -->
+  <div class="fm-body">
 
-    <!-- File Preview Modal -->
-    <div class="fm-modal-overlay" id="previewModal" style="display:none">
-        <div class="fm-modal">
-            <div class="fm-modal-header">
-                <h3 id="previewTitle">File Preview</h3>
-                <button class="fm-btn-icon" onclick="FM.closePreview()">
-                    <span class="material-icons-round">close</span>
-                </button>
+    <!-- ─────────── LEFT RAIL ─────────── -->
+    <aside class="fm-rail" id="fm-rail">
+      <section class="fm-rail-section">
+        <h2 class="fm-rail-title" data-i18n="fm.nav.quick_access"></h2>
+        <!-- JS fills from GET /roots. Items use .fm-rail-item. -->
+        <div id="quickAccess" class="fm-rail-list"></div>
+        <p class="fm-rail-note fm-rail-note-sm" data-i18n="fm.nav.allowed_roots"></p>
+      </section>
+
+      <section class="fm-rail-section fm-rail-volumes">
+        <h2 class="fm-rail-title">
+          <span data-i18n="fm.disk.title"></span>
+          <button type="button" class="fm-icon-btn fm-icon-btn-xs" data-fm-action="volumes-refresh"
+                  data-i18n-title="fm.common.refresh">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-refresh"/></svg>
+            <span class="fm-sr" data-i18n="fm.common.refresh"></span>
+          </button>
+        </h2>
+
+        <!-- JS fills from GET /api/v1/file-manager/disk.
+             Row shape: .fm-vol[data-state="ok|warn|crit"], bar width set inline.
+             warn crosses 80%, crit crosses 92%. -->
+        <div id="fm-volumes" class="fm-vol-list" aria-live="polite"></div>
+
+        <!-- Starts as "reading…", then becomes the empty or error message. Never
+             left blank while nothing renders, which would read as "no disks". -->
+        <p class="fm-rail-note" id="fm-volumes-state" data-i18n="fm.disk.reading"></p>
+        <p class="fm-rail-note fm-rail-note-sm" data-i18n="fm.disk.skipped_pseudo"></p>
+      </section>
+    </aside>
+
+    <!-- ─────────── MAIN ─────────── -->
+    <main class="fm-main">
+
+      <!-- ========== VIEW: FILES ========== -->
+      <section class="fm-view fm-view-files" id="fm-view-files" role="tabpanel" aria-labelledby="fm-tab-files">
+
+        <div class="fm-toolbar">
+          <div class="fm-toolbar-group">
+            <button type="button" class="fm-btn fm-btn-primary" data-fm-action="new-folder">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-folder-plus"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.browse.new_folder"></span>
+            </button>
+            <button type="button" class="fm-btn" data-fm-action="new-file">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-file-plus"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.browse.new_file"></span>
+            </button>
+          </div>
+
+          <span class="fm-rule" aria-hidden="true"></span>
+
+          <div class="fm-toolbar-group">
+            <button type="button" class="fm-btn fm-btn-quiet" id="btnRename" data-fm-action="rename"
+                    data-i18n-title="fm.browse.rename" disabled>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+              <span class="fm-sr" data-i18n="fm.browse.rename"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" id="btnCopy" data-fm-action="copy"
+                    data-i18n-title="fm.browse.copy" disabled>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-copy"/></svg>
+              <span class="fm-sr" data-i18n="fm.browse.copy"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" id="btnPaste" data-fm-action="paste"
+                    data-i18n-title="fm.browse.paste" disabled>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
+              <span class="fm-sr" data-i18n="fm.browse.paste"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet fm-btn-danger" id="btnDelete" data-fm-action="delete"
+                    data-i18n-title="fm.browse.delete" disabled>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+              <span class="fm-sr" data-i18n="fm.browse.delete"></span>
+            </button>
+          </div>
+
+          <div class="fm-toolbar-group fm-toolbar-end">
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="up" data-i18n-title="fm.browse.parent">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-up"/></svg>
+              <span class="fm-sr" data-i18n="fm.browse.parent"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="refresh" data-i18n-title="fm.common.refresh">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-refresh"/></svg>
+              <span class="fm-sr" data-i18n="fm.common.refresh"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="fm-view-scroll">
+          <!-- List-view column headings; CSS reveals them only in the list layout. -->
+          <div class="fm-list-head" aria-hidden="true">
+            <span class="fm-lh-name" data-i18n="fm.common.name"></span>
+            <span class="fm-lh-size" data-i18n="fm.common.size"></span>
+            <span class="fm-lh-mod" data-i18n="fm.common.modified"></span>
+          </div>
+
+          <div class="fm-file-grid" id="fileGrid"></div>
+
+          <div class="fm-placeholder" id="emptyState" hidden>
+            <svg class="fm-placeholder-ico" aria-hidden="true"><use href="#i-folder-off"/></svg>
+            <p class="fm-placeholder-title" data-i18n="fm.browse.empty_folder"></p>
+          </div>
+
+          <div class="fm-placeholder" id="loading" hidden>
+            <span class="fm-spinner" aria-hidden="true"></span>
+            <p class="fm-placeholder-title" data-i18n="fm.common.loading"></p>
+          </div>
+
+          <!-- A failed listing renders the server's own reason here and offers a
+               retry. It must never fall through to the empty-folder state, which
+               would claim the directory is empty when it was never read. -->
+          <div class="fm-error-block" id="fm-files-error" hidden role="alert">
+            <svg class="fm-ico fm-ico-lg" aria-hidden="true"><use href="#i-alert"/></svg>
+            <div class="fm-error-body">
+              <!-- JS writes the specific fm.err.* message (not_found / permission /
+                   forbidden / network / timeout / generic) into this element. -->
+              <p class="fm-error-detail" id="fm-files-error-detail"></p>
             </div>
-            <div class="fm-modal-body">
-                <pre id="previewContent"></pre>
-            </div>
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="refresh">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-refresh"/></svg>
+              <span data-i18n="fm.common.retry"></span>
+            </button>
+          </div>
         </div>
+      </section>
+
+      <!-- ========== VIEW: STORAGE ========== -->
+      <section class="fm-view fm-view-storage" id="fm-view-storage" role="tabpanel" aria-labelledby="fm-tab-storage">
+
+        <div class="fm-toolbar">
+          <div class="fm-toolbar-group fm-toolbar-headline">
+            <h2 class="fm-view-title" data-i18n="fm.usage.title"></h2>
+            <p class="fm-view-desc" data-i18n="fm.usage.subtitle"></p>
+          </div>
+          <div class="fm-toolbar-group fm-toolbar-end">
+            <button type="button" class="fm-btn fm-btn-primary" id="fm-storage-start" data-fm-action="storage-scan">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-play"/></svg>
+              <span data-i18n="fm.usage.start"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet fm-btn-danger" id="fm-storage-cancel"
+                    data-fm-action="storage-cancel" hidden>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-x-circle"/></svg>
+              <span data-i18n="fm.usage.stop"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="fm-view-scroll">
+
+          <!-- data-state mirrors the API status field verbatim:
+               idle | running | done | error | cancelled. -->
+          <div class="fm-card fm-progress-card" id="fm-storage-progress" data-state="idle">
+            <div class="fm-progress-head">
+              <span class="fm-status-pill" id="fm-storage-status" data-i18n="fm.common.ready"></span>
+              <span class="fm-progress-pct" id="fm-storage-pct"></span>
+            </div>
+            <div class="fm-progress-track">
+              <div class="fm-progress-fill" id="fm-storage-bar" style="width:0%"
+                   role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div>
+            </div>
+            <p class="fm-perm-note" data-i18n="fm.usage.progress_note"></p>
+
+            <dl class="fm-metric-row">
+              <div class="fm-metric">
+                <dt data-i18n="fm.usage.total_bytes"></dt>
+                <dd id="fm-storage-total"></dd>
+              </div>
+              <div class="fm-metric">
+                <dt data-i18n="fm.usage.file_count"></dt>
+                <dd id="fm-storage-files"></dd>
+              </div>
+              <div class="fm-metric">
+                <dt data-i18n="fm.usage.dir_count"></dt>
+                <dd id="fm-storage-dirs"></dd>
+              </div>
+              <div class="fm-metric fm-metric-wide">
+                <dt data-i18n="fm.usage.current"></dt>
+                <dd class="fm-mono fm-ellipsis" id="fm-storage-current"></dd>
+              </div>
+            </dl>
+
+            <p class="fm-inline-error" id="fm-storage-error" hidden role="alert"></p>
+            <!-- Shown when the walk collected onerror entries: the totals above are
+                 incomplete and must not be presented as the whole tree. -->
+            <p class="fm-inline-warn" id="fm-storage-partial" hidden data-i18n="fm.usage.partial_warning"></p>
+            <p class="fm-inline-warn" id="fm-storage-cancelled-note" hidden data-i18n="fm.usage.cancelled_msg"></p>
+          </div>
+
+          <div class="fm-card" id="fm-storage-breakdown" hidden>
+            <h3 class="fm-card-title" data-i18n="fm.usage.children"></h3>
+            <div class="fm-treemap" id="fm-storage-strip" aria-hidden="true"></div>
+            <div class="fm-bars" id="fm-storage-bars"></div>
+            <p class="fm-empty-line" id="fm-storage-no-children" hidden data-i18n="fm.usage.no_children"></p>
+            <p class="fm-perm-note" data-i18n="fm.usage.links_note"></p>
+          </div>
+
+          <div class="fm-card" id="fm-storage-largest" hidden>
+            <h3 class="fm-card-title" data-i18n="fm.usage.largest"></h3>
+            <div class="fm-table-wrap fm-scroll-x fm-table-scrollY">
+              <table class="fm-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="fm.common.name"></th>
+                    <th class="fm-num" data-i18n="fm.common.size"></th>
+                    <th data-i18n="fm.common.modified"></th>
+                    <th data-i18n="fm.common.path"></th>
+                  </tr>
+                </thead>
+                <tbody id="fm-storage-largest-body"></tbody>
+              </table>
+            </div>
+            <p class="fm-empty-line" id="fm-storage-no-largest" hidden data-i18n="fm.usage.no_largest"></p>
+          </div>
+
+          <div class="fm-placeholder" id="fm-storage-empty">
+            <svg class="fm-placeholder-ico" aria-hidden="true"><use href="#i-pie"/></svg>
+            <p class="fm-placeholder-title" data-i18n="fm.common.empty"></p>
+            <p class="fm-placeholder-desc" data-i18n="fm.usage.long_hint"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========== VIEW: CLEANUP ========== -->
+      <section class="fm-view fm-view-cleanup" id="fm-view-cleanup" role="tabpanel" aria-labelledby="fm-tab-cleanup">
+
+        <div class="fm-toolbar">
+          <div class="fm-toolbar-group fm-toolbar-headline">
+            <h2 class="fm-view-title" data-i18n="fm.clean.title"></h2>
+            <p class="fm-view-desc" data-i18n="fm.clean.subtitle"></p>
+          </div>
+          <div class="fm-toolbar-group fm-toolbar-end">
+            <button type="button" class="fm-btn fm-btn-quiet" id="fm-cleanup-select-safe"
+                    data-fm-action="cleanup-select-safe" hidden>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-check"/></svg>
+              <span data-i18n="fm.clean.select_safe"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-primary" id="fm-cleanup-scan" data-fm-action="cleanup-scan">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-search"/></svg>
+              <span data-i18n="fm.clean.scan"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="fm-view-scroll">
+
+          <!-- Standing guarantee, always visible — not a message that only appears
+               after something has already gone wrong. -->
+          <div class="fm-notice fm-notice-info">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-shield"/></svg>
+            <div>
+              <p class="fm-notice-title" data-i18n="fm.clean.excluded_title"></p>
+              <p class="fm-notice-body" data-i18n="fm.clean.excluded_desc"></p>
+            </div>
+          </div>
+
+          <div class="fm-card fm-progress-card" id="fm-cleanup-progress" data-state="idle" hidden>
+            <div class="fm-progress-head">
+              <span class="fm-status-pill" id="fm-cleanup-status" data-i18n="fm.clean.scanning"></span>
+              <span class="fm-progress-pct" id="fm-cleanup-pct"></span>
+            </div>
+            <div class="fm-progress-track">
+              <div class="fm-progress-fill fm-progress-indeterminate" id="fm-cleanup-bar"
+                   role="progressbar" aria-valuemin="0" aria-valuemax="100"></div>
+            </div>
+            <p class="fm-mono fm-ellipsis fm-muted" id="fm-cleanup-current"></p>
+          </div>
+
+          <p class="fm-inline-error" id="fm-cleanup-error" hidden role="alert"></p>
+
+          <!-- JS fills with .fm-cat-card blocks: .fm-check for the checkbox,
+               .fm-risk-safe / .fm-risk-review for the pill, .fm-samples-list for
+               sample paths. -->
+          <div class="fm-cat-grid" id="fm-cleanup-categories"></div>
+
+          <p class="fm-empty-line" id="fm-cleanup-nothing" hidden data-i18n="fm.clean.nothing"></p>
+
+          <div class="fm-placeholder" id="fm-cleanup-empty">
+            <svg class="fm-placeholder-ico" aria-hidden="true"><use href="#i-sparkle"/></svg>
+            <p class="fm-placeholder-title" data-i18n="fm.common.empty"></p>
+            <p class="fm-placeholder-desc" data-i18n="fm.clean.scan_hint"></p>
+          </div>
+
+          <!-- ── STEP 1: dry run. The only route to step 2. ── -->
+          <div class="fm-card fm-dry-card" id="fm-cleanup-dryrun" hidden>
+            <div class="fm-step-head">
+              <span class="fm-step-badge" data-i18n="fm.clean.dry_run_badge"></span>
+              <h3 class="fm-card-title" data-i18n="fm.clean.result_title"></h3>
+            </div>
+            <p class="fm-card-desc" data-i18n="fm.clean.dry_run_note"></p>
+
+            <dl class="fm-metric-row">
+              <div class="fm-metric">
+                <dt data-i18n="fm.clean.freed"></dt>
+                <dd class="fm-metric-strong" id="fm-dry-freed"></dd>
+              </div>
+              <div class="fm-metric">
+                <dt data-i18n="fm.clean.deleted"></dt>
+                <dd id="fm-dry-count"></dd>
+              </div>
+              <div class="fm-metric">
+                <dt data-i18n="fm.clean.failed"></dt>
+                <dd id="fm-dry-failed"></dd>
+              </div>
+            </dl>
+            <p class="fm-perm-note" data-i18n="fm.clean.freed_note"></p>
+
+            <div class="fm-table-wrap fm-scroll-x fm-table-scrollY">
+              <table class="fm-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="fm.common.path"></th>
+                    <th class="fm-num" data-i18n="fm.common.size"></th>
+                  </tr>
+                </thead>
+                <tbody id="fm-dry-body"></tbody>
+              </table>
+            </div>
+
+            <div class="fm-failed-block" id="fm-dry-failed-block" hidden>
+              <h4 class="fm-failed-title">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-alert"/></svg>
+                <span data-i18n="fm.clean.failed"></span>
+              </h4>
+              <p class="fm-perm-note" data-i18n="fm.clean.failed_hint"></p>
+              <div class="fm-table-wrap fm-scroll-x fm-table-scrollY">
+                <table class="fm-table">
+                  <thead>
+                    <tr>
+                      <th data-i18n="fm.common.path"></th>
+                      <th data-i18n="fm.perm.reason"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="fm-dry-failed-body"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="fm-card-actions">
+              <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="cleanup-back">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-left"/></svg>
+                <span data-i18n="fm.common.cancel"></span>
+              </button>
+              <button type="button" class="fm-btn fm-btn-danger" data-fm-action="cleanup-goto-confirm">
+                <span data-i18n="fm.clean.apply"></span>
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-chevron-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── STEP 2: typed confirmation. Revealed only after a dry run. ── -->
+          <div class="fm-card fm-danger-card" id="fm-cleanup-confirm" hidden>
+            <!-- JS writes fm.confirm.cleanup_title with {count} and {size} here. -->
+            <h3 class="fm-card-title" id="fm-cleanup-confirm-title"
+                data-i18n-template="fm.confirm.cleanup_title"></h3>
+            <p class="fm-card-desc fm-danger-text" data-i18n="fm.confirm.cleanup_body"></p>
+
+            <label class="fm-field">
+              <span class="fm-field-label" id="fm-cleanup-confirm-label"
+                    data-i18n="fm.confirm.cleanup_type"
+                    data-i18n-var-word="fm.confirm.cleanup_word"></span>
+              <input type="text" class="fm-input fm-mono" id="fm-cleanup-confirm-input"
+                     autocomplete="off" spellcheck="false"
+                     data-fm-confirm-word="fm.confirm.cleanup_word"
+                     data-i18n-placeholder="fm.confirm.cleanup_word">
+            </label>
+            <p class="fm-inline-error" id="fm-cleanup-confirm-error" hidden role="alert"
+               data-i18n="fm.confirm.cleanup_mismatch"></p>
+
+            <div class="fm-card-actions">
+              <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="cleanup-back">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-left"/></svg>
+                <span data-i18n="fm.confirm.cancel"></span>
+              </button>
+              <button type="button" class="fm-btn fm-btn-destructive" id="fm-cleanup-apply"
+                      data-fm-action="cleanup-apply" disabled>
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+                <span data-i18n="fm.clean.apply"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sticky selection bar — the only entry point to step 1. -->
+        <div class="fm-selbar" id="fm-cleanup-selbar" hidden>
+          <!-- JS writes fm.clean.selected_total with {count} and {size}. -->
+          <span class="fm-selbar-size" id="fm-cleanup-sel-summary"
+                data-i18n-template="fm.clean.selected_total"></span>
+          <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="cleanup-clear">
+            <span data-i18n="fm.clean.clear_selection"></span>
+          </button>
+          <button type="button" class="fm-btn fm-btn-primary" id="fm-cleanup-dry" data-fm-action="cleanup-dry">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-shield"/></svg>
+            <span data-i18n="fm.clean.preview"></span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ─────────── RIGHT PANEL ─────────── -->
+    <aside class="fm-panel" id="propertiesPanel" data-i18n-aria-label="fm.browse.properties">
+      <div class="fm-panel-head">
+        <div class="fm-panel-tabs" role="tablist" data-i18n-aria-label="fm.browse.properties">
+          <button type="button" class="fm-panel-tab is-active" role="tab" id="fm-ptab-details"
+                  aria-selected="true" aria-controls="fm-pane-details"
+                  data-fm-action="panel-tab" data-fm-pane="details">
+            <span data-i18n="fm.browse.properties"></span>
+          </button>
+          <button type="button" class="fm-panel-tab" role="tab" id="fm-ptab-perm"
+                  aria-selected="false" aria-controls="fm-pane-perm"
+                  data-fm-action="panel-tab" data-fm-pane="perm">
+            <span data-i18n="fm.perm.title"></span>
+          </button>
+        </div>
+        <button type="button" class="fm-icon-btn" data-fm-action="close-panel" data-i18n-title="fm.common.close">
+          <svg class="fm-ico" aria-hidden="true"><use href="#i-x"/></svg>
+          <span class="fm-sr" data-i18n="fm.common.close"></span>
+        </button>
+      </div>
+
+      <div class="fm-panel-body">
+
+        <div class="fm-placeholder fm-placeholder-sm" id="fm-panel-empty">
+          <svg class="fm-placeholder-ico" aria-hidden="true"><use href="#i-cursor"/></svg>
+          <p class="fm-placeholder-desc" data-i18n="fm.common.empty"></p>
+        </div>
+
+        <!-- ---- Pane: details ---- -->
+        <div class="fm-pane" id="fm-pane-details" role="tabpanel" aria-labelledby="fm-ptab-details" hidden>
+          <div class="fm-sel-head">
+            <span class="fm-sel-icon" id="fm-sel-icon" aria-hidden="true">
+              <svg class="fm-ico fm-ico-lg"><use href="#i-file"/></svg>
+            </span>
+            <div class="fm-sel-id">
+              <p class="fm-sel-name" id="fm-sel-name"></p>
+              <p class="fm-sel-kind" id="fm-sel-kind"></p>
+            </div>
+          </div>
+
+          <!-- Kept as #propertiesBody so existing JS writing into it still lands here. -->
+          <dl class="fm-props" id="propertiesBody"></dl>
+
+          <!-- /info returns null for directory size by contract. The user is told
+               the reason and handed the scan, not shown an empty field. -->
+          <div class="fm-hint-card" id="fm-dirsize-hint" hidden>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-info"/></svg>
+            <div>
+              <p data-i18n="fm.browse.dir_size_hint"></p>
+              <button type="button" class="fm-link-btn" data-fm-action="scan-selected">
+                <span data-i18n="fm.browse.analyze_folder"></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="fm-panel-actions">
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="open">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-external"/></svg>
+              <span data-i18n="fm.browse.open"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="copy-path">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-copy"/></svg>
+              <span data-i18n="fm.common.copy_path"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="rename">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+              <span data-i18n="fm.browse.rename"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="move">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-move"/></svg>
+              <span data-i18n="fm.browse.move"></span>
+            </button>
+            <button type="button" class="fm-btn fm-btn-quiet fm-btn-danger" data-fm-action="delete">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+              <span data-i18n="fm.browse.delete"></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ---- Pane: permissions ---- -->
+        <div class="fm-pane" id="fm-pane-perm" role="tabpanel" aria-labelledby="fm-ptab-perm" hidden>
+
+          <p class="fm-perm-sub" data-i18n="fm.perm.subtitle"></p>
+
+          <div class="fm-perm-head">
+            <span class="fm-chip" id="fm-perm-platform"></span>
+            <span class="fm-chip fm-chip-muted" id="fm-perm-owner"></span>
+            <span class="fm-chip fm-chip-muted" id="fm-perm-group" hidden></span>
+          </div>
+
+          <!-- Rendered whenever the API answers supported:false. This is the only
+               honest output for a platform that cannot express the control. -->
+          <div class="fm-notice fm-notice-warn" id="fm-perm-unsupported" hidden>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-alert"/></svg>
+            <div>
+              <p class="fm-notice-title" data-i18n="fm.perm.unsupported"></p>
+              <p class="fm-notice-body" id="fm-perm-unsupported-reason"></p>
+            </div>
+          </div>
+
+          <!-- Effective access, labelled with how it was obtained. -->
+          <section class="fm-perm-section">
+            <div class="fm-eff-row">
+              <span class="fm-eff" id="fm-eff-read" data-state="unknown">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-eye"/></svg>
+                <span data-i18n="fm.perm.readable"></span>
+              </span>
+              <span class="fm-eff" id="fm-eff-write" data-state="unknown">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+                <span data-i18n="fm.perm.writable"></span>
+              </span>
+              <span class="fm-eff" id="fm-eff-exec" data-state="unknown">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-play"/></svg>
+                <span data-i18n="fm.perm.executable"></span>
+              </span>
+            </div>
+            <p class="fm-perm-note" data-i18n="fm.perm.method_note"></p>
+            <!-- JS fills with the API's own `reason`, plus fm.perm.root_note when
+                 the service runs as root and fm.perm.symlink_note for links. -->
+            <p class="fm-perm-note" id="fm-perm-reason"></p>
+          </section>
+
+          <!-- ---- POSIX editor ---- -->
+          <section class="fm-perm-section" id="fm-perm-posix" hidden>
+            <h4 class="fm-perm-title" data-i18n="fm.perm.posix_title"></h4>
+
+            <div class="fm-matrix-wrap fm-scroll-x">
+              <table class="fm-matrix">
+                <thead>
+                  <tr>
+                    <th><span class="fm-sr" data-i18n="fm.perm.who"></span></th>
+                    <th data-i18n="fm.perm.read"></th>
+                    <th data-i18n="fm.perm.write"></th>
+                    <th data-i18n="fm.perm.execute"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row" data-i18n="fm.perm.who_user"></th>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="u-r"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.read"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="u-w"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.write"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="u-x"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.execute"></span></label></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" data-i18n="fm.perm.who_group"></th>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="g-r"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.read"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="g-w"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.write"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="g-x"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.execute"></span></label></td>
+                  </tr>
+                  <tr>
+                    <th scope="row" data-i18n="fm.perm.who_other"></th>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="o-r"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.read"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="o-w"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.write"></span></label></td>
+                    <td><label class="fm-cell"><input type="checkbox" data-perm="o-x"><span aria-hidden="true"></span><span class="fm-sr" data-i18n="fm.perm.execute"></span></label></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="fm-octal-row">
+              <label class="fm-field fm-field-inline">
+                <span class="fm-field-label" data-i18n="fm.perm.octal"></span>
+                <input type="text" class="fm-input fm-input-sm fm-mono" id="fm-perm-octal"
+                       inputmode="numeric" maxlength="4" autocomplete="off" spellcheck="false"
+                       pattern="[0-7]{3,4}">
+              </label>
+              <span class="fm-mono fm-symbolic" id="fm-perm-symbolic"></span>
+            </div>
+            <!-- The leading octal digit carries setuid/setgid/sticky; S_IMODE masks
+                 with 0o7777, so the field is 4 digits and those bits survive a save. -->
+            <p class="fm-perm-note" data-i18n="fm.perm.special_note"></p>
+
+            <label class="fm-switch-row">
+              <span class="fm-switch">
+                <input type="checkbox" id="fm-perm-recursive">
+                <span class="fm-switch-track" aria-hidden="true"></span>
+              </span>
+              <span class="fm-switch-label">
+                <span data-i18n="fm.perm.recursive"></span>
+                <small data-i18n="fm.perm.recursive_note"></small>
+              </span>
+            </label>
+            <!-- Shown instead of applying when a recursive mode would strip the
+                 owner-traverse bit and make the subtree unenterable. -->
+            <p class="fm-inline-error" id="fm-perm-recursive-refuse" hidden role="alert"
+               data-i18n="fm.perm.recursive_refuse"></p>
+
+            <!-- An ACL overrides the mode, so the matrix is not the whole truth.
+                 JS reveals this with fm.perm.acl_present or fm.perm.acl_unknown. -->
+            <div class="fm-notice fm-notice-info" id="fm-perm-acl-note" hidden>
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-info"/></svg>
+              <p class="fm-notice-body" id="fm-perm-acl-note-text"></p>
+            </div>
+
+            <div class="fm-card-actions">
+              <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="perm-reset">
+                <span data-i18n="fm.perm.reset"></span>
+              </button>
+              <button type="button" class="fm-btn fm-btn-primary" id="fm-perm-apply" data-fm-action="perm-apply">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-check"/></svg>
+                <span data-i18n="fm.perm.save"></span>
+              </button>
+            </div>
+
+            <!-- Populated from the failed[] array, which is fed by BOTH the per-item
+                 operation errors and the os.walk onerror collector. -->
+            <div class="fm-failed-block" id="fm-perm-failed-block" hidden>
+              <h4 class="fm-failed-title">
+                <svg class="fm-ico" aria-hidden="true"><use href="#i-alert"/></svg>
+                <span data-i18n="fm.perm.partial"></span>
+              </h4>
+              <div class="fm-table-wrap fm-scroll-x fm-table-scrollY">
+                <table class="fm-table fm-table-sm">
+                  <thead>
+                    <tr>
+                      <th data-i18n="fm.common.path"></th>
+                      <th data-i18n="fm.perm.reason"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="fm-perm-failed-body"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <!-- ---- Windows ACL viewer (read-only by design) ---- -->
+          <section class="fm-perm-section" id="fm-perm-windows" hidden>
+            <h4 class="fm-perm-title" data-i18n="fm.perm.win_title"></h4>
+
+            <div class="fm-notice fm-notice-warn">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-lock"/></svg>
+              <div>
+                <p class="fm-notice-title" data-i18n="fm.perm.win_read_only_ui"></p>
+                <p class="fm-notice-body" data-i18n="fm.perm.win_no_write"></p>
+              </div>
+            </div>
+
+            <div class="fm-notice fm-notice-info">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-info"/></svg>
+              <p class="fm-notice-body" data-i18n="fm.perm.win_no_posix"></p>
+            </div>
+
+            <p class="fm-perm-title" data-i18n="fm.perm.win_entries"></p>
+            <div class="fm-table-wrap fm-scroll-x">
+              <table class="fm-table fm-table-sm">
+                <thead>
+                  <tr>
+                    <th data-i18n="fm.perm.win_identity"></th>
+                    <th data-i18n="fm.perm.win_rights"></th>
+                    <th data-i18n="fm.perm.win_type"></th>
+                    <th data-i18n="fm.perm.win_inherited"></th>
+                  </tr>
+                </thead>
+                <tbody id="fm-perm-acl-body"></tbody>
+              </table>
+            </div>
+
+            <!-- These are different facts and never share a rendering: a NULL DACL
+                 means everyone has full access, an empty DACL means nobody does,
+                 and a read failure means we do not know. -->
+            <p class="fm-inline-warn" id="fm-perm-null-dacl" hidden data-i18n="fm.perm.win_null_dacl"></p>
+            <p class="fm-inline-warn" id="fm-perm-empty-dacl" hidden data-i18n="fm.perm.win_empty_dacl"></p>
+            <p class="fm-inline-warn" id="fm-perm-skipped-ace" hidden
+               data-i18n-template="fm.perm.win_skipped_ace"></p>
+            <p class="fm-inline-error" id="fm-perm-acl-error" hidden role="alert"></p>
+
+            <p class="fm-perm-note" data-i18n="fm.perm.win_exec_note"></p>
+          </section>
+
+          <p class="fm-inline-error" id="fm-perm-error" hidden role="alert"></p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ══════════════════ STATUS BAR ══════════════════ -->
+  <footer class="fm-statusbar">
+    <span class="fm-status-left fm-ellipsis fm-mono" id="statusInfo"></span>
+    <span class="fm-status-right" id="statusCount"></span>
+  </footer>
+</div>
+
+
+<!-- ══════════════════ CONTEXT MENU ══════════════════ -->
+<div class="fm-menu" id="contextMenu" role="menu" hidden>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="open">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-external"/></svg>
+    <span data-i18n="fm.browse.open"></span>
+  </button>
+  <!-- Distinct from "open": i-external reads as "hand off to the OS", i-eye as
+       "show it here", which is what this one does. -->
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="preview">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-eye"/></svg>
+    <span data-i18n="fm.browse.preview"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="rename">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+    <span data-i18n="fm.browse.rename"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="copy">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-copy"/></svg>
+    <span data-i18n="fm.browse.copy"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="move">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-move"/></svg>
+    <span data-i18n="fm.browse.move_to"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="copy-path">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
+    <span data-i18n="fm.common.copy_path"></span>
+  </button>
+  <hr class="fm-menu-sep">
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="properties">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-info"/></svg>
+    <span data-i18n="fm.browse.properties"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="permissions">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-shield"/></svg>
+    <span data-i18n="fm.perm.title"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="analyze">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-pie"/></svg>
+    <span data-i18n="fm.browse.analyze_folder"></span>
+  </button>
+  <hr class="fm-menu-sep">
+  <button type="button" class="fm-menu-item fm-menu-danger" role="menuitem" data-fm-action="delete">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+    <span data-i18n="fm.browse.delete"></span>
+  </button>
+</div>
+
+
+<!-- ══════════════════ PREVIEW MODAL ══════════════════ -->
+<div class="fm-overlay" id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitle" hidden>
+  <div class="fm-dialog fm-dialog-lg">
+    <div class="fm-dialog-head">
+      <h3 class="fm-dialog-title fm-ellipsis" id="previewTitle"></h3>
+      <button type="button" class="fm-icon-btn" data-fm-action="close-preview" data-i18n-title="fm.common.close">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-x"/></svg>
+        <span class="fm-sr" data-i18n="fm.common.close"></span>
+      </button>
     </div>
+    <div class="fm-dialog-body fm-scroll-x">
+      <pre class="fm-pre" id="previewContent"></pre>
+      <p class="fm-empty-line" id="previewBinary" hidden data-i18n="fm.browse.binary_no_preview"></p>
+    </div>
+    <div class="fm-dialog-foot">
+      <p class="fm-muted fm-ellipsis" id="previewMeta"></p>
+    </div>
+  </div>
+</div>
 
-    <!-- Toast Notification -->
-    <div class="fm-toast-container" id="toastContainer"></div>
 
-    <script src="/file-manager-static/file_manager.js?v=2"></script>
+<!-- ══════════════════ PROMPT / CONFIRM DIALOG ══════════════════ -->
+<div class="fm-overlay" id="fm-prompt" role="dialog" aria-modal="true" aria-labelledby="fm-prompt-title" hidden>
+  <div class="fm-dialog">
+    <div class="fm-dialog-head">
+      <!-- JS writes the resolved fm.confirm.* / fm.browse.enter_* string here. -->
+      <h3 class="fm-dialog-title" id="fm-prompt-title"></h3>
+      <button type="button" class="fm-icon-btn" data-fm-action="prompt-cancel" data-i18n-title="fm.common.close">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-x"/></svg>
+        <span class="fm-sr" data-i18n="fm.common.close"></span>
+      </button>
+    </div>
+    <div class="fm-dialog-body">
+      <p class="fm-dialog-desc" id="fm-prompt-desc"></p>
+      <label class="fm-field" id="fm-prompt-field">
+        <span class="fm-field-label" id="fm-prompt-label"></span>
+        <input type="text" class="fm-input" id="fm-prompt-input" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="fm-inline-error" id="fm-prompt-error" hidden role="alert"></p>
+    </div>
+    <div class="fm-dialog-foot fm-dialog-foot-actions">
+      <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="prompt-cancel">
+        <span data-i18n="fm.confirm.cancel"></span>
+      </button>
+      <button type="button" class="fm-btn fm-btn-primary" id="fm-prompt-ok" data-fm-action="prompt-ok">
+        <span data-i18n="fm.confirm.ok"></span>
+      </button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════════════ TOASTS ══════════════════ -->
+<div class="fm-toasts" id="toastContainer" role="status" aria-live="polite"></div>
+
+
+<script>
+/*
+ * ─────────────────────────────────────────────────────────────────────────────
+ * i18n bootstrap.
+ *
+ * Deliberately self-contained rather than reusing /static/i18n.js. That module's
+ * applyI18n() does `el.textContent = T(key)` and T() returns the KEY ITSELF when a
+ * translation is missing, so any unmapped element renders its raw dotted key as
+ * user-visible text — the failure server.py already documents ("leaked those key
+ * names into the UI as literal text"). This layer keeps a bundled default
+ * dictionary underneath the API response, so a missing key degrades to a real
+ * sentence and the page is fully readable with no network at all.
+ *
+ * Precedence: API translations > bundled defaults > the key itself (last resort,
+ * reachable only if the markup gains a key with no default, which is a bug worth
+ * seeing rather than hiding).
+ *
+ * DEFAULTS is generated from locales/vi.json for exactly the keys this markup
+ * uses; regenerate it if the markup's key set changes.
+ * ─────────────────────────────────────────────────────────────────────────────
+ */
+(function () {
+    'use strict';
+
+    var DEFAULTS = {
+        "fm.browse.analyze_folder": "Phân tích thư mục này",
+        "fm.browse.binary_no_preview": "Đây là file nhị phân nên không có gì để xem trước.",
+        "fm.browse.copy": "Sao chép",
+        "fm.browse.delete": "Xóa",
+        "fm.browse.dir_size_hint": "Muốn biết kích thước một thư mục thì phải đọc hết mọi file bên trong, nên hệ thống không tự động làm. Hãy chạy Phân tích dung lượng để có con số thật.",
+        "fm.browse.empty_folder": "Thư mục này trống",
+        "fm.browse.move": "Di chuyển",
+        "fm.browse.move_to": "Di chuyển tới…",
+        "fm.browse.new_file": "File mới",
+        "fm.browse.new_folder": "Thư mục mới",
+        "fm.browse.open": "Mở",
+        "fm.browse.parent": "Lên thư mục cha",
+        "fm.browse.paste": "Dán",
+        "fm.browse.preview": "Xem trước",
+        "fm.browse.properties": "Thuộc tính",
+        "fm.browse.rename": "Đổi tên",
+        "fm.browse.search_placeholder": "Tìm trong thư mục này…",
+        "fm.browse.show_hidden": "Hiện file ẩn",
+        "fm.browse.view_grid": "Dạng lưới",
+        "fm.browse.view_list": "Dạng danh sách",
+        "fm.clean.apply": "Xóa thật",
+        "fm.clean.clear_selection": "Bỏ chọn hết",
+        "fm.clean.deleted": "Đã xóa",
+        "fm.clean.dry_run_badge": "Chỉ xem trước — chưa xóa gì cả",
+        "fm.clean.dry_run_note": "Bản xem trước chạy đúng kế hoạch của lần xóa thật và chỉ dừng lại ngay trước bước xóa, nên những gì bạn thấy ở đây chính là những gì sẽ xảy ra.",
+        "fm.clean.excluded_desc": "Kho Git, file cơ sở dữ liệu, file chứa thông tin đăng nhập, môi trường ảo, đích của mọi junction hay symbolic link, và mọi thứ nằm ngoài thư mục được phép đều bị loại khỏi tất cả các nhóm.",
+        "fm.clean.excluded_title": "Không bao giờ đụng tới",
+        "fm.clean.failed": "Thất bại",
+        "fm.clean.failed_hint": "Mỗi dòng thất bại bên dưới đều nêu rõ file nào và vì sao không xóa được. Không mục nào bị bỏ qua âm thầm.",
+        "fm.clean.freed": "Đã giải phóng",
+        "fm.clean.freed_note": "Con số giải phóng chỉ tính những file thật sự biến mất, đo ngay tại thời điểm xóa từng file.",
+        "fm.clean.nothing": "Không có gì để dọn trong thư mục này.",
+        "fm.clean.preview": "Xem trước (không xóa gì)",
+        "fm.clean.result_title": "Kết quả",
+        "fm.clean.scan": "Quét tìm file có thể dọn",
+        "fm.clean.scan_hint": "Chỉ quét trong những thư mục bạn được phép mở. Kho Git, file cơ sở dữ liệu, file chứa thông tin đăng nhập và môi trường ảo không bao giờ được đưa vào danh sách xóa.",
+        "fm.clean.scanning": "Đang quét…",
+        "fm.clean.select_safe": "Chọn tất cả nhóm an toàn",
+        "fm.clean.subtitle": "Tìm những file có thể tạo lại được và lấy lại dung lượng",
+        "fm.clean.title": "Dọn dẹp",
+        "fm.common.cancel": "Hủy",
+        "fm.common.close": "Đóng",
+        "fm.common.copy_path": "Sao chép đường dẫn",
+        "fm.common.empty": "Không có gì để hiển thị",
+        "fm.common.loading": "Đang tải…",
+        "fm.common.modified": "Ngày sửa",
+        "fm.common.name": "Tên",
+        "fm.common.path": "Đường dẫn",
+        "fm.common.ready": "Sẵn sàng",
+        "fm.common.refresh": "Làm mới",
+        "fm.common.retry": "Thử lại",
+        "fm.common.search": "Tìm kiếm",
+        "fm.common.size": "Kích thước",
+        "fm.common.type": "Loại",
+        "fm.confirm.cancel": "Hủy",
+        "fm.confirm.cleanup_body": "Bạn đang rời khỏi chế độ xem trước. Các file sẽ bị xóa ngay và không thể khôi phục.",
+        "fm.confirm.cleanup_mismatch": "Chữ bạn gõ không khớp, nên chưa có gì bị xóa.",
+        "fm.confirm.cleanup_type": "Gõ {word} để xác nhận",
+        "fm.confirm.cleanup_word": "XOA",
+        "fm.confirm.ok": "Xác nhận",
+        "fm.disk.reading": "Đang đọc danh sách ổ đĩa…",
+        "fm.disk.skipped_pseudo": "Các hệ thống file ảo (tmpfs, devfs, overlay) và những mount trùng cùng một thiết bị đã được bỏ qua — chúng không phải dung lượng thật.",
+        "fm.disk.title": "Ổ đĩa",
+        "fm.nav.allowed_roots": "Thư mục được phép mở",
+        "fm.nav.back": "Về Dashboard",
+        "fm.nav.browse": "File",
+        "fm.nav.cleanup": "Dọn dẹp",
+        "fm.nav.quick_access": "Truy cập nhanh",
+        "fm.nav.subtitle": "Duyệt file, xem dung lượng đang nằm ở đâu và dọn dẹp một cách an toàn",
+        "fm.nav.title": "Quản lý File",
+        "fm.nav.usage": "Phân tích dung lượng",
+        "fm.perm.executable": "Chạy được",
+        "fm.perm.execute": "Thực thi",
+        "fm.perm.method_note": "Ba kết quả này có được bằng cách thử thao tác thật, không phải hỏi hệ thống dự đoán.",
+        "fm.perm.octal": "Bát phân",
+        "fm.perm.partial": "Một số mục không đổi được. Không mục nào bị bỏ qua âm thầm — mọi thất bại đều liệt kê bên dưới.",
+        "fm.perm.posix_title": "Quyền POSIX",
+        "fm.perm.read": "Đọc",
+        "fm.perm.readable": "Đọc được",
+        "fm.perm.reason": "Lý do",
+        "fm.perm.recursive": "Áp dụng cho mọi thứ bên trong",
+        "fm.perm.recursive_note": "Các thư mục sẽ được thêm bit \"vào được\" tương ứng, nếu không cả cây thư mục sẽ không vào được nữa — kể cả thao tác định sửa lại chính nó.",
+        "fm.perm.recursive_refuse": "Chế độ quyền đệ quy mà không có bit thực thi cho chủ sở hữu sẽ khóa bạn ở ngoài thư mục. Hãy đổi chế độ quyền hoặc tắt tùy chọn đệ quy.",
+        "fm.perm.reset": "Khôi phục",
+        "fm.perm.save": "Lưu phân quyền",
+        "fm.perm.special_note": "Chữ số bát phân đầu tiên chứa setuid, setgid và bit sticky. Khi bạn đổi chế độ quyền, phần này được giữ nguyên chứ không bị bỏ đi.",
+        "fm.perm.subtitle": "Ai được đọc, ghi và chạy mục này",
+        "fm.perm.title": "Phân quyền",
+        "fm.perm.unsupported": "Hệ thống này không hỗ trợ",
+        "fm.perm.who": "Đối tượng",
+        "fm.perm.who_group": "Nhóm",
+        "fm.perm.who_other": "Người khác",
+        "fm.perm.who_user": "Chủ sở hữu",
+        "fm.perm.win_empty_dacl": "Danh sách kiểm soát truy cập có tồn tại nhưng rỗng, tức là không ai được cấp quyền gì.",
+        "fm.perm.win_entries": "Các mục kiểm soát truy cập",
+        "fm.perm.win_exec_note": "Khả năng chạy được suy ra từ phần mở rộng của file đối chiếu với PATHEXT, vì Windows không có bit thực thi.",
+        "fm.perm.win_identity": "Tài khoản",
+        "fm.perm.win_inherited": "Kế thừa",
+        "fm.perm.win_no_posix": "Windows không lưu chế độ quyền POSIX. Hiển thị một con số ở đây là bịa ra thứ mà hệ điều hành chưa bao giờ ghi lại.",
+        "fm.perm.win_no_write": "Việc sửa quyền Windows từ trang này đã bị tắt có chủ đích. Chỉ một mục từ chối đặt sai là bạn có thể mất quyền vào thư mục của chính mình vĩnh viễn, và muốn gỡ ra thì cần shell quản trị viên mà dịch vụ này không có.",
+        "fm.perm.win_null_dacl": "Mục này hoàn toàn không có danh sách kiểm soát truy cập. Với Windows, điều đó nghĩa là ai cũng có toàn quyền — khác hẳn với một danh sách rỗng.",
+        "fm.perm.win_read_only_ui": "Quyền Windows chỉ được hiển thị để xem.",
+        "fm.perm.win_rights": "Quyền",
+        "fm.perm.win_title": "Quyền Windows",
+        "fm.perm.win_type": "Kiểu",
+        "fm.perm.writable": "Ghi được",
+        "fm.perm.write": "Ghi",
+        "fm.picker.hint": "Chế độ chọn file — nhấp để chọn, nhấp đúp để xác nhận ngay.",
+        "fm.picker.select": "Chọn file này",
+        "fm.usage.cancelled_msg": "Phân tích đã bị dừng, nên các con số dưới đây chỉ tính phần đã đọc được.",
+        "fm.usage.children": "Chi tiết theo thư mục",
+        "fm.usage.current": "Đang đọc",
+        "fm.usage.dir_count": "Số thư mục",
+        "fm.usage.file_count": "Số file",
+        "fm.usage.largest": "50 file lớn nhất",
+        "fm.usage.links_note": "Junction và symbolic link không được đi vào, nhờ vậy không file nào bị đếm hai lần.",
+        "fm.usage.long_hint": "Cây thư mục lớn có thể mất vài phút. Bạn có thể làm việc khác rồi quay lại, hoặc dừng bất cứ lúc nào.",
+        "fm.usage.no_children": "Không có thư mục con nào chứa dữ liệu.",
+        "fm.usage.no_largest": "Không tìm thấy file nào.",
+        "fm.usage.partial_warning": "Một số thư mục không đọc được nên không nằm trong các con số này. Danh sách ở bên dưới.",
+        "fm.usage.progress_note": "Tiến độ được tính theo số file chứ không theo dung lượng, nên có thể nhảy từng đoạn.",
+        "fm.usage.start": "Bắt đầu phân tích",
+        "fm.usage.stop": "Dừng phân tích",
+        "fm.usage.subtitle": "Quét toàn bộ một thư mục để biết chính xác thứ gì đang chiếm chỗ",
+        "fm.usage.title": "Phân tích dung lượng",
+        "fm.usage.total_bytes": "Tổng dung lượng"
+    };
+
+    var translations = {};
+    var lang = document.documentElement.lang || 'en';
+
+    function t(key) {
+        if (Object.prototype.hasOwnProperty.call(translations, key)) {
+            var v = translations[key];
+            /* /api/v1/i18n/{lang} shallow-merges whole extension files, so a
+               top-level key can legitimately be an object. Only strings are text;
+               rendering an object would print "[object Object]". */
+            if (typeof v === 'string' && v.length) return v;
+        }
+        if (Object.prototype.hasOwnProperty.call(DEFAULTS, key)) return DEFAULTS[key];
+        return key;
+    }
+
+    /* Substitutes {name} from data-i18n-var-<name>, whose value is itself an i18n
+       key. Lets a templated string such as "Gõ {word} để xác nhận" stay declarative
+       instead of being assembled in JS. */
+    function resolve(el, key) {
+        var s = t(key);
+        var ds = el.dataset;
+        for (var prop in ds) {
+            if (prop.indexOf('i18nVar') === 0 && prop.length > 7) {
+                var name = prop.charAt(7).toLowerCase() + prop.slice(8);
+                s = s.split('{' + name + '}').join(t(ds[prop]));
+            }
+        }
+        return s;
+    }
+
+    function apply(root) {
+        var scope = root || document;
+        /* data-i18n-template is intentionally NOT handled here: those strings carry
+           runtime values ({count}, {size}, {n}) that only the view code knows. */
+        scope.querySelectorAll('[data-i18n]').forEach(function (el) {
+            el.textContent = resolve(el, el.getAttribute('data-i18n'));
+        });
+        scope.querySelectorAll('[data-i18n-placeholder]').forEach(function (el) {
+            el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
+        });
+        scope.querySelectorAll('[data-i18n-title]').forEach(function (el) {
+            el.title = t(el.getAttribute('data-i18n-title'));
+        });
+        scope.querySelectorAll('[data-i18n-aria-label]').forEach(function (el) {
+            el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria-label')));
+        });
+    }
+
+    async function load() {
+        var apiBase;
+        try {
+            apiBase = localStorage.getItem('tubecli_api') || window.location.origin;
+        } catch (e) {
+            apiBase = window.location.origin;
+        }
+
+        try {
+            var r = await fetch(apiBase + '/api/v1/settings/language');
+            if (r.ok) {
+                var d = await r.json();
+                if (d && d.language) {
+                    lang = d.language;
+                    try { localStorage.setItem('tubecli_lang', lang); } catch (e2) {}
+                }
+            }
+        } catch (e) {
+            /* Offline: keep the pre-paint guess. DEFAULTS still render a full UI. */
+        }
+        document.documentElement.lang = lang;
+
+        try {
+            var rd = await fetch(apiBase + '/api/v1/i18n/' + encodeURIComponent(lang));
+            if (rd.ok) {
+                var dict = await rd.json();
+                if (dict && typeof dict === 'object') translations = dict;
+            }
+        } catch (e) {
+            /* Offline: DEFAULTS only. */
+        }
+
+        apply(document);
+        window.FMI18N.lang = lang;
+        window.FMI18N.ready = true;
+        document.dispatchEvent(new CustomEvent('fm:i18n-ready', { detail: { lang: lang } }));
+    }
+
+    window.FMI18N = { t: t, apply: apply, resolve: resolve, lang: lang, ready: false, defaults: DEFAULTS };
+
+    /* Paint the bundled defaults immediately so no raw key is ever visible, then
+       upgrade in place once the API answers. */
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { apply(document); load(); });
+    } else {
+        apply(document);
+        load();
+    }
+})();
+</script>
+
+<script src="/file-manager-static/file_manager.js?v=4"></script>
+
+<!--
+  The [data-fm-action] modules. Classic scripts, so they run in document order.
+
+  All four must follow file_manager.js: it publishes window.FM and window.T from
+  inside its IIFE, and fm_actions wraps FM.navigate and installs the #fmVolumes
+  sink at parse time — which still lands before FM.init() runs on DOMContentLoaded.
+
+  fm_actions must lead the other three: it defines FMActions.register(). The
+  siblings do poll for it, but that is a safety net; loading the router first
+  keeps registration synchronous and makes "first claim wins" deterministic,
+  so which module owns a duplicated name never depends on network timing.
+-->
+<script src="/file-manager-static/fm_actions.js?v=2"></script>
+<script src="/file-manager-static/fm_storage.js?v=1"></script>
+<script src="/file-manager-static/fm_cleanup.js?v=1"></script>
+<script src="/file-manager-static/fm_permissions.js?v=1"></script>
 </body>
 </html>
