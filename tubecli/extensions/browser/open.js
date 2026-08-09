@@ -996,8 +996,13 @@ async function main() {
           }
       }
       
-      if (serviceKey) {
-        requirePlugin().setServiceKey(serviceKey);
+      if (serviceKey && plugin) {
+        // Guarded with `plugin`, NOT requirePlugin(). The service key is fetched
+        // on the common path for both engines, but only BAS consumes it — so
+        // demanding the plugin here refused every ShardX profile on Linux with
+        // "this profile uses a BAS engine", which was both wrong and unfixable
+        // by the person reading it. A ShardX run simply has no key to set.
+        plugin.setServiceKey(serviceKey);
       }
 
       let fingerprint;

@@ -2,7 +2,7 @@
 WebUI API routes — serve dashboard and workflow static files via FastAPI.
 """
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 import os
 import mimetypes
 
@@ -132,11 +132,62 @@ async def get_pipeline(task_id: str):
     return JSONResponse(task)
 
 
+# Cache-busting tokens, derived rather than typed.
+#
+# index.html referenced /static/app.js?v=36 — a number a human had to remember to
+# increment. Forget it once and every existing user's browser keeps serving the
+# old JavaScript against the new API, which presents as a feature that silently
+# does nothing and looks like a backend bug. That is exactly what happened when
+# the agent run-log panel shipped.
+#
+# The token is now the first 8 hex of the file's own content hash, substituted at
+# serve time, so it changes when and only when the file does.
+_ASSET_TOKENS: dict = {}
+
+
+def _asset_token(name: str) -> str:
+    path = os.path.join(STATIC_DIR, name)
+    try:
+        stamp = os.stat(path).st_mtime_ns
+    except OSError:
+        return "0"
+    cached = _ASSET_TOKENS.get(name)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    try:
+        import hashlib
+        with open(path, "rb") as f:
+            token = hashlib.md5(f.read()).hexdigest()[:8]
+    except OSError:
+        return "0"
+    _ASSET_TOKENS[name] = (stamp, token)
+    return token
+
+
+def _bust(html: str) -> str:
+    import re
+    # Only /static/<file>.<ext>?v=… — the ?v= on the extension iframes further up
+    # index.html are unrelated route parameters and must be left alone.
+    return re.sub(
+        r'(/static/([A-Za-z0-9_.-]+\.(?:js|css)))\?v=[^"\']*',
+        lambda m: f"{m.group(1)}?v={_asset_token(m.group(2))}",
+        html)
+
+
 @router.get("/dashboard")
 async def dashboard():
     index = os.path.join(STATIC_DIR, "index.html")
     if os.path.exists(index):
-        return FileResponse(index)
+        try:
+            with open(index, "r", encoding="utf-8") as f:
+                html = _bust(f.read())
+            # no-store on the HTML itself: it is the thing that carries the
+            # tokens, so a cached copy would pin the old asset URLs in place and
+            # defeat the whole mechanism.
+            return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+        except Exception:
+            # Never let the rewrite be the reason the dashboard fails to load.
+            return FileResponse(index)
     return {"error": "Dashboard not found"}
 
 @router.get("/pipeline-monitor")
