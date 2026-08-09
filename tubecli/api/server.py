@@ -1124,8 +1124,16 @@ async def check_for_updates(force: bool = False):
     print(f"[VersionCheck] Local version: {__version__}")
     try:
         raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/pyproject.toml"
+        # Our own 30-minute cache is not the only one in the way: raw.github
+        # serves through a CDN with its own max-age, so a release published a
+        # minute ago can still read as "up to date". On an explicit check, ask
+        # both to revalidate and vary the URL so no intermediary can match it.
+        headers = {}
+        if force:
+            headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
+            raw_url += f"?t={int(now)}"
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(raw_url)
+            resp = await client.get(raw_url, headers=headers)
             if resp.status_code != 200:
                 print(f"[VersionCheck] GitHub returned {resp.status_code}")
                 res = {"has_update": False, "error": f"GitHub returned {resp.status_code}"}

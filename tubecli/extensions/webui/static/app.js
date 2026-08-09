@@ -5978,8 +5978,12 @@ async function checkForUpdate(silent = false) {
     const updateBtn = document.getElementById('btn-system-update');
     if (btn && !silent) { btn.disabled = true; btn.textContent = '🔍 Checking...'; }
     try {
-        // Use backend endpoint that checks GitHub
-        const data = await apiGet('/api/v1/version/check');
+        // force=true whenever a human pressed the button. The endpoint caches its
+        // answer for 30 minutes, so without this the button did not check
+        // anything — it re-displayed a stale verdict, which is worse than no
+        // button at all: a user who has just published a release is told they
+        // are up to date. The silent startup call keeps the cache.
+        const data = await apiGet('/api/v1/version/check' + (silent ? '' : '?force=true'));
         if (!data || data.error) {
             if (!silent && statusEl) statusEl.innerHTML = `<span style="color:var(--yellow)">⚠️ ${data?.error || 'Could not check for updates'}</span>`;
             return;
