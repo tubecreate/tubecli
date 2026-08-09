@@ -16,7 +16,6 @@ it. That reasoning does not apply here — the user typed this command into a
 terminal they are sitting at, so prompting is exactly right.
 """
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -31,7 +30,12 @@ UNIT_PATH = Path("/etc/systemd/system") / f"{SERVICE_NAME}.service"
 
 
 def _systemd_available() -> bool:
-    return sys.platform.startswith("linux") and shutil.which("systemctl") is not None
+    # /run/systemd/system, not shutil.which("systemctl"): the binary exists on
+    # WSL distros and in container images where systemd is NOT PID 1, and there
+    # every systemctl call fails with "System has not been booted with systemd".
+    # The directory only exists under a running systemd — it is the canonical
+    # check (sd_booted() does the same).
+    return sys.platform.startswith("linux") and os.path.isdir("/run/systemd/system")
 
 
 def _target_user() -> str:
@@ -155,21 +159,70 @@ def install(show_only):
     except Exception:
         pass
 
-    tmp = Path.home() / f".{SERVICE_NAME}.service.tmp"
-    tmp.write_text(unit, encoding="utf-8")
-    try:
-        _run(["cp", str(tmp), str(UNIT_PATH)])
-    finally:
-        tmp.unlink(missing_ok=True)
-
-    _run(["systemctl", "daemon-reload"])
-    _run(["systemctl", "enable", SERVICE_NAME])
-    _run(["systemctl", "restart", SERVICE_NAME])
+    if not install_service():
+        raise click.ClickException(
+            f"Dịch vụ chưa chạy được. Xem lỗi:  journalctl -u {SERVICE_NAME} -n 50")
 
     console.print(f"\n[green]Xong.[/green] Máy chủ chạy nền, và tự bật lại sau khi khởi động lại máy.")
     console.print(f"   Xem log:      [cyan]journalctl -u {SERVICE_NAME} -f[/cyan]")
     console.print(f"   Xem trạng thái:[cyan] tubecli service status[/cyan]")
     console.print(f"   Gỡ ra:        [cyan]tubecli service uninstall[/cyan]\n")
+
+
+def install_service(quiet: bool = False) -> bool:
+    """Write the unit, enable it, start it, and WAIT until it answers.
+
+    Extracted from the `install` command so the headless setup finisher can call
+    it. Returns False instead of raising — the finisher must be able to continue
+    to its summary screen (which tells the user how to recover) no matter what
+    failed here.
+
+    Success is earned, not assumed: this used to print "Xong." right after
+    `systemctl restart`, which returns 0 even when the unit then crash-loops on
+    a taken port. Now it polls /api/v1/health for up to 30 seconds — the control
+    panel's own startup poll is 20s with the comment "extensions load slowly",
+    and a first boot on a 2 GB VPS is slower still.
+    """
+    try:
+        unit = _unit_text()
+        tmp = Path.home() / f".{SERVICE_NAME}.service.tmp"
+        tmp.write_text(unit, encoding="utf-8")
+        try:
+            _run(["cp", str(tmp), str(UNIT_PATH)])
+        finally:
+            tmp.unlink(missing_ok=True)
+
+        _run(["systemctl", "daemon-reload"])
+        _run(["systemctl", "enable", SERVICE_NAME])
+        _run(["systemctl", "restart", SERVICE_NAME])
+    except Exception as e:
+        # Broad on purpose: the contract is "returns False instead of raising",
+        # and the caller (the headless finisher) must reach its summary screen
+        # no matter what went wrong here — even an os.geteuid() AttributeError
+        # on a platform this never should have been called on.
+        if not quiet:
+            console.print(f"[yellow]{e}[/yellow]")
+        return False
+
+    from tubecli.cli.server_summary import health_ok
+    from tubecli.config import get_api_port
+    import time
+    try:
+        port = get_api_port()
+    except Exception:
+        port = 5295
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if health_ok(port):
+            return True
+        time.sleep(2)
+    # The unit may still be loading extensions; report state honestly.
+    try:
+        r = subprocess.run(["systemctl", "is-active", SERVICE_NAME],
+                           capture_output=True, text=True, timeout=5)
+        return (r.stdout or "").strip() == "active"
+    except Exception:
+        return False
 
 
 @service_cmd.command("uninstall")

@@ -22,17 +22,21 @@ def password_cmd(new_password, show_status):
 
     auth.ensure_initialised()
 
+    # Wording note: an earlier build BLOCKED remote access on the default
+    # password; the owner then decided warn-not-block. These strings claimed
+    # the old policy long after it was gone — saying access is blocked when it
+    # is not is worse than saying nothing.
     if show_status:
         if auth.is_default_password():
-            console.print("[yellow]Đang dùng mật khẩu mặc định.[/yellow] "
-                          "Truy cập từ xa bị chặn cho tới khi đổi.")
+            console.print("[yellow]Đang dùng mật khẩu mặc định (123456).[/yellow] "
+                          "Vẫn đăng nhập được từ xa — ai biết địa chỉ cũng vào được, nên đổi sớm.")
         else:
-            console.print("[green]Đã đặt mật khẩu riêng.[/green] Truy cập từ xa đã mở.")
+            console.print("[green]Đã đặt mật khẩu riêng.[/green]")
         return
 
     if auth.is_default_password():
         console.print("\n[yellow]Máy chủ đang dùng mật khẩu mặc định (123456).[/yellow]")
-        console.print("[dim]Truy cập từ xa bị chặn cho tới khi bạn đổi nó.[/dim]\n")
+        console.print("[dim]Ai biết địa chỉ máy chủ đều đăng nhập được cho tới khi bạn đổi nó.[/dim]\n")
 
     if new_password is None:
         new_password = click.prompt("Mật khẩu mới", hide_input=True,

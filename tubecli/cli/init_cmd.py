@@ -33,15 +33,28 @@ console = Console()
               help="Set up the workspace and exit, instead of opening the control panel.")
 @click.option("--no-wizard", is_flag=True, default=False,
               help="Skip the first-run setup wizard (for scripted or headless installs).")
-def init_cmd(lang, port, no_menu, no_wizard):
+@click.option("--server", "server", is_flag=True, default=False,
+              help="Server setup: password + systemd service + summary, then exit. "
+                   "This is what the installer runs on a headless machine.")
+@click.option("--panel", "panel", is_flag=True, default=False,
+              help="Open the interactive control panel even on a headless server.")
+def init_cmd(lang, port, no_menu, no_wizard, server, panel):
     """Initialize TubeCLI workspace and install default skills.
 
-    By default this hands over to the interactive control panel and does not return —
-    the panel also starts the API server for you. Pass --no-menu when you want plain
-    setup that exits, e.g. in a script, a Dockerfile, or CI.
+    On a desktop this hands over to the interactive control panel and does not
+    return. On a headless server or in a container it instead finishes as a
+    server: password, systemd service, and a summary screen — the control panel
+    was built around a browser and a keyboard that a VPS does not have. --panel
+    forces the panel anyway; --server forces the server path.
     """
     from tubecli.config import ensure_data_dirs, DATA_DIR, set_language, get_language, SUPPORTED_LANGUAGES, BASE_DIR
     from tubecli.i18n import load_language, t
+
+    # Decide the destination FIRST. The wizard fires below on any fresh machine,
+    # and a fresh VPS is exactly that — without this, `install.sh | bash` on a
+    # server would drop the user into an interactive wizard before --server ever
+    # got a say.
+    server_mode = server or ((_is_headless_server() or _in_container()) and not panel)
 
     # Check for temporary .restarted flag file to prevent opening browser on auto-restart
     restart_flag_file = os.path.join(str(BASE_DIR), ".restarted")
@@ -63,12 +76,17 @@ def init_cmd(lang, port, no_menu, no_wizard):
 
     # 0b. Language selection
     if lang is None:
-        # Interactive prompt if --lang not provided
-        lang = click.prompt(
-            "Choose language / 选择语言 / Chọn ngôn ngữ",
-            type=click.Choice(SUPPORTED_LANGUAGES),
-            default=get_language(),
-        )
+        import sys as _sys
+        if _sys.stdin.isatty():
+            lang = click.prompt(
+                "Choose language / 选择语言 / Chọn ngôn ngữ",
+                type=click.Choice(SUPPORTED_LANGUAGES),
+                default=get_language(),
+            )
+        else:
+            # No terminal (cloud-init, `ssh host 'curl|bash'`): keep the saved
+            # language instead of dying in click.Abort at the prompt.
+            lang = get_language()
     set_language(lang)
     load_language(lang)
 
@@ -124,15 +142,27 @@ def init_cmd(lang, port, no_menu, no_wizard):
 
     console.print(t("init.workspace_ready"))
 
-    # 6. Check if first run → launch Setup Wizard
+    # 6. Check if first run → launch Setup Wizard.
+    # Skipped in server mode WITHOUT setting setup_completed, so `--panel` on
+    # the same box can still offer it later. A fresh VPS is precisely "first
+    # run", and the wizard is an interactive questionnaire the server path must
+    # never fall into.
     from tubecli.config import get_setting
-    if not no_wizard and not get_setting("setup_completed"):
+    if not no_wizard and not server_mode and not get_setting("setup_completed"):
         _run_setup_wizard()
 
-    # 7. Launch Interactive Menu
+    # 7. Destination.
     if no_menu:
         from tubecli.config import get_api_port
         console.print(t("init.setup_done_no_menu", port=get_api_port()))
+        return
+
+    if server_mode:
+        # restart_service only when --server was explicit: that is the installer
+        # and update path, where restarting into the new code is the point. A
+        # casual bare `tubecli init` typed on the box must not bounce the service
+        # (sessions are in-memory — a restart logs the dashboard user out).
+        _finish_server_setup(restart_service=server)
         return
 
     _run_control_panel()
@@ -181,6 +211,88 @@ def _is_headless_server() -> bool:
     if os.name == "nt" or sys.platform == "darwin":
         return False
     return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _finish_server_setup(restart_service: bool) -> None:
+    """The headless ending of `tubecli init`: password, service, summary, exit.
+
+    This replaces the control panel on servers. Every step is best-effort and
+    falls through to the summary screen — the summary is where recovery
+    instructions live, so reaching it matters more than any single step.
+    """
+    import sys as _sys
+    from tubecli.i18n import t, load_language
+    from tubecli.core import auth
+    from tubecli.cli import server_summary
+    from tubecli.config import get_language
+
+    # t() returns raw keys until a catalog is loaded; init loads one on its way
+    # here, but this must also hold when called from anywhere else.
+    try:
+        load_language(get_language())
+    except Exception:
+        pass
+
+    console.print(t("server.setup_title"))
+    console.print(t("server.lang_kept", lang=get_language()))
+
+    # 1. Password. The owner's decision stands: the default is 123456, warned
+    # about, never blocked, and never replaced by a generated secret — "không để
+    # random mật khẩu từ đầu được". TUBECLI_PASSWORD exists for provisioning.
+    try:
+        auth.ensure_initialised()
+        env_pw = os.environ.get("TUBECLI_PASSWORD", "")
+        if env_pw:
+            if len(env_pw) >= 6:
+                auth.set_password(env_pw)
+                console.print(t("server.pw_changed"))
+            else:
+                console.print(t("server.pw_env_invalid"))
+        elif auth.is_default_password() and _sys.stdin.isatty():
+            while True:
+                pw = click.prompt(t("server.pw_prompt"), default="",
+                                  hide_input=True, show_default=False)
+                if not pw:
+                    console.print(t("server.pw_kept_default"))
+                    break
+                if len(pw) < 6:
+                    console.print(t("server.pw_too_short"))
+                    continue
+                confirm = click.prompt(t("server.pw_prompt") + " (x2)",
+                                       default="", hide_input=True,
+                                       show_default=False)
+                if confirm != pw:
+                    console.print(t("server.pw_too_short"))
+                    continue
+                auth.set_password(pw)
+                console.print(t("server.pw_changed"))
+                break
+        elif auth.is_default_password():
+            console.print(t("server.pw_kept_default"))
+    except Exception as e:
+        console.print(f"  [yellow]{e}[/yellow]")
+
+    # 2. Service. Only under a RUNNING systemd; a container gets told what its
+    # CMD should be by the summary instead.
+    state = server_summary.service_state()
+    if state != "no-systemd":
+        if restart_service or state != "active":
+            try:
+                from tubecli.cli.service_cmd import install_service
+                console.print(t("server.svc_installing"))
+                if install_service(quiet=False):
+                    console.print(t("server.svc_ok"))
+                else:
+                    console.print(t("server.svc_failed"))
+            except Exception:
+                console.print(t("server.svc_failed"))
+        else:
+            console.print(t("server.svc_kept"))
+
+    # 3. The summary — always printed, even after failures above, because it is
+    # the recovery manual: URL, firewall step, and the exact commands to run.
+    server_summary.print_server_ready(
+        update_status=os.environ.get("TUBECLI_UPDATE_STATUS", ""))
 
 
 def _kill_server_on_port(port: int) -> int:

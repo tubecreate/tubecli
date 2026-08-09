@@ -136,7 +136,14 @@ curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh 
 curl -fsSL https://raw.githubusercontent.com/tubecreate/tubecli/main/install.sh | bash -s -- --lang vi
 ```
 
-It will automatically install Python, Git (if missing), clone the repo, and set up everything for you from A-Z.
+It will automatically install Python, Git and Node.js (if missing), clone the repo, and set up everything from A-Z.
+
+**On a server (VPS):** the same command detects that there is no display and finishes as a server — it asks for a dashboard password (Enter keeps the default `123456`), installs a systemd service so TubeCLI survives SSH logout and reboots, and prints the URL to open from your own computer. Re-running the same command later **updates** the install. Useful afterwards:
+```bash
+tubecli info        # re-print the URL / password status / commands screen
+tubecli password    # change the dashboard password
+tubecli service logs -f
+```
 
 ### Option 2: Manual Installation (For Developers)
 
@@ -159,13 +166,15 @@ tubecli init --lang en --port 5295
 ```
 It then hands over to an interactive control panel, which starts the API server for you and stays in the foreground — press `1` to open the dashboard. This is the normal way to run TubeCLI day to day.
 
-### 3. Or run it headless
-If you would rather not use the control panel — in a script, a Dockerfile, or over SSH — set up and exit, then start the server yourself:
+### 3. Or run it as a server
+On a headless machine (VPS, no display) `tubecli init` skips the control panel automatically and finishes as a server: password, systemd service, and a summary with the URL. You can also force either ending:
 ```bash
-tubecli init --lang en --port 5295 --no-menu
-tubecli api start
+tubecli init --server   # password + systemd service + summary, then exit
+tubecli init --panel    # the interactive control panel, even on a server
 ```
-Either way the dashboard is at **http://localhost:5295/dashboard** (plain **http://localhost:5295** redirects there).
+For a Dockerfile or CI, `tubecli init --no-menu` still does plain setup and exits (the container's CMD should then be `tubecli api start`).
+
+On a desktop the dashboard is at **http://localhost:5295/dashboard**; on a server replace `localhost` with the machine's public IP (and open TCP 5295 in your provider's firewall). `tubecli info` prints the exact URL block any time.
 
 ## 💻 CLI Usage
 

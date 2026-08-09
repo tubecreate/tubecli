@@ -9,6 +9,12 @@ REPO_URL="${TUBECLI_REPO_URL:-https://github.com/tubecreate/tubecli.git}"
 BRANCH="${TUBECLI_BRANCH:-main}"
 INSTALL_DIR="${TUBECLI_INSTALL_DIR:-${HOME}/tubecli}"
 LANG_VAL="en"
+# LANG_EXPLICIT: pass --lang through to `tubecli init` only when the user chose
+# one. Passing the default unconditionally would overwrite the language a user
+# picked earlier every time they re-run this script to update.
+LANG_EXPLICIT=0
+# Mirror of tubecli.config.SUPPORTED_LANGUAGES — validated here so a typo fails
+# in one second instead of after a full install.
 SUPPORTED_LANGS="zh zh-TW vi en ja ko es tr ru"
 
 # Parse arguments
@@ -16,11 +22,13 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --lang)
       LANG_VAL="$2"
+      LANG_EXPLICIT=1
       shift 2
       ;;
     *)
       if [[ "$1" =~ ^[a-zA-Z-]{2,5}$ ]]; then
         LANG_VAL="$1"
+        LANG_EXPLICIT=1
       fi
       shift
       ;;
@@ -349,7 +357,22 @@ else
         git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
     else
         echo -e "  Directory exists, pulling latest changes..."
-        git -C "$INSTALL_DIR" pull origin "$BRANCH"
+        # --ff-only under set +e: a dirty or diverged checkout must degrade to a
+        # warning, not abort the whole script under `set -e` — re-running this
+        # installer IS the advertised update path, and an installed machine must
+        # never be brickable by its own checkout state.
+        set +e
+        git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
+        PULL_RC=$?
+        set -e
+        if [[ "$PULL_RC" -ne 0 ]]; then
+            echo -e "${YELLOW}[!] Could not update $INSTALL_DIR (local changes or diverged history).${NC}"
+            echo -e "${YELLOW}    Continuing with the existing copy. To update by hand:${NC}"
+            echo -e "      git -C $INSTALL_DIR stash && git -C $INSTALL_DIR pull"
+            # Carried through to the final summary, which otherwise announces a
+            # successful update minutes after this warning has scrolled away.
+            export TUBECLI_UPDATE_STATUS="stale"
+        fi
     fi
     TARGET_DIR="$INSTALL_DIR"
 fi
@@ -368,16 +391,35 @@ cd "$TARGET_DIR"
 # (PEP 668, "externally-managed-environment"). This script used to print
 # "pip install failed." and exit 1 there, which is every one of those users, and
 # on macOS the brew branch above installs the very interpreter that then refuses.
+# A venv from a previous run means the PEP 668 dance already happened — going
+# through the system-pip attempt again just prints a screenful of expected
+# errors that reads as breakage on every update.
+if [[ -x "$TARGET_DIR/.venv/bin/python" ]]; then
+    echo -e "  Existing virtualenv found, installing into it."
+    "$TARGET_DIR/.venv/bin/python" -m pip install -e . || {
+        echo -e "${RED}[!] pip install failed inside the existing virtualenv.${NC}"
+        exit 1
+    }
+    PIP_RC=0
+    SKIP_SYSTEM_PIP=1
+else
+    SKIP_SYSTEM_PIP=0
+fi
+
 PIP_LOG="$(mktemp 2>/dev/null || echo /tmp/tubecli-pip.log)"
-# `set +e` around this on purpose. The script runs under `set -euo pipefail`
-# (line 2), so a failing pip would abort right here and none of the recovery below
-# would ever run — the user would just get a silent exit 1.
-set +e
-python3 -m pip install -e . 2>&1 | tee "$PIP_LOG"
-# PIPESTATUS[0], not $?: the exit status of a pipeline is tee's, which is always 0,
-# so testing $? here would treat every pip failure as a success.
-PIP_RC=${PIPESTATUS[0]}
-set -e
+if [[ "$SKIP_SYSTEM_PIP" -eq 0 ]]; then
+    # `set +e` around this on purpose. The script runs under `set -euo pipefail`
+    # (line 2), so a failing pip would abort right here and none of the recovery below
+    # would ever run — the user would just get a silent exit 1.
+    set +e
+    python3 -m pip install -e . 2>&1 | tee "$PIP_LOG"
+    # PIPESTATUS[0], not $?: the exit status of a pipeline is tee's, which is always 0,
+    # so testing $? here would treat every pip failure as a success. (And guarding
+    # the pipeline itself with `[[ ]] &&` would make PIPESTATUS the guard's — the
+    # first draft of this skip did exactly that and turned skip into failure.)
+    PIP_RC=${PIPESTATUS[0]}
+    set -e
+fi
 if [[ "$PIP_RC" -eq 0 ]]; then
     :
 elif grep -q "externally-managed-environment" "$PIP_LOG"; then
@@ -449,17 +491,75 @@ if [[ -w /usr/local/bin ]] || [[ "$(id -u)" -eq 0 ]]; then
     fi
 fi
 
+# --- The interpreter that owns this install ---
+#
+# ABSOLUTE path, resolved once. Two layouts exist in the wild: the venv from the
+# PEP 668 fallback, and a conda/system python where pip installed directly (the
+# project's own server runs miniconda). The absolute path matters because Phase B
+# runs this interpreter under sudo, and sudo resets PATH to secure_path — a bare
+# `python3` would silently become /usr/bin/python3, which does not have tubecli,
+# and the library check would report success while checking nothing.
+if [[ -x "$TARGET_DIR/.venv/bin/python" ]]; then
+    PYEXE="$TARGET_DIR/.venv/bin/python"
+else
+    PYEXE="$(command -v python3)"
+fi
+
+# --- Browser runtime libraries (Linux only) ---
+#
+# Installed HERE because install time is the only reliably privileged moment.
+# The runtime preflight can only fix this with passwordless sudo, which a normal
+# VPS user does not have — deferring means browser automation stays broken under
+# the systemd service forever. The ~200MB Chromium engine itself is NOT
+# downloaded here: it installs unprivileged on first browser use, so a box that
+# never uses browser automation never pays for it. TUBECLI_MINIMAL=1 skips.
+if [[ "$OS" == "linux" && -z "${TUBECLI_MINIMAL:-}" ]]; then
+    MISS="$("$PYEXE" -c 'from tubecli.extensions.browser.shardx_runtime import missing_linux_libraries; print(len(missing_linux_libraries()))' 2>/dev/null | tail -n1)"
+    if [[ "$MISS" =~ ^[0-9]+$ && "$MISS" -gt 0 ]]; then
+        echo -e "${YELLOW}[*] Installing $MISS browser runtime libraries (this can take a few minutes)...${NC}"
+        $SUDO "$PYEXE" -c 'from tubecli.extensions.browser.shardx_runtime import install_chromium_libs; install_chromium_libs()' || true
+        LEFT="$("$PYEXE" -c 'from tubecli.extensions.browser.shardx_runtime import missing_linux_libraries; print(len(missing_linux_libraries()))' 2>/dev/null | tail -n1)"
+        if [[ "$LEFT" =~ ^[0-9]+$ && "$LEFT" -gt 0 ]]; then
+            echo -e "${YELLOW}[!] $LEFT libraries could not be installed — browser automation stays off until they are.${NC}"
+            echo -e "${YELLOW}    The dashboard's Browser Engines page shows the exact command.${NC}"
+        else
+            echo -e "${GREEN}[OK] Browser runtime libraries present.${NC}"
+        fi
+    fi
+fi
+
 # --- Initialize ---
 
 if command_exists tubecli; then
     echo -e "${GREEN}[OK] TubeCLI installed successfully!${NC}"
 
-    # `tubecli init` is an interactive prompt-driven app. Under the advertised
-    # `curl -fsSL ... | bash` it inherited the curl pipe as stdin, so the wizard
-    # read the installer's own remaining source as the user's answers — and
-    # consumed those lines, so bash never ran them. Read the keyboard directly
-    # instead, and when there is no terminal at all, skip the wizard and say so
-    # rather than pretending it ran.
+    # Which ending? A headless machine (VPS, container) gets the server finisher:
+    # password, systemd service, summary-with-URL, exit. A desktop gets the
+    # interactive control panel, exactly as before. Python owns the detection —
+    # bash does not read DISPLAY itself. Decided by EXIT CODE, not stdout: any
+    # stray print inside the import chain would corrupt a captured value, and a
+    # probe that cannot run at all defaults to the server path (the primary Linux
+    # case, and the one that is safe without a terminal).
+    HEADLESS=1
+    if [[ "$OS" == "linux" ]]; then
+        if "$PYEXE" -c 'import sys; from tubecli.cli.init_cmd import _is_headless_server, _in_container; sys.exit(3 if not (_is_headless_server() or _in_container()) else 0)' 2>/dev/null; then
+            HEADLESS=1
+        elif [[ $? -eq 3 ]]; then
+            HEADLESS=0
+        fi
+    else
+        HEADLESS=0                     # macOS: always the desktop path
+    fi
+
+    INIT_ARGS=()
+    [[ "$HEADLESS" -eq 1 ]] && INIT_ARGS+=("--server")
+    # --lang only when the user chose one; --port never (it used to be forced to
+    # 5295 on every run, resetting any port the user had changed).
+    [[ "$LANG_EXPLICIT" -eq 1 ]] && INIT_ARGS+=("--lang" "$LANG_VAL")
+
+    # `tubecli init` reads the keyboard. Under `curl | bash` stdin is the script
+    # itself, so read /dev/tty directly; with no terminal at all, run it anyway —
+    # the server path is designed to complete without one (and says what it kept).
     TTY_IN=""
     if [[ -t 0 ]]; then
         TTY_IN=""                      # stdin already is the terminal
@@ -467,34 +567,39 @@ if command_exists tubecli; then
         TTY_IN="/dev/tty"
     fi
 
-    if [[ -t 0 || -n "$TTY_IN" ]]; then
-        echo -e "${YELLOW}[*] Initializing TubeCLI Workspace...${NC}"
-        # `set +e` again: under `set -e` a wizard that the user quits would abort the
-        # script before the message below, so they would never be told how to resume.
-        set +e
-        if [[ -n "$TTY_IN" ]]; then
-            tubecli init --lang "$LANG_VAL" --port 5295 < "$TTY_IN"
-        else
-            tubecli init --lang "$LANG_VAL" --port 5295
-        fi
-        INIT_RC=$?
-        set -e
-        if [[ "$INIT_RC" -eq 0 ]]; then
-            echo -e "${GREEN}[OK] Workspace Initialized.${NC}"
-        else
-            echo -e "${YELLOW}[!] 'tubecli init' did not finish. Run it yourself when ready:${NC}"
-            echo -e "      tubecli init"
-        fi
+    set +e
+    # ${INIT_ARGS[@]+...}: expanding an EMPTY array with plain "${INIT_ARGS[@]}"
+    # is an "unbound variable" error under `set -u` on bash 3.2 — which is what
+    # macOS ships, and macOS with no --lang reaches here with the array empty.
+    if [[ -n "$TTY_IN" ]]; then
+        tubecli init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} < "$TTY_IN"
+    elif [[ -t 0 || "$HEADLESS" -eq 1 ]]; then
+        tubecli init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} </dev/null
     else
-        echo -e "${YELLOW}[!] No terminal available, so the setup wizard was skipped.${NC}"
-        echo -e "${YELLOW}    Finish setup yourself with:${NC}"
-        echo -e "      tubecli init"
+        # Desktop with no terminal: the interactive panel cannot run.
+        echo -e "${YELLOW}[!] No terminal available, so interactive setup was skipped.${NC}"
+        echo -e "${YELLOW}    Finish setup yourself with:  tubecli init${NC}"
+        false
     fi
+    INIT_RC=$?
+    set -e
 
-    echo -e "\n${CYAN}Installation Complete! You can now use the 'tubecli' command.${NC}"
-    echo -e "${CYAN}Dashboard: http://127.0.0.1:5295/dashboard  (start it with 'tubecli api start')${NC}"
-    echo -e "${YELLOW}Note: You may need to restart your terminal or run 'source ~/.bashrc' (or ~/.zshrc) for the 'tubecli' command to be available.${NC}"
+    if [[ "$INIT_RC" -ne 0 && "$HEADLESS" -eq 1 ]]; then
+        # Print a path that works in THIS shell: the bare name may only exist in
+        # future shells (PATH edit) — that trap is why `sudo tubecli` failed for
+        # the first user of the service command.
+        TUBECLI_CMD="tubecli"
+        [[ -x "$HOME/.local/bin/tubecli" ]] && TUBECLI_CMD="$HOME/.local/bin/tubecli"
+        echo -e "${YELLOW}[!] Server setup did not finish. Complete it with:${NC}"
+        echo -e "      $TUBECLI_CMD init --server"
+    fi
+    # No hardcoded loopback dashboard URL here any more. On a server that URL
+    # was wrong for the only browser the user has (their laptop's), and the old
+    # "start it with the api command" advice described a foreground process that
+    # dies with the SSH session. The finisher's summary — or `tubecli info` at
+    # any later moment — is the authoritative version of this information.
 else
     echo -e "${YELLOW}[!] TubeCLI installed, but the 'tubecli' command is not in your PATH.${NC}"
     echo -e "${YELLOW}Please restart your terminal or add ~/.local/bin to your PATH manually.${NC}"
+    echo -e "${YELLOW}Then finish setup with:  tubecli init${NC}"
 fi
