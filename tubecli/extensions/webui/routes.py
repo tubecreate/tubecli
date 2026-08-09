@@ -166,46 +166,55 @@ def _asset_token(name: str) -> str:
 
 def _bust(html: str) -> str:
     import re
-    # Only /static/<file>.<ext>?v=… — the ?v= on the extension iframes further up
+    # Only /static/<file>.(js|css) — the ?v= on the extension iframes further up
     # index.html are unrelated route parameters and must be left alone.
+    #
+    # The existing token is OPTIONAL in this pattern, so pages that never had one
+    # get one too. workflow.html was such a page: it referenced /static/workflow.js
+    # bare, which is a browser cache with no expiry and no way to invalidate it —
+    # and because a cache is per-origin, the same code could be current on
+    # localhost and months stale on the server's IP.
     return re.sub(
-        r'(/static/([A-Za-z0-9_.-]+\.(?:js|css)))\?v=[^"\']*',
+        r'(/static/([A-Za-z0-9_.-]+\.(?:js|css)))(?:\?v=[^"\']*)?',
         lambda m: f"{m.group(1)}?v={_asset_token(m.group(2))}",
         html)
 
 
+def _html_page(filename: str, missing: str):
+    """Serve a static HTML page with fresh asset tokens.
+
+    Every page here loads /static JavaScript, so every page needs the tokens
+    rewritten — not just the dashboard. Falls back to the raw file if anything
+    goes wrong: a cache-busting bug must never be the reason a page 500s.
+    """
+    path = os.path.join(STATIC_DIR, filename)
+    if not os.path.exists(path):
+        return {"error": missing}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return HTMLResponse(_bust(f.read()), headers={"Cache-Control": "no-store"})
+    except Exception:
+        return FileResponse(path)
+
+
 @router.get("/dashboard")
 async def dashboard():
-    index = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(index):
-        try:
-            with open(index, "r", encoding="utf-8") as f:
-                html = _bust(f.read())
-            # no-store on the HTML itself: it is the thing that carries the
-            # tokens, so a cached copy would pin the old asset URLs in place and
-            # defeat the whole mechanism.
-            return HTMLResponse(html, headers={"Cache-Control": "no-store"})
-        except Exception:
-            # Never let the rewrite be the reason the dashboard fails to load.
-            return FileResponse(index)
-    return {"error": "Dashboard not found"}
+    # no-store on the HTML itself: it is the thing that carries the asset
+    # tokens, so a cached copy would pin the old asset URLs in place and defeat
+    # the whole mechanism.
+    return _html_page("index.html", "Dashboard not found")
+
 
 @router.get("/pipeline-monitor")
 async def pipeline_monitor_page():
     """Serve the Pipeline Monitor page."""
-    page = os.path.join(STATIC_DIR, "pipeline_monitor.html")
-    if os.path.exists(page):
-        return FileResponse(page)
-    return {"error": "Pipeline Monitor page not found"}
+    return _html_page("pipeline_monitor.html", "Pipeline Monitor page not found")
 
 
 @router.get("/workflow")
 async def workflow_page():
     """Serve the workflow builder page."""
-    wf_page = os.path.join(STATIC_DIR, "workflow.html")
-    if os.path.exists(wf_page):
-        return FileResponse(wf_page)
-    return {"error": "Workflow builder not found"}
+    return _html_page("workflow.html", "Workflow builder not found")
 
 
 @router.get("/teams")
