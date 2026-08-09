@@ -156,6 +156,7 @@ from tubecli.cli.workflow_cmd import workflow_cmd
 from tubecli.cli.api_cmd import api_cmd
 from tubecli.cli.extension_cmd import extension_group
 from tubecli.cli.password_cmd import password_cmd
+from tubecli.cli.service_cmd import service_cmd
 
 cli.add_command(init_cmd)
 cli.add_command(agent_cmd)
@@ -164,6 +165,7 @@ cli.add_command(workflow_cmd)
 cli.add_command(api_cmd)
 cli.add_command(extension_group)
 cli.add_command(password_cmd)
+cli.add_command(service_cmd)
 
 # ── Extension Commands (auto-discover enabled extensions) ───────
 try:
