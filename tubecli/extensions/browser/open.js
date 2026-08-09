@@ -1,4 +1,28 @@
-import { plugin } from 'playwright-with-fingerprints';
+// Loaded dynamically, not as a static import — the same treatment browser_manager.js
+// already got. playwright-with-fingerprints is the BAS binding and its npm package
+// declares os=win32, so package.json keeps it in optionalDependencies and npm simply
+// skips it on Linux and macOS. A static import is resolved before any statement runs,
+// so this one line made open.js unloadable on exactly the platforms where it was meant
+// to degrade gracefully: node exited 1 before printing anything, and a scheduled agent
+// browser run died with no usable message. Only the BAS paths below touch it; ShardX
+// does its own fingerprinting.
+let plugin = null;
+try {
+    ({ plugin } = await import('playwright-with-fingerprints'));
+} catch (e) {
+    console.log('[Browser] BAS fingerprint plugin not available on this platform — ShardX only.');
+}
+
+function requirePlugin() {
+    if (!plugin) {
+        throw new Error(
+            'This profile uses a BAS engine, which only runs on Windows. '
+            + 'Edit the profile to use a ShardX engine instead.'
+        );
+    }
+    return plugin;
+}
+
 import minimist from 'minimist';
 import fs from 'fs-extra';
 import path from 'path';
@@ -29,7 +53,11 @@ const __dirname = path.dirname(__filename);
 // CRITICAL: Tell plugin to use data/ directory for engine storage
 // Plugin looks for engines at {cwd}/script/{version}/ and {cwd}/engine/{version}/
 // Our engines are at data/script/ and data/engine/, so cwd must be data/
-plugin.setWorkingFolder(path.join(__dirname, 'data'));
+// Guarded: on Linux/macOS the plugin never loads, and this call at module top level
+// would throw before main() is ever reached — engine storage only matters to BAS.
+if (plugin) {
+  plugin.setWorkingFolder(path.join(__dirname, 'data'));
+}
 const _require = createRequire(import.meta.url);
 let missionManager = null;
 try {
@@ -507,7 +535,7 @@ async function main() {
   // --- ENGINE MANAGEMENT ---
   if (args['list-versions']) {
     try {
-      const versions = await plugin.versions('extended');
+      const versions = await requirePlugin().versions('extended');
       process.stdout.write("__VERSIONS_START__\n");
       process.stdout.write(JSON.stringify(versions) + "\n");
       process.stdout.write("__VERSIONS_END__\n");
@@ -540,7 +568,7 @@ async function main() {
     console.log(`[Download] Starting download for version: ${v}...`);
     try {
         await updateProgress({ status: 'fetching-list', percent: 5 });
-        const list = await plugin.versions('extended');
+        const list = await requirePlugin().versions('extended');
         const verInfo = list.find(x => x.browser_version === v || x.bas_version === v);
         
         if (!verInfo) {
@@ -599,7 +627,7 @@ async function main() {
         // and it should see the file if it checks the same path.
         // The default path for fingerprints plugin is indeed data/engine/BAS_VER/FastExecuteScript.x64.zip
         
-        await plugin.useBrowserVersion(v).fetch(); 
+        await requirePlugin().useBrowserVersion(v).fetch();
 
         await updateProgress({ status: 'completed', percent: 100 });
         console.log(`[Download] ✅ Version ${v} is ready.`);
@@ -952,7 +980,7 @@ async function main() {
       }
       
       if (serviceKey) {
-        plugin.setServiceKey(serviceKey);
+        requirePlugin().setServiceKey(serviceKey);
       }
 
       let fingerprint;
