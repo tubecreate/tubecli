@@ -4,6 +4,7 @@ Manages browser process spawning, monitoring, and termination.
 Ported from python-video-studio core/browser_process_manager.py.
 """
 import os
+import shutil
 import subprocess
 import threading
 import uuid
@@ -75,7 +76,16 @@ class BrowserProcessManager:
         # Check prerequisites
         # 1. Check if node is available
         try:
-            node_check = subprocess.run(["node", "--version"], capture_output=True, text=True, timeout=5, shell=True)
+            # shell=False, and resolve node ourselves. With shell=True and a list,
+            # POSIX runs only args[0] as the command and binds the rest to $0, $1...
+            # so this was a bare `node` on Linux: --version went nowhere, stdout came
+            # back empty, and node_available was set True regardless. Worse, a bare
+            # `node` on a TTY opens the REPL and blocks until the 5s timeout.
+            node_exe = shutil.which("node")
+            if not node_exe:
+                raise FileNotFoundError("`node` was not found on PATH")
+            node_check = subprocess.run([node_exe, "--version"], capture_output=True,
+                                        text=True, timeout=5)
             debug_info["node_version"] = node_check.stdout.strip()
             debug_info["node_available"] = True
         except Exception as e:
@@ -131,12 +141,22 @@ class BrowserProcessManager:
             debug_info["log_file"] = str(log_file_path)
 
             # NOTE: Do NOT use CREATE_NO_WINDOW — it hides the browser window!
+            #
+            # shell=False. This used to pass the arg LIST with shell=True, which
+            # means two different things per platform: Windows joins the list via
+            # list2cmdline (so it worked), but POSIX rewrites it to
+            # ['/bin/sh', '-c'] + args — only "node" is the command, and open.js
+            # plus every flag become $0, $1... which the command never references.
+            # Linux therefore ran a bare `node`, which read EOF on stdin and exited
+            # 0 instantly. No browser was ever launched by a scheduled agent run on
+            # a server; the preview path (routes.py) already spawned node correctly,
+            # which is why Remote worked on the same box.
+            args[0] = node_exe
             process = subprocess.Popen(
                 args,
                 cwd=launcher_dir,
                 stdout=log_file,
                 stderr=log_file,
-                shell=True,
             )
 
             debug_info["pid"] = process.pid

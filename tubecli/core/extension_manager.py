@@ -18,6 +18,42 @@ from tubecli.config import DATA_DIR, EXTENSIONS_EXTERNAL_DIR
 logger = logging.getLogger('ExtensionManager')
 
 
+def _run_node_tool(tool: str, tool_args: List[str], *, cwd: str,
+                   timeout: int, label: str) -> bool:
+    """Run an npm/npx command portably, and say so when it fails.
+
+    shell=False with an executable we resolve ourselves. Passing an arg LIST
+    together with shell=True means two different things per platform: Windows
+    joins it into one command string, but POSIX rewrites it to
+    ['/bin/sh', '-c'] + args, so only the first element is the command and the
+    rest are bound to $0, $1... and dropped. `npm install` was therefore a bare
+    `npm` on Linux and macOS — it printed usage, exited, and installed nothing,
+    which is why an extension could report a successful install and then fail at
+    first use. shutil.which is what makes dropping shell=True safe on Windows:
+    it resolves npm/npx to the npm.cmd/npx.cmd shims that shell=True used to find.
+
+    The result used to be discarded entirely, so a real npm failure was silent
+    too. Returns True only when the command actually ran and exited 0.
+    """
+    exe = shutil.which(tool)
+    if not exe:
+        logger.warning("%s: `%s` not found on PATH — skipped.", label, tool)
+        return False
+    try:
+        result = subprocess.run([exe] + tool_args, cwd=cwd, capture_output=True,
+                                text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning("%s: `%s %s` timed out after %ss.",
+                       label, tool, " ".join(tool_args), timeout)
+        return False
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout or "").strip().splitlines()[-3:]
+        logger.warning("%s: `%s %s` exited %s. %s", label, tool,
+                       " ".join(tool_args), result.returncode, " / ".join(tail))
+        return False
+    return True
+
+
 # ── Version comparison & Git Helpers ─────────────────────────────────
 
 def compare_versions(v1: str, v2: str) -> int:
@@ -833,11 +869,10 @@ class ExtensionManager:
         if os.path.exists(pkg_file):
             try:
                 print(f"📦 Installing Node.js dependencies for {manifest['name']}...")
-                subprocess.run(
-                    ["npm", "install", "--no-audit", "--no-fund"],
-                    cwd=target_dir, capture_output=True, timeout=180, shell=True
-                )
-                
+                _run_node_tool("npm", ["install", "--no-audit", "--no-fund"],
+                               cwd=target_dir, timeout=180,
+                               label=f"{manifest['name']} node deps")
+
                 # Check if playwright is a dependency and install its browsers
                 with open(pkg_file, "r", encoding="utf-8") as f:
                     pkg_data = json.load(f)
@@ -845,10 +880,9 @@ class ExtensionManager:
                     
                     if "playwright" in deps or "playwright-with-fingerprints" in deps:
                         print(f"🎭 Installing Playwright browsers for {manifest['name']}...")
-                        subprocess.run(
-                            ["npx", "playwright", "install", "chromium"],
-                            cwd=target_dir, timeout=300, shell=True
-                        )
+                        _run_node_tool("npx", ["playwright", "install", "chromium"],
+                                       cwd=target_dir, timeout=300,
+                                       label=f"{manifest['name']} playwright browsers")
                     
             except Exception as e:
                 logger.warning(f"Failed to install extension node dependencies: {e}")
@@ -944,10 +978,9 @@ class ExtensionManager:
         if os.path.exists(pkg_file):
             try:
                 print(f"📦 Updating Node.js dependencies for {name}...")
-                subprocess.run(
-                    ["npm", "install", "--no-audit", "--no-fund"],
-                    cwd=target_dir, capture_output=True, timeout=180, shell=True
-                )
+                _run_node_tool("npm", ["install", "--no-audit", "--no-fund"],
+                               cwd=target_dir, timeout=180,
+                               label=f"{name} node deps update")
             except Exception as e:
                 logger.warning(f"Failed to update node dependencies: {e}")
 
