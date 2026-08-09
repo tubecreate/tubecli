@@ -31,9 +31,96 @@ from fastapi import Request, HTTPException
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "[::1]"}
 
 
+_local_ip_cache = None
+
+
+def _local_ip_addresses() -> set:
+    """Every IP address this machine answers on.
+
+    An Origin whose host is one of OUR OWN addresses is same-origin by
+    definition — the browser is talking to this server at the address it really
+    has. Refusing those is what made the dashboard unusable on a VPS: the page
+    loads over http://43.155.135.49:5295 (navigation sends no Origin), then
+    every write from that page carries Origin: http://43.155.135.49:5295 and was
+    refused as "cross-origin" against itself.
+
+    This does NOT reopen DNS rebinding, which is why the allowlist was strict.
+    Rebinding needs an attacker-controlled NAME that resolves to us; the victim's
+    browser then sends Origin: http://evil.com. A bare IP literal cannot be
+    rebound — if the Origin says 43.155.135.49, the browser really is pointed at
+    43.155.135.49. Only literal addresses of this host are added here; hostnames
+    still require TUBECLI_ALLOWED_ORIGIN_HOSTS.
+
+    Cached: the addresses do not change while the process runs, and this is on
+    the path of every request.
+    """
+    global _local_ip_cache
+    if _local_ip_cache is not None:
+        return _local_ip_cache
+
+    found = set()
+    try:
+        import socket
+
+        hostname = socket.gethostname()
+        for family, _, _, _, sockaddr in socket.getaddrinfo(hostname, None):
+            addr = sockaddr[0]
+            if addr:
+                found.add(str(addr).lower())
+    except Exception:
+        pass
+    # The address used to reach the internet, which on a cloud VM is often the
+    # only one gethostbyname misses. No packet is sent — connect() on a UDP
+    # socket just picks the route.
+    try:
+        import socket
+
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            found.add(s.getsockname()[0].lower())
+        finally:
+            s.close()
+    except Exception:
+        pass
+
+    _local_ip_cache = found
+    return found
+
+
+# Hosts learned by someone proving they hold the dashboard password. See
+# remember_host().
+_learned_hosts: set = set()
+
+
+def remember_host(origin: str, host_header: str) -> None:
+    """Trust this address from now on, because someone just authenticated on it.
+
+    The NAT problem this solves: a cloud VM's own interface holds a private
+    address, so _local_ip_addresses() never contains the public IP the user
+    actually browses to. On Tencent/AWS/GCP the machine has no way to know that
+    address — but the browser does, and it tells us in the Host header.
+
+    Only recorded when the login SUCCEEDED and the Origin and Host agree, i.e.
+    a browser sitting on that address proved it holds the password. Host alone
+    is caller-controlled and is never enough: a curl with a forged Host and the
+    right password would otherwise be able to allowlist anything. Requiring
+    Origin == Host means a real browser really was there — and anyone who has
+    the password has already won by every other measure.
+
+    Not persisted. It is re-learned on the next login after a restart, which
+    keeps a stale entry from outliving a change of address.
+    """
+    o, h = _host_of(origin), _host_of(host_header)
+    if o and h and o == h and o not in _LOOPBACK_HOSTS:
+        _learned_hosts.add(o)
+
+
 def _allowed_hosts() -> set:
     extra = os.environ.get("TUBECLI_ALLOWED_ORIGIN_HOSTS", "")
     hosts = set(_LOOPBACK_HOSTS)
+    hosts |= _local_ip_addresses()
+    hosts |= _learned_hosts
     for h in extra.split(","):
         h = h.strip().lower()
         if h:

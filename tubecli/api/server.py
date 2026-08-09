@@ -101,7 +101,13 @@ async def _require_login(request: Request, call_next):
 
 @app.middleware("http")
 async def _guard_cross_origin(request: Request, call_next):
-    if request.method != "OPTIONS":  # let CORS preflight through
+    # The login surface is exempt here as well as from the gate above, and that
+    # costs nothing: this guard has never protected those paths, because a
+    # request with no Origin header — curl, from anywhere on the internet — has
+    # always been let through. Refusing them only stopped the real browser on a
+    # public address from reaching its own login form, which is precisely the
+    # case the dashboard has to serve.
+    if request.method != "OPTIONS" and not _auth_exempt(request.url.path):
         try:
             from tubecli.core.origin_guard import is_origin_allowed
             if not is_origin_allowed(request.headers.get("origin"),

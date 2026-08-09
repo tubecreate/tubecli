@@ -65,6 +65,18 @@ async def login(body: LoginRequest, request: Request, response: Response):
 
     auth.clear_failures(key)
 
+    # Trust this address from here on. A cloud VM cannot discover the public
+    # address its users browse to — that is NAT'd outside the guest — but the
+    # browser just told us in the Host header, and it proved it holds the
+    # password. Without this the login succeeds and then every subsequent write
+    # is refused by the cross-origin guard, which is what "Add key failed" was.
+    try:
+        from tubecli.core.origin_guard import remember_host
+
+        remember_host(request.headers.get("origin", ""), request.headers.get("host", ""))
+    except Exception:
+        pass
+
     # The default password logs in like any other. It is reported back so the
     # UI can offer the change and keep warning, but it does not bar the door.
     must_change = auth.is_default_password()
