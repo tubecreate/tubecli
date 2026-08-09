@@ -7,6 +7,24 @@
 
 const N8nBridge = (() => {
 
+  // Deliberately duplicated from workflow.js rather than shared: both files are
+  // separate IIFEs with no common scope, and coupling them through a global
+  // would depend on script load order for eight characters of hex.
+  // crypto.randomUUID() is not used because it is a secure-context API — absent
+  // on a plain-http:// origin that is not localhost, which is how this dashboard
+  // is reached on a server.
+  function shortId() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const b = new Uint8Array(4);
+        crypto.getRandomValues(b);
+        return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) { /* fall through */ }
+    return Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+  }
+
+
   // ── Node Type Mapping ──────────────────────────────────────────
   const N8N_TO_TC = {
     'n8n-nodes-base.httpRequest':       'api_request',
@@ -337,7 +355,7 @@ const N8nBridge = (() => {
     const defs = portDefs[type] || { inputs: ['input'], outputs: ['output'] };
     const names = isInputs ? defs.inputs : defs.outputs;
     return names.map(name => ({
-      id: 'port_' + crypto.randomUUID().slice(0, 8),
+      id: 'port_' + shortId(),
       name: name,
     }));
   }

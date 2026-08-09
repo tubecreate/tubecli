@@ -6,6 +6,28 @@
  */
 
 const WF = (() => {
+  // ── Ids ────────────────────────────────────────────────────────
+  //
+  // NOT crypto.randomUUID(). That is a secure-context API: the browser simply
+  // does not define it on a plain-http:// origin unless the host is localhost.
+  // Every node, port and connection id ran through it, so opening this builder
+  // on a server by IP made "add a node" throw TypeError and silently do nothing
+  // — by drag OR by double-click — while the identical code worked on the
+  // developer's own 127.0.0.1, which IS a secure context.
+  //
+  // crypto.getRandomValues carries no such restriction and exists everywhere
+  // these ids were only ever 8 hex characters anyway.
+  function shortId() {
+    try {
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+        const b = new Uint8Array(4);
+        crypto.getRandomValues(b);
+        return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (e) { /* fall through */ }
+    return Math.random().toString(16).slice(2, 10).padEnd(8, '0');
+  }
+
   // ── State ──────────────────────────────────────────────────────
   const state = {
     nodes: [],          // { id, type, x, y, config, inputs[], outputs[], _el }
@@ -476,15 +498,15 @@ const WF = (() => {
     if (y == null) { y = state.OFFSET + 150 + state.nodes.length * 40; }
 
     const portDefs = getPortDefs(type);
-    const id = 'node_' + crypto.randomUUID().slice(0, 8);
+    const id = 'node_' + shortId();
 
     const node = {
       id,
       type,
       x, y,
       config: {},
-      inputs: portDefs.inputs.map(p => ({ id: 'port_' + crypto.randomUUID().slice(0, 8), name: p.name, port_type: p.type })),
-      outputs: portDefs.outputs.map(p => ({ id: 'port_' + crypto.randomUUID().slice(0, 8), name: p.name, port_type: p.type })),
+      inputs: portDefs.inputs.map(p => ({ id: 'port_' + shortId(), name: p.name, port_type: p.type })),
+      outputs: portDefs.outputs.map(p => ({ id: 'port_' + shortId(), name: p.name, port_type: p.type })),
       _el: null,
     };
 
@@ -635,7 +657,7 @@ const WF = (() => {
   // ── Connections ────────────────────────────────────────────────
   function createConnection(fromNodeId, fromPortId, toNodeId, toPortId) {
     const conn = {
-      id: 'conn_' + crypto.randomUUID().slice(0, 8),
+      id: 'conn_' + shortId(),
       from_node_id: fromNodeId,
       from_port_id: fromPortId,
       to_node_id: toNodeId,
@@ -927,12 +949,12 @@ const WF = (() => {
         label: nd.label || '',
         config: nd.config || {},
         inputs: (nd.inputs || portDefs.inputs).map((p, i) => ({
-          id: p.id || 'port_' + crypto.randomUUID().slice(0, 8),
+          id: p.id || 'port_' + shortId(),
           name: p.name || (portDefs.inputs[i] ? portDefs.inputs[i].name : 'input'),
           port_type: p.port_type || (portDefs.inputs[i] ? portDefs.inputs[i].type : 'any'),
         })),
         outputs: (nd.outputs || portDefs.outputs).map((p, i) => ({
-          id: p.id || 'port_' + crypto.randomUUID().slice(0, 8),
+          id: p.id || 'port_' + shortId(),
           name: p.name || (portDefs.outputs[i] ? portDefs.outputs[i].name : 'output'),
           port_type: p.port_type || (portDefs.outputs[i] ? portDefs.outputs[i].type : 'any'),
         })),
@@ -970,7 +992,7 @@ const WF = (() => {
       }
 
       state.connections.push({
-        id: 'conn_' + crypto.randomUUID().slice(0, 8),
+        id: 'conn_' + shortId(),
         from_node_id: c.from_node_id,
         from_port_id: fromPortId,
         to_node_id: c.to_node_id,
