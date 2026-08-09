@@ -65,17 +65,9 @@ async def login(body: LoginRequest, request: Request, response: Response):
 
     auth.clear_failures(key)
 
+    # The default password logs in like any other. It is reported back so the
+    # UI can offer the change and keep warning, but it does not bar the door.
     must_change = auth.is_default_password()
-    if must_change and not auth.is_loopback(_client(request)):
-        # Belt and braces: check_request already refuses this, but a future
-        # exemption to the middleware must not silently hand out a session for
-        # the shipped password to a remote caller.
-        return JSONResponse(
-            status_code=403,
-            content={"detail": "Phải đổi mật khẩu từ chính máy chủ trước khi đăng nhập từ xa.",
-                     "reason": "default_password"},
-        )
-
     token = auth.create_session()
     response = JSONResponse(content={"ok": True, "must_change_password": must_change})
     response.set_cookie(
@@ -163,10 +155,16 @@ _LOGIN_PAGE = """<!doctype html>
   button{width:100%;margin-top:20px;padding:11px;border:0;border-radius:9px;
          background:#5276EB;color:#fff;font-size:14.5px;font-weight:600;cursor:pointer}
   button:disabled{opacity:.55;cursor:default}
+  button.ghost{margin-top:9px;background:transparent;border:1px solid #33353b;
+               color:#9ca3af;font-weight:500}
+  button.ghost:hover{border-color:#4a4d55;color:#c9cbd1}
   .msg{margin-top:14px;font-size:13.5px;min-height:1.2em}
   .err{color:#ef4444}
   .note{margin-top:16px;padding:11px 13px;border-radius:9px;background:#2a2113;
         border:1px solid #4a3a18;color:#f0c674;font-size:13px}
+  .note code{display:block;margin-top:9px;padding:8px 10px;border-radius:7px;
+             background:#15140f;color:#ffd88a;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;
+             user-select:all;cursor:text}
 </style></head><body>
 <div class="card">
   <h1 id="title">Đăng nhập TubeCLI</h1>
@@ -184,6 +182,7 @@ _LOGIN_PAGE = """<!doctype html>
       <input id="np2" type="password" autocomplete="new-password">
     </div>
     <button id="go" type="submit">Đăng nhập</button>
+    <button id="skip" type="button" class="ghost" hidden>Để sau, vào thẳng</button>
   </form>
   <div class="msg" id="msg"></div>
 </div>
@@ -192,25 +191,38 @@ _LOGIN_PAGE = """<!doctype html>
   var $=function(i){return document.getElementById(i)};
   var next=new URLSearchParams(location.search).get('next')||'/dashboard';
   var mode='login';
+  // Kept from the login step so the change form does not ask for a password
+  // the user just typed. The server still requires it — this only spares the
+  // second entry.
+  var knownCurrent='';
   function say(t,bad){ $('msg').textContent=t||''; $('msg').className='msg'+(bad?' err':''); }
 
-  function toChange(){
+  function toChange(local){
     mode='change';
-    $('title').textContent='Đặt mật khẩu mới';
-    $('sub').textContent='Mật khẩu mặc định phải được thay trước khi dùng.';
+    $('title').textContent='Đổi mật khẩu';
+    $('sub').textContent='Bạn đang dùng mật khẩu mặc định. Nên đặt một mật khẩu riêng.';
+    $('cur-wrap').hidden=true;          // already proved it during login
     $('new-wrap').hidden=false;
     $('go').textContent='Lưu mật khẩu';
+    // Skippable, by the product owner's decision. The warning stays visible in
+    // the dashboard afterwards so it is a choice rather than an oversight.
+    $('skip').hidden=false;
+    $('warn').hidden=false;
+    $('warn').innerHTML='Nếu giữ mật khẩu mặc định, bất kỳ ai truy cập được máy này '+
+      'cũng vào được bảng điều khiển — đọc được API key và cài được extension.'+
+      (local?'':'<code>tubecli password</code>');
     $('np').focus();
   }
 
+  $('skip').addEventListener('click', function(){ location.replace(next); });
+
   fetch('/api/v1/auth/status').then(function(r){return r.json()}).then(function(s){
-    if(s.must_change_password && !s.local){
-      $('warn').hidden=false;
-      $('warn').textContent='Máy chủ vẫn dùng mật khẩu mặc định. Vì lý do an toàn, '+
-        'hãy đăng nhập ngay trên máy chủ (hoặc qua SSH tunnel) để đổi mật khẩu trước.';
-      $('go').disabled=true;
-    } else if(s.authenticated && !s.must_change_password){
+    if(s.authenticated && !s.must_change_password){
       location.replace(next);
+    } else if(s.must_change_password){
+      $('warn').hidden=false;
+      $('warn').textContent='Máy chủ đang dùng mật khẩu mặc định (123456). '+
+        'Đăng nhập rồi đổi ngay để không ai khác vào được.';
     }
   }).catch(function(){});
 
@@ -221,7 +233,8 @@ _LOGIN_PAGE = """<!doctype html>
       if($('np').value!==$('np2').value){ return say('Hai mật khẩu không khớp.',true); }
       $('go').disabled=true;
       fetch('/api/v1/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({current_password:$('cur').value,new_password:$('np').value})})
+        body:JSON.stringify({current_password:knownCurrent||$('cur').value,
+                             new_password:$('np').value})})
         .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d}})})
         .then(function(x){
           $('go').disabled=false;
@@ -231,13 +244,14 @@ _LOGIN_PAGE = """<!doctype html>
       return;
     }
     $('go').disabled=true;
+    knownCurrent=$('cur').value;
     fetch('/api/v1/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({password:$('cur').value})})
       .then(function(r){return r.json().then(function(d){return {ok:r.ok,d:d}})})
       .then(function(x){
         $('go').disabled=false;
         if(!x.ok){ return say(x.d.detail||'Đăng nhập thất bại.',true); }
-        if(x.d.must_change_password){ say(''); return toChange(); }
+        if(x.d.must_change_password){ say(''); return toChange(x.d.local); }
         location.replace(next);
       }).catch(function(){ $('go').disabled=false; say('Không kết nối được máy chủ.',true); });
   });
@@ -248,3 +262,42 @@ _LOGIN_PAGE = """<!doctype html>
 @router.get("/login", response_class=HTMLResponse)
 async def login_page():
     return HTMLResponse(_LOGIN_PAGE)
+
+
+# Served to the dashboard, which includes it unconditionally. Keeping the banner
+# here rather than in app.js means it cannot be lost when the dashboard is
+# rebuilt, and it costs nothing when the password has been changed.
+_BANNER_JS = """(function(){
+  fetch('/api/v1/auth/status').then(function(r){return r.json()}).then(function(s){
+    if(!s.must_change_password) return;
+    var b=document.createElement('div');
+    b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;'+
+      'display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;'+
+      'padding:9px 16px;background:#4a3a18;color:#f0c674;'+
+      'font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;'+
+      'border-top:1px solid #6b5320';
+    var t=document.createElement('span');
+    t.textContent='Đang dùng mật khẩu mặc định — ai truy cập được máy này cũng vào được bảng điều khiển.';
+    var a=document.createElement('a');
+    a.href='/login?next='+encodeURIComponent(location.pathname+location.hash);
+    a.textContent='Đổi mật khẩu';
+    a.style.cssText='color:#ffd88a;font-weight:600;text-decoration:underline;cursor:pointer';
+    var x=document.createElement('button');
+    x.textContent='Ẩn';
+    x.style.cssText='background:transparent;border:1px solid #6b5320;color:#f0c674;'+
+      'border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer';
+    // Hidden for this tab only, deliberately: sessionStorage forgets on close,
+    // so dismissing it does not make the warning go away for good.
+    x.onclick=function(){ sessionStorage.setItem('tubecli_pw_banner','off'); b.remove(); };
+    b.appendChild(t); b.appendChild(a); b.appendChild(x);
+    if(sessionStorage.getItem('tubecli_pw_banner')!=='off') document.body.appendChild(b);
+  }).catch(function(){});
+})();"""
+
+
+@router.get("/api/v1/auth/banner.js")
+async def banner_js():
+    from fastapi.responses import Response as _R
+
+    return _R(content=_BANNER_JS, media_type="application/javascript",
+              headers={"Cache-Control": "no-store"})

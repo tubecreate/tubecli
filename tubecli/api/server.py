@@ -55,7 +55,8 @@ app.add_middleware(
 # Paths that must answer before anyone is logged in, or nobody could ever log
 # in. Deliberately short, and matched by exact path or prefix — never by
 # substring, so a crafted URL like /api/v1/files/read?x=/login cannot slip past.
-_AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status", "/favicon.ico"}
+_AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
+                      "/api/v1/auth/banner.js", "/favicon.ico"}
 _AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/")
 
 

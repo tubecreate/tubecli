@@ -319,12 +319,17 @@ def check_request(client_host: str, cookie_token: Optional[str],
         return {"reason": "not_configured",
                 "detail": "TubeCLI chưa được thiết lập. Hãy đăng nhập từ chính máy chủ để đặt mật khẩu."}
 
-    if is_default_password():
-        return {"reason": "default_password",
-                "detail": "TubeCLI vẫn đang dùng mật khẩu mặc định. "
-                          "Hãy đăng nhập từ chính máy chủ (hoặc qua SSH tunnel) và đổi mật khẩu "
-                          "trước khi truy cập từ xa."}
-
+    # The default password is WARNED ABOUT, not refused.
+    #
+    # An earlier version blocked every remote request until the password was
+    # changed, which closed the window between install and first login. The
+    # product owner chose otherwise: a user who does not want to change it
+    # should still be able to work, and be told what they are accepting. That
+    # is a real trade — anyone who reaches the port and guesses the shipped
+    # password gets the same access the owner has, on an API that returns
+    # data/cloud_api_keys.json and installs code — so the warning is surfaced
+    # everywhere it can be: /api/v1/auth/status, the login screen, a banner in
+    # the dashboard, and the console at startup.
     if session_valid(cookie_token):
         return None
 

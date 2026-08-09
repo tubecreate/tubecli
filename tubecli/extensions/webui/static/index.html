@@ -1459,5 +1459,9 @@ function performUpdate() {
         });
 }
 </script>
+<!-- Warns while the dashboard still uses the shipped default password.
+     Served from the API so it cannot be lost in a dashboard rebuild, and
+     it renders nothing once a real password is set. -->
+<script src="/api/v1/auth/banner.js" defer></script>
 </body>
 </html>

@@ -101,19 +101,22 @@ def main():
         auth.destroy_session(good)
         check("dang xuat roi -> tu choi", auth.check_request("203.0.113.9", good) is not None)
 
-        print("\n=== 7. con mat khau mac dinh thi CHAN tu xa ===")
-        # The window this closes: a fresh install sitting on a public IP with a
-        # published password, before the user has logged in even once.
+        print("\n=== 7. mat khau mac dinh: CANH BAO, khong chan ===")
+        # The product owner chose warn-not-block: someone who does not want to
+        # change the password should still be able to work. What must stay true
+        # is that the default is a REAL password — an unauthenticated caller
+        # still gets nothing — and that the state is reported, so every surface
+        # can keep saying so.
         auth.set_password(auth.DEFAULT_PASSWORD, _is_default=True)
+        check("bao dang la mat khau mac dinh", auth.is_default_password())
+        check("khong co phien -> van bi tu choi",
+              auth.check_request("203.0.113.9", None) is not None)
         tok2 = auth.create_session()
-        r = auth.check_request("203.0.113.9", tok2)
-        check("tu xa bi tu choi du CO phien hop le",
-              r is not None and r["reason"] == "default_password", str(r))
-        check("nhung loopback van vao duoc de doi mat khau",
-              auth.check_request("127.0.0.1", None) is None)
+        check("co phien hop le -> vao duoc du dang la mat khau mac dinh",
+              auth.check_request("203.0.113.9", tok2) is None)
+        check("loopback van vao thang", auth.check_request("127.0.0.1", None) is None)
         auth.set_password("daDoiRoi123")
-        check("doi xong thi tu xa mo ra",
-              auth.check_request("203.0.113.9", auth.create_session()) is None)
+        check("doi xong thi het canh bao", not auth.is_default_password())
 
         print("\n=== 7b. proxy cung may KHONG duoc coi la loopback ===")
         # The hole this closes: nginx, Caddy or `cloudflared tunnel --url
