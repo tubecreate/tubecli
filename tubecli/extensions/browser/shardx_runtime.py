@@ -434,12 +434,50 @@ def manual_install_hint(names: list) -> str:
     return f"{'sudo ' if need_sudo else ''}{base} {' '.join(names)}"
 
 
+# The shared objects a Chromium build needs before it will start. Checked by
+# name rather than by package, because what actually matters at launch is
+# whether the loader can resolve these — a package can be present and the
+# library still missing on a minimal image.
+_CHROMIUM_SONAMES = (
+    "libnss3.so", "libnspr4.so", "libatk-1.0.so.0", "libatk-bridge-2.0.so.0",
+    "libcups.so.2", "libxkbcommon.so.0", "libXcomposite.so.1", "libXdamage.so.1",
+    "libXfixes.so.3", "libXrandr.so.2", "libgbm.so.1", "libpango-1.0.so.0",
+    "libcairo.so.2", "libasound.so.2",
+)
+
+
+def missing_chromium_libs() -> list:
+    """Which of the Chromium runtime libraries this system cannot resolve.
+
+    Empty on Windows and macOS, which do not need them.
+
+    Read from `ldconfig -p`, the loader's own cache, so the answer matches what
+    Chromium will actually experience. Falls back to an empty list — "cannot
+    tell" must not become "definitely broken", or a working machine with an
+    unusual libc layout would be refused an install it could have completed.
+    """
+    if sys.platform != "linux":
+        return []
+    try:
+        r = subprocess.run(["ldconfig", "-p"], capture_output=True, timeout=15)
+        if r.returncode != 0:
+            return []
+        cache = (r.stdout or b"").decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [so for so in _CHROMIUM_SONAMES if so not in cache]
+
+
 def preflight() -> Optional[str]:
     """Anything that would make an install fail, checked before downloading.
 
     The engine archive is over 200 MB. Discovering afterwards that `unzip` is
     missing means the user waited through the whole transfer to be told the
-    install could not have worked in the first place.
+    install could not have worked in the first place — and the same was true of
+    the Chromium runtime libraries, except worse: the install reported success
+    and the failure only surfaced later as
+    "The engine is missing libatk-1.0.so.0" on the first launch attempt, long
+    after anything connected it to the install.
     """
     spec = host_spec()
     if not spec.supported:
@@ -457,4 +495,26 @@ def preflight() -> Optional[str]:
                 f"installed automatically"
                 f"{' — this process is not root and sudo would prompt for a password' if blocked else ''}. "
                 f"Run: {manual_install_hint(['unzip'])}")
+
+    # The Chromium runtime libraries, checked HERE rather than discovered at
+    # launch. install_packages() is deliberately silent when it cannot act —
+    # it returns False rather than blocking on a sudo password no server
+    # process could answer — so without this the whole install completed,
+    # reported success, and the engine then refused to start with a message
+    # nothing tied back to the install.
+    missing = missing_chromium_libs()
+    if missing:
+        install_packages(LINUX_APT_PACKAGES.split())
+        missing = missing_chromium_libs()
+    if missing:
+        blocked = _can_install_packages() is None
+        return (
+            "The engine needs the Chromium runtime libraries, and "
+            + (str(len(missing)) + " are missing: " + ", ".join(missing[:4])
+               + ("…" if len(missing) > 4 else ""))
+            + ". They could not be installed automatically"
+            + (" — this process is not root and sudo would prompt for a password"
+               if blocked else "")
+            + f".\nRun: {manual_install_hint(LINUX_APT_PACKAGES.split())}"
+        )
     return None
