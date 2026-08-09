@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tubecli"
-version = "2026.08.09.9"
+version = "2026.08.09.10"
 description = "Open Source AI Agent CLI System — Install, manage, and orchestrate AI agents, skills, and workflows from the command line."
 readme = "README.md"
 license = {text = "MIT"}
