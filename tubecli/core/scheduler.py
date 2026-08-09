@@ -34,6 +34,7 @@ class Scheduler:
 
     def __init__(self):
         self.history_file = DATA_DIR / "schedule_history.json"
+        self._last_sweep_date = None
         self._thread: Optional[threading.Thread] = None
         self._stop_flag = threading.Event()
         self._runner_callback: Optional[Callable] = None
@@ -94,6 +95,18 @@ class Scheduler:
         from tubecli.core.skill import skill_manager
 
         now = datetime.datetime.now()
+
+        # Prune old run-log day files once a day. Doing it here rather than only
+        # at startup matters: this server is meant to run for weeks under systemd
+        # and would otherwise never sweep.
+        if self._last_sweep_date != now.date():
+            self._last_sweep_date = now.date()
+            try:
+                from tubecli.core import run_log
+                run_log.sweep()
+            except Exception as e:
+                print(f"[Scheduler] run_log sweep failed: {e}")
+
         for skill in skill_manager.get_all():
             if not skill.schedule_enabled:
                 continue
@@ -138,6 +151,10 @@ class Scheduler:
             next_run_str = getattr(agent, "schedule_next_run", None)
             should_run_now = False
             overdue_sec = 0.0
+            # Deliberately NOT named next_run: the skill loop earlier in this same
+            # function binds that name, so on a ValueError below this would silently
+            # carry some unrelated skill's schedule into the agent's run record.
+            agent_next_run = None
 
             if not next_run_str:
                 # Never scheduled before (fresh agent or scheduling just enabled).
@@ -151,10 +168,10 @@ class Scheduler:
                 continue
             else:
                 try:
-                    next_run = datetime.datetime.fromisoformat(next_run_str)
-                    if now >= next_run:
+                    agent_next_run = datetime.datetime.fromisoformat(next_run_str)
+                    if now >= agent_next_run:
                         should_run_now = True
-                        overdue_sec = (now - next_run).total_seconds()
+                        overdue_sec = (now - agent_next_run).total_seconds()
                 except ValueError:
                     should_run_now = True
 
@@ -192,6 +209,8 @@ class Scheduler:
                     # they stay inside their time window, just a bit later.
                     if launches_this_tick >= MAX_LAUNCHES_PER_TICK:
                         self._defer_agent(agent, now, reason="another agent already launched this tick")
+                        self._log_skip(agent, "tick_limit",
+                                       "Một agent khác vừa mở trình duyệt trong nhịp này.")
                         agent_manager._save()
                         continue
 
@@ -199,12 +218,29 @@ class Scheduler:
                     running_count = self._count_running_agent_browsers()
                     if running_count >= MAX_CONCURRENT_AGENT_BROWSERS:
                         self._defer_agent(agent, now, reason=f"{running_count} browser session(s) already running")
+                        self._log_skip(agent, "busy",
+                                       f"Đang có {running_count} phiên trình duyệt chạy "
+                                       f"(trần {MAX_CONCURRENT_AGENT_BROWSERS}).")
                         agent_manager._save()
                         continue
 
                     print(f"[Scheduler] Triggering Agent: {agent.name}")
+                    # Minted here and written BEFORE the callback, so a crash inside
+                    # the launch still leaves evidence that the run was attempted.
+                    run_id = None
+                    try:
+                        from tubecli.core import run_log
+                        run_id = run_log.new_run_id()
+                        run_log.start(run_id, agent.id, getattr(agent, "name", ""),
+                                      trigger="schedule",
+                                      scheduled_for=(agent_next_run.isoformat()
+                                                     if agent_next_run else None),
+                                      overdue_sec=overdue_sec)
+                    except Exception as e:
+                        print(f"[Scheduler] run_log unavailable: {e}")
+
                     if self._agent_runner_callback:
-                        self._agent_runner_callback(agent.id)
+                        self._agent_runner_callback(agent.id, run_id=run_id)
                     launches_this_tick += 1
 
                     agent.schedule_last_run = now.isoformat()
@@ -237,6 +273,16 @@ class Scheduler:
                     agent.schedule_next_run = valid_next.isoformat()
                     agent_manager._save()
                     print(f"[Scheduler] Advanced Agent {agent.name} schedule to {agent.schedule_next_run} because it was due but could not run now (Day active: {is_active_day}, Window active: {is_inside_window}, Not maxed: {is_not_maxed}).")
+                    # Say WHICH rule blocked it. "It was due but didn't run" is the
+                    # owner's most common question and the three causes need
+                    # completely different fixes.
+                    if not is_active_day:
+                        reason, detail = "inactive_day", f"Hôm nay ({day_name}) không nằm trong các ngày đã chọn."
+                    elif not is_inside_window:
+                        reason, detail = "outside_window", f"Ngoài khung giờ {start_time}–{end_time} (lúc đó là {current_time_str})."
+                    else:
+                        reason, detail = "daily_cap", f"Đã chạy đủ {max_runs} lượt trong ngày."
+                    self._log_skip(agent, reason, detail)
 
     def _defer_agent(self, agent, now: datetime.datetime, reason: str = ""):
         """Push a due agent's run a few random minutes into the future
@@ -254,6 +300,18 @@ class Scheduler:
             return len(browser_process_manager.list_running())
         except Exception:
             return 0
+
+    def _log_skip(self, agent, reason: str, detail: str) -> None:
+        """Record why an agent that was due did not run.
+
+        Best effort by design — the run log must never be able to break a tick.
+        """
+        try:
+            from tubecli.core import run_log
+            run_log.skip(agent.id, getattr(agent, "name", ""), reason, detail,
+                         next_attempt=getattr(agent, "schedule_next_run", None))
+        except Exception as e:
+            print(f"[Scheduler] Could not record skip: {e}")
 
     def _calculate_next_schedule_time(self, agent, start_from: datetime.datetime) -> datetime.datetime:
         active_days = getattr(agent, "schedule_active_days", []) or ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]

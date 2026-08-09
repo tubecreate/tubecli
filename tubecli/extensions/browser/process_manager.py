@@ -48,17 +48,30 @@ class BrowserProcessManager:
         context: Optional[Dict[str, Any]] = None,
         max_duration: Optional[int] = None,
         session_minutes: Optional[int] = None,
+        run_id: Optional[str] = None,
+        agent_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Spawn a new browser process.
         Returns dict with instance_id, pid, profile, status.
+
+        run_id/agent_id are carried only so the monitor thread can close the run
+        out in the run log when the process finally exits. A manual launch from
+        the dashboard passes neither and is not recorded as an agent run.
         """
         instance_id = f"browser-{uuid.uuid4().hex[:8]}"
         debug_info = {}
 
         # Build command — expects browser-launcher in PATH or data dir
         args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes)
-        cmd_str = " ".join(args)
+        # Redacted at creation. _build_args puts --login-password on the argv for
+        # a profile with a saved login, and cmd_str is display-only — it is never
+        # what gets executed (args is). Before this, the account password went to
+        # the server log via logger.info, into debug_info["command"] which spawn()
+        # returns to the caller, and into the instance record that /instances and
+        # /status hand to the dashboard in plaintext.
+        from tubecli.core.run_log import redact
+        cmd_str = redact(" ".join(args))
         logger.info(f"[Browser] Spawning: {cmd_str}")
         debug_info["command"] = cmd_str
 
@@ -198,6 +211,10 @@ class BrowserProcessManager:
                 "log_file": str(log_file_path),
                 "_process": process,
                 "_log_file": log_file,
+                # Underscore-prefixed so the existing filters in get_status/
+                # list_all/list_running keep them out of API responses.
+                "_run_id": run_id,
+                "_agent_id": agent_id,
             }
 
             with self._instances_lock:
@@ -294,9 +311,16 @@ class BrowserProcessManager:
             if not instance:
                 return
             process = instance.get("_process")
+            run_id = instance.get("_run_id")
+            agent_id = instance.get("_agent_id")
+            started_at = instance.get("started_at")
+            log_path = instance.get("log_file")
 
         if not process:
             return
+
+        outcome = None
+        return_code = None
 
         if timeout_seconds and timeout_seconds > 0:
             import time
@@ -318,14 +342,53 @@ class BrowserProcessManager:
                     if instance_id in self._instances:
                         self._instances[instance_id]["status"] = "timeout_killed"
                         self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
-                return
+                outcome = "timeout_killed"
 
-        return_code = process.wait()
-        with self._instances_lock:
-            if instance_id in self._instances:
-                self._instances[instance_id]["status"] = "completed" if return_code == 0 else "error"
-                self._instances[instance_id]["return_code"] = return_code
-                self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
+        if outcome is None:
+            return_code = process.wait()
+            outcome = "completed" if return_code == 0 else "error"
+            with self._instances_lock:
+                if instance_id in self._instances:
+                    self._instances[instance_id]["status"] = outcome
+                    self._instances[instance_id]["return_code"] = return_code
+                    self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
+
+        # Outside the lock on purpose. This does file I/O, and the scheduler
+        # takes _instances_lock on every tick through _count_running_agent_browsers
+        # -> list_running; holding it across a write would put disk latency on the
+        # scheduling path.
+        self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
+                             started_at, log_path)
+
+    def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
+                        started_at, log_path):
+        """Close the run out in the durable log. Never raises into the monitor."""
+        if not run_id:
+            return   # a manual dashboard launch is not an agent run
+        try:
+            from tubecli.core import run_log
+
+            duration = None
+            try:
+                duration = (datetime.now()
+                            - datetime.fromisoformat(started_at)).total_seconds()
+            except Exception:
+                pass
+
+            tail = None
+            if outcome != "completed" and log_path:
+                # Only on failure, and only the end of the file — this is what the
+                # owner would otherwise have to SSH in to read. run_log redacts it.
+                try:
+                    with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                        tail = f.read()[-4000:]
+                except Exception:
+                    tail = None
+
+            run_log.end(run_id, agent_id or "", outcome, return_code=return_code,
+                        instance_id=instance_id, duration_sec=duration, log_tail=tail)
+        except Exception as e:
+            logger.warning(f"[Browser] Could not record run end: {e}")
 
     def get_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         with self._instances_lock:

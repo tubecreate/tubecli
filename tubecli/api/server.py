@@ -250,16 +250,29 @@ Rules for evolution and progression:
     return {}
 
 
-def run_agent_routine(agent_id: str):
-    """Callback for running an agent's daily behavior routine on schedule."""
+def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
+    """Callback for running an agent's daily behavior routine on schedule.
+
+    run_id ties this run to the row the scheduler already wrote. A caller that
+    passes none (the manual "test routine" button) gets one minted here, so a
+    hand-triggered run is recorded the same way a scheduled one is.
+    """
     import random
     import datetime
     from tubecli.core.agent import agent_manager
-    
+    from tubecli.core import run_log
+
     agent = agent_manager.get(agent_id)
     if not agent:
         print(f"[Scheduler Callback] Agent {agent_id} not found")
         return
+
+    if not run_id:
+        try:
+            run_id = run_log.new_run_id()
+            run_log.start(run_id, agent.id, getattr(agent, "name", ""), trigger=trigger)
+        except Exception:
+            run_id = None
         
     print(f"\n[Scheduler Callback] >>> Executing scheduled behavior routine for agent '{agent.name}' ({agent.id}) <<<")
     
@@ -605,6 +618,8 @@ def run_agent_routine(agent_id: str):
                 context=context,
                 max_duration=max_session_seconds,
                 session_minutes=session_minutes,
+                run_id=run_id,
+                agent_id=agent.id,
             )
             instance_id = result.get("instance_id", "")
             spawn_status = result.get("status", "unknown")
@@ -614,8 +629,35 @@ def run_agent_routine(agent_id: str):
             )
             if spawn_status == "error":
                 print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
+
+            # Everything above was print-only until now. On success the monitor
+            # thread writes the matching `end` row when the process exits; on a
+            # failed spawn there will be no monitor, so this row is the whole story.
+            if run_id:
+                run_log.launch(
+                    run_id, agent.id,
+                    profile=profile_name,
+                    time_period=time_period,
+                    query=base_query,
+                    prompt=prompt,
+                    session_minutes=session_minutes,
+                    max_duration_sec=max_session_seconds,
+                    ai_model=getattr(agent, "browser_ai_model", ""),
+                    spawn_status=spawn_status,
+                    instance_id=instance_id or None,
+                    pid=result.get("pid"),
+                    log_file=result.get("log_file"),
+                    error=result.get("error"),
+                    log_tail=result.get("log_output"),
+                )
         except Exception as e:
             print(f"[Scheduler Callback] Error launching browser: {e}")
+            # A run that dies here would otherwise show as "running" forever,
+            # since no browser was spawned and so no monitor will ever close it.
+            if run_id:
+                import traceback
+                run_log.end(run_id, agent.id, "failed",
+                            log_tail=traceback.format_exc()[-2000:])
 
     import threading
     threading.Thread(target=_do_launch, daemon=True).start()
@@ -1301,6 +1343,30 @@ async def get_agent_history(agent_id: str):
     # Sort by scrapedAt desc
     all_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
     return all_articles
+
+
+# Deliberately `def`, not `async def`: this reads files, and Starlette runs a
+# sync endpoint in the threadpool instead of blocking the event loop.
+# It inherits the login gate automatically — /api/v1/agents/* is not in
+# _AUTH_EXEMPT_EXACT or _AUTH_EXEMPT_PREFIX.
+@app.get("/api/v1/agents/{agent_id}/runs")
+def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
+    """What this agent's runs actually did — including the ones that never ran."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.core import run_log
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    return {
+        "agent_id": agent_id,
+        "scheduled": bool(getattr(agent, "schedule_enabled", False)),
+        "next_run": getattr(agent, "schedule_next_run", None),
+        "runs_today": getattr(agent, "schedule_runs_today", 0),
+        "max_runs": getattr(agent, "schedule_max_runs", 0),
+        "entries": run_log.list_for_agent(agent_id, days=days, limit=limit),
+    }
 
 
 @app.get("/api/v1/agents/{agent_id}/scraped-article")

@@ -639,8 +639,25 @@ async function main() {
     }
   }
 
-  console.log('RAW ARGV:', process.argv);
-  console.log('PARSED ARGS:', JSON.stringify(args));
+  // Redacted. This printed the raw argv, which carries --login-password and
+  // --login-email for any profile with a saved login, straight into the launcher
+  // log file — a plaintext credential on disk, and one the new run log would have
+  // captured excerpts of and served over HTTP.
+  const SECRET_ARG = /^--login-(password|email|recovery|2fa)$|password|token|secret|api-?key/i;
+  const safeArgv = [];
+  for (let i = 0; i < process.argv.length; i++) {
+    safeArgv.push(process.argv[i]);
+    if (SECRET_ARG.test(process.argv[i]) && i + 1 < process.argv.length) {
+      safeArgv.push('***');
+      i++;
+    }
+  }
+  const safeArgs = {};
+  for (const [k, v] of Object.entries(args)) {
+    safeArgs[k] = SECRET_ARG.test(k) ? '***' : v;
+  }
+  console.log('RAW ARGV:', safeArgv);
+  console.log('PARSED ARGS:', JSON.stringify(safeArgs));
   const keyword = args.keyword || '';
   const actionsArg = args.action || '';
   const prompt = args.prompt || '';

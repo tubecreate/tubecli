@@ -282,6 +282,7 @@ document.querySelectorAll('.agent-tab-btn').forEach(btn => {
         document.getElementById('atab-' + btn.dataset.atab).classList.add('active');
         if (btn.dataset.atab === 'history') {
             loadAgentHistory();
+            loadAgentRuns();
         }
     });
 });
@@ -4031,6 +4032,88 @@ async function loadAgentHistory() {
     
     currentAgentHistory = res;
     renderHistoryPage();
+}
+
+
+// Run log. Distinct from the browser history above it: that lists pages the
+// agent visited, this lists whether the agent ran at all — including the times
+// it was due and declined, which is the question with no answer before now.
+const RUN_OUTCOMES = {
+    completed:     ['Xong',                          '#10b981'],
+    error:         ['Lỗi',                           '#ef4444'],
+    launch_failed: ['Không mở được trình duyệt',     '#ef4444'],
+    failed:        ['Hỏng giữa chừng',               '#ef4444'],
+    timeout_killed:['Hết giờ, đã dừng',              '#f59e0b'],
+    interrupted:   ['Bị ngắt (máy chủ tắt giữa chừng)', '#f59e0b'],
+    never_started: ['Chưa kịp mở trình duyệt',       '#f59e0b'],
+    running:       ['Đang chạy',                     '#06b6d4'],
+    starting:      ['Đang khởi động',                '#06b6d4'],
+};
+
+function runWhen(ts) {
+    if (!ts) return '';
+    const d = new Date(ts);
+    if (isNaN(d)) return esc(ts);
+    return d.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit',
+        hour: '2-digit', minute: '2-digit' });
+}
+
+async function loadAgentRuns() {
+    const id = document.getElementById('agent-id').value;
+    const listDiv = document.getElementById('agent-runs-list');
+    const summary = document.getElementById('agent-runs-summary');
+    if (!listDiv) return;
+    if (!id) {
+        listDiv.innerHTML = '<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;">Lưu agent trước đã.</p>';
+        return;
+    }
+
+    const res = await apiGet('/api/v1/agents/' + id + '/runs');
+    if (!res || res.error) {
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;color:#ef4444;">Không đọc được nhật ký: ${esc((res && res.error) || 'lỗi không rõ')}</p>`;
+        return;
+    }
+
+    if (summary) {
+        summary.textContent = res.scheduled
+            ? `Đã bật lịch · hôm nay ${res.runs_today}/${res.max_runs} lượt` + (res.next_run ? ` · kế tiếp ${runWhen(res.next_run)}` : '')
+            : 'Chưa bật lịch tự động';
+    }
+
+    const rows = res.entries || [];
+    if (!rows.length) {
+        // Say which of the two reasons it is — an empty list means something
+        // different when scheduling was never switched on.
+        listDiv.innerHTML = res.scheduled
+            ? '<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;">Chưa có lần chạy nào được ghi. Lịch đã bật — chờ tới giờ, hoặc bấm "Test Agent Behavior Now" ở tab Lên lịch.</p>'
+            : '<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;">Chưa bật lịch nên chưa có lần chạy nào.</p>';
+        return;
+    }
+
+    listDiv.innerHTML = rows.map(r => {
+        if (r.type === 'skip') {
+            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:rgba(255,255,255,0.02);border-left:3px solid #6b7280;border-radius:4px;">
+                <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;min-width:74px;">${runWhen(r.ts)}</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:0.8rem;color:var(--text-muted);">Không chạy — ${esc(r.detail || r.reason || '')}</div>
+                    ${r.next_attempt ? `<div style="font-size:0.72rem;color:var(--text-muted);opacity:.75;">Thử lại: ${runWhen(r.next_attempt)}</div>` : ''}
+                </div></div>`;
+        }
+        const [label, colour] = RUN_OUTCOMES[r.outcome] || [r.outcome || 'Không rõ', '#6b7280'];
+        const bits = [];
+        if (r.profile) bits.push(esc(r.profile));
+        if (r.duration_sec) bits.push(Math.round(r.duration_sec) + 's');
+        if (r.trigger === 'test') bits.push('chạy thử');
+        const detail = r.error || r.log_tail;
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:rgba(255,255,255,0.02);border-left:3px solid ${colour};border-radius:4px;">
+            <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;min-width:74px;">${runWhen(r.ts)}</span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.82rem;color:${colour};font-weight:600;">${esc(label)}</div>
+                ${r.query ? `<div style="font-size:0.75rem;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">“${esc(r.query)}”</div>` : ''}
+                ${bits.length ? `<div style="font-size:0.72rem;color:var(--text-muted);opacity:.75;">${bits.join(' · ')}</div>` : ''}
+                ${detail ? `<details style="margin-top:4px;"><summary style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;">Chi tiết lỗi</summary><pre style="font-size:0.68rem;white-space:pre-wrap;word-break:break-all;background:var(--bg3);padding:6px;border-radius:4px;margin:4px 0 0;max-height:160px;overflow:auto;">${esc(detail)}</pre></details>` : ''}
+            </div></div>`;
+    }).join('');
 }
 
 
