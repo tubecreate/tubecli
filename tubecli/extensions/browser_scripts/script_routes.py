@@ -644,7 +644,17 @@ import asyncio
 
 @router.websocket("/preview/ws/{port}")
 async def ws_preview_proxy(websocket: WebSocket, port: int):
-    """Proxy WebSocket connection to the local preview server."""
+    """Proxy WebSocket connection to the local preview server.
+
+    Checked here because HTTP middleware never runs for a WebSocket: Starlette
+    dispatches the "websocket" scope past every @app.middleware("http"),
+    including the login gate. Without this, the route proxies raw traffic to any
+    localhost port a caller names, with no credential at all.
+    """
+    from tubecli.core.ws_auth import reject_unless_allowed
+
+    if not await reject_unless_allowed(websocket):
+        return
     await websocket.accept()
     logger.info(f"[WS Proxy] Client connected, proxying to localhost:{port}")
     

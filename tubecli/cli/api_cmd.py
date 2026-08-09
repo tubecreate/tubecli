@@ -44,9 +44,19 @@ def start(port, host, lang, quiet):
     # There the container is the isolation boundary and the user has already chosen
     # which ports to publish. The origin guard still refuses cross-site browser
     # requests in both cases.
+    #
+    # A plain VPS is neither a container nor a desktop, and it was the case
+    # neither branch covered: the server bound loopback, so the laptop that had
+    # just installed it got ERR_CONNECTION_REFUSED with nothing to explain why.
+    # A machine with no display is not one anybody browses from, so serve the
+    # network there too.
+    #
+    # Only safe because core/auth.py now refuses every non-loopback request
+    # while the password is still the shipped default — opening the socket no
+    # longer means opening the API.
     if host is None:
-        from tubecli.cli.init_cmd import _in_container
-        host = "0.0.0.0" if _in_container() else "127.0.0.1"
+        from tubecli.cli.init_cmd import _in_container, _is_headless_server
+        host = "0.0.0.0" if (_in_container() or _is_headless_server()) else "127.0.0.1"
 
     # Apply language if provided
     if lang:

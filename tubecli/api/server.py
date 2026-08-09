@@ -52,6 +52,52 @@ app.add_middleware(
 # server-side client) are untouched. Browser requests are allowed only from
 # loopback, or from a host listed in TUBECLI_ALLOWED_ORIGIN_HOSTS for people who
 # deliberately serve the dashboard on a LAN address.
+# Paths that must answer before anyone is logged in, or nobody could ever log
+# in. Deliberately short, and matched by exact path or prefix — never by
+# substring, so a crafted URL like /api/v1/files/read?x=/login cannot slip past.
+_AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status", "/favicon.ico"}
+_AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/")
+
+
+def _auth_exempt(path: str) -> bool:
+    return path in _AUTH_EXEMPT_EXACT or path.startswith(_AUTH_EXEMPT_PREFIX)
+
+
+@app.middleware("http")
+async def _require_login(request: Request, call_next):
+    """Gate everything that is not loopback behind a session cookie.
+
+    Sits OUTSIDE the origin guard below, so the two are independent: this one
+    answers "do we know who this is", the origin guard answers "may this page
+    talk to us at all". Neither replaces the other — a session cookie would
+    otherwise be replayable by any site the user visits, which is exactly the
+    CSRF the origin guard exists to stop.
+    """
+    if request.method == "OPTIONS" or _auth_exempt(request.url.path):
+        return await call_next(request)
+    try:
+        from tubecli.core import auth
+
+        refusal = auth.check_request(
+            request.client.host if request.client else "",
+            request.cookies.get(auth.SESSION_COOKIE),
+            request.headers,
+        )
+        if refusal is not None:
+            from fastapi.responses import JSONResponse, RedirectResponse
+
+            # A browser asking for a page gets the login screen; anything else
+            # gets JSON it can act on. Sending HTML to a fetch() is how the
+            # dashboard ended up showing a bare "Failed." for everything.
+            accepts_html = "text/html" in (request.headers.get("accept") or "")
+            if accepts_html and request.method == "GET":
+                return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
+            return JSONResponse(status_code=401, content=refusal)
+    except Exception:
+        pass  # never let the gate itself take the server down
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def _guard_cross_origin(request: Request, call_next):
     if request.method != "OPTIONS":  # let CORS preflight through
@@ -3225,6 +3271,13 @@ async def set_default_profile_setting(req: ProfileUpdateRequest):
     from tubecli.config import set_setting
     set_setting("default_browser_profile", req.profile)
     return {"status": "updated", "profile": req.profile}
+
+
+# ── Auth ────────────────────────────────────────────────────────────
+# Registered before the extensions, so /login and /api/v1/auth/* cannot be
+# shadowed by an extension that happens to claim the same path.
+from tubecli.api.auth_routes import router as _auth_router
+app.include_router(_auth_router)
 
 
 # ── Register Extension Routes ───────────────────────────────────────

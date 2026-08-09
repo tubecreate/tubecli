@@ -7,6 +7,7 @@ import click
 import re
 import json
 import os
+import sys
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -161,6 +162,25 @@ def _in_container() -> bool:
             return any(m in f.read() for m in ("docker", "containerd", "kubepods"))
     except Exception:
         return False
+
+
+def _is_headless_server() -> bool:
+    """A machine nobody is going to open a browser on.
+
+    Used to decide the bind address. The old rule was "container or nothing",
+    which left the commonest remote case — a plain Ubuntu VPS — bound to
+    loopback, so the dashboard refused every connection from the laptop that
+    had just installed it.
+
+    Windows and macOS are always treated as desktops: they have a display by
+    definition, and a headless Windows Server is not a target this project
+    supports. On Linux, "no DISPLAY and no WAYLAND_DISPLAY" is the signal; an
+    SSH_CONNECTION alone is not enough, because someone SSH-ing into their own
+    desktop still has a screen in front of them.
+    """
+    if os.name == "nt" or sys.platform == "darwin":
+        return False
+    return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _kill_server_on_port(port: int) -> int:
@@ -616,7 +636,21 @@ def _run_control_panel():
         # isolation boundary and the user already chose which ports to publish, so
         # bind all interfaces there. The origin guard still refuses cross-site
         # browser requests either way.
-        host_arg = " --host 0.0.0.0" if _in_container() else ""
+        #
+        # A VPS is not a container, and installing on one is now the case this
+        # has to serve: a plain Ubuntu VM binds loopback, so the dashboard is
+        # unreachable from the laptop that installed it and the user is left
+        # with ERR_CONNECTION_REFUSED and nothing to go on. Bind all interfaces
+        # when there is no local display either — that is a machine nobody is
+        # going to browse from directly.
+        #
+        # Safe to do now, and only now: auth.py refuses every non-loopback
+        # request while the password is still the shipped default, so opening
+        # the socket no longer means opening the API.
+        host_arg = " --host 0.0.0.0" if (_in_container() or _is_headless_server()) else ""
+
+        from tubecli.config import LOGS_DIR
+        log_path = LOGS_DIR / "api.log"
 
         if os.name == "nt":
             if quiet:
@@ -635,8 +669,30 @@ def _run_control_panel():
             cmd = f'"{python_exe}" -m tubecli.main api start{" --quiet" if quiet else ""} --lang {cur_lang}{host_arg}'
             kwargs = {"shell": True, "env": env, "cwd": project_root}
             if quiet:
-                kwargs["stdout"] = subprocess.DEVNULL
-                kwargs["stderr"] = subprocess.DEVNULL
+                # Log to a file, not to /dev/null.
+                #
+                # These two lines used to be DEVNULL, which meant a server that
+                # died during startup left no trace anywhere: the panel slept
+                # two seconds and printed "API Server started in background"
+                # regardless. A crash and a healthy start looked identical, and
+                # the only way to find out was to re-run in the foreground.
+                try:
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    log_handle = open(log_path, "a", encoding="utf-8", errors="replace")
+                    kwargs["stdout"] = log_handle
+                    kwargs["stderr"] = subprocess.STDOUT
+                except OSError:
+                    kwargs["stdout"] = subprocess.DEVNULL
+                    kwargs["stderr"] = subprocess.DEVNULL
+            # Detach from this terminal's session.
+            #
+            # Without start_new_session the server stays in the login shell's
+            # process group and takes SIGHUP when the SSH connection drops — so
+            # a user who installed over SSH, saw the panel, and logged out came
+            # back to nothing listening. There is no service manager anywhere in
+            # this project, so this call is the only thing keeping the server
+            # alive past the session that started it.
+            kwargs["start_new_session"] = True
             subprocess.Popen(cmd, **kwargs)
         time.sleep(2)
 
@@ -654,7 +710,35 @@ def _run_control_panel():
     else:
         console.print(t("panel.api_starting", port=port))
         _start_api(quiet=True)
-        console.print(t("panel.api_started"))
+
+        # Ask the server whether it is there, rather than announcing that it is.
+        #
+        # This used to be an unconditional "API Server started in background."
+        # printed two seconds after spawning, with the child's stderr going to
+        # /dev/null. A server that died on import looked exactly like one that
+        # started, which is how an install can show "Workspace Ready" while
+        # nothing at all is listening.
+        import time as _t
+
+        started = False
+        for _ in range(20):                     # up to ~20s; extensions load slowly
+            try:
+                if _req_init.get(f"http://localhost:{port}/api/v1/health",
+                                 timeout=1).status_code == 200:
+                    started = True
+                    break
+            except Exception:
+                pass
+            _t.sleep(1)
+
+        if started:
+            console.print(t("panel.api_started"))
+        else:
+            from tubecli.config import LOGS_DIR
+
+            console.print("  [red]The API server did not come up.[/red]")
+            console.print(f"  [dim]Log:[/dim] {LOGS_DIR / 'api.log'}")
+            console.print("  [dim]Run it in the foreground to see why:[/dim] tubecli api start")
 
 
     import time
