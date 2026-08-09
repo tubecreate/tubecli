@@ -110,7 +110,12 @@ def _require_systemd():
 
 @click.group("service")
 def service_cmd():
-    """Chạy máy chủ như một dịch vụ nền (systemd)."""
+    """Chạy máy chủ như một dịch vụ nền (systemd).
+
+    Chạy KHÔNG cần sudo — lệnh tự xin quyền ở đúng bước cần. Gõ
+    `sudo tubecli service install` sẽ báo "command not found", vì sudo đặt lại
+    PATH và bỏ mất ~/.local/bin, nơi trình khởi chạy được cài.
+    """
     pass
 
 
