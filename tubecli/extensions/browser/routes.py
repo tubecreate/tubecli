@@ -841,7 +841,11 @@ async def api_download_engine(version: str, request: Request):
                     # for an engine that cannot run.
                     write_progress("extracting", 95,
                                    f"Installing {len(missing)} required system libraries...")
-                    sx.install_packages(sx.LINUX_APT_PACKAGES.split())
+                    # Per-package, not one apt call for the whole list:
+                    # on Ubuntu 24.04 the single unresolvable name
+                    # libasound2 aborted the transaction and took the
+                    # other thirteen libraries down with it.
+                    sx.install_chromium_libs()
                     missing = sx.missing_linux_libraries()
                 if missing:
                     write_progress(

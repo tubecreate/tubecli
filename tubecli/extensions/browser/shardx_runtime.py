@@ -211,11 +211,45 @@ def missing_linux_libraries() -> list:
     return [lib for lib in needed if lib not in out]
 
 
-LINUX_APT_PACKAGES = (
-    "unzip ca-certificates fonts-liberation libnss3 libnspr4 libatk1.0-0 "
-    "libatk-bridge2.0-0 libcups2 libxkbcommon0 libxcomposite1 libxdamage1 "
-    "libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2 libxshmfence1"
+# Packages, with the alternatives each one goes by.
+#
+# Ubuntu 24.04 ("noble") renamed several of these in the 64-bit time_t
+# transition: libatk1.0-0 -> libatk1.0-0t64, libcups2 -> libcups2t64 and so on.
+# apt resolves most of those itself through Provides, but NOT libasound2, which
+# became a virtual package with two providers — apt then refuses to guess and
+# fails the ENTIRE transaction with "Package 'libasound2' has no installation
+# candidate", so one renamed package took every other library down with it.
+#
+# Listing alternatives and installing them one at a time means a name that does
+# not exist on this release costs only itself. The libraries actually present
+# are re-checked afterwards by missing_linux_libraries(), which is the answer that
+# matters — package names are a means, not the goal.
+_APT_ALTERNATIVES = (
+    ("unzip",),
+    ("ca-certificates",),
+    ("fonts-liberation",),
+    ("libnss3",),
+    ("libnspr4",),
+    ("libatk1.0-0t64", "libatk1.0-0"),
+    ("libatk-bridge2.0-0t64", "libatk-bridge2.0-0"),
+    ("libcups2t64", "libcups2"),
+    ("libxkbcommon0",),
+    ("libxcomposite1",),
+    ("libxdamage1",),
+    ("libxfixes3",),
+    ("libxrandr2",),
+    ("libgbm1",),
+    ("libpango-1.0-0",),
+    ("libcairo2",),
+    ("libasound2t64", "libasound2"),
+    ("libxshmfence1",),
 )
+
+# Kept as a plain string: it is what gets shown to a user who has to run the
+# command by hand, and several call sites already .split() it. The t64 names go
+# first so a copy-paste works on current Ubuntu; on older releases apt resolves
+# them back through Provides.
+LINUX_APT_PACKAGES = " ".join(alts[0] for alts in _APT_ALTERNATIVES)
 
 
 def download(url: str, dest: Path, on_progress=None, attempts: int = 4) -> None:
@@ -434,38 +468,44 @@ def manual_install_hint(names: list) -> str:
     return f"{'sudo ' if need_sudo else ''}{base} {' '.join(names)}"
 
 
-# The shared objects a Chromium build needs before it will start. Checked by
-# name rather than by package, because what actually matters at launch is
-# whether the loader can resolve these — a package can be present and the
-# library still missing on a minimal image.
-_CHROMIUM_SONAMES = (
-    "libnss3.so", "libnspr4.so", "libatk-1.0.so.0", "libatk-bridge-2.0.so.0",
-    "libcups.so.2", "libxkbcommon.so.0", "libXcomposite.so.1", "libXdamage.so.1",
-    "libXfixes.so.3", "libXrandr.so.2", "libgbm.so.1", "libpango-1.0.so.0",
-    "libcairo.so.2", "libasound.so.2",
-)
+def install_chromium_libs(timeout: int = 900) -> bool:
+    """Install the Chromium runtime libraries, tolerating renamed packages.
 
+    One apt invocation per package, not one for the whole list. `apt-get install
+    a b c` is all-or-nothing: on Ubuntu 24.04 the single unresolvable name
+    libasound2 aborted the transaction and none of the other thirteen libraries
+    were installed either. Installing them separately means a name that does not
+    exist on this release costs only itself, and the alternatives cover the
+    releases where it goes by another name.
 
-def missing_chromium_libs() -> list:
-    """Which of the Chromium runtime libraries this system cannot resolve.
-
-    Empty on Windows and macOS, which do not need them.
-
-    Read from `ldconfig -p`, the loader's own cache, so the answer matches what
-    Chromium will actually experience. Falls back to an empty list — "cannot
-    tell" must not become "definitely broken", or a working machine with an
-    unusual libc layout would be refused an install it could have completed.
+    Returns whether anything was installed at all; the caller re-checks
+    missing_linux_libraries() for the answer that actually matters.
     """
-    if sys.platform != "linux":
-        return []
-    try:
-        r = subprocess.run(["ldconfig", "-p"], capture_output=True, timeout=15)
-        if r.returncode != 0:
-            return []
-        cache = (r.stdout or b"").decode("utf-8", "replace")
-    except (OSError, subprocess.SubprocessError):
-        return []
-    return [so for so in _CHROMIUM_SONAMES if so not in cache]
+    cmd = _package_manager()
+    prefix = _can_install_packages()
+    if not cmd or prefix is None:
+        return False
+
+    env = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+    if cmd[0] == "apt-get":
+        try:
+            subprocess.run(prefix + ["apt-get", "update", "-qq"],
+                           capture_output=True, timeout=180, env=env)
+        except Exception:
+            pass
+
+    installed_any = False
+    for alternatives in _APT_ALTERNATIVES:
+        for name in alternatives:
+            try:
+                r = subprocess.run(prefix + cmd + [name],
+                                   capture_output=True, timeout=timeout, env=env)
+            except Exception:
+                continue
+            if r.returncode == 0:
+                installed_any = True
+                break          # this package is handled; skip its other names
+    return installed_any
 
 
 def preflight() -> Optional[str]:
@@ -502,10 +542,10 @@ def preflight() -> Optional[str]:
     # process could answer — so without this the whole install completed,
     # reported success, and the engine then refused to start with a message
     # nothing tied back to the install.
-    missing = missing_chromium_libs()
+    missing = missing_linux_libraries()
     if missing:
-        install_packages(LINUX_APT_PACKAGES.split())
-        missing = missing_chromium_libs()
+        install_chromium_libs()
+        missing = missing_linux_libraries()
     if missing:
         blocked = _can_install_packages() is None
         return (

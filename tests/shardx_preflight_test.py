@@ -47,41 +47,53 @@ def check(name, ok, detail=""):
 
 LINUX = sx.HostSpec("Linux", "ShardX-Linux.zip", ("ShardX-Linux", "chrome"))
 
+# The list missing_linux_libraries() checks, kept here so the test states what it
+# expects rather than reaching into the module for it.
+_SONAMES = (
+    "libnss3.so", "libnspr4.so", "libatk-1.0.so.0", "libatk-bridge-2.0.so.0",
+    "libcups.so.2", "libxkbcommon.so.0", "libXcomposite.so.1", "libXdamage.so.1",
+    "libXfixes.so.3", "libXrandr.so.2", "libgbm.so.1", "libpango-1.0.so.0",
+    "libcairo.so.2", "libasound.so.2",
+)
 
-def fake_subprocess(cache: bytes):
+
+def fake_subprocess(cache: str):
     """A stand-in for the module's subprocess.
 
-    Patching the real subprocess module instead would also reach
-    platform.machine(), which shells out on Windows — that turned host_spec()
-    into "no build for linux/" and made this test assert the wrong thing.
+    Two traps, both hit while writing this. Patching the REAL subprocess module
+    rather than the module attribute also reaches platform.machine(), which
+    shells out on Windows — that turned host_spec() into "no build for linux/"
+    and made the test assert the wrong thing. And missing_linux_libraries()
+    passes text=True, so stdout has to be str: returning bytes raised
+    "a bytes-like object is required, not 'str'" from inside the function.
     """
     return types.SimpleNamespace(
         run=lambda cmd, **kw: types.SimpleNamespace(
-            returncode=0, stdout=(cache if cmd and cmd[0] == "ldconfig" else b""), stderr=b""),
+            returncode=0, stdout=(cache if cmd and cmd[0] == "ldconfig" else ""), stderr=""),
         SubprocessError=Exception, TimeoutExpired=Exception,
         DEVNULL=-3, PIPE=-1, STDOUT=-2,
     )
 
 
 def ldconfig_cache(present):
-    return b"\n".join(b"\t" + so.encode() + b" => /usr/lib/" + so.encode() for so in present)
+    return "\n".join(f"\t{so} => /usr/lib/{so}" for so in present)
 
 
 def main():
     print("=== 1. Windows/macOS khong can thu vien nay ===")
     if sys.platform != "linux":
-        check("khong bao thieu gi", sx.missing_chromium_libs() == [],
-              str(sx.missing_chromium_libs()))
+        check("khong bao thieu gi", sx.missing_linux_libraries() == [],
+              str(sx.missing_linux_libraries()))
     else:
         print("  (dang chay tren Linux — bo qua)")
 
     print("\n=== 2. Linux thieu mot thu vien ===")
-    cache = ldconfig_cache([s for s in sx._CHROMIUM_SONAMES if s != "libatk-1.0.so.0"])
+    cache = ldconfig_cache([s for s in _SONAMES if s != "libatk-1.0.so.0"])
     with mock.patch.object(sys, "platform", "linux"), \
          mock.patch.object(sx, "subprocess", fake_subprocess(cache)):
         check("phat hien dung ten thu vien",
-              sx.missing_chromium_libs() == ["libatk-1.0.so.0"],
-              str(sx.missing_chromium_libs()))
+              sx.missing_linux_libraries() == ["libatk-1.0.so.0"],
+              str(sx.missing_linux_libraries()))
 
     print("\n=== 3. khong cai tu dong duoc -> chan TRUOC khi tai ===")
     with mock.patch.object(sys, "platform", "linux"), \
@@ -97,12 +109,12 @@ def main():
     check("  kem lenh chay duoc", "install" in (msg or "").lower())
 
     print("\n=== 4. du thu vien -> cho qua ===")
-    full = ldconfig_cache(sx._CHROMIUM_SONAMES)
+    full = ldconfig_cache(_SONAMES)
     with mock.patch.object(sys, "platform", "linux"), \
          mock.patch.object(sx, "subprocess", fake_subprocess(full)), \
          mock.patch.object(sx, "host_spec", lambda: LINUX), \
          mock.patch.object(sx.shutil, "which", lambda n: "/usr/bin/unzip"):
-        check("khong bao thieu", sx.missing_chromium_libs() == [])
+        check("khong bao thieu", sx.missing_linux_libraries() == [])
         check("preflight cho qua", sx.preflight() is None, str(sx.preflight()))
 
     print("\n=== 5. khong chay duoc ldconfig -> KHONG ket luan hong ===")
@@ -115,12 +127,12 @@ def main():
     )
     with mock.patch.object(sys, "platform", "linux"), \
          mock.patch.object(sx, "subprocess", broken):
-        check("tra ve rong", sx.missing_chromium_libs() == [])
+        check("tra ve rong", sx.missing_linux_libraries() == [])
 
     print("\n=== 6. danh sach .so khop voi danh sach goi apt ===")
     pkgs = sx.LINUX_APT_PACKAGES
-    for soname, pkg in (("libatk-1.0.so.0", "libatk1.0-0"), ("libgbm.so.1", "libgbm1"),
-                        ("libnss3.so", "libnss3"), ("libasound.so.2", "libasound2")):
+    for soname, pkg in (("libatk-1.0.so.0", "libatk1.0-0t64"), ("libgbm.so.1", "libgbm1"),
+                        ("libnss3.so", "libnss3"), ("libasound.so.2", "libasound2t64")):
         check(f"{soname} co goi tuong ung ({pkg})", pkg in pkgs)
 
     print(f"\n{PASS}/{PASS + FAIL} PASS")
