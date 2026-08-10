@@ -1,0 +1,13 @@
+{
+  "name": "Video Downloader",
+  "description": "Download videos from YouTube, TikTok, and 50+ platforms using yt-dlp. Provides API endpoints, a workflow node, and AI skill.",
+  "video_downloader.settings.title": "Video Downloader Settings",
+  "video_downloader.settings.quality": "Quality",
+  "video_downloader.settings.format": "Format",
+  "video_downloader.settings.output_dir": "Output Directory",
+  "video_downloader.action.download": "Download",
+  "video_downloader.action.cancel": "Cancel",
+  "video_downloader.status.downloading": "Downloading...",
+  "video_downloader.status.done": "Download complete",
+  "video_downloader.status.error": "Download failed"
+}

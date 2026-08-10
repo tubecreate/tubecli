@@ -1,0 +1,13 @@
+{
+  "name": "Tải Video",
+  "description": "Tải video từ YouTube, TikTok và 50+ nền tảng bằng yt-dlp. Cung cấp API endpoints, workflow node và AI skill.",
+  "video_downloader.settings.title": "Cài đặt Tải Video",
+  "video_downloader.settings.quality": "Chất lượng",
+  "video_downloader.settings.format": "Định dạng",
+  "video_downloader.settings.output_dir": "Thư mục lưu",
+  "video_downloader.action.download": "Tải xuống",
+  "video_downloader.action.cancel": "Hủy",
+  "video_downloader.status.downloading": "Đang tải...",
+  "video_downloader.status.done": "Tải hoàn tất",
+  "video_downloader.status.error": "Tải thất bại"
+}

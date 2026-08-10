@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TubeCLI — Video Downloader</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+    --bg: #0f1117;
+    --bg2: #181a20;
+    --bg3: #23262f;
+    --text: #e6e8ec;
+    --text2: #9ca3af;
+    --accent: #6366f1;
+    --accent2: #818cf8;
+    --green: #22c55e;
+    --red: #ef4444;
+    --orange: #f59e0b;
+    --border: rgba(255,255,255,0.08);
+    --card: rgba(255,255,255,0.04);
+    --radius: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+.container { max-width:900px; margin:0 auto; padding:24px 20px; }
+h1 { font-size:1.6rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:10px; }
+h1 span.icon { font-size:1.8rem; }
+.subtitle { color:var(--text2); font-size:0.88rem; margin-bottom:28px; }
+
+/* Tabs */
+.tabs { display:flex; gap:4px; margin-bottom:24px; background:var(--bg2); border-radius:10px; padding:4px; border:1px solid var(--border); }
+.tabs button { flex:1; padding:10px 16px; border:none; background:transparent; color:var(--text2); font-size:0.85rem; font-weight:600; border-radius:8px; cursor:pointer; transition:all 0.2s; }
+.tabs button.active { background:var(--accent); color:#fff; }
+.tabs button:hover:not(.active) { background:rgba(255,255,255,0.06); color:var(--text); }
+
+/* Input group */
+.input-group { display:flex; gap:10px; margin-bottom:20px; }
+.input-group input { flex:1; padding:12px 16px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:0.9rem; outline:none; transition:border 0.2s; }
+.input-group input:focus { border-color:var(--accent); }
+.input-group input::placeholder { color:rgba(255,255,255,0.25); }
+
+/* Buttons */
+.btn { padding:10px 20px; border:none; border-radius:var(--radius); font-weight:600; font-size:0.85rem; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
+.btn-primary { background:var(--accent); color:#fff; }
+.btn-primary:hover { background:var(--accent2); transform:translateY(-1px); }
+.btn-primary:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+.btn-sm { padding:6px 14px; font-size:0.78rem; border-radius:8px; }
+.btn-danger { background:rgba(239,68,68,0.15); color:var(--red); border:1px solid rgba(239,68,68,0.25); }
+.btn-danger:hover { background:rgba(239,68,68,0.25); }
+
+/* Options row */
+.options-row { display:flex; gap:12px; margin-bottom:20px; flex-wrap:wrap; }
+.option-group { display:flex; flex-direction:column; gap:4px; }
+.option-group label { font-size:0.75rem; color:var(--text2); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; }
+.option-group select { padding:8px 12px; background:var(--bg2); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:0.85rem; outline:none; cursor:pointer; }
+
+/* Cards */
+.card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:12px; transition:all 0.2s; }
+.card:hover { border-color:rgba(99,102,241,0.3); }
+
+/* Video info */
+.video-info { display:flex; gap:16px; align-items:flex-start; }
+.video-info img { width:180px; height:auto; border-radius:8px; object-fit:cover; flex-shrink:0; }
+.video-info .details { flex:1; min-width:0; }
+.video-info .details h3 { font-size:0.95rem; font-weight:600; margin-bottom:6px; line-height:1.4; }
+.video-info .details .meta { font-size:0.8rem; color:var(--text2); display:flex; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+
+/* Progress */
+.progress-bar { height:6px; background:var(--bg3); border-radius:3px; overflow:hidden; margin:8px 0; }
+.progress-bar .fill { height:100%; background:linear-gradient(90deg, var(--accent), var(--accent2)); border-radius:3px; transition:width 0.3s; }
+.progress-text { font-size:0.78rem; color:var(--text2); display:flex; justify-content:space-between; }
+
+/* Download list */
+.dl-item { display:flex; align-items:center; gap:12px; padding:12px 16px; }
+.dl-item .dl-icon { font-size:1.5rem; }
+.dl-item .dl-info { flex:1; min-width:0; }
+.dl-item .dl-info .dl-name { font-size:0.88rem; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dl-item .dl-info .dl-size { font-size:0.75rem; color:var(--text2); }
+.dl-item .dl-actions { display:flex; gap:6px; }
+
+/* Search results */
+.search-result { display:flex; gap:12px; padding:12px; cursor:pointer; }
+.search-result:hover { background:rgba(255,255,255,0.03); border-radius:8px; }
+.search-result img { width:120px; height:68px; object-fit:cover; border-radius:6px; flex-shrink:0; background:var(--bg3); }
+.search-result .sr-info { flex:1; min-width:0; }
+.search-result .sr-info h4 { font-size:0.85rem; font-weight:500; margin-bottom:4px; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.search-result .sr-info .sr-meta { font-size:0.75rem; color:var(--text2); }
+
+/* Status badge */
+.status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:600; }
+.status-ok { background:rgba(34,197,94,0.15); color:var(--green); }
+.status-err { background:rgba(239,68,68,0.15); color:var(--red); }
+.status-warn { background:rgba(245,158,11,0.15); color:var(--orange); }
+.status-update { background:rgba(99,102,241,0.15); color:var(--accent2); cursor:pointer; transition:all 0.2s; border:1px solid rgba(99,102,241,0.3); }
+.status-update:hover { background:rgba(99,102,241,0.3); transform:translateY(-1px); }
+
+/* Status bar layout */
+.status-bar-inner { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
+/* Empty state */
+.empty { text-align:center; padding:48px 20px; color:var(--text2); }
+.empty .empty-icon { font-size:3rem; margin-bottom:12px; opacity:0.5; }
+.empty p { font-size:0.9rem; }
+
+/* Spinner */
+.spinner { width:18px; height:18px; border:2px solid rgba(255,255,255,0.15); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Video Player Modal */
+.player-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:1000; display:none; align-items:center; justify-content:center; animation:fadeIn 0.2s; }
+.player-overlay.active { display:flex; }
+.player-box { position:relative; width:90%; max-width:800px; max-height:90vh; background:var(--bg2); border-radius:16px; border:1px solid var(--border); overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.5); }
+.player-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); }
+.player-header h3 { font-size:0.9rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; margin-right:12px; }
+.player-close { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--text); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; flex-shrink:0; }
+.player-close:hover { background:rgba(239,68,68,0.3); color:var(--red); }
+.player-body { padding:0; background:#000; }
+.player-body video, .player-body audio { width:100%; max-height:75vh; display:block; outline:none; }
+@keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+.btn-play { background:rgba(34,197,94,0.15); color:var(--green); border:1px solid rgba(34,197,94,0.25); }
+.btn-play:hover { background:rgba(34,197,94,0.3); transform:translateY(-1px); }
+
+/* Settings */
+.settings-group { margin-bottom:20px; }
+.settings-group label { display:block; font-size:0.78rem; color:var(--text2); font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:6px; }
+.settings-group textarea, .settings-group input[type=text], .settings-group select {
+    width:100%; padding:10px 14px; background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+    color:var(--text); font-size:0.85rem; font-family:inherit; outline:none; transition:border 0.2s; resize:vertical;
+}
+.settings-group textarea:focus, .settings-group input[type=text]:focus { border-color:var(--accent); }
+.settings-group .hint { font-size:0.72rem; color:var(--text2); margin-top:4px; line-height:1.4; }
+.settings-group .cookie-status { font-size:0.72rem; margin-top:4px; }
+.cookie-set { color:var(--green); }
+.cookie-unset { color:var(--text2); }
+.settings-actions { display:flex; gap:8px; margin-top:24px; }
+
+/* Responsive */
+@media (max-width:600px) {
+    .video-info { flex-direction:column; }
+    .video-info img { width:100%; max-height:200px; }
+    .options-row { flex-direction:column; }
+    .player-box { width:95%; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <h1><span class="icon">📥</span> Video Downloader</h1>
+    <p class="subtitle">Download videos from YouTube, TikTok, and 50+ platforms using yt-dlp</p>
+
+    <div class="tabs">
+        <button class="active" onclick="switchTab('download')">⬇️ Download</button>
+        <button onclick="switchTab('search')">🔍 Search</button>
+        <button onclick="switchTab('files')">📁 Files</button>
+        <button onclick="switchTab('settings')">⚙️ Settings</button>
+    </div>
+
+    <!-- Download Tab -->
+    <div id="tab-download">
+        <div id="status-bar" style="margin-bottom:16px;"></div>
+
+        <div class="input-group">
+            <input type="text" id="url-input" placeholder="Paste video URL (YouTube, TikTok, Instagram, ...)" />
+            <button class="btn btn-primary" id="btn-info" onclick="getVideoInfo()">🔍 Info</button>
+        </div>
+
+        <div id="video-preview" style="display:none;"></div>
+
+        <div class="options-row">
+            <div class="option-group">
+                <label>Format</label>
+                <select id="sel-format">
+                    <option value="mp4">🎬 MP4 (Video)</option>
+                    <option value="mp3">🎵 MP3 (Audio)</option>
+                    <option value="webm">📦 WebM</option>
+                </select>
+            </div>
+            <div class="option-group">
+                <label>Quality</label>
+                <select id="sel-quality">
+                    <option value="best">⭐ Best</option>
+                    <option value="1080p">1080p</option>
+                    <option value="720p" selected>720p</option>
+                    <option value="480p">480p</option>
+                    <option value="360p">360p</option>
+                </select>
+            </div>
+            <div style="display:flex;align-items:flex-end;margin-left:auto;">
+                <button class="btn btn-primary" id="btn-download" onclick="startDownload()" style="padding:10px 32px;">⬇️ Download</button>
+            </div>
+        </div>
+
+        <div id="active-downloads"></div>
+    </div>
+
+    <!-- Search Tab -->
+    <div id="tab-search" style="display:none;">
+        <div class="input-group">
+            <input type="text" id="search-input" placeholder="Search YouTube videos..." onkeydown="if(event.key==='Enter')doSearch()" />
+            <button class="btn btn-primary" onclick="doSearch()">🔍 Search</button>
+        </div>
+        <div id="search-results">
+            <div class="empty"><div class="empty-icon">🔍</div><p>Enter a search query to find videos</p></div>
+        </div>
+    </div>
+
+    <!-- Files Tab -->
+    <div id="tab-files" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <h3 style="font-size:1rem;font-weight:600;">Downloaded Files</h3>
+            <button class="btn btn-sm btn-primary" onclick="loadFiles()">🔄 Refresh</button>
+        </div>
+        <div id="files-list">
+            <div class="empty"><div class="empty-icon">📁</div><p>No downloaded files yet</p></div>
+        </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div id="tab-settings" style="display:none;">
+        <h3 style="font-size:1rem;font-weight:600;margin-bottom:16px;">🍪 Cookies & Settings</h3>
+        <p style="font-size:0.8rem;color:var(--text2);margin-bottom:20px;line-height:1.5;">
+            Cookies giúp bypass "Sign in to confirm you're not a bot" trên YouTube.<br>
+            Export cookies từ browser bằng extension như <a href="https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc" target="_blank" style="color:var(--accent2)">Get cookies.txt</a>, rồi paste vào đây.
+        </p>
+
+        <div class="settings-group">
+            <label>🔴 YouTube Cookies</label>
+            <textarea id="set-cookie-youtube" rows="3" placeholder='Paste YouTube cookies (key=val; key2=val2) hoặc JSON array...'></textarea>
+            <div class="cookie-status" id="yt-cookie-status"></div>
+            <div class="hint">Cần để tải video bị giới hạn tuổi hoặc tránh bot-check</div>
+        </div>
+
+        <div class="settings-group">
+            <label>🎵 TikTok Cookies</label>
+            <textarea id="set-cookie-tiktok" rows="2" placeholder='Paste TikTok cookies...'></textarea>
+            <div class="cookie-status" id="tt-cookie-status"></div>
+        </div>
+
+        <div class="settings-group">
+            <label>🇨🇳 Douyin Cookies</label>
+            <textarea id="set-cookie-douyin" rows="2" placeholder='Paste Douyin cookies...'></textarea>
+            <div class="cookie-status" id="dy-cookie-status"></div>
+            <div class="hint">Chia sẻ với Douyin Download extension</div>
+        </div>
+
+        <div class="settings-group">
+            <label>🌐 Auto Cookies from Browser</label>
+            <select id="set-browser">
+                <option value="">-- Không dùng (dùng cookie thủ công) --</option>
+                <option value="chrome">Chrome</option>
+                <option value="firefox">Firefox</option>
+                <option value="edge">Edge</option>
+                <option value="brave">Brave</option>
+                <option value="opera">Opera</option>
+                <option value="safari">Safari</option>
+            </select>
+            <div class="hint">Tự động lấy cookies từ browser đang mở (ưu tiên hơn cookie thủ công)</div>
+        </div>
+
+        <div class="settings-group">
+            <label>🔗 Proxy</label>
+            <input type="text" id="set-proxy" placeholder='socks5://127.0.0.1:1080 hoặc http://user:pass@host:port' />
+        </div>
+
+        <div class="settings-actions">
+            <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
+            <span id="settings-msg" style="font-size:0.8rem;color:var(--green);align-self:center;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Video Player Modal -->
+<div class="player-overlay" id="player-overlay" onclick="if(event.target===this)closePlayer()">
+    <div class="player-box">
+        <div class="player-header">
+            <h3 id="player-title">Video Player</h3>
+            <button class="player-close" onclick="closePlayer()">✕</button>
+        </div>
+        <div class="player-body" id="player-body"></div>
+    </div>
+</div>
+
+<script>
+const API_BASE = '/api/v1/ytdl';
+let activePollers = {};
+
+function switchTab(tab) {
+    document.querySelectorAll('.tabs button').forEach((b,i) => {
+        b.classList.toggle('active', ['download','search','files','settings'][i] === tab);
+    });
+    ['download','search','files','settings'].forEach(t => {
+        const el = document.getElementById('tab-' + t);
+        if (el) el.style.display = t === tab ? '' : 'none';
+    });
+    if (tab === 'files') loadFiles();
+    if (tab === 'settings') loadSettings();
+}
+
+// Status check
+async function checkStatus() {
+    const bar = document.getElementById('status-bar');
+    try {
+        const r = await fetch(API_BASE + '/status');
+        const d = await r.json();
+        if (d.installed) {
+            bar.innerHTML = `<div class="status-bar-inner">
+                <span class="status-badge status-ok">✅ yt-dlp v${d.version}</span>
+                ${d.ffmpeg_available ? '<span class="status-badge status-ok">✅ FFmpeg</span>' : '<span class="status-badge status-warn">⚠️ FFmpeg not found</span>'}
+                <span id="update-badge"><span class="status-badge status-update" onclick="checkUpdate()" title="Check for yt-dlp updates">🔍 Check Update</span></span>
+            </div>`;
+            // Update check only runs when user clicks the button
+        } else {
+            bar.innerHTML = `<span class="status-badge status-err">❌ yt-dlp not installed</span>`;
+        }
+    } catch(e) {
+        bar.innerHTML = `<span class="status-badge status-err">❌ API offline</span>`;
+    }
+}
+
+// Check for yt-dlp updates
+async function checkUpdate() {
+    const badge = document.getElementById('update-badge');
+    if (!badge) return;
+    badge.innerHTML = `<span class="status-badge status-warn"><span class="spinner" style="width:12px;height:12px;"></span> Checking...</span>`;
+    try {
+        const r = await fetch(API_BASE + '/check-update');
+        const d = await r.json();
+        if (d.has_update && d.latest_version) {
+            badge.innerHTML = `<span class="status-badge status-update" onclick="doUpdate()" title="Click to update yt-dlp to v${d.latest_version}">
+                ⬆️ Update to v${d.latest_version}
+            </span>`;
+        } else if (d.latest_version) {
+            badge.innerHTML = `<span class="status-badge status-ok">✅ Latest</span>`;
+        } else {
+            badge.innerHTML = `<span class="status-badge status-warn">⚠️ Cannot check</span>`;
+        }
+    } catch(e) {
+        badge.innerHTML = `<span class="status-badge status-update" onclick="checkUpdate()">🔍 Check Update</span>`;
+    }
+}
+
+// Update yt-dlp
+async function doUpdate() {
+    const badge = document.getElementById('update-badge');
+    if (!badge) return;
+    badge.innerHTML = `<span class="status-badge status-warn"><span class="spinner" style="width:12px;height:12px;"></span> Updating...</span>`;
+    try {
+        const r = await fetch(API_BASE + '/update', { method: 'POST' });
+        const d = await r.json();
+        if (d.status === 'success') {
+            badge.innerHTML = `<span class="status-badge status-ok">✅ Updated to v${d.new_version}</span>`;
+            // Refresh status bar after short delay
+            setTimeout(() => checkStatus(), 1500);
+        } else {
+            badge.innerHTML = `<span class="status-badge status-err">❌ ${esc(d.message || 'Update failed')}</span>`;
+        }
+    } catch(e) {
+        badge.innerHTML = `<span class="status-badge status-err">❌ ${esc(e.message)}</span>`;
+    }
+}
+
+// Get video info
+async function getVideoInfo() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) return;
+    const btn = document.getElementById('btn-info');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+        const r = await fetch(API_BASE + '/info', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ url })
+        });
+        const d = await r.json();
+        if (d.status === 'success' && d.data) {
+            const v = d.data;
+            const dur = v.duration ? `${Math.floor(v.duration/60)}:${String(v.duration%60).padStart(2,'0')}` : '';
+            const views = v.view_count ? v.view_count.toLocaleString() : '';
+            document.getElementById('video-preview').style.display = '';
+            document.getElementById('video-preview').innerHTML = `
+                <div class="card video-info">
+                    ${v.thumbnail ? `<img src="${v.thumbnail}" alt="thumb" onerror="this.style.display='none'"/>` : ''}
+                    <div class="details">
+                        <h3>${esc(v.title || 'Untitled')}</h3>
+                        <div class="meta">
+                            ${v.platform ? `<span>📺 ${esc(v.platform)}</span>` : ''}
+                            ${v.uploader ? `<span>👤 ${esc(v.uploader)}</span>` : ''}
+                            ${dur ? `<span>⏱️ ${dur}</span>` : ''}
+                            ${views ? `<span>👁️ ${views} views</span>` : ''}
+                        </div>
+                        <div style="font-size:0.8rem;color:var(--text2);line-height:1.4;max-height:60px;overflow:hidden;">${esc((v.description||'').substring(0,200))}</div>
+                    </div>
+                </div>`;
+        } else {
+            alert('Failed to get video info: ' + (d.detail || 'Unknown error'));
+        }
+    } catch(e) { alert('Error: ' + e.message); }
+    btn.disabled = false;
+    btn.innerHTML = '🔍 Info';
+}
+
+// Start download
+async function startDownload() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) { alert('Please enter a video URL'); return; }
+    const format = document.getElementById('sel-format').value;
+    const quality = document.getElementById('sel-quality').value;
+    const btn = document.getElementById('btn-download');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Starting...';
+    try {
+        const r = await fetch(API_BASE + '/download', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ url, format, quality })
+        });
+        const d = await r.json();
+        if (d.success && d.task_id) {
+            addDownloadCard(d.task_id, url);
+            pollTask(d.task_id);
+        } else {
+            alert('Download failed: ' + (d.detail || JSON.stringify(d)));
+        }
+    } catch(e) { alert('Error: ' + e.message); }
+    btn.disabled = false;
+    btn.innerHTML = '⬇️ Download';
+}
+
+function addDownloadCard(taskId, url) {
+    const container = document.getElementById('active-downloads');
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.id = 'task-' + taskId;
+    div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <span style="font-size:0.85rem;font-weight:600;">⬇️ Downloading...</span>
+            <span class="status-badge status-warn">⏳ ${taskId}</span>
+        </div>
+        <div style="font-size:0.78rem;color:var(--text2);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(url)}</div>
+        <div class="progress-bar"><div class="fill" style="width:0%"></div></div>
+        <div class="progress-text"><span>0%</span><span>--</span></div>`;
+    container.prepend(div);
+}
+
+function pollTask(taskId) {
+    if (activePollers[taskId]) return;
+    activePollers[taskId] = setInterval(async () => {
+        try {
+            const r = await fetch(API_BASE + '/status/' + taskId);
+            const d = await r.json();
+            if (!d.success) return;
+            const t = d.data;
+            const card = document.getElementById('task-' + taskId);
+            if (!card) { clearInterval(activePollers[taskId]); delete activePollers[taskId]; return; }
+            const fill = card.querySelector('.fill');
+            const texts = card.querySelectorAll('.progress-text span');
+            fill.style.width = t.progress + '%';
+            texts[0].textContent = Math.round(t.progress) + '%';
+            const speed = t.speed ? formatSize(t.speed) + '/s' : '--';
+            texts[1].textContent = speed;
+            if (t.status === 'done') {
+                clearInterval(activePollers[taskId]);
+                delete activePollers[taskId];
+                fill.style.width = '100%';
+                fill.style.background = 'var(--green)';
+                card.querySelector('.status-badge').className = 'status-badge status-ok';
+                card.querySelector('.status-badge').textContent = '✅ Done';
+                const fname = t.filename || 'Downloaded';
+                card.querySelector('span[style*="font-weight:600"]').textContent = '✅ ' + fname;
+                texts[0].textContent = '100%';
+                texts[1].textContent = formatSize(t.total_size);
+                // Add Play & Download buttons
+                const actionsDiv = document.createElement('div');
+                actionsDiv.style.cssText = 'display:flex;gap:6px;margin-top:10px;';
+                actionsDiv.innerHTML = `
+                    <button class="btn btn-sm btn-play" onclick="openPlayer('${esc(fname)}')">▶️ Play</button>
+                    <a href="${API_BASE}/downloads/${encodeURIComponent(fname)}" target="_blank" class="btn btn-sm btn-primary">⬇️ Save</a>
+                `;
+                card.appendChild(actionsDiv);
+            } else if (t.status === 'error') {
+                clearInterval(activePollers[taskId]);
+                delete activePollers[taskId];
+                fill.style.background = 'var(--red)';
+                card.querySelector('.status-badge').className = 'status-badge status-err';
+                card.querySelector('.status-badge').textContent = '❌ Error';
+                texts[0].textContent = t.error || 'Unknown error';
+            }
+        } catch(e) {}
+    }, 1000);
+}
+
+// Search
+async function doSearch() {
+    const query = document.getElementById('search-input').value.trim();
+    if (!query) return;
+    const container = document.getElementById('search-results');
+    container.innerHTML = '<div style="text-align:center;padding:32px;"><span class="spinner"></span> Searching...</div>';
+    try {
+        const r = await fetch(API_BASE + '/search', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ query, platform: 'youtube', limit: 10 })
+        });
+        const d = await r.json();
+        if (d.status === 'success' && d.results.length > 0) {
+            container.innerHTML = d.results.map(v => {
+                const dur = v.duration ? `${Math.floor(v.duration/60)}:${String(v.duration%60).padStart(2,'0')}` : '';
+                return `<div class="search-result card" onclick="selectSearchResult('${esc(v.url)}')">
+                    <img src="${v.thumbnail || ''}" alt="" onerror="this.style.background='var(--bg3)'" />
+                    <div class="sr-info">
+                        <h4>${esc(v.title || 'Untitled')}</h4>
+                        <div class="sr-meta">${v.uploader ? esc(v.uploader) : ''} ${dur ? '· ' + dur : ''} ${v.view_count ? '· ' + v.view_count.toLocaleString() + ' views' : ''}</div>
+                    </div>
+                </div>`;
+            }).join('');
+        } else {
+            container.innerHTML = '<div class="empty"><div class="empty-icon">🤷</div><p>No results found</p></div>';
+        }
+    } catch(e) {
+        container.innerHTML = `<div class="empty"><div class="empty-icon">❌</div><p>Search failed: ${esc(e.message)}</p></div>`;
+    }
+}
+
+function selectSearchResult(url) {
+    document.getElementById('url-input').value = url;
+    switchTab('download');
+    getVideoInfo();
+}
+
+// Files
+async function loadFiles() {
+    const container = document.getElementById('files-list');
+    container.innerHTML = '<div style="text-align:center;padding:32px;"><span class="spinner"></span></div>';
+    try {
+        const r = await fetch(API_BASE + '/downloads');
+        const d = await r.json();
+        if (d.files && d.files.length > 0) {
+            container.innerHTML = d.files.map(f => {
+                const ext = f.filename.split('.').pop().toLowerCase();
+                const icon = ['mp3','wav','flac','ogg','aac'].includes(ext) ? '🎵' : '🎬';
+                return `<div class="card dl-item">
+                    <span class="dl-icon">${icon}</span>
+                    <div class="dl-info">
+                        <div class="dl-name" title="${esc(f.filename)}">${esc(f.filename)}</div>
+                        <div class="dl-size">${formatSize(f.size)} · ${new Date(f.modified*1000).toLocaleDateString()}</div>
+                    </div>
+                    <div class="dl-actions">
+                        <button class="btn btn-sm btn-play" onclick="openPlayer('${esc(f.filename)}')">▶️</button>
+                        <a href="${API_BASE}/downloads/${encodeURIComponent(f.filename)}" target="_blank" class="btn btn-sm btn-primary">⬇️</a>
+                        <button class="btn btn-sm btn-danger" onclick="deleteFile('${esc(f.filename)}')">🗑️</button>
+                    </div>
+                </div>`;
+            }).join('');
+        } else {
+            container.innerHTML = '<div class="empty"><div class="empty-icon">📁</div><p>No downloaded files yet</p></div>';
+        }
+    } catch(e) {
+        container.innerHTML = `<div class="empty"><div class="empty-icon">❌</div><p>${esc(e.message)}</p></div>`;
+    }
+}
+
+async function deleteFile(filename) {
+    if (!confirm('Delete ' + filename + '?')) return;
+    try {
+        await fetch(API_BASE + '/downloads/' + encodeURIComponent(filename), { method:'DELETE' });
+        loadFiles();
+    } catch(e) { alert(e.message); }
+}
+
+// Helpers
+function formatSize(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const u = ['B','KB','MB','GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + u[i];
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+// Video Player
+function openPlayer(filename) {
+    const overlay = document.getElementById('player-overlay');
+    const body = document.getElementById('player-body');
+    const title = document.getElementById('player-title');
+    title.textContent = filename;
+    const ext = filename.split('.').pop().toLowerCase();
+    const url = API_BASE + '/downloads/' + encodeURIComponent(filename);
+    const isAudio = ['mp3','wav','flac','ogg','aac','m4a','wma'].includes(ext);
+    if (isAudio) {
+        body.innerHTML = `<div style="padding:40px 20px;text-align:center;"><div style="font-size:4rem;margin-bottom:16px;">🎵</div><audio controls autoplay style="width:100%;max-width:500px;"><source src="${url}">Your browser does not support audio.</audio></div>`;
+    } else {
+        body.innerHTML = `<video controls autoplay><source src="${url}">Your browser does not support video.</video>`;
+    }
+    overlay.classList.add('active');
+    document.addEventListener('keydown', playerKeyHandler);
+}
+
+function closePlayer() {
+    const overlay = document.getElementById('player-overlay');
+    const body = document.getElementById('player-body');
+    // Stop playback
+    const media = body.querySelector('video, audio');
+    if (media) { media.pause(); media.src = ''; }
+    body.innerHTML = '';
+    overlay.classList.remove('active');
+    document.removeEventListener('keydown', playerKeyHandler);
+}
+
+function playerKeyHandler(e) {
+    if (e.key === 'Escape') closePlayer();
+}
+
+// Settings
+async function loadSettings() {
+    try {
+        const r = await fetch(API_BASE + '/settings');
+        const d = await r.json();
+        if (d.status === 'success' && d.data) {
+            const s = d.data;
+            // Show cookie status
+            document.getElementById('yt-cookie-status').innerHTML = s.cookie_youtube_set
+                ? `<span class="cookie-set">✅ Cookie đã cấu hình (${s.cookie_youtube})</span>`
+                : `<span class="cookie-unset">⚠️ Chưa cấu hình</span>`;
+            document.getElementById('tt-cookie-status').innerHTML = s.cookie_tiktok_set
+                ? `<span class="cookie-set">✅ Cookie đã cấu hình (${s.cookie_tiktok})</span>`
+                : `<span class="cookie-unset">⚠️ Chưa cấu hình</span>`;
+            document.getElementById('dy-cookie-status').innerHTML = s.cookie_douyin_set
+                ? `<span class="cookie-set">✅ Cookie đã cấu hình (${s.cookie_douyin})</span>`
+                : `<span class="cookie-unset">⚠️ Chưa cấu hình</span>`;
+            // Set browser dropdown
+            document.getElementById('set-browser').value = s.cookies_from_browser || '';
+            document.getElementById('set-proxy').value = s.proxy || '';
+            // Clear text areas (don't show masked cookies)
+            document.getElementById('set-cookie-youtube').value = '';
+            document.getElementById('set-cookie-tiktok').value = '';
+            document.getElementById('set-cookie-douyin').value = '';
+        }
+    } catch(e) {}
+}
+
+async function saveSettings() {
+    const msg = document.getElementById('settings-msg');
+    msg.textContent = '';
+    const body = {};
+    const yt = document.getElementById('set-cookie-youtube').value.trim();
+    const tt = document.getElementById('set-cookie-tiktok').value.trim();
+    const dy = document.getElementById('set-cookie-douyin').value.trim();
+    const browser = document.getElementById('set-browser').value;
+    const proxy = document.getElementById('set-proxy').value.trim();
+    if (yt) body.cookie_youtube = yt;
+    if (tt) body.cookie_tiktok = tt;
+    if (dy) body.cookie_douyin = dy;
+    body.cookies_from_browser = browser;
+    body.proxy = proxy;
+
+    try {
+        const r = await fetch(API_BASE + '/settings', {
+            method: 'PUT', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(body)
+        });
+        const d = await r.json();
+        if (d.status === 'success') {
+            msg.style.color = 'var(--green)';
+            msg.textContent = '✅ Đã lưu!';
+            loadSettings(); // Refresh status
+        } else {
+            msg.style.color = 'var(--red)';
+            msg.textContent = '❌ ' + (d.message || 'Error');
+        }
+    } catch(e) {
+        msg.style.color = 'var(--red)';
+        msg.textContent = '❌ ' + e.message;
+    }
+    setTimeout(() => { msg.textContent = ''; }, 3000);
+}
+
+// Init
+checkStatus();
+</script>
+</body>
+</html>

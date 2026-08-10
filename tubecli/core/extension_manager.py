@@ -368,6 +368,10 @@ class ExtensionManager:
         # installed by git clone had no such node and the builder silently turned
         # the model's answer into an empty python_code box.
         "tubecli.extensions.video_editor",
+        # Paired with video_editor: video_download.file_path feeds
+        # video_processing.input_file, so "fetch a clip then trim it" — the
+        # commonest video request — works without a Marketplace step.
+        "tubecli.extensions.video_downloader",
     ]
 
     # Essential external extensions to auto-install if missing
