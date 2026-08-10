@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="TubeCreate Video Editor — AI-powered professional video editing with timeline, effects, and FFmpeg processing">
+    <title>🎬 Video Editor — TubeCreate</title>
+    <link rel="stylesheet" href="/video-editor-static/editor.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- ── Navbar ──────────────────────────────────────────── -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-left">
+            <span class="nav-logo">🎬</span>
+            <span class="nav-title" data-i18n="nav.title">Video Editor</span>
+            <span class="nav-separator">│</span>
+            <input type="text" class="project-name-input" id="projectNameInput" value="Untitled Project" spellcheck="false">
+        </div>
+        <div class="nav-center">
+            <div class="status-badge" id="statusBadge">
+                <span class="status-dot"></span>
+                <span class="status-text" data-i18n="status.checking">Checking FFmpeg...</span>
+            </div>
+        </div>
+        <div class="nav-right">
+            <button class="btn btn-ghost" id="btnNewProject" title="New Project">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                <span data-i18n="nav.new">New</span>
+            </button>
+            <button class="btn btn-ghost" id="btnOpenProject" title="Open Project">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <span data-i18n="nav.open">Open</span>
+            </button>
+            <button class="btn btn-primary" id="btnExport" title="Export Video">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                <span data-i18n="nav.export">Export</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- ── Main Layout ────────────────────────────────────── -->
+    <div class="editor-layout" id="editorLayout">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-tabs">
+                <button class="sidebar-tab active" data-tab="media" title="Media Library">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8" cy="14" r="2"/><path d="M2 17l5-5 2 2 4-4 9 9"/></svg>
+                    <span data-i18n="tab.media">Media</span>
+                </button>
+                <button class="sidebar-tab" data-tab="effects" title="Effects">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                    <span data-i18n="tab.effects">Effects</span>
+                </button>
+                <button class="sidebar-tab" data-tab="text" title="Text">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+                    <span data-i18n="tab.text">Text</span>
+                </button>
+                <button class="sidebar-tab" data-tab="audio" title="Audio">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+                    <span data-i18n="tab.audio">Audio</span>
+                </button>
+            </div>
+
+            <!-- Media Panel -->
+            <div class="sidebar-panel active" data-panel="media">
+                <div class="panel-header">
+                    <h3 data-i18n="tab.media">Media Library</h3>
+                    <button class="btn-icon" id="btnUploadMedia" title="Upload Media">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                    </button>
+                </div>
+                <div class="media-drop-zone" id="mediaDropZone">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                    <p data-i18n="media.drop">Drag & drop files here<br><small>or click to browse</small></p>
+                    <input type="file" id="fileInput" multiple accept="video/*,audio/*,image/*" hidden>
+                </div>
+                <div class="media-list" id="mediaList"></div>
+            </div>
+
+            <!-- Effects Panel -->
+            <div class="sidebar-panel" data-panel="effects">
+                <div class="panel-header"><h3 data-i18n="effects.title">Video Effects</h3></div>
+                <div class="effects-grid" id="effectsGrid"></div>
+            </div>
+
+            <!-- Text Panel -->
+            <div class="sidebar-panel" data-panel="text">
+                <div class="panel-header"><h3 data-i18n="text.title">Text Overlay</h3></div>
+                <div class="text-tools">
+                    <div class="form-group">
+                        <label data-i18n="text.content">Text Content</label>
+                        <textarea id="overlayText" data-i18n-placeholder="text.placeholder" placeholder="Enter text..." rows="3"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label data-i18n="text.size">Font Size</label>
+                            <input type="number" id="overlayFontSize" value="36" min="8" max="200">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="text.color">Color</label>
+                            <input type="color" id="overlayColor" value="#ffffff">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="text.position">Position</label>
+                        <select id="overlayPosition">
+                            <option value="top-left">Top Left</option>
+                            <option value="top-center">Top Center</option>
+                            <option value="top-right">Top Right</option>
+                            <option value="center">Center</option>
+                            <option value="bottom-left">Bottom Left</option>
+                            <option value="bottom-center" selected>Bottom Center</option>
+                            <option value="bottom-right">Bottom Right</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-full" id="btnAddText" data-i18n="text.add">Add Text Overlay</button>
+                </div>
+            </div>
+
+            <!-- Audio Panel -->
+            <div class="sidebar-panel" data-panel="audio">
+                <div class="panel-header"><h3 data-i18n="audio.title">Audio</h3></div>
+                <div class="audio-tools">
+                    <p class="empty-state" data-i18n="audio.empty">Upload audio files from the Media tab to add them here.</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Preview Area -->
+        <main class="preview-area" id="previewArea">
+            <div class="preview-container">
+                <div class="preview-player" id="previewPlayer">
+                    <video id="videoPreview" class="preview-video">
+                        <source src="" type="video/mp4">
+                    </video>
+                    <div class="preview-placeholder" id="previewPlaceholder">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        <p data-i18n="preview.placeholder">Upload a video to get started</p>
+                    </div>
+                </div>
+                <!-- Playback Controls -->
+                <div class="playback-controls" id="playbackControls">
+                    <div class="controls-left">
+                        <button class="ctrl-btn" id="btnPlayPause" title="Play/Pause">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                        </button>
+                        <button class="ctrl-btn" id="btnStop" title="Stop">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16"/></svg>
+                        </button>
+                        <span class="time-display" id="timeDisplay">00:00:00 / 00:00:00</span>
+                    </div>
+                    <div class="controls-right">
+                        <button class="ctrl-btn" id="btnVolumeToggle" title="Mute/Unmute">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                        </button>
+                        <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="80">
+                        <button class="ctrl-btn" id="btnFullscreen" title="Fullscreen">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Properties Panel (context-dependent) -->
+            <div class="properties-panel" id="propertiesPanel">
+                <div class="panel-header">
+                    <h3 id="propsTitle" data-i18n="props.title">Properties</h3>
+                    <button class="btn-icon" id="btnCloseProps" title="Close">✕</button>
+                </div>
+                <div class="props-content" id="propsContent">
+                    <p class="empty-state" data-i18n="props.empty">Select a clip to view properties</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ── Timeline ───────────────────────────────────────── -->
+    <div class="timeline-area" id="timelineArea">
+        <!-- Timeline Toolbar -->
+        <div class="timeline-toolbar" id="timelineToolbar">
+            <div class="toolbar-left">
+                <button class="tl-btn active" id="btnToolSelect" title="Select Tool">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/></svg>
+                </button>
+                <button class="tl-btn" id="btnToolTrim" title="Trim/Cut">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+                </button>
+                <span class="toolbar-sep"></span>
+                <button class="tl-btn" id="btnSplitClip" title="Split at Playhead">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><polyline points="8 6 12 2 16 6"/><polyline points="8 18 12 22 16 18"/></svg>
+                </button>
+                <button class="tl-btn" id="btnDeleteClip" title="Delete Selected">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+            </div>
+            <div class="toolbar-center">
+                <button class="tl-btn" id="btnZoomOut" title="Zoom Out">−</button>
+                <span class="zoom-level" id="zoomLevel">100%</span>
+                <button class="tl-btn" id="btnZoomIn" title="Zoom In">+</button>
+            </div>
+            <div class="toolbar-right">
+                <button class="tl-btn" id="btnAddTrack" title="Add Track">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+                    Track
+                </button>
+            </div>
+        </div>
+
+        <!-- Timeline Canvas -->
+        <div class="timeline-scroll" id="timelineScroll">
+            <!-- Time Ruler -->
+            <div class="time-ruler" id="timeRuler"></div>
+            <!-- Playhead -->
+            <div class="playhead" id="playhead">
+                <div class="playhead-handle"></div>
+                <div class="playhead-line"></div>
+            </div>
+            <!-- Tracks Container -->
+            <div class="tracks-container" id="tracksContainer"></div>
+        </div>
+    </div>
+
+    <!-- ── Modals ─────────────────────────────────────────── -->
+
+    <!-- Export Modal -->
+    <div class="modal-overlay" id="exportModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h2>📤 <span data-i18n="modal.export.title">Export Video</span></h2>
+                <button class="btn-icon modal-close" data-modal="exportModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label data-i18n="modal.export.source">Source File</label>
+                    <input type="text" id="exportSource" class="input" placeholder="Select a file from media library" readonly>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="modal.export.format">Format</label>
+                        <select id="exportFormat" class="input">
+                            <option value="mp4">MP4 (H.264)</option>
+                            <option value="webm">WebM (VP9)</option>
+                            <option value="mov">MOV</option>
+                            <option value="gif">GIF</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="modal.export.quality">Quality</label>
+                        <select id="exportQuality" class="input">
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high" selected>High</option>
+                            <option value="ultra">Ultra</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label data-i18n="modal.export.res">Resolution</label>
+                        <select id="exportResolution" class="input">
+                            <option value="">Original</option>
+                            <option value="360p">360p</option>
+                            <option value="480p">480p</option>
+                            <option value="720p">720p</option>
+                            <option value="1080p" selected>1080p</option>
+                            <option value="1440p">1440p</option>
+                            <option value="4k">4K</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label data-i18n="modal.export.fps">FPS</label>
+                        <select id="exportFps" class="input">
+                            <option value="">Original</option>
+                            <option value="24">24</option>
+                            <option value="30" selected>30</option>
+                            <option value="60">60</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="export-progress" id="exportProgress" style="display:none">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="exportProgressFill"></div>
+                    </div>
+                    <span class="progress-text" id="exportProgressText">Exporting...</span>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost modal-close" data-modal="exportModal" data-i18n="modal.export.cancel">Cancel</button>
+                <button class="btn btn-primary" id="btnStartExport">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+                    <span data-i18n="modal.export.start">Start Export</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Projects Modal -->
+    <div class="modal-overlay" id="projectsModal">
+        <div class="modal-card modal-lg">
+            <div class="modal-header">
+                <h2>📁 <span data-i18n="modal.projects.title">Projects</span></h2>
+                <button class="btn-icon modal-close" data-modal="projectsModal">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="projects-list" id="projectsList">
+                    <p class="empty-state" data-i18n="modal.projects.loading">Loading projects...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-ghost modal-close" data-modal="projectsModal" data-i18n="modal.projects.close">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    
+    <script>window.I18N_BASE_URL = '/video-editor-static/i18n';</script>
+    <script src="/static/i18n.js?v=4"></script>
+    <script src="/video-editor-static/editor.js"></script>
+
+</body>
+</html>

@@ -362,6 +362,12 @@ class ExtensionManager:
         "tubecli.extensions.codex",
         "tubecli.extensions.chat",
         "tubecli.extensions.video_studio",
+        # Bundled so the workflow builder's Video node group exists on every
+        # install. The AI prompt instructs the model to use video_processing for
+        # any video task; when this was a Marketplace-only extension, a server
+        # installed by git clone had no such node and the builder silently turned
+        # the model's answer into an empty python_code box.
+        "tubecli.extensions.video_editor",
     ]
 
     # Essential external extensions to auto-install if missing

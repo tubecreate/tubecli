@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Background Processing</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --bg2: #111827;
+            --bg3: #1e293b;
+            --border: #1e3a5f;
+            --text: #e2e8f0;
+            --text2: #94a3b8;
+            --accent: #06b6d4;
+            --accent2: #8b5cf6;
+            --green: #10b981;
+            --red: #ef4444;
+            --orange: #f59e0b;
+            --blue: #3b82f6;
+            --radius: 12px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
+        
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        .header h1 { font-size: 1.5rem; font-weight: 700; display:flex; align-items:center; gap:10px; }
+        
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit; font-size: 0.875rem;}
+        .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-danger { background: var(--red); color: #fff; }
+        .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
+
+        /* Table */
+        .table-container { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: var(--bg3); padding: 12px 16px; text-align: left; font-size: 0.75rem; color: var(--text2); text-transform: uppercase; }
+        td { padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem; vertical-align: middle; }
+        
+        /* Progress */
+        .progress-bar { width: 100%; height: 6px; background: var(--bg3); border-radius: 4px; overflow: hidden; margin-top: 6px; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.3s; }
+        
+        .status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
+        .status-queued { background: rgba(255,255,255,0.1); color: var(--text2); }
+        .status-downloading { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .status-detecting { background: rgba(59,130,246,0.1); color: var(--blue); }
+        .status-trimming { background: rgba(245,158,11,0.1); color: var(--orange); }
+        .status-matting { background: rgba(139,92,246,0.1); color: var(--accent2); }
+        .status-compositing { background: rgba(6,182,212,0.1); color: var(--accent); }
+        .status-done { background: rgba(16,185,129,0.1); color: var(--green); }
+        .status-failed { background: rgba(239,68,68,0.1); color: var(--red); }
+        
+        .url-text { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
+        .url-text a { color: inherit; text-decoration: none; }
+        
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 500px; max-width: 95vw; }
+        .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 0.8rem; color: var(--text2); margin-bottom: 6px; }
+        .form-group input, .form-group select { width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); outline: none; }
+        .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; }
+        
+        .bg-preview { width: 100%; height: 120px; background: var(--bg3); border-radius: 8px; margin-top: 8px; object-fit: cover; display: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎥 AI Background Processing Queue</h1>
+        <button class="btn btn-primary" onclick="openModal()">+ Add New Job</button>
+    </div>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr>
+                    <th>Job ID</th>
+                    <th>Source Video</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Created At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="jobs-body"></tbody>
+        </table>
+    </div>
+
+    <div class="modal-overlay" id="add-modal">
+        <div class="modal">
+            <h2>Add Processing Job</h2>
+            <div class="form-group">
+                <label>YouTube Video URL</label>
+                <input type="text" id="f-url" placeholder="https://www.youtube.com/watch?v=...">
+            </div>
+            <div class="form-group">
+                <label>Background Type</label>
+                <select id="f-bg-type">
+                    <option value="image">Image Background</option>
+                    <option value="video">Video Background</option>
+                    <option value="color">Solid Green (For manual editing)</option>
+                </select>
+            </div>
+            <div class="form-group" id="f-bg-path-group">
+                <label>Background Path (Absolute Path for now)</label>
+                <input type="text" id="f-bg-path" value="c:/tubecreate-vue/tubecli/data/extensions_external/video_editor/data/backgrounds/church_bg.jpg">
+            </div>
+            <div class="form-actions">
+                <button class="btn btn-ghost" style="background:transparent;border:1px solid var(--border);color:white;" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitJob()">Start AI Processing</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api/v1/video/jobs';
+
+
+        function renderJobs(jobs) {
+            const tbody = document.getElementById('jobs-body');
+            tbody.innerHTML = jobs.reverse().map(j => {
+                const isError = j.status === 'failed';
+                const isDone = j.status === 'done';
+                let resultText = '';
+                if (isDone) {
+                    const filename = j.output_file.split('/').pop().split('\\').pop();
+                    resultText = `<a href="/api/v1/video/files/${filename}" target="_blank" style="color:var(--green);font-size:0.8rem">Download</a>`;
+                } else if (isError) {
+                    resultText = `<span style="color:var(--red);font-size:0.7rem;max-width:150px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${j.error}">${j.error}</span>`;
+                }
+
+                return `<tr>
+                    <td style="font-family:monospace;color:var(--text2)">${j.id.substring(0,8)}</td>
+                    <td class="url-text"><a href="${j.source_url}" target="_blank">${j.source_url}</a></td>
+                    <td><span class="status-badge status-${j.status}">${j.status}</span></td>
+                    <td style="min-width:180px">
+                        <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px">
+                            <span>${j.progress}%</span>
+                            ${resultText}
+                        </div>
+                        <div class="progress-bar"><div class="progress-fill" style="width:${j.progress}% ${isError ? ';background:var(--red)' : ''}"></div></div>
+                    </td>
+                    <td style="font-size:0.8rem;color:var(--text2)">${new Date(j.created_at).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-danger" onclick="deleteJob('${j.id}')">Delete</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function openModal() { document.getElementById('add-modal').classList.add('show'); }
+        function closeModal() { document.getElementById('add-modal').classList.remove('show'); }
+
+        async function submitJob() {
+            const url = document.getElementById('f-url').value.trim();
+            const type = document.getElementById('f-bg-type').value;
+            const path = document.getElementById('f-bg-path').value.trim();
+            
+            if (!url) return alert('Source URL required');
+
+            const body = {
+                source_url: url,
+                trim_no_person: true,
+                bg_path: type === 'color' ? '#00FF00' : path
+            };
+
+            await fetch(API, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(body)
+            });
+            
+            closeModal();
+            document.getElementById('f-url').value = '';
+            loadJobs();
+            startPolling();
+        }
+
+        async function deleteJob(id) {
+            if(!confirm('Delete this job?')) return;
+            await fetch(`${API}/${id}`, { method: 'DELETE' });
+            loadJobs();
+        }
+
+        // Smart polling: only poll when there are active (pending/processing) jobs
+        let pollTimer = null;
+        let hasActiveJobs = false;
+
+        async function loadJobs() {
+            try {
+                const res = await fetch(API);
+                const data = await res.json();
+                const jobs = data.jobs || [];
+                renderJobs(jobs);
+
+                // Check if any jobs are still active (not done/failed)
+                const activeJobs = jobs.filter(j => j.status !== 'done' && j.status !== 'failed');
+                hasActiveJobs = activeJobs.length > 0;
+
+                if (hasActiveJobs && !pollTimer) {
+                    // Start polling since there are active jobs
+                    pollTimer = setInterval(loadJobs, 2000);
+                } else if (!hasActiveJobs && pollTimer) {
+                    // Stop polling — all jobs are finished
+                    clearInterval(pollTimer);
+                    pollTimer = null;
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        function startPolling() {
+            // Force a refresh and let loadJobs decide whether to keep polling
+            if (!pollTimer) {
+                loadJobs();
+                pollTimer = setInterval(loadJobs, 2000);
+            }
+        }
+
+        // Initial load (one-shot, polling starts only if needed)
+        loadJobs();
+    </script>
+</body>
+</html>
