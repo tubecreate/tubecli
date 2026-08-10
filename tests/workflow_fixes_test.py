@@ -67,6 +67,42 @@ def main():
     except TypeError as e:
         check("list_available_nodes khong no", False, str(e))
 
+    print("\n=== 2b. mot extension hong khong duoc keo do palette ===")
+    # Two real cases from this install: template_designer returns a dict, and
+    # video_manager returns a plain class with a node_type but no display_name,
+    # no ports and no from_dict. Either one, admitted, crashed
+    # list_available_nodes() for EVERY user — the first with
+    # "unhashable type: 'dict'", the second with AttributeError.
+    from tubecli.core.extension_manager import extension_manager
+    from tubecli.nodes.base_node import BaseNode
+
+    class _NotANode:              # has node_type, nothing else
+        node_type = "bogus_plain"
+
+    class _RealNode(BaseNode):
+        node_type = "bogus_real"
+        display_name = "Bogus"
+        description = ""
+        category = "Test"
+        def _setup_ports(self): pass
+
+    fake = {"bogus_plain": _NotANode, "bogus_dict": {"a": 1}, "bogus_real": _RealNode}
+    reg = dict(NODE_REGISTRY)
+    saved = extension_manager.get_enabled
+
+    class _Ext:
+        name = "fake_ext"
+        def get_nodes(self): return fake
+
+    extension_manager.get_enabled = lambda: [_Ext()]
+    try:
+        extension_manager.register_extension_nodes(reg)
+    finally:
+        extension_manager.get_enabled = saved
+    check("lop tran (khong phai BaseNode) bi tu choi", "bogus_plain" not in reg)
+    check("dict bi tu choi", "bogus_dict" not in reg)
+    check("BaseNode hop le VAN duoc nhan", "bogus_real" in reg)
+
     print("\n=== 3. dang ky lai la idempotent ===")
     from tubecli.nodes.registry import ensure_extension_nodes
     n = len(NODE_REGISTRY)

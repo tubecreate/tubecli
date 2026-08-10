@@ -705,6 +705,11 @@ class ExtensionManager:
         "TypeError: unhashable type: 'dict'" and took the whole node palette
         down with it. One malformed extension must not be able to do that.
         """
+        try:
+            from tubecli.nodes.base_node import BaseNode
+        except Exception:
+            BaseNode = None
+
         for extension in self.get_enabled():
             try:
                 nodes = extension.get_nodes()
@@ -717,6 +722,19 @@ class ExtensionManager:
                         logger.warning(
                             "Extension '%s' offered node '%s' as %s, not a class - skipped.",
                             extension.name, node_type, type(node_cls).__name__)
+                        continue
+                    # Must be a real BaseNode subclass. video_manager offers a
+                    # plain class with a node_type but no display_name, no ports
+                    # and no from_dict; admitting it crashed list_available_nodes
+                    # with AttributeError and took the entire node palette down
+                    # for every user. A malformed contribution should cost its
+                    # author one node and a clear log line, nothing more.
+                    if BaseNode is not None and not issubclass(node_cls, BaseNode):
+                        logger.warning(
+                            "Extension '%s' node '%s' (%s) does not subclass BaseNode "
+                            "- skipped. Workflow nodes must extend "
+                            "tubecli.nodes.base_node.BaseNode.",
+                            extension.name, node_type, node_cls.__name__)
                         continue
                     node_registry[node_type] = node_cls
                     logger.info(f"Registered node '{node_type}' from extension '{extension.name}'")
