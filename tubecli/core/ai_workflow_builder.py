@@ -250,16 +250,27 @@ def build_system_prompt(available_nodes: list) -> str:
     prompt += "11. DATA FORMAT: python_code result for Google Sheets must be a 2D array (list of lists). First row = headers.\n"
     prompt += "    Example: result = [['Title', 'URL', 'Views'], ['Video 1', 'https://...', '1000']]\n"
     prompt += "12. google_auth node auto-uses saved OAuth credentials (no config needed). Just add it to the workflow.\n"
-    prompt += "\n## VIDEO PROCESSING (MUST USE for video tasks)\n\n"
-    prompt += "For ANY video processing task, ALWAYS use the `video_processing` node (NOT python_code + run_command).\n"
-    prompt += "- Ports: input_file (FILE), input_files (TEXT), audio_file (TEXT), start_time (TEXT), end_time (TEXT), text (TEXT), output_dir (TEXT) → output_file (FILE), status (TEXT)\n"
-    prompt += "- Config `operation`: choose one of: trim, grayscale, sepia, blur, sharpen, negative, vintage, vignette, speed_2x, speed_05x, rotate_90, rotate_180, flip_h, flip_v, resize_720p, resize_1080p, resize_480p, extract_audio, remove_audio, add_audio, merge_concat, overlay_text, convert_mp4, convert_webm, convert_gif, export_high, export_medium, export_fast, fade_in_out, stabilize, reverse, thumbnail, custom\n"
-    prompt += "- Config `command`: auto-filled by operation. Can be customized for 'custom' operation.\n"
-    prompt += "- Config `output_suffix`: suffix added to output filename (default: '_processed').\n"
-    prompt += "- Config `output_dir`: output folder path. If empty, uses default exports dir. Can also be set via the `output_dir` input port.\n"
-    prompt += "- For batch video: use python_code to list files (result = [path1, path2, ...] as FLAT list), connect to loop `items`, connect loop `current_item` → video_processing `input_file`.\n"
-    prompt += "- To save to a custom folder: connect a text_input with the folder path to video_processing `output_dir` port, OR set config `output_dir`.\n"
-    prompt += "- Example: To flip all videos and save to custom dir: text_input(folder) → python_code(list files) → loop → video_processing(operation='flip_h', output_dir='C:/output')\n"
+    # Only teach video_processing when this machine actually HAS it. It comes
+    # from an optional extension (video_editor), which lives under data/ and is
+    # therefore not part of the repository — a fresh install has no such node.
+    # Teaching it unconditionally was self-defeating: the model obeyed "ALWAYS
+    # use video_processing", the type was absent from the registry, and
+    # generate_workflow rewrote it into an empty python_code box. The user asked
+    # for a video task in plain language and got a blank "write it yourself" box
+    # with no explanation. Every instruction in this prompt must name a node that
+    # exists on THIS machine.
+    _types = {n.get("type") for n in available_nodes}
+    if "video_processing" in _types:
+        prompt += "\n## VIDEO PROCESSING (MUST USE for video tasks)\n\n"
+        prompt += "For ANY video processing task, ALWAYS use the `video_processing` node (NOT python_code + run_command).\n"
+        prompt += "- Ports: input_file (FILE), input_files (TEXT), audio_file (TEXT), start_time (TEXT), end_time (TEXT), text (TEXT), output_dir (TEXT) → output_file (FILE), status (TEXT)\n"
+        prompt += "- Config `operation`: choose one of: trim, grayscale, sepia, blur, sharpen, negative, vintage, vignette, speed_2x, speed_05x, rotate_90, rotate_180, flip_h, flip_v, resize_720p, resize_1080p, resize_480p, extract_audio, remove_audio, add_audio, merge_concat, overlay_text, convert_mp4, convert_webm, convert_gif, export_high, export_medium, export_fast, fade_in_out, stabilize, reverse, thumbnail, custom\n"
+        prompt += "- Config `command`: auto-filled by operation. Can be customized for 'custom' operation.\n"
+        prompt += "- Config `output_suffix`: suffix added to output filename (default: '_processed').\n"
+        prompt += "- Config `output_dir`: output folder path. If empty, uses default exports dir. Can also be set via the `output_dir` input port.\n"
+        prompt += "- For batch video: use python_code to list files (result = [path1, path2, ...] as FLAT list), connect to loop `items`, connect loop `current_item` → video_processing `input_file`.\n"
+        prompt += "- To save to a custom folder: connect a text_input with the folder path to video_processing `output_dir` port, OR set config `output_dir`.\n"
+        prompt += "- Example: To flip all videos and save to custom dir: text_input(folder) → python_code(list files) → loop → video_processing(operation='flip_h', output_dir='C:/output')\n"
 
     return prompt
 
