@@ -1172,6 +1172,19 @@ const WF = (() => {
       });
       const result = await resp.json();
 
+      // resp.ok was never checked. A 400 from the server (e.g. "Unknown node
+      // type") has no `status` field, so the line below rendered "⚠️ undefined"
+      // next to a red toast reading "Workflow đã hoàn tất" — the server had put
+      // the real reason in `detail` and nobody read it.
+      if (!resp.ok) {
+        const why = result.detail || result.error || ('HTTP ' + resp.status);
+        addLog('engine', 'Error', 'error', typeof why === 'string' ? why : JSON.stringify(why));
+        $logStatus.textContent = '❌ ' + (T('wf.js_failed') || 'Failed');
+        toast(typeof why === 'string' ? why : (T('wf.js_failed') || 'Failed'), 'error');
+        state.isRunning = false;
+        return;
+      }
+
       // Animate logs sequentially for visual progress
       if (result.logs) {
         for (let i = 0; i < result.logs.length; i++) {
@@ -1198,8 +1211,24 @@ const WF = (() => {
           }
         }
       }
-      $logStatus.textContent = result.status === 'completed' ? '✅ Done' : '⚠️ ' + result.status;
-      toast(T('wf.js_finished') || 'Workflow finished', result.status === 'completed' ? 'success' : 'error');
+      // has_errors, NOT status. The engine hardcodes status to "completed" for
+      // every run that was not cancelled (workflow_engine.py:284) and reports
+      // real failure separately in has_errors/errors (:285-286). Reading only
+      // status meant the product showed a green "✅ Done" for every broken run —
+      // the single most damaging thing it did, because a beginner could not tell
+      // a working flow from a flow that had done nothing at all.
+      const failed = result.has_errors || (result.errors && result.errors.length);
+      if (failed) {
+        const n = (result.errors || []).length;
+        $logStatus.textContent = '❌ ' + (T('wf.js_failed') || 'Failed') + (n ? ` (${n})` : '');
+        toast((T('wf.js_failed') || 'Failed') + (n ? `: ${n} node` : ''), 'error');
+      } else if (result.status === 'completed') {
+        $logStatus.textContent = '✅ ' + (T('wf.js_done') || 'Done');
+        toast(T('wf.js_finished') || 'Workflow finished', 'success');
+      } else {
+        $logStatus.textContent = '⚠️ ' + result.status;
+        toast(T('wf.js_finished') || 'Workflow finished', 'error');
+      }
     } catch (e) {
       addLog('engine', 'Error', 'error', e.message);
       $logStatus.textContent = '❌ Error';
@@ -1288,9 +1317,20 @@ const WF = (() => {
     const info = await loadAiProviders();
     const $select = document.getElementById('ai-provider-select');
 
-    let html = '';
+    // Global AI first — the option a first-time user should land on, because it
+    // asks them for nothing. It is declared statically in workflow.html, but the
+    // innerHTML assignment below replaces the whole list, so it has to be rebuilt
+    // here: without it, the $select.value = 'global' at the end of this function
+    // was setting a value with no matching option, which leaves a select EMPTY.
+    // The request then went out with provider='' and the only button a
+    // non-technical user ever presses failed before generating anything.
+    // No emoji prefix here — the locale value already carries one (en.json:536),
+    // and T() returns the KEY when a translation is missing, so a `|| fallback`
+    // would never fire anyway. The i18n endpoint merges English underneath every
+    // language, so this key always resolves.
+    let html = `<option value="global">${T('wf.ai_global')}</option>`;
 
-    // Ollama (local) — always first
+    // Ollama (local)
     if (info.ollamaModels.length > 0) {
       html += `<option value="ollama" data-models="${info.ollamaModels.join(',')}" data-has-key="1">🤖 Ollama (${info.ollamaModels.length} models)</option>`;
     } else {
@@ -1309,6 +1349,11 @@ const WF = (() => {
 
     // Auto-select best provider: global first, then first cloud provider with key, or ollama
     $select.value = 'global';
+    // Belt and braces: assigning a value with no matching option silently leaves
+    // the select empty rather than throwing, which is how this failed silently
+    // before. If that ever happens again, fall back to the first real option
+    // instead of shipping an empty provider to the API.
+    if (!$select.value && $select.options.length) $select.selectedIndex = 0;
     onAiProviderChange();
   }
 

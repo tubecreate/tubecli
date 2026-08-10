@@ -540,6 +540,8 @@
   "wf.js_clear_confirm": "Clear current workflow?",
   "wf.js_new_toast": "📄 New workflow",
   "wf.js_finished": "Workflow finished",
+  "wf.js_done": "Done",
+  "wf.js_failed": "Failed",
   "wf.js_ai_success": "✨ Successfully created {count} nodes!",
   "wf.js_ai_empty": "AI returned empty workflow",
   "wf.js_load_err": "Failed to load workflow",

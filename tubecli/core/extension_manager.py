@@ -696,15 +696,30 @@ class ExtensionManager:
     # ── Extension Nodes Registration ────────────────────────────
 
     def register_extension_nodes(self, node_registry: dict):
-        """Merge all enabled extensions' nodes into the global NODE_REGISTRY."""
+        """Merge all enabled extensions' nodes into the global NODE_REGISTRY.
+
+        Values are validated before they go in. One extension returns a dict
+        (a manifest-style description) instead of a class, and an unvalidated
+        merge put that dict straight into the registry — where the very next
+        `cls not in seen` in list_available_nodes() raised
+        "TypeError: unhashable type: 'dict'" and took the whole node palette
+        down with it. One malformed extension must not be able to do that.
+        """
         for extension in self.get_enabled():
             try:
                 nodes = extension.get_nodes()
-                if nodes:
-                    for node_type, node_cls in nodes.items():
-                        if node_type not in node_registry:
-                            node_registry[node_type] = node_cls
-                            logger.info(f"Registered node '{node_type}' from extension '{extension.name}'")
+                if not nodes:
+                    continue
+                for node_type, node_cls in nodes.items():
+                    if node_type in node_registry:
+                        continue
+                    if not isinstance(node_cls, type):
+                        logger.warning(
+                            "Extension '%s' offered node '%s' as %s, not a class - skipped.",
+                            extension.name, node_type, type(node_cls).__name__)
+                        continue
+                    node_registry[node_type] = node_cls
+                    logger.info(f"Registered node '{node_type}' from extension '{extension.name}'")
             except Exception as e:
                 logger.error(f"Error registering nodes for {extension.name}: {e}")
 

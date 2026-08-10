@@ -118,6 +118,28 @@ class WorkflowEngine:
         node = self.nodes.get(node_id)
         return node and node.node_type == "loop"
 
+    # Sentinels nodes return when they were never configured. These are the
+    # commonest outcome of an AI-generated flow — the model produced the right
+    # boxes and left the fields empty — and they used to be logged as "completed"
+    # because they do not start with "Error:". A run of empty boxes then reported
+    # success, which is indistinguishable to a beginner from a run that worked.
+    _UNCONFIGURED_MARKERS = (
+        "no code provided", "no command provided", "no url provided",
+        "no prompt provided", "no query provided", "no file provided",
+        "no search query provided", "no input provided", "no data provided",
+        "no results", "not configured", "unknown action", "unknown provider",
+    )
+
+    @staticmethod
+    def _name(node) -> str:
+        """What to call a node in the log.
+
+        display_name is the CLASS name, so four Python Code boxes all logged as
+        "🐍 Python Code" and there was no way to tell which one failed. The label
+        the user typed on the canvas is what they are looking at.
+        """
+        return (getattr(node, "label", "") or "").strip() or node.display_name
+
     @staticmethod
     def _detect_output_error(result: Any) -> Optional[str]:
         """Most nodes swallow exceptions and return 'Error: ...' strings in
@@ -126,9 +148,15 @@ class WorkflowEngine:
         if not isinstance(result, dict):
             return None
         for key, value in result.items():
+            # A nested {"error": ...} is the other shape nodes use.
+            if isinstance(value, dict) and value.get("error"):
+                return f"{key}: {str(value['error'])[:300]}"
             if isinstance(value, str):
                 v = value.strip()
                 if v.startswith("Error:") or v.startswith("❌"):
+                    return f"{key}: {v[:300]}"
+                low = v.lstrip("⚠️ ").lower()
+                if any(low.startswith(m) for m in WorkflowEngine._UNCONFIGURED_MARKERS):
                     return f"{key}: {v[:300]}"
         return None
 
@@ -186,7 +214,7 @@ class WorkflowEngine:
 
                 step += 1
                 if self.on_progress:
-                    self.on_progress(step, total, f"Executing: {node.display_name}")
+                    self.on_progress(step, total, f"Executing: {self._name(node)}")
 
                 inputs = self._get_node_inputs(node_id)
 
@@ -198,7 +226,7 @@ class WorkflowEngine:
 
                     if isinstance(items, list) and len(items) > 0:
                         downstream = self._get_downstream_nodes(node_id)
-                        self._log(node_id, node.display_name, "started", f"Looping {len(items)} items")
+                        self._log(node_id, self._name(node), "started", f"Looping {len(items)} items")
 
                         for idx, item in enumerate(items):
                             if self._cancelled:
@@ -233,35 +261,35 @@ class WorkflowEngine:
                                         self.node_outputs[ds_id] = result
                                         err = self._detect_output_error(result)
                                         if err:
-                                            self._log(ds_id, ds_node.display_name, "error", err)
+                                            self._log(ds_id, self._name(ds_node), "error", err)
                                         else:
-                                            self._log(ds_id, ds_node.display_name, "completed", str(result)[:500])
+                                            self._log(ds_id, self._name(ds_node), "completed", str(result)[:500])
                                     except Exception as ex:
-                                        self._log(ds_id, ds_node.display_name, "error", str(ex))
+                                        self._log(ds_id, self._name(ds_node), "error", str(ex))
 
                             delay_ms = node.config.get("delay_ms", 500)
                             await asyncio.sleep(delay_ms / 1000)
 
-                        self._log(node_id, node.display_name, "completed", f"Loop done: {len(items)} items")
+                        self._log(node_id, self._name(node), "completed", f"Loop done: {len(items)} items")
                         i += 1
                         while i < len(execution_order) and execution_order[i] in downstream:
                             i += 1
                         continue
                     else:
-                        self._log(node_id, node.display_name, "skipped", "No items to loop")
+                        self._log(node_id, self._name(node), "skipped", "No items to loop")
                 else:
                     # Regular node
-                    self._log(node_id, node.display_name, "started", "Executing")
+                    self._log(node_id, self._name(node), "started", "Executing")
                     try:
                         result = await node.execute(inputs, context=self.context)
                         self.node_outputs[node_id] = result
                         err = self._detect_output_error(result)
                         if err:
-                            self._log(node_id, node.display_name, "error", err)
+                            self._log(node_id, self._name(node), "error", err)
                         else:
-                            self._log(node_id, node.display_name, "completed", str(result)[:500])
+                            self._log(node_id, self._name(node), "completed", str(result)[:500])
                     except Exception as ex:
-                        self._log(node_id, node.display_name, "error", str(ex))
+                        self._log(node_id, self._name(node), "error", str(ex))
 
                 i += 1
 

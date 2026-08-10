@@ -2,6 +2,7 @@
 Node Registry — Maps node type strings to node classes.
 Used by WorkflowEngine to instantiate nodes from JSON definitions.
 """
+import logging
 from typing import Dict, Type
 from tubecli.nodes.base_node import BaseNode
 from tubecli.nodes.text_input_node import TextInputNode
@@ -23,6 +24,8 @@ from tubecli.nodes.if_node import IfNode
 from tubecli.nodes.switch_node import SwitchNode
 from tubecli.nodes.merge_node import MergeNode
 from tubecli.nodes.file_manager_node import FileManagerNode
+
+logger = logging.getLogger("NodeRegistry")
 
 
 NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
@@ -55,10 +58,63 @@ NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
 }
 
 
+_EXT_NODES_LOADED = False
+
+
+def ensure_extension_nodes() -> int:
+    """Pull extension-contributed nodes into the registry. Idempotent.
+
+    This used to happen once, at the bottom of this module, at import time — and
+    whether it worked depended on whether the extension manager had discovered
+    anything yet, which depends on which module Python imported first. The
+    failure was swallowed by a bare `except Exception: pass`, so nobody ever saw
+    it. Measured on this machine: 23 node types at registry import, 30 after
+    calling the same registration again once extensions were loaded.
+
+    The seven that went missing were the useful ones — video_download,
+    video_processing, subtitle_extract, ffmpeg_command, video_trim, video_effect,
+    apply_template — and the damage went further than an incomplete palette:
+    build_system_prompt tells the model "For ANY video processing task, ALWAYS
+    use the video_processing node" (ai_workflow_builder.py:254). The model obeys,
+    the type is not in the registry, and generate_workflow silently rewrites it
+    to an empty python_code box (:540). That is the exact "AI made a flow I can't
+    use" the owner reported.
+
+    Calling this from the lookup paths instead of at import time removes the
+    ordering dependency entirely: by the time anything asks for a node, the
+    extensions have had their chance to register.
+    """
+    global _EXT_NODES_LOADED
+    if _EXT_NODES_LOADED:
+        return 0
+    before = len(NODE_REGISTRY)
+    try:
+        from tubecli.core.extension_manager import extension_manager
+        # get_enabled() reads a dict that discover_extensions() fills; with an
+        # empty dict this returns [] and registration is a silent no-op. That was
+        # the real failure — not the registration call, the missing discovery.
+        if not extension_manager.get_enabled():
+            extension_manager.discover_extensions()
+        extension_manager.register_extension_nodes(NODE_REGISTRY)
+        _EXT_NODES_LOADED = True
+    except Exception as e:
+        # Still not ready (very early import) — leave the flag down so the next
+        # caller retries, but say so rather than failing mute.
+        logger.debug("extension nodes not available yet: %s", e)
+        return 0
+    added = len(NODE_REGISTRY) - before
+    if added:
+        logger.info("Registered %d node type(s) from extensions", added)
+    return added
+
+
 def create_node_from_dict(node_data: dict) -> BaseNode:
     """Create a node instance from a JSON definition."""
     node_type = node_data.get("type", "")
     node_cls = NODE_REGISTRY.get(node_type)
+    if not node_cls:
+        ensure_extension_nodes()
+        node_cls = NODE_REGISTRY.get(node_type)
 
     if not node_cls:
         raise ValueError(f"Unknown node type: '{node_type}'. Available: {list(NODE_REGISTRY.keys())}")
@@ -75,6 +131,7 @@ def list_available_nodes() -> list:
     LLM prompt builders can teach the model exactly how to use each node.
     `inputs` / `outputs` remain simple name lists for backward compatibility.
     """
+    ensure_extension_nodes()
     seen = set()
     result = []
     icons = {
@@ -121,6 +178,7 @@ def list_available_nodes() -> list:
 def build_port_defs() -> dict:
     """Build {node_type: {inputs: [...], outputs: [...]}} from the live
     registry (covers extension-registered nodes too — no hand-maintained map)."""
+    ensure_extension_nodes()
     defs = {}
     for key, cls in NODE_REGISTRY.items():
         try:
@@ -137,6 +195,7 @@ def build_port_defs() -> dict:
 
 def get_node_tool_schemas() -> list:
     """Return list of available nodes formatted as OpenAI/Anthropic Tool JSON schemas."""
+    ensure_extension_nodes()
     seen = set()
     tools = []
     
@@ -227,9 +286,12 @@ def register_external_nodes(nodes_dict: dict):
             NODE_REGISTRY[node_type] = node_cls
 
 
-# ── Auto-register extension nodes at import time ────────────────────
-try:
-    from tubecli.core.extension_manager import extension_manager
-    extension_manager.register_extension_nodes(NODE_REGISTRY)
-except Exception:
-    pass  # Graceful fallback if extensions haven't been discovered yet
+# ── Try once at import, then let the lookup paths retry ─────────────
+#
+# Kept as an optimisation, no longer the only chance. When extensions are not
+# discovered yet this quietly does nothing and _EXT_NODES_LOADED stays False, so
+# the next call to create_node_from_dict / list_available_nodes / build_port_defs
+# / get_node_tool_schemas tries again. Previously this was the ONLY attempt, and
+# losing the race meant the extension nodes were absent for the whole process
+# life — with no log line saying so.
+ensure_extension_nodes()

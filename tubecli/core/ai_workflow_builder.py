@@ -355,11 +355,59 @@ def auto_connect_sequential(nodes_data: list, port_defs: dict) -> list:
     return connections
 
 
+def resolve_global_ai(model: str = "") -> tuple:
+    """Resolve the system default AI into (provider, model, api_key).
+
+    The Workflow Builder's provider dropdown offers "Global AI (mặc định)" —
+    the option a first-time user is meant to land on, because it asks them for
+    nothing. Nothing implemented it: the value reached call_llm and fell through
+    to "Unknown provider: global". This is that implementation.
+
+    The rule is copied from ModelAgentNode (model_agent_node.py:47-92), which
+    already did it correctly: take default_model from global_settings.json,
+    infer the provider from the model NAME, then look up an active key. Provider
+    is inferred rather than stored because global_settings only records a model.
+    """
+    import os
+    from tubecli.config import DATA_DIR
+
+    if not model:
+        gs_file = os.path.join(str(DATA_DIR), "global_settings.json")
+        if os.path.exists(gs_file):
+            try:
+                with open(gs_file, "r", encoding="utf-8") as f:
+                    model = (json.load(f) or {}).get("default_model", "") or ""
+            except Exception:
+                pass
+    if not model:
+        model = DEFAULT_AI_MODEL
+
+    low = model.lower()
+    if "deepseek" in low:
+        provider = "deepseek"
+    elif "gemini" in low:
+        provider = "gemini"
+    elif "gpt" in low or low.startswith("o1") or low.startswith("o3"):
+        provider = "chatgpt"
+    elif "claude" in low:
+        provider = "claude"
+    elif "grok" in low:
+        provider = "grok"
+    else:
+        provider = "ollama"
+
+    api_key = "" if provider == "ollama" else _resolve_cloud_api_key(provider)
+    print(f"  [AIWorkflow] global -> provider={provider} model={model} has_key={bool(api_key)}")
+    return provider, model, api_key
+
+
 def call_llm(prompt: str, user_message: str, provider: str, model: str, api_key: str = "") -> str:
     """
     Call an LLM provider to generate workflow JSON.
     Reuses the same multi-provider pattern as ModelAgentNode.
     """
+    if provider == "global":
+        provider, model, api_key = resolve_global_ai(model)
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": user_message},

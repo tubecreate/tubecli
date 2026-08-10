@@ -540,6 +540,8 @@
   "wf.js_clear_confirm": "Xóa workflow hiện tại?",
   "wf.js_new_toast": "📄 Workflow mới",
   "wf.js_finished": "Workflow đã hoàn tất",
+  "wf.js_done": "Xong",
+  "wf.js_failed": "Có node lỗi",
   "wf.js_ai_success": "✨ Tạo thành công {count} nodes!",
   "wf.js_ai_empty": "AI không trả về workflow nào",
   "wf.js_load_err": "Lỗi khi tải workflow",
