@@ -813,8 +813,20 @@
         canvas.setAttribute('tabindex', '0');
         canvas.addEventListener('keydown', (e) => {
             if (!ws || !isWSConnected) return;
+
+            // BEFORE preventDefault, not after. Cancelling the default action of
+            // a Ctrl/Cmd+V keydown cancels the paste itself, so the browser never
+            // fires the 'paste' event and the listener that reads the clipboard
+            // never runs. The first version of this check sat below the
+            // preventDefault on line 816 and was therefore dead code — the
+            // handler was correct and had already been disarmed.
+            // Same for copy and cut: let the browser do its part.
+            if ((e.ctrlKey || e.metaKey) && ['v', 'V', 'c', 'C', 'x', 'X'].includes(e.key)) {
+                return;
+            }
+
             e.preventDefault();
-            
+
             const modifierKeys = ['Control', 'Shift', 'Alt', 'Meta'];
             if (modifierKeys.includes(e.key)) {
                 return; // Ignore raw modifier keys to prevent duplicate actions
@@ -829,15 +841,6 @@
             let keyName = e.key;
             if (keyName === ' ') keyName = 'Space';
             
-            // Ctrl/Cmd+V is handled by the 'paste' listener below, which is the
-            // only place the CLIPBOARD TEXT is available. Forwarding the key
-            // combo instead pressed Ctrl+V inside the remote Chromium, pasting
-            // the SERVER's clipboard — empty — so paste appeared to do nothing
-            // while typing worked fine.
-            if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
-                return;   // let the paste event fire
-            }
-
             if (modifiers.length > 0) {
                 const combo = modifiers.join('+') + '+' + keyName;
                 ws.send(JSON.stringify({ type: 'keyboard', action: 'press', key: combo }));

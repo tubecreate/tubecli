@@ -273,11 +273,13 @@ async def auth_manager_page():
 
 @router.get("/browser/view")
 async def browser_view_page():
-    """Serve the Browser WebSocket View page."""
-    view_file = os.path.join(STATIC_DIR, "browser_view.html")
-    if os.path.exists(view_file):
-        return FileResponse(view_file)
-    return {"error": "Browser View page not found"}
+    """Serve the Browser WebSocket View page.
+
+    Through _html_page like the others: this page carries its whole client in an
+    inline script, so a cached copy means cached CODE with no asset token to
+    invalidate. Every fix to the remote view was landing behind a stale page.
+    """
+    return _html_page("browser_view.html", "Browser View page not found")
 
 
 

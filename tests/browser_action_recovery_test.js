@@ -144,8 +144,21 @@ const viewSrc = fs.readFileSync(
   path.join(__dirname, '..', 'tubecli', 'extensions', 'webui', 'static', 'browser_view.html'), 'utf8');
 const srvSrc = fs.readFileSync(path.join(EXT, 'preview_server.cjs'), 'utf8');
 
-check('Ctrl+V khong con bi chuyen thanh phim bam',
-  /e\.key === 'v' \|\| e\.key === 'V'[\s\S]{0,120}return;/.test(viewSrc));
+// The guard must come BEFORE preventDefault. Cancelling the default action of a
+// Ctrl+V keydown cancels the paste itself, so the browser never fires 'paste'.
+// The first attempt put the guard four lines too late: the listener was correct
+// and had already been disarmed, which is why paste stayed dead through two
+// rounds of fixes. Position is the whole property here.
+{
+  const kd = (viewSrc.match(/canvas\.addEventListener\('keydown'[\s\S]*?\n        \}\);/) || [''])[0];
+  const guard = kd.indexOf('e.ctrlKey || e.metaKey');
+  const pd = kd.indexOf('e.preventDefault()');
+  check('Ctrl+V duoc mien TRUOC preventDefault',
+    guard > -1 && pd > -1 && guard < pd, `guard=${guard} preventDefault=${pd}`);
+  check('  chi con mot cho kiem (khong de lai ma chet)',
+    (kd.match(/e\.ctrlKey \|\| e\.metaKey/g) || []).length === 1);
+  check('  mien ca copy/cut, khong chi paste', /'v', 'V', 'c', 'C', 'x', 'X'/.test(kd));
+}
 // On document, not canvas. A paste event goes to whatever would receive the
 // text — an input, a contenteditable, else the document. A <canvas> is none of
 // those, so a listener bound to it never fires: Ctrl+V did nothing at all,
