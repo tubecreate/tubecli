@@ -210,7 +210,7 @@ class Scheduler:
                     if launches_this_tick >= MAX_LAUNCHES_PER_TICK:
                         self._defer_agent(agent, now, reason="another agent already launched this tick")
                         self._log_skip(agent, "tick_limit",
-                                       "Một agent khác vừa mở trình duyệt trong nhịp này.")
+                                       "Another agent already launched a browser in this tick.")
                         agent_manager._save()
                         continue
 
@@ -219,8 +219,8 @@ class Scheduler:
                     if running_count >= MAX_CONCURRENT_AGENT_BROWSERS:
                         self._defer_agent(agent, now, reason=f"{running_count} browser session(s) already running")
                         self._log_skip(agent, "busy",
-                                       f"Đang có {running_count} phiên trình duyệt chạy "
-                                       f"(trần {MAX_CONCURRENT_AGENT_BROWSERS}).")
+                                       f"{running_count} browser session(s) already running "
+                                       f"(limit {MAX_CONCURRENT_AGENT_BROWSERS}).")
                         agent_manager._save()
                         continue
 
@@ -276,12 +276,17 @@ class Scheduler:
                     # Say WHICH rule blocked it. "It was due but didn't run" is the
                     # owner's most common question and the three causes need
                     # completely different fixes.
+                    # English on purpose: this text goes to the run log, which is
+                    # read alongside journalctl. The dashboard does not print it
+                    # raw — it renders the `reason` code below in the user's own
+                    # language, so the log stays uniform without the UI turning
+                    # English. Keep the code and the text in step.
                     if not is_active_day:
-                        reason, detail = "inactive_day", f"Hôm nay ({day_name}) không nằm trong các ngày đã chọn."
+                        reason, detail = "inactive_day", f"{day_name} is not one of the selected active days."
                     elif not is_inside_window:
-                        reason, detail = "outside_window", f"Ngoài khung giờ {start_time}–{end_time} (lúc đó là {current_time_str})."
+                        reason, detail = "outside_window", f"Outside the {start_time}-{end_time} window (it was {current_time_str})."
                     else:
-                        reason, detail = "daily_cap", f"Đã chạy đủ {max_runs} lượt trong ngày."
+                        reason, detail = "daily_cap", f"Already ran {max_runs} time(s) today."
                     self._log_skip(agent, reason, detail)
 
     def _defer_agent(self, agent, now: datetime.datetime, reason: str = ""):

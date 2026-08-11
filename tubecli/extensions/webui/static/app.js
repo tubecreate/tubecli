@@ -4038,6 +4038,16 @@ async function loadAgentHistory() {
 // Run log. Distinct from the browser history above it: that lists pages the
 // agent visited, this lists whether the agent ran at all — including the times
 // it was due and declined, which is the question with no answer before now.
+// Why the scheduler declined to run. Keyed by the code the backend stores, so
+// the log file can stay English while this stays in the user's language.
+const SKIP_REASONS = {
+    tick_limit:     'Một agent khác vừa mở trình duyệt trong nhịp này',
+    busy:           'Đang có phiên trình duyệt khác chạy (chạm trần đồng thời)',
+    inactive_day:   'Hôm nay không nằm trong các ngày đã chọn',
+    outside_window: 'Ngoài khung giờ đã đặt',
+    daily_cap:      'Đã chạy đủ số lượt trong ngày',
+};
+
 const RUN_OUTCOMES = {
     completed:     ['Xong',                          '#10b981'],
     error:         ['Lỗi',                           '#ef4444'],
@@ -4092,10 +4102,15 @@ async function loadAgentRuns() {
 
     listDiv.innerHTML = rows.map(r => {
         if (r.type === 'skip') {
+            // The backend writes the detail in English so the run log matches
+            // journalctl. Translate from the machine-readable `reason` code here
+            // instead of showing that English to a Vietnamese dashboard; fall
+            // back to the raw detail for a reason this build does not know.
+            const why = SKIP_REASONS[r.reason] || r.detail || r.reason || '';
             return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:rgba(255,255,255,0.02);border-left:3px solid #6b7280;border-radius:4px;">
                 <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;min-width:74px;">${runWhen(r.ts)}</span>
                 <div style="flex:1;min-width:0;">
-                    <div style="font-size:0.8rem;color:var(--text-muted);">Không chạy — ${esc(r.detail || r.reason || '')}</div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);">Không chạy — ${esc(why)}</div>
                     ${r.next_attempt ? `<div style="font-size:0.72rem;color:var(--text-muted);opacity:.75;">Thử lại: ${runWhen(r.next_attempt)}</div>` : ''}
                 </div></div>`;
         }

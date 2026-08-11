@@ -78,5 +78,28 @@ check('kiem tra loi truoc khi in chan doan',
   guardIdx > -1 && guardIdx < diagIdx, `guard=${guardIdx} print=${diagIdx}`);
 check('noi ro cach khac phuc', visionSrc.includes('ollama pull llava'));
 
+console.log('\n=== 5. GPUMonitor: hoi mot lan, khong spam ===');
+// A headless VPS has no nvidia-smi and never will while the process lives.
+// Retrying per poll spawned a shell and printed two lines each time, and since
+// the run log keeps only the last 2000 characters, that noise reliably pushed
+// the real failure out of view — the one thing the log exists to show.
+const gpuSrc = fs.readFileSync(path.join(EXT, 'gpu_monitor.js'), 'utf8');
+check('nho ket qua giua cac lan goi', /let available = null/.test(gpuSrc));
+check('  thoat som khi da biet la khong co', /available === false\) return 0/.test(gpuSrc));
+check('  chi canh bao mot lan', /let warned = false/.test(gpuSrc));
+check('phan biet "khong co" voi loi tam thoi',
+  /not found\|ENOENT/.test(gpuSrc) && /leave the door open/.test(gpuSrc));
+
+const { execFileSync } = await import('child_process');
+const probe = `process.env.PATH='C:\\\\khong-ton-tai';` +
+  `import('file://${path.join(EXT, 'gpu_monitor.js').replace(/\\/g, '/')}')` +
+  `.then(async m => { const v=[]; for (let i=0;i<6;i++) v.push(await m.getGpuUsage());` +
+  `console.log('VALS='+v.join(',')); });`;
+let out = '';
+try { out = execFileSync(process.execPath, ['-e', probe], { encoding: 'utf8' }); } catch (e) { out = String(e); }
+const lines = out.split('\n').filter(l => l.includes('[GPUMonitor]'));
+check('goi 6 lan -> in dung 1 dong', lines.length === 1, `${lines.length} dong`);
+check('  va van tra ve 0', /VALS=0,0,0,0,0,0/.test(out), out.trim().split('\n').pop());
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);
