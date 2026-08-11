@@ -168,11 +168,26 @@ function broadcast(data) {
                 const { action, text, key } = msg;
                 if (action === 'type') {
                     await page.keyboard.type(text);
+                } else if (action === 'insert') {
+                    // Paste. insertText delivers the whole string in one input
+                    // event instead of synthesising a keystroke per character —
+                    // faster for a long paste, and it does not trip the input
+                    // debouncing some sites apply to rapid keydowns.
+                    await page.keyboard.insertText(text || '');
                 } else if (action === 'press') {
                     await page.keyboard.press(key);
                 }
                 await triggerImmediateFrame();
-            } 
+            }
+            else if (msg.type === 'get_selection') {
+                // Answering a copy from the remote page. Read it after the
+                // mouse is released and hold it client-side, because a copy
+                // event has to produce its data synchronously.
+                const text = await page.evaluate(
+                    () => (window.getSelection() || '').toString()
+                ).catch(() => '');
+                ws.send(JSON.stringify({ type: 'selection', text }));
+            }
             else if (msg.type === 'navigate') {
                 const { url } = msg;
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -211,7 +226,7 @@ function broadcast(data) {
     async function triggerImmediateFrame() {
         if (clients.size === 0 || !page) return;
         try {
-            const buffer = await page.screenshot({ type: 'jpeg', quality: 50 });
+            const buffer = await page.screenshot({ type: 'jpeg', quality: 50, caret: 'initial' });
             const base64 = buffer.toString('base64');
             const viewport = page.viewportSize() || { width: 1280, height: 800 };
             broadcast({
@@ -230,7 +245,7 @@ function broadcast(data) {
             if (capturing || clients.size === 0 || !page) return;
             capturing = true;
             try {
-                const buffer = await page.screenshot({ type: 'jpeg', quality: 50 });
+                const buffer = await page.screenshot({ type: 'jpeg', quality: 50, caret: 'initial' });
                 const base64 = buffer.toString('base64');
                 const viewport = page.viewportSize() || { width: 1280, height: 800 };
                 broadcast({

@@ -129,5 +129,33 @@ for (const [name, input, want] of shapes) {
 check('that bai thi IN ra model da tra ve gi',
   /Model returned: \$\{preview\}/.test(smSrc) || smSrc.includes('Model returned:'));
 
+console.log('\n=== 7. remote view: dan duoc, va thay con tro text ===');
+// Two separate causes, both reported as "the remote browser feels broken".
+//
+// Paste: the keydown handler forwarded Control+v to the remote Chromium, which
+// pasted the SERVER's clipboard — empty. The clipboard TEXT has to travel, and
+// the paste event is the only place it is readable here: navigator.clipboard
+// is a secure-context API and this dashboard is reached by IP over http.
+//
+// Caret: frames come from page.screenshot(), and Playwright defaults that to
+// caret:'hide' so screenshots are deterministic. Nothing was wrong with focus —
+// the caret was being deliberately removed from every frame.
+const viewSrc = fs.readFileSync(
+  path.join(__dirname, '..', 'tubecli', 'extensions', 'webui', 'static', 'browser_view.html'), 'utf8');
+const srvSrc = fs.readFileSync(path.join(EXT, 'preview_server.cjs'), 'utf8');
+
+check('Ctrl+V khong con bi chuyen thanh phim bam',
+  /e\.key === 'v' \|\| e\.key === 'V'[\s\S]{0,120}return;/.test(viewSrc));
+check('co listener paste lay text that', viewSrc.includes("addEventListener('paste'"));
+check('  gui bang insert, khong go tung phim', viewSrc.includes("action: 'insert'"));
+check('may chu hieu action insert', srvSrc.includes('keyboard.insertText'));
+check('copy: xin vung chon khi tha chuot', viewSrc.includes("type: 'get_selection'"));
+check('  may chu tra ve vung chon', srvSrc.includes("type: 'selection'"));
+check('  bien giu vung chon khai bao truoc khi dung',
+  viewSrc.indexOf('let lastRemoteSelection') < viewSrc.indexOf("addEventListener('copy'"));
+const shots = (srvSrc.match(/page\.screenshot\(/g) || []).length;
+const withCaret = (srvSrc.match(/caret: 'initial'/g) || []).length;
+check('moi khung hinh phat song deu giu con tro', withCaret >= 2, `${withCaret}/${shots} cho chup`);
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);

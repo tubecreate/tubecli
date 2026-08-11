@@ -495,6 +495,10 @@
                         loaderSub.textContent = msg.message;
                         appendLog(`[Browser] ${msg.message}`);
                     }
+                    else if (msg.type === 'selection') {
+                        // Kept ready so the copy handler can answer synchronously.
+                        lastRemoteSelection = msg.text || '';
+                    }
                     else if (msg.type === 'browser_ready') {
                         statusText.textContent = 'Live (WS)';
                         loader.style.opacity = 0;
@@ -774,6 +778,9 @@
             
             ws.send(JSON.stringify({ type: 'mouse', action: 'move', x, y }));
             ws.send(JSON.stringify({ type: 'mouse', action: 'up' }));
+            // Releasing the button is when a drag-selection is finished; ask for
+            // it now so a following Ctrl+C has something to hand over.
+            ws.send(JSON.stringify({ type: 'get_selection' }));
         });
 
         canvas.addEventListener('dblclick', (e) => {
@@ -822,6 +829,15 @@
             let keyName = e.key;
             if (keyName === ' ') keyName = 'Space';
             
+            // Ctrl/Cmd+V is handled by the 'paste' listener below, which is the
+            // only place the CLIPBOARD TEXT is available. Forwarding the key
+            // combo instead pressed Ctrl+V inside the remote Chromium, pasting
+            // the SERVER's clipboard — empty — so paste appeared to do nothing
+            // while typing worked fine.
+            if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+                return;   // let the paste event fire
+            }
+
             if (modifiers.length > 0) {
                 const combo = modifiers.join('+') + '+' + keyName;
                 ws.send(JSON.stringify({ type: 'keyboard', action: 'press', key: combo }));
@@ -833,6 +849,39 @@
                 }
             }
         });
+
+        // Whatever the remote page currently has selected, refreshed on mouseup
+        // and on Ctrl+A. Needed because a copy event must produce its data
+        // synchronously — there is no time to ask the server mid-event.
+        let lastRemoteSelection = '';
+
+        // Paste: carry the TEXT across, not the keystroke.
+        //
+        // The paste event's clipboardData is readable on a plain-http origin;
+        // navigator.clipboard.readText() is not, because it is a secure-context
+        // API and this dashboard is reached by IP over http. So this listener is
+        // the only way paste can work here at all — and it is also the correct
+        // way, since the remote browser has no idea what is on your clipboard.
+        canvas.addEventListener('paste', (e) => {
+            if (!ws || !isWSConnected) return;
+            e.preventDefault();
+            const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+            if (!text) return;
+            // insertText, not type: a long paste typed key-by-key is slow and
+            // fires a keydown storm that some sites debounce into losing input.
+            ws.send(JSON.stringify({ type: 'keyboard', action: 'insert', text }));
+        });
+
+        // Copy the other way: when the remote page has a selection, Ctrl+C asks
+        // for it and puts it on YOUR clipboard.
+        canvas.addEventListener('copy', (e) => {
+            if (!ws || !isWSConnected) return;
+            if (lastRemoteSelection) {
+                e.preventDefault();
+                e.clipboardData.setData('text/plain', lastRemoteSelection);
+            }
+        });
+        let lastRemoteSelection = '';
 
         // Trigger Navigations
         async function navigateToUrl() {
