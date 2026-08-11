@@ -101,5 +101,33 @@ const lines = out.split('\n').filter(l => l.includes('[GPUMonitor]'));
 check('goi 6 lan -> in dung 1 dong', lines.length === 1, `${lines.length} dong`);
 check('  va van tra ve 0', /VALS=0,0,0,0,0,0/.test(out), out.trim().split('\n').pop());
 
+console.log('\n=== 6. ke hoach cua AI: nhan du cac dang tra loi that ===');
+// Observed on a live run: "Requesting SKELETON from AI model: gemini-2.5-flash"
+// followed by "Failed to parse AI skeleton", after which the session fell back
+// to random browsing while still calling itself AI-driven. Asking for JSON with
+// format:"json" makes several providers answer with an OBJECT, and the natural
+// one here is {"actions": [...]} — which the parser rejected outright.
+const smSrc = fs.readFileSync(path.join(EXT, 'session_manager.js'), 'utf8');
+const parseBody = smSrc.match(/_cleanAndParseJSON\(content\) \{[\s\S]*?\n  \}/)[0];
+const cleanAndParse = new Function('content',
+  parseBody.replace(/^_cleanAndParseJSON\(content\) \{/, '').replace(/\n  \}$/, ''));
+
+const shapes = [
+  ['mang tran', '[{"action":"click"},{"action":"browse"}]', 2],
+  ['boc trong {actions:[]}', '{"actions":[{"action":"click"}]}', 1],
+  ['boc trong {steps:[]}', '{"steps":[{"action":"browse"},{"action":"click"}]}', 2],
+  ['mot object hanh dong', '{"action":"browse","params":{}}', 1],
+  ['co rao markdown', '```json\n[{"action":"click"}]\n```', 1],
+  ['mang rong -> null', '[]', null],
+  ['van xuoi -> null', 'I cannot help with that request.', null],
+];
+for (const [name, input, want] of shapes) {
+  let r; try { r = cleanAndParse(input); } catch (e) { r = 'threw: ' + e.message; }
+  const got = Array.isArray(r) ? r.length : r;
+  check(name, got === want, JSON.stringify(got));
+}
+check('that bai thi IN ra model da tra ve gi',
+  /Model returned: \$\{preview\}/.test(smSrc) || smSrc.includes('Model returned:'));
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);

@@ -544,12 +544,12 @@ async loadBlacklist() {
         
         // 1. Find Popup Containers (Modals, Dialogs, Overlays)
         let blockingPopup = null;
-        const containers = document.querySelectorAll(
-              '[role="dialog"], [role="alertdialog"], .modal, .popup, .overlay, ' +
-              '[class*="gdpr"], [class*="consent"], [class*="cookie"], ' +
-              '[id*="gdpr"], [id*="consent"], [id*="cookie"], ' +
-              '[class*="notice"], [class*="banner"], [class*="wall"], ' +
-              '[class*="gate"], [class*="paywall"], [class*="blocker"]'
+        const containers = document.querySelectorAll(
+              '[role="dialog"], [role="alertdialog"], .modal, .popup, .overlay, ' +
+              '[class*="gdpr"], [class*="consent"], [class*="cookie"], ' +
+              '[id*="gdpr"], [id*="consent"], [id*="cookie"], ' +
+              '[class*="notice"], [class*="banner"], [class*="wall"], ' +
+              '[class*="gate"], [class*="paywall"], [class*="blocker"]'
             );
         for (const container of containers) {
             const rect = container.getBoundingClientRect();
@@ -827,15 +827,21 @@ async loadBlacklist() {
       if (!content) return null;
 
       const skeletonHelper = this._cleanAndParseJSON(content);
-      
+
       if (skeletonHelper && Array.isArray(skeletonHelper)) {
           // GROUNDING STEP: Convert Abstract Skeleton to Concrete Actions
           console.log('[SessionManager] Grounding Skeleton Action Chain:', skeletonHelper);
           const groundedChain = skeletonHelper.map(action => this._resolveActionParams(action, pageContent));
           return groundedChain;
       }
-      
-      console.warn('[SessionManager] Failed to parse AI skeleton.');
+
+      // Show WHAT could not be parsed. This used to log the failure and discard
+      // the reply, so a session quietly stopped being AI-driven and nobody could
+      // tell whether the model had refused, returned prose, or been cut off —
+      // the log said the same thing in every case. One truncated line makes the
+      // next occurrence diagnosable instead of a dead end.
+      const preview = String(content).replace(/\s+/g, ' ').trim().slice(0, 300);
+      console.warn(`[SessionManager] Failed to parse AI skeleton. Model returned: ${preview}`);
       return null;
 
     } catch (error) {
@@ -923,6 +929,19 @@ async loadBlacklist() {
           .replace(/}\s*\d+\.?\s*{/g, '},{');
 
         const parsed = JSON.parse(cleanJson);
+
+        // Accept the wrapper shapes models actually emit. Asking for JSON with
+        // format:"json" makes several providers return an OBJECT, and the
+        // natural one here is {"actions": [...]}. That was rejected outright
+        // even though the plan inside it was perfectly good.
+        if (parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+            for (const key of ['actions', 'steps', 'plan', 'skeleton', 'chain']) {
+                if (Array.isArray(parsed[key])) return parsed[key].length ? parsed[key] : null;
+            }
+            // A single action object, not wrapped in anything.
+            if (parsed.action) return [parsed];
+        }
+
         return (Array.isArray(parsed) && parsed.length > 0) ? parsed : null;
     } catch (e) {
         return null;
