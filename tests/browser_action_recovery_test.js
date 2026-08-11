@@ -146,11 +146,28 @@ const srvSrc = fs.readFileSync(path.join(EXT, 'preview_server.cjs'), 'utf8');
 
 check('Ctrl+V khong con bi chuyen thanh phim bam',
   /e\.key === 'v' \|\| e\.key === 'V'[\s\S]{0,120}return;/.test(viewSrc));
-check('co listener paste lay text that', viewSrc.includes("addEventListener('paste'"));
+// On document, not canvas. A paste event goes to whatever would receive the
+// text — an input, a contenteditable, else the document. A <canvas> is none of
+// those, so a listener bound to it never fires: Ctrl+V did nothing at all,
+// which is exactly what was reported after the first attempt at this fix.
+check('listener paste gan vao DOCUMENT', viewSrc.includes("document.addEventListener('paste'"));
+check('  khong gan nham vao canvas', !viewSrc.includes("canvas.addEventListener('paste'"));
+check('listener copy cung gan vao document', viewSrc.includes("document.addEventListener('copy'"));
+check('  nhuong lai cho o nhap that tren trang',
+  /activeElement[\s\S]{0,200}INPUT[\s\S]{0,80}TEXTAREA/.test(viewSrc));
 check('  gui bang insert, khong go tung phim', viewSrc.includes("action: 'insert'"));
 check('may chu hieu action insert', srvSrc.includes('keyboard.insertText'));
 check('copy: xin vung chon khi tha chuot', viewSrc.includes("type: 'get_selection'"));
 check('  may chu tra ve vung chon', srvSrc.includes("type: 'selection'"));
+// handleWSMessage(msg) receives only the message — there is no socket in scope.
+// Replying with ws.send there threw "ws is not defined" on every mouse release,
+// which the browser surfaced as a red line for each drag the user made.
+{
+  const body = (srvSrc.match(/async function handleWSMessage\(msg\)[\s\S]*?\n    \}/) || [''])[0];
+  check('  tra loi bang broadcast, khong dung ws.send',
+    body.includes('broadcast({ type: \'selection\'') && !/\bws\.send\(/.test(body),
+    /\bws\.send\(/.test(body) ? 'con ws.send trong handleWSMessage' : '');
+}
 check('  bien giu vung chon khai bao truoc khi dung',
   viewSrc.indexOf('let lastRemoteSelection') < viewSrc.indexOf("addEventListener('copy'"));
 

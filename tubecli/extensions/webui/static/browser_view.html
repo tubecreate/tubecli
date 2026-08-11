@@ -862,20 +862,33 @@
         // API and this dashboard is reached by IP over http. So this listener is
         // the only way paste can work here at all — and it is also the correct
         // way, since the remote browser has no idea what is on your clipboard.
-        canvas.addEventListener('paste', (e) => {
+        // On DOCUMENT, not on the canvas. A paste event is delivered to whatever
+        // would receive the text — an input, a contenteditable, otherwise the
+        // document. A <canvas> is none of those, so a listener bound to it never
+        // fired and Ctrl+V appeared to do nothing at all. tabindex makes the
+        // canvas focusable for KEYS; it does not make it a paste target.
+        document.addEventListener('paste', (e) => {
             if (!ws || !isWSConnected) return;
+            // Do not steal the paste while the user is typing in the URL bar or
+            // any other real field on this page.
+            const el = document.activeElement;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
             e.preventDefault();
             const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
             if (!text) return;
             // insertText, not type: a long paste typed key-by-key is slow and
             // fires a keydown storm that some sites debounce into losing input.
             ws.send(JSON.stringify({ type: 'keyboard', action: 'insert', text }));
+            appendLog(`[Paste] ${text.length} ký tự → trình duyệt từ xa`);
         });
 
         // Copy the other way: when the remote page has a selection, Ctrl+C asks
-        // for it and puts it on YOUR clipboard.
-        canvas.addEventListener('copy', (e) => {
+        // for it and puts it on YOUR clipboard. Same reasoning — bind to the
+        // document, and stand aside for real fields on this page.
+        document.addEventListener('copy', (e) => {
             if (!ws || !isWSConnected) return;
+            const el = document.activeElement;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
             if (lastRemoteSelection) {
                 e.preventDefault();
                 e.clipboardData.setData('text/plain', lastRemoteSelection);

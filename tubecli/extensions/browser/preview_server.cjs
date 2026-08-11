@@ -186,7 +186,10 @@ function broadcast(data) {
                 const text = await page.evaluate(
                     () => (window.getSelection() || '').toString()
                 ).catch(() => '');
-                ws.send(JSON.stringify({ type: 'selection', text }));
+                // broadcast, not ws.send: handleWSMessage receives only the
+                // message — there is no socket in scope here, which is why this
+                // logged "ws is not defined" on every mouse release.
+                broadcast({ type: 'selection', text });
             }
             else if (msg.type === 'navigate') {
                 const { url } = msg;
