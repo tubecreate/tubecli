@@ -354,6 +354,73 @@
 
         const canvas = document.getElementById('previewCanvas');
         const ctx = canvas.getContext('2d');
+
+        // ── Frame rendering ────────────────────────────────────────────
+        //
+        // Frames used to arrive as base64 inside JSON and be drawn through a
+        // fresh `new Image()` with a data: URI each time — five per second, each
+        // one a new image resource the browser had to allocate, decode on the
+        // main thread and later collect. A live session measured 177 frames /
+        // 19.2 MB in about half a minute.
+        //
+        // createImageBitmap decodes off the main thread and, unlike an Image,
+        // owns memory that can be released deliberately: close() the bitmap the
+        // moment it has been drawn, so nothing accumulates however long the view
+        // is left open. `drawing` drops a frame rather than queueing it — for a
+        // live view the newest frame is the only one worth having.
+        let drawing = false;
+
+        function paint(bitmap) {
+            if (canvas.width !== bitmap.width || canvas.height !== bitmap.height) {
+                canvas.width = bitmap.width;
+                canvas.height = bitmap.height;
+            }
+            ctx.drawImage(bitmap, 0, 0);
+            const rect = canvas.getBoundingClientRect();
+            scaleX = bitmap.width / rect.width;
+            scaleY = bitmap.height / rect.height;
+            bitmap.close();          // the whole point — free it now
+        }
+
+        async function drawFrameFromBlob(blob) {
+            if (drawing) return;     // still painting the previous one; skip
+            drawing = true;
+            try {
+                if (loader.style.display !== 'none') {
+                    statusText.textContent = 'Live (WS)';
+                    loader.style.opacity = 0;
+                    setTimeout(() => loader.style.display = 'none', 500);
+                }
+                paint(await createImageBitmap(blob));
+            } catch (e) {
+                // Fall back rather than freeze if createImageBitmap is missing.
+                const url = URL.createObjectURL(blob);
+                const img = new Image();
+                img.onload = () => { paintImage(img); URL.revokeObjectURL(url); };
+                img.onerror = () => URL.revokeObjectURL(url);
+                img.src = url;
+            } finally {
+                drawing = false;
+            }
+        }
+
+        function paintImage(img) {
+            if (canvas.width !== img.width || canvas.height !== img.height) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+            }
+            ctx.drawImage(img, 0, 0);
+            const rect = canvas.getBoundingClientRect();
+            scaleX = img.width / rect.width;
+            scaleY = img.height / rect.height;
+        }
+
+        // Kept for any older server still sending base64 in JSON.
+        function drawFrameFromBase64(data) {
+            const img = new Image();
+            img.onload = () => paintImage(img);
+            img.src = 'data:image/jpeg;base64,' + data;
+        }
         const imgFallback = document.getElementById('previewImg');
         const loader = document.getElementById('loader');
         const loaderSub = document.getElementById('loader-subtext');
@@ -365,11 +432,18 @@
         const infoBox = document.getElementById('inspectInfo');
         const logPanel = document.getElementById('logPanel');
 
+        // Newest 300 lines only. A view left open all day otherwise grows a DOM
+        // node per line forever, and nobody scrolls back that far anyway.
+        const MAX_LOG_LINES = 300;
+
         function appendLog(msg, type = 'info') {
             const el = document.createElement('div');
             el.className = `log-line ${type}`;
             el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
             logPanel.appendChild(el);
+            while (logPanel.childElementCount > MAX_LOG_LINES) {
+                logPanel.removeChild(logPanel.firstElementChild);
+            }
             logPanel.scrollTop = logPanel.scrollHeight;
         }
 
@@ -487,10 +561,16 @@
                 appendLog(T('browser.ws_connected_success'), 'success');
             };
 
+            ws.binaryType = 'blob';
             ws.onmessage = (event) => {
                 try {
+                    // Frames arrive as raw bytes now; everything else is JSON.
+                    if (typeof event.data !== 'string') {
+                        drawFrameFromBlob(event.data);
+                        return;
+                    }
                     const msg = JSON.parse(event.data);
-                    
+
                     if (msg.type === 'status_log') {
                         loaderSub.textContent = msg.message;
                         appendLog(`[Browser] ${msg.message}`);
@@ -517,21 +597,13 @@
                             cssViewport = msg.viewport;
                         }
                         
-                        const img = new Image();
-                        img.onload = () => {
-                            if (canvas.width !== img.width || canvas.height !== img.height) {
-                                canvas.width = img.width;
-                                canvas.height = img.height;
-                            }
-                            ctx.drawImage(img, 0, 0);
-                            
-                            // Re-calculate scales
-                            const rect = canvas.getBoundingClientRect();
-                            scaleX = img.width / rect.width;
-                            scaleY = img.height / rect.height;
-                        };
-                        img.src = 'data:image/jpeg;base64,' + msg.data;
-                    } 
+                        drawFrameFromBase64(msg.data);
+                    }
+                    else if (msg.type === 'viewport') {
+                        // Sent on its own now, and only when it changes, instead
+                        // of riding along with every single frame.
+                        cssViewport = msg.viewport || cssViewport;
+                    }
                     else if (msg.type === 'url_changed') {
                         urlInput.value = msg.url || '';
                     }

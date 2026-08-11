@@ -206,5 +206,46 @@ const shots = (srvSrc.match(/page\.screenshot\(/g) || []).length;
 const withCaret = (srvSrc.match(/caret: 'initial'/g) || []).length;
 check('moi khung hinh phat song deu giu con tro', withCaret >= 2, `${withCaret}/${shots} cho chup`);
 
+console.log('\n=== 8. luong khung hinh: nhe hon va khong phinh bo nho ===');
+// Measured on a live session before this: 177 frames, 19.2 MB in ~35 seconds —
+// base64 inside JSON, a fresh Image and a data: URI per frame, five a second,
+// sent whether or not anything on the page had changed.
+check('gui nhi phan, khong base64 trong JSON',
+  srvSrc.includes('broadcastFrame') && !/type: 'frame',\s*\n\s*data: base64/.test(srvSrc));
+check('bo khung trung voi khung truoc', /hash === lastHash/.test(srvSrc));
+check('bo khung khi socket dang un', /bufferedAmount > MAX_BUFFERED_BYTES/.test(srvSrc));
+check('viewport chi gui khi doi', /vpKey !== lastViewport/.test(srvSrc));
+// Anchored on the function BODY, not on the first mention of its name — the
+// name appears at its call sites first, and a fixed-width window from there
+// measures nothing. A click-triggered frame and a streamed frame must use the
+// same wire format, or one of them arrives in a shape the client cannot read.
+{
+  const imm = (srvSrc.match(/async function triggerImmediateFrame\(\)[\s\S]*?\n    \}/) || [''])[0];
+  check('anh chup tuc thi dung CUNG kenh nhi phan',
+    imm.includes('broadcastFrame(buffer)') && !imm.includes('toString(\'base64\')'),
+    imm ? '' : 'khong tim thay ham');
+}
+
+// Comments stripped first. A plain substring test passes on
+// "// bitmap.close();" — the call commented OUT satisfies it, which is the
+// opposite of what is being asserted. Verified: without this, disabling the
+// call left the suite green.
+// \r stripped BEFORE splitting. These files are CRLF, so split('\n') leaves a
+// trailing \r on every line — and in a JavaScript regex \r is a line terminator,
+// which `.` refuses to match and `$` will not look past. The comment stripper
+// silently matched nothing, and the guard below passed against a commented-out
+// call. Verified by disabling the call and watching this fail.
+const viewCode = viewSrc
+  .replace(/\r/g, '')
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n').map(l => l.replace(/(^|[^:])\/\/.*$/, '$1')).join('\n');
+
+check('client giai ma bang createImageBitmap', viewCode.includes('createImageBitmap'));
+check('  va GIAI PHONG bitmap sau khi ve', /bitmap\.close\(\)/.test(viewCode));
+check('  bo khung neu dang ve khung truoc', /if \(drawing\) return;/.test(viewSrc));
+check('  co duong lui khi thieu createImageBitmap',
+  /createObjectURL[\s\S]{0,200}revokeObjectURL/.test(viewSrc));
+check('khung nhat ky co tran tren', /MAX_LOG_LINES/.test(viewSrc));
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);
