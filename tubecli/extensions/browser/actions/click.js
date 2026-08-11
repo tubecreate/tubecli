@@ -87,11 +87,52 @@ export async function click(page, params = {}) {
     ];
     target = page.locator(videoSelectors.join(',')).first();
     console.log('Searching for STRICT video results (youtube.com)...');
+  } else if (!page.url().includes('google.com/search')) {
+    // Not on the results page any more, so "click" cannot mean "click a search
+    // result". This is the second click of behaviour pattern 2, whose prompt
+    // asks to "click an internal link within the SAME site" — an intent the
+    // heuristic parser in open.js drops when it splits the sentence, leaving a
+    // bare click. The old code then hunted for #search on a page that is not
+    // Google, retried twice, and failed the whole session after the agent had
+    // already searched, clicked and read successfully.
+    const here = new URL(page.url());
+    console.log(`Not on search results — looking for an internal link on ${here.hostname}...`);
+
+    const internal = [
+      // Same-origin article/section links, skipping navigation furniture.
+      `main a[href^="/"]:not([href="/"]), article a[href^="/"]`,
+      `main a[href*="${here.hostname}"], article a[href*="${here.hostname}"]`,
+      `a[href^="/"]:not([href="/"]):not([href^="//"])`,
+      `a[href*="${here.hostname}"]`,
+    ];
+
+    for (const sel of internal) {
+      const candidates = page.locator(sel);
+      const n = await candidates.count().catch(() => 0);
+      // Skip the first few: they are almost always the logo and top nav.
+      for (let i = Math.min(2, Math.max(0, n - 1)); i < Math.min(n, 12); i++) {
+        const c = candidates.nth(i);
+        if (await c.isVisible().catch(() => false)) {
+          target = c;
+          console.log(`Found internal link using: ${sel} [${i}]`);
+          break;
+        }
+      }
+      if (target) break;
+    }
+
+    if (!target) {
+      // Nothing to go deeper into is a normal property of many pages, not a
+      // failure of the run. Say so and let the caller decide.
+      const err = new Error(`No internal link found on ${here.hostname}`);
+      err.softFail = true;
+      throw err;
+    }
   } else {
     // Default to first Google result if no selector
     // Try multiple strategies to find the first clickable search result
     console.log('Finding first search result using multiple strategies...');
-    
+
     const strategies = [
       // Strategy 1: Standard search result link (.g is Google's result container)
       '#search .g a[href]:not([href*="google.com"])',

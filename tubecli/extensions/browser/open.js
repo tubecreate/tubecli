@@ -1543,8 +1543,20 @@ async function main() {
                 results.push({ action: step.action, result });
               }
             } catch (actionError) {
+              // A step that could not find something OPTIONAL is not a failed
+              // session. Behaviour pattern 2 ends with "click an internal link
+              // within the SAME site"; plenty of pages have no such link, and
+              // the old code turned that into >>> FAILURE <<< for a run that had
+              // already searched, opened a result and read it — most of the job,
+              // reported as none of it. Skip the step, keep what was achieved.
+              if (actionError && actionError.softFail) {
+                console.warn(`Skipping optional step '${step.action}': ${actionError.message}`);
+                results.push({ action: step.action, skipped: true, reason: actionError.message });
+                continue;
+              }
+
               console.error(`Error in action '${step.action}': ${actionError.message}`);
-              
+
               // --- SELF-HEALING LOGIC ---
               console.log('Attempting Visual Error Diagnosis...');
               const { diagnoseAndSuggest } = await import('./vision_engine.js');

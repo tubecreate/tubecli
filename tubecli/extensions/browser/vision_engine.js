@@ -9,6 +9,26 @@ const SCREENSHOT_DIR = path.resolve(process.cwd(), 'screenshots');
 // Ensure screenshot directory exists
 fs.ensureDirSync(SCREENSHOT_DIR);
 
+/** First line only — these blobs are one long paragraph of stack trace. */
+function firstLine(s) {
+  return String(s || '').split('\n')[0].slice(0, 200);
+}
+
+/**
+ * Did the local-AI proxy hand back a failure disguised as an answer?
+ *
+ * The proxy replies HTTP 200 with the error inside the response text, so the
+ * only way to tell a diagnosis from a dead connection is to read it. Vision
+ * needs a model that exists locally (llava); a server with no Ollama has none,
+ * and that is a configuration fact, not an incident.
+ */
+function isProxyError(content) {
+  const s = String(content || '');
+  return /^(\s*)Error:/i.test(s)
+      || /Connection refused|ConnectionError|Max retries exceeded|HTTPConnectionPool/i.test(s)
+      || /model .*not found|no such model|pull the model/i.test(s);
+}
+
 /**
  * Capture screenshot and analyze it using LLaVA model.
  * @param {import('playwright').Page} page
@@ -108,8 +128,20 @@ If no solution is visible, return null. DO NOT ADD ANY TEXT OUTSIDE THE JSON.`;
 
     if (response.data && response.data.response) {
       const content = response.data.response;
+
+      // The local-AI proxy answers HTTP 200 even when it could not reach a
+      // model, putting the failure in the response TEXT. Printing that under
+      // "AI Diagnosis:" presented a connection error as if it were the model's
+      // opinion — the log read "AI Diagnosis: Error: HTTPConnectionPool(...
+      // port=11434 ... Connection refused)". Recognise it and say what it is.
+      if (isProxyError(content)) {
+        console.warn('Visual diagnosis unavailable: ' + firstLine(content));
+        console.warn('  (needs a vision model, e.g. `ollama pull llava` on this machine)');
+        return null;
+      }
+
       console.log('AI Diagnosis:', content);
-      
+
       try {
         // Find first '{' and last '}' to extract JSON
         const match = content.match(/\{[\s\S]*\}/);
@@ -131,7 +163,15 @@ If no solution is visible, return null. DO NOT ADD ANY TEXT OUTSIDE THE JSON.`;
     return null;
 
   } catch (err) {
-    console.error('Visual Error Diagnosis failed:', err.message);
+    // Distinguish "this machine has no vision model" from a genuine fault. The
+    // first is the normal state of a headless server and should read as a note,
+    // not an error the owner is meant to chase.
+    if (isProxyError(err && err.message) || (err && err.code === 'ECONNREFUSED')) {
+      console.warn('Visual diagnosis unavailable: ' + firstLine(err.message));
+      console.warn('  (needs a vision model, e.g. `ollama pull llava` on this machine)');
+    } else {
+      console.error('Visual Error Diagnosis failed:', firstLine(err && err.message));
+    }
     return null;
   }
 }
