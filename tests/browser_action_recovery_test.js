@@ -153,6 +153,25 @@ check('copy: xin vung chon khi tha chuot', viewSrc.includes("type: 'get_selectio
 check('  may chu tra ve vung chon', srvSrc.includes("type: 'selection'"));
 check('  bien giu vung chon khai bao truoc khi dung',
   viewSrc.indexOf('let lastRemoteSelection') < viewSrc.indexOf("addEventListener('copy'"));
+
+// The inline script must PARSE. The check above only compared string positions,
+// so it passed happily while the page carried two `let lastRemoteSelection`
+// declarations — a SyntaxError that stopped the whole script and left the remote
+// view stuck on "Initializing browser...". Position checks cannot see that; a
+// parser can.
+{
+  const scripts = [...viewSrc.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)]
+    .map(m => m[1]);
+  let parseErr = '';
+  try {
+    // eslint-disable-next-line no-new-func
+    new Function(scripts.join('\n;\n'));
+  } catch (e) { parseErr = e.message; }
+  check('browser_view.html: script noi tuyen phan tich duoc', !parseErr, parseErr);
+
+  const dupes = (scripts.join('\n').match(/\blet\s+lastRemoteSelection\b/g) || []).length;
+  check('  khong khai bao trung bien', dupes === 1, `${dupes} lan khai bao`);
+}
 const shots = (srvSrc.match(/page\.screenshot\(/g) || []).length;
 const withCaret = (srvSrc.match(/caret: 'initial'/g) || []).length;
 check('moi khung hinh phat song deu giu con tro', withCaret >= 2, `${withCaret}/${shots} cho chup`);
