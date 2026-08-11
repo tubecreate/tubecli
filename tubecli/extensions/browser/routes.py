@@ -1455,17 +1455,32 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
             """Client → Local preview server"""
             try:
                 while True:
-                    data = await websocket.receive_text()
-                    await local_ws.send_str(data)
+                    # receive() rather than receive_text(): the client may send
+                    # binary one day, and receive_text() raises on anything else.
+                    event = await websocket.receive()
+                    if event.get("type") == "websocket.disconnect":
+                        break
+                    if event.get("text") is not None:
+                        await local_ws.send_str(event["text"])
+                    elif event.get("bytes") is not None:
+                        await local_ws.send_bytes(event["bytes"])
             except (WebSocketDisconnect, Exception):
                 pass
-        
+
         async def forward_to_client():
             """Local preview server → Client"""
             try:
                 async for msg in local_ws:
                     if msg.type == aiohttp.WSMsgType.TEXT:
                         await websocket.send_text(msg.data)
+                    elif msg.type == aiohttp.WSMsgType.BINARY:
+                        # Screen frames travel as raw bytes. This branch did not
+                        # exist, so binary frames matched nothing and were
+                        # dropped in silence: the socket stayed up, JSON status
+                        # messages still arrived, and the canvas stayed black.
+                        # A relay has to carry every frame type its endpoints
+                        # use, not just the one it was written for.
+                        await websocket.send_bytes(msg.data)
                     elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                         break
             except Exception:

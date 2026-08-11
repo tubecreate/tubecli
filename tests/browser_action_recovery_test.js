@@ -247,5 +247,19 @@ check('  co duong lui khi thieu createImageBitmap',
   /createObjectURL[\s\S]{0,200}revokeObjectURL/.test(viewSrc));
 check('khung nhat ky co tran tren', /MAX_LOG_LINES/.test(viewSrc));
 
+// The relay in the middle has to carry the frame type its endpoints use.
+// Switching both ends to binary while the proxy still forwarded only TEXT meant
+// frames matched no branch and vanished silently: the socket stayed up, JSON
+// status messages kept arriving, and the canvas stayed black. Nothing errored,
+// on either side.
+{
+  const routes = fs.readFileSync(
+    path.join(__dirname, '..', 'tubecli', 'extensions', 'browser', 'routes.py'), 'utf8');
+  check('cau noi WS chuyen tiep ca khung NHI PHAN',
+    /WSMsgType\.BINARY/.test(routes) && /await websocket\.send_bytes\(/.test(routes));
+  check('  va chieu nguoc lai cung nhan nhi phan',
+    /local_ws\.send_bytes\(/.test(routes));
+}
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);
