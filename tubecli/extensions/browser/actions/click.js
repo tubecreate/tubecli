@@ -98,33 +98,69 @@ export async function click(page, params = {}) {
     const here = new URL(page.url());
     console.log(`Not on search results — looking for an internal link on ${here.hostname}...`);
 
+    // Navigation furniture excluded by ancestor, not by position. Skipping "the
+    // first two" links was a guess, and on a site with a mega-menu it landed on
+    // a collapsed dropdown item: Playwright reported it visible, scrolled, and
+    // then refused with "Element is outside of the viewport" — because a
+    // dropdown that is not open renders off-screen rather than hidden.
+    const NOT_NAV = ':not(nav *):not(header *):not(footer *)'
+                  + ':not([role="navigation"] *):not([aria-hidden="true"] *)';
+
     const internal = [
-      // Same-origin article/section links, skipping navigation furniture.
-      `main a[href^="/"]:not([href="/"]), article a[href^="/"]`,
-      `main a[href*="${here.hostname}"], article a[href*="${here.hostname}"]`,
-      `a[href^="/"]:not([href="/"]):not([href^="//"])`,
-      `a[href*="${here.hostname}"]`,
+      `main a[href^="/"]:not([href="/"])${NOT_NAV}, article a[href^="/"]${NOT_NAV}`,
+      `main a[href*="${here.hostname}"]${NOT_NAV}, article a[href*="${here.hostname}"]${NOT_NAV}`,
+      `a[href^="/"]:not([href="/"]):not([href^="//"])${NOT_NAV}`,
+      `a[href*="${here.hostname}"]${NOT_NAV}`,
     ];
 
+    // A link is only a candidate if it is actually ON SCREEN after scrolling —
+    // in the layout viewport, with a real size. isVisible() alone does not
+    // promise that, which is exactly how the dropdown item got through.
+    const usable = async (loc) => {
+      try {
+        if (!(await loc.isVisible())) return false;
+        await loc.scrollIntoViewIfNeeded({ timeout: 2000 }).catch(() => {});
+        const box = await loc.boundingBox();
+        if (!box || box.width < 8 || box.height < 8) return false;
+        const vp = page.viewportSize() || { width: 1280, height: 800 };
+        return box.y >= -2 && box.y + box.height <= vp.height + 2
+            && box.x >= -2 && box.x + box.width <= vp.width + 2;
+      } catch (e) {
+        return false;
+      }
+    };
+
+    outer:
     for (const sel of internal) {
       const candidates = page.locator(sel);
       const n = await candidates.count().catch(() => 0);
-      // Skip the first few: they are almost always the logo and top nav.
-      for (let i = Math.min(2, Math.max(0, n - 1)); i < Math.min(n, 12); i++) {
+      for (let i = 0; i < Math.min(n, 25); i++) {
         const c = candidates.nth(i);
-        if (await c.isVisible().catch(() => false)) {
+        if (await usable(c)) {
           target = c;
           console.log(`Found internal link using: ${sel} [${i}]`);
-          break;
+          break outer;
         }
       }
-      if (target) break;
     }
 
     if (!target) {
       // Nothing to go deeper into is a normal property of many pages, not a
       // failure of the run. Say so and let the caller decide.
       const err = new Error(`No internal link found on ${here.hostname}`);
+      err.softFail = true;
+      throw err;
+    }
+
+    // From here the click itself is also optional: this is a "read one more
+    // page" bonus, and a page that fights it is not a failed session. Try, and
+    // downgrade any refusal to a skip.
+    try {
+      await target.click({ timeout: 8000 });
+      console.log('Click executed.');
+      return { clicked: true, internal: true, url: page.url() };
+    } catch (e) {
+      const err = new Error(`Could not open an internal link: ${String(e.message).split('\n')[0]}`);
       err.softFail = true;
       throw err;
     }

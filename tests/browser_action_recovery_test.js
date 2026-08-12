@@ -58,8 +58,50 @@ const clickSrc = fs.readFileSync(path.join(EXT, 'actions', 'click.js'), 'utf8');
 check('co nhanh rieng cho trang KHONG phai Google',
   clickSrc.includes("!page.url().includes('google.com/search')"));
 check('nhanh do tim link cung ten mien', clickSrc.includes('here.hostname'));
-check('bo qua vai link dau (logo/menu)', /Math\.min\(2,/.test(clickSrc));
+// (The old "skip the first two links" check lived here. It asserted a
+// positional guess that this very suite later caught walking into a collapsed
+// mega-menu, so it was replaced by the ancestor and viewport checks below
+// rather than kept alongside them.)
 check('khong tim thay thi nem softFail', clickSrc.includes('err.softFail = true'));
+// A mega-menu item reported itself visible, scrolled, and was then refused with
+// "Element is outside of the viewport" — a collapsed dropdown renders off-screen
+// rather than hidden. Skipping "the first two" links was a positional guess that
+// walked straight into it.
+check('  loai link trong nav/header/footer bang to tien',
+  /:not\(nav \*\)/.test(clickSrc) && /:not\(\[aria-hidden="true"\] \*\)/.test(clickSrc));
+// Executed, not pattern-matched. A presence check passed after the call was
+// replaced by a hardcoded box, because boundingBox() also appears in the Google
+// branch further down — the same "text, not behaviour" trap as before.
+{
+  const body = (clickSrc.match(/const usable = async \(loc\) => \{[\s\S]*?\n    \};/) || [''])[0];
+  check('  trich duoc ham loc link', !!body);
+
+  const makeLoc = (box) => ({
+    isVisible: async () => true,
+    scrollIntoViewIfNeeded: async () => {},
+    boundingBox: async () => box,
+  });
+  const page = { viewportSize: () => ({ width: 1280, height: 800 }) };
+  const usable = new Function('page', body + '\nreturn usable;')(page);
+
+  const cases = [
+    ['trong khung nhin', { x: 100, y: 300, width: 200, height: 20 }, true],
+    ['dropdown ngoai man hinh', { x: 100, y: -2000, width: 180, height: 18 }, false],
+    ['duoi day trang', { x: 100, y: 900, width: 180, height: 18 }, false],
+    ['tran ra ben phai', { x: 1200, y: 300, width: 300, height: 18 }, false],
+    ['diem an 1x1', { x: 10, y: 10, width: 1, height: 1 }, false],
+    ['khong co box', null, false],
+  ];
+  for (const [name, box, want] of cases) {
+    const got = await usable(makeLoc(box));
+    check(`  ${name}`, got === want, String(got));
+  }
+}
+check('  khong con doan doan vi tri "bo 2 link dau"',
+  !/Math\.min\(2, Math\.max\(0, n - 1\)\)/.test(clickSrc));
+// The click itself is a bonus step; a page that fights it is not a failed run.
+check('  bam khong duoc cung chi la SKIP',
+  /Could not open an internal link[\s\S]{0,200}softFail = true/.test(clickSrc));
 check('van giu chien luoc Google cho trang ket qua',
   clickSrc.includes("'#search .g a[href]:not([href*=\"google.com\"])'"));
 
