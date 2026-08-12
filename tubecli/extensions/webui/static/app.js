@@ -4182,10 +4182,32 @@ let AI_PROVIDERS = {
 };
 window.provHasKey = {};
 
-function showGenerateAgent() {
+// Which provider a model name belongs to, as an AI_PROVIDERS key.
+// detectProviderAndModel() answers the same question but returns a display
+// label with an emoji in it, which cannot be assigned to a <select>. Same rules
+// and the same ORDER — "deepseek-r1:latest" is an Ollama tag, not DeepSeek's
+// cloud, so the colon test has to come first.
+function providerIdForModel(modelName) {
+    const model = (modelName || '').trim();
+    const lower = model.toLowerCase();
+    if (!model) return '';
+    if (lower.includes('9router') || lower.startsWith('cx/') || lower.startsWith('ag/')) return '9router';
+    if (model.includes(':')) return 'ollama';
+    if (lower.includes('gemini') || lower.includes('gemma')) return 'gemini';
+    if (lower.includes('gpt') || lower.includes('chatgpt') || lower.startsWith('o1') || lower.startsWith('o3')) return 'chatgpt';
+    if (lower.includes('claude')) return 'claude';
+    if (lower.includes('deepseek')) return 'deepseek';
+    if (lower.includes('grok')) return 'grok';
+    return '';
+}
+
+async function showGenerateAgent() {
     document.getElementById('agent-gen-name').value = '';
     document.getElementById('agent-gen-prefix').value = '';
     document.getElementById('agent-gen-desc').value = '';
+    // Was hardcoded to 'ollama', so a user running Gemini everywhere opened
+    // this dialog on a local model they may not even have pulled, and the
+    // first Generate failed on a connection error.
     document.getElementById('agent-gen-provider').value = 'ollama';
     document.getElementById('agent-gen-accounts').value = '';
     document.getElementById('agent-gen-preview').value = '';
@@ -4200,6 +4222,25 @@ function showGenerateAgent() {
         document.getElementById('agent-gen-prefix').value = e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
     });
     document.getElementById('modal-generate-agent').classList.remove('hidden');
+
+    // Follow the global default model, the same source the agent modal uses
+    // for its "Mặc định từ Cài đặt Toàn cục" hint. Done after the modal is
+    // shown so a slow settings call does not delay opening it.
+    apiGet('/api/v1/settings').then(async s => {
+        const preferred = s?.default_model || '';
+        const pid = providerIdForModel(preferred);
+        const sel = document.getElementById('agent-gen-provider');
+        if (!pid || !sel || !Array.from(sel.options).some(o => o.value === pid)) return;
+        sel.value = pid;
+        await onGenProviderChange();          // repopulates the model list
+        const modelSel = document.getElementById('agent-gen-model');
+        // Only if the global model is actually offered by that provider; a
+        // value the <select> does not contain would silently blank the field.
+        if (modelSel && Array.from(modelSel.options).some(o => o.value === preferred)) {
+            modelSel.value = preferred;
+        }
+    }).catch(() => {});
+
     apiGet('/api/v1/cloud-api/providers').then(res => {
         if (res && res.providers) {
             res.providers.forEach(p => {
@@ -4308,7 +4349,43 @@ async function generateAgentJSON() {
     }
     btn.disabled = false;
 }
-function applyGeneratedAgent() { if(!window._lastGen) return; showCreateAgent(); document.getElementById('agent-name').value=window._lastGen.name||''; document.getElementById('agent-desc').value=window._lastGen.description||''; const p=window._lastGen.persona||{}; document.getElementById('agent-interests').value=(p.interests||[]).join(', '); document.getElementById('agent-behavior').value=JSON.stringify({dailyRoutine:(window._lastGen.routine||{}).dailyRoutine||{},workHabits:(window._lastGen.routine||{}).workHabits||{}},null,2); closeModal('modal-generate-agent'); }
+// Build a system prompt from the parts the generator DID return.
+// Used when the model omits system_prompt — smaller local models drop fields
+// from a long schema routinely. Without this the agent lands on the create
+// form still carrying "You are a helpful AI assistant.", which is how a
+// carefully generated persona ends up with none of it reaching conversation.
+function systemPromptFromGenerated(gen) {
+    const persona = gen.persona || {};
+    const habits = (gen.routine || {}).workHabits || {};
+    const bits = [];
+    bits.push(`You are ${gen.name || 'an AI agent'}.` + (gen.description ? ` ${gen.description}` : ''));
+    if ((persona.traits || []).length) bits.push(`Your character: ${persona.traits.join(', ')}.`);
+    if ((persona.interests || []).length) bits.push(`You specialise in: ${persona.interests.join(', ')}.`);
+    if ((habits.focusAreas || []).length) bits.push(`Focus areas: ${habits.focusAreas.join(', ')}.`);
+    if ((habits.preferredSites || []).length) bits.push(`Prefer these sources when researching: ${habits.preferredSites.join(', ')}.`);
+    bits.push('Answer within your expertise. Say plainly when something falls outside it rather than guessing.');
+    return bits.join('\n\n');
+}
+
+function applyGeneratedAgent() {
+    const gen = window._lastGen;
+    if (!gen) return;
+    showCreateAgent();
+    document.getElementById('agent-name').value = gen.name || '';
+    document.getElementById('agent-desc').value = gen.description || '';
+    // The field the generator never used to fill. Everything else it produced
+    // — traits, interests, focus areas — only ever reached the scheduled
+    // keyword routine; conversation ran on the default placeholder.
+    const prompt = (gen.system_prompt || '').trim();
+    document.getElementById('agent-prompt').value = prompt || systemPromptFromGenerated(gen);
+    const p = gen.persona || {};
+    document.getElementById('agent-interests').value = (p.interests || []).join(', ');
+    document.getElementById('agent-behavior').value = JSON.stringify({
+        dailyRoutine: (gen.routine || {}).dailyRoutine || {},
+        workHabits: (gen.routine || {}).workHabits || {},
+    }, null, 2);
+    closeModal('modal-generate-agent');
+}
 
 // ═══ Browser Profile CRUD ═══
 async function showCreateProfile() { 

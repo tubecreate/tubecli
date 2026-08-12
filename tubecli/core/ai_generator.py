@@ -14,6 +14,7 @@ The JSON must follow this EXACT structure (fill in realistic values based on the
 {{
   "name": "{name}",
   "description": "{description}",
+  "system_prompt": "Second-person instructions addressed to the agent itself. State who it is, the domain it works in, how it should answer, and what it must not do. 4-8 sentences, no markdown, no JSON.",
   "persona": {{
     "traits": ["trait1", "trait2", "trait3", "trait4", "trait5"],
     "interests": ["interest1", "interest2", "interest3", "interest4", "interest5", "interest6"]
@@ -39,6 +40,10 @@ The JSON must follow this EXACT structure (fill in realistic values based on the
 }}
 
 Note: the "auth" and "allowed_profiles" sections will be handled separately. Do NOT include them in your output.
+
+The "system_prompt" is what the agent runs on in conversation. Write it as real
+instructions, consistent with the persona and focus areas you generate below —
+not a restatement of the description. Never leave it as a generic assistant line.
 
 Output ONLY the JSON object. No extra text."""
 
