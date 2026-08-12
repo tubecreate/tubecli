@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "Uzantıları kenar çubuğunda grupla",
   "settings.new_group_name_placeholder": "Yeni Grup Adı (örn. Medya Sağlayıcıları)",
   "settings.icon_placeholder": "Simge",
-  "settings.add_group_btn": "+ Grup Ekle"
+  "settings.add_group_btn": "+ Grup Ekle",
+  "agent_modal.agent_id_label": "Ajan kimliği",
+  "agent_modal.copy_id": "Kopyala",
+  "common.copied": "Kopyalandı",
+  "common.copy_failed": "Seçip Ctrl+C yapın"
 }

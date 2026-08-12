@@ -527,6 +527,21 @@
                 <div class="agent-tab-pane active" id="atab-identity">
                     <h3 data-i18n="agent_modal.identity_title">Identity & Options</h3>
                     <input type="hidden" id="agent-id">
+                    <!-- The agent id is what every /api/v1/agents/... call needs,
+                         and until now it existed only in the hidden field above,
+                         so there was no way to read it off the screen. Hidden
+                         entirely while creating a new agent, because there is no
+                         id yet and an empty box invites filling in. -->
+                    <div class="form-group" id="agent-id-row" style="display:none; margin-bottom:14px;">
+                        <label data-i18n="agent_modal.agent_id_label">Agent ID</label>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <input id="agent-id-visible" readonly onclick="this.select()"
+                                   style="flex:1; font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:var(--text-muted);">
+                            <button type="button" class="btn-sm" onclick="copyAgentId(this)"
+                                    style="padding:6px 12px; white-space:nowrap;"
+                                    data-i18n="agent_modal.copy_id">Copy</button>
+                        </div>
+                    </div>
                     <div style="display:flex;gap:10px;">
                         <div class="form-group" style="width:120px; position:relative;">
                             <label data-i18n="agent_modal.icon_label">Icon/Emoji</label>

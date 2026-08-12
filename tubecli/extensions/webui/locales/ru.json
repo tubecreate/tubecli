@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "Группировка расширений на боковой панели",
   "settings.new_group_name_placeholder": "Имя новой группы (например, Медиа-провайдеры)",
   "settings.icon_placeholder": "Иконка",
-  "settings.add_group_btn": "+ Добавить группу"
+  "settings.add_group_btn": "+ Добавить группу",
+  "agent_modal.agent_id_label": "ID агента",
+  "agent_modal.copy_id": "Копировать",
+  "common.copied": "Скопировано",
+  "common.copy_failed": "Выделите и нажмите Ctrl+C"
 }

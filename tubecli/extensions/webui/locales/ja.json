@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "サイドバーの拡張機能をグループ化",
   "settings.new_group_name_placeholder": "新しいグループ名（例：メディアプロバイダー）",
   "settings.icon_placeholder": "アイコン",
-  "settings.add_group_btn": "+ グループを追加"
+  "settings.add_group_btn": "+ グループを追加",
+  "agent_modal.agent_id_label": "エージェントID",
+  "agent_modal.copy_id": "コピー",
+  "common.copied": "コピーしました",
+  "common.copy_failed": "選択して Ctrl+C"
 }

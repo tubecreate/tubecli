@@ -561,5 +561,9 @@
   "settings.ext_groups_desc": "Nhóm các extension trên thanh menu bên",
   "settings.new_group_name_placeholder": "Tên nhóm mới (ví dụ: Nguồn Media)",
   "settings.icon_placeholder": "Biểu tượng",
-  "settings.add_group_btn": "+ Thêm nhóm"
+  "settings.add_group_btn": "+ Thêm nhóm",
+  "agent_modal.agent_id_label": "Agent ID",
+  "agent_modal.copy_id": "Chép",
+  "common.copied": "Đã chép",
+  "common.copy_failed": "Bôi đen rồi Ctrl+C"
 }

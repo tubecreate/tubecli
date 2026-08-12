@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "Agrupar extensiones en la barra lateral",
   "settings.new_group_name_placeholder": "Nombre del nuevo grupo (ej. Proveedores de medios)",
   "settings.icon_placeholder": "Icono",
-  "settings.add_group_btn": "+ Añadir grupo"
+  "settings.add_group_btn": "+ Añadir grupo",
+  "agent_modal.agent_id_label": "ID del agente",
+  "agent_modal.copy_id": "Copiar",
+  "common.copied": "Copiado",
+  "common.copy_failed": "Selecciónalo y pulsa Ctrl+C"
 }

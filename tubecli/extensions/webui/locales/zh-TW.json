@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "在側邊欄中對擴充功能進行分組",
   "settings.new_group_name_placeholder": "新分組名稱（如：媒體服務商）",
   "settings.icon_placeholder": "圖標",
-  "settings.add_group_btn": "+ 新增分組"
+  "settings.add_group_btn": "+ 新增分組",
+  "agent_modal.agent_id_label": "Agent ID",
+  "agent_modal.copy_id": "複製",
+  "common.copied": "已複製",
+  "common.copy_failed": "請選取後按 Ctrl+C"
 }

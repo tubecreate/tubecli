@@ -561,5 +561,9 @@
   "settings.ext_groups_desc": "Group extensions in the sidebar",
   "settings.new_group_name_placeholder": "New Group Name (e.g. Media Providers)",
   "settings.icon_placeholder": "Icon",
-  "settings.add_group_btn": "+ Add Group"
+  "settings.add_group_btn": "+ Add Group",
+  "agent_modal.agent_id_label": "Agent ID",
+  "agent_modal.copy_id": "Copy",
+  "common.copied": "Copied",
+  "common.copy_failed": "Select it, then Ctrl+C"
 }

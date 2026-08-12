@@ -220,6 +220,49 @@ if idx:
                 nested = [k.get("id") for k in idx.walk(pane) if "agent-tab-pane" in k["classes"]]
                 check(f"pane {pane.get('id')} not nesting another", not nested, f"contains {nested}")
 
+# ── 4. translation keys resolve ─────────────────────────────────────────────
+# T(key) returns the KEY ITSELF when it is missing, so a forgotten entry does
+# not fall back to English — it renders the literal string
+# "agent_modal.agent_id_label" on the page. Every key this file introduces is
+# therefore checked in all nine locales.
+#
+# The wider backlog is reported, not asserted: 250 keys used across the
+# dashboard have no entry anywhere, which predates this test. Failing on them
+# would mean this guard could never go green, and a red suite that is expected
+# to be red stops being read.
+LOCALES = ROOT / "tubecli" / "extensions" / "webui" / "locales"
+REQUIRED = ["agent_modal.agent_id_label", "agent_modal.copy_id",
+            "common.copied", "common.copy_failed"]
+
+import json  # noqa: E402
+
+locale_files = sorted(LOCALES.glob("*.json"))
+check("locale files found", len(locale_files) >= 9, f"only {len(locale_files)}")
+for lf in locale_files:
+    try:
+        data = json.loads(lf.read_text(encoding="utf-8"))
+    except ValueError as e:
+        check(f"{lf.name} is valid JSON", False, str(e))
+        continue
+    check(f"{lf.name} is valid JSON", True)
+    missing = [k for k in REQUIRED if k not in data]
+    check(f"{lf.name} has the agent-id keys", not missing, f"missing {missing}")
+    blank = [k for k in REQUIRED if k in data and not str(data[k]).strip()]
+    check(f"{lf.name} keys are not blank", not blank, f"blank {blank}")
+
+used = set()
+for page in pages:
+    used |= set(re.findall(r'data-i18n(?:-placeholder|-title)?="([^"]+)"',
+                           page.read_text(encoding="utf-8")))
+try:
+    en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
+    gap = sorted(used - set(en))
+    if gap:
+        print(f"  (note: {len(gap)} of {len(used)} i18n keys have no entry in en.json "
+              f"and render as raw key text — pre-existing, e.g. {gap[0]})")
+except (OSError, ValueError):
+    pass
+
 print(f"\n{checks - len(failures)}/{checks} PASS")
 for f in failures:
     print("  FAIL " + f)

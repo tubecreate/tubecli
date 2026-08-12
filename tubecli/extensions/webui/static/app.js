@@ -2875,6 +2875,8 @@ function showCreateAgent() {
     }
     document.getElementById('agent-modal-title').textContent = T('agent_modal.create_title') || 'Create Agent';
     document.getElementById('agent-id').value='';
+    document.getElementById('agent-id-visible').value='';
+    document.getElementById('agent-id-row').style.display='none';
     document.getElementById('agent-name').value='';
     document.getElementById('agent-desc').value='';
     document.getElementById('agent-prompt').value='You are a helpful AI assistant.';
@@ -2934,6 +2936,8 @@ async function openEditAgent(id, btn) {
         if (!d) return alert('Failed');
         document.getElementById('agent-modal-title').textContent = (T('agent_modal.edit_title') || 'Edit:') + ' ' + d.name;
         document.getElementById('agent-id').value=d.id;
+        document.getElementById('agent-id-visible').value = d.id || '';
+        document.getElementById('agent-id-row').style.display = d.id ? '' : 'none';
         document.getElementById('agent-name').value=d.name||'';
         document.getElementById('agent-desc').value=d.description||'';
         document.getElementById('agent-prompt').value=d.system_prompt||'';
@@ -7082,3 +7086,55 @@ function downloadGeneratedContent() {
 }
 
 
+
+// ── Clipboard that works on a plain-http origin ────────────────────────────
+// navigator.clipboard is a secure-context API: present on localhost, ABSENT
+// when the dashboard is reached by IP over http, which is how this server is
+// normally used. Every Copy button that calls it directly throws
+// "Cannot read properties of undefined (reading 'writeText')" and does nothing
+// visible — the failure looks exactly like a button that was never wired up.
+//
+// execCommand('copy') is deprecated but is not gated on secure context, and it
+// is the only thing that works there. Try the modern path, fall back, and
+// report the outcome either way rather than failing silently.
+async function copyText(text, btn) {
+    let ok = false;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            ok = true;
+        }
+    } catch (e) { ok = false; }
+
+    if (!ok) {
+        // The textarea must be ON the page and visible to the engine —
+        // display:none or visibility:hidden makes the selection empty and the
+        // copy a no-op. Off-screen is the way to hide it.
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+        document.body.appendChild(ta);
+        try {
+            ta.select();
+            ta.setSelectionRange(0, text.length);   // iOS ignores select() alone
+            ok = document.execCommand('copy');
+        } catch (e) { ok = false; }
+        document.body.removeChild(ta);
+    }
+
+    if (btn) {
+        const original = btn.textContent;
+        btn.textContent = ok ? (T('common.copied') || 'Đã chép') : (T('common.copy_failed') || 'Bôi đen rồi Ctrl+C');
+        btn.disabled = true;
+        setTimeout(() => { btn.textContent = original; btn.disabled = false; }, 1600);
+    }
+    return ok;
+}
+
+function copyAgentId(btn) {
+    const box = document.getElementById('agent-id-visible');
+    if (!box || !box.value) return;
+    box.select();          // leaves it selected, so Ctrl+C works if copy failed
+    copyText(box.value, btn);
+}

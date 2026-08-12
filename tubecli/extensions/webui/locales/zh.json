@@ -504,5 +504,9 @@
   "settings.ext_groups_desc": "在侧边栏中对扩展进行分组",
   "settings.new_group_name_placeholder": "新分组名称（如：媒体服务商）",
   "settings.icon_placeholder": "图标",
-  "settings.add_group_btn": "+ 添加分组"
+  "settings.add_group_btn": "+ 添加分组",
+  "agent_modal.agent_id_label": "Agent ID",
+  "agent_modal.copy_id": "复制",
+  "common.copied": "已复制",
+  "common.copy_failed": "请选中后按 Ctrl+C"
 }
