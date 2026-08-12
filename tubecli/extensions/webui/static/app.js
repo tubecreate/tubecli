@@ -4205,6 +4205,7 @@ async function showGenerateAgent() {
     document.getElementById('agent-gen-name').value = '';
     document.getElementById('agent-gen-prefix').value = '';
     document.getElementById('agent-gen-desc').value = '';
+    document.getElementById('agent-gen-prompt').value = '';
     // Was hardcoded to 'ollama', so a user running Gemini everywhere opened
     // this dialog on a local model they may not even have pulled, and the
     // first Generate failed on a connection error.
@@ -4305,6 +4306,8 @@ async function onGenProviderChange() {
 async function generateAgentJSON() {
     const name = document.getElementById('agent-gen-name').value.trim();
     const desc = document.getElementById('agent-gen-desc').value.trim();
+    // Optional: blank means "AI, write one"; filled means "use mine".
+    const sysPrompt = document.getElementById('agent-gen-prompt')?.value?.trim() || '';
     if (!name || !desc) return alert('Name & Description required!');
     const btn = document.getElementById('btn-generate-ai');
     btn.disabled = true;
@@ -4331,7 +4334,7 @@ async function generateAgentJSON() {
     
     st.textContent = `🤖 Calling ${prov}/${model}...`;
     try {
-        const r = await apiPost('/api/v1/agents/generate', { name, description: desc, provider: prov, model, api_key });
+        const r = await apiPost('/api/v1/agents/generate', { name, description: desc, system_prompt: sysPrompt, provider: prov, model, api_key });
         if (r?.status === 'success' && r.data) {
             document.getElementById('agent-gen-preview').value = JSON.stringify(r.data, null, 2);
             st.textContent = '✅ Done!';

@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "Yönerge sunucudan alınamadı.",
   "common.loading": "Yükleniyor...",
   "agent_modal.ai_guide_rotate": "Yeni anahtar (eskisini iptal eder)",
-  "agent_modal.ai_guide_rotate_confirm": "Yeni anahtar üretilsin mi? Gönderilmiş tüm yönergeler hemen çalışmaz olur."
+  "agent_modal.ai_guide_rotate_confirm": "Yeni anahtar üretilsin mi? Gönderilmiş tüm yönergeler hemen çalışmaz olur.",
+  "gen.system_prompt": "Sistem istemi (isteğe bağlı)",
+  "gen.system_prompt_placeholder": "Boş bırakırsanız yapay zekâ yazar. Doldurursanız aynen kullanılır ve kişilik buna göre türetilir.",
+  "gen.system_prompt_hint": "Ajanın sohbette uyduğu yönergelerdir."
 }

@@ -573,5 +573,8 @@
   "agent_modal.ai_guide_failed": "Could not fetch the brief from the server.",
   "common.loading": "Loading...",
   "agent_modal.ai_guide_rotate": "New key (revokes the old one)",
-  "agent_modal.ai_guide_rotate_confirm": "Mint a new key? Every brief already sent out stops working immediately."
+  "agent_modal.ai_guide_rotate_confirm": "Mint a new key? Every brief already sent out stops working immediately.",
+  "gen.system_prompt": "System Prompt (optional)",
+  "gen.system_prompt_placeholder": "Leave empty and the AI writes one. Fill it in and it is used verbatim, with the persona derived from it.",
+  "gen.system_prompt_hint": "These are the instructions the agent runs on in conversation."
 }

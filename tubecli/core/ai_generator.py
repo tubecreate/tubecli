@@ -4,11 +4,28 @@ import requests
 
 OLLAMA_BASE = "http://localhost:11434"
 
-def build_ai_prompt(name: str, description: str) -> str:
+def build_ai_prompt(name: str, description: str, system_prompt: str = "") -> str:
+    # A user-written prompt is the strongest statement of intent available, so
+    # the persona is built AROUND it rather than beside it. Without this the
+    # model reads only the one-line description and can produce interests and
+    # focus areas that describe a different agent than the instructions do.
+    given = ""
+    if system_prompt.strip():
+        given = f"""
+The user has ALREADY WRITTEN the system prompt for this agent:
+---
+{system_prompt.strip()}
+---
+Copy it into the "system_prompt" field EXACTLY as written, changing nothing.
+Derive the traits, interests, focusAreas and preferredSites FROM it, so the
+persona matches the instructions the agent will actually run on.
+"""
+
     return f"""You are a JSON generator. Output ONLY valid JSON, no markdown, no explanation.
 
 Generate an agent behavior JSON for: {name}
 Description: {description}
+{given}
 
 The JSON must follow this EXACT structure (fill in realistic values based on the description):
 {{
@@ -150,9 +167,10 @@ def call_claude(model: str, api_key: str, prompt: str) -> str:
             return f"[QUOTA_ERROR] Claude: {err_str}"
         return f"[ERROR] Claude: {ex}"
 
-def generate_agent_json(name: str, description: str, provider: str, model: str, api_key: str = "") -> dict:
+def generate_agent_json(name: str, description: str, provider: str, model: str,
+                        api_key: str = "", system_prompt: str = "") -> dict:
     from tubecli.extensions.cloud_api.extension import key_manager
-    prompt = build_ai_prompt(name, description)
+    prompt = build_ai_prompt(name, description, system_prompt)
     
     max_retries = 3
     for attempt in range(max_retries):
@@ -192,6 +210,12 @@ def generate_agent_json(name: str, description: str, provider: str, model: str, 
         try:
             import json
             data = json.loads(json_str)
+            # Restored, not trusted. "Copy it exactly" is an instruction a
+            # model is free to paraphrase, drop, or wrap in its own preamble —
+            # and the user's own words are the one part of this that must come
+            # back unaltered.
+            if system_prompt.strip():
+                data["system_prompt"] = system_prompt.strip()
             return data
         except Exception as e:
             raise ValueError(f"AI did not return valid JSON. Raw output: {raw[:200]}...")

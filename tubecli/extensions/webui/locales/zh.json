@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "无法从服务器获取说明。",
   "common.loading": "加载中...",
   "agent_modal.ai_guide_rotate": "生成新密钥（吊销旧的）",
-  "agent_modal.ai_guide_rotate_confirm": "生成新密钥？已发出的说明将立即失效。"
+  "agent_modal.ai_guide_rotate_confirm": "生成新密钥？已发出的说明将立即失效。",
+  "gen.system_prompt": "系统提示词（可选）",
+  "gen.system_prompt_placeholder": "留空则由 AI 撰写；填写则原样使用，并据此生成人设。",
+  "gen.system_prompt_hint": "这是代理在对话中实际遵循的指令。"
 }

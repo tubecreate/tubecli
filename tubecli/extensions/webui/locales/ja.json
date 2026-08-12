@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "サーバーから手順を取得できませんでした。",
   "common.loading": "読み込み中...",
   "agent_modal.ai_guide_rotate": "新しいキーを発行（旧キーを無効化）",
-  "agent_modal.ai_guide_rotate_confirm": "新しいキーを発行しますか？配布済みの手順は直ちに無効になります。"
+  "agent_modal.ai_guide_rotate_confirm": "新しいキーを発行しますか？配布済みの手順は直ちに無効になります。",
+  "gen.system_prompt": "システムプロンプト（任意）",
+  "gen.system_prompt_placeholder": "空欄ならAIが作成します。入力するとそのまま使われ、ペルソナもそれに合わせます。",
+  "gen.system_prompt_hint": "会話時にエージェントが従う指示です。"
 }

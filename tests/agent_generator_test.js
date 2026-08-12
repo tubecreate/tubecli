@@ -71,6 +71,45 @@ if (promptFn) {
           'an unexplained key produces a one-line placeholder');
 }
 
+// ── 1b. a user-written prompt survives the round trip ─────────────────────
+// The field is optional, so both paths matter: empty means "AI, write one",
+// filled means "use mine". The second is the one that can go wrong quietly —
+// "copy it exactly" is an instruction a model is free to paraphrase, wrap in a
+// preamble, or drop, and the user's own words are the one part of this that
+// must come back unaltered.
+check('build_ai_prompt accepts a user prompt',
+      /def build_ai_prompt\(name: str, description: str, system_prompt: str = ""\)/.test(GEN),
+      'signature does not take one');
+check('generate_agent_json accepts and forwards it',
+      /def generate_agent_json\([^)]*system_prompt: str = ""\)/.test(GEN) &&
+      /build_ai_prompt\(name, description, system_prompt\)/.test(GEN),
+      'the field is accepted and never reaches the prompt builder');
+check('a supplied prompt is restored after parsing, not trusted to the model',
+      /if system_prompt\.strip\(\):\s*\n\s*data\["system_prompt"\] = system_prompt\.strip\(\)/.test(GEN),
+      'the model is trusted to echo the user text back verbatim');
+check('the restore happens BEFORE the value is returned',
+      GEN.indexOf('data["system_prompt"] = system_prompt.strip()') <
+      GEN.indexOf('return data', GEN.indexOf('data["system_prompt"]')),
+      'restored after returning, which never runs');
+
+// The instruction block is only added when there is something to add — an
+// empty "the user has already written:" section invites the model to invent
+// one to fill the gap.
+const pyOnly = GEN.match(/def build_ai_prompt[\s\S]*?\n\ndef /)[0];
+check('the given-prompt block is conditional', /if system_prompt\.strip\(\):/.test(pyOnly),
+      'always injected, even when blank');
+
+const uiSrc = extract('generateAgentJSON');
+check('the dialog reads the prompt field', /agent-gen-prompt/.test(uiSrc), 'field never read');
+check('the dialog sends it to the backend', /system_prompt:\s*sysPrompt/.test(uiSrc),
+      'read and then not sent');
+check('the field is cleared when the dialog opens',
+      /agent-gen-prompt'\)\.value\s*=\s*''/.test(showFnRaw()),
+      'a prompt from a previous agent would be reused silently');
+check('the field exists in the markup', /id="agent-gen-prompt"/.test(HTML), 'no input rendered');
+
+function showFnRaw() { return extract('showGenerateAgent'); }
+
 // ── 2. provider follows the global default ────────────────────────────────
 const showFn = extract('showGenerateAgent');
 check('showGenerateAgent reads the global setting', /api\/v1\/settings/.test(showFn),

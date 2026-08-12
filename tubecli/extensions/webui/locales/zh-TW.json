@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "無法從伺服器取得說明。",
   "common.loading": "載入中...",
   "agent_modal.ai_guide_rotate": "產生新金鑰（撤銷舊的）",
-  "agent_modal.ai_guide_rotate_confirm": "產生新金鑰？已發出的說明將立即失效。"
+  "agent_modal.ai_guide_rotate_confirm": "產生新金鑰？已發出的說明將立即失效。",
+  "gen.system_prompt": "系統提示詞（選填）",
+  "gen.system_prompt_placeholder": "留空則由 AI 撰寫；填寫則原樣使用，並據此生成人設。",
+  "gen.system_prompt_hint": "這是代理在對話中實際遵循的指令。"
 }

@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "서버에서 지침을 가져오지 못했습니다.",
   "common.loading": "불러오는 중...",
   "agent_modal.ai_guide_rotate": "새 키 발급 (기존 키 폐기)",
-  "agent_modal.ai_guide_rotate_confirm": "새 키를 발급할까요? 이미 보낸 지침은 즉시 작동을 멈춥니다."
+  "agent_modal.ai_guide_rotate_confirm": "새 키를 발급할까요? 이미 보낸 지침은 즉시 작동을 멈춥니다.",
+  "gen.system_prompt": "시스템 프롬프트 (선택)",
+  "gen.system_prompt_placeholder": "비워 두면 AI가 작성합니다. 입력하면 그대로 사용되고 페르소나도 이에 맞춰집니다.",
+  "gen.system_prompt_hint": "대화 시 에이전트가 따르는 지침입니다."
 }

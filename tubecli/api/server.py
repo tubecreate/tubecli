@@ -841,6 +841,11 @@ class AgentCreateRequest(BaseModel):
 class AgentGenerateRequest(BaseModel):
     name: str = ""
     description: str = ""
+    # Written by the user, optional. When present it becomes the agent's system
+    # prompt verbatim and the generator is told to build the persona AROUND it,
+    # so interests and focus areas agree with the instructions instead of
+    # describing a different agent.
+    system_prompt: str = ""
     provider: str = "ollama"
     model: str = "qwen:latest"
     api_key: Optional[str] = None
@@ -1236,7 +1241,8 @@ async def generate_agent_with_ai(req: AgentGenerateRequest):
             description=req.description,
             provider=req.provider,
             model=req.model,
-            api_key=req.api_key or ""
+            api_key=req.api_key or "",
+            system_prompt=req.system_prompt or "",
         )
         return {"status": "success", "data": data}
     except Exception as e:

@@ -516,5 +516,8 @@
   "agent_modal.ai_guide_failed": "No se pudieron obtener las instrucciones del servidor.",
   "common.loading": "Cargando...",
   "agent_modal.ai_guide_rotate": "Nueva clave (revoca la anterior)",
-  "agent_modal.ai_guide_rotate_confirm": "¿Generar una clave nueva? Todas las instrucciones ya enviadas dejarán de funcionar de inmediato."
+  "agent_modal.ai_guide_rotate_confirm": "¿Generar una clave nueva? Todas las instrucciones ya enviadas dejarán de funcionar de inmediato.",
+  "gen.system_prompt": "Prompt del sistema (opcional)",
+  "gen.system_prompt_placeholder": "Déjalo vacío y la IA lo escribe. Si lo rellenas, se usa tal cual y la persona se deriva de él.",
+  "gen.system_prompt_hint": "Son las instrucciones que sigue el agente al conversar."
 }

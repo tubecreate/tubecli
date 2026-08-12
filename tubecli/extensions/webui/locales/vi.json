@@ -573,5 +573,8 @@
   "agent_modal.ai_guide_failed": "Không lấy được chỉ dẫn từ máy chủ.",
   "common.loading": "Đang tải...",
   "agent_modal.ai_guide_rotate": "Tạo khoá mới (thu hồi khoá cũ)",
-  "agent_modal.ai_guide_rotate_confirm": "Tạo khoá mới? Mọi chỉ dẫn đã gửi đi sẽ ngừng hoạt động ngay."
+  "agent_modal.ai_guide_rotate_confirm": "Tạo khoá mới? Mọi chỉ dẫn đã gửi đi sẽ ngừng hoạt động ngay.",
+  "gen.system_prompt": "System Prompt (tuỳ chọn)",
+  "gen.system_prompt_placeholder": "Để trống thì AI tự viết. Điền vào thì dùng nguyên văn, và persona sẽ bám theo nó.",
+  "gen.system_prompt_hint": "Đây là chỉ dẫn agent chạy khi trò chuyện."
 }
