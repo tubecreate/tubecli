@@ -1420,16 +1420,21 @@ def scraped_articles(
     since: Optional[str] = None,
     until: Optional[str] = None,
     with_content: bool = False,
-    only_with_content: bool = False,
+    only_with_content: bool = True,
     limit: int = 50,
     offset: int = 0,
     order: str = "desc",
 ):
     """Search the corpus.
 
+    Returns only pages that HAVE text. A history row is written for every page
+    the browser opened, and most are search results, skip-listed domains, or
+    pages a run died on before extraction — 46 of 49 on a real corpus. Pass
+    `only_with_content=false` to see the visits too.
+
     `day`/`since`/`until` take YYYY-MM-DD or the words today/yesterday, and are
-    read as LOCAL calendar days — the stored stamps are UTC, so on UTC+7 a
-    substring match on the date would drop everything scraped after 17:00.
+    read as LOCAL calendar days — the stored stamps are UTC, so a substring
+    match on the date would lose part of every local day.
     `profile` may be comma-separated; unknown names are dropped rather than
     joined into a path.
     """
@@ -1497,9 +1502,12 @@ def scraped_export(
 
     aid, allowed = _agent_scope(agent_id)
     profs = [p.strip() for p in profile.split(",") if p.strip()] if profile else None
+    # Exports carry bodies, so a row without one is an empty record in a
+    # spreadsheet. Only harvested pages are written out.
     result = scraped_store.query(
         agent_id=aid, allowed_profiles=allowed, profile=profs, q=q, domain=domain,
-        day=day, since=since, until=until, with_content=True, limit=limit,
+        day=day, since=since, until=until, with_content=True,
+        only_with_content=True, limit=limit,
     )
     try:
         body, media, filename = scraped_store.export(result["items"], fmt)
@@ -1538,16 +1546,22 @@ def agent_scraped(
     since: Optional[str] = None,
     until: Optional[str] = None,
     with_content: bool = False,
+    only_with_content: bool = True,
     limit: int = 50,
     offset: int = 0,
 ):
-    """This agent's own corpus. Same store, scope fixed to the agent."""
+    """This agent's own corpus. Same store, scope fixed to the agent.
+
+    Pages with no harvested text are excluded by default; the History tab is
+    where visits belong, and /api/v1/agents/{id}/history still returns them.
+    """
     from tubecli.core import scraped_store
 
     aid, allowed = _agent_scope(agent_id)
     return scraped_store.query(
         agent_id=aid, allowed_profiles=allowed, q=q, day=day, since=since, until=until,
-        with_content=with_content, limit=limit, offset=offset,
+        with_content=with_content, only_with_content=only_with_content,
+        limit=limit, offset=offset,
     )
 
 

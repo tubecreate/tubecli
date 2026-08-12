@@ -28,6 +28,12 @@ which a "does the function return something" check would notice:
 Plus the smaller ones that bit in review: đ is not decomposed by NFD, so accent
 folding needs it mapped explicitly, and an article whose body has rotated out
 of articles.json must say so rather than return "".
+
+And the one the live corpus taught, after 46 of 49 rows came back labelled
+"body rotated out": a history row is written for every page VISITED, so most
+rows were never scraped at all. Blaming the retention cap for text that never
+existed pointed at the wrong fix entirely. The three states — harvested,
+harvested-then-aged-out, only-visited — are counted separately.
 """
 import json
 import shutil
@@ -101,6 +107,10 @@ def build(root: Path):
          "scrapedAt": yesterday, "isScraped": True, "agentId": "agent-A"},
         {"title": "Không gán agent", "url": "https://legacy.vn/old",
          "scrapedAt": yesterday, "isScraped": True},
+        # Opened, never harvested — what a search page or a skip-listed domain
+        # leaves behind. 46 of the 49 rows on the real server look like this.
+        {"title": "Chỉ ghé qua", "url": "https://google.com/search?q=x",
+         "scrapedAt": morning, "isScraped": False, "agentId": "agent-A"},
     ]}
     (luatsu / "history.json").write_text(json.dumps(history), encoding="utf-8")
 
@@ -268,7 +278,7 @@ try:
     p1 = store.query(allowed_profiles=["luatsu"], limit=2, offset=0)
     p2 = store.query(allowed_profiles=["luatsu"], limit=2, offset=2)
     check("paging splits without overlap",
-          p1["total"] == p2["total"] == 6 and len(p1["items"]) == 2
+          p1["total"] == p2["total"] == 7 and len(p1["items"]) == 2
           and not ({i["url"] for i in p1["items"]} & {i["url"] for i in p2["items"]}),
           f"{[i['url'] for i in p1['items']]} / {[i['url'] for i in p2['items']]}")
 
@@ -283,8 +293,18 @@ try:
 
     # ── stats ──────────────────────────────────────────────────────────────
     st = store.stats(allowed_profiles=["luatsu", "news"])
-    check("stats totals", st["total"] == 7, st["total"])
-    check("stats counts missing bodies", st["body_rotated_out"] == 1, st["body_rotated_out"])
+    check("stats totals", st["total"] == 8, st["total"])
+    # The distinction the real corpus exposed: 46 of 49 rows had never been
+    # scraped at all, and reporting them as "body rotated out" blamed the
+    # retention cap for text that never existed. /rotated was harvested and
+    # lost its body; /visited was only ever opened.
+    check("stats counts bodies lost to the cap", st["scraped_but_body_gone"] == 1,
+          st["scraped_but_body_gone"])
+    check("stats counts pages only visited", st["visited_not_scraped"] == 1,
+          st["visited_not_scraped"])
+    check("the two are not conflated",
+          st["with_content"] + st["scraped_but_body_gone"] + st["visited_not_scraped"] == st["total"],
+          "the three buckets do not add up")
     check("stats groups by domain", st["domains"].get("vietnam-briefing.com") == 4, st["domains"])
     check("stats groups by local day", len(st["by_day"]) == 2, st["by_day"])
 

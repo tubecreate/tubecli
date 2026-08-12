@@ -123,39 +123,54 @@ def _line(idx: int, rec: Dict[str, Any]) -> str:
     if rec.get("snippet"):
         bits.append(f"   {rec['snippet'][:180]}")
     elif not rec.get("has_content"):
-        # Say why rather than printing a blank line under the title.
-        bits.append("   (nội dung đã bị xoay vòng khỏi kho, chỉ còn tiêu đề)")
+        # Only reachable when the caller explicitly asked to see bodiless rows.
+        # Two different reasons, and saying the wrong one sends the user to fix
+        # the wrong thing: a retention cap they cannot control, versus a page
+        # the agent merely opened and never harvested.
+        bits.append("   (chỉ ghé qua, chưa cào nội dung)" if not rec.get("is_scraped")
+                    else "   (đã cào nhưng nội dung đã bị xoay vòng khỏi kho)")
     return "\n".join(bits)
 
 
 def answer(text: str = "", *, agent_id: Optional[str] = None,
            allowed_profiles: Iterable[str] = (), with_content: bool = False,
-           max_chars: int = 3500) -> str:
+           include_visits: bool = False, max_chars: int = 3500) -> str:
     """Answer a plain-language request about the scraped corpus.
 
-    Always returns something a person can act on. An empty corpus, a filter
-    that matched nothing, and a corpus that exists but holds nothing for TODAY
-    are three different situations and each gets its own sentence — "không có
-    dữ liệu" for all three would send the user looking for a bug that is not
-    there.
+    Returns only pages that actually HAVE text. A history row is written for
+    every page the browser opened, and most of those are search results,
+    skip-listed domains, or pages a run died on before extraction — on a real
+    corpus that was 46 of 49 rows. Listing them as "bài đã cào" with an empty
+    body is noise, so they are excluded unless asked for.
+
+    Every empty result still gets its own sentence. "Không có dữ liệu" would
+    read the same whether the corpus is missing, the agent has never harvested
+    anything, or one filter was too narrow — three different problems with
+    three different fixes.
     """
     filters = parse(text)
+    common = dict(agent_id=agent_id, allowed_profiles=allowed_profiles)
     res = store.query(
-        agent_id=agent_id, allowed_profiles=allowed_profiles,
-        q=filters["q"], domain=filters["domain"], day=filters["day"],
-        since=filters["since"], until=filters["until"],
-        with_content=with_content, limit=filters["limit"],
+        **common, q=filters["q"], domain=filters["domain"], day=filters["day"],
+        since=filters["since"], until=filters["until"], with_content=with_content,
+        only_with_content=not include_visits, limit=filters["limit"],
     )
 
     if res["total"] == 0:
-        whole = store.query(agent_id=agent_id, allowed_profiles=allowed_profiles, limit=1)
-        if whole["total"] == 0:
+        st = store.stats(**common)
+        if st["total"] == 0:
             if not store.profiles():
                 return ("Chưa có kho dữ liệu cào nào trên máy này. "
                         "Bật 'Tự động cào dữ liệu' trong tab Lịch sử của agent rồi cho agent chạy.")
             return ("Kho dữ liệu cào đang trống — có thư mục profile nhưng chưa bài nào được lưu. "
                     "Kiểm tra xem agent đã bật 'Tự động cào dữ liệu' chưa.")
-        # There IS data; the filter is what excluded it. Say which filter.
+        if st["with_content"] == 0:
+            # Pages were opened, nothing was harvested. Naming the count makes
+            # it obvious this is an extraction problem, not an empty schedule.
+            return (f"Agent đã ghé {st['total']} trang nhưng chưa cào được nội dung bài nào. "
+                    f"Thường là do trang nằm trong danh sách bỏ qua (google, youtube…), "
+                    f"hoặc phiên chạy dừng trước bước trích nội dung — xem tab Nhật ký chạy.")
+        # There IS harvested text; the filter is what excluded it.
         why = []
         if filters["day"]:
             why.append(f"ngày '{filters['day']}'")
@@ -165,7 +180,7 @@ def answer(text: str = "", *, agent_id: Optional[str] = None,
             why.append(f"tên miền '{filters['domain']}'")
         cond = ", ".join(why) if why else "điều kiện đã lọc"
         return (f"Không có bài nào khớp {cond}. "
-                f"Kho hiện có {whole['total']} bài — bỏ bớt điều kiện để xem tất cả.")
+                f"Kho hiện có {st['with_content']} bài có nội dung — bỏ bớt điều kiện để xem tất cả.")
 
     head = f"📚 {res['total']} bài đã cào"
     if filters["day"]:

@@ -260,9 +260,13 @@ def normalise(hist: Dict[str, Any], article: Optional[Dict[str, Any]], profile: 
         "content_length": hist.get("contentLength") or len(content),
         "image_count": hist.get("imageCount") or (article or {}).get("imageCount") or 0,
         "ip": hist.get("ip") or "",
-        # Listed in history, body already rotated out of articles.json. Said
-        # plainly instead of returning content: "".
         "has_content": bool(content),
+        # A row exists for every page the browser VISITED. isScraped marks the
+        # ones extract_content actually harvested — most visits are search
+        # result pages, skipped domains, or pages a run died on before
+        # extraction. Conflating "never scraped" with "body rotated out" blames
+        # the retention cap for text that never existed, so the two are kept
+        # apart everywhere downstream.
         "is_scraped": bool(hist.get("isScraped")) or bool(content),
     }
     rec["domain"] = _domain(rec["url"])
@@ -404,6 +408,8 @@ def stats(*, agent_id: Optional[str] = None, allowed_profiles: Iterable[str] = (
     by_day: Dict[str, int] = {}
     by_agent: Dict[str, int] = {}
     with_body = 0
+    scraped_no_body = 0
+    visited_only = 0
     newest = oldest = ""
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
@@ -416,6 +422,10 @@ def stats(*, agent_id: Optional[str] = None, allowed_profiles: Iterable[str] = (
         by_agent[name] = by_agent.get(name, 0) + 1
         if rec["has_content"]:
             with_body += 1
+        elif rec["is_scraped"]:
+            scraped_no_body += 1
+        else:
+            visited_only += 1
         when = _parse_utc(rec["scraped_at"])
         if when:
             if when >= cutoff:
@@ -429,8 +439,14 @@ def stats(*, agent_id: Optional[str] = None, allowed_profiles: Iterable[str] = (
     return {
         "total": total,
         "with_content": with_body,
-        # The gap is retention, not loss of data the caller can fix by re-running.
-        "body_rotated_out": total - with_body,
+        # Three different situations, and only the middle one is retention.
+        # Reporting the sum as "body_rotated_out" made a corpus of 49 visits
+        # with 3 harvested articles look like 46 articles whose text had been
+        # thrown away by the cap — when the cap (100/profile) had not been
+        # reached by any profile and 21 of them were skip-listed search pages
+        # that were never meant to be harvested at all.
+        "scraped_but_body_gone": scraped_no_body,
+        "visited_not_scraped": visited_only,
         "caps": {"history": HISTORY_CAP, "articles": ARTICLE_CAP},
         "profiles": by_profile,
         "domains": dict(sorted(by_domain.items(), key=lambda kv: -kv[1])[:20]),
