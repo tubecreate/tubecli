@@ -511,8 +511,10 @@
   "common.copy_failed": "請選取後按 Ctrl+C",
   "agent_modal.ai_guide_btn": "給其他 AI 的說明",
   "agent_modal.ai_guide_copy": "複製說明",
-  "agent_modal.ai_guide_hint": "複製後發給其他 AI。其中不含密碼，請另行提供。",
+  "agent_modal.ai_guide_hint": "複製後發給其他 AI。其中含唯讀金鑰，僅可讀取已抓取文章，不是您的密碼。產生新金鑰即可撤銷。",
   "agent_modal.ai_guide_save_first": "請先儲存代理——說明需要 Agent ID。",
   "agent_modal.ai_guide_failed": "無法從伺服器取得說明。",
-  "common.loading": "載入中..."
+  "common.loading": "載入中...",
+  "agent_modal.ai_guide_rotate": "產生新金鑰（撤銷舊的）",
+  "agent_modal.ai_guide_rotate_confirm": "產生新金鑰？已發出的說明將立即失效。"
 }

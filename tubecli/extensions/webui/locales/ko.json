@@ -511,8 +511,10 @@
   "common.copy_failed": "선택 후 Ctrl+C",
   "agent_modal.ai_guide_btn": "다른 AI용 지침",
   "agent_modal.ai_guide_copy": "지침 복사",
-  "agent_modal.ai_guide_hint": "복사해서 다른 AI에 전달하세요. 비밀번호는 포함되지 않습니다 — 따로 전달하세요.",
+  "agent_modal.ai_guide_hint": "복사해서 다른 AI에 전달하세요. 수집된 기사 전용 읽기 키가 포함됩니다 — 비밀번호가 아닙니다. 새 키를 발급하면 폐기됩니다.",
   "agent_modal.ai_guide_save_first": "먼저 에이전트를 저장하세요 — 지침에 에이전트 ID가 필요합니다.",
   "agent_modal.ai_guide_failed": "서버에서 지침을 가져오지 못했습니다.",
-  "common.loading": "불러오는 중..."
+  "common.loading": "불러오는 중...",
+  "agent_modal.ai_guide_rotate": "새 키 발급 (기존 키 폐기)",
+  "agent_modal.ai_guide_rotate_confirm": "새 키를 발급할까요? 이미 보낸 지침은 즉시 작동을 멈춥니다."
 }

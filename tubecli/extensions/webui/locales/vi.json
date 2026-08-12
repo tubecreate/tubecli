@@ -568,8 +568,10 @@
   "common.copy_failed": "Bôi đen rồi Ctrl+C",
   "agent_modal.ai_guide_btn": "Chỉ dẫn cho AI khác",
   "agent_modal.ai_guide_copy": "Chép chỉ dẫn",
-  "agent_modal.ai_guide_hint": "Chép rồi gửi cho AI khác. Mật khẩu KHÔNG nằm trong này — bạn đưa riêng.",
+  "agent_modal.ai_guide_hint": "Chép rồi gửi cho AI khác. Trong này có khoá CHỈ ĐỌC dữ liệu đã cào — không phải mật khẩu. Muốn thu hồi thì tạo khoá mới.",
   "agent_modal.ai_guide_save_first": "Lưu agent trước đã — chỉ dẫn cần Agent ID.",
   "agent_modal.ai_guide_failed": "Không lấy được chỉ dẫn từ máy chủ.",
-  "common.loading": "Đang tải..."
+  "common.loading": "Đang tải...",
+  "agent_modal.ai_guide_rotate": "Tạo khoá mới (thu hồi khoá cũ)",
+  "agent_modal.ai_guide_rotate_confirm": "Tạo khoá mới? Mọi chỉ dẫn đã gửi đi sẽ ngừng hoạt động ngay."
 }

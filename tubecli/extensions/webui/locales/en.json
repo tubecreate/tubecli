@@ -568,8 +568,10 @@
   "common.copy_failed": "Select it, then Ctrl+C",
   "agent_modal.ai_guide_btn": "Brief for another AI",
   "agent_modal.ai_guide_copy": "Copy brief",
-  "agent_modal.ai_guide_hint": "Copy and send to another AI. The password is NOT included — hand it over separately.",
+  "agent_modal.ai_guide_hint": "Copy and send to another AI. Contains a READ-ONLY key for scraped articles — not your password. Mint a new key to revoke it.",
   "agent_modal.ai_guide_save_first": "Save the agent first — the brief needs an Agent ID.",
   "agent_modal.ai_guide_failed": "Could not fetch the brief from the server.",
-  "common.loading": "Loading..."
+  "common.loading": "Loading...",
+  "agent_modal.ai_guide_rotate": "New key (revokes the old one)",
+  "agent_modal.ai_guide_rotate_confirm": "Mint a new key? Every brief already sent out stops working immediately."
 }

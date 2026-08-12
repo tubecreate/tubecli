@@ -511,8 +511,10 @@
   "common.copy_failed": "Selecciónalo y pulsa Ctrl+C",
   "agent_modal.ai_guide_btn": "Instrucciones para otra IA",
   "agent_modal.ai_guide_copy": "Copiar instrucciones",
-  "agent_modal.ai_guide_hint": "Cópialas y envíalas a otra IA. La contraseña NO va incluida: entrégala aparte.",
+  "agent_modal.ai_guide_hint": "Cópialas y envíalas a otra IA. Incluyen una clave de SOLO LECTURA de los artículos, no tu contraseña. Genera una clave nueva para revocarla.",
   "agent_modal.ai_guide_save_first": "Guarda el agente primero: las instrucciones necesitan un ID de agente.",
   "agent_modal.ai_guide_failed": "No se pudieron obtener las instrucciones del servidor.",
-  "common.loading": "Cargando..."
+  "common.loading": "Cargando...",
+  "agent_modal.ai_guide_rotate": "Nueva clave (revoca la anterior)",
+  "agent_modal.ai_guide_rotate_confirm": "¿Generar una clave nueva? Todas las instrucciones ya enviadas dejarán de funcionar de inmediato."
 }

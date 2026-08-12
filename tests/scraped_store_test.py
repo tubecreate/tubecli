@@ -358,13 +358,36 @@ try:
         check(f"guide[{lang}] keeps the password a placeholder",
               "<" in g and "curl" in g and "auth/login" in g, "login step missing")
 
-    # build_guide takes no credential at all, so there is nothing for it to
-    # leak — asserted rather than assumed, because a later edit could add one
-    # "for convenience" and nothing else would complain.
+    # The brief DOES carry one credential now, deliberately: the read key, so a
+    # cloud AI that cannot hold a cookie can still fetch. That makes the line
+    # between the two credentials the thing to hold: the read key may appear,
+    # the password may never.
+    keyed = scraped_query.build_guide(base_url="http://x/", agent_id="a",
+                                      read_key="tcs_TESTKEY123", lang="vi")
+    check("guide embeds the read key", "tcs_TESTKEY123" in keyed, "key not in brief")
+    for form in ("X-TubeCLI-Token", "Bearer", "token=tcs_TESTKEY123"):
+        check(f"guide shows the {form!r} form", form in keyed, "carrier missing")
+    check("guide says the key is read-only",
+          "CHỈ ĐỌC" in keyed or "READ-ONLY" in keyed.upper(), "scope not stated")
+    check("guide without a key shows a placeholder",
+          "<KHOÁ_ĐỌC>" in scraped_query.build_guide(base_url="http://x/", agent_id="a", lang="vi"),
+          "no placeholder when unkeyed")
+
     import inspect  # noqa: E402
     params = set(inspect.signature(scraped_query.build_guide).parameters)
-    creds = {p for p in params if any(w in p for w in ("password", "token", "secret", "cookie", "key"))}
-    check("guide builder accepts no credential", not creds, f"has {creds}")
+    banned = {p for p in params if any(w in p for w in ("password", "passwd", "secret", "cookie", "session"))}
+    check("guide builder cannot be handed the password", not banned, f"has {banned}")
+    # Read the value out of the login command rather than scanning the whole
+    # document for something that looks like a secret. The first attempt did
+    # the latter and failed on the product's own name appearing in the header
+    # X-TubeCLI-Token — a check that cannot tell a brand from a credential is
+    # not checking anything.
+    for lang, expected in (("vi", "<MẬT_KHẨU_DASHBOARD>"), ("en", "<DASHBOARD_PASSWORD>")):
+        g = scraped_query.build_guide(base_url="http://x/", agent_id="a",
+                                      read_key="tcs_TESTKEY123", lang=lang)
+        found = re.findall(r'"password"\s*:\s*"([^"]*)"', g)
+        check(f"login step[{lang}] passes only a placeholder", found == [expected],
+              f"password field holds {found}")
 
     # The drift guard. Every query parameter the brief documents is looked up
     # in the signature that actually implements it, so renaming one without

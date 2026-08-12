@@ -235,7 +235,8 @@ REQUIRED = ["agent_modal.agent_id_label", "agent_modal.copy_id",
             "common.copied", "common.copy_failed", "common.loading",
             "agent_modal.ai_guide_btn", "agent_modal.ai_guide_copy",
             "agent_modal.ai_guide_hint", "agent_modal.ai_guide_save_first",
-            "agent_modal.ai_guide_failed"]
+            "agent_modal.ai_guide_failed", "agent_modal.ai_guide_rotate",
+            "agent_modal.ai_guide_rotate_confirm"]
 
 import json  # noqa: E402
 

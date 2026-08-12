@@ -123,7 +123,8 @@ _PASSWORD_PLACEHOLDER = {"vi": "<MẬT_KHẨU_DASHBOARD>", "en": "<DASHBOARD_PAS
 
 
 def build_guide(*, base_url: str, agent_id: str, agent_name: str = "",
-                profiles_list: Iterable[str] = (), lang: str = "vi") -> str:
+                profiles_list: Iterable[str] = (), lang: str = "vi",
+                read_key: str = "") -> str:
     """A self-contained brief another AI can act on with no further context.
 
     Generated server-side and not hardcoded in the dashboard's JavaScript, so
@@ -136,6 +137,7 @@ def build_guide(*, base_url: str, agent_id: str, agent_name: str = "",
     profs = ", ".join(profiles_list) or ("(chưa có)" if lang == "vi" else "(none)")
     who = agent_name or agent_id
 
+    key = read_key or "<KHOÁ_ĐỌC>"
     if lang == "vi":
         return f"""\
 NHIỆM VỤ: lấy nội dung các bài mà agent "{who}" đã cào về từ máy chủ TubeCLI.
@@ -143,16 +145,33 @@ NHIỆM VỤ: lấy nội dung các bài mà agent "{who}" đã cào về từ m
 Máy chủ  : {base}
 Agent ID : {agent_id}
 Profile  : {profs}
+Khoá đọc : {key}
 
-BƯỚC 1 — Đăng nhập lấy phiên (mật khẩu do người dùng đưa riêng, KHÔNG có trong
-tài liệu này). Bỏ qua bước này nếu bạn chạy ngay trên máy chủ và gọi localhost.
+CÁCH 1 — MỘT REQUEST, KHÔNG CẦN COOKIE  ← dùng cách này
+Hợp với AI cloud, n8n, Zapier, Google Apps Script… những công cụ chỉ gọi được
+một lần và không giữ được cookie giữa các lần gọi.
+
+  Đặt khoá ở header:
+    curl -H 'X-TubeCLI-Token: {key}' \\
+         '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
+
+  Hoặc kiểu Bearer, nếu công cụ chỉ có ô "Authorization":
+    Authorization: Bearer {key}
+
+  Hoặc nhét thẳng vào URL, nếu công cụ chỉ mở được một địa chỉ:
+    {base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20&token={key}
+
+  Khoá này CHỈ ĐỌC: chỉ chạy với GET, và chỉ trên các đường dẫn dữ liệu đã cào
+  bên dưới. Không dùng để đăng nhập, không sửa được gì, không đọc được cấu hình
+  hay khoá API của máy chủ.
+
+CÁCH 2 — Đăng nhập bằng mật khẩu (chỉ khi cần quyền đầy đủ; mật khẩu do người
+dùng đưa riêng, KHÔNG có trong tài liệu này). Bỏ qua nếu bạn chạy ngay trên máy
+chủ và gọi localhost.
 
   curl -c ck.txt -X POST {base}/api/v1/auth/login \\
        -H 'Content-Type: application/json' \\
        -d '{{"password":"{pw}"}}'
-
-BƯỚC 2 — Lấy các bài CÓ nội dung của agent này:
-
   curl -b ck.txt '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
 
 Tham số lọc (ghép bằng &):
@@ -200,17 +219,33 @@ TASK: retrieve the articles the agent "{who}" has scraped, from a TubeCLI server
 Server   : {base}
 Agent ID : {agent_id}
 Profiles : {profs}
+Read key : {key}
 
-STEP 1 — Log in for a session cookie. The password is supplied separately by
-the user and is deliberately NOT in this document. Skip this step entirely if
-you are running on the server itself and calling localhost.
+OPTION 1 — ONE REQUEST, NO COOKIE  ← use this
+For cloud AI tools, n8n, Zapier, Apps Script: anything that makes a single call
+and cannot carry a cookie from one call to the next.
+
+  Key in a header:
+    curl -H 'X-TubeCLI-Token: {key}' \\
+         '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
+
+  Or as Bearer, if the tool only offers an Authorization field:
+    Authorization: Bearer {key}
+
+  Or in the URL itself, if the tool can only open an address:
+    {base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20&token={key}
+
+  This key is READ-ONLY: GET requests, and only on the scraped-data paths
+  below. It cannot log in, cannot change anything, and cannot read the server's
+  configuration or API keys.
+
+OPTION 2 — Password login (only if you need full access; the password is
+supplied separately by the user and is deliberately NOT in this document). Skip
+it entirely when running on the server itself against localhost.
 
   curl -c ck.txt -X POST {base}/api/v1/auth/login \\
        -H 'Content-Type: application/json' \\
        -d '{{"password":"{pw}"}}'
-
-STEP 2 — Fetch this agent's articles that HAVE text:
-
   curl -b ck.txt '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
 
 Filters (combine with &):

@@ -670,7 +670,7 @@
 
                             <div id="scraper-guide-box" style="display:none; margin-top:10px;">
                                 <p style="font-size:0.76rem; color:var(--text-muted); margin:0 0 6px; line-height:1.45;"
-                                   data-i18n="agent_modal.ai_guide_hint">Chép rồi gửi cho AI khác. Mật khẩu KHÔNG nằm trong này — bạn đưa riêng.</p>
+                                   data-i18n="agent_modal.ai_guide_hint">Chép rồi gửi cho AI khác. Trong này có khoá CHỈ ĐỌC dữ liệu đã cào — không phải mật khẩu. Muốn thu hồi thì tạo khoá mới.</p>
                                 <textarea id="scraper-guide-text" readonly onclick="this.select()"
                                           style="width:100%; height:180px; font-family:'JetBrains Mono',monospace;
                                                  font-size:0.7rem; line-height:1.45; background:var(--bg3);
@@ -679,6 +679,9 @@
                                 <button class="btn-primary" onclick="copyScraperGuide(this)"
                                         style="width:100%; margin-top:6px; padding:8px; font-size:0.85rem;"
                                         data-i18n="agent_modal.ai_guide_copy">Chép chỉ dẫn</button>
+                                <button class="btn-secondary" onclick="rotateScraperKey(this)"
+                                        style="width:100%; margin-top:6px; padding:7px; font-size:0.78rem;"
+                                        data-i18n="agent_modal.ai_guide_rotate">Tạo khoá mới (thu hồi khoá cũ)</button>
                             </div>
                         </div>
                         <div style="flex:1; display:flex; flex-direction:column; min-width:0; height:100%;">

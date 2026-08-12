@@ -511,8 +511,10 @@
   "common.copy_failed": "请选中后按 Ctrl+C",
   "agent_modal.ai_guide_btn": "给其他 AI 的说明",
   "agent_modal.ai_guide_copy": "复制说明",
-  "agent_modal.ai_guide_hint": "复制后发给其他 AI。其中不含密码，请另行提供。",
+  "agent_modal.ai_guide_hint": "复制后发给其他 AI。其中含只读密钥，仅可读取已抓取文章，不是您的密码。生成新密钥即可吊销。",
   "agent_modal.ai_guide_save_first": "请先保存代理——说明需要 Agent ID。",
   "agent_modal.ai_guide_failed": "无法从服务器获取说明。",
-  "common.loading": "加载中..."
+  "common.loading": "加载中...",
+  "agent_modal.ai_guide_rotate": "生成新密钥（吊销旧的）",
+  "agent_modal.ai_guide_rotate_confirm": "生成新密钥？已发出的说明将立即失效。"
 }

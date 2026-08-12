@@ -511,8 +511,10 @@
   "common.copy_failed": "選択して Ctrl+C",
   "agent_modal.ai_guide_btn": "他のAI向け手順",
   "agent_modal.ai_guide_copy": "手順をコピー",
-  "agent_modal.ai_guide_hint": "コピーして他のAIに渡してください。パスワードは含まれません — 別途お渡しください。",
+  "agent_modal.ai_guide_hint": "コピーして他のAIに渡してください。取得済み記事の読み取り専用キーを含みます — パスワードではありません。新しいキーを発行すると無効化できます。",
   "agent_modal.ai_guide_save_first": "先にエージェントを保存してください — 手順にはエージェントIDが必要です。",
   "agent_modal.ai_guide_failed": "サーバーから手順を取得できませんでした。",
-  "common.loading": "読み込み中..."
+  "common.loading": "読み込み中...",
+  "agent_modal.ai_guide_rotate": "新しいキーを発行（旧キーを無効化）",
+  "agent_modal.ai_guide_rotate_confirm": "新しいキーを発行しますか？配布済みの手順は直ちに無効になります。"
 }

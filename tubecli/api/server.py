@@ -69,6 +69,47 @@ def _auth_exempt(path: str) -> bool:
     return path in _AUTH_EXEMPT_EXACT or path.startswith(_AUTH_EXEMPT_PREFIX)
 
 
+# Paths the read-only scraped key may reach. Everything else — including
+# /scraped-guide, which would just hand back the key that opened it — stays
+# session-only. The pattern is anchored at both ends so a path that merely
+# CONTAINS one of these names cannot slip in.
+import re as _re
+
+_READ_KEY_PATHS = _re.compile(
+    r"^/api/v1/(?:scraped/(?:articles|article|stats|export|profiles|image)"
+    r"|agents/[^/]+/scraped)$"
+)
+
+
+def _read_key_from(request: Request) -> Optional[str]:
+    """The key, from wherever a one-shot client can put it.
+
+    Three carriers because the tools differ: a header is correct, Bearer is
+    what most HTTP clients offer by default, and the query string is the only
+    option left for a cloud AI that can do nothing but fetch a URL. That last
+    one lands in access logs and Referer headers, which is a real cost — and
+    the reason this key is scoped to reading articles rather than being the
+    password.
+    """
+    value = request.headers.get("x-tubecli-token")
+    if not value:
+        authz = request.headers.get("authorization") or ""
+        if authz.lower().startswith("bearer "):
+            value = authz[7:]
+    if not value:
+        value = request.query_params.get("token")
+    return (value or "").strip() or None
+
+
+def _read_key_authorised(request: Request) -> bool:
+    """GET-only, on the data paths only, with a valid key."""
+    if request.method != "GET" or not _READ_KEY_PATHS.match(request.url.path):
+        return False
+    from tubecli.core import auth
+
+    return auth.scraped_read_token_valid(_read_key_from(request))
+
+
 @app.middleware("http")
 async def _require_login(request: Request, call_next):
     """Gate everything that is not loopback behind a session cookie.
@@ -81,6 +122,14 @@ async def _require_login(request: Request, call_next):
     """
     if request.method == "OPTIONS" or _auth_exempt(request.url.path):
         return await call_next(request)
+    # A one-shot client with the read key. Checked before the cookie because a
+    # cloud AI has neither a cookie nor a way to obtain one — see
+    # auth.scraped_read_token. Narrow by construction: GET, data paths only.
+    try:
+        if _read_key_authorised(request):
+            return await call_next(request)
+    except Exception:
+        pass  # a broken key check must refuse, not crash — fall through
     try:
         from tubecli.core import auth
 
@@ -1594,6 +1643,8 @@ def agent_scraped_guide(agent_id: str, request: Request, lang: Optional[str] = N
             lang = "vi"
     lang = "vi" if str(lang).startswith("vi") else "en"
 
+    from tubecli.core import auth
+
     allowed = getattr(agent, "allowed_profiles", []) or []
     text = scraped_query.build_guide(
         base_url=str(request.base_url),
@@ -1601,9 +1652,23 @@ def agent_scraped_guide(agent_id: str, request: Request, lang: Optional[str] = N
         agent_name=getattr(agent, "name", "") or "",
         profiles_list=scraped_store.resolve_profiles(allowed),
         lang=lang,
+        read_key=auth.scraped_read_token(),
     )
     return {"agent_id": agent_id, "base_url": str(request.base_url).rstrip("/"),
             "lang": lang, "text": text}
+
+
+@app.post("/api/v1/scraped/read-key/rotate")
+def rotate_scraped_read_key():
+    """Mint a new read key; every brief already handed out stops working.
+
+    Deliberately POST, so the key it returns can never be reached by the read
+    key itself — that gate is GET-only, and a key able to replace itself would
+    be a privilege the whole design is trying not to grant.
+    """
+    from tubecli.core import auth
+
+    return {"ok": True, "token": auth.rotate_scraped_read_token()}
 
 
 @app.get("/api/v1/agents/{agent_id}/scraped-article")

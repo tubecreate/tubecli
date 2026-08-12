@@ -511,8 +511,10 @@
   "common.copy_failed": "Seçip Ctrl+C yapın",
   "agent_modal.ai_guide_btn": "Başka bir yapay zekâ için yönerge",
   "agent_modal.ai_guide_copy": "Yönergeyi kopyala",
-  "agent_modal.ai_guide_hint": "Kopyalayıp başka bir yapay zekâya gönderin. Parola dahil DEĞİLDİR — ayrıca iletin.",
+  "agent_modal.ai_guide_hint": "Kopyalayıp başka bir yapay zekâya gönderin. İçinde yalnızca makaleleri OKUYAN bir anahtar var — parolanız değil. İptal için yeni anahtar üretin.",
   "agent_modal.ai_guide_save_first": "Önce ajanı kaydedin — yönerge bir Ajan kimliği gerektirir.",
   "agent_modal.ai_guide_failed": "Yönerge sunucudan alınamadı.",
-  "common.loading": "Yükleniyor..."
+  "common.loading": "Yükleniyor...",
+  "agent_modal.ai_guide_rotate": "Yeni anahtar (eskisini iptal eder)",
+  "agent_modal.ai_guide_rotate_confirm": "Yeni anahtar üretilsin mi? Gönderilmiş tüm yönergeler hemen çalışmaz olur."
 }

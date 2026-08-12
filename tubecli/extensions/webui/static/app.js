@@ -7174,3 +7174,24 @@ function copyScraperGuide(btn) {
     area.select();
     copyText(area.value, btn);
 }
+
+async function rotateScraperKey(btn) {
+    if (!confirm(T('agent_modal.ai_guide_rotate_confirm') ||
+        'Tạo khoá mới? Mọi chỉ dẫn đã gửi đi sẽ ngừng hoạt động ngay.')) return;
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = T('common.loading') || 'Đang tải...';
+    try {
+        await apiPost('/api/v1/scraped/read-key/rotate', {});
+        // Re-fetch rather than patching the textarea: the brief embeds the key
+        // in five places, and a partial replace would leave a document that
+        // half works.
+        const box = document.getElementById('scraper-guide-box');
+        if (box) box.style.display = 'none';
+        await toggleScraperGuide();
+    } catch (e) {
+        alert((T('agent_modal.ai_guide_failed') || 'Không lấy được chỉ dẫn từ máy chủ.') + '\n' + e);
+    }
+    btn.disabled = false;
+    btn.textContent = original;
+}

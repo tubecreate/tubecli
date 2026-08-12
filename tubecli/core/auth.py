@@ -334,3 +334,82 @@ def check_request(client_host: str, cookie_token: Optional[str],
         return None
 
     return {"reason": "login_required", "detail": "Cần đăng nhập."}
+
+
+# ── Read-only key for the scraped corpus ─────────────────────────────
+#
+# Why this exists at all. The session cookie needs three stateful steps: POST
+# the password, keep the Set-Cookie, send it back. Most cloud AI tools cannot
+# do that — they perform ONE fetch, some of them GET-only with no way to set a
+# header. A cookie-based brief is unusable there, which is what the corpus
+# owner ran into.
+#
+# So: a bearer key that works in a single request, and is deliberately much
+# weaker than the password. It is read-only, GET-only, and the gate in
+# server.py accepts it on the scraped data paths and nowhere else. The password
+# reaches /read, cloud_api_keys.json and code installation; this reaches
+# scraped articles. Those are not the same thing to lose, and the whole point
+# of handing a brief to a third-party AI is that it WILL be seen by something
+# the owner does not control.
+#
+# Kept in its own file, not in auth.json, because set_password() replaces that
+# payload wholesale on purpose — parking a key inside it would have quietly
+# revoked the key every time the password changed.
+READ_TOKEN_PREFIX = "tcs_"
+
+
+def _read_token_file():
+    from tubecli.config import DATA_DIR
+
+    return DATA_DIR / "scraped_read_key.json"
+
+
+def _load_read_tokens() -> dict:
+    path = _read_token_file()
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def scraped_read_token(create: bool = True) -> Optional[str]:
+    """The current read key, minting one on first use.
+
+    Stored in plaintext rather than hashed, which is the deliberate trade: the
+    brief embeds the key every time it is opened, and a hash would mean showing
+    it once and forcing a rotation to ever see it again. The file is written
+    0600 alongside the password hash, and the key is narrow enough that its
+    disclosure is a different order of problem.
+    """
+    data = _load_read_tokens()
+    token = data.get("token")
+    if token:
+        return token
+    if not create:
+        return None
+    return rotate_scraped_read_token()
+
+
+def rotate_scraped_read_token() -> str:
+    """Mint a new key. The previous one stops working immediately."""
+    token = READ_TOKEN_PREFIX + secrets.token_urlsafe(24)
+    _write_private(_read_token_file(), {
+        "version": 1,
+        "token": token,
+        "updated_at": int(time.time()),
+    })
+    return token
+
+
+def scraped_read_token_valid(candidate: Optional[str]) -> bool:
+    if not candidate or not isinstance(candidate, str):
+        return False
+    current = scraped_read_token(create=False)
+    if not current:
+        return False
+    # compare_digest so a wrong key takes the same time as a right one.
+    return hmac.compare_digest(candidate.strip(), current)
