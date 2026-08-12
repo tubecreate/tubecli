@@ -259,14 +259,24 @@ used = set()
 for page in pages:
     used |= set(re.findall(r'data-i18n(?:-placeholder|-title)?="([^"]+)"',
                            page.read_text(encoding="utf-8")))
-try:
-    en = json.loads((LOCALES / "en.json").read_text(encoding="utf-8"))
-    gap = sorted(used - set(en))
-    if gap:
-        print(f"  (note: {len(gap)} of {len(used)} i18n keys have no entry in en.json "
-              f"and render as raw key text — pre-existing, e.g. {gap[0]})")
-except (OSError, ValueError):
-    pass
+
+# Against EVERY locale file, not just the dashboard's own. /api/v1/i18n/{lang}
+# merges all sixteen extension dictionaries before the page sees them, so a key
+# defined by the browser or market extension is present at runtime even though
+# webui/locales/en.json has never heard of it. Measuring one file reported 250
+# missing keys when the real number is a tenth of that — a scary number that
+# sent me looking at a problem that mostly did not exist.
+merged = {}
+for lf in sorted((ROOT / "tubecli" / "extensions").glob("*/locales/en.json")):
+    try:
+        merged.update(json.loads(lf.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        continue
+check("merged locale dictionary is populated", len(merged) > 1000, f"only {len(merged)} keys")
+gap = sorted(used - set(merged))
+if gap:
+    print(f"  (note: {len(gap)} of {len(used)} i18n keys resolve in no locale file "
+          f"and render as raw key text — e.g. {', '.join(gap[:3])})")
 
 print(f"\n{checks - len(failures)}/{checks} PASS")
 for f in failures:
