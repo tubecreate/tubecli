@@ -282,6 +282,8 @@ document.querySelectorAll('.agent-tab-btn').forEach(btn => {
         document.getElementById('atab-' + btn.dataset.atab).classList.add('active');
         if (btn.dataset.atab === 'history') {
             loadAgentHistory();
+        }
+        else if (btn.dataset.atab === 'runlog') {
             loadAgentRuns();
         }
     });

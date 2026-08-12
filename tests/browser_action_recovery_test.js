@@ -261,5 +261,43 @@ check('khung nhat ky co tran tren', /MAX_LOG_LINES/.test(viewSrc));
     /local_ws\.send_bytes\(/.test(routes));
 }
 
+console.log('\n=== 9. tab Nhat ky rieng + giao dien di dong ===');
+// The agent dialog was built for a desktop: a 170px label column beside a
+// two-column body. On a phone that left about 90px for content, and the run-log
+// heading wrapped one character per line.
+{
+  const WEB = path.join(__dirname, '..', 'tubecli', 'extensions', 'webui', 'static');
+  const idx = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(WEB, 'style.css'), 'utf8');
+  const appjs = fs.readFileSync(path.join(WEB, 'app.js'), 'utf8');
+  const en = JSON.parse(fs.readFileSync(path.join(WEB, '..', 'locales', 'en.json'), 'utf8'));
+  const vi = JSON.parse(fs.readFileSync(path.join(WEB, '..', 'locales', 'vi.json'), 'utf8'));
+
+  check('co tab runlog rieng', idx.includes('data-atab="runlog"') && idx.includes('id="atab-runlog"'));
+  check('  nhat ky khong con nam trong tab Lich su',
+    idx.indexOf('id="agent-runs-list"') < idx.indexOf('id="atab-history"'));
+  check('  mo tab nao thi nap dung thu do',
+    /atab === 'runlog'[\s\S]{0,80}loadAgentRuns\(\)/.test(appjs));
+
+  check('CSS: co diem gay cho man hinh hep', /@media \(max-width: 720px\)/.test(css));
+  check('  tab strip chuyen thanh hang ngang', /\.agent-tabs-nav\s*\{[^}]*flex-direction:\s*row/.test(css));
+  check('  chi hien icon (an nhan chu)',
+    /\.agent-tab-btn > span:not\(\.material-symbols-outlined\)\s*\{\s*display:\s*none/.test(css));
+  check('  hai cot xep chong thay vi bi ep',
+    /\.agent-history-split\s*\{[^}]*flex-direction:\s*column/.test(css));
+  // The label stays in the DOM — hidden, not deleted — so screen readers and
+  // the tooltip still have it.
+  check('  nhan van con trong DOM cho tro nang', idx.includes('agent_modal.tab_history'));
+
+  check('doi "Sua" thanh "Chi tiet"',
+    en['agents.edit'] === 'Details' && vi['agents.edit'] === 'Chi tiết',
+    `${en['agents.edit']} / ${vi['agents.edit']}`);
+  check('  ke ca tieu de hop thoai',
+    en['agent_modal.edit_title'] === 'Details:' && vi['agent_modal.edit_title'] === 'Chi tiết:');
+  check('vi phu day du khoa cua en',
+    Object.keys(en).every(k => k in vi),
+    Object.keys(en).filter(k => !(k in vi)).slice(0, 3).join(', '));
+}
+
 console.log(`\n${pass}/${pass + fail} PASS`);
 process.exit(fail ? 1 : 0);
