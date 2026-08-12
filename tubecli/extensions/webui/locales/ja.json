@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "エージェントID",
   "agent_modal.copy_id": "コピー",
   "common.copied": "コピーしました",
-  "common.copy_failed": "選択して Ctrl+C"
+  "common.copy_failed": "選択して Ctrl+C",
+  "agent_modal.ai_guide_btn": "他のAI向け手順",
+  "agent_modal.ai_guide_copy": "手順をコピー",
+  "agent_modal.ai_guide_hint": "コピーして他のAIに渡してください。パスワードは含まれません — 別途お渡しください。",
+  "agent_modal.ai_guide_save_first": "先にエージェントを保存してください — 手順にはエージェントIDが必要です。",
+  "agent_modal.ai_guide_failed": "サーバーから手順を取得できませんでした。",
+  "common.loading": "読み込み中..."
 }

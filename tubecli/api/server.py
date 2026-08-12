@@ -1565,6 +1565,47 @@ def agent_scraped(
     )
 
 
+@app.get("/api/v1/agents/{agent_id}/scraped-guide")
+def agent_scraped_guide(agent_id: str, request: Request, lang: Optional[str] = None):
+    """A brief another AI can be handed to fetch this agent's scraped articles.
+
+    The base URL is taken from the request itself, so the brief names the
+    address the user actually reached this dashboard on — an IP typed into a
+    phone, a hostname behind a tunnel — rather than a localhost that means
+    nothing on the machine the brief gets pasted into.
+
+    It never contains the password. That credential opens the whole dashboard,
+    and this document exists to be pasted into someone else's chat window; the
+    user hands it over separately, or not at all when the consumer runs on this
+    box and the loopback exemption applies.
+    """
+    from tubecli.core import scraped_query, scraped_store
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    if not lang:
+        try:
+            from tubecli.config import get_language
+            lang = (get_language() or "vi").strip()
+        except Exception:
+            lang = "vi"
+    lang = "vi" if str(lang).startswith("vi") else "en"
+
+    allowed = getattr(agent, "allowed_profiles", []) or []
+    text = scraped_query.build_guide(
+        base_url=str(request.base_url),
+        agent_id=agent_id,
+        agent_name=getattr(agent, "name", "") or "",
+        profiles_list=scraped_store.resolve_profiles(allowed),
+        lang=lang,
+    )
+    return {"agent_id": agent_id, "base_url": str(request.base_url).rstrip("/"),
+            "lang": lang, "text": text}
+
+
 @app.get("/api/v1/agents/{agent_id}/scraped-article")
 async def get_scraped_article_detail(agent_id: str, profile: str, url: str):
     from tubecli.core.agent import agent_manager

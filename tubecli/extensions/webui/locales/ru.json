@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "ID агента",
   "agent_modal.copy_id": "Копировать",
   "common.copied": "Скопировано",
-  "common.copy_failed": "Выделите и нажмите Ctrl+C"
+  "common.copy_failed": "Выделите и нажмите Ctrl+C",
+  "agent_modal.ai_guide_btn": "Инструкция для другого ИИ",
+  "agent_modal.ai_guide_copy": "Копировать инструкцию",
+  "agent_modal.ai_guide_hint": "Скопируйте и передайте другому ИИ. Пароль НЕ включён — передайте его отдельно.",
+  "agent_modal.ai_guide_save_first": "Сначала сохраните агента — инструкции нужен ID агента.",
+  "agent_modal.ai_guide_failed": "Не удалось получить инструкцию с сервера.",
+  "common.loading": "Загрузка..."
 }

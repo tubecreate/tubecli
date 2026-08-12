@@ -7138,3 +7138,39 @@ function copyAgentId(btn) {
     box.select();          // leaves it selected, so Ctrl+C works if copy failed
     copyText(box.value, btn);
 }
+
+// ── Handover brief for another AI ──────────────────────────────────────────
+// Fetched, never assembled here: the server knows which address this request
+// arrived on and what its own endpoints accept, and a copy of that knowledge
+// pasted into JavaScript would be stale the first time a parameter is renamed.
+async function toggleScraperGuide() {
+    const box = document.getElementById('scraper-guide-box');
+    const area = document.getElementById('scraper-guide-text');
+    if (!box || !area) return;
+
+    if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+
+    const id = document.getElementById('agent-id').value;
+    if (!id) {
+        alert(T('agent_modal.ai_guide_save_first') || 'Lưu agent trước đã — chỉ dẫn cần Agent ID.');
+        return;
+    }
+    box.style.display = '';
+    area.value = T('common.loading') || 'Đang tải...';
+    try {
+        const d = await apiGet('/api/v1/agents/' + id + '/scraped-guide');
+        // Report the failure instead of leaving "Đang tải..." sitting there
+        // looking like a brief that is still on its way.
+        area.value = (d && d.text) ? d.text
+            : (T('agent_modal.ai_guide_failed') || 'Không lấy được chỉ dẫn từ máy chủ.');
+    } catch (e) {
+        area.value = (T('agent_modal.ai_guide_failed') || 'Không lấy được chỉ dẫn từ máy chủ.') + '\n' + e;
+    }
+}
+
+function copyScraperGuide(btn) {
+    const area = document.getElementById('scraper-guide-text');
+    if (!area || !area.value) return;
+    area.select();
+    copyText(area.value, btn);
+}

@@ -36,6 +36,7 @@ existed pointed at the wrong fix entirely. The three states — harvested,
 harvested-then-aged-out, only-visited — are counted separately.
 """
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -338,6 +339,50 @@ try:
               "served a file outside the profile")
     check("image in an unknown profile refused",
           store.image_path("img_0.jpg", profile="../..") is None, "resolved")
+
+    # ── the handover brief ─────────────────────────────────────────────────
+    # A document written to be pasted into another AI's chat window. Two things
+    # can go wrong with it and both are silent: it can leak the password, and
+    # it can document parameters that no longer exist.
+    from tubecli.core import scraped_query  # noqa: E402
+
+    for lang in ("vi", "en"):
+        g = scraped_query.build_guide(
+            base_url="http://10.0.0.5:5295/", agent_id="agent-A",
+            agent_name="VietLaw", profiles_list=["luatsu"], lang=lang)
+        check(f"guide[{lang}] names the server", "http://10.0.0.5:5295" in g, "base url missing")
+        check(f"guide[{lang}] has no double slash", "5295//api" not in g, "trailing slash not stripped")
+        check(f"guide[{lang}] names the agent id", "agent-A" in g, "agent id missing")
+        check(f"guide[{lang}] names the agent", "VietLaw" in g, "agent name missing")
+        check(f"guide[{lang}] names the profile", "luatsu" in g, "profile missing")
+        check(f"guide[{lang}] keeps the password a placeholder",
+              "<" in g and "curl" in g and "auth/login" in g, "login step missing")
+
+    # build_guide takes no credential at all, so there is nothing for it to
+    # leak — asserted rather than assumed, because a later edit could add one
+    # "for convenience" and nothing else would complain.
+    import inspect  # noqa: E402
+    params = set(inspect.signature(scraped_query.build_guide).parameters)
+    creds = {p for p in params if any(w in p for w in ("password", "token", "secret", "cookie", "key"))}
+    check("guide builder accepts no credential", not creds, f"has {creds}")
+
+    # The drift guard. Every query parameter the brief documents is looked up
+    # in the signature that actually implements it, so renaming one without
+    # updating the brief fails here instead of failing in someone else's agent
+    # a week later.
+    guide = scraped_query.build_guide(base_url="http://x/", agent_id="a", lang="en")
+    documented = set(re.findall(r"^\s{2}([a-z_]+)=", guide, re.M))
+    check("brief documents some parameters", len(documented) >= 5, documented)
+    implemented = set(inspect.signature(store.query).parameters)
+    unknown = documented - implemented - {"agent_id", "fmt"}
+    check("every documented parameter exists in query()", not unknown,
+          f"brief documents {unknown}, which query() does not accept")
+
+    # Same for the three stats buckets it explains.
+    st_keys = set(store.stats(allowed_profiles=["luatsu"]))
+    for bucket in ("with_content", "visited_not_scraped", "scraped_but_body_gone"):
+        check(f"brief's '{bucket}' is a real stats key", bucket in st_keys and bucket in guide,
+              "documented but not returned" if bucket not in st_keys else "returned but not documented")
 
     # ── nothing at all ─────────────────────────────────────────────────────
     empty = Path(tempfile.mkdtemp(prefix="tubecli-scraped-empty-"))

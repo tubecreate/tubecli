@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "Ajan kimliği",
   "agent_modal.copy_id": "Kopyala",
   "common.copied": "Kopyalandı",
-  "common.copy_failed": "Seçip Ctrl+C yapın"
+  "common.copy_failed": "Seçip Ctrl+C yapın",
+  "agent_modal.ai_guide_btn": "Başka bir yapay zekâ için yönerge",
+  "agent_modal.ai_guide_copy": "Yönergeyi kopyala",
+  "agent_modal.ai_guide_hint": "Kopyalayıp başka bir yapay zekâya gönderin. Parola dahil DEĞİLDİR — ayrıca iletin.",
+  "agent_modal.ai_guide_save_first": "Önce ajanı kaydedin — yönerge bir Ajan kimliği gerektirir.",
+  "agent_modal.ai_guide_failed": "Yönerge sunucudan alınamadı.",
+  "common.loading": "Yükleniyor..."
 }

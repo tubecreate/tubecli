@@ -565,5 +565,11 @@
   "agent_modal.agent_id_label": "Agent ID",
   "agent_modal.copy_id": "Copy",
   "common.copied": "Copied",
-  "common.copy_failed": "Select it, then Ctrl+C"
+  "common.copy_failed": "Select it, then Ctrl+C",
+  "agent_modal.ai_guide_btn": "Brief for another AI",
+  "agent_modal.ai_guide_copy": "Copy brief",
+  "agent_modal.ai_guide_hint": "Copy and send to another AI. The password is NOT included — hand it over separately.",
+  "agent_modal.ai_guide_save_first": "Save the agent first — the brief needs an Agent ID.",
+  "agent_modal.ai_guide_failed": "Could not fetch the brief from the server.",
+  "common.loading": "Loading..."
 }

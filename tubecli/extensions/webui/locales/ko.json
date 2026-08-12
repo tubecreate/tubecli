@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "에이전트 ID",
   "agent_modal.copy_id": "복사",
   "common.copied": "복사됨",
-  "common.copy_failed": "선택 후 Ctrl+C"
+  "common.copy_failed": "선택 후 Ctrl+C",
+  "agent_modal.ai_guide_btn": "다른 AI용 지침",
+  "agent_modal.ai_guide_copy": "지침 복사",
+  "agent_modal.ai_guide_hint": "복사해서 다른 AI에 전달하세요. 비밀번호는 포함되지 않습니다 — 따로 전달하세요.",
+  "agent_modal.ai_guide_save_first": "먼저 에이전트를 저장하세요 — 지침에 에이전트 ID가 필요합니다.",
+  "agent_modal.ai_guide_failed": "서버에서 지침을 가져오지 못했습니다.",
+  "common.loading": "불러오는 중..."
 }

@@ -565,5 +565,11 @@
   "agent_modal.agent_id_label": "Agent ID",
   "agent_modal.copy_id": "Chép",
   "common.copied": "Đã chép",
-  "common.copy_failed": "Bôi đen rồi Ctrl+C"
+  "common.copy_failed": "Bôi đen rồi Ctrl+C",
+  "agent_modal.ai_guide_btn": "Chỉ dẫn cho AI khác",
+  "agent_modal.ai_guide_copy": "Chép chỉ dẫn",
+  "agent_modal.ai_guide_hint": "Chép rồi gửi cho AI khác. Mật khẩu KHÔNG nằm trong này — bạn đưa riêng.",
+  "agent_modal.ai_guide_save_first": "Lưu agent trước đã — chỉ dẫn cần Agent ID.",
+  "agent_modal.ai_guide_failed": "Không lấy được chỉ dẫn từ máy chủ.",
+  "common.loading": "Đang tải..."
 }

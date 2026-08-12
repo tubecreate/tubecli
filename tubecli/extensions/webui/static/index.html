@@ -654,6 +654,32 @@
                                 <span class="material-symbols-outlined" style="font-size:18px;">auto_awesome</span>
                                 <span>Tạo nội dung hôm nay</span>
                             </button>
+
+                            <!-- Hands another AI everything it needs to read this
+                                 agent's articles: the address this dashboard was
+                                 actually reached on, the agent id, and the API.
+                                 Generated server-side so it cannot drift from the
+                                 endpoints it documents. The password is never in
+                                 it — see build_guide(). -->
+                            <button class="btn-secondary" id="btn-scraper-guide" onclick="toggleScraperGuide()"
+                                    style="width:100%; margin-top:10px; display:flex; align-items:center;
+                                           justify-content:center; gap:6px; padding:10px; font-size:0.9rem;">
+                                <span class="material-symbols-outlined" style="font-size:18px;">smart_toy</span>
+                                <span data-i18n="agent_modal.ai_guide_btn">Chỉ dẫn cho AI khác</span>
+                            </button>
+
+                            <div id="scraper-guide-box" style="display:none; margin-top:10px;">
+                                <p style="font-size:0.76rem; color:var(--text-muted); margin:0 0 6px; line-height:1.45;"
+                                   data-i18n="agent_modal.ai_guide_hint">Chép rồi gửi cho AI khác. Mật khẩu KHÔNG nằm trong này — bạn đưa riêng.</p>
+                                <textarea id="scraper-guide-text" readonly onclick="this.select()"
+                                          style="width:100%; height:180px; font-family:'JetBrains Mono',monospace;
+                                                 font-size:0.7rem; line-height:1.45; background:var(--bg3);
+                                                 border:1px solid var(--border); border-radius:6px; color:var(--text);
+                                                 padding:8px; resize:vertical;"></textarea>
+                                <button class="btn-primary" onclick="copyScraperGuide(this)"
+                                        style="width:100%; margin-top:6px; padding:8px; font-size:0.85rem;"
+                                        data-i18n="agent_modal.ai_guide_copy">Chép chỉ dẫn</button>
+                            </div>
                         </div>
                         <div style="flex:1; display:flex; flex-direction:column; min-width:0; height:100%;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">

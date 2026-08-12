@@ -112,6 +112,147 @@ def parse(text: str) -> Dict[str, Any]:
     return out
 
 
+# ── Handover brief ──────────────────────────────────────────────────────────
+
+# Never interpolated into the brief. The password is the one credential that
+# reaches the whole dashboard, so it stays out of a document whose entire
+# purpose is to be pasted into another agent's chat window — the user hands it
+# over on a separate channel, or not at all when the consumer runs on the box
+# itself and the loopback exemption applies.
+_PASSWORD_PLACEHOLDER = {"vi": "<MẬT_KHẨU_DASHBOARD>", "en": "<DASHBOARD_PASSWORD>"}
+
+
+def build_guide(*, base_url: str, agent_id: str, agent_name: str = "",
+                profiles_list: Iterable[str] = (), lang: str = "vi") -> str:
+    """A self-contained brief another AI can act on with no further context.
+
+    Generated server-side and not hardcoded in the dashboard's JavaScript, so
+    it cannot drift from the endpoints it documents: the parameter names, the
+    three stats buckets and the has_content rule all come from the same module
+    that implements them.
+    """
+    base = (base_url or "").rstrip("/")
+    pw = _PASSWORD_PLACEHOLDER.get(lang, _PASSWORD_PLACEHOLDER["en"])
+    profs = ", ".join(profiles_list) or ("(chưa có)" if lang == "vi" else "(none)")
+    who = agent_name or agent_id
+
+    if lang == "vi":
+        return f"""\
+NHIỆM VỤ: lấy nội dung các bài mà agent "{who}" đã cào về từ máy chủ TubeCLI.
+
+Máy chủ  : {base}
+Agent ID : {agent_id}
+Profile  : {profs}
+
+BƯỚC 1 — Đăng nhập lấy phiên (mật khẩu do người dùng đưa riêng, KHÔNG có trong
+tài liệu này). Bỏ qua bước này nếu bạn chạy ngay trên máy chủ và gọi localhost.
+
+  curl -c ck.txt -X POST {base}/api/v1/auth/login \\
+       -H 'Content-Type: application/json' \\
+       -d '{{"password":"{pw}"}}'
+
+BƯỚC 2 — Lấy các bài CÓ nội dung của agent này:
+
+  curl -b ck.txt '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
+
+Tham số lọc (ghép bằng &):
+  day=today | yesterday | YYYY-MM-DD   lọc theo NGÀY ĐỊA PHƯƠNG của máy chủ
+  since=YYYY-MM-DD  until=YYYY-MM-DD   khoảng ngày
+  q=<từ khoá>                          tìm trong tiêu đề, URL và nội dung;
+                                       không phân biệt dấu ("dau tu" ra "đầu tư")
+  limit=<1..500>  offset=<n>            phân trang
+  with_content=true                    kèm toàn văn (mặc định chỉ trích đoạn)
+  only_with_content=false              xem thêm cả trang chỉ ghé qua
+
+Kết quả JSON:
+  {{"total":N, "count":N, "items":[{{
+      "url", "title", "domain", "profile", "author",
+      "scraped_at"        — ISO, giờ UTC
+      "scraped_at_local"  — ISO, giờ máy chủ
+      "has_content"       — true thì mới có trường "content"
+      "content"           — toàn văn, chỉ khi with_content=true
+      "snippet", "content_length", "image_count"
+  }}]}}
+
+XUẤT FILE (tải thẳng, có sẵn nội dung):
+  {base}/api/v1/scraped/export?agent_id={agent_id}&fmt=csv&day=today
+  fmt nhận: json, jsonl, csv, md, txt
+
+THỐNG KÊ:
+  {base}/api/v1/scraped/stats?agent_id={agent_id}
+  Ba con số KHÁC NHAU, đừng gộp:
+    with_content          — số bài thật sự có nội dung
+    visited_not_scraped   — trang chỉ mở ra xem, chưa trích nội dung
+                            (trang tìm kiếm, tên miền trong danh sách bỏ qua…)
+    scraped_but_body_gone — đã cào nhưng nội dung bị xoay vòng khỏi kho
+                            (kho giữ tối đa 100 bài mỗi profile)
+
+LƯU Ý QUAN TRỌNG:
+- Chỉ bài có has_content=true mới dùng được; bài khác chỉ có tiêu đề và URL.
+- Mặc định các endpoint trên CHỈ trả bài có nội dung.
+- Mọi endpoint đều cần cookie phiên ở BƯỚC 1, trừ khi gọi từ localhost.
+- Không tự bịa nội dung bài. Nếu total=0 thì báo lại đúng như vậy.
+"""
+
+    return f"""\
+TASK: retrieve the articles the agent "{who}" has scraped, from a TubeCLI server.
+
+Server   : {base}
+Agent ID : {agent_id}
+Profiles : {profs}
+
+STEP 1 — Log in for a session cookie. The password is supplied separately by
+the user and is deliberately NOT in this document. Skip this step entirely if
+you are running on the server itself and calling localhost.
+
+  curl -c ck.txt -X POST {base}/api/v1/auth/login \\
+       -H 'Content-Type: application/json' \\
+       -d '{{"password":"{pw}"}}'
+
+STEP 2 — Fetch this agent's articles that HAVE text:
+
+  curl -b ck.txt '{base}/api/v1/agents/{agent_id}/scraped?with_content=true&limit=20'
+
+Filters (combine with &):
+  day=today | yesterday | YYYY-MM-DD   filtered by the server's LOCAL day
+  since=YYYY-MM-DD  until=YYYY-MM-DD   date range
+  q=<terms>                            searches title, URL and body;
+                                       accent-insensitive for Vietnamese
+  limit=<1..500>  offset=<n>            paging
+  with_content=true                    include full text (default: snippet only)
+  only_with_content=false              also list pages that were merely visited
+
+Response JSON:
+  {{"total":N, "count":N, "items":[{{
+      "url", "title", "domain", "profile", "author",
+      "scraped_at"        — ISO, UTC
+      "scraped_at_local"  — ISO, server local time
+      "has_content"       — only then is "content" present
+      "content"           — full text, only when with_content=true
+      "snippet", "content_length", "image_count"
+  }}]}}
+
+EXPORT (downloads with bodies included):
+  {base}/api/v1/scraped/export?agent_id={agent_id}&fmt=csv&day=today
+  fmt accepts: json, jsonl, csv, md, txt
+
+STATS:
+  {base}/api/v1/scraped/stats?agent_id={agent_id}
+  Three DIFFERENT numbers — do not add them together and call it a loss:
+    with_content          — articles that actually have text
+    visited_not_scraped   — pages only opened, never harvested
+                            (search pages, skip-listed domains…)
+    scraped_but_body_gone — harvested, body since rotated out
+                            (the store keeps 100 articles per profile)
+
+IMPORTANT:
+- Only records with has_content=true are usable; the rest are title and URL.
+- These endpoints return only articles with text by default.
+- Every endpoint needs the STEP 1 cookie unless called from localhost.
+- Do not invent article content. If total=0, report exactly that.
+"""
+
+
 def _line(idx: int, rec: Dict[str, Any]) -> str:
     when = (rec.get("scraped_at_local") or "")[:16].replace("T", " ")
     bits = [f"{idx}. {rec.get('title') or '(không tiêu đề)'}"]

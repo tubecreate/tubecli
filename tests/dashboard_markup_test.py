@@ -232,7 +232,10 @@ if idx:
 # to be red stops being read.
 LOCALES = ROOT / "tubecli" / "extensions" / "webui" / "locales"
 REQUIRED = ["agent_modal.agent_id_label", "agent_modal.copy_id",
-            "common.copied", "common.copy_failed"]
+            "common.copied", "common.copy_failed", "common.loading",
+            "agent_modal.ai_guide_btn", "agent_modal.ai_guide_copy",
+            "agent_modal.ai_guide_hint", "agent_modal.ai_guide_save_first",
+            "agent_modal.ai_guide_failed"]
 
 import json  # noqa: E402
 

@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "Agent ID",
   "agent_modal.copy_id": "复制",
   "common.copied": "已复制",
-  "common.copy_failed": "请选中后按 Ctrl+C"
+  "common.copy_failed": "请选中后按 Ctrl+C",
+  "agent_modal.ai_guide_btn": "给其他 AI 的说明",
+  "agent_modal.ai_guide_copy": "复制说明",
+  "agent_modal.ai_guide_hint": "复制后发给其他 AI。其中不含密码，请另行提供。",
+  "agent_modal.ai_guide_save_first": "请先保存代理——说明需要 Agent ID。",
+  "agent_modal.ai_guide_failed": "无法从服务器获取说明。",
+  "common.loading": "加载中..."
 }

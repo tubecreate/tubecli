@@ -508,5 +508,11 @@
   "agent_modal.agent_id_label": "ID del agente",
   "agent_modal.copy_id": "Copiar",
   "common.copied": "Copiado",
-  "common.copy_failed": "Selecciónalo y pulsa Ctrl+C"
+  "common.copy_failed": "Selecciónalo y pulsa Ctrl+C",
+  "agent_modal.ai_guide_btn": "Instrucciones para otra IA",
+  "agent_modal.ai_guide_copy": "Copiar instrucciones",
+  "agent_modal.ai_guide_hint": "Cópialas y envíalas a otra IA. La contraseña NO va incluida: entrégala aparte.",
+  "agent_modal.ai_guide_save_first": "Guarda el agente primero: las instrucciones necesitan un ID de agente.",
+  "agent_modal.ai_guide_failed": "No se pudieron obtener las instrucciones del servidor.",
+  "common.loading": "Cargando..."
 }
