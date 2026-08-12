@@ -99,3 +99,23 @@ async def _channel_analyze(intent, agent_dict, user_lang) -> Optional[str]:
         return reply
     except asyncio.TimeoutError:
         return "⏰ Phân tích kênh chạy quá lâu (>4 phút)."
+
+
+@register("scraped_data", badge="📚 Dữ liệu đã cào", skill_used="Scraped Data")
+async def _scraped_data(intent, agent_dict, user_lang) -> Optional[str]:
+    """"lấy dữ liệu đã cào hôm nay" → đọc thẳng kho, không gọi LLM.
+
+    Kho nằm trên đĩa và câu hỏi chỉ là lọc + sắp xếp, nên để LLM soạn lại là
+    vừa tốn token vừa có nguy cơ nó bịa tiêu đề. Agent nào hỏi thì chỉ thấy
+    phần của agent đó — phạm vi lấy từ allowed_profiles như tab Lịch sử.
+    """
+    from tubecli.core.scraped_query import answer
+
+    data = getattr(intent, "extracted_data", None) or {}
+    text = data.get("query", "") or data.get("text", "")
+    agent_id = (agent_dict or {}).get("id")
+    profiles = (agent_dict or {}).get("allowed_profiles") or []
+    return await asyncio.to_thread(
+        answer, text, agent_id=agent_id, allowed_profiles=profiles,
+        with_content=bool(data.get("with_content")),
+    )

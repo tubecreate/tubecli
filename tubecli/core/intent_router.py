@@ -263,6 +263,25 @@ LIST_CHANNELS_PATTERNS = [
     r"có\s+(những\s+)?(kênh|channel)\s+nào",
 ]
 
+# Đọc lại kho ĐÃ cào, khác hẳn với đi cào thêm. Ranh giới nằm ở thì của động
+# từ — "đã cào"/"scraped" là quá khứ, "đi cào <url>" là mệnh lệnh — nên mẫu
+# dưới đây luôn buộc phải có dấu hiệu quá khứ hoặc một danh từ chỉ cái kho,
+# không bao giờ chỉ mỗi từ "cào".
+SCRAPED_DATA_PATTERNS = [
+    r"(dữ\s*liệu|du\s*lieu|nội\s*dung|noi\s*dung|bài|bai|tin)\s*(nào\s*)?(đã|da)\s*(cào|cao|thu\s*thập|thu\s*thap|crawl|scrape)",
+    r"(đã|da)\s*(cào|cao|crawl|scrape)\w*\s*(được|duoc)?\s*(gì|gi|những\s*gì|nhung\s*gi|bao\s*nhiêu|bao\s*nhieu)",
+    r"\b(scraped|crawled)\s+(data|articles?|content|pages?)\b",
+    r"\b(kho|corpus)\s*(dữ\s*liệu|du\s*lieu|bài|bai)\b",
+    r"(lấy|lay|xem|liệt\s*kê|liet\s*ke|danh\s*sách|danh\s*sach|show|list|get)\s+.{0,20}(đã|da)\s*(cào|cao|crawl|scrape)",
+    r"(bài|bai|articles?)\s+.{0,15}(cào|cao|scrape[d]?|crawl(ed)?)\s+.{0,15}(hôm\s*nay|hom\s*nay|hôm\s*qua|hom\s*qua|today|yesterday)",
+]
+
+# "đọc full/toàn văn" → trả kèm nội dung, không chỉ tiêu đề.
+SCRAPED_FULLTEXT_PATTERNS = [
+    r"\b(full|toàn\s*văn|toan\s*van|đầy\s*đủ|day\s*du|chi\s*tiết|chi\s*tiet|nguyên\s*văn|nguyen\s*van)\b",
+    r"\b(kèm|kem|cả|ca|với|voi)\s*(nội\s*dung|noi\s*dung|content|body)\b",
+]
+
 LIST_TEMPLATES_PATTERNS = [
     r"(list|danh\s*sách|xem).*?template",
     r"template.*(list|danh\s*sách)",
@@ -483,6 +502,20 @@ class IntentRouter:
                 intent_type="read_page",
                 confidence=0.92,
                 extracted_data={"url": page_url, "task": text},
+                skip_llm=True,
+            )
+
+        # ── 5c. Đọc kho dữ liệu ĐÃ cào ───────────────────────────
+        # "lấy dữ liệu đã cào hôm nay" là đọc kho trên đĩa, KHÔNG phải đi cào
+        # tiếp. Phải đặt TRƯỚC cả SEARCH lẫn BROWSER: câu có "cào"/"dữ liệu"
+        # khớp BROWSER_PATTERNS, nên để rơi xuống dưới thì agent sẽ mở trình
+        # duyệt đi cào lại đúng thứ nó đã có sẵn.
+        if self._matches_any(text_lower, SCRAPED_DATA_PATTERNS):
+            return IntentResult(
+                intent_type="scraped_data",
+                confidence=0.93,
+                extracted_data={"query": text, "with_content": bool(
+                    self._matches_any(text_lower, SCRAPED_FULLTEXT_PATTERNS))},
                 skip_llm=True,
             )
 

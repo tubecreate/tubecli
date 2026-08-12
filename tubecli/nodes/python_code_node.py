@@ -35,6 +35,10 @@ class PythonCodeNode(BaseNode):
             "json_input": json_in,
             "input_data": input_data,
             "result": None,
+            # The run's context — which agent, which workflow. The engine has
+            # always passed it to execute(); it just never reached the code,
+            # so a snippet had no way to scope anything to the caller.
+            "context": kwargs.get("context") or {},
             # Common modules
             "json": _json,
             "re": _re,

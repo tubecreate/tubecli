@@ -478,6 +478,79 @@ DEFAULT_SKILLS: List[Dict] = [
                 }
             ]
         }
+    },
+    {
+        # Reads what has ALREADY been collected. Distinct from Web Crawler
+        # above, which goes out and fetches more — asking for "dữ liệu đã cào"
+        # and getting a fresh crawl of the same pages is the confusion this
+        # exists to remove.
+        "name": "📚 Dữ liệu đã cào",
+        "description": (
+            "Tra cứu kho bài viết agent đã cào: lọc theo ngày, từ khoá, tên miền; "
+            "trả tiêu đề + trích đoạn, hoặc toàn văn khi cần. "
+            "Dùng: tubecli skill run 'Dữ liệu đã cào' --input 'hôm nay'"
+        ),
+        "skill_type": "Workflow Skill",
+        "commands": ["scraped data", "dữ liệu đã cào", "bài đã cào", "kho dữ liệu",
+                     "scraped articles", "crawled data"],
+        "workflow_data": {
+            "name": "Scraped Data",
+            "nodes": [
+                {
+                    "id": "input_query",
+                    "type": "text_input",
+                    "label": "📝 Lọc (vd: hôm nay, đầu tư, vietnam-briefing.com)",
+                    "config": {"text": ""}
+                },
+                {
+                    "id": "read_store",
+                    "type": "python_code",
+                    "label": "📚 Đọc kho đã cào",
+                    # Reads the disk directly rather than calling the HTTP API:
+                    # no port to guess, and no session cookie to mint from
+                    # inside a workflow that is already running as the server.
+                    #
+                    # Scope: WorkflowEngine accepts a context but no call site
+                    # passes one yet, so `agent` is empty here and this skill
+                    # reads the WHOLE corpus. It is written to narrow itself
+                    # the moment a caller does supply one. Per-agent scoping is
+                    # available today through the chat fast-path and
+                    # /api/v1/agents/{id}/scraped, both of which know who is
+                    # asking.
+                    "config": {"code": (
+                        "from tubecli.core.scraped_query import answer\n"
+                        "ctx = context or {}\n"
+                        "agent = ctx.get('agent') or {}\n"
+                        "result = answer(\n"
+                        "    input_data or '',\n"
+                        "    agent_id=ctx.get('agent_id') or agent.get('id'),\n"
+                        "    allowed_profiles=agent.get('allowed_profiles') or [],\n"
+                        "    with_content=False,\n"
+                        ")\n"
+                    )}
+                },
+                {
+                    "id": "result_output",
+                    "type": "output",
+                    "label": "📤 Kết quả",
+                    "config": {"print": True}
+                }
+            ],
+            "connections": [
+                {
+                    "from_node_id": "input_query",
+                    "from_port_id": "content",
+                    "to_node_id": "read_store",
+                    "to_port_id": "text_input"
+                },
+                {
+                    "from_node_id": "read_store",
+                    "from_port_id": "result",
+                    "to_node_id": "result_output",
+                    "to_port_id": "data"
+                }
+            ]
+        }
     }
 ]
 

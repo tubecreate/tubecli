@@ -146,25 +146,16 @@ def check_and_generate_daily_keywords(agent, now_dt):
     print(f"[Scheduler Callback] Daily keywords stale or missing for {date_str}. Generating evolved keywords via AI...")
 
     # 1. Retrieve recent history titles
-    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
+    from tubecli.core import scraped_store
+
     recent_history_titles = []
     allowed_profiles = getattr(agent, "allowed_profiles", []) or []
-    for profile in allowed_profiles:
-        history_path = scraped_data_dir / profile / "history.json"
-        if history_path.exists():
-            try:
-                with open(history_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    articles = data.get("scrapedArticles", [])
-                    filtered_articles = [
-                        a for a in articles 
-                        if not a.get("agentId") and not a.get("agent_id") or a.get("agentId") == agent.id or a.get("agent_id") == agent.id
-                    ]
-                    for a in filtered_articles[:15]:
-                        if a.get("title") and a.get("title") != "Untitled":
-                            recent_history_titles.append(f"- {a.get('title')} ({a.get('url', '')})")
-            except Exception:
-                pass
+    for profile in scraped_store.resolve_profiles(allowed_profiles):
+        owned = [a for a in scraped_store.raw_history(profile)
+                 if scraped_store.owns(a, agent.id, allowed_profiles, profile)]
+        for a in owned[:15]:
+            if a.get("title") and a.get("title") != "Untitled":
+                recent_history_titles.append(f"- {a.get('title')} ({a.get('url', '')})")
 
     # 2. Build interests list
     persona = agent.persona or {}
@@ -1334,25 +1325,20 @@ async def get_agent_history(agent_id: str):
         raise HTTPException(404, f"Agent {agent_id} not found")
         
     allowed_profiles = getattr(agent, "allowed_profiles", []) or []
-    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
-    
+
+    # Raw history rows, unchanged: the dashboard's history tab reads camelCase
+    # straight off this. Only the reading is shared with scraped_store; the
+    # normalised view lives under /api/v1/scraped/*.
+    from tubecli.core import scraped_store
+
     all_articles = []
-    for profile in allowed_profiles:
-        history_path = scraped_data_dir / profile / "history.json"
-        if history_path.exists():
-            try:
-                with open(history_path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    articles = data.get("scrapedArticles", [])
-                    for a in articles:
-                        art_agent_id = a.get("agentId") or a.get("agent_id")
-                        if not art_agent_id or art_agent_id == agent_id:
-                            a_copy = dict(a)
-                            a_copy["_profile"] = profile
-                            all_articles.append(a_copy)
-            except Exception as e:
-                print(f"Error reading scraper history for {profile}: {e}")
-                
+    for profile in scraped_store.resolve_profiles(allowed_profiles):
+        for a in scraped_store.raw_history(profile):
+            if scraped_store.owns(a, agent_id, allowed_profiles, profile):
+                a_copy = dict(a)
+                a_copy["_profile"] = profile
+                all_articles.append(a_copy)
+
     # Sort by scrapedAt desc
     all_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
     return all_articles
@@ -1382,6 +1368,189 @@ def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
     }
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Scraped corpus
+#
+# Everything the browser agents collected, queryable. Until now it could only
+# be reached one agent at a time, metadata-only, unsorted and unsearchable —
+# the bodies were on disk with no way to ask for them.
+#
+# All of these are `def`, not `async def`: they read JSON files, and Starlette
+# runs a sync endpoint in the threadpool rather than blocking the event loop.
+# None of the paths appear in _AUTH_EXEMPT_EXACT/_PREFIX, so they inherit the
+# login gate — this is scraped page content, not public data.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _agent_scope(agent_id: Optional[str]):
+    """(agent_id, allowed_profiles) for an optional agent filter."""
+    if not agent_id:
+        return None, ()
+    from tubecli.core.agent import agent_manager
+
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    return agent_id, (getattr(agent, "allowed_profiles", []) or [])
+
+
+@app.get("/api/v1/scraped/profiles")
+def scraped_profiles():
+    """Which profiles hold scraped data, and how much."""
+    from tubecli.core import scraped_store
+
+    out = []
+    for name in scraped_store.profiles():
+        hist = scraped_store.raw_history(name)
+        arts = scraped_store.raw_articles(name)
+        out.append({
+            "profile": name,
+            "history_entries": len(hist),
+            "articles_with_body": len(arts),
+        })
+    return {"root": str(scraped_store.data_root()), "profiles": out}
+
+
+@app.get("/api/v1/scraped/articles")
+def scraped_articles(
+    agent_id: Optional[str] = None,
+    profile: Optional[str] = None,
+    q: str = "",
+    domain: str = "",
+    day: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    with_content: bool = False,
+    only_with_content: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+    order: str = "desc",
+):
+    """Search the corpus.
+
+    `day`/`since`/`until` take YYYY-MM-DD or the words today/yesterday, and are
+    read as LOCAL calendar days — the stored stamps are UTC, so on UTC+7 a
+    substring match on the date would drop everything scraped after 17:00.
+    `profile` may be comma-separated; unknown names are dropped rather than
+    joined into a path.
+    """
+    from tubecli.core import scraped_store
+
+    aid, allowed = _agent_scope(agent_id)
+    profs = [p.strip() for p in profile.split(",") if p.strip()] if profile else None
+    return scraped_store.query(
+        agent_id=aid, allowed_profiles=allowed, profile=profs, q=q, domain=domain,
+        day=day, since=since, until=until, with_content=with_content,
+        only_with_content=only_with_content, limit=limit, offset=offset, order=order,
+    )
+
+
+@app.get("/api/v1/scraped/article")
+def scraped_article(url: str, profile: Optional[str] = None, agent_id: Optional[str] = None):
+    """One article with its full body.
+
+    404 here can mean two different things and they are worth telling apart:
+    the URL was never scraped, or it was and the body has since rotated out of
+    articles.json (which keeps 100 while history keeps 500).
+    """
+    from tubecli.core import scraped_store
+
+    aid, allowed = _agent_scope(agent_id)
+    rec = scraped_store.get_article(url, profile=profile, allowed_profiles=allowed)
+    if not rec:
+        raise HTTPException(404, f"Nothing scraped for {url}")
+    if not rec.get("has_content"):
+        raise HTTPException(
+            410,
+            f"Đã cào '{rec.get('title') or url}' lúc {rec.get('scraped_at_local') or '?'} "
+            f"nhưng phần nội dung đã bị xoay vòng khỏi articles.json "
+            f"(giữ tối đa {scraped_store.ARTICLE_CAP} bài/profile). Cào lại để lấy nội dung.",
+        )
+    return rec
+
+
+@app.get("/api/v1/scraped/stats")
+def scraped_stats(agent_id: Optional[str] = None, profile: Optional[str] = None, days: int = 14):
+    """Totals by profile, domain, agent and local day."""
+    from tubecli.core import scraped_store
+
+    aid, allowed = _agent_scope(agent_id)
+    profs = [p.strip() for p in profile.split(",") if p.strip()] if profile else None
+    return scraped_store.stats(agent_id=aid, allowed_profiles=allowed, profile=profs, days=days)
+
+
+@app.get("/api/v1/scraped/export")
+def scraped_export(
+    fmt: str = "json",
+    agent_id: Optional[str] = None,
+    profile: Optional[str] = None,
+    q: str = "",
+    domain: str = "",
+    day: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    limit: int = 200,
+    download: bool = True,
+):
+    """The same query, serialised as json / jsonl / csv / md / txt."""
+    from fastapi.responses import Response
+    from tubecli.core import scraped_store
+
+    aid, allowed = _agent_scope(agent_id)
+    profs = [p.strip() for p in profile.split(",") if p.strip()] if profile else None
+    result = scraped_store.query(
+        agent_id=aid, allowed_profiles=allowed, profile=profs, q=q, domain=domain,
+        day=day, since=since, until=until, with_content=True, limit=limit,
+    )
+    try:
+        body, media, filename = scraped_store.export(result["items"], fmt)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return Response(content=body, media_type=media, headers=headers)
+
+
+@app.get("/api/v1/scraped/image")
+def scraped_image(profile: str, path: str):
+    """Serve an image the scraper downloaded alongside an article.
+
+    `path` is taken from a record's images[].localPath, which is absolute and
+    therefore has to be proven to sit inside this profile's folder before it is
+    opened. image_path() returns None for anything that escapes.
+    """
+    from fastapi.responses import FileResponse
+    from tubecli.core import scraped_store
+
+    resolved = scraped_store.image_path(path, profile=profile)
+    if not resolved:
+        raise HTTPException(404, "Image not found in this profile")
+    guessed = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+    return FileResponse(str(resolved), media_type=guessed)
+
+
+@app.get("/api/v1/agents/{agent_id}/scraped")
+def agent_scraped(
+    agent_id: str,
+    q: str = "",
+    day: Optional[str] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    with_content: bool = False,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """This agent's own corpus. Same store, scope fixed to the agent."""
+    from tubecli.core import scraped_store
+
+    aid, allowed = _agent_scope(agent_id)
+    return scraped_store.query(
+        agent_id=aid, allowed_profiles=allowed, q=q, day=day, since=since, until=until,
+        with_content=with_content, limit=limit, offset=offset,
+    )
+
+
 @app.get("/api/v1/agents/{agent_id}/scraped-article")
 async def get_scraped_article_detail(agent_id: str, profile: str, url: str):
     from tubecli.core.agent import agent_manager
@@ -1395,24 +1564,13 @@ async def get_scraped_article_detail(agent_id: str, profile: str, url: str):
     allowed_profiles = getattr(agent, "allowed_profiles", []) or []
     if profile not in allowed_profiles:
         raise HTTPException(403, f"Profile {profile} is not associated with this agent")
-        
-    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
-    articles_path = scraped_data_dir / profile / "articles.json"
-    
-    if not articles_path.exists():
-        raise HTTPException(404, f"No articles found for profile {profile}")
-        
-    try:
-        with open(articles_path, 'r', encoding='utf-8') as f:
-            articles = json.load(f)
-            if not isinstance(articles, list):
-                articles = []
-            for a in articles:
-                if a.get("url") == url:
-                    return a
-    except Exception as e:
-        raise HTTPException(500, f"Error reading articles: {str(e)}")
-        
+
+    from tubecli.core import scraped_store
+
+    for a in scraped_store.raw_articles(profile):
+        if a.get("url") == url:
+            return a
+
     raise HTTPException(404, f"Article not found in profile {profile}")
 
 
@@ -1431,23 +1589,10 @@ async def rewrite_scraped_article(agent_id: str, profile: str, url: str):
     if profile not in allowed_profiles:
         raise HTTPException(403, f"Profile {profile} is not associated with this agent")
         
-    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
-    articles_path = scraped_data_dir / profile / "articles.json"
-    
-    if not articles_path.exists():
-        raise HTTPException(404, f"No articles found for profile {profile}")
-        
-    article = None
-    try:
-        with open(articles_path, 'r', encoding='utf-8') as f:
-            articles = json.load(f)
-            for a in articles:
-                if a.get("url") == url:
-                    article = a
-                    break
-    except Exception as e:
-        raise HTTPException(500, f"Error reading articles: {str(e)}")
-        
+    from tubecli.core import scraped_store
+
+    article = next((a for a in scraped_store.raw_articles(profile) if a.get("url") == url), None)
+
     if not article:
         raise HTTPException(404, f"Article not found in profile {profile}")
         
@@ -1523,33 +1668,31 @@ async def generate_content_from_today(agent_id: str, req: Optional[GenerateConte
         raise HTTPException(404, f"Agent {agent_id} not found")
         
     allowed_profiles = getattr(agent, "allowed_profiles", []) or []
-    scraped_data_dir = Path(__file__).parent.parent / "extensions" / "browser" / "scraped_data"
-    
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    
-    today_articles = []
-    
-    for profile in allowed_profiles:
-        articles_path = scraped_data_dir / profile / "articles.json"
-        if articles_path.exists():
-            try:
-                with open(articles_path, 'r', encoding='utf-8') as f:
-                    articles = json.load(f)
-                    if isinstance(articles, list):
-                        for a in articles:
-                            scraped_at = a.get("scrapedAt", "")
-                            if scraped_at and today_str in scraped_at:
-                                a_copy = dict(a)
-                                a_copy["_profile"] = profile
-                                today_articles.append(a_copy)
-            except Exception as e:
-                print(f"Error reading articles for {profile}: {e}")
-                
+
+    # "Hôm nay" used to be `datetime.now().strftime("%Y-%m-%d") in scrapedAt` —
+    # a substring test against a UTC stamp. In UTC+7 that silently discards
+    # everything scraped after 17:00 local (already tomorrow in UTC) and
+    # everything before 07:00 (still yesterday), so the button reported "chưa
+    # cào được gì" on days with a full evening of articles. The store converts
+    # the local day to real UTC bounds instead.
+    from tubecli.core import scraped_store
+
+    found = scraped_store.query(
+        agent_id=agent_id, allowed_profiles=allowed_profiles, day="today",
+        with_content=True, only_with_content=True, limit=100,
+    )
+    # Already newest-first from the store, and shaped back into the camelCase
+    # keys the prompt builder below reads.
+    today_articles = [
+        {"title": a["title"], "url": a["url"], "content": a.get("content", ""),
+         "author": a.get("author", ""), "description": a.get("description", ""),
+         "images": a.get("images", []), "scrapedAt": a["scraped_at"], "_profile": a["profile"]}
+        for a in found["items"]
+    ]
+
     if not today_articles:
         raise HTTPException(400, "Không tìm thấy nội dung nào được cào (scraped) trong ngày hôm nay. Hãy chạy agent đi cào dữ liệu trước.")
 
-    today_articles.sort(key=lambda x: x.get("scrapedAt", ""), reverse=True)
-    
     selected_urls = req.selected_urls if req else []
     max_length = req.max_length if (req and req.max_length) else 2000
     
