@@ -209,7 +209,8 @@ THỐNG KÊ:
 LƯU Ý QUAN TRỌNG:
 - Chỉ bài có has_content=true mới dùng được; bài khác chỉ có tiêu đề và URL.
 - Mặc định các endpoint trên CHỈ trả bài có nội dung.
-- Mọi endpoint đều cần cookie phiên ở BƯỚC 1, trừ khi gọi từ localhost.
+- Mọi endpoint đều cần khoá đọc (CÁCH 1) hoặc cookie phiên (CÁCH 2), trừ khi
+  gọi từ localhost.
 - Không tự bịa nội dung bài. Nếu total=0 thì báo lại đúng như vậy.
 """
 
@@ -283,7 +284,8 @@ STATS:
 IMPORTANT:
 - Only records with has_content=true are usable; the rest are title and URL.
 - These endpoints return only articles with text by default.
-- Every endpoint needs the STEP 1 cookie unless called from localhost.
+- Every endpoint needs either the read key (OPTION 1) or a session cookie
+  (OPTION 2), unless called from localhost.
 - Do not invent article content. If total=0, report exactly that.
 """
 

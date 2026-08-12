@@ -373,6 +373,29 @@ try:
           "<KHOÁ_ĐỌC>" in scraped_query.build_guide(base_url="http://x/", agent_id="a", lang="vi"),
           "no placeholder when unkeyed")
 
+    # Dangling cross-references. When the cookie steps were demoted from
+    # "BƯỚC 1/BƯỚC 2" to "CÁCH 2", the closing notes were left saying "mọi
+    # endpoint đều cần cookie phiên ở BƯỚC 1" — a rule that contradicted the
+    # method above it and pointed at a section that no longer existed. The
+    # brief still read as authoritative, which is the danger: an AI following
+    # it would have concluded the key was insufficient and given up.
+    for lang, words in (("vi", ("BƯỚC", "CÁCH")), ("en", ("STEP", "OPTION"))):
+        g = scraped_query.build_guide(base_url="http://x/", agent_id="a",
+                                      read_key="tcs_K", lang=lang)
+        headings = set(re.findall(rf"^({'|'.join(words)}) (\d+)", g, re.M))
+        referenced = set(re.findall(rf"\b({'|'.join(words)}) (\d+)", g))
+        dangling = referenced - headings
+        check(f"brief[{lang}] has no dangling section reference", not dangling,
+              f"refers to {sorted(dangling)}, which is not a heading in the document")
+
+    # And the notes must not contradict the method the brief recommends.
+    vi = scraped_query.build_guide(base_url="http://x/", agent_id="a",
+                                   read_key="tcs_K", lang="vi")
+    notes = vi.split("LƯU Ý QUAN TRỌNG")[-1]
+    check("closing notes do not claim a cookie is always required",
+          "khoá đọc" in notes.lower() or "cách 1" in notes.lower(),
+          "the notes still describe cookie-only auth")
+
     import inspect  # noqa: E402
     params = set(inspect.signature(scraped_query.build_guide).parameters)
     banned = {p for p in params if any(w in p for w in ("password", "passwd", "secret", "cookie", "session"))}
