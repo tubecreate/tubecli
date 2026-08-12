@@ -2998,6 +2998,20 @@ async function openEditAgent(id, btn) {
         if (document.getElementById('btn-regen-kw-main')) {
             document.getElementById('btn-regen-kw-main').style.display = 'inline-block';
         }
+        // Re-run whichever tab is open, for THIS agent.
+        //
+        // Tab content is fetched by the click handler and nowhere else, and this
+        // path — unlike the create-agent path above — does not reset to the
+        // first tab. So opening agent B while the Run Log tab was left open from
+        // agent A swapped the title and left A's runs on screen underneath it,
+        // which reads as one shared log for every agent. The data was never
+        // shared: the panel was simply never told to reload.
+        const openTab = document.querySelector('#modal-agent .agent-tab-btn.active');
+        if (openTab && ['runlog', 'history'].includes(openTab.dataset.atab)) {
+            if (openTab.dataset.atab === 'runlog') loadAgentRuns();
+            else loadAgentHistory();
+        }
+
         document.getElementById('modal-agent').classList.remove('hidden');
         // Load model dropdowns async (non-blocking, lazy)
         populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
@@ -4020,7 +4034,11 @@ async function loadAgentHistory() {
     const searchInput = document.getElementById('agent-history-search');
     if (searchInput) searchInput.value = '';
     
+    // Same stale-response guard as the run log: opening another agent while
+    // this is in flight must not let the old reply paint over the new view.
+    const requestedHistoryId = id;
     const res = await apiGet('/api/v1/agents/' + id + '/history');
+    if (document.getElementById('agent-id').value !== requestedHistoryId) return;
     if (res && res.error) {
         listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:#ef4444;">❌ ${T('agent_modal.error_prefix') || 'Error'}: ${esc(res.error)}</p>`;
         return;
@@ -4080,7 +4098,18 @@ async function loadAgentRuns() {
         return;
     }
 
+    // Clear the previous agent's rows before the request, not after it resolves.
+    // Otherwise the old agent's runs stay on screen for the length of a network
+    // round trip, under the new agent's name — which is exactly what makes the
+    // log look shared when it is not.
+    listDiv.innerHTML = `<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;">${T('common.loading') || '...'}</p>`;
+    if (summary) summary.textContent = '';
+
+    // The id can change while this is in flight if the user opens another agent;
+    // a slow reply for the previous one must not overwrite the current view.
+    const requestedId = id;
     const res = await apiGet('/api/v1/agents/' + id + '/runs');
+    if (document.getElementById('agent-id').value !== requestedId) return;
     if (!res || res.error) {
         listDiv.innerHTML = `<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;color:#ef4444;">Không đọc được nhật ký: ${esc((res && res.error) || 'lỗi không rõ')}</p>`;
         return;

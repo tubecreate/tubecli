@@ -297,6 +297,51 @@ console.log('\n=== 9. tab Nhat ky rieng + giao dien di dong ===');
   check('vi phu day du khoa cua en',
     Object.keys(en).every(k => k in vi),
     Object.keys(en).filter(k => !(k in vi)).slice(0, 3).join(', '));
+
+  // Tab content is fetched by the click handler and nowhere else, and the
+  // open-details path does not reset to the first tab. So opening agent B while
+  // the Run Log tab was left open from agent A swapped the title and left A's
+  // rows underneath it — which reads as one shared log for every agent. The
+  // backend filter was never wrong; the panel was never told to reload.
+  // RUN the reload block rather than pattern-match it. Two text-based versions
+  // of this check passed against `if (false)`: the first measured the distance
+  // between two strings, the second found the identifier on a line INSIDE the
+  // disabled branch. Only executing it distinguishes wired from present.
+  {
+    const block = (appjs.match(
+      /const openTab = document\.querySelector\('#modal-agent \.agent-tab-btn\.active'\);[\s\S]*?\n        \}/) || [''])[0];
+    check('trich duoc doan nap lai', !!block);
+
+    const run = (activeTab) => {
+      const calls = [];
+      const document = {
+        querySelector: () => (activeTab ? { dataset: { atab: activeTab } } : null),
+      };
+      const loadAgentRuns = () => calls.push('runs');
+      const loadAgentHistory = () => calls.push('history');
+      // eslint-disable-next-line no-new-func
+      new Function('document', 'loadAgentRuns', 'loadAgentHistory', block)(
+        document, loadAgentRuns, loadAgentHistory);
+      return calls.join(',');
+    };
+
+    check('mo agent khac khi dang o tab Nhat ky -> nap lai runs', run('runlog') === 'runs', run('runlog'));
+    check('  dang o tab Lich su -> nap lai history', run('history') === 'history', run('history'));
+    check('  dang o tab khac -> khong goi gi', run('identity') === '', run('identity'));
+    check('  khong co tab nao active -> khong no', run(null) === '', run(null));
+  }
+  // Anchored on the function body rather than a fixed-width window: the window
+  // measured the comments, not the code, and a longer explanation broke it.
+  {
+    const fn = (appjs.match(/async function loadAgentRuns\(\)[\s\S]*?\n\}/) || [''])[0];
+    const iClear = fn.indexOf('listDiv.innerHTML');
+    const iFetch = fn.indexOf("apiGet('/api/v1/agents/' + id + '/runs')");
+    check('  xoa hang cu TRUOC khi goi mang',
+      iClear > -1 && iFetch > -1 && iClear < iFetch, `clear=${iClear} fetch=${iFetch}`);
+  }
+  check('  bo qua phan hoi den muon cua agent cu',
+    /requestedId[\s\S]{0,200}!== requestedId\) return;/.test(appjs));
+  check('  lich su cung co chot do', /requestedHistoryId/.test(appjs));
 }
 
 console.log(`\n${pass}/${pass + fail} PASS`);
