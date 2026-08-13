@@ -1,3 +1,3 @@
 """TubeCLI — Open Source AI Agent CLI System"""
-__version__ = "2026.08.09.37"
-__build__ = "2026.08.09.37"
+__version__ = "2026.08.09.38"
+__build__ = "2026.08.09.38"
