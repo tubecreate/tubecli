@@ -769,8 +769,9 @@ async loadBlacklist() {
                }
             }
           }
-          console.log(`[SessionManager] Generated Action Chain (${actionChain.length} steps):`, actionChain);
-          return actionChain;
+          const finalChain = this._ensureScrapeFirst(actionChain, pageContent);
+          console.log(`[SessionManager] Generated Action Chain (${finalChain.length} steps):`, finalChain);
+          return finalChain;
         }
       } catch (e) {
         console.error('[SessionManager] AI generation failed, falling back to heuristic:', e.message);
@@ -780,6 +781,37 @@ async loadBlacklist() {
     const action = this._getContentBasedAction(pageContent, remainingMs);
     console.log(`[SessionManager] Heuristic Action:`, action);
     return action;
+  }
+
+  /**
+   * Harvest the article the agent is standing on, whatever the model decided.
+   *
+   * Auto-scraping is a switch the USER turns on, so it must not depend on a
+   * language model choosing to honour it. It did: the AI picks the whole action
+   * chain, and _getContentBasedAction — which contains the deterministic
+   * "content page detected, extract it" rule — is only reached when the model
+   * returns nothing at all. On a working model that branch never runs.
+   *
+   * The prompt then made it worse by explicitly ranking browsing ABOVE
+   * extraction, so the agent did what it was told: 43 pages visited, 2 articles
+   * harvested. The rule is inverted now, and this is the net underneath it.
+   */
+  _ensureScrapeFirst(actionChain, pageContent) {
+    if (!this.agentContext?.enable_scraping) return actionChain;
+    if (!pageContent?.isContentPage) return actionChain;
+
+    const url = this.currentContext?.url || '';
+    // Domains extract_content refuses anyway — prepending here would just add a
+    // step that logs "skipping commercial/service domain" and returns null.
+    if (!url || url.includes('youtube.com') || url.includes('google.com')) return actionChain;
+    if (this.scrapedUrls.has(url)) return actionChain;
+    if (this.actionHistory.some(a => a.action === 'extract_content' && a.url === url && a.status === 'success')) {
+      return actionChain;
+    }
+    if (actionChain.some(a => a && a.action === 'extract_content')) return actionChain;
+
+    console.log(`[SessionManager] Content page not harvested by the model — prepending extract_content: ${url}`);
+    return [{ action: 'extract_content', params: {} }, ...actionChain];
   }
 
   /**
@@ -1131,7 +1163,7 @@ INSTRUCTIONS:
 3. If the current page contains relevant results, FOCUS on clicking them instead of searching again.
 4. DO NOT try to guess specific link text. Use "intent" or "criteria".
 5. The system will "ground" your abstract actions to real elements.
-6. PRIORITIZE browsing and exploring content (click_result, browse, watch) over extract_content.
+6. If "isContentPage" is true and "alreadyScraped" is false, extract_content MUST be the FIRST action. Harvest the article, then keep exploring.
 7. Only use extract_content ONCE per article page. If "alreadyScraped" is true, DO NOT use extract_content — just browse normally.
 8. After extract_content, ALWAYS continue with browse or click_link to keep exploring.
 9. DO NOT perform another search if the session has already searched once. If you need more content, use click_link or browse on the current page. The user goal already specified what to search — DO NOT repeat it.
