@@ -326,8 +326,8 @@
                     <div class="settings-field">
                         <label data-i18n="settings.ext_open_mode">Extension Open Mode</label>
                         <select id="set-ext-open-mode" onchange="autoSaveSetting('ext_open_mode', this.value, this); setTimeout(() => location.reload(), 400);">
-                            <option value="full_page" data-i18n="settings.ext_open_mode_new_tab">Open in new tab (Default)</option>
-                            <option value="dashboard" data-i18n="settings.ext_open_mode_iframe">Embed in dashboard (Iframe)</option>
+                            <option value="full_page" data-i18n="settings.ext_open_mode_new_tab">Open in new tab</option>
+                            <option value="dashboard" data-i18n="settings.ext_open_mode_iframe">Embed in dashboard (Iframe) (Default)</option>
                         </select>
                         <div class="field-hint" data-i18n="settings.ext_open_mode_hint">How extensions open from the sidebar menu.</div>
                     </div>
@@ -1474,7 +1474,7 @@
     
     var extModeEl = document.getElementById('set-ext-open-mode');
     if (extModeEl) {
-        extModeEl.value = localStorage.getItem('ext_open_mode') || 'full_page';
+        extModeEl.value = localStorage.getItem('ext_open_mode') || 'dashboard';
     }
     // Fetch version for sidebar badge + check for updates
     fetch('/api/v1/version').then(r=>r.json()).then(d=>{

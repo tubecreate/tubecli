@@ -36,7 +36,7 @@ const ROUTE_TAB_MAP = {
 };
 
 function navigateTo(tab) {
-    const openMode = localStorage.getItem('ext_open_mode') || 'full_page';
+    const openMode = localStorage.getItem('ext_open_mode') || 'dashboard';
     if (openMode === 'full_page' && tab.startsWith('ext-')) {
         const excludeTabs = ['ext-auth-manager', 'ext-calendar', 'ext-agents', 'ext-browser', 'ext-cloud-keys', 'ext-market', 'ext-codex', 'ext-chat'];
         if (!excludeTabs.includes(tab)) {
