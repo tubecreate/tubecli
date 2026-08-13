@@ -73,6 +73,16 @@ async def api_test_key(req: TestKeyRequest):
     return key_manager.test_key(req.provider, req.label)
 
 
+@router.post("/keys/enable")
+async def api_enable_key(req: TestKeyRequest):
+    """Re-enable a key that was auto-disabled on a quota error."""
+    from tubecli.extensions.cloud_api.extension import key_manager
+    result = key_manager.enable_key(req.provider, req.label)
+    if result["status"] == "error":
+        raise HTTPException(404, result["message"])
+    return result
+
+
 @router.get("/keys/{provider}/active")
 async def api_get_active_key(provider: str):
     """Get the active API key for a provider (for internal use by agents)."""
@@ -106,12 +116,22 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
     from tubecli.extensions.cloud_api.extension import key_manager
     from tubecli.core.ai_generator import call_gemini, call_openai_compatible, call_claude
     
+    prov = provider.lower()
+    # Cloudflare is compound (account_id + token) and account-scoped, so it does
+    # not fit get_active_key. Route it to the dedicated caller, which reads the
+    # compound credential itself.
+    if prov == "cloudflare":
+        from tubecli.core.brain import AgentBrain
+        res = AgentBrain._call_cloudflare(req.model, [{"role": "user", "content": req.prompt}], 0.3)
+        if isinstance(res, str) and res.startswith("[Cloudflare Error]"):
+            raise HTTPException(400, res)
+        return {"status": "success", "response": res}
+
     key = key_manager.get_active_key(provider)
     if not key:
         raise HTTPException(400, f"No active key configured for {provider}")
-        
+
     try:
-        prov = provider.lower()
         if prov == "gemini":
             res = call_gemini(req.model, key, req.prompt)
         elif prov == "openai" or prov == "chatgpt":

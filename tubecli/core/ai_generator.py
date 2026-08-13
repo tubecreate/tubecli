@@ -199,7 +199,11 @@ def generate_agent_json(name: str, description: str, provider: str, model: str,
 
         if raw.startswith("[QUOTA_ERROR]"):
             if not api_key and current_key:
-                key_manager.report_key_error(provider, current_key, "Quota Exceeded")
+                # A plain 429 clears on its own — park the key transiently so it
+                # revives after a cooldown instead of dying permanently. Only a
+                # hard quota/billing stop disables it for good.
+                hard = any(k in raw.lower() for k in ("insufficient_quota", "billing", "payment"))
+                key_manager.report_key_error(provider, current_key, "Quota Exceeded", transient=not hard)
                 continue
             else:
                 raise RuntimeError(raw)

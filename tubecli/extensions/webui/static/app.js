@@ -2197,20 +2197,37 @@ async function renderCloudApiExt(el) {
     const [provData, keysData] = await Promise.all([apiGet('/api/v1/cloud-api/providers'), apiGet('/api/v1/cloud-api/keys')]);
     const providers = provData?.providers || [];
     const keys = keysData?.keys || {};
-    const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡', everai:'🎙️' };
+    // Cache the provider metadata so the add-key modal (dropdown, compound
+    // fields, capability hint) reads from the same source these cards do.
+    window._cloudProviders = providers;
+    const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡', everai:'🎙️', openrouter:'🌐', '9router':'🔀', github:'🐙', cloudflare:'☁️' };
+    // How each capability reads on a card — chat/deploy work, none is honest about it.
+    const capBadge = {
+        chat:   `<span class="tag" style="background:rgba(34,197,94,.15);color:var(--green)">${T('cloud_api.cap_chat')}</span>`,
+        deploy: `<span class="tag" style="background:rgba(59,130,246,.15);color:#60a5fa">${T('cloud_api.cap_deploy')}</span>`,
+        none:   `<span class="tag" style="background:rgba(148,163,184,.15);color:var(--text-muted)">${T('cloud_api.cap_none')}</span>`,
+    };
     let h = `<div style="margin-bottom:20px"><button class="btn-primary" onclick="showAddApiKey()">${T('cloud_api.add_key')}</button></div>`;
     // Provider cards
     h += '<div class="cards-grid" style="margin-bottom:28px">';
     providers.forEach(p => {
+        const icon = p.icon || provIcons[p.id] || '☁️';
+        const cap = p.capability || 'none';
+        // A provider with no consumer must not offer an Add button that pretends
+        // its key will be used — that was the "Failed." trap on Cloudflare/GitHub.
+        const addBtn = cap === 'none'
+            ? `<button class="btn-sm" disabled style="opacity:.5;cursor:not-allowed" title="${T('cloud_api.cap_none_hint')}">${T('cloud_api.cap_none')}</button>`
+            : `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>`;
         h += `<div class="card" style="text-align:center">
-        <div class="card-icon" style="position:relative">${provIcons[p.id]||'☁️'}
+        <div class="card-icon" style="position:relative">${icon}
             <button class="btn-sm" style="position:absolute;top:0;right:0;padding:2px 6px;background:transparent;color:var(--text-muted);border:none" onclick="editProviderSettings('${esc(p.id)}', '${esc(p.models.join(','))}')" title="Edit Models">⚙️</button>
         </div>
         <h3>${esc(p.name)}</h3>
         <p class="card-desc" title="${esc(p.models.join(', '))}">${p.models.slice(0,3).join(', ')}${p.models.length>3?'...':''}</p>
-        <div class="card-footer" style="justify-content:center;gap:8px">
+        <div class="card-footer" style="justify-content:center;gap:6px;flex-wrap:wrap">
+            ${capBadge[cap] || ''}
             <span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')} <span style="font-size:0.75rem;margin-left:4px">(${p.key_count || 0})</span></span>
-            <button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>
+            ${addBtn}
         </div>
         </div>`;
     });
@@ -2221,18 +2238,79 @@ async function renderCloudApiExt(el) {
     h += `<h3 style="color:var(--cyan);margin-bottom:12px">${T('cloud_api.stored_keys')}</h3>`;
     if (allKeys.length > 0) {
         h += `<div class="table-container"><table class="data-table"><thead><tr><th>${T('cloud_api.provider')}</th><th>${T('cloud_api.label')}</th><th>${T('cloud_api.key')}</th><th>${T('cloud_api.status')}</th><th>${T('cloud_api.actions')}</th></tr></thead><tbody>`;
-        allKeys.forEach(k => { 
-            let st = k.active ? `<span style="color:var(--green)">● ${T('cloud_api.active')}</span>` : `<span style="color:var(--text-muted)">○ Bị tắt</span>`;
-            if (!k.active && k.status_msg) st = `<span style="color:var(--red)">⚠️ ${esc(k.status_msg)}</span>`;
+        allKeys.forEach(k => {
+            // Three states, not two. A disabled key shows why; an active key
+            // says whether it was actually verified or merely stored.
+            let st;
+            if (!k.active) {
+                st = k.status_msg
+                    ? `<span style="color:var(--red)">⚠️ ${esc(k.status_msg)}</span>`
+                    : `<span style="color:var(--text-muted)">○ ${T('cloud_api.disabled')}</span>`;
+            } else if (k.verified === true) {
+                st = `<span style="color:var(--green)">● ${T('cloud_api.verified')}</span>`;
+            } else {
+                st = `<span style="color:var(--text-muted)" title="${T('cloud_api.unverified_hint')}">◐ ${T('cloud_api.unverified')}</span>`;
+            }
+            // A disabled key gets a "Bật lại" action; the endpoint that revives it
+            // used to not exist, forcing users to hand-edit the JSON.
+            const enableBtn = !k.active
+                ? `<button class="btn-sm" style="background:var(--cyan);color:white;border:none;margin-right:4px;padding:2px 8px" onclick="enableApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">${T('cloud_api.enable')}</button>`
+                : '';
             h += `<tr><td style="font-weight:600;color:var(--cyan)">${esc(k.provider)}</td><td>${esc(k.label)}</td><td style="font-family:'JetBrains Mono',monospace;font-size:.8rem;color:var(--text-muted)">${esc(k.masked_key)}</td><td>${st}</td>
             <td style="white-space:nowrap">
+                ${enableBtn}
                 <button class="btn-sm" style="background:var(--green);color:white;border:none;margin-right:4px;padding:2px 8px" onclick="testApiKey('${esc(k.provider)}', '${esc(k.label)}')">▶ Test</button>
                 <button class="btn-danger btn-sm" style="padding:2px 8px" onclick="removeApiKeyExt('${esc(k.provider)}','${esc(k.label)}')">✕</button>
-            </td></tr>`; 
+            </td></tr>`;
         });
         h += '</tbody></table></div>';
     } else h += `<p class="text-muted">${T('cloud_api.no_keys')}</p>`;
     el.innerHTML = h;
+}
+
+// Which container to re-render after a key mutation — the ext-detail body or
+// the poller body, whichever is mounted.
+function _cloudExtBody() {
+    return document.getElementById('cloud-keys-ext-body') || document.getElementById('ext-detail-body');
+}
+
+// Build the add-key provider dropdown from the cached /providers metadata, so it
+// can never fall out of sync with the registry (the bug behind the broken
+// Cloudflare/GitHub Add buttons). Providers with no consumer are marked, not hidden.
+function buildAddKeyProviderSelect(preferred) {
+    const sel = document.getElementById('add-key-provider');
+    if (!sel) return;
+    const provs = window._cloudProviders || [];
+    sel.innerHTML = provs.map(p => {
+        const suffix = p.capability === 'none' ? ` — ${T('cloud_api.cap_none')}` : (p.compound ? ' — Cloudflare' : '');
+        return `<option value="${esc(p.id)}">${esc(p.name)}${suffix}</option>`;
+    }).join('');
+    if (preferred && provs.some(p => p.id === preferred)) sel.value = preferred;
+    onAddKeyProviderChange();
+}
+
+// Toggle the compound (Cloudflare) fields and the capability hint for the chosen provider.
+function onAddKeyProviderChange() {
+    const sel = document.getElementById('add-key-provider');
+    const p = (window._cloudProviders || []).find(x => x.id === sel.value) || {};
+    const compound = !!p.compound;
+    document.getElementById('add-key-account-group').style.display = compound ? '' : 'none';
+    document.getElementById('add-key-email-group').style.display = compound ? '' : 'none';
+    const vLabel = document.getElementById('add-key-value-label');
+    if (vLabel) vLabel.textContent = compound ? 'API Token / Global API Key' : T('add_key.key_label');
+    // Capability hint
+    const hint = document.getElementById('add-key-caphint');
+    if (hint) {
+        if (p.capability === 'none') {
+            hint.style.display = ''; hint.style.background = 'rgba(148,163,184,.12)'; hint.style.color = 'var(--text-muted)';
+            hint.textContent = T('cloud_api.cap_none_hint');
+        } else if (compound) {
+            hint.style.display = ''; hint.style.background = 'rgba(59,130,246,.12)'; hint.style.color = '#60a5fa';
+            hint.textContent = T('add_key.cloudflare_hint');
+        } else { hint.style.display = 'none'; }
+    }
+    const res = document.getElementById('add-key-result');
+    if (res) res.style.display = 'none';
 }
 
 let currentEditProvider = '';
@@ -2839,21 +2917,89 @@ function copyApiResponse() {
 }
 
 // ═══ API Key Management ═══
-function showAddApiKey() { document.getElementById('modal-add-key').classList.remove('hidden'); }
-function prefillAddKey(provider) { document.getElementById('add-key-provider').value = provider; document.getElementById('add-key-value').value = ''; document.getElementById('add-key-label').value = `key_${Math.floor(Date.now() / 1000)}`; document.getElementById('modal-add-key').classList.remove('hidden'); }
-async function addApiKey() { const prov=document.getElementById('add-key-provider').value, key=document.getElementById('add-key-value').value.trim(), label=document.getElementById('add-key-label').value.trim()||'default'; if(!key) return alert('Key required.'); const r = await apiPost('/api/v1/cloud-api/keys',{provider:prov,api_key:key,label}); if(r&&r.status==='success') { closeModal('modal-add-key'); renderCloudApiExt(document.getElementById('cloud-keys-ext-body') || document.getElementById('ext-detail-body')); alert('Added!'); } else alert('Failed.'); }
-async function testApiKey(provider, label = 'default') { 
-    alert(`Testing ${provider} [${label}]...`); 
-    const r = await apiPost('/api/v1/cloud-api/keys/test', {provider, label}); 
-    if (r) {
-        if (r.status === 'success') {
-            alert(`✅ OK! ${r.message}`);
-        } else if (r.status === 'info') {
-            alert(`ℹ️ INFO: ${r.message}`);
+function _resetAddKeyModal() {
+    document.getElementById('add-key-value').value = '';
+    const acc = document.getElementById('add-key-account'); if (acc) acc.value = '';
+    const em = document.getElementById('add-key-email'); if (em) em.value = '';
+    document.getElementById('add-key-label').value = `key_${Math.floor(Date.now() / 1000)}`;
+    const res = document.getElementById('add-key-result'); if (res) res.style.display = 'none';
+}
+function showAddApiKey() {
+    _resetAddKeyModal();
+    buildAddKeyProviderSelect();
+    document.getElementById('modal-add-key').classList.remove('hidden');
+}
+function prefillAddKey(provider) {
+    _resetAddKeyModal();
+    buildAddKeyProviderSelect(provider);
+    document.getElementById('modal-add-key').classList.remove('hidden');
+}
+
+function _showAddKeyResult(msg, kind) {
+    const box = document.getElementById('add-key-result');
+    if (!box) return;
+    const colors = { ok:['rgba(34,197,94,.14)','var(--green)'], warn:['rgba(234,179,8,.14)','#eab308'], err:['rgba(239,68,68,.14)','var(--red)'] };
+    const [bg, fg] = colors[kind] || colors.warn;
+    box.style.display = ''; box.style.background = bg; box.style.color = fg; box.textContent = msg;
+}
+
+// Save the key, then TEST it and report the real result inline — no more
+// "Added!" alert on a key that was never checked, and no bare "Failed." that
+// hides the backend's reason.
+async function addApiKey() {
+    const sel = document.getElementById('add-key-provider');
+    const prov = sel.value;
+    const meta = (window._cloudProviders || []).find(p => p.id === prov) || {};
+    const key = document.getElementById('add-key-value').value.trim();
+    const label = document.getElementById('add-key-label').value.trim() || 'default';
+    if (!key) return _showAddKeyResult(T('add_key.key_required'), 'err');
+
+    const btn = document.getElementById('add-key-save-btn');
+    btn.disabled = true;
+    _showAddKeyResult(T('add_key.saving'), 'warn');
+
+    try {
+        let addRes;
+        if (meta.compound) {
+            const account_id = document.getElementById('add-key-account').value.trim();
+            const email = document.getElementById('add-key-email').value.trim();
+            if (!account_id) { btn.disabled = false; return _showAddKeyResult(T('add_key.account_required'), 'err'); }
+            addRes = await apiPost('/api/v1/cloud-api/cloudflare/profiles', { api_token: key, account_id, email, label });
         } else {
-            alert(`❌ LỖI: ${r.message || r.status}`);
+            addRes = await apiPost('/api/v1/cloud-api/keys', { provider: prov, api_key: key, label });
         }
-    } 
+        // apiPost surfaces backend HTTPException detail; show it rather than "Failed."
+        if (!addRes || (addRes.status && addRes.status === 'error') || addRes.detail) {
+            return _showAddKeyResult((addRes && (addRes.detail || addRes.message)) || T('add_key.failed'), 'err');
+        }
+        // Now verify it and report honestly.
+        _showAddKeyResult(T('add_key.testing'), 'warn');
+        const t = await apiPost('/api/v1/cloud-api/keys/test', { provider: prov, label });
+        if (t && t.status === 'success') _showAddKeyResult('✅ ' + (t.message || T('add_key.verified')), 'ok');
+        else if (t && t.status === 'info') _showAddKeyResult('◐ ' + (t.message || T('cloud_api.unverified')), 'warn');
+        else _showAddKeyResult('⚠️ ' + ((t && (t.detail || t.message)) || T('add_key.test_failed')), 'err');
+        renderCloudApiExt(_cloudExtBody());
+    } catch (e) {
+        _showAddKeyResult(String(e), 'err');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+async function enableApiKeyExt(provider, label) {
+    const r = await apiPost('/api/v1/cloud-api/keys/enable', { provider, label });
+    if (r && r.status === 'success') renderCloudApiExt(_cloudExtBody());
+    else alert((r && (r.detail || r.message)) || T('add_key.failed'));
+}
+async function testApiKey(provider, label = 'default') {
+    const r = await apiPost('/api/v1/cloud-api/keys/test', {provider, label});
+    if (r) {
+        if (r.status === 'success') alert(`✅ ${r.message}`);
+        else if (r.status === 'info') alert(`◐ ${r.message}`);   // stored, not verified
+        else alert(`❌ ${r.detail || r.message || r.status}`);
+    }
+    // Reflect the new verified/active state in the table.
+    renderCloudApiExt(_cloudExtBody());
 }
 
 // ═══════════════════════════════════════════════════════════

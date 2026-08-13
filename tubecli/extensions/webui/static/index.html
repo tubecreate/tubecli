@@ -908,11 +908,18 @@
 <!-- Add API Key Modal -->
 <div id="modal-add-key" class="modal hidden">
     <div class="modal-content">
-        <div class="modal-header"><h2>🔑 Add API Key</h2><button class="btn-close" onclick="closeModal('modal-add-key')">✕</button></div>
-        <div class="form-group" style="margin-top:15px"><label>Provider</label><select id="add-key-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="claude">Anthropic Claude</option><option value="deepseek">DeepSeek</option><option value="grok">xAI Grok</option><option value="openrouter">OpenRouter</option><option value="everai">EverAI TTS</option><option value="9router">9Router</option></select></div>
-        <div class="form-group"><label>API Key</label><input type="password" id="add-key-value" autocomplete="new-password" placeholder="Paste API key..."></div>
-        <div class="form-group"><label>Label</label><input id="add-key-label" value="default"></div>
-        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-add-key')">Cancel</button><button class="btn-primary" onclick="addApiKey()">Save Key</button></div>
+        <div class="modal-header"><h2 data-i18n="add_key.title">🔑 Thêm API Key</h2><button class="btn-close" onclick="closeModal('modal-add-key')">✕</button></div>
+        <!-- Provider options are built from /providers at open time (buildAddKeyProviderSelect),
+             so this list can never drift from the registry the way a hardcoded one did. -->
+        <div class="form-group" style="margin-top:15px"><label data-i18n="cloud_api.provider">Provider</label><select id="add-key-provider" onchange="onAddKeyProviderChange()"></select></div>
+        <div id="add-key-caphint" style="display:none;font-size:.8rem;margin:-4px 0 4px;padding:6px 10px;border-radius:6px"></div>
+        <div class="form-group"><label id="add-key-value-label" data-i18n="add_key.key_label">API Key</label><input type="password" id="add-key-value" autocomplete="new-password" placeholder="Paste API key..."></div>
+        <!-- Cloudflare compound fields, shown only when the chosen provider is compound. -->
+        <div class="form-group" id="add-key-account-group" style="display:none"><label>Account ID</label><input id="add-key-account" autocomplete="off" placeholder="32-character hex string"></div>
+        <div class="form-group" id="add-key-email-group" style="display:none"><label data-i18n="add_key.email_label">Email (chỉ khi dùng Global API Key)</label><input id="add-key-email" autocomplete="off" placeholder="you@example.com"></div>
+        <div class="form-group"><label data-i18n="cloud_api.label">Label</label><input id="add-key-label" value="default"></div>
+        <div id="add-key-result" style="display:none;font-size:.85rem;margin-top:6px;padding:8px 10px;border-radius:6px;white-space:pre-wrap"></div>
+        <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('modal-add-key')" data-i18n="common.cancel">Hủy</button><button class="btn-primary" id="add-key-save-btn" onclick="addApiKey()" data-i18n="add_key.save">Lưu &amp; kiểm tra</button></div>
     </div>
 </div>
 

@@ -108,18 +108,56 @@ PROVIDERS = {
     "cloudflare": {
         "name": "Cloudflare",
         "base_url": "https://api.cloudflare.com/client/v4",
-        "models": [],
+        # Workers AI text-generation models, reached through the account-scoped
+        # OpenAI-compatible endpoint /accounts/{id}/ai/v1. Verified live against
+        # the models/search API; a subset of the ~26 available, picked for chat.
+        "models": [
+            "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+            "@cf/meta/llama-4-scout-17b-16e-instruct",
+            "@cf/openai/gpt-oss-120b",
+            "@cf/openai/gpt-oss-20b",
+            "@cf/qwen/qwen3-30b-a3b-fp8",
+            "@cf/mistralai/mistral-small-3.1-24b-instruct",
+            "@cf/zai-org/glm-5.2",
+            "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b",
+        ],
         "env_var": "CLOUDFLARE_API_TOKEN",
         "icon": "☁️",
-        "description": "Cloudflare Workers, D1, R2, Pages deployment credentials",
+        "description": "Workers AI (chat) + Workers/D1/R2/Pages deployment credentials",
         # Cloudflare uses compound credentials: api_token + account_id
         "compound": True,
         "fields": [
-            {"key": "api_token", "label": "API Token", "env": "CLOUDFLARE_API_TOKEN", "placeholder": "cfut_xxxxxxxxxxxx", "secret": True},
-            {"key": "account_id", "label": "Account ID", "env": "CLOUDFLARE_ACCOUNT_ID", "placeholder": "32-character hex string", "secret": False},
+            {"key": "api_token", "label": "API Token", "env": "CLOUDFLARE_API_TOKEN",
+             # The comment in website_manager (extension.py:338) is explicit that a
+             # dashboard-created token is 40 chars with NO prefix; the old "cfut_"
+             # placeholder made a valid token look wrong.
+             "placeholder": "40-character API token (no prefix)", "secret": True},
+            {"key": "account_id", "label": "Account ID", "env": "CLOUDFLARE_ACCOUNT_ID",
+             "placeholder": "32-character hex string", "secret": False},
         ],
     },
 }
+
+# What actually consumes a stored key, kept in one place so the dashboard can
+# stop showing an "Add" button on a card whose key nothing reads. Anything not
+# listed here has a card but no request path — the "API chưa sử dụng được" case.
+#   chat   — reaches an LLM through brain._call_provider (must match the loop in
+#            core/brain.py that fills cloud_keys)
+#   deploy — used by website_manager for wrangler deploys (compound credential)
+PROVIDER_CAPABILITY = {
+    "gemini": "chat", "openai": "chat", "claude": "chat", "deepseek": "chat",
+    "grok": "chat", "openrouter": "chat", "9router": "chat",
+    # Cloudflare Workers AI is a real chat provider now (brain._call_cloudflare);
+    # it is ALSO the deploy credential for website_manager. "chat" is what the
+    # dashboard needs to know to offer it as a model source.
+    "cloudflare": "chat",
+    # github, everai: registered but no consumer yet -> "none" (default below)
+}
+
+# How long a key auto-disabled by a TRANSIENT error (a plain 429) stays out
+# before get_active_key is allowed to try it again. Hard quota/billing errors
+# ignore this and stay off until re-enabled by hand.
+TRANSIENT_COOLDOWN_SECONDS = 15 * 60
 
 
 class KeyManager:
@@ -167,9 +205,13 @@ class KeyManager:
         if provider not in PROVIDERS:
             return {"status": "error", "message": f"Unknown provider: {provider}. Available: {list(PROVIDERS.keys())}"}
 
+        # Reload first so a key added here does not clobber a disable written by
+        # another path (brain failover, another process) between our load and save.
+        self._load()
         self._keys.setdefault(provider, {})[label] = {
             "key": api_key,
             "active": True,
+            "verified": False,   # stored, but not checked until Test runs
             "added_at": __import__("datetime").datetime.now().isoformat(),
         }
         self._save()
@@ -213,26 +255,63 @@ class KeyManager:
         self._save()
         return {"status": "success", "message": f"Models updated for {provider}"}
 
-    def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded") -> None:
-        """Mark a key as inactive due to an error (e.g., 429 Too Many Requests)."""
+    def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded",
+                         transient: bool = False) -> None:
+        """Mark a key inactive after an error.
+
+        `transient=True` is for a plain rate-limit (a 429 that will clear on its
+        own): the key is parked with a timestamp and get_active_key brings it
+        back after TRANSIENT_COOLDOWN_SECONDS. `transient=False` is for a hard
+        stop (insufficient_quota / billing) and stays off until re-enabled by
+        hand. The old code treated every error as permanent, so one transient
+        429 retired a key forever — and with two labels holding the SAME key,
+        it disabled only the first and failover retried the identical twin.
+        """
+        import time as _t
         self._load()
         entries = self._keys.get(provider, {})
+        if not isinstance(entries, dict):
+            return
+        hit = False
         for label, entry in entries.items():
-            if entry.get("key") == api_key:
+            if isinstance(entry, dict) and entry.get("key") == api_key:
                 entry["active"] = False
                 entry["status_msg"] = error_msg
-                self._save()
-                logger.warning(f"Key '{label}' for {provider} disabled automatically. Reason: {error_msg}")
-                return
+                if transient:
+                    entry["disabled_at"] = _t.time()
+                    entry["disable_reason"] = "transient"
+                else:
+                    entry.pop("disabled_at", None)
+                    entry["disable_reason"] = "hard"
+                hit = True
+                logger.warning(f"Key '{label}' for {provider} disabled ({'transient' if transient else 'hard'}). Reason: {error_msg}")
+        if hit:
+            self._save()
 
     def get_active_key(self, provider: str) -> Optional[str]:
-        """Get any active key for a provider (round-robin ready)."""
+        """Get an active key for a provider, reviving cooled-down transient ones."""
+        import time as _t
         self._load()
         entries = self._keys.get(provider, {})
         # Guard: legacy plain-string key
         if isinstance(entries, str) and entries:
             return entries
         if isinstance(entries, dict):
+            now = _t.time()
+            revived = False
+            for label, entry in entries.items():
+                if not isinstance(entry, dict) or entry.get("active"):
+                    continue
+                if entry.get("disable_reason") == "transient" and \
+                   now - float(entry.get("disabled_at") or 0) >= TRANSIENT_COOLDOWN_SECONDS:
+                    entry["active"] = True
+                    entry.pop("status_msg", None)
+                    entry.pop("disabled_at", None)
+                    entry.pop("disable_reason", None)
+                    revived = True
+                    logger.info(f"Key '{label}' for {provider} auto-re-enabled after cooldown.")
+            if revived:
+                self._save()
             for label, entry in entries.items():
                 if isinstance(entry, dict) and entry.get("active"):
                     return entry["key"]
@@ -270,13 +349,24 @@ class KeyManager:
                 result[prov][label] = {
                     "masked_key": masked,
                     "active": entry.get("active", False),
+                    # None when the key has never been tested — the dashboard
+                    # shows that as "chưa kiểm chứng", distinct from a green
+                    # verified state and from a disabled one.
+                    "verified": entry.get("verified"),
                     "status_msg": entry.get("status_msg", ""),
+                    "disable_reason": entry.get("disable_reason", ""),
                     "added_at": entry.get("added_at", ""),
                 }
         return result
 
     def list_providers(self) -> List[dict]:
-        """List all supported providers with their status and custom models."""
+        """List all supported providers with their status and custom models.
+
+        Now carries the fields the dashboard needs to stop lying: `capability`
+        (so a card with no consumer says so instead of offering a broken Add
+        button), `compound`/`fields` (so Cloudflare renders a real two-field
+        form instead of a one-key box the backend rejects), plus icon/description.
+        """
         self._load()
         result = []
         for prov_id, prov_info in PROVIDERS.items():
@@ -286,99 +376,130 @@ class KeyManager:
                 "name": prov_info["name"],
                 "models": self.get_models(prov_id),
                 "has_key": has_key,
-                "key_count": len(self._keys.get(prov_id, {})) if prov_id in self._keys else 0,
+                "key_count": len(self._keys.get(prov_id, {})) if isinstance(self._keys.get(prov_id), dict) else 0,
+                "capability": PROVIDER_CAPABILITY.get(prov_id, "none"),
+                "compound": bool(prov_info.get("compound")),
+                "fields": prov_info.get("fields", []),
+                "local": bool(prov_info.get("local")),
+                "icon": prov_info.get("icon", ""),
+                "description": prov_info.get("description", ""),
             })
         return result
 
     def test_key(self, provider: str, label: str = "default") -> dict:
-        """Test if an API key is valid by making a lightweight API call."""
+        """Test if an API key is valid by making a lightweight API call.
+
+        The result now carries `verified`: True only when a network call
+        actually confirmed the key. Providers with no validation path (claude,
+        github, everai…) are stored and marked active but verified=False, so the
+        dashboard can show "chưa kiểm chứng" instead of a green "hoạt động" that
+        a typo'd key would also earn. The old behaviour marked everything active
+        and called it success, which is why a wrong key looked fine until an
+        agent died on it.
+        """
+        # Cloudflare is compound — its credential lives under a different shape
+        # and has a real verifier. Route it there and mirror the result.
+        if provider == "cloudflare":
+            cf = self.test_cloudflare_key(label)
+            verified = cf.get("status") == "success"
+            entries = self._keys.get("cloudflare", {})
+            if isinstance(entries, dict) and label in entries and isinstance(entries[label], dict):
+                entries[label]["active"] = True
+                entries[label]["verified"] = verified
+                entries[label]["status_msg"] = "" if verified else cf.get("message", "")
+                self._save()
+            return {**cf, "verified": verified}
+
         self._load()
         entry = self._keys.get(provider, {}).get(label)
         if not entry or not entry.get("key"):
             return {"status": "error", "message": f"No key found for {provider}/{label}."}
-        
+
         key = entry["key"]
+
+        def ok(msg):
+            entry["active"] = True
+            entry["verified"] = True
+            entry["status_msg"] = ""
+            self._save()
+            return {"status": "success", "verified": True, "message": msg}
+
+        def stored(msg):
+            # Kept, usable, but the truth is we could not check it.
+            entry["active"] = True
+            entry["verified"] = False
+            entry["status_msg"] = ""
+            self._save()
+            return {"status": "info", "verified": False, "message": msg}
 
         try:
             import requests
-            prov_info = PROVIDERS.get(provider, {})
 
             if provider == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models?key={key}"
-                resp = requests.get(url, timeout=10)
+                resp = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={key}", timeout=10)
                 if resp.status_code == 200:
-                    entry["active"] = True
-                    entry["status_msg"] = ""
-                    self._save()
-                    return {"status": "success", "message": f"Gemini key is valid. Models: {len(resp.json().get('models', []))}"}
-                return {"status": "error", "message": f"Gemini key invalid: {resp.status_code}"}
+                    return ok(f"Gemini key is valid. Models: {len(resp.json().get('models', []))}")
+                return {"status": "error", "verified": False, "message": f"Gemini key invalid: {resp.status_code}"}
 
             elif provider == "openai":
-                resp = requests.get(
-                    "https://api.openai.com/v1/models",
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=10,
-                )
+                resp = requests.get("https://api.openai.com/v1/models",
+                                    headers={"Authorization": f"Bearer {key}"}, timeout=10)
                 if resp.status_code == 200:
-                    entry["active"] = True
-                    entry["status_msg"] = ""
-                    self._save()
-                    return {"status": "success", "message": f"OpenAI key is valid."}
-                return {"status": "error", "message": f"OpenAI key error: {resp.status_code}"}
+                    return ok("OpenAI key is valid.")
+                return {"status": "error", "verified": False, "message": f"OpenAI key error: {resp.status_code}"}
 
             elif provider == "openrouter":
-                payload = {
-                    "model": "openai/gpt-4o-mini",
-                    "messages": [{"role": "user", "content": "Hello"}]
-                }
                 resp = requests.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json=payload,
+                    json={"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]},
                     timeout=15,
                 )
                 if resp.status_code == 200:
-                    entry["active"] = True
-                    entry["status_msg"] = ""
-                    self._save()
-                    return {"status": "success", "message": f"OpenRouter key is valid. API Test OK."}
-                
+                    return ok("OpenRouter key is valid. API Test OK.")
                 try:
-                    err_json = resp.json()
-                    err_msg = err_json.get("error", {}).get("message", "Unknown Error")
+                    err_msg = resp.json().get("error", {}).get("message", "Unknown Error")
                 except Exception:
                     err_msg = resp.text[:100]
-                    
-                return {"status": "error", "message": f"OpenRouter key error {resp.status_code}: {err_msg}"}
-
-            elif provider == "claude":
-                # Claude doesn't have a simple list endpoint, use a minimal message
-                entry["active"] = True
-                entry["status_msg"] = ""
-                self._save()
-                return {"status": "info", "message": "Claude key stored and activated (Validation requires a message call)."}
+                return {"status": "error", "verified": False, "message": f"OpenRouter key error {resp.status_code}: {err_msg}"}
 
             elif provider == "deepseek":
-                resp = requests.get(
-                    "https://api.deepseek.com/v1/models",
-                    headers={"Authorization": f"Bearer {key}"},
-                    timeout=10,
-                )
+                resp = requests.get("https://api.deepseek.com/v1/models",
+                                    headers={"Authorization": f"Bearer {key}"}, timeout=10)
                 if resp.status_code == 200:
-                    entry["active"] = True
-                    entry["status_msg"] = ""
-                    self._save()
-                    return {"status": "success", "message": f"DeepSeek key is valid."}
-                return {"status": "error", "message": f"DeepSeek key error: {resp.status_code}"}
+                    return ok("DeepSeek key is valid.")
+                return {"status": "error", "verified": False, "message": f"DeepSeek key error: {resp.status_code}"}
+
+            elif provider == "grok":
+                resp = requests.get("https://api.x.ai/v1/models",
+                                    headers={"Authorization": f"Bearer {key}"}, timeout=10)
+                if resp.status_code == 200:
+                    return ok("Grok key is valid.")
+                return {"status": "error", "verified": False, "message": f"Grok key error: {resp.status_code}"}
+
+            elif provider == "claude":
+                # No cheap list endpoint; a real check needs a paid message call.
+                return stored("Đã lưu key Claude — chưa kiểm chứng (cần một message call để xác minh).")
 
             else:
-                entry["active"] = True
-                entry["status_msg"] = ""
-                self._save()
-                return {"status": "info", "message": f"Key stored & activated for {provider}. No auto-validation available."}
+                return stored(f"Đã lưu key cho {provider} — chưa có cách tự kiểm chứng.")
 
         except Exception as e:
-            return {"status": "error", "message": f"Test failed: {e}"}
+            return {"status": "error", "verified": False, "message": f"Test failed: {e}"}
+
+    def enable_key(self, provider: str, label: str = "default") -> dict:
+        """Re-enable a key that was auto-disabled. The path that did not exist,
+        so a quota-hit key could only be revived by hand-editing the JSON."""
+        self._load()
+        entry = self._keys.get(provider, {}).get(label)
+        if not isinstance(entry, dict):
+            return {"status": "error", "message": f"Key '{label}' not found for {provider}."}
+        entry["active"] = True
+        entry.pop("status_msg", None)
+        entry.pop("disabled_at", None)
+        entry.pop("disable_reason", None)
+        self._save()
+        return {"status": "success", "message": f"Key '{label}' for {provider} re-enabled."}
 
     # ── Cloudflare Compound Credentials ──────────────────────────
 

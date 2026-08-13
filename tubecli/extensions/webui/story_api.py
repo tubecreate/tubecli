@@ -277,7 +277,8 @@ Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành 
                 
             if raw.startswith("[QUOTA_ERROR]"):
                 if not api_key_override and current_key:
-                    key_manager.report_key_error(km_provider, current_key, "Quota Exceeded")
+                    hard = any(k in raw.lower() for k in ("insufficient_quota", "billing", "payment"))
+                    key_manager.report_key_error(km_provider, current_key, "Quota Exceeded", transient=not hard)
                     continue
                 else:
                     error_msg = raw

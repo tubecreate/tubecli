@@ -942,6 +942,12 @@ Rules:
         is_9router = False
         is_openrouter = False
 
+        # Cloudflare Workers AI ids look like "@cf/meta/llama-3.3-70b...". They
+        # contain a slash, so this MUST come before the slash rule below or they
+        # get shipped to OpenRouter and rejected.
+        if model.startswith("@cf/"):
+            return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
+
         if "9router" in lower_model or "antigravity" in lower_model or "cx/" in lower_model:
             is_9router = True
         elif "/" in model and not model.startswith("http"):
@@ -1061,6 +1067,8 @@ Rules:
             return AgentBrain._call_openai(model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
         if p == "9router":
             return AgentBrain._call_openai(model, key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+        if p == "cloudflare":
+            return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
 
         # Any other OpenAI-compatible provider declared in the cloud_api registry.
         try:
@@ -1351,6 +1359,63 @@ Rules:
             data = resp.json()
             return "\n".join(b["text"] for b in data.get("content", []) if b["type"] == "text")
         except Exception as e: return f"[Claude Error] {e}"
+
+    @staticmethod
+    def _call_cloudflare(model: str, messages: List[Dict], temperature: float = 0.7) -> str:
+        """Cloudflare Workers AI via its OpenAI-compatible endpoint.
+
+        Two things make this its own method rather than a base_url passed to
+        _call_openai. First the URL is account-scoped —
+        /accounts/{account_id}/ai/v1 — so the account id has to be fetched from
+        the compound Cloudflare credential, not from cloud_keys. Second the auth
+        is dual: an API Token authenticates with `Authorization: Bearer`, but a
+        Global API Key (the kind that carries an email) uses the
+        `X-Auth-Email` + `X-Auth-Key` pair and rejects Bearer outright. The
+        OpenAI SDK only speaks Bearer, so this goes direct with requests.
+        """
+        try:
+            from tubecli.extensions.cloud_api.extension import key_manager
+            creds = key_manager.get_cloudflare_creds()
+        except Exception as e:
+            return f"[Cloudflare Error] could not read credential: {e}"
+        token = (creds or {}).get("api_token") or ""
+        account_id = (creds or {}).get("account_id") or ""
+        email = (creds or {}).get("email") or ""
+        if not token or not account_id:
+            from tubecli.i18n import t
+            return t("brain.no_api_key", model=model)
+
+        if email:   # Global API Key
+            headers = {"X-Auth-Email": email, "X-Auth-Key": token, "Content-Type": "application/json"}
+        else:       # scoped API Token
+            headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions"
+        try:
+            import requests
+            payload = {
+                "model": model,
+                "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
+                "temperature": temperature,
+            }
+            resp = requests.post(url, headers=headers, json=payload, timeout=120)
+            if resp.status_code != 200:
+                # Surface Cloudflare's own error text so a 401/quota is legible
+                # rather than a bare status code.
+                try:
+                    errs = resp.json().get("errors") or []
+                    msg = "; ".join(e.get("message", "") for e in errs) or resp.text[:160]
+                except Exception:
+                    msg = resp.text[:160]
+                return f"[Cloudflare Error] {resp.status_code}: {msg}"
+            data = resp.json()
+            content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+            content = content.strip()
+            if not content:
+                return f"[Cloudflare Error] {model} returned an empty response."
+            return content
+        except Exception as e:
+            return f"[Cloudflare Error] {e}"
 
     @staticmethod
     def _clean_json_from_text(text: str) -> str:
