@@ -13,6 +13,9 @@ LANG_VAL="en"
 # one. Passing the default unconditionally would overwrite the language a user
 # picked earlier every time they re-run this script to update.
 LANG_EXPLICIT=0
+# NONINTERACTIVE: skip every keyboard prompt - for automated/headless installs
+# (e.g. provisioning scripts). Also settable via TUBECLI_NONINTERACTIVE=1.
+NONINTERACTIVE="${TUBECLI_NONINTERACTIVE:-0}"
 # Mirror of tubecli.config.SUPPORTED_LANGUAGES — validated here so a typo fails
 # in one second instead of after a full install.
 SUPPORTED_LANGS="zh zh-TW vi en ja ko es tr ru"
@@ -24,6 +27,10 @@ while [[ $# -gt 0 ]]; do
       LANG_VAL="$2"
       LANG_EXPLICIT=1
       shift 2
+      ;;
+    --non-interactive|--noninteractive|--unattended|--yes|-y)
+      NONINTERACTIVE=1
+      shift
       ;;
     *)
       if [[ "$1" =~ ^[a-zA-Z-]{2,5}$ ]]; then
@@ -561,7 +568,9 @@ if command_exists tubecli; then
     # itself, so read /dev/tty directly; with no terminal at all, run it anyway —
     # the server path is designed to complete without one (and says what it kept).
     TTY_IN=""
-    if [[ -t 0 ]]; then
+    if [[ "$NONINTERACTIVE" == "1" ]]; then
+        TTY_IN=""                      # forced: never read a keyboard prompt
+    elif [[ -t 0 ]]; then
         TTY_IN=""                      # stdin already is the terminal
     elif (exec 3</dev/tty) 2>/dev/null; then
         TTY_IN="/dev/tty"
@@ -571,9 +580,9 @@ if command_exists tubecli; then
     # ${INIT_ARGS[@]+...}: expanding an EMPTY array with plain "${INIT_ARGS[@]}"
     # is an "unbound variable" error under `set -u` on bash 3.2 — which is what
     # macOS ships, and macOS with no --lang reaches here with the array empty.
-    if [[ -n "$TTY_IN" ]]; then
+    if [[ "$NONINTERACTIVE" != "1" && -n "$TTY_IN" ]]; then
         tubecli init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} < "$TTY_IN"
-    elif [[ -t 0 || "$HEADLESS" -eq 1 ]]; then
+    elif [[ -t 0 || "$HEADLESS" -eq 1 || "$NONINTERACTIVE" == "1" ]]; then
         tubecli init ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} </dev/null
     else
         # Desktop with no terminal: the interactive panel cannot run.
