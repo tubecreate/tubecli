@@ -5,66 +5,66 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CapCut TTS</title>
 <style>
+/* Uses the DASHBOARD's CSS variables (--bg, --bg2, --bg3, --text, --border,
+   --accent, --green, --red…). When embedded, syncThemeToIframe injects the
+   dashboard's live values with !important, so the page follows the dashboard
+   theme exactly. The :root block below is only a fallback for opening the page
+   standalone; the dark media query keeps that case readable too. Semantic
+   backgrounds use color-mix on the accent/semantic color so they adapt to
+   whatever ground the theme sets, without needing their own dark variant. */
 :root {
-  --bg: #f4f6f9; --panel: #ffffff; --sink: #eef1f5; --ink: #1a1f2b; --soft: #5a6474;
-  --faint: #8a94a6; --line: #dde2ea; --accent: #2d7ff9; --accent-ink: #1b63d6;
-  --good: #1f9d55; --good-bg: #e0f2e6; --warn: #b5720f; --warn-bg: #f6ecd6;
-  --bad: #d23b3b; --bad-bg: #f8e0e0; --radius: 12px;
+  --bg: #f4f6f9; --bg2: #ffffff; --bg3: #eef1f5;
+  --text: #1a1f2b; --text-muted: #5a6474; --border: #dde2ea;
+  --accent: #2d7ff9; --green: #1f9d55; --red: #d23b3b; --orange: #b5720f; --cyan: #0e7c9a;
+  --radius: 12px;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0f131a; --panel: #171d27; --sink: #10151d; --ink: #e6eaf0; --soft: #a4adbc;
-    --faint: #6b7480; --line: #262d39; --accent: #4f9bff; --accent-ink: #8bbcff;
-    --good: #4cc47f; --good-bg: #12241a; --warn: #dca84a; --warn-bg: #2a2213;
-    --bad: #ff6b6b; --bad-bg: #2c1618;
+    --bg: #0f131a; --bg2: #171d27; --bg3: #10151d;
+    --text: #e6eaf0; --text-muted: #a4adbc; --border: #262d39;
+    --accent: #4f9bff; --green: #4cc47f; --red: #ff6b6b; --orange: #dca84a; --cyan: #57c4e0;
   }
 }
-:root[data-theme="dark"] {
-  --bg: #0f131a; --panel: #171d27; --sink: #10151d; --ink: #e6eaf0; --soft: #a4adbc;
-  --faint: #6b7480; --line: #262d39; --accent: #4f9bff; --accent-ink: #8bbcff;
-  --good: #4cc47f; --good-bg: #12241a; --warn: #dca84a; --warn-bg: #2a2213;
-  --bad: #ff6b6b; --bad-bg: #2c1618;
-}
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 15px; line-height: 1.55; }
 .wrap { max-width: 860px; margin: 0 auto; padding: 20px 18px 60px; }
 h1 { font-size: 1.35rem; margin: 0 0 2px; letter-spacing: -.01em; }
-.sub { color: var(--faint); font-size: .85rem; margin: 0 0 18px; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
-.tab { padding: 9px 16px; border: none; background: none; color: var(--soft); font-size: .92rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.sub { color: var(--text-muted); font-size: .85rem; margin: 0 0 18px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+.tab { padding: 9px 16px; border: none; background: none; color: var(--text-muted); font-size: .92rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab.on { color: var(--accent); border-bottom-color: var(--accent); }
 .panel { display: none; }
 .panel.on { display: block; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
-label { display: block; font-size: .82rem; font-weight: 600; color: var(--soft); margin: 0 0 4px; }
-input, select, textarea { width: 100%; padding: 9px 11px; background: var(--sink); border: 1px solid var(--line); border-radius: 8px; color: var(--ink); font-size: .92rem; font-family: var(--sans); }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; margin-bottom: 14px; }
+label { display: block; font-size: .82rem; font-weight: 600; color: var(--text-muted); margin: 0 0 4px; }
+input, select, textarea { width: 100%; padding: 9px 11px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: .92rem; font-family: var(--sans); }
 textarea { resize: vertical; min-height: 90px; }
 .row { display: flex; gap: 10px; }
 .row > * { flex: 1; }
 .fg { margin-bottom: 12px; }
 button.btn { padding: 9px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff; font-weight: 600; font-size: .9rem; cursor: pointer; }
 button.btn:disabled { opacity: .55; cursor: not-allowed; }
-button.ghost { background: var(--sink); color: var(--ink); border: 1px solid var(--line); }
+button.ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
 button.sm { padding: 4px 10px; font-size: .8rem; }
-button.danger { background: var(--bad-bg); color: var(--bad); }
+button.danger { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
 .tag { display: inline-flex; align-items: center; gap: 4px; font-size: .72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
-.tag.on { background: var(--good-bg); color: var(--good); }
-.tag.off { background: var(--sink); color: var(--faint); }
-.acc { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.tag.on { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+.tag.off { background: var(--bg3); color: var(--text-muted); }
+.acc { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
 .acc:last-child { border-bottom: none; }
 .acc .who { font-weight: 600; font-size: .9rem; }
-.acc .meta { font-size: .76rem; color: var(--faint); font-family: var(--mono); }
+.acc .meta { font-size: .76rem; color: var(--text-muted); font-family: var(--mono); }
 .acc .actions { display: flex; gap: 6px; flex-shrink: 0; }
 .msg { font-size: .84rem; padding: 8px 11px; border-radius: 8px; margin-top: 8px; display: none; }
-.msg.ok { background: var(--good-bg); color: var(--good); display: block; }
-.msg.warn { background: var(--warn-bg); color: var(--warn); display: block; }
-.msg.err { background: var(--bad-bg); color: var(--bad); display: block; }
-.empty { text-align: center; color: var(--faint); padding: 26px 0; font-size: .9rem; }
-.hist { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.msg.ok { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); display: block; }
+.msg.warn { background: color-mix(in srgb, var(--orange) 16%, transparent); color: var(--orange); display: block; }
+.msg.err { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); display: block; }
+.empty { text-align: center; color: var(--text-muted); padding: 26px 0; font-size: .9rem; }
+.hist { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .hist audio { height: 34px; }
-.hint { font-size: .78rem; color: var(--faint); margin-top: 3px; }
+.hint { font-size: .78rem; color: var(--text-muted); margin-top: 3px; }
 #syn-audio { width: 100%; margin-top: 12px; }
 .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; margin-right: 5px; }
 @keyframes sp { to { transform: rotate(360deg); } }
@@ -111,7 +111,7 @@ button.danger { background: var(--bad-bg); color: var(--bad); }
   <!-- ── ACCOUNTS ── -->
   <div class="panel" id="panel-accounts">
     <div class="card">
-      <label style="margin-bottom:10px;font-size:.95rem;color:var(--ink)">Thêm tài khoản CapCut</label>
+      <label style="margin-bottom:10px;font-size:.95rem;color:var(--text)">Thêm tài khoản CapCut</label>
       <div class="fg"><label>Email</label><input id="acc-email" type="email" placeholder="you@example.com" autocomplete="off"></div>
       <div class="fg"><label>Mật khẩu CapCut</label><input id="acc-pass" type="password" placeholder="Mật khẩu tài khoản CapCut" autocomplete="new-password"></div>
       <div class="fg"><label>Nhãn (tuỳ chọn)</label><input id="acc-label" placeholder="vd: tài khoản chính"></div>
@@ -119,7 +119,7 @@ button.danger { background: var(--bad-bg); color: var(--bad); }
       <div class="msg" id="acc-msg"></div>
     </div>
     <div class="card">
-      <label style="font-size:.95rem;color:var(--ink);margin-bottom:8px">Tài khoản đã lưu</label>
+      <label style="font-size:.95rem;color:var(--text);margin-bottom:8px">Tài khoản đã lưu</label>
       <div id="acc-list"><div class="empty">Đang tải...</div></div>
     </div>
   </div>
@@ -127,7 +127,7 @@ button.danger { background: var(--bad-bg); color: var(--bad); }
   <!-- ── HISTORY ── -->
   <div class="panel" id="panel-history">
     <div class="card">
-      <label style="font-size:.95rem;color:var(--ink);margin-bottom:8px">File đã tạo</label>
+      <label style="font-size:.95rem;color:var(--text);margin-bottom:8px">File đã tạo</label>
       <div id="hist-list"><div class="empty">Đang tải...</div></div>
     </div>
   </div>
@@ -159,7 +159,6 @@ async function loadAccounts() {
   try {
     const d = await api('/accounts');
     const accs = d.accounts || [];
-    // fill the synth account dropdown too
     const sel = $('syn-account');
     sel.innerHTML = accs.filter(a => a.enabled).map(a => `<option value="${a.email}">${a.email}${a.label ? ' — ' + a.label : ''}</option>`).join('') || '<option value="">(chưa có tài khoản)</option>';
     if (!accs.length) { list.innerHTML = '<div class="empty">Chưa có tài khoản. Thêm ở trên để bắt đầu.</div>'; return; }
@@ -237,8 +236,6 @@ $('syn-lang').onchange = loadSpeakers;
 async function previewVoice() {
   const id = $('syn-speaker').value, email = $('syn-account').value, btn = $('btn-preview');
   if (!id || !email) return;
-  // The voice's own language, so the sample sentence matches it (a Vietnamese
-  // voice cannot read a Japanese sample — that was the 502).
   const voice = allSpeakers.find(s => s.id === id) || {};
   const lang = voice.language || $('syn-lang').value || '';
   const orig = btn.textContent; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
@@ -282,7 +279,7 @@ async function loadHistory() {
       const when = new Date(it.created * 1000).toLocaleString();
       const kb = Math.round(it.size / 1024);
       return `<div class="hist">
-        <div><div style="font-family:var(--mono);font-size:.82rem">${it.file}</div><div class="meta" style="color:var(--faint);font-size:.74rem">${when} · ${kb} KB</div></div>
+        <div><div style="font-family:var(--mono);font-size:.82rem">${it.file}</div><div class="meta" style="color:var(--text-muted);font-size:.74rem">${when} · ${kb} KB</div></div>
         <div style="display:flex;align-items:center;gap:8px">
           <audio controls preload="none" src="${API}/history/${encodeURIComponent(it.file)}"></audio>
           <button class="btn danger sm" onclick="delHistory('${it.file}')">Xoá</button>
