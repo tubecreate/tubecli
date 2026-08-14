@@ -299,9 +299,25 @@ async def restart_server():
 
 
 # ── UI page ─────────────────────────────────────────────────────────────────
-@router.get("/page")
-async def page():
+def _serve_page():
     f = os.path.join(STATIC_DIR, "capcut.html")
     if os.path.exists(f):
         return FileResponse(f, media_type="text/html")
     raise HTTPException(404, "UI chưa sẵn sàng.")
+
+
+@router.get("/page")
+async def page():
+    """Also reachable at the API prefix, for callers that use it."""
+    return _serve_page()
+
+
+# A second router at the ROOT, so the page has the same clean URL every other
+# extension has (/capcut-tts, not /api/v1/capcut-tts/page). Extension.get_routes
+# returns both this and the API router. No edit to webui core is needed.
+page_router = APIRouter(tags=["capcut-tts-page"])
+
+
+@page_router.get("/capcut-tts")
+async def capcut_tts_page():
+    return _serve_page()

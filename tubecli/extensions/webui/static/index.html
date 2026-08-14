@@ -184,10 +184,10 @@
             <div class="iframe-container"><iframe data-src="/story" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-capcut-tts">
-            <!-- Served by the extension's OWN router (/api/v1/capcut-tts/page),
-                 not a webui-core page route. That means a new extension needs no
-                 edit to webui/routes.py to get a page — it ships its own. -->
-            <div class="iframe-container"><iframe data-src="/api/v1/capcut-tts/page" class="ext-iframe"></iframe></div>
+            <!-- Clean URL served by the extension's OWN page router (page_router
+                 at /capcut-tts), not a webui-core route — a new extension ships
+                 its own page and needs no edit to webui/routes.py. -->
+            <div class="iframe-container"><iframe data-src="/capcut-tts" class="ext-iframe"></iframe></div>
         </section>
         <section class="tab-panel" id="tab-ext-video-editor">
             <div class="iframe-container"><iframe data-src="/video-editor" class="ext-iframe"></iframe></div>

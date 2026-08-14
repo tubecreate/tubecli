@@ -37,6 +37,26 @@ logger = logging.getLogger("CapCutTTS.node")
 _EXT = "capcut_tts"
 _HOST = "127.0.0.1"
 
+# CapCut returns voice display names in CAPCUT_LOCALE. Default ja-JP shows every
+# name in Japanese katakana even for Spanish/Vietnamese voices, which is why the
+# list read as Japanese. Map TubeCLI's global UI language onto a CapCut locale so
+# names follow the dashboard language instead.
+_LOCALE_MAP = {
+    "vi": ("vi-VN", "VN"), "en": ("en-US", "US"), "zh": ("zh-CN", "CN"),
+    "zh-TW": ("zh-TW", "TW"), "ja": ("ja-JP", "JP"), "ko": ("ko-KR", "KR"),
+    "es": ("es-ES", "ES"), "tr": ("tr-TR", "TR"), "ru": ("ru-RU", "RU"),
+}
+
+
+def _capcut_locale() -> tuple:
+    """(CAPCUT_LOCALE, CAPCUT_REGION) derived from the dashboard's language."""
+    try:
+        from tubecli.config import get_language
+        lang = (get_language() or "en").strip()
+    except Exception:
+        lang = "en"
+    return _LOCALE_MAP.get(lang, _LOCALE_MAP["en"])
+
 SERVER_DIR = Path(__file__).resolve().parent / "server"
 DIST_ENTRY = SERVER_DIR / "dist" / "index.js"
 NODE_MODULES = SERVER_DIR / "node_modules"
@@ -168,6 +188,7 @@ class CapCutNodeManager:
 
             port = _free_port()
             data = _data_dir()
+            locale, region = _capcut_locale()
             env = dict(os.environ)
             env.update({
                 "HOST": _HOST,
@@ -175,6 +196,9 @@ class CapCutNodeManager:
                 "CAPCUT_EMAIL": bootstrap["email"],
                 "CAPCUT_PASSWORD": bootstrap["password"],
                 "CAPCUT_ALLOW_REQUEST_CREDENTIALS": "true",
+                # Voice names + region follow the dashboard language.
+                "CAPCUT_LOCALE": locale,
+                "CAPCUT_REGION": region,
                 # Absolute paths so session/preview/bundle land in the extension's
                 # data dir, not the server's cwd.
                 "CAPCUT_SESSION_STORE_PATH": str(data / "capcut-session.json"),

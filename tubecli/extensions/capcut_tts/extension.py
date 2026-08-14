@@ -38,8 +38,10 @@ class CapCutTtsExtension(Extension):
             pass
 
     def get_routes(self):
-        from tubecli.extensions.capcut_tts.routes import router
-        return router
+        # Two routers: the API (/api/v1/capcut-tts) and the page at the clean
+        # root URL (/capcut-tts). register_api_routes mounts a list as-is.
+        from tubecli.extensions.capcut_tts.routes import router, page_router
+        return [router, page_router]
 
     def get_commands(self):
         from tubecli.extensions.capcut_tts.commands import capcut_tts_group
