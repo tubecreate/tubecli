@@ -1,0 +1,11 @@
+# Never commit these — heavy or secret. dist/ IS committed (see the root
+# .gitignore negation): shipping the pre-built JS is what lets a low-RAM VPS
+# skip the TypeScript compile.
+node_modules/
+.env
+.env.*
+capcut-session*.json
+capcut-bundle-config*.json
+speaker-preview/
+*.log
+audio*.mp3

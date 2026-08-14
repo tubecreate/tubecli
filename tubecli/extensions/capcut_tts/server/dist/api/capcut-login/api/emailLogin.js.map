@@ -1,0 +1,1 @@
+{"version":3,"file":"emailLogin.js","sourceRoot":"","sources":["../../../../src/api/capcut-login/api/emailLogin.ts"],"names":[],"mappings":";;;AAAA,4DAAoE;AAYpE;;GAEG;AACI,MAAM,UAAU,GAAG,CAAC,MAAwB,EAAE,EAAE,CACrD,gCAAoB,CAAC,OAAO,CAAC;IAC3B,GAAG,MAAM;IACT,IAAI,EAAE,MAAM,CAAC,IAAI,IAAI,4BAA4B;IACjD,MAAM,EAAE,MAAM;CACf,CAAC,CAAC;AALQ,QAAA,UAAU,cAKlB"}

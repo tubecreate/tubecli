@@ -1,0 +1,1 @@
+{"version":3,"file":"userLogin.js","sourceRoot":"","sources":["../../../../src/api/capcut-login/api/userLogin.ts"],"names":[],"mappings":";;;AAAA,4DAAoE;AAYpE;;GAEG;AACI,MAAM,SAAS,GAAG,CAAC,MAAuB,EAAE,EAAE,CACnD,gCAAoB,CAAC,OAAO,CAAC;IAC3B,GAAG,MAAM;IACT,IAAI,EAAE,MAAM,CAAC,IAAI,IAAI,2BAA2B;IAChD,MAAM,EAAE,MAAM;CACf,CAAC,CAAC;AALQ,QAAA,SAAS,aAKjB"}

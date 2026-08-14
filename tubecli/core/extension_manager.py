@@ -372,6 +372,10 @@ class ExtensionManager:
         # video_processing.input_file, so "fetch a clip then trim it" — the
         # commonest video request — works without a Marketplace step.
         "tubecli.extensions.video_downloader",
+        # Wraps the bundled CapCut-TTS Node server; the user's CapCut account
+        # does the voice synthesis. Node build/start is lazy, so bundling it
+        # costs nothing until first use.
+        "tubecli.extensions.capcut_tts",
     ]
 
     # Essential external extensions to auto-install if missing

@@ -1,0 +1,1 @@
+{"version":3,"file":"downloadAudio.js","sourceRoot":"","sources":["../../../../src/api/capcut-media/api/downloadAudio.ts"],"names":[],"mappings":";;;AAAA,4DAAoE;AASpE;;GAEG;AACI,MAAM,aAAa,GAAG,CAAC,EAAE,SAAS,EAAE,GAAG,EAAE,OAAO,EAAuB,EAAE,EAAE,CAChF,gCAAoB,CAAC,OAAO,CAAC;IAC3B,SAAS;IACT,GAAG;IACH,MAAM,EAAE,KAAK;IACb,OAAO;CACR,CAAC,CAAC;AANQ,QAAA,aAAa,iBAMrB"}

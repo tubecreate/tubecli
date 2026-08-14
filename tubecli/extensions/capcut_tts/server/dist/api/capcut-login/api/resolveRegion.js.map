@@ -1,0 +1,1 @@
+{"version":3,"file":"resolveRegion.js","sourceRoot":"","sources":["../../../../src/api/capcut-login/api/resolveRegion.ts"],"names":[],"mappings":";;;AAAA,4DAAoE;AAYpE;;GAEG;AACI,MAAM,aAAa,GAAG,CAAC,MAA2B,EAAE,EAAE,CAC3D,gCAAoB,CAAC,OAAO,CAAC;IAC3B,GAAG,MAAM;IACT,IAAI,EAAE,MAAM,CAAC,IAAI,IAAI,uBAAuB;IAC5C,MAAM,EAAE,MAAM;CACf,CAAC,CAAC;AALQ,QAAA,aAAa,iBAKrB"}

@@ -1,0 +1,1 @@
+{"version":3,"file":"apiClient.js","sourceRoot":"","sources":["../../../src/api/capcut-media/apiClient.ts"],"names":[],"mappings":";;;AAUA;;GAEG;AACH,MAAM,OAAO,GAAG,KAAK,EAAE,EACrB,SAAS,EACT,GAAG,EACH,MAAM,GAAG,KAAK,EACd,OAAO,EACP,IAAI,GACsB,EAAE,EAAE,CAC9B,SAAS,CAAC,GAAG,EAAE;IACb,MAAM;IACN,OAAO;IACP,IAAI;CACL,CAAC,CAAC;AAEQ,QAAA,oBAAoB,GAAG;IAClC,OAAO;CACR,CAAC"}

@@ -4,6 +4,13 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# Exception: the CapCut TTS extension ships its pre-built server so a low-RAM
+# VPS never has to run tsc. The output is plain cross-platform JS, safe to
+# commit; node_modules is still ignored (installed on the VPS, runtime-only).
+!tubecli/extensions/capcut_tts/server/dist/
+!tubecli/extensions/capcut_tts/server/dist/**
+
 .eggs/
 *.egg
 data/
