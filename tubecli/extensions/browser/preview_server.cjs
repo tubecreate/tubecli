@@ -590,6 +590,7 @@ function broadcastFrame(buffer) {
     // ── Quản lý nhiều tab ────────────────────────────────────────────
     function attachPageListeners(p) {
         if (p.__ssBound) return; p.__ssBound = true;
+        p.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
         p.on('filechooser', async (fc) => { activeFileChooser = fc; broadcast({ type: 'file_chooser_open', multiple: fc.isMultiple() }); });
         p.on('framenavigated', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
         p.on('load', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
@@ -597,16 +598,16 @@ function broadcastFrame(buffer) {
     }
     async function broadcastTabs() {
         try {
-            const ps = context.pages(); const tabs = [];
-            for (let i = 0; i < ps.length; i++) { let t = ''; try { t = await ps[i].title(); } catch (e) {} tabs.push({ index: i, title: (t || ps[i].url() || 'Tab'), url: ps[i].url(), active: ps[i] === page }); }
+            const ps = context.pages();
+            const tabs = await Promise.all(ps.map(async (pg, i) => { let t = ''; try { t = await pg.title(); } catch (e) {} return { index: i, title: (t || pg.url() || 'Tab'), url: pg.url(), active: pg === page }; }));
             broadcast({ type: 'tabs', tabs });
         } catch (e) {}
     }
     async function switchToPage(p) {
         if (!p) return; page = p; attachPageListeners(p);
-        try { await p.setViewportSize({ width: 1280, height: 800 }); } catch (e) {}
+        try { await p.bringToFront(); } catch (e) {}
         broadcast({ type: 'url_changed', url: p.url() });
-        await triggerImmediateFrame(); await broadcastTabs();
+        await triggerImmediateFrame(); broadcastTabs();
     }
 
     page = context.pages()[0] || await context.newPage();
