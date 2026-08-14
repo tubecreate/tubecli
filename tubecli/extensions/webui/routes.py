@@ -311,15 +311,10 @@ async def file_manager_page():
     return {"error": "File Manager page not found"}
 
 
-@router.get("/capcut-tts")
-async def capcut_tts_page():
-    """Serve the CapCut TTS page (inlines its own CSS/JS, no extra assets)."""
-    html_file = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "capcut_tts", "static", "capcut.html"
-    )
-    if os.path.exists(html_file):
-        return FileResponse(html_file, media_type="text/html")
-    return {"error": "CapCut TTS page not found"}
+# NOTE: the CapCut TTS page is served by the extension's OWN router at
+# /api/v1/capcut-tts/page — no page route is added here. A new extension should
+# ship its own page route so it does not need an edit to this core file (and a
+# server restart perfectly timed with it) just to appear.
 
 
 def _serve_from(base_dir: str, filename: str, label: str):
