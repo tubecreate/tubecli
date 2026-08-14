@@ -188,9 +188,11 @@ function broadcastFrame(buffer) {
             } 
             else if (msg.type === 'scroll') {
                 const { deltaX, deltaY } = msg;
-                await page.evaluate(({ deltaX, deltaY }) => {
-                    window.scrollBy(deltaX, deltaY);
-                }, { deltaX, deltaY });
+                // page.mouse.wheel gửi wheel event thật tại vị trí con trỏ →
+                // cuộn được cả container bên trong (window.scrollBy chỉ cuộn document gốc)
+                await page.mouse.wheel(deltaX, deltaY).catch(async () => {
+                    await page.evaluate(({ deltaX, deltaY }) => window.scrollBy(deltaX, deltaY), { deltaX, deltaY });
+                });
                 await triggerImmediateFrame();
             } 
             else if (msg.type === 'keyboard') {
@@ -224,6 +226,26 @@ function broadcastFrame(buffer) {
                 const { url } = msg;
                 await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
             } 
+            else if (msg.type === 'new_tab') {
+                const np = await context.newPage();
+                attachPageListeners(np);
+                if (msg.url) { try { await np.goto(msg.url, { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch (e) {} }
+                await switchToPage(np);
+            }
+            else if (msg.type === 'switch_tab') {
+                const ps = context.pages(); if (ps[msg.index]) await switchToPage(ps[msg.index]);
+            }
+            else if (msg.type === 'close_tab') {
+                const ps = context.pages();
+                if (ps[msg.index]) {
+                    const wasActive = ps[msg.index] === page;
+                    try { await ps[msg.index].close(); } catch (e) {}
+                    const rem = context.pages();
+                    if (rem.length === 0) return;
+                    if (wasActive) await switchToPage(rem[Math.min(msg.index, rem.length - 1)]); else await broadcastTabs();
+                }
+            }
+            else if (msg.type === 'get_tabs') { await broadcastTabs(); }
             else if (msg.type === 'nav') {
                 const { action } = msg;
                 if (action === 'back') await page.goBack().catch(()=>{});
@@ -565,13 +587,35 @@ function broadcastFrame(buffer) {
         context = await browser.newContext();
     }
 
+    // ── Quản lý nhiều tab ────────────────────────────────────────────
+    function attachPageListeners(p) {
+        if (p.__ssBound) return; p.__ssBound = true;
+        p.on('filechooser', async (fc) => { activeFileChooser = fc; broadcast({ type: 'file_chooser_open', multiple: fc.isMultiple() }); });
+        p.on('framenavigated', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
+        p.on('load', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
+        p.on('close', () => { try { broadcastTabs(); } catch (e) {} });
+    }
+    async function broadcastTabs() {
+        try {
+            const ps = context.pages(); const tabs = [];
+            for (let i = 0; i < ps.length; i++) { let t = ''; try { t = await ps[i].title(); } catch (e) {} tabs.push({ index: i, title: (t || ps[i].url() || 'Tab'), url: ps[i].url(), active: ps[i] === page }); }
+            broadcast({ type: 'tabs', tabs });
+        } catch (e) {}
+    }
+    async function switchToPage(p) {
+        if (!p) return; page = p; attachPageListeners(p);
+        try { await p.setViewportSize({ width: 1280, height: 800 }); } catch (e) {}
+        broadcast({ type: 'url_changed', url: p.url() });
+        await triggerImmediateFrame(); await broadcastTabs();
+    }
+
     page = context.pages()[0] || await context.newPage();
     
-    // Listen for file selection dialogs requested by pages
-    page.on('filechooser', async (fileChooser) => {
-        log('File chooser dialog requested by the page.');
-        activeFileChooser = fileChooser;
-        broadcast({ type: 'file_chooser_open', multiple: fileChooser.isMultiple() });
+    attachPageListeners(page);
+    context.on('page', async (np) => {
+        attachPageListeners(np);
+        try { await np.waitForLoadState('domcontentloaded', { timeout: 8000 }); } catch (e) {}
+        await switchToPage(np);
     });
 
     try {
@@ -618,15 +662,8 @@ function broadcastFrame(buffer) {
     `;
     await page.evaluate(pickerScript);
 
-    // Bind navigation events
-    page.on('framenavigated', async () => {
-        broadcast({ type: 'url_changed', url: page.url() });
-        await triggerImmediateFrame();
-    });
-    page.on('load', async () => {
-        broadcast({ type: 'url_changed', url: page.url() });
-        await triggerImmediateFrame();
-    });
+    // Listeners điều hướng đã gắn qua attachPageListeners; phát tab ban đầu
+    broadcastTabs();
 
     isBrowserReady = true;
     log('Browser is now ready and streaming.');
