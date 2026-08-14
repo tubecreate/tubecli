@@ -235,12 +235,17 @@ $('syn-account').onchange = loadSpeakers;
 $('syn-lang').onchange = loadSpeakers;
 
 async function previewVoice() {
-  const id = $('syn-speaker').value, btn = $('btn-preview');
-  if (!id) return;
+  const id = $('syn-speaker').value, email = $('syn-account').value, btn = $('btn-preview');
+  if (!id || !email) return;
+  // The voice's own language, so the sample sentence matches it (a Vietnamese
+  // voice cannot read a Japanese sample — that was the 502).
+  const voice = allSpeakers.find(s => s.id === id) || {};
+  const lang = voice.language || $('syn-lang').value || '';
   const orig = btn.textContent; btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   try {
-    const r = await fetch(API + '/preview/' + encodeURIComponent(id));
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const q = new URLSearchParams({ email }); if (lang) q.set('lang', lang);
+    const r = await fetch(API + '/preview/' + encodeURIComponent(id) + '?' + q.toString());
+    if (!r.ok) { let d = null; try { d = await r.json(); } catch (e) {} throw new Error((d && d.detail) || ('HTTP ' + r.status)); }
     const blob = await r.blob();
     const a = $('syn-audio'); a.src = URL.createObjectURL(blob); a.style.display = 'block'; a.play();
   } catch (e) { msg($('syn-msg'), 'Nghe thử lỗi: ' + e.message, 'err'); }

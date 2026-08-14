@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
@@ -164,15 +164,38 @@ async def speakers(email: str, language: str = "", category: str = ""):
         raise HTTPException(502, str(e))
 
 
+# A short sample sentence per language. The Node build's own preview endpoint
+# uses one fixed sentence in CAPCUT_LOCALE (ja-JP), which a Vietnamese voice
+# cannot read — CapCut rejects it with SmartToolNotSupportLanguage → 502. So
+# preview synthesizes a sentence that MATCHES the voice's language instead,
+# through the chosen account (which honours the header, unlike /v2/preview).
+_PREVIEW_SAMPLE = {
+    "vi": "Xin chào, đây là giọng đọc thử.",
+    "en": "Hello, this is a voice preview.",
+    "zh": "你好，这是语音试听。",
+    "ja": "こんにちは、これは音声のプレビューです。",
+    "ko": "안녕하세요, 음성 미리듣기입니다.",
+    "es": "Hola, esta es una vista previa de voz.",
+    "id": "Halo, ini adalah pratinjau suara.",
+    "pt": "Olá, esta é uma prévia de voz.",
+    "th": "สวัสดี นี่คือการทดลองฟังเสียง",
+}
+
+
 @router.get("/preview/{speaker_id}")
-async def preview(speaker_id: str):
-    """A short sample of a voice (bootstrap account on the Node build)."""
+async def preview(speaker_id: str, email: str, lang: str = ""):
+    """A short sample of a voice, in the voice's own language, via the account."""
     base = _ensure_node()
+    headers = _account_headers(email)
+    sample = _PREVIEW_SAMPLE.get((lang or "").lower(), _PREVIEW_SAMPLE["en"])
     try:
-        r = requests.get(f"{base}/v2/speakers/{speaker_id}/preview", timeout=60)
-        if r.status_code != 200:
-            raise HTTPException(r.status_code, r.text[:200])
-        return Response(content=r.content, media_type=r.headers.get("content-type", "audio/mpeg"))
+        r = requests.post(f"{base}/v2/synthesize",
+                          headers={**headers, "Content-Type": "application/json"},
+                          json={"text": sample, "speaker": speaker_id, "speed": 10, "volume": 10},
+                          timeout=60)
+        if r.status_code != 200 or not r.headers.get("content-type", "").startswith("audio"):
+            raise HTTPException(502, f"Nghe thử lỗi: {r.text[:160] if r.text else r.status_code}")
+        return Response(content=r.content, media_type="audio/mpeg")
     except HTTPException:
         raise
     except Exception as e:
