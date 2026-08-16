@@ -571,6 +571,15 @@ function finishExecutionUI() {
         clearInterval(logPollTimer);
         logPollTimer = null;
     }
+    // The run is over — the per-run preview server has shut down. Mark the
+    // preview stopped and close the socket cleanly (code 1000, which onclose
+    // treats as intentional) so it does not reconnect into a dead port loop.
+    previewStopped = true;
+    if (previewWs) {
+        try { previewWs.close(1000, 'run finished'); } catch (e) {}
+        previewWs = null;
+    }
+    stopScreenshotStream();
     document.getElementById('btnRun').disabled = false;
     document.getElementById('btnStop').disabled = true;
     document.getElementById('btnPause').disabled = true;
@@ -726,6 +735,10 @@ let previewWs = null;
 let previewCanvas = null;
 let previewCtx = null;
 let previewScale = { x: 1, y: 1 };
+// True once the run has finished: the preview server on the run's port is gone,
+// so any further reconnect would connect, find a dead upstream, drop, and loop
+// forever. onclose checks this to stop reconnecting.
+let previewStopped = false;
 
 async function launchPreview() {
     const profile = document.getElementById('execProfile').value;
@@ -745,6 +758,7 @@ async function launchPreview() {
 
 function connectPreviewWS(port) {
     if (previewWs) { previewWs.close(); previewWs = null; }
+    previewStopped = false;   // a fresh run — reconnect is allowed again
     stopScreenshotStream();
 
     const container = document.getElementById('previewContainer');
@@ -792,7 +806,12 @@ function connectPreviewWS(port) {
 
     previewWs.onopen = () => {
         if (previewWs._clearTimeout) previewWs._clearTimeout();
-        window._wsReconnectAttempt = 0; // Reset reconnect counter
+        // NOTE: the retry counter is NOT reset here. Opening only proves the
+        // relay accepted us, not that the upstream preview server is alive — a
+        // dead port opens then closes instantly. Resetting on open made every
+        // phantom open wipe the counter, so the 5-attempt limit never tripped
+        // and the reconnect looped forever. The counter is reset on the first
+        // real FRAME instead (onmessage), which proves the pipe actually works.
         stopScreenshotStream(); // Stop fallback screenshots if they were running
         appendLog('🔴 Live preview connected (WebSocket)', 'success');
     };
@@ -801,6 +820,9 @@ function connectPreviewWS(port) {
         try {
             const msg = JSON.parse(event.data);
             if (msg.type === 'frame') {
+                // A real frame proves the relay→upstream pipe is healthy. This
+                // is where the reconnect counter resets — not on bare onopen.
+                window._wsReconnectAttempt = 0;
                 if (msg.viewport) window.previewCSSViewport = msg.viewport;
                 // Draw CDP screencast frame on canvas
                 const img = new Image();
@@ -874,6 +896,14 @@ function connectPreviewWS(port) {
 
     previewWs.onclose = (evt) => {
         previewWs = null;
+        // The run finished (or the user stopped it): the preview server on this
+        // port is gone, so reconnecting would just reopen → dead upstream →
+        // close → loop. Stop here.
+        if (previewStopped) {
+            appendLog('Preview đã dừng.', 'info');
+            stopScreenshotStream();
+            return;
+        }
         // Auto-reconnect unless intentionally closed (code 1000)
         if (evt.code !== 1000 && port) {
             const attempt = (window._wsReconnectAttempt || 0) + 1;
@@ -883,7 +913,11 @@ function connectPreviewWS(port) {
                 appendLog(`Preview disconnected — reconnecting in ${delay / 1000}s (attempt ${attempt}/5)`, 'info');
                 startScreenshotStream(); // Fallback during reconnect
                 setTimeout(() => {
-                    if (!previewWs) connectPreviewWS(port);
+                    // Re-check previewStopped: the run may have finished while
+                    // this timer was pending. Without this, the timer would call
+                    // connectPreviewWS, which clears previewStopped and restarts
+                    // the very loop finishExecutionUI just stopped.
+                    if (!previewWs && !previewStopped) connectPreviewWS(port);
                 }, delay);
             } else {
                 appendLog('Preview disconnected — max reconnect attempts reached, using screenshots', 'info');

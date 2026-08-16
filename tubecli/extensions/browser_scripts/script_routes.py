@@ -655,16 +655,39 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
 
     if not await reject_unless_allowed(websocket):
         return
-    await websocket.accept()
-    logger.info(f"[WS Proxy] Client connected, proxying to localhost:{port}")
-    
-    local_ws = None
+
     try:
         import aiohttp
-        session = aiohttp.ClientSession()
-        local_ws = await session.ws_connect(f"http://localhost:{port}", timeout=10)
+    except ImportError:
+        logger.error("[WS Proxy] aiohttp not installed. Run: pip install aiohttp")
+        try:
+            await websocket.close(code=1011, reason="aiohttp not installed on server")
+        except Exception:
+            pass
+        return
+
+    session = aiohttp.ClientSession()
+    local_ws = None
+    try:
+        # Connect to the upstream preview server BEFORE accepting the client. If
+        # the run has finished, that server is gone; accepting first would make
+        # the client log a phantom "connected" and then immediately reconnect —
+        # open → dead upstream → close → open … forever. Rejecting the handshake
+        # instead means the client's WS never opens, so its own reconnect limit
+        # engages and it falls back to screenshots.
+        try:
+            local_ws = await session.ws_connect(f"http://localhost:{port}", timeout=10)
+        except Exception as e:
+            logger.info(f"[WS Proxy] upstream :{port} unreachable ({e}); rejecting handshake")
+            try:
+                await websocket.close(code=1013, reason="preview server not available")
+            except Exception:
+                pass
+            return
+
+        await websocket.accept()
         logger.info(f"[WS Proxy] Connected to local preview server on port {port}")
-        
+
         async def forward_to_local():
             """Client → Local preview server"""
             try:
@@ -706,12 +729,6 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
         )
         for task in pending:
             task.cancel()
-    except ImportError:
-        logger.error("[WS Proxy] aiohttp not installed. Run: pip install aiohttp")
-        try:
-            await websocket.close(code=1011, reason="aiohttp not installed on server")
-        except Exception:
-            pass
     except Exception as e:
         logger.error(f"[WS Proxy] Error: {e}")
         try:
@@ -719,9 +736,15 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
         except Exception:
             pass
     finally:
+        # Always close the session, even when ws_connect failed — the old guard
+        # (`if local_ws:`) skipped it on a failed connect, leaking one aiohttp
+        # ClientSession per reconnect attempt (dozens, in a reconnect loop).
         if local_ws:
-            await local_ws.close()
-            await session.close()
+            try:
+                await local_ws.close()
+            except Exception:
+                pass
+        await session.close()
 
 
 # ── Screenshot proxy for remote access ──
