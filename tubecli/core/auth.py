@@ -475,6 +475,49 @@ def guest_scope_for(token: Optional[str]) -> Optional[dict]:
     return scope if isinstance(scope, dict) else None
 
 
+def _canon_fs(path_str: str) -> str:
+    """Canonical hoá path GIỐNG HỆT thứ file-manager route THỰC SỰ chạm.
+
+    FileService._validate_path trả normalized = normpath(abspath(expanduser(path)))
+    rồi read/list mở CHÍNH chuỗi đó — mà os.open/list follow symlink → nội dung chạm
+    tới là realpath(normalized). Gate phải confine ĐÚNG realpath(normalized), nếu không
+    thứ tự 'gộp .. rồi mới theo symlink' sẽ LỆCH với 'theo symlink rồi mới gộp ..' của
+    realpath(path) thô → symlink NGOÀI-trỏ-VÀO-trong cho phép đọc file ngoài phạm vi.
+    """
+    import os
+    normalized = os.path.normpath(os.path.abspath(os.path.expanduser(str(path_str))))
+    return os.path.realpath(normalized)
+
+
+def path_in_folders(req_path, folders) -> bool:
+    """True nếu req_path (canonical hoá như route) nằm TRONG một folder được chia sẻ.
+
+    realpath(normpath(abspath(...))) giải hết '..' + symlink → chặn traversal, symlink
+    escape, và mismatch gate↔route. Prefix GHÉP os.sep để '/a/x' KHÔNG khớp nhầm '/a/xy'.
+    Từ chối folder '/' (cả máy) và path rỗng. FAIL-CLOSED: mọi lỗi → False.
+    """
+    import os
+    if not req_path:
+        return False
+    try:
+        rp = _canon_fs(req_path)
+    except Exception:
+        return False
+    for f in (folders or []):
+        if not f or not os.path.isabs(str(f)):
+            continue   # folder PHẢI là path tuyệt đối (chặn '' → CWD, và path tương đối)
+        try:
+            rf = _canon_fs(f)
+        except Exception:
+            continue
+        if not rf or rf == os.sep:
+            continue   # '/' = cả máy → không bao giờ hợp lệ
+        base = rf.rstrip(os.sep)
+        if rp == base or rp.startswith(base + os.sep):
+            return True
+    return False
+
+
 def revoke_guest_tokens_for_workspace(workspace: str) -> int:
     """Thu hồi mọi guest token của một workspace (khi chủ revoke). Trả số xoá."""
     if not workspace:

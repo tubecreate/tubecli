@@ -159,6 +159,23 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         except Exception:
             return False
 
+    # ── File trong FOLDER được chia sẻ (folder node): list/read/raw GIỚI HẠN path folder ──
+    # realpath+prefix chặn traversal/symlink (xem _path_in_folders). CHỈ đọc (GET/HEAD),
+    # KHÔNG mở search/download/write/create/delete/info (deny-default lo phần còn lại).
+    folders = scope.get("folders") or []
+    if folders and m in ("GET", "HEAD") and p in (
+        "/api/v1/file-manager/list",
+        "/api/v1/file-manager/read",
+        "/api/v1/file-manager/raw",
+    ):
+        # getlist (KHÔNG .get): nếu client nhồi ?path=/an-toàn&path=/etc/shadow thì
+        # route có thể đọc giá trị route chọn ≠ giá trị ta kiểm — bắt MỌI giá trị ∈ folder.
+        from tubecli.core import auth
+        vals = request.query_params.getlist("path")
+        if not vals:
+            return False
+        return all(auth.path_in_folders(v, folders) for v in vals)
+
     # ── File Manager / Drive (G3): CHỈ khi scope.file_manager.drive bật ──
     # Cho: liệt kê account (lộ email — chấp nhận, siết sau), duyệt Drive (cred_id∈scope,
     # CHẶN ?q= search toàn Drive), và GẮN file Drive vào browser (endpoint hợp nhất, không

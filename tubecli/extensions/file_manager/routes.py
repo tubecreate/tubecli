@@ -488,8 +488,40 @@ async def get_roots():
     return {"success": True, "sep": os.sep, "roots": svc.get_allowed_roots()}
 
 
+def _guest_confine_listing(request, result) -> None:
+    """Guest (workspace scoped): BỎ entry symlink trỏ RA NGOÀI folder được chia sẻ.
+
+    _file_info dùng os.stat (follow symlink) nên một symlink trong F trỏ ra ngoài sẽ lộ
+    metadata (size/mtime/is_dir/existence) của target — dù nội dung đã bị gate chặn ở
+    read/raw. Lọc theo realpath (auth.path_in_folders) để chỉ giữ entry THỰC nằm trong
+    phạm vi. Chỉ tác động request GUEST (owner không có guest_scope → no-op). FAIL-CLOSED:
+    lỗi lọc → trả listing RỖNG chứ không để rò.
+    """
+    gscope = getattr(getattr(request, "state", None), "guest_scope", None)
+    if not isinstance(gscope, dict):
+        return
+    try:
+        folders = gscope.get("folders") or []
+        items = result.get("items") if isinstance(result, dict) else None
+        if not (folders and isinstance(items, list)):
+            if folders and isinstance(result, dict):
+                result["items"] = []; result["count"] = 0; result["dirs"] = 0; result["files"] = 0
+            return
+        from tubecli.core import auth
+        kept = [it for it in items
+                if isinstance(it, dict) and auth.path_in_folders(it.get("path"), folders)]
+        result["items"] = kept
+        result["count"] = len(kept)
+        result["dirs"] = sum(1 for i in kept if i.get("is_dir"))
+        result["files"] = sum(1 for i in kept if not i.get("is_dir") and "error" not in i)
+    except Exception:
+        if isinstance(result, dict):
+            result["items"] = []; result["count"] = 0; result["dirs"] = 0; result["files"] = 0
+
+
 @_shared.get("/list")
 async def list_files(
+    request: Request,
     path: str = Query(..., description="Directory path"),
     show_hidden: bool = Query(False, description="Show hidden files"),
 ):
@@ -497,6 +529,7 @@ async def list_files(
     svc = _get_service()
     try:
         result = svc.list_dir(path, show_hidden=show_hidden)
+        _guest_confine_listing(request, result)
         return {"success": True, **result}
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
