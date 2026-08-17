@@ -656,6 +656,16 @@ async def raw_media(
         headers["Content-Security-Policy"] = _CSP_MEDIA
     headers["Content-Disposition"] = _inline_disposition(os.path.basename(resolved))
 
+    # GUEST (workspace scoped) xem từ trang cloud — KHÁC origin (same-site) với tunnel. CORP
+    # 'same-origin' chặn <img>/<video> cross-origin (ERR_BLOCKED_BY_RESPONSE.NotSameOrigin) và
+    # frame-ancestors 'self' chặn iframe PDF. Quyền ĐỌC đã enforce qua scope (cookie guest +
+    # _guest_allowed path∈folder/file), CORP/frame-ancestors chỉ là lớp chống-hotlink cho khách
+    # vô danh → nới cho guest hợp lệ. Owner (không guest_scope) giữ nguyên khoá chặt.
+    if getattr(getattr(request, "state", None), "guest_scope", None):
+        headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+        if media_type == "application/pdf":
+            headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors *"
+
     # stat_result is handed over so Content-Length, ETag and Last-Modified come
     # from the stat this handler already validated rather than a second one.
     # filename= is deliberately not passed: FileResponse only writes
