@@ -363,19 +363,21 @@ else
     if [[ ! -d "$INSTALL_DIR" ]]; then
         git clone -b "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
     else
-        echo -e "  Directory exists, pulling latest changes..."
-        # --ff-only under set +e: a dirty or diverged checkout must degrade to a
-        # warning, not abort the whole script under `set -e` — re-running this
-        # installer IS the advertised update path, and an installed machine must
-        # never be brickable by its own checkout state.
+        echo -e "  Directory exists, updating to latest $BRANCH..."
+        # Re-running the installer IS the update path. `pull --ff-only` became a
+        # silent no-op on any checkout a hosted hotpatch had overwritten (dirty tree)
+        # — which stranded live servers on old code even after "reinstall". Fetch +
+        # hard-reset to the remote branch instead: the repo is the source of truth,
+        # local edits to tracked files are not expected, and reset --hard leaves
+        # untracked paths (data/, .venv) alone. Never abort the script on failure.
         set +e
-        git -C "$INSTALL_DIR" pull --ff-only origin "$BRANCH"
-        PULL_RC=$?
+        git -C "$INSTALL_DIR" fetch origin "$BRANCH"
+        git -C "$INSTALL_DIR" reset --hard "origin/$BRANCH"
+        RESET_RC=$?
         set -e
-        if [[ "$PULL_RC" -ne 0 ]]; then
-            echo -e "${YELLOW}[!] Could not update $INSTALL_DIR (local changes or diverged history).${NC}"
-            echo -e "${YELLOW}    Continuing with the existing copy. To update by hand:${NC}"
-            echo -e "      git -C $INSTALL_DIR stash && git -C $INSTALL_DIR pull"
+        if [[ "$RESET_RC" -ne 0 ]]; then
+            echo -e "${YELLOW}[!] Could not update $INSTALL_DIR to origin/$BRANCH.${NC}"
+            echo -e "${YELLOW}    Continuing with the existing copy.${NC}"
             # Carried through to the final summary, which otherwise announces a
             # successful update minutes after this warning has scrolled away.
             export TUBECLI_UPDATE_STATUS="stale"
