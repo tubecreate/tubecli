@@ -12,7 +12,7 @@
   SVG sprite rather than an icon font: a failed icon-font load renders the ligature
   name as literal text ("folder_open") and reflows every toolbar.
 -->
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=3">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=7">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -94,6 +94,9 @@
     <symbol id="i-folder-off" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M2 2l20 20"/></symbol>
     <symbol id="i-external" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></symbol>
     <symbol id="i-cursor" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/><path d="M9 15l3 3 3-6"/></symbol>
+    <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.59 13.51l6.83 3.98"/><path d="M15.41 6.51l-6.82 3.98"/></symbol>
   </defs>
 </svg>
 
@@ -183,6 +186,8 @@
         <svg class="fm-ico" aria-hidden="true"><use href="#i-sparkle"/></svg>
         <span data-i18n="fm.nav.cleanup"></span>
       </button>
+      <!-- No Google Drive tab here: Drive is opened from the sidebar (each
+           account is a folder), so it is not duplicated in the top tab bar. -->
     </div>
 
     <div class="fm-viewbar-right">
@@ -210,6 +215,21 @@
         <!-- JS fills from GET /roots. Items use .fm-rail-item. -->
         <div id="quickAccess" class="fm-rail-list"></div>
         <p class="fm-rail-note fm-rail-note-sm" data-i18n="fm.nav.allowed_roots"></p>
+      </section>
+
+      <!-- Google Drive shortcut. The header row opens the Drive tab; fm_drive.js
+           fills #fm-drive-rail with one row per authorized account — each account
+           is one "folder" that opens the tab pinned to that account. -->
+      <section class="fm-rail-section fm-rail-drive">
+        <h2 class="fm-rail-title">
+          <button type="button" class="fm-rail-item fm-rail-drive-head" data-fm-action="view" data-fm-view="drive">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-cloud"/></svg>
+            <span data-i18n="fm.nav.drive"></span>
+          </button>
+        </h2>
+        <div id="fm-drive-rail" class="fm-rail-list"></div>
+        <p class="fm-rail-note fm-rail-note-sm" id="fm-drive-rail-note" hidden
+           data-i18n="fm.drive.no_accounts_rail"></p>
       </section>
 
       <section class="fm-rail-section fm-rail-volumes">
@@ -596,6 +616,82 @@
             <span data-i18n="fm.clean.preview"></span>
           </button>
         </div>
+      </section>
+
+      <!-- ========== VIEW: GOOGLE DRIVE ========== -->
+      <section class="fm-view fm-view-drive" id="fm-view-drive" role="region" data-i18n-aria-label="fm.nav.drive">
+
+        <div class="fm-toolbar fm-drive-toolbar">
+          <div class="fm-toolbar-group fm-toolbar-end">
+            <select class="fm-input fm-drive-account" id="fm-drive-account"
+                    data-i18n-aria-label="fm.drive.account"></select>
+            <button type="button" class="fm-btn fm-btn-primary" data-fm-action="drive-upload">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-upload"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.drive.upload"></span>
+            </button>
+            <button type="button" class="fm-btn" data-fm-action="drive-mkdir">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-folder-plus"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.browse.new_folder"></span>
+            </button>
+            <button type="button" class="fm-icon-btn" data-fm-action="drive-refresh"
+                    data-i18n-title="fm.common.refresh">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-refresh"/></svg>
+              <span class="fm-sr" data-i18n="fm.common.refresh"></span>
+            </button>
+          </div>
+        </div>
+
+        <div class="fm-toolbar fm-drive-subbar">
+          <div class="fm-toolbar-group fm-drive-crumbs-wrap">
+            <!-- JS fills breadcrumb buttons: [data-fm-action="drive-crumb"][data-folder-id] -->
+            <nav class="fm-drive-crumbs fm-scroll-x" id="fm-drive-crumbs"></nav>
+          </div>
+          <div class="fm-toolbar-group fm-toolbar-end">
+            <input type="search" class="fm-input" id="fm-drive-search"
+                   data-i18n-placeholder="fm.drive.search_placeholder">
+          </div>
+        </div>
+
+        <div class="fm-view-scroll">
+          <!-- Shown when no Google account has a Drive scope. -->
+          <div class="fm-placeholder" id="fm-drive-noauth" hidden>
+            <svg class="fm-placeholder-ico" aria-hidden="true"><use href="#i-cloud"/></svg>
+            <p class="fm-placeholder-title" data-i18n="fm.drive.no_accounts"></p>
+            <p class="fm-placeholder-desc" data-i18n="fm.drive.no_accounts_hint"></p>
+            <a class="fm-btn fm-btn-primary" href="/auth-manager" target="_blank" rel="noopener">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-external"/></svg>
+              <span data-i18n="fm.drive.open_auth"></span>
+            </a>
+          </div>
+
+          <p class="fm-rail-note" id="fm-drive-state" hidden></p>
+
+          <div class="fm-card" id="fm-drive-listcard" hidden>
+            <div class="fm-table-wrap fm-scroll-x">
+              <table class="fm-table">
+                <thead>
+                  <tr>
+                    <th data-i18n="fm.common.name"></th>
+                    <th class="fm-num" data-i18n="fm.common.size"></th>
+                    <th data-i18n="fm.common.modified"></th>
+                    <th class="fm-drive-actions-col"></th>
+                  </tr>
+                </thead>
+                <tbody id="fm-drive-body"></tbody>
+              </table>
+            </div>
+            <p class="fm-empty-line" id="fm-drive-empty" hidden data-i18n="fm.drive.empty"></p>
+            <div class="fm-drive-more-wrap">
+              <button type="button" class="fm-btn fm-btn-quiet" id="fm-drive-more"
+                      data-fm-action="drive-more" hidden>
+                <span data-i18n="fm.drive.load_more"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hidden picker for browser → Drive uploads. -->
+        <input type="file" id="fm-drive-file-input" multiple hidden>
       </section>
     </main>
 
@@ -1075,10 +1171,41 @@
         "fm.disk.reading": "Đang đọc danh sách ổ đĩa…",
         "fm.disk.skipped_pseudo": "Các hệ thống file ảo (tmpfs, devfs, overlay) và những mount trùng cùng một thiết bị đã được bỏ qua — chúng không phải dung lượng thật.",
         "fm.disk.title": "Ổ đĩa",
-        "fm.nav.allowed_roots": "Thư mục được phép mở",
+        "fm.drive.account": "Tài khoản Google",
+        "fm.drive.acting": "Tài khoản: {email}",
+        "fm.drive.confirm_trash": "Chuyển \"{name}\" vào thùng rác Drive? (khôi phục được trong 30 ngày)",
+        "fm.drive.delete": "Xóa (thùng rác)",
+        "fm.drive.download": "Tải về máy",
+        "fm.drive.empty": "Thư mục Drive này trống.",
+        "fm.drive.load_more": "Tải thêm…",
+        "fm.drive.loading": "Đang tải Google Drive…",
+        "fm.drive.mkdir_prompt": "Tên thư mục mới trên Drive",
+        "fm.drive.no_accounts": "Chưa có tài khoản Google nào cấp quyền Drive",
+        "fm.drive.no_accounts_hint": "Vào Auth Manager, bấm Authorize và chọn quyền Google Drive. Quay lại đây bấm Làm mới là danh sách hiện ra.",
+        "fm.drive.no_accounts_rail": "Chưa có tài khoản Drive — cấp quyền trong Auth Manager.",
+        "fm.drive.open": "Mở trong Drive",
+        "fm.drive.open_auth": "Mở Auth Manager",
+        "fm.drive.readonly_badge": "chỉ đọc",
+        "fm.drive.rename": "Đổi tên",
+        "fm.drive.rename_prompt": "Tên mới",
+        "fm.drive.renamed": "Đã đổi tên thành \"{name}\".",
+        "fm.drive.root": "My Drive",
+        "fm.drive.search_placeholder": "Tìm trên Drive…",
+        "fm.drive.share": "Chia sẻ",
+        "fm.drive.share_anyone": "Đã bật chia sẻ công khai — link đã được chép vào clipboard.",
+        "fm.drive.share_anyone_link": "Đã bật chia sẻ công khai. Chép link: {url}",
+        "fm.drive.share_choice": "Nhập email để chia sẻ riêng, hoặc để trống để lấy link công khai (ai có link đều xem được):",
+        "fm.drive.shared_user": "Đã chia sẻ cho {email}.",
+        "fm.drive.subtitle": "Duyệt, upload, đổi tên và chia sẻ file trên Google Drive bằng tài khoản đã cấp quyền trong Auth Manager",
+        "fm.drive.trashed": "Đã chuyển \"{name}\" vào thùng rác Drive.",
+        "fm.drive.upload": "Upload",
+        "fm.drive.upload_done": "Đã upload {n} file lên Drive.",
+        "fm.drive.uploading": "Đang upload {name}… ({i}/{n})",
+        "fm.nav.allowed_roots": "Lối tắt",
         "fm.nav.back": "Về Dashboard",
         "fm.nav.browse": "File",
         "fm.nav.cleanup": "Dọn dẹp",
+        "fm.nav.drive": "Google Drive",
         "fm.nav.quick_access": "Truy cập nhanh",
         "fm.nav.subtitle": "Duyệt file, xem dung lượng đang nằm ở đâu và dọn dẹp một cách an toàn",
         "fm.nav.title": "Quản lý File",
@@ -1239,7 +1366,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=4"></script>
+<script src="/file-manager-static/file_manager.js?v=11"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1253,9 +1380,10 @@
   keeps registration synchronous and makes "first claim wins" deterministic,
   so which module owns a duplicated name never depends on network timing.
 -->
-<script src="/file-manager-static/fm_actions.js?v=2"></script>
+<script src="/file-manager-static/fm_actions.js?v=4"></script>
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
+<script src="/file-manager-static/fm_drive.js?v=6"></script>
 </body>
 </html>

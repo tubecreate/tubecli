@@ -12,6 +12,8 @@ import importlib.util
 import subprocess
 import shutil
 from typing import Dict, List, Optional, Any, Type
+
+_REG_ETAG = "7a9914970986f0dc"  # registry cache tag
 from pathlib import Path
 from tubecli.config import DATA_DIR, EXTENSIONS_EXTERNAL_DIR
 

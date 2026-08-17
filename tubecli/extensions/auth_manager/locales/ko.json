@@ -59,7 +59,7 @@
   "auth.lbl_name": "이름",
   "auth.authz.lbl_scopes_hint": "(자격 증명 생성 시 구성됨)",
   "auth.step2.req_scopes_desc": "아래 범위를 복사하여 OAuth 동의 화면에서 권한을 부여하십시오:",
-  "auth.waiting.ts_sol_1": "Google Cloud $\rightarrow$ <em>OAuth 동의 화면</em> $\rightarrow$ <strong>테스트 사용자</strong>로 스크롤하여 사용하는 이메일을 추가하세요.",
+  "auth.waiting.ts_sol_1": "Google Cloud → OAuth 동의 화면 → 테스트 사용자로 스크롤하여 사용하는 이메일을 추가하세요.",
   "auth.authz.lbl_scopes": "📦 부여될 범위",
   "auth.manual.internal_tool_title": "내부 도구의 경우:",
   "auth.manual.internal_tool_desc": "앱 설정이 필요 없습니다. Graph API Explorer에서 토큰을 가져와 여기에 붙여넣으면 즉시 자동화 액세스 권한이 부여됩니다.",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "앱 구성 매개변수",
   "auth.waiting.ts_error_2": "빨간색 경고",
   "auth.step2.redirect_uri_desc": "(자격 증명 > OAuth 클라이언트 ID 탭에 있음)",
-  "auth.waiting.ts_sol_2": "하단에 있는 작은 텍스트 <strong>\"고급\"</strong>을 클릭한 다음 <strong>\"...으로 이동 (안전하지 않음)\"</strong>을 클릭하여 계속하십시오.",
+  "auth.waiting.ts_sol_2": "하단에 있는 작은 텍스트 \"고급\"을 클릭한 다음 \"...으로 이동 (안전하지 않음)\"을 클릭하여 계속하십시오.",
   "auth.title.dashboard": "대시보드",
   "auth.title.auth_manager": "인증 관리자",
   "auth.btn_add_cred": "자격 증명 추가",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ 맞춤형 Scope 추가",
   "auth.svc.custom.desc": "추가 API Scope URL을 입력하도록 사용자 정의",
   "auth.modal_title_add": "자격 증명 추가",
-  "auth.modal_title_edit": "자격 증명 편집"
+  "auth.modal_title_edit": "자격 증명 편집",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

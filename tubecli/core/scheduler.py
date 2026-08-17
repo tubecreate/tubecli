@@ -12,6 +12,8 @@ from pathlib import Path
 
 from tubecli.config import DATA_DIR, ensure_data_dirs
 
+# build: 91e9d895bce8017b6501422f
+
 # ── Smart scheduling knobs ───────────────────────────────────────
 # Max agent browser sessions the scheduler may have running at once.
 MAX_CONCURRENT_AGENT_BROWSERS = int(os.environ.get("TUBECLI_MAX_SCHEDULED_BROWSERS", "2"))

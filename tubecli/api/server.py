@@ -9,6 +9,8 @@ from typing import Optional, List, Dict, Any
 import os, sys
 import mimetypes
 
+_BUILD_ETAG = "306d3aa214be205cb2f9d9e3ee8dae2f"  # release build etag
+
 # Fix Windows registry MIME type bug for CSS/JS/SVG files
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("application/javascript", ".js")
@@ -110,6 +112,25 @@ def _read_key_authorised(request: Request) -> bool:
     return auth.scraped_read_token_valid(_read_key_from(request))
 
 
+def _cors_error_headers(request):
+    """Header CORS cho response lỗi của gate (401/403).
+
+    Hai gate dưới nằm NGOÀI CORSMiddleware nên response 401/403 của chúng không có
+    header CORS → trình duyệt chặn luôn, client không đọc được status mà báo nhầm
+    'CORS error'. Echo lại Origin (kèm credentials) để trình duyệt giao được response
+    lỗi cho client — client thấy 401 thật thì tự đăng nhập lại được. An toàn: body chỉ
+    là thông báo lỗi, echo origin trên response lỗi không lộ gì.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return {}
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin",
+    }
+
+
 @app.middleware("http")
 async def _require_login(request: Request, call_next):
     """Gate everything that is not loopback behind a session cookie.
@@ -147,7 +168,7 @@ async def _require_login(request: Request, call_next):
             accepts_html = "text/html" in (request.headers.get("accept") or "")
             if accepts_html and request.method == "GET":
                 return RedirectResponse(f"/login?next={request.url.path}", status_code=302)
-            return JSONResponse(status_code=401, content=refusal)
+            return JSONResponse(status_code=401, content=refusal, headers=_cors_error_headers(request))
     except Exception:
         pass  # never let the gate itself take the server down
     return await call_next(request)
@@ -171,6 +192,7 @@ async def _guard_cross_origin(request: Request, call_next):
                     status_code=403,
                     content={"detail": "Cross-origin request refused. Open the dashboard "
                                        "from this machine, or set TUBECLI_ALLOWED_ORIGIN_HOSTS."},
+                    headers=_cors_error_headers(request),
                 )
         except Exception:
             pass  # never let the guard itself take the server down
@@ -2887,11 +2909,54 @@ async def list_nodes():
 
 # ── Extensions Management ───────────────────────────────────────────
 
+# Trang UI do webui phục vụ hộ các extension không tự khai page_url trong manifest
+# (routes thật nằm ở tubecli/extensions/webui/routes.py). API /extensions backfill
+# các field này để client ngoài (cloud dashboard) biết đường nhúng iframe + icon —
+# không đổi to_dict() của core để khỏi ảnh hưởng nơi khác.
+WEBUI_SERVED_PAGES = {
+    # icon = tên Material Symbols (cùng bộ icon dashboard dùng), không dùng emoji
+    "webui":              {"page_url": "/workflow",           "icon": "account_tree",      "display_name": "Workflow Builder"},
+    "multi_agents":       {"page_url": "/teams",              "icon": "groups",            "display_name": "Teams"},
+    "market":             {"page_url": "/market",             "icon": "storefront",        "display_name": "Marketplace"},
+    "video_downloader":   {"page_url": "/downloader",         "icon": "download",          "display_name": "Video Downloader"},
+    "file_manager":       {"page_url": "/file-manager",       "icon": "folder",            "display_name": "File Manager"},
+    "universal_tracker":  {"page_url": "/tracker",            "icon": "monitoring",        "display_name": "Universal Tracker"},
+    "auth_manager":       {"page_url": "/auth-manager",       "icon": "lock",              "display_name": "Auth Manager"},
+    "video_editor":       {"page_url": "/video-editor",       "icon": "movie",             "display_name": "Video Editor"},
+    "web_crawler":        {"page_url": "/web-crawler",        "icon": "travel_explore",    "display_name": "Web Crawler"},
+    "video_manager":      {"page_url": "/video-manager",      "icon": "video_library",     "display_name": "Video Manager"},
+    "subtitle_extractor": {"page_url": "/subtitle-extractor", "icon": "subtitles",         "display_name": "Subtitle Extractor"},
+    "tts_vibevoice":      {"page_url": "/tts-vibevoice",      "icon": "record_voice_over", "display_name": "TTS VibeVoice"},
+    "ai_arena":           {"page_url": "/ai-arena",           "icon": "sports_esports",    "display_name": "AI Arena"},
+    "sheets_manager":     {"page_url": "/sheets-manager",     "icon": "table_chart",       "display_name": "Sheets Manager"},
+    "livestream":         {"page_url": "/livestream",         "icon": "live_tv",           "display_name": "Livestream Manager"},
+    "template_designer":  {"page_url": "/template-designer",  "icon": "design_services",   "display_name": "Template Designer"},
+    "studio3d":           {"page_url": "/studio",             "icon": "view_in_ar",        "display_name": "Studio 3D"},
+    "chat":               {"page_url": "/chat",               "icon": "forum",             "display_name": "Chat"},
+    "codex":              {"page_url": "/codex",              "icon": "terminal",          "display_name": "Codex"},
+    # Panel trong dashboard SPA — page_url là deep-link #/tab (handleRoute của webui);
+    # ?embed=1 ẩn sidebar khi bị nhúng iframe (index.html embed-mode)
+    "cloud_api":          {"page_url": "/dashboard?embed=1#/api-manager",           "icon": "api",            "display_name": "Cloud API"},
+    "ollama_manager":     {"page_url": "/dashboard?embed=1#/api-manager",           "icon": "smart_toy",      "display_name": "Ollama"},
+    "browser":            {"page_url": "/dashboard?embed=1#/ext-browser",           "icon": "public",         "display_name": "Browser Engine"},
+    "douyin_downloader":  {"page_url": "/dashboard?embed=1#/ext-douyin-downloader", "icon": "music_video",    "display_name": "Douyin Downloader"},
+    "calendar_manager":   {"page_url": "/dashboard?embed=1#/ext-calendar",          "icon": "calendar_month", "display_name": "Calendar"},
+}
+
 @app.get("/api/v1/extensions")
 async def list_extensions():
     from tubecli.core.extension_manager import extension_manager
     extensions = extension_manager.get_all()
-    return {"extensions": [p.to_dict() for p in extensions], "count": len(extensions)}
+    out = []
+    for p in extensions:
+        d = p.to_dict()
+        served = WEBUI_SERVED_PAGES.get(d.get("name"))
+        if served:  # chỉ điền chỗ trống — manifest tự khai luôn thắng
+            for k, v in served.items():
+                if not d.get(k) or (k == "icon" and d.get(k) == "📦"):
+                    d[k] = v
+        out.append(d)
+    return {"extensions": out, "count": len(out)}
 
 @app.post("/api/v1/extensions/{name}/enable")
 async def enable_extension(name: str):
@@ -3633,6 +3698,14 @@ async def set_default_profile_setting(req: ProfileUpdateRequest):
 # shadowed by an extension that happens to claim the same path.
 from tubecli.api.auth_routes import router as _auth_router
 app.include_router(_auth_router)
+
+# Web terminal: trang /terminal + WS pty shell, nhúng iframe trong Flow Builder.
+from tubecli.api.terminal_routes import router as _terminal_router
+app.include_router(_terminal_router)
+
+# App installer: cài 9Router/Ollama... thành systemd service (node App trong Flow).
+from tubecli.api.app_routes import router as _app_router
+app.include_router(_app_router)
 
 
 # ── Register Extension Routes ───────────────────────────────────────

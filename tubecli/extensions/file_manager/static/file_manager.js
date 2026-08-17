@@ -1518,6 +1518,68 @@
                     var card = e.target.closest('.fm-file-card');
                     if (card) this.showContextMenu(e, card.getAttribute('data-path'), card.getAttribute('data-dir') === '1');
                 }).bind(this));
+                // Kéo file (không phải thư mục) sang canvas Flow của cloud bằng POINTER CAPTURE
+                // (không dùng drag gốc để tránh con trỏ 🚫 no-drop qua iframe khác origin).
+                // pointerdown ghim card → vượt ngưỡng thì setPointerCapture (card nhận mọi
+                // pointermove/up kể cả khi con trỏ ra ngoài iframe) + báo 'drag'; stream 'move';
+                // nhả chuột → 'drop'. Cloud vẽ chip theo con trỏ + đặt node tại vị trí thả.
+                var fmDrag = null;
+                grid.addEventListener('pointerdown', function (e) {
+                    if (e.button !== 0) return;
+                    var card = e.target.closest ? e.target.closest('.fm-file-card') : null;
+                    if (!card || card.getAttribute('data-dir') === '1') return;
+                    var path = card.getAttribute('data-path');
+                    fmDrag = {
+                        id: e.pointerId, el: card, x: e.clientX, y: e.clientY, started: false,
+                        ref: {
+                            v: 1, source: 'local', path: path,
+                            name: card.getAttribute('data-name') || (path || '').split('/').pop(),
+                            ext: card.getAttribute('data-ext') || null,
+                            size: card.getAttribute('data-size') ? Number(card.getAttribute('data-size')) : null
+                        }
+                    };
+                });
+                window.addEventListener('pointermove', function (e) {
+                    if (!fmDrag || e.pointerId !== fmDrag.id) return;
+                    if (!fmDrag.started) {
+                        if (Math.abs(e.clientX - fmDrag.x) + Math.abs(e.clientY - fmDrag.y) < 6) return;
+                        fmDrag.started = true;
+                        try { fmDrag.el.setPointerCapture(fmDrag.id); } catch (x) {}
+                        document.body.style.userSelect = 'none';
+                        document.body.style.cursor = 'grabbing';
+                        try { window.parent.postMessage({ type: 'tubecli-fm-drag', ref: fmDrag.ref }, '*'); } catch (x) {}
+                    }
+                    try { window.parent.postMessage({ type: 'tubecli-fm-move', ix: e.clientX, iy: e.clientY }, '*'); } catch (x) {}
+                });
+                window.addEventListener('pointerup', function (e) {
+                    if (!fmDrag || e.pointerId !== fmDrag.id) return;
+                    var started = fmDrag.started, el = fmDrag.el, id = fmDrag.id;
+                    fmDrag = null;
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = '';
+                    try { el.releasePointerCapture(id); } catch (x) {}
+                    if (started) { try { window.parent.postMessage({ type: 'tubecli-fm-drop', ix: e.clientX, iy: e.clientY }, '*'); } catch (x) {} }
+                });
+            }
+
+            // ── NHẬN file kéo-thả từ canvas Flow (giao thức chung 'tubecli-file-drop') ──
+            // Extension khác muốn nhận file: COPY nguyên đoạn này. Cloud gửi {file:{path,name,
+            // ext,size,source}} khi user thả node media đè lên node extension. Kiểm nguồn là
+            // cửa cha để an toàn. Ở đây demo bằng toast; extension thật thay bằng xử lý path.
+            if (!window.__tcFileDropBound) {
+                window.__tcFileDropBound = true;
+                window.addEventListener('message', function (e) {
+                    if (e.source !== window.parent || !e.data || e.data.type !== 'tubecli-file-drop') return;
+                    var f = e.data.file || {};
+                    try {
+                        var el = document.createElement('div');
+                        el.textContent = '📎 Đã nhận file: ' + (f.name || f.path || '');
+                        el.style.cssText = 'position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:99999;background:#10b981;color:#fff;font:600 13px system-ui;padding:8px 16px;border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,.4)';
+                        document.body.appendChild(el);
+                        setTimeout(function () { el.remove(); }, 2600);
+                    } catch (x) {}
+                    // TODO(extension): dùng f.path để làm việc thật (mở thư mục, import, nạp script...).
+                });
             }
 
             var bc = byId('breadcrumb');
@@ -1566,6 +1628,13 @@
 
         async navigate(path) {
             if (!path) return;
+            // Any file navigation implies the Files view. Clicking a Quick Access
+            // folder while the Drive (or Storage/Cleanup) view is on screen used
+            // to update the browser underneath without switching back, so the
+            // click looked dead. Return to Files whenever we navigate.
+            if (window.FMActions && typeof window.FMActions.setView === 'function') {
+                window.FMActions.setView('files');
+            }
             this.currentPath = path;
             this.selectedItem = null;
             this.searchResults = null;
@@ -1737,9 +1806,18 @@
                 if (item.error) {
                     kids.push(h('span', { class: 'fmx-badge err', text: item.error, style: { marginTop: '4px' } }));
                 }
-                frag.appendChild(h('div', {
+                var cardAttrs = {
                     class: 'fm-file-card', 'data-path': item.path, 'data-dir': item.is_dir ? '1' : '0'
-                }, kids));
+                };
+                if (!item.is_dir) {
+                    // Kéo file ra canvas Flow (cloud) → tạo Media node. KHÔNG dùng drag gốc
+                    // (con trỏ 🚫 no-drop qua iframe khác origin). Dùng pointer capture + stream
+                    // vị trí; cloud vẽ chip theo con trỏ. Xem bindGridEvents.
+                    cardAttrs['data-name'] = item.name;
+                    cardAttrs['data-ext'] = (item.extension || '').replace(/^\./, '');
+                    if (item.size != null) cardAttrs['data-size'] = String(item.size);
+                }
+                frag.appendChild(h('div', cardAttrs, kids));
             });
             grid.appendChild(frag);
         },

@@ -141,6 +141,8 @@ class RunRequest(BaseModel):
     variables: dict = {}
     headless: bool = True
     engine: str = "playwright"  # "playwright" or "bablosoft" (Security Browser)
+    attach: bool = False  # True: chạy trên browser live đang mở (khung Browser) qua CDP
+    tab_index: int = -1  # index tab đang xem (context.pages()) — chạy đúng tab đó
 
 
 # ── Script CRUD ──
@@ -380,12 +382,21 @@ async def update_steps(script_id: str, request: Request):
 
 _running_processes = {}
 _running_logs = {}  # exec_id -> list of log lines (real-time)
+_attach_running = {}  # profile -> exec_id: chỉ 1 phiên attach mỗi profile (tránh 2 runner cùng điều khiển 1 browser live)
 
 @router.post("/{script_id}/run")
 async def run_script(script_id: str, req: RunRequest):
     script = _store().get_script(script_id)
     if not script:
         raise HTTPException(404, "Script not found")
+
+    # Attach: chỉ cho 1 phiên/profile — 2 runner cùng thao tác 1 browser live sẽ
+    # đan xen chuột/phím làm hỏng flow. Dọn khoá cũ nếu tiến trình đã chết.
+    if req.attach and req.profile:
+        prev = _attach_running.get(req.profile)
+        if prev and prev in _running_processes and _running_processes[prev].poll() is None:
+            raise HTTPException(409, f"Đang có script chạy trên browser '{req.profile}'. Chờ nó xong rồi thử lại.")
+        _attach_running.pop(req.profile, None)
 
     # Auto-inject profile account credentials if a profile is specified
     if req.profile:
@@ -427,12 +438,16 @@ async def run_script(script_id: str, req: RunRequest):
             "profile": req.profile,
             "headless": req.headless,
             "engine": req.engine,
+            "attach": req.attach,
+            "tab_index": req.tab_index,
             "exec_id": exec_id,
             "profiles_dir": _get_profiles_dir(),
             "scripts_dir": os.path.join(ext_dir, "scripts"),
         }, f, ensure_ascii=False, indent=2)
 
     _running_logs[exec_id] = []
+    if req.attach and req.profile:
+        _attach_running[req.profile] = exec_id
 
     def run_bg():
         try:
@@ -462,6 +477,8 @@ async def run_script(script_id: str, req: RunRequest):
                 finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
         finally:
             _running_processes.pop(exec_id, None)
+            if _attach_running.get(req.profile) == exec_id:
+                _attach_running.pop(req.profile, None)
             # Keep logs for 60s after finish, then cleanup
             def cleanup():
                 time.sleep(60)

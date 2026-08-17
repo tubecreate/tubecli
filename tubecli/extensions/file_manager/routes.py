@@ -75,6 +75,15 @@ router_fm = APIRouter(prefix="/api/v1/file-manager", tags=["File Manager"])
 # extension.py does `from ...routes import router`; the manager unwraps a list.
 router = [router_legacy, router_fm]
 
+# Google Drive integration lives in its own module; googleapiclient is imported
+# lazily inside its handlers, so this import only fails on a genuinely broken
+# drive.py — in which case the rest of the File Manager must keep working.
+try:
+    from tubecli.extensions.file_manager.drive import router_drive
+    router.append(router_drive)
+except Exception as _drive_err:  # pragma: no cover
+    logger.warning("Google Drive routes unavailable: %s", _drive_err)
+
 # Backend kwargs that may be omitted when the callee does not declare them.
 # Everything else is mandatory: silently dropping `dry_run` would turn a preview
 # into a real deletion, which is exactly the failure this file must not allow.
@@ -84,8 +93,21 @@ _OCTAL_MODE_RE = re.compile(r"^(0o|0)?[0-7]{3,4}$")
 
 
 def _get_service():
-    from tubecli.extensions.file_manager.file_service import file_service
-    return file_service
+    """The service behind every UI endpoint in this file.
+
+    user_file_service skips the allowed-roots fence (a logged-in human browsing
+    their own machine) but keeps BLOCKED_PATHS. The AI keeps using the strict
+    `file_service` singleton — that import lives in brain.py and the nodes, not
+    here. Falls back to the sandboxed one if the split is not present (older
+    file_service.py), so the UI degrades to the previous behaviour rather than
+    crashing.
+    """
+    try:
+        from tubecli.extensions.file_manager.file_service import user_file_service
+        return user_file_service
+    except ImportError:
+        from tubecli.extensions.file_manager.file_service import file_service
+        return file_service
 
 
 # ── Backend module plumbing ──────────────────────────────────────
@@ -751,7 +773,13 @@ async def usage_scan_start(req: UsageScanRequest):
 
     fn = _resolve("disk_usage", "start_scan", "start_usage_scan", "scan_start")
     try:
-        result = await _call(fn, "disk_usage", "start_scan", path=safe)
+        # service=svc so the walk validates against THIS service; without it
+        # disk_usage falls back to the sandboxed singleton and a scan of a
+        # perfectly browsable folder outside the old roots would 403.
+        if _accepts(fn, "service"):
+            result = await _call(fn, "disk_usage", "start_scan", path=safe, service=svc)
+        else:
+            result = await _call(fn, "disk_usage", "start_scan", path=safe)
     except Exception as e:
         raise _fail("bắt đầu quét dung lượng", req.path, e)
 
@@ -818,6 +846,26 @@ async def usage_scan_cancel(scan_id: str):
 
 # ── Cleanup ──────────────────────────────────────────────────────
 
+def _refuse_dangerous_cleanup_root(safe: str):
+    """Cleanup deletes for real. With the UI service no longer fenced by the
+    allowed roots, the old backstop "never delete an allowed root itself" lost
+    its meaning — so refuse the two targets where a category sweep is
+    indistinguishable from wiping the machine: a filesystem root (C:\\, /) and
+    the home directory itself. Any folder BELOW them is still fine."""
+    normalized = os.path.normpath(safe)
+    if os.path.dirname(normalized) == normalized:
+        raise HTTPException(
+            status_code=403,
+            detail="Không dọn dẹp trực tiếp trên thư mục gốc của ổ đĩa. Hãy chọn một thư mục con cụ thể.",
+        )
+    home = os.path.normpath(os.path.expanduser("~"))
+    if os.path.normcase(normalized) == os.path.normcase(home):
+        raise HTTPException(
+            status_code=403,
+            detail="Không dọn dẹp trực tiếp trên toàn bộ thư mục home. Hãy chọn một thư mục con cụ thể.",
+        )
+
+
 @router_fm.get("/cleanup/scan")
 async def cleanup_scan(path: str = Query(..., description="Directory to analyse")):
     """Detect reclaimable categories under `path`.
@@ -830,6 +878,7 @@ async def cleanup_scan(path: str = Query(..., description="Directory to analyse"
     safe = _validate(svc, path)
     _require_exists(safe, path)
     _require_dir(safe, path)
+    _refuse_dangerous_cleanup_root(safe)
 
     # The real export is scan_categories; the three older names are fallbacks
     # that cleanup.py has never defined, so resolving them first made this
@@ -852,6 +901,7 @@ async def cleanup_apply(req: CleanupApplyRequest):
     safe = _validate(svc, req.path)
     _require_exists(safe, req.path)
     _require_dir(safe, req.path)
+    _refuse_dangerous_cleanup_root(safe)
 
     dry_run = True if req.dry_run is None else bool(req.dry_run)
 
@@ -922,6 +972,8 @@ async def permissions_read(path: str = Query(..., description="File or folder pa
 
     fn = _resolve("permissions", "get_permissions", "read_permissions", "get_perms")
     try:
+        if _accepts(fn, "service"):
+            return await _call(fn, "permissions", "get_permissions", path=safe, service=svc)
         return await _call(fn, "permissions", "get_permissions", path=safe)
     except Exception as e:
         raise _fail("đọc quyền", path, e)
@@ -994,6 +1046,7 @@ async def permissions_write(req: PermissionsRequest):
 
     fn = _resolve("permissions", "set_permissions", "apply_permissions", "set_perms")
     try:
+        extra = {"service": svc} if _accepts(fn, "service") else {}
         result = await _call(
             fn,
             "permissions",
@@ -1002,6 +1055,7 @@ async def permissions_write(req: PermissionsRequest):
             recursive=bool(req.recursive),
             posix_mode=posix_mode,
             windows=windows,
+            **extra,
         )
     except Exception as e:
         raise _fail("đổi quyền", req.path, e)

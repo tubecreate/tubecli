@@ -59,7 +59,7 @@
   "auth.lbl_name": "Ad",
   "auth.authz.lbl_scopes_hint": "(kimlik bilgisi oluşturulurken yapılandırılır)",
   "auth.step2.req_scopes_desc": "Lütfen aşağıdaki kapsamları kopyalayın ve OAuth Onay Ekranında izinleri verin:",
-  "auth.waiting.ts_sol_1": "Google Cloud $\rightarrow$ <em>OAuth onay ekranı</em> $\rightarrow$ <strong>Test kullanıcıları</strong>na kaydırın ve kullandığınız e-postayı EKLEYİN.",
+  "auth.waiting.ts_sol_1": "Google Cloud → OAuth onay ekranı → Test kullanıcılarına kaydırın ve kullandığınız e-postayı EKLEYİN.",
   "auth.authz.lbl_scopes": "📦 Verilecek kapsamlar",
   "auth.manual.internal_tool_title": "Dahili Araçlar İçin:",
   "auth.manual.internal_tool_desc": "Uygulama kurulumu gerekmez. Graph API Explorer'dan Belirteci alın ve otomatikleştirme erişimini hemen vermek için buraya yapıştırın.",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "Uygulama Yapılandırma Parametreleri",
   "auth.waiting.ts_error_2": "Kırmızı uyarı",
   "auth.step2.redirect_uri_desc": "(Kimlik Bilgileri > OAuth İstemci Kimliği sekmesinde)",
-  "auth.waiting.ts_sol_2": "Alttaki küçük <strong>\"Gelişmiş\"</strong> metnine tıklayın, ardından devam etmek için <strong>\"...e git (güvenli değil)\"</strong>e tıklayın.",
+  "auth.waiting.ts_sol_2": "Alttaki küçük \"Gelişmiş\" metnine tıklayın, ardından devam etmek için \"...e git (güvenli değil)\"e tıklayın.",
   "auth.title.dashboard": "Gösterge Tablosu",
   "auth.title.auth_manager": "Kimlik Doğrulama Yöneticisi",
   "auth.btn_add_cred": "Kimlik Bilgisi Ekle",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ Özel Scope Ekle",
   "auth.svc.custom.desc": "Ek API Scope URL'leri girmek için özelleştirin",
   "auth.modal_title_add": "Kimlik Bilgisi Ekle",
-  "auth.modal_title_edit": "Kimlik Bilgisini Düzenle"
+  "auth.modal_title_edit": "Kimlik Bilgisini Düzenle",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

@@ -347,6 +347,11 @@
 
     FMActions.owner = function (name) { return owners[name] || null; };
 
+    // Exposed so other modules can switch views without a tab element: the Drive
+    // view is opened from the sidebar (no top tab), and any file navigation must
+    // be able to return the user to the Files view.
+    FMActions.setView = function (view) { setView(view); };
+
     function reportActionError(name, e) {
         // An abort is the user's own cancel; a toast for it would read as a fault.
         if (e && e.aborted) return;
@@ -383,7 +388,7 @@
     // View / rail / panel state — the attributes the stylesheet reads
     // ══════════════════════════════════════════════════════════════════
 
-    var VIEWS = ['files', 'storage', 'cleanup'];
+    var VIEWS = ['files', 'storage', 'cleanup', 'drive'];
     var PANES = { details: 'fm-pane-details', perm: 'fm-pane-perm' };
 
     function setView(view) {

@@ -7,6 +7,8 @@ import re
 import datetime
 from typing import Dict, List, Optional, Any
 
+# rev: 28455a7d6e3a
+
 
 def is_skill_runnable(s) -> bool:
     """Whether run_skill can actually execute this skill (dict or Skill object).
@@ -160,7 +162,8 @@ class AgentBrain:
             "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
             "4. DIRECT video URLs on ANY platform (YouTube, douyin.com/video/xxx, tiktok.com/@.../video/xxx, Facebook, X…) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
             "4b. If the user asks for a video job (download, subtitles, translation…) but the message has NO link or file path → ASK for it in plain text. Never answer with a capabilities list instead, and never invent a run_api call.\n"
-            "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop.\n"
+            "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop. "
+            "Google Sheets/Docs/Drive/Gmail are CLOUD resources, NOT files on this computer — NEVER use file_action for them; use the create_sheet action or the matching Google skill instead.\n"
             "6. NEVER say 'go to Dashboard'. Always try to ACT.\n"
             "6b. NEVER claim you created, copied, moved, saved or deleted a file unless you emitted the JSON action for it in THIS reply. If you cannot do it, say so. Reporting an action you did not take is the worst possible answer.\n"
             "6c. Use file paths EXACTLY as they appear earlier in the conversation. Never invent or shorten a filename, and never guess one — if the path is not in the conversation, ask for it.\n"
@@ -628,7 +631,10 @@ class AgentBrain:
                     {"role": "system", "content": (
                         "You are an AI agent following a Standard Operating Procedure (SOP).\n"
                         f"### SOP: {skill.get('name', '')}\n{sop_content}\n\n"
-                        "Follow the SOP to handle the user's request. Reply in the user's language."
+                        "Follow the SOP to handle the user's request. Reply in the user's language.\n"
+                        "You have NO tool output yet. NEVER invent or write placeholder links/IDs "
+                        "such as [link] or [URL]. If the SOP requires a system action, output ONLY "
+                        "its JSON action block; do not claim the action already succeeded."
                     )},
                     {"role": "user", "content": message},
                 ]
@@ -1028,6 +1034,20 @@ Rules:
                     f"nothing to open on disk. Tell me what you want done with that "
                     f"link and I will use the right tool."
                 )
+            # "Google Sheets", "Danh Sách"… — tên trơn không giống đường dẫn:
+            # trước đây lọt qua rồi chết ở sandbox với thông báo khó hiểu
+            # ("Đường dẫn nằm ngoài vùng cho phép: Google Sheets").
+            looks_like_path = (
+                "/" in path or "\\" in path or path.startswith(("~", "."))
+                or re.match(r"^[A-Za-z]:[\\/]", path)
+                or re.search(r"\.[A-Za-z0-9]{1,8}$", path)  # có phần mở rộng
+            )
+            if not looks_like_path:
+                return (
+                    f"⚠️ '{path[:80]}' is not a path on this computer. If you meant "
+                    f"Google Sheets/Docs/Drive, use the create_sheet action or the "
+                    f"matching Google skill instead of file_action."
+                )
             return None
 
         msg = t("brain.file_action_no_path")
@@ -1036,6 +1056,27 @@ Rules:
             "folder you meant, so I stopped. If you do want something done on "
             "disk, name the path; otherwise tell me what you actually need."
         )
+
+    @staticmethod
+    def _llm_error_hint(status: int, msg: str = "") -> str:
+        """Gợi ý hành động kèm lỗi provider — '400: Invalid input' trần trụi
+        thì người dùng không biết phải làm gì. Trả chuỗi rỗng nếu không có
+        gợi ý phù hợp (giữ nguyên lỗi gốc để debug)."""
+        from tubecli.i18n import t
+        m = (msg or "").lower()
+        key = None
+        if status == 400 and any(w in m for w in ("input", "context", "token", "length", "too long")):
+            key = "brain.llm_err_ctx"
+        elif status in (401, 403):
+            key = "brain.llm_err_key"
+        elif status == 429:
+            key = "brain.llm_err_quota"
+        elif status >= 500:
+            key = "brain.llm_err_down"
+        if not key:
+            return ""
+        s = t(key)
+        return "" if s == key else "\n\n\U0001F4A1 " + s
 
     @staticmethod
     def _call_provider(provider: str, model: str, cloud_keys: Dict,
@@ -1407,7 +1448,7 @@ Rules:
                     msg = "; ".join(e.get("message", "") for e in errs) or resp.text[:160]
                 except Exception:
                     msg = resp.text[:160]
-                return f"[Cloudflare Error] {resp.status_code}: {msg}"
+                return f"[Cloudflare Error] {resp.status_code}: {msg}" + AgentBrain._llm_error_hint(resp.status_code, msg)
             data = resp.json()
             content = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
             content = content.strip()
@@ -1571,9 +1612,9 @@ Rules:
                         # ship it to the user. Keep it for the LLM summary
                         # below, but never let it pass as "readable text".
                         has_structured = True
-                        output_summary += f"  {k}: {json.dumps(v, ensure_ascii=False, default=str)[:300]}\n"
+                        output_summary += f"  {k}: {json.dumps(v, ensure_ascii=False, default=str)[:2000]}\n"
                     else:
-                        output_summary += f"  {k}: {str(v)[:300]}\n"
+                        output_summary += f"  {k}: {str(v)[:2000]}\n"
 
         # If output is short enough and already readable, return directly (skip LLM call)
         if output_summary and not has_structured and len(output_summary) < 2000:
@@ -1599,7 +1640,11 @@ Rules:
 
         summarize_instruction = t("brain.summarize_prompt")
         prompt = f"User asked: {original_message}. Skill {skill_name} result: {status}. Outputs: {output_summary}. {summarize_instruction}"
-        messages = [{"role": "system", "content": "You are a helpful assistant."}, {"role": "user", "content": prompt}]
+        messages = [{"role": "system", "content": (
+            "Answer using ONLY the tool output below. Copy every URL, ID and file path "
+            "EXACTLY as given, verbatim. NEVER write a placeholder like [link] or [URL]; "
+            "if a value is missing from the output, say it is missing."
+        )}, {"role": "user", "content": prompt}]
         try: return AgentBrain._call_llm(agent, messages)
         except: return t("brain.skill_completed", name=skill_name)
 

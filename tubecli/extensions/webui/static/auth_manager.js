@@ -1,11 +1,20 @@
 /**
  * Auth Manager — Frontend Logic
  */
-const T = window.T || (window.parent && window.parent.T) || ((k, v) => {
-    let s = k;
-    if(v && typeof v === 'object') { Object.keys(v).forEach(x => s = s.replace(new RegExp('\\{' + x + '\\}', 'g'), v[x])); }
-    return s;
-});
+// Lấy T an toàn: đọc window.parent.T khi bị nhúng cross-origin (vd cloud nhúng
+// qua tunnel domain) sẽ ném SecurityError ngay top-level → chết cả file. Phải
+// try/catch; dùng var để không đụng độ nếu sau này trang nạp i18n.js (function T).
+var T = (function () {
+    if (typeof window.T === 'function') return window.T;
+    try {
+        if (window.parent !== window && typeof window.parent.T === 'function') return window.parent.T;
+    } catch (e) { /* iframe cross-origin — dùng fallback */ }
+    return function (k, v) {
+        let s = k;
+        if (v && typeof v === 'object') { Object.keys(v).forEach(x => s = s.replace(new RegExp('\\{' + x + '\\}', 'g'), v[x])); }
+        return s;
+    };
+})();
 
 const API_BASE = '/api/v1/auth-manager';
 
@@ -26,7 +35,10 @@ function applyI18n() {
 }
 
 // ── Init ────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Nạp bản dịch thật từ API (i18n.js) — trang này chạy độc lập, cả khi nhúng
+    // cross-origin không với được T của parent. Lỗi thì rơi về nhãn mặc định.
+    if (typeof loadI18nFromApi === 'function') { try { await loadI18nFromApi(); } catch (e) {} }
     applyI18n();
     loadProviders();
     loadCredentials();
@@ -36,7 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── API Helpers ─────────────────────────────────────────────────
 async function apiGet(path) {
-    const r = await fetch(`${API_BASE}${path}`);
+    const r = await fetch(`${API_BASE}${path}`, { credentials: 'include' });
+    if (!r.ok) throw new Error(`HTTP ${r.status} — ${(await r.text()).slice(0, 200)}`);
     return r.json();
 }
 
@@ -182,11 +195,19 @@ function renderTokens() {
 
     tbody.innerHTML = tokensData.map(t => {
         const provBadge = `<span class="am-badge am-badge-${t.provider}">${t.provider}</span>`;
-        const statusBadge = {
-            active: `<span class="am-badge am-badge-active">✅ ${T("auth.badge.active")}</span>`,
-            expired: `<span class="am-badge am-badge-expired">⏰ ${T("auth.badge.expired")}</span>`,
-            revoked: `<span class="am-badge am-badge-revoked">❌ ${T("auth.badge.revoked")}</span>`,
-        }[t.status] || '<span class="am-badge am-badge-none">?</span>';
+        // Access token Google sống ~1h (chuẩn Google) — có refresh_token thì hệ
+        // thống TỰ làm mới mỗi lần dùng. Badge "hết hạn" cũ chỉ so expires_at
+        // → gây hiểu nhầm là quyền đã chết trong khi dùng vẫn chạy.
+        let statusBadge;
+        if (t.status === 'expired' && t.has_refresh) {
+            statusBadge = `<span class="am-badge am-badge-active" title="${T("auth.badge.auto_refresh_tip")}">🔄 ${T("auth.badge.auto_refresh")}</span>`;
+        } else {
+            statusBadge = {
+                active: `<span class="am-badge am-badge-active">✅ ${T("auth.badge.active")}</span>`,
+                expired: `<span class="am-badge am-badge-expired">⏰ ${T("auth.badge.expired")}</span>`,
+                revoked: `<span class="am-badge am-badge-revoked">❌ ${T("auth.badge.revoked")}</span>`,
+            }[t.status] || '<span class="am-badge am-badge-none">?</span>';
+        }
 
         const scopes = (t.scopes || []).join(', ');
         const profile = t.browser_profile 
@@ -202,11 +223,188 @@ function renderTokens() {
             <td style="font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis">${scopes}</td>
             <td>${statusBadge}</td>
             <td class="am-actions">
+                <button class="am-btn-sm" onclick="showAiGuide('${t.token_id}')" title="${T('auth.ai.btn_title')}">🤖 ${T('auth.ai.btn')}</button>
                 ${t.has_refresh ? `<button class="am-btn-sm" onclick="refreshToken('${t.token_id}')">🔄 ${T("auth.btn_refresh")}</button>` : ''}
                 <button class="am-btn-sm danger" onclick="revokeToken('${t.token_id}')">❌ ${T("auth.btn_revoke")}</button>
             </td>
         </tr>`;
     }).join('');
+}
+
+// ── AI Guide: sinh chỉ dẫn cho agent theo đúng scopes token đã cấp ──────────
+// Mỗi scope có key dịch 'auth.ai.cap_<scope>'; scope lạ rơi về cap_generic.
+// Kèm công thức lấy token (in-process — HTTP API chỉ trả bản che) + recipe
+// GET/POST từng chức năng Google API. Code giữ tiếng Anh (AI đọc tốt), chỉ
+// tiêu đề section đi qua T().
+const AI_RECIPES = {
+    youtube_readonly: `# Read channel info & stats
+curl -s -H "Authorization: Bearer $TOKEN" \\
+  "https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true"
+# List my videos
+curl -s -H "Authorization: Bearer $TOKEN" \\
+  "https://www.googleapis.com/youtube/v3/search?part=snippet&forMine=true&type=video&maxResults=50"`,
+    youtube_upload: `# Upload video (resumable, 2 steps)
+# 1) Create session -> get upload URL from "Location" response header
+curl -si -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status" \\
+  -d '{"snippet":{"title":"My title","description":"Desc","categoryId":"22"},"status":{"privacyStatus":"private"}}'
+# 2) PUT the file bytes to that Location URL
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" --upload-file ./video.mp4 "<LOCATION_URL>"`,
+    youtube: `# Update video metadata
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  "https://www.googleapis.com/youtube/v3/videos?part=snippet" \\
+  -d '{"id":"VIDEO_ID","snippet":{"title":"New title","categoryId":"22"}}'
+# Delete video: curl -X DELETE ... "https://www.googleapis.com/youtube/v3/videos?id=VIDEO_ID"
+# Create playlist: POST https://www.googleapis.com/youtube/v3/playlists?part=snippet,status
+# Reply comment:   POST https://www.googleapis.com/youtube/v3/comments?part=snippet`,
+    sheets: `# Read range
+curl -s -H "Authorization: Bearer $TOKEN" \\
+  "https://sheets.googleapis.com/v4/spreadsheets/SPREADSHEET_ID/values/Sheet1!A1:D100"
+# Write range
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  "https://sheets.googleapis.com/v4/spreadsheets/SPREADSHEET_ID/values/Sheet1!A1?valueInputOption=USER_ENTERED" \\
+  -d '{"values":[["a","b"],["c","d"]]}'
+# Append rows: POST .../values/Sheet1!A1:append?valueInputOption=USER_ENTERED (same body)`,
+    drive: `# List files (search by name)
+curl -s -H "Authorization: Bearer $TOKEN" \\
+  "https://www.googleapis.com/drive/v3/files?q=name+contains+'video'&fields=files(id,name,mimeType)"
+# Upload file (multipart: metadata + content)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \\
+  -F 'metadata={"name":"video.mp4"};type=application/json;charset=UTF-8' \\
+  -F "file=@./video.mp4;type=video/mp4" \\
+  "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
+# Download: GET https://www.googleapis.com/drive/v3/files/FILE_ID?alt=media`,
+    calendar: `# Create event
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  "https://www.googleapis.com/calendar/v3/calendars/primary/events" \\
+  -d '{"summary":"Upload video X","start":{"dateTime":"2026-08-20T09:00:00+07:00"},"end":{"dateTime":"2026-08-20T10:00:00+07:00"}}'
+# List events: GET .../calendars/primary/events?timeMin=2026-08-16T00:00:00Z&singleEvents=true`,
+    gmail_send: `# Send email (raw = base64url of RFC822 message)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \\
+  "https://gmail.googleapis.com/gmail/v1/users/me/messages/send" -d '{"raw":"BASE64URL_MIME"}'`,
+    gmail_read: `# List + read messages
+curl -s -H "Authorization: Bearer $TOKEN" "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10"
+curl -s -H "Authorization: Bearer $TOKEN" "https://gmail.googleapis.com/gmail/v1/users/me/messages/MSG_ID"`,
+};
+
+// Mở modal → 2 TAB: 🔒 An toàn (mặc định, sinh ngay) / ⚡ Tự chứa (hiện khối
+// rủi ro, bấm xác nhận mới sinh). Ẩn/hiện bằng style.display — CSS trang này
+// không có class .hidden generic.
+let _aiTkId = null;
+function _aiShow(id, on) { const e = document.getElementById(id); if (e) e.style.display = on ? '' : 'none'; }
+function _aiSetTab(mode) {
+    const s = document.getElementById('am-ai-tab-safe'), f = document.getElementById('am-ai-tab-full');
+    if (s) s.classList.toggle('active', mode === 'safe');
+    if (f) f.classList.toggle('active', mode === 'full');
+}
+function showAiGuide(tokenId) {
+    _aiTkId = tokenId;
+    _aiSetTab('safe');
+    _aiShow('am-ai-risk', false);
+    aiGuideMode('safe'); // tab an toàn sinh ngay, không cần bấm thêm
+    openModal('modal-ai-guide');
+}
+function aiGuideTab(mode) {
+    _aiSetTab(mode);
+    if (mode === 'safe') {
+        _aiShow('am-ai-risk', false);
+        aiGuideMode('safe');
+    } else {
+        // Tab Tự chứa: bắt đọc rủi ro + xác nhận rồi mới sinh guide có token
+        _aiShow('am-ai-risk', true);
+        _aiShow('am-ai-result', false);
+    }
+}
+function aiGuideConfirmFull() {
+    _aiShow('am-ai-risk', false);
+    aiGuideMode('full');
+}
+
+function _aiGuideParts(tk) {
+    const scopes = tk.scopes || [];
+    const capLines = scopes.map(s => {
+        const key = 'auth.ai.cap_' + s;
+        const v = T(key);
+        return '- ' + (v === key ? T('auth.ai.cap_generic', { scope: s }) : v) + ' (' + s + ')';
+    });
+    const localBlock = [
+        '## ' + T('auth.ai.how_token'),
+        '# Python (skill / script on this server) — auto-refreshes when expired:',
+        'from tubecli.extensions.auth_manager.extension import auth_manager',
+        `token = auth_manager.get_active_token("${tk.credential_id}")`,
+        '',
+        '# Shell (terminal on this server):',
+        `TOKEN=$(python3 -c "from tubecli.extensions.auth_manager.extension import auth_manager; print(auth_manager.get_active_token('${tk.credential_id}'))")`,
+        '',
+        T('auth.ai.note_bearer'),
+    ];
+    const recipeBlocks = scopes.filter(s => AI_RECIPES[s]).map(s => {
+        const key = 'auth.ai.cap_' + s;
+        const v = T(key);
+        const label = v === key ? s : v;
+        return `### ${label} (${s})\n${AI_RECIPES[s]}`;
+    });
+    return {
+        head: [
+            T('auth.ai.header', { provider: tk.provider }),
+            T('auth.ai.account', { email: tk.authorized_email || '?', cred: tk.credential_id, name: tk.credential_name || '' }),
+        ],
+        caps: [T('auth.ai.intro'), ...capLines],
+        localBlock,
+        recipes: ['## ' + T('auth.ai.recipes'), ...recipeBlocks],
+        outro: T('auth.ai.outro'),
+    };
+}
+
+async function aiGuideMode(mode) {
+    const tk = tokensData.find(x => x.token_id === _aiTkId);
+    if (!tk) return;
+    const p = _aiGuideParts(tk);
+    let text;
+    if (mode === 'full') {
+        // Phương án B: nhúng token thật + recipe refresh từ xa (login → endpoint).
+        let live = null;
+        try { live = await apiGet(`/tokens/${tk.credential_id}/access-token`); } catch (e) {}
+        const base = window.location.origin;
+        const remote = [
+            '## ' + T('auth.ai.full_remote_title'),
+            `BASE_URL = ${base}`,
+        ];
+        if (live && live.access_token) {
+            remote.push(T('auth.ai.full_expires', { exp: live.expires_at || '~1h' }));
+            remote.push(`ACCESS_TOKEN = ${live.access_token}`);
+        } else {
+            remote.push(T('auth.ai.endpoint_missing'));
+        }
+        remote.push('', T('auth.ai.full_refresh'),
+            `curl -c /tmp/tc.jar -X POST "${base}/api/v1/auth/login" -H "Content-Type: application/json" -d '{"password":"<TUBECLI_PASSWORD>"}'`,
+            `TOKEN=$(curl -s -b /tmp/tc.jar "${base}/api/v1/auth-manager/tokens/${tk.credential_id}/access-token" | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")`);
+        text = [
+            T('auth.ai.full_warn'), '',
+            ...p.head, '', ...p.caps, '',
+            ...remote, '',
+            ...p.localBlock, '',
+            ...p.recipes, '',
+            p.outro,
+        ].join('\n');
+    } else {
+        // Phương án A: không chứa secret — kèm lệnh in token chạy trong Terminal.
+        const safeRemote = [
+            '## ' + T('auth.ai.safe_remote_title'),
+            T('auth.ai.safe_remote_body'),
+            `python3 -c "from tubecli.extensions.auth_manager.extension import auth_manager; print('ACCESS_TOKEN =', auth_manager.get_active_token('${tk.credential_id}'))"`,
+        ];
+        text = [
+            ...p.head, '', ...p.caps, '',
+            ...p.localBlock, '',
+            ...safeRemote, '',
+            ...p.recipes, '',
+            p.outro,
+        ].join('\n');
+    }
+    const ta = document.getElementById('am-ai-guide-text');
+    if (ta) ta.value = text;
+    _aiShow('am-ai-result', true);
 }
 
 // ── Load Browser Profiles ───────────────────────────────────────
@@ -423,6 +621,15 @@ function goToCredStep(step) {
         const apiContainerWrapper = document.getElementById('cred-setup-apis-container');
         const apiContainer = document.getElementById('cred-required-apis');
         if (providerKey === 'google' && scopes.length > 0) {
+            // Deep-link thẳng tới trang Enable của từng API — người dùng bấm là tới
+            // nút "Enable", không cần hướng dẫn dài dòng cách tự tìm trong API Library.
+            const API_LIB = {
+                'YouTube Data API v3': 'youtube.googleapis.com',
+                'Google Sheets API': 'sheets.googleapis.com',
+                'Google Drive API': 'drive.googleapis.com',
+                'Gmail API': 'gmail.googleapis.com',
+                'Google Calendar API': 'calendar-json.googleapis.com',
+            };
             const requiredApis = new Set();
             scopes.forEach(s => {
                 if (s.includes('youtube')) requiredApis.add('YouTube Data API v3');
@@ -431,12 +638,13 @@ function goToCredStep(step) {
                 if (s.includes('gmail')) requiredApis.add('Gmail API');
                 if (s.includes('calendar')) requiredApis.add('Google Calendar API');
             });
-            
+
             if (requiredApis.size > 0) {
                 apiContainer.innerHTML = Array.from(requiredApis).map(api => `
                     <div class="am-scope-row" style="align-items:center; margin-bottom:4px;">
                         <span style="color:#00d4ff; font-size:1rem; line-height:1">🔌</span>
-                        <span style="color:#e8e8f0; font-weight:600">${api}</span>
+                        <a href="https://console.cloud.google.com/apis/library/${API_LIB[api] || ''}" target="_blank" rel="noreferrer"
+                           style="color:#e8e8f0; font-weight:600; text-decoration:underline dotted; text-underline-offset:3px">${api} ↗</a>
                     </div>
                 `).join('');
                 apiContainerWrapper.style.display = 'block';
@@ -482,12 +690,23 @@ function getSelectedCredScopes() {
     return [...scopes];
 }
 
+// Copy với fallback execCommand — navigator.clipboard bị chặn trong iframe
+// cross-origin nếu parent không cấp quyền clipboard-write, và không có trên HTTP.
+function legacyCopy(text) {
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+    } catch (e) { return false; }
+}
 function copyAmText(text) {
-    navigator.clipboard.writeText(text).then(() => {
-        showToast('Đã copy vào clipboard!', 'success');
-    }).catch(err => {
-        showToast('Lỗi copy, vui lòng thử lại', 'error');
-    });
+    const done = (ok) => showToast(ok ? 'Đã copy vào clipboard!' : 'Lỗi copy — hãy bôi đen link hiển thị và copy thủ công', ok ? 'success' : 'error');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => done(true)).catch(() => done(legacyCopy(text)));
+    } else done(legacyCopy(text));
 }
 
 function switchCredTab(tab) {
@@ -776,6 +995,19 @@ function pollForToken(credId, action = 'open', authUrl = '') {
     
     // Pass to global so html onclick can use it
     window._currentAuthUrl = authUrl;
+
+    // Hiện thẳng URL ủy quyền: input bấm-là-chọn-hết (copy tay) + nút ↗ mở tab mới.
+    // Cứu cả trường hợp clipboard bị chặn lẫn popup bị chặn.
+    const urlWrap = document.getElementById('am-waiting-url-wrap');
+    const urlInput = document.getElementById('am-waiting-url-input');
+    const urlOpen = document.getElementById('am-waiting-url-open');
+    if (urlWrap && urlInput && authUrl) {
+        urlInput.value = authUrl;
+        if (urlOpen) urlOpen.href = authUrl;
+        urlWrap.classList.remove('hidden');
+    } else if (urlWrap) {
+        urlWrap.classList.add('hidden');
+    }
 
     // Capture all existing tokens' authorized_at times before we poll
     const prevTokens = typeof tokensData !== 'undefined' ? tokensData.filter(t => t.credential_id === credId) : [];

@@ -342,9 +342,9 @@
   "auth.waiting.desc": "Lütfen tarayıcıdaki yetkilendirme ekranını tamamlayın. Tamamlandığında bu pencere otomatik olarak kapanacaktır.",
   "auth.waiting.troubleshoot_title": "⚠️ Sık karşılaşılan hata giderme (Google):",
   "auth.waiting.ts_error_1": "Hata:",
-  "auth.waiting.ts_sol_1": "Google Cloud $\\rightarrow$ <em>OAuth onay ekranı</em> $\\rightarrow$ <strong>Test kullanıcıları</strong> bölümüne gidin ve kullandığınız e-postayı EKLEYİN.",
+  "auth.waiting.ts_sol_1": "Google Cloud $\\rightarrow$ OAuth onay ekranı $\\rightarrow$ Test kullanıcıları bölümüne gidin ve kullandığınız e-postayı EKLEYİN.",
   "auth.waiting.ts_error_2": "Kırmızı uyarı",
-  "auth.waiting.ts_sol_2": "Alttaki küçük metin \"<strong>Gelişmiş</strong>\"e tıklayın, ardından devam etmek için \"<strong>... adresine git (güvenli değil)</strong>\" seçeneğine tıklayın.",
+  "auth.waiting.ts_sol_2": "Alttaki küçük metin \"Gelişmiş\"e tıklayın, ardından devam etmek için \"... adresine git (güvenli değil)\" seçeneğine tıklayın.",
   "auth.waiting.btn_cancel": "Atla / Beklemeyi İptal Et",
   "auth.waiting.btn_copy": "📋 Bağlantıyı Tekrar Kopyala",
   "auth.svc.custom.label": "➕ Özel Kapsam Ekle",
@@ -519,5 +519,6 @@
   "agent_modal.ai_guide_rotate_confirm": "Yeni anahtar üretilsin mi? Gönderilmiş tüm yönergeler hemen çalışmaz olur.",
   "gen.system_prompt": "Sistem istemi (isteğe bağlı)",
   "gen.system_prompt_placeholder": "Boş bırakırsanız yapay zekâ yazar. Doldurursanız aynen kullanılır ve kişilik buna göre türetilir.",
-  "gen.system_prompt_hint": "Ajanın sohbette uyduğu yönergelerdir."
+  "gen.system_prompt_hint": "Ajanın sohbette uyduğu yönergelerdir.",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

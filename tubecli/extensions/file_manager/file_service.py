@@ -56,9 +56,20 @@ def _safe_str(value: str) -> str:
 
 
 class FileService:
-    """Sandboxed file operations service."""
+    """Sandboxed file operations service.
 
-    def __init__(self, extra_roots: Optional[List[str]] = None):
+    Two enforcement modes share one implementation:
+      enforce_roots=True  — the allowlist applies. This is what the AI (brain
+                            file_action, workflow nodes, Telegram) gets.
+      enforce_roots=False — the allowlist is skipped for a logged-in human using
+                            the File Manager UI; they already own the machine.
+                            BLOCKED_PATHS still applies in both modes: it exists
+                            to stop accidents (deleting C:\\Windows, reading
+                            ~/.ssh), not just untrusted callers.
+    """
+
+    def __init__(self, extra_roots: Optional[List[str]] = None, enforce_roots: bool = True):
+        self.enforce_roots = enforce_roots
         self.allowed_roots = list(DEFAULT_ALLOWED_ROOTS)
         # Add data dir
         data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
@@ -122,18 +133,26 @@ class FileService:
             if self._under(normalized, blocked) or self._under(resolved, blocked):
                 raise ValueError(f"Đường dẫn bị chặn vì lý do bảo mật: {path}")
 
-        # Check if within allowed roots
-        in_allowed = any(
-            self._under(normalized, root) and self._under(resolved, root)
-            for root in self.allowed_roots
-        )
-        if not in_allowed:
-            raise ValueError(
-                f"Đường dẫn nằm ngoài vùng cho phép: {path}\n"
-                f"Vùng cho phép: {', '.join(self.allowed_roots)}"
+        # Check if within allowed roots — skipped for the human-facing UI
+        # service (enforce_roots=False); the blocklist above already ran.
+        if self.enforce_roots:
+            in_allowed = any(
+                self._under(normalized, root) and self._under(resolved, root)
+                for root in self.allowed_roots
             )
+            if not in_allowed:
+                raise ValueError(
+                    f"Đường dẫn nằm ngoài vùng cho phép: {path}\n"
+                    f"Vùng cho phép: {', '.join(self.allowed_roots)}"
+                )
 
         return normalized
+
+    def validate_path(self, path: str) -> str:
+        """Public alias for _validate_path. cleanup.py and disk_usage.py probe
+        for a public `validate_path` first (getattr chain), so exposing it here
+        lets sibling modules stop reaching into a private method."""
+        return self._validate_path(path)
 
     def _file_info(self, path: str) -> Dict[str, Any]:
         """Get file/folder info dict.
@@ -415,10 +434,39 @@ class FileService:
 
         return {"path": safe_path, "pattern": pattern, "matches": matches, "count": len(matches)}
 
+    def write_bytes(self, path: str, data: bytes) -> Dict[str, Any]:
+        """Write raw bytes to a file (Drive downloads land through here).
+
+        create_file() decodes/encodes text and knows .docx/.xlsx; it is wrong
+        for arbitrary binary payloads, so this is a separate primitive rather
+        than a mode flag on it.
+        """
+        safe_path = self._validate_path(path)
+        os.makedirs(os.path.dirname(safe_path), exist_ok=True)
+        with open(safe_path, "wb") as f:
+            f.write(data)
+        size = os.path.getsize(safe_path)
+        return {
+            "status": "created",
+            "path": safe_path,
+            "size": size,
+            "size_human": self._human_size(size),
+        }
+
     def get_allowed_roots(self) -> List[Dict[str, str]]:
-        """Return list of allowed root directories for the UI."""
+        """Return list of quick-access root directories for the UI.
+
+        With enforce_roots=False these are shortcuts, not a boundary, so the
+        home directory is prepended — it is the natural place to start browsing
+        once browsing is no longer fenced in.
+        """
+        listing = list(self.allowed_roots)
+        if not self.enforce_roots:
+            home = os.path.normpath(os.path.expanduser("~"))
+            if home not in listing:
+                listing.insert(0, home)
         roots = []
-        for r in self.allowed_roots:
+        for r in listing:
             if os.path.isdir(r):
                 roots.append({"path": r, "name": os.path.basename(r) or r, "exists": True})
             else:
@@ -426,5 +474,11 @@ class FileService:
         return roots
 
 
-# Global singleton
+# Global singleton — sandboxed. Every AI-facing caller (brain file_action, the
+# file_manager workflow node, Telegram actions, chat pipeline) imports this one.
 file_service = FileService()
+
+# The File Manager web UI's service: same blocklist, no allowlist. Only
+# routes.py should import this — a logged-in human browsing their own machine
+# is not the threat the sandbox exists for.
+user_file_service = FileService(enforce_roots=False)

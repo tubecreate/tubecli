@@ -34,5 +34,6 @@
   "auth.svc.custom.label": "➕ 新增自訂Scope",
   "auth.svc.custom.desc": "自訂輸入額外的API Scope URL",
   "auth.modal_title_add": "新增憑據",
-  "auth.modal_title_edit": "編輯憑據"
+  "auth.modal_title_edit": "編輯憑據",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

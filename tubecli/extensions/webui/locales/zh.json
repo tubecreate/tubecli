@@ -342,9 +342,9 @@
   "auth.waiting.desc": "请在浏览器中完成授权屏幕。完成后此窗口将自动关闭。",
   "auth.waiting.troubleshoot_title": "⚠️ 常见错误故障排除 (Google)：",
   "auth.waiting.ts_error_1": "错误：",
-  "auth.waiting.ts_sol_1": "前往 Google Cloud $\\rightarrow$ <em>OAuth 同意屏幕</em> $\\rightarrow$ 滚动到 <strong>测试用户</strong> 并添加您正在使用的电子邮件。",
+  "auth.waiting.ts_sol_1": "前往 Google Cloud $\\rightarrow$ OAuth 同意屏幕 $\\rightarrow$ 滚动到 测试用户 并添加您正在使用的电子邮件。",
   "auth.waiting.ts_error_2": "红色警告",
-  "auth.waiting.ts_sol_2": "点击底部的“<strong>高级</strong>”小文本，然后点击“<strong>前往...（不安全）</strong>”以继续。",
+  "auth.waiting.ts_sol_2": "点击底部的“高级”小文本，然后点击“前往...（不安全）”以继续。",
   "auth.waiting.btn_cancel": "跳过/取消等待",
   "auth.waiting.btn_copy": "📋 再次复制链接",
   "auth.svc.custom.label": "➕ 添加自定义范围",
@@ -519,5 +519,6 @@
   "agent_modal.ai_guide_rotate_confirm": "生成新密钥？已发出的说明将立即失效。",
   "gen.system_prompt": "系统提示词（可选）",
   "gen.system_prompt_placeholder": "留空则由 AI 撰写；填写则原样使用，并据此生成人设。",
-  "gen.system_prompt_hint": "这是代理在对话中实际遵循的指令。"
+  "gen.system_prompt_hint": "这是代理在对话中实际遵循的指令。",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

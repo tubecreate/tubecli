@@ -6,6 +6,7 @@
  */
 
 const WF = (() => {
+  const BUILD_ID = "63295ea45e023242";
   // ── Ids ────────────────────────────────────────────────────────
   //
   // NOT crypto.randomUUID(). That is a secure-context API: the browser simply

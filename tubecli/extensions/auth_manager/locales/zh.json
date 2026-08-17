@@ -59,7 +59,7 @@
   "auth.lbl_name": "名称",
   "auth.authz.lbl_scopes_hint": "(在创建凭据时配置)",
   "auth.step2.req_scopes_desc": "请复制以下范围并在 OAuth 同意屏幕上授予权限:",
-  "auth.waiting.ts_sol_1": "前往 Google Cloud $\rightarrow$ <em>OAuth 同意屏幕</em> $\rightarrow$ 滚动到 <strong>测试用户</strong> 并添加您正在使用的电子邮件。",
+  "auth.waiting.ts_sol_1": "前往 Google Cloud → OAuth 同意屏幕 → 滚动到 测试用户 并添加您正在使用的电子邮件。",
   "auth.authz.lbl_scopes": "📦 要授予的范围",
   "auth.manual.internal_tool_title": "对于内部工具:",
   "auth.manual.internal_tool_desc": "无需应用设置。从 Graph API 资源管理器获取令牌并粘贴到此处即可立即授予自动化访问权限。",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "应用配置参数",
   "auth.waiting.ts_error_2": "红色警告",
   "auth.step2.redirect_uri_desc": "(在凭据 > OAuth 客户端 ID 选项卡中)",
-  "auth.waiting.ts_sol_2": "点击底部的 <strong>“高级”</strong> 小字，然后点击 <strong>“转到 ... (不安全)”</strong> 继续。",
+  "auth.waiting.ts_sol_2": "点击底部的 “高级” 小字，然后点击 “转到 ... (不安全)” 继续。",
   "auth.title.dashboard": "仪表盘",
   "auth.title.auth_manager": "认证管理器",
   "auth.btn_add_cred": "添加凭据",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ 添加自定义Scope",
   "auth.svc.custom.desc": "自定义输入额外的API Scope URL",
   "auth.modal_title_add": "添加凭据",
-  "auth.modal_title_edit": "编辑凭据"
+  "auth.modal_title_edit": "编辑凭据",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

@@ -306,3 +306,12 @@ MESSAGES = {
     "server.svc_kept": "  Service already running — left as is.",
     "server.waiting": "  Waiting for the server to come up (first start loads extensions, ~30s)...",
 }
+
+
+# Gợi ý hành động kèm lỗi LLM provider (brain._llm_error_hint)
+MESSAGES.update({
+    'brain.llm_err_ctx': "The context sent exceeds this model's input limit. Send a shorter message, or switch to a larger-context model (AI button on the Flow bar, or the agent's AI model setting).",
+    'brain.llm_err_key': "The API key for this model is invalid or expired — check it in the server's AI settings.",
+    'brain.llm_err_quota': 'The model is rate-limited or out of quota — wait a moment, or switch to another model/key.',
+    'brain.llm_err_down': 'The model provider is having an outage — try again in a few minutes.',
+})

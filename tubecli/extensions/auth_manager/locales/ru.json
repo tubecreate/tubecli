@@ -59,7 +59,7 @@
   "auth.lbl_name": "Имя",
   "auth.authz.lbl_scopes_hint": "(настроено при создании учетных данных)",
   "auth.step2.req_scopes_desc": "Пожалуйста, скопируйте приведенные ниже области и предоставьте разрешения на экране согласия OAuth:",
-  "auth.waiting.ts_sol_1": "Перейдите в Google Cloud $\rightarrow$ <em>Экран согласия OAuth</em> $\rightarrow$ прокрутите до <strong>Тестовые пользователи</strong> и ДОБАВЬТЕ используемый вами адрес электронной почты.",
+  "auth.waiting.ts_sol_1": "Перейдите в Google Cloud → Экран согласия OAuth → прокрутите до Тестовые пользователи и ДОБАВЬТЕ используемый вами адрес электронной почты.",
   "auth.authz.lbl_scopes": "📦 Области для предоставления",
   "auth.manual.internal_tool_title": "Для внутренних инструментов:",
   "auth.manual.internal_tool_desc": "Настройка приложения не требуется. Получите токен из Graph API Explorer и вставьте сюда, чтобы немедленно предоставить автоматизированный доступ.",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "Параметры конфигурации приложения",
   "auth.waiting.ts_error_2": "Красное предупреждение",
   "auth.step2.redirect_uri_desc": "(На вкладке Учетные данные > ID клиента OAuth)",
-  "auth.waiting.ts_sol_2": "Нажмите на небольшую надпись <strong>«Дополнительно»</strong> внизу, затем нажмите <strong>«Перейти к ... (небезопасно)»</strong>, чтобы продолжить.",
+  "auth.waiting.ts_sol_2": "Нажмите на небольшую надпись «Дополнительно» внизу, затем нажмите «Перейти к ... (небезопасно)», чтобы продолжить.",
   "auth.title.dashboard": "Панель управления",
   "auth.title.auth_manager": "Менеджер аутентификации",
   "auth.btn_add_cred": "Добавить учетные данные",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ Добавить пользовательский Scope",
   "auth.svc.custom.desc": "Настройте для ввода дополнительных URL-адресов API Scope",
   "auth.modal_title_add": "Добавить учетные данные",
-  "auth.modal_title_edit": "Изменить учетные данные"
+  "auth.modal_title_edit": "Изменить учетные данные",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

@@ -59,7 +59,7 @@
   "auth.lbl_name": "Nombre",
   "auth.authz.lbl_scopes_hint": "(configurado al crear la credencial)",
   "auth.step2.req_scopes_desc": "Por favor, copie los ámbitos a continuación y conceda permisos en la Pantalla de Consentimiento de OAuth:",
-  "auth.waiting.ts_sol_1": "Vaya a Google Cloud $\rightarrow$ <em>Pantalla de consentimiento de OAuth</em> $\rightarrow$ desplácese a <strong>Usuarios de prueba</strong> y AÑADA el correo electrónico que está utilizando.",
+  "auth.waiting.ts_sol_1": "Vaya a Google Cloud → Pantalla de consentimiento de OAuth → desplácese a Usuarios de prueba y AÑADA el correo electrónico que está utilizando.",
   "auth.authz.lbl_scopes": "📦 Ámbitos a conceder",
   "auth.manual.internal_tool_title": "Para Herramientas Internas:",
   "auth.manual.internal_tool_desc": "No se necesita configuración de la Aplicación. Obtenga el Token desde el Explorador de API de Graph y péguelo aquí para conceder acceso de automatización inmediatamente.",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "Parámetros de Configuración de la Aplicación",
   "auth.waiting.ts_error_2": "Advertencia roja",
   "auth.step2.redirect_uri_desc": "(En Credenciales > Pestaña ID de Cliente OAuth)",
-  "auth.waiting.ts_sol_2": "Haga clic en el pequeño texto <strong>\"Avanzado\"</strong> en la parte inferior, luego haga clic en <strong>\"Ir a ... (no seguro)\"</strong> para continuar.",
+  "auth.waiting.ts_sol_2": "Haga clic en el pequeño texto \"Avanzado\" en la parte inferior, luego haga clic en \"Ir a ... (no seguro)\" para continuar.",
   "auth.title.dashboard": "Panel de Control",
   "auth.title.auth_manager": "Gestor de Autenticación",
   "auth.btn_add_cred": "Añadir Credencial",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ Agregar Scope Personalizado",
   "auth.svc.custom.desc": "Personalizar para ingresar URLs adicionales de API Scope",
   "auth.modal_title_add": "Agregar credencial",
-  "auth.modal_title_edit": "Editar credencial"
+  "auth.modal_title_edit": "Editar credencial",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

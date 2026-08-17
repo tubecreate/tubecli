@@ -634,10 +634,16 @@ body {
    that JS could forget to clear and leave the user staring at a blank pane. */
 .fm-app[data-view="files"]   #fm-view-storage,
 .fm-app[data-view="files"]   #fm-view-cleanup,
+.fm-app[data-view="files"]   #fm-view-drive,
 .fm-app[data-view="storage"] #fm-view-files,
 .fm-app[data-view="storage"] #fm-view-cleanup,
+.fm-app[data-view="storage"] #fm-view-drive,
 .fm-app[data-view="cleanup"] #fm-view-files,
-.fm-app[data-view="cleanup"] #fm-view-storage { display: none; }
+.fm-app[data-view="cleanup"] #fm-view-storage,
+.fm-app[data-view="cleanup"] #fm-view-drive,
+.fm-app[data-view="drive"]   #fm-view-files,
+.fm-app[data-view="drive"]   #fm-view-storage,
+.fm-app[data-view="drive"]   #fm-view-cleanup { display: none; }
 
 .fm-view-scroll {
     flex: 1;
@@ -1738,3 +1744,111 @@ body {
     .fm-ico { stroke: CanvasText; }
     .fm-progress-fill, .fm-vol-fill, .fm-bar-fill, .fm-treemap-seg { forced-color-adjust: none; }
 }
+
+
+/* ═══ Google Drive view ═════════════════════════════════════════════════ */
+
+.fm-drive-account {
+    max-width: 220px;
+    min-width: 120px;
+    text-overflow: ellipsis;
+}
+.fm-drive-subbar { padding-top: 0; }
+.fm-drive-crumbs-wrap { min-width: 0; flex: 1; }
+.fm-drive-crumbs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    white-space: nowrap;
+    overflow-x: auto;
+}
+.fm-drive-crumb {
+    background: none;
+    border: 0;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 0.82rem;
+    padding: 4px 6px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.fm-drive-crumb:hover { background: var(--bg-hover, rgba(255,255,255,.06)); color: var(--text); }
+.fm-drive-crumb[aria-current="page"] { color: var(--text); font-weight: 600; cursor: default; }
+.fm-drive-crumb-sep { color: var(--text-muted); font-size: 0.75rem; user-select: none; }
+
+.fm-drive-name-btn {
+    background: none;
+    border: 0;
+    color: var(--text);
+    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 0;
+    max-width: 100%;
+    text-align: left;
+}
+.fm-drive-name-btn .fm-ico { flex: 0 0 auto; }
+.fm-drive-name-btn span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fm-drive-name-btn:hover span { text-decoration: underline; }
+
+.fm-drive-actions-col { width: 1%; }
+.fm-drive-row-actions {
+    display: inline-flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+tr:hover .fm-drive-row-actions,
+tr:focus-within .fm-drive-row-actions { opacity: 1; }
+/* Touch devices have no hover — actions must simply be visible. */
+@media (pointer: coarse) {
+    .fm-drive-row-actions { opacity: 1; }
+}
+
+.fm-drive-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    background: rgba(255, 180, 60, 0.15);
+    color: #e8b04b;
+    vertical-align: 1px;
+}
+.fm-drive-more-wrap { display: flex; justify-content: center; padding: 8px 0 2px; }
+
+
+/* ── Google Drive rail shortcut (mỗi account = 1 folder) ── */
+.fm-rail-drive-head {
+    width: 100%;
+    font: inherit;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    background: none;
+    border: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    padding: 2px 0;
+}
+.fm-rail-drive-head:hover { color: var(--accent, #7aa2ff); }
+.fm-drive-rail-item.is-active { background: var(--fm-hover, rgba(255,255,255,.08)); color: var(--text); }
+.fm-drive-rail-item .fm-rail-item-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.fm-drive-rail-item .fm-drive-badge { margin-left: 0; flex: 0 0 auto; }
+/* Drive view: no title/subtitle header — reclaim vertical space for the list. */
+.fm-drive-toolbar { padding-bottom: 0; }
+.fm-drive-toolbar .fm-toolbar-end { margin-left: auto; }

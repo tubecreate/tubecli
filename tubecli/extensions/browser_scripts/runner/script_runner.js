@@ -20,7 +20,7 @@ if (!execFile || !fs.existsSync(execFile)) {
 }
 
 const execData = JSON.parse(fs.readFileSync(execFile, 'utf-8'));
-const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id } = execData;
+const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id, attach = false, tab_index = -1 } = execData;
 const steps = script.steps || [];
 
 function log(msg) { console.log(JSON.stringify({ status: 'log', exec_id, message: msg, time: new Date().toISOString() })); }
@@ -1487,12 +1487,87 @@ async function executeStepWithRetry(page, step, index) {
     }
 }
 
+// ── ShardX engine reuse ──────────────────────────────────────────────────────
+// The "ShardX" engine (UI value 'playwright') must launch the SAME anti-detect
+// Chromium the Browser extension + agents use — the ShardX build under
+// ~/.config/shardx-launcher — NOT Playwright's own downloaded chromium, which
+// this server never installs (that is the "chrome-headless-shell doesn't exist"
+// error). Mirrors browser_manager.js resolution so Script Studio and the Browser
+// extension share ONE browser instead of each needing its own download.
+function resolveShardxExe(browserVersion) {
+    try {
+        const home = process.env.HOME || process.env.USERPROFILE;
+        if (!home) return null;
+        let engineRoot;
+        if (process.platform === 'win32') {
+            engineRoot = path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'shardx-launcher');
+        } else if (process.platform === 'darwin') {
+            engineRoot = path.join(home, 'Library', 'Application Support', 'shardx-launcher');
+        } else {
+            engineRoot = path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'shardx-launcher');
+        }
+        const enginesDir = path.join(engineRoot, 'runtime', 'engines');
+        if (!fs.existsSync(enginesDir)) return null;
+
+        const binOf = (verDir, ver) => {
+            let cands;
+            if (process.platform === 'win32') {
+                cands = [path.join(verDir, `ShardX-Windows-${ver}`, 'chrome.exe'), path.join(verDir, 'ShardX-Windows', 'chrome.exe'), path.join(verDir, 'chrome.exe')];
+            } else if (process.platform === 'darwin') {
+                cands = [path.join(verDir, `ShardX-Mac-arm64-${ver}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX'), path.join(verDir, 'ShardX-Mac-arm64', 'ShardX.app', 'Contents', 'MacOS', 'ShardX')];
+            } else {
+                cands = [path.join(verDir, `ShardX-Linux-${ver}`, 'chrome'), path.join(verDir, 'ShardX-Linux', 'chrome'), path.join(verDir, 'chrome')];
+            }
+            for (const c of cands) { if (fs.existsSync(c)) return c; }
+            return null;
+        };
+
+        // Prefer the profile's pinned version; else newest installed engine.
+        const wanted = String(browserVersion || '').replace(/ShardX/i, '').replace(/^\s*-\s*/, '').trim();
+        let versions = [];
+        try { versions = fs.readdirSync(enginesDir).filter((v) => { try { return fs.statSync(path.join(enginesDir, v)).isDirectory(); } catch (e) { return false; } }); } catch (e) { return null; }
+        const verCmp = (a, b) => {
+            const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
+            for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+                const d = (pb[i] || 0) - (pa[i] || 0);
+                if (d) return d;
+            }
+            return 0;
+        };
+        const order = [];
+        if (wanted && versions.includes(wanted)) order.push(wanted);
+        for (const v of versions.filter((v) => v !== wanted).sort(verCmp)) order.push(v);
+
+        for (const ver of order) {
+            const exe = binOf(path.join(enginesDir, ver), ver);
+            if (exe) {
+                // Archives zipped on Windows carry no Unix exec bit → EACCES on spawn.
+                if (process.platform !== 'win32') {
+                    try {
+                        fs.chmodSync(exe, 0o755);
+                        const dir = path.dirname(exe);
+                        for (const h of ['chrome_crashpad_handler', 'chrome_sandbox', 'chrome-sandbox']) {
+                            const hp = path.join(dir, h);
+                            if (fs.existsSync(hp)) fs.chmodSync(hp, 0o755);
+                        }
+                    } catch (e) {}
+                }
+                return exe;
+            }
+        }
+        return null;
+    } catch (e) {
+        return null;
+    }
+}
+
 (async () => {
     log(`Starting execution: ${script.name} (${steps.length} steps)`);
 
     // Resolve browser profile storage
     const profilesDir = execData.profiles_dir || '';
     let storageDir = '';
+    let profileBrowserVersion = null;
     let rawProxy = null;
     let pwProxy = undefined;
     let normalizedProxy = null;
@@ -1508,6 +1583,7 @@ async function executeStepWithRetry(page, step, index) {
                 const configPath = path.join(storageDir, 'config.json');
                 if (fs.existsSync(configPath)) {
                     const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                    if (cfg.browser_version) profileBrowserVersion = cfg.browser_version;
                     if (cfg.proxy) {
                         rawProxy = cfg.proxy;
                         log(`  Loaded proxy from config: ${rawProxy}`);
@@ -1573,44 +1649,45 @@ async function executeStepWithRetry(page, step, index) {
     }
 
     // Kill Chrome AND BAS worker processes using THIS specific profile (safe: won't touch user's browser)
-    if (storageDir && fs.existsSync(storageDir)) {
-        try {
-            const { execSync } = require('child_process');
-            const escaped = storageDir.replace(/\\/g, '\\\\\\\\');
-            // Kill chrome.exe using this profile
-            const wmicOut = execSync(
-                `wmic process where "name='chrome.exe' and CommandLine like '%${escaped}%'" get ProcessId /format:csv`,
-                { encoding: 'utf-8', timeout: 5000 }
-            ).trim();
-            const pids = wmicOut.split('\n')
-                .map(l => l.trim().split(',').pop())
-                .filter(p => p && /^\d+$/.test(p));
-            if (pids.length > 0) {
-                log(`Closing ${pids.length} Chrome process(es) using profile "${profile}"...`);
-                for (const pid of pids) {
-                    try { execSync(`taskkill /PID ${pid} /F`, { timeout: 3000 }); } catch (e) {}
+    // BỎ QUA khi attach: ta muốn GẮN vào browser live đang mở, không được giết nó.
+    if (!attach && storageDir && fs.existsSync(storageDir)) {
+        const { execSync } = require('child_process');
+        if (process.platform === 'win32') {
+            // Windows: wmic + taskkill (chrome dùng profile này + BAS worker).
+            try {
+                const escaped = storageDir.replace(/\\/g, '\\\\\\\\');
+                const wmicOut = execSync(
+                    `wmic process where "name='chrome.exe' and CommandLine like '%${escaped}%'" get ProcessId /format:csv`,
+                    { encoding: 'utf-8', timeout: 5000 }
+                ).trim();
+                const pids = wmicOut.split('\n').map(l => l.trim().split(',').pop()).filter(p => p && /^\d+$/.test(p));
+                if (pids.length > 0) {
+                    log(`Closing ${pids.length} Chrome process(es) using profile "${profile}"...`);
+                    for (const pid of pids) { try { execSync(`taskkill /PID ${pid} /F`, { timeout: 3000 }); } catch (e) {} }
                 }
-            }
-        } catch (e) { /* wmic may not be available */ }
+            } catch (e) { /* wmic may not be available */ }
+            try {
+                const workerOut = execSync(`wmic process where "name='worker.exe'" get ProcessId /format:csv`, { encoding: 'utf-8', timeout: 5000 }).trim();
+                const workerPids = workerOut.split('\n').map(l => l.trim().split(',').pop()).filter(p => p && /^\d+$/.test(p));
+                if (workerPids.length > 0) {
+                    log(`Closing ${workerPids.length} BAS worker process(es)...`);
+                    for (const pid of workerPids) { try { execSync(`taskkill /PID ${pid} /F`, { timeout: 3000 }); } catch (e) {} }
+                }
+            } catch (e) {}
+        } else {
+            // Linux/macOS: giết tiến trình browser đang giữ ĐÚNG profile dir này.
+            // Trước đây chỉ có nhánh Windows nên VPS Linux báo "wmic: not found" và
+            // KHÔNG dọn được profile (kẹt SingletonLock, hoặc chiếm profile khác account).
+            try {
+                const out = execSync('pgrep -f ' + JSON.stringify(storageDir), { encoding: 'utf-8', timeout: 5000 }).trim();
+                const pids = out.split('\n').map(s => s.trim()).filter(p => /^\d+$/.test(p) && p !== String(process.pid));
+                if (pids.length > 0) {
+                    log(`Closing ${pids.length} browser process(es) using profile "${profile}"...`);
+                    for (const pid of pids) { try { process.kill(Number(pid), 'SIGKILL'); } catch (e) {} }
+                }
+            } catch (e) { /* pgrep trả mã != 0 khi không có match — bỏ qua */ }
+        }
 
-        // Kill BAS worker processes (they hold profile locks and prevent re-launch)
-        try {
-            const { execSync } = require('child_process');
-            const workerOut = execSync(
-                `wmic process where "name='worker.exe'" get ProcessId /format:csv`,
-                { encoding: 'utf-8', timeout: 5000 }
-            ).trim();
-            const workerPids = workerOut.split('\n')
-                .map(l => l.trim().split(',').pop())
-                .filter(p => p && /^\d+$/.test(p));
-            if (workerPids.length > 0) {
-                log(`Closing ${workerPids.length} BAS worker process(es)...`);
-                for (const pid of workerPids) {
-                    try { execSync(`taskkill /PID ${pid} /F`, { timeout: 3000 }); } catch (e) {}
-                }
-            }
-        } catch (e) {}
-        
         if (true) await sleep(1500);
 
         // Also clean lock files
@@ -1629,8 +1706,37 @@ async function executeStepWithRetry(page, step, index) {
     // ── Launch Browser ──
     const launchArgs = ['--no-sandbox', '--disable-blink-features=AutomationControlled', '--window-size=1280,900'];
     let context;
+    let attached = false;
 
-    if (engine === 'bablosoft') {
+    // ── Attach mode: chạy script TRỰC TIẾP trên browser live đang mở (khung
+    // Browser trong Flow) qua CDP, thay vì mở tiến trình mới. Browser live bật
+    // --remote-debugging-port nên Chromium ghi cổng CDP thật vào
+    // <profile>/DevToolsActivePort. Đọc file đó → connectOverCDP → chạy step
+    // ngay trên tab đang xem; không giết session, khung vẫn stream.
+    if (attach) {
+        // Attach là lệnh có chủ đích từ khung Browser (browser live ĐANG mở). Nếu
+        // không gắn được thì BÁO LỖI RỒI THOÁT — KHÔNG rơi xuống nhánh launch, vì
+        // kill-block đã bị bỏ qua nên launch mới sẽ đụng SingletonLock của session live.
+        try {
+            const dtap = path.join(storageDir || '', 'DevToolsActivePort');
+            if (!storageDir || !fs.existsSync(dtap)) {
+                throw new Error('Không thấy DevToolsActivePort — hãy mở khung Browser (đúng profile) trước khi chạy script.');
+            }
+            const cdpPort = fs.readFileSync(dtap, 'utf-8').split('\n')[0].trim();
+            log(`Attach: kết nối browser live qua CDP cổng ${cdpPort}...`);
+            const b = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
+            context = b.contexts()[0] || (await b.newContext());
+            attached = true;
+            log('✅ Đã gắn vào browser đang mở — chạy script ngay trên session live.');
+        } catch (e) {
+            log('❌ Attach thất bại: ' + String(e.message).split('\n')[0]);
+            process.exit(1);
+        }
+    }
+
+    if (attached) {
+        // context đã lấy từ CDP của browser live — bỏ qua toàn bộ kill/launch.
+    } else if (engine === 'bablosoft') {
         log('Launching with Security Browser engine (fingerprint)...');
         const originalCwd = process.cwd();
         try {
@@ -1865,8 +1971,14 @@ async function executeStepWithRetry(page, step, index) {
             }
         }
     } else {
-    // ── Playwright: use bundled Chromium (NOT system Chrome) for profile compatibility ──
+    // ── Playwright driving the ShardX Chromium (shared with Browser extension) ──
     log(headless ? 'Launching (Playwright headless)...' : 'Launching (Playwright)...');
+    // Reuse the SAME ShardX browser as the Browser extension/agents so no second
+    // Chromium download is needed. If absent, fall back to Playwright's bundled
+    // Chromium (which only works if `npx playwright install` was run).
+    const shardxExe = resolveShardxExe(profileBrowserVersion);
+    if (shardxExe) log('Using ShardX Chromium (shared with Browser extension): ' + shardxExe);
+    else log('⚠ ShardX engine binary not found under ~/.config/shardx-launcher — download the browser from the Browser page. Falling back to Playwright bundled Chromium.');
     if (storageDir) {
         for (const lf of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'LOCK', 'lockfile']) {
             try { fs.unlinkSync(path.join(storageDir, lf)); } catch (e) {}
@@ -1878,13 +1990,15 @@ async function executeStepWithRetry(page, step, index) {
                 ignoreDefaultArgs: ['--enable-automation'],
                 viewport: { width: 1280, height: 800 }
             };
+            if (shardxExe) ctxOpts.executablePath = shardxExe;
             if (pwProxy) ctxOpts.proxy = pwProxy;
             context = await chromium.launchPersistentContext(storageDir, ctxOpts);
-            log('Profile loaded with Playwright Chromium.');
+            log(shardxExe ? 'Profile loaded with ShardX Chromium.' : 'Profile loaded with Playwright Chromium.');
         } catch (e) {
             log('PersistentContext failed: ' + String(e.message).split('\n')[0]);
             log('Falling back to fresh browser + cookie injection...');
             const brOpts = { headless, args: launchArgs, ignoreDefaultArgs: ['--enable-automation'] };
+            if (shardxExe) brOpts.executablePath = shardxExe;
             if (pwProxy) brOpts.proxy = pwProxy;
             const browser = await chromium.launch(brOpts);
             context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -1905,11 +2019,24 @@ async function executeStepWithRetry(page, step, index) {
             }
         }
     } else {
-        const browser = await chromium.launch({ headless, args: launchArgs, ignoreDefaultArgs: ['--enable-automation'] });
+        const freshOpts = { headless, args: launchArgs, ignoreDefaultArgs: ['--enable-automation'] };
+        if (shardxExe) freshOpts.executablePath = shardxExe;
+        const browser = await chromium.launch(freshOpts);
         context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
     }
     }
-    const page = context.pages()[0] || await context.newPage();
+    // Attach: chạy ĐÚNG tab khung Browser đang xem. Cloud gửi tab_index = index
+    // trong context.pages() của tab active (preview_server đánh số y hệt). Không
+    // có thì lùi về tab mới nhất.
+    let page;
+    if (attached) {
+      const ps = context.pages();
+      page = (tab_index >= 0 && ps[tab_index]) || ps[ps.length - 1] || await context.newPage();
+      const idx = ps.indexOf(page);
+      log(`Attach: chạy trên tab #${idx >= 0 ? idx : '?'} — ${(() => { try { return page.url(); } catch (e) { return ''; } })()}`);
+    } else {
+      page = context.pages()[0] || await context.newPage();
+    }
     log('Browser launched.');
 
     // ── CDP WebSocket Preview: start BEFORE execution so frontend sees it live ──
@@ -1963,7 +2090,9 @@ async function executeStepWithRetry(page, step, index) {
         // Send current URL immediately on connect
         ws.send(JSON.stringify({ type: 'url_changed', url: page.url() }));
 
-        if (cdp) {
+        // KHÔNG startScreencast khi attach: khung Browser đã stream tab này qua
+        // preview_server riêng; screencast thứ 2 trên cùng target làm đè/đứng hình.
+        if (cdp && !attached) {
             cdp.send('Page.startScreencast', {
                 format: 'jpeg', quality: 50, maxWidth: 1280, maxHeight: 900,
                 everyNthFrame: 2,
@@ -2095,18 +2224,28 @@ async function executeStepWithRetry(page, step, index) {
     try {
         for (let i = 0; i < steps.length; i++) {
             await waitIfPaused();
-            if (stopped) { log('Script stopped by user.'); break; }
+            if (stopped) break;
             await executeStepWithRetry(page, steps[i], i);
         }
-        log('All steps completed successfully.');
-        success = true;
+        if (stopped) {
+            log('⏹ Đã dừng theo yêu cầu.');
+        } else {
+            log('All steps completed successfully.');
+            success = true;
+        }
     } catch (err) {
-        log(`Execution failed: ${err.message}`);
-        process.exitCode = 1;
+        // A user stop throws the same way a step failure does; it is NOT a crash.
+        if (stopped || err.message === 'Script stopped by user.') {
+            log('⏹ Đã dừng theo yêu cầu.');
+        } else {
+            log(`Execution failed: ${err.message}`);
+            process.exitCode = 1;
+        }
     }
 
-    // Save cookies back to profile (for Playwright mode)
-    if (storageDir && engine !== 'bablosoft') {
+    // Save cookies back to profile (for Playwright mode).
+    // Attach: KHÔNG ghi — session live do preview_server sở hữu, ghi đè sẽ race.
+    if (!attached && storageDir && engine !== 'bablosoft') {
         try {
             const updatedCookies = await context.cookies();
             if (updatedCookies.length > 0) {
@@ -2124,13 +2263,24 @@ async function executeStepWithRetry(page, step, index) {
         log(`Failed to write result file: ${e.message}`);
     }
 
-    // Signal completion
+    // Signal completion. `stopped` lets the UI show a neutral "Đã dừng" instead
+    // of a red "Failed" when the user pressed Stop.
     console.log(JSON.stringify({
-        status: 'done', exec_id, success,
+        status: 'done', exec_id, success, stopped,
         preview_port: previewPort,
         preview_ws: true,
-        message: success ? (headless ? 'Completed!' : 'Completed! Browser kept open for preview.') : (headless ? 'Failed.' : 'Failed. Browser kept open for inspection.')
+        message: stopped ? 'Đã dừng.' : (success ? (headless ? 'Completed!' : 'Completed! Browser kept open for preview.') : (headless ? 'Failed.' : 'Failed. Browser kept open for inspection.'))
     }));
+
+    // Attach: KHÔNG đóng browser live (của khung Browser) — chỉ ngắt kết nối CDP
+    // rồi thoát, để lại session cho người dùng xem tiếp.
+    if (attached) {
+        // KHÔNG stopScreencast (trên Chromium cũ nó tắt luôn screencast của khung
+        // Browser → đứng hình). Chỉ đóng server phụ của runner rồi thoát; CDP ngắt
+        // khi process exit, browser live vẫn chạy.
+        try { httpServer.close(); } catch (e) {}
+        process.exit(success ? 0 : 1);
+    }
 
     if (headless) {
         try { if (cdp) cdp.send('Page.stopScreencast').catch(() => {}); httpServer.close(); await context.close(); } catch (e) {}
@@ -2141,7 +2291,11 @@ async function executeStepWithRetry(page, step, index) {
     context.on('close', () => { httpServer.close(); process.exit(0); });
 
     process.on('SIGTERM', async () => {
-        try { if (cdp) cdp.send('Page.stopScreencast').catch(() => {}); httpServer.close(); await context.close(); } catch (e) {}
+        try {
+            if (cdp && !attached) cdp.send('Page.stopScreencast').catch(() => {}); // attach: đừng đụng screencast của khung
+            httpServer.close();
+            if (!attached) await context.close();   // attach: đừng đóng browser live
+        } catch (e) {}
         process.exit(0);
     });
 })();

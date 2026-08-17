@@ -132,6 +132,17 @@
                 <div class="am-scopes-box-header" style="margin-bottom: 12px; font-size: 1rem;">
                     <i class="fas fa-server"></i> <span data-i18n="auth.step2.title_app_config">App Configuration Params</span>
                 </div>
+
+                <!-- Quick-start cho người mới: 5 bước theo thứ tự, mỗi bước 1 dòng + 1 deep-link.
+                     Người rành lướt qua; chi tiết (API/scope/URI) vẫn nằm ở các mục 1-3 bên dưới. -->
+                <div class="am-scopes-box-desc" style="margin-bottom:14px; line-height:2.05">
+                    <div style="font-weight:700; color:var(--primary); margin-bottom:2px"><span data-i18n="auth.step0.title">🚀 New here? Do these 5 steps in order:</span></div>
+                    <div>① <span data-i18n="auth.step0.s1">Create a Google Cloud project</span> — <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer" style="color:var(--cyan); text-decoration:underline dotted; text-underline-offset:3px">projectcreate ↗</a></div>
+                    <div>② <span data-i18n="auth.step0.s2">Set up the OAuth consent screen (External → add your email as a test user)</span> — <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" style="color:var(--cyan); text-decoration:underline dotted; text-underline-offset:3px">consent ↗</a></div>
+                    <div>③ <span data-i18n="auth.step0.s3">Enable every API listed in section 1 below (click each link → Enable)</span></div>
+                    <div>④ <span data-i18n="auth.step0.s4">Create an OAuth Client ID (type: Web application) and paste the Redirect URI from section 3</span> — <a href="https://console.cloud.google.com/apis/credentials/oauthclient" target="_blank" rel="noreferrer" style="color:var(--cyan); text-decoration:underline dotted; text-underline-offset:3px">create client ↗</a></div>
+                    <div>⑤ <span data-i18n="auth.step0.s5">Copy the Client ID + Client Secret into the form below</span></div>
+                </div>
                 
                 <!-- 1. Required APIs (Dynamic) -->
                 <div id="cred-setup-apis-container" style="display:none; margin-bottom:16px;">
@@ -151,6 +162,7 @@
                 </div>
                 <div class="am-scopes-box-desc">
                     <span data-i18n="auth.step2.req_scopes_desc">Please copy the scopes below and grant permissions on OAuth Consent Screen:</span>
+                    <a href="https://console.cloud.google.com/apis/credentials/consent" target="_blank" rel="noreferrer" style="color:var(--cyan); text-decoration:underline dotted; text-underline-offset:3px" title="OAuth Consent Screen">↗</a>
                 </div>
                 <div id="cred-required-scopes" class="am-scopes-list" style="margin-bottom:16px;"></div>
 
@@ -298,11 +310,22 @@
         <p id="am-waiting-message" style="color:var(--text2); margin-bottom:16px; font-size:0.95rem;">
             <span data-i18n="auth.waiting.desc">Please complete the authorization screen in the browser. This window will auto-close when done.</span>
         </p>
-        
+
+        <!-- URL ủy quyền hiển thị sẵn: click input = chọn hết để copy tay; ↗ mở tab mới -->
+        <div id="am-waiting-url-wrap" class="hidden" style="margin-bottom:16px; text-align:left;">
+            <div style="font-size:0.78rem; color:var(--text2); margin-bottom:4px;"><span data-i18n="auth.waiting.url_label">Authorization link — click to select &amp; copy, or open directly:</span></div>
+            <div style="display:flex; gap:6px; align-items:stretch;">
+                <input id="am-waiting-url-input" readonly onclick="this.select()" spellcheck="false"
+                       style="flex:1; min-width:0; font-family:monospace; font-size:0.76rem; color:var(--cyan); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:9px 10px;">
+                <a id="am-waiting-url-open" href="#" target="_blank" rel="noreferrer" class="btn-secondary"
+                   style="display:flex; align-items:center; padding:0 12px; text-decoration:none;" title="Open in new tab">↗</a>
+            </div>
+        </div>
+
         <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:16px; text-align:left; font-size:0.85rem; margin-bottom:24px;">
             <strong style="color:#f59e0b; display:block; margin-bottom:8px;"><span data-i18n="auth.waiting.troubleshoot_title">⚠️ Common error troubleshooting (Google):</span></strong>
             <ul style="margin:0; padding-left:20px; color:var(--text2); line-height:1.5;">
-                <li style="margin-bottom:6px"><span data-i18n="auth.waiting.ts_error_1">Error:</span> <strong>Access blocked: Authorization Error</strong>:<br><span data-i18n="auth.waiting.ts_sol_1">Go to Google Cloud $\rightarrow$ <em>OAuth consent screen</em> $\rightarrow$ scroll to <strong>Test users</strong> and ADD the email you are using.</span></li>
+                <li style="margin-bottom:6px"><span data-i18n="auth.waiting.ts_error_1">Error:</span> <strong>Access blocked: Authorization Error</strong>:<br><span data-i18n="auth.waiting.ts_sol_1">Go to Google Cloud → <em>OAuth consent screen</em> → scroll to <strong>Test users</strong> and ADD the email you are using.</span></li>
                 <li><span data-i18n="auth.waiting.ts_error_2">Red warning</span> <strong>Google hasn’t verified this app</strong>:<br><span data-i18n="auth.waiting.ts_sol_2">Click the small text <strong>"Advanced"</strong> at the bottom, then click <strong>"Go to ... (unsafe)"</strong> to continue.</span></li>
             </ul>
         </div>
@@ -314,6 +337,41 @@
     </div>
 </div>
 
-<script src="/static/auth_manager.js?v=23"></script>
+<!-- AI Guide: chỉ dẫn cho agent theo scopes của token — 2 phương án, user tự chọn -->
+<div id="modal-ai-guide" class="modal hidden">
+    <div class="modal-content" style="max-width:640px;">
+        <div class="modal-header">
+            <h2><span data-i18n="auth.ai.title">🤖 AI usage guide for this token</span></h2>
+            <button class="btn-close" onclick="closeModal('modal-ai-guide')">✕</button>
+        </div>
+
+        <!-- Tab chọn phương án: An toàn (mặc định, sinh ngay) / Tự chứa (xác nhận rủi ro trước) -->
+        <div class="am-tabs" style="margin-top:8px;">
+            <button class="am-tab active" id="am-ai-tab-safe" onclick="aiGuideTab('safe')">🔒 <span data-i18n="auth.ai.tab_safe">Safe — no secrets</span></button>
+            <button class="am-tab" id="am-ai-tab-full" onclick="aiGuideTab('full')">⚡ <span data-i18n="auth.ai.tab_full">Self-contained — real token</span></button>
+        </div>
+
+        <!-- Khối rủi ro: chỉ hiện ở tab Tự chứa, trước khi xác nhận -->
+        <div id="am-ai-risk" style="display:none; border:1px solid rgba(239,68,68,0.4); border-radius:10px; padding:14px; margin-top:12px; background:rgba(239,68,68,0.05);">
+            <p style="color:var(--text2); font-size:0.82rem; line-height:1.55; margin:0 0 6px;"><span data-i18n="auth.ai.optB_pros">✅ Pros: works immediately from any machine or cloud AI (ChatGPT, Claude…) — no server access needed; includes a remote token-refresh recipe.</span></p>
+            <p style="color:#fbbf24; font-size:0.82rem; line-height:1.55; margin:0 0 10px;"><span data-i18n="auth.ai.optB_risks">⚠ Risks: the guide contains a LIVE Google access token — anyone who sees it can use these permissions until you Revoke; it will be stored in the third-party AI's chat history. The refresh recipe has a &lt;TUBECLI_PASSWORD&gt; placeholder — filling it in exposes full control of this server. You accept these risks yourself.</span></p>
+            <button class="btn-secondary" style="border-color:rgba(239,68,68,0.5); color:#f87171;" onclick="aiGuideConfirmFull()"><span data-i18n="auth.ai.optB_confirm">I understand the risks — create full guide</span></button>
+        </div>
+
+        <!-- Kết quả -->
+        <div id="am-ai-result" style="display:none;">
+            <p style="color:var(--text2); font-size:0.85rem; margin:10px 0 12px;"><span data-i18n="auth.ai.desc">Paste this into your agent's system prompt (or chat) so the AI knows what it may do with this account.</span></p>
+            <textarea id="am-ai-guide-text" readonly onclick="this.select()" spellcheck="false"
+                style="width:100%; min-height:260px; font-family:monospace; font-size:0.8rem; line-height:1.55; color:var(--text); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:12px; resize:vertical;"></textarea>
+            <div class="modal-actions" style="justify-content:flex-end; gap:8px; margin-top:12px;">
+                <button class="btn-secondary" onclick="closeModal('modal-ai-guide')"><span data-i18n="auth.btn_cancel">Cancel</span></button>
+                <button class="btn-primary" onclick="copyAmText(document.getElementById('am-ai-guide-text').value)"><span data-i18n="auth.ai.btn_copy">📋 Copy guide</span></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/i18n.js?v=13"></script>
+<script src="/static/auth_manager.js?v=32"></script>
 </body>
 </html>

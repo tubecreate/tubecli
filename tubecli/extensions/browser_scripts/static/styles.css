@@ -216,6 +216,7 @@ textarea.form-input { resize: vertical; font-family: var(--font); }
 .log-line.error { color: var(--danger); }
 .log-line.success { color: var(--success); }
 .log-line.info { color: var(--accent); }
+.log-line.warn { color: var(--warning, #eab308); }
 
 /* Variables */
 .variables-list { display: flex; flex-direction: column; gap: 8px; }

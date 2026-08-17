@@ -12,6 +12,8 @@ import os
 
 logger = logging.getLogger("MultiAgentsExtension")
 
+_REV = "e67494f99e6e331e"
+
 TEAMS_FILE = os.path.join(DATA_DIR, "agent_teams.json")
 
 

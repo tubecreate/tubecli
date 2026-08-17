@@ -273,3 +273,12 @@ MESSAGES = {
     "server.svc_kept": "  Dịch vụ đang chạy sẵn — giữ nguyên.",
     "server.waiting": "  Chờ server lên (lần đầu nạp extension, ~30 giây)...",
 }
+
+
+# Gợi ý hành động kèm lỗi LLM provider (brain._llm_error_hint)
+MESSAGES.update({
+    'brain.llm_err_ctx': 'Ngữ cảnh gửi vào vượt giới hạn của model hiện tại. Hãy gửi tin ngắn hơn, hoặc đổi sang model có cửa sổ ngữ cảnh lớn hơn (nút AI trên thanh Flow, hoặc mục AI model của agent).',
+    'brain.llm_err_key': 'API key của model không hợp lệ hoặc hết hạn — kiểm tra trong phần AI của server.',
+    'brain.llm_err_quota': 'Model đang bị giới hạn tần suất hoặc hết quota — chờ một lúc, hoặc đổi model/key khác.',
+    'brain.llm_err_down': 'Nhà cung cấp model đang gặp sự cố — thử lại sau ít phút.',
+})

@@ -574,7 +574,13 @@ function finishExecutionUI() {
     // The run is over — the per-run preview server has shut down. Mark the
     // preview stopped and close the socket cleanly (code 1000, which onclose
     // treats as intentional) so it does not reconnect into a dead port loop.
+    // Any step still showing the running spinner must stop — on Stop/fail it
+    // would otherwise spin forever. Only the 'running' class is removed, so a
+    // step already marked success/error keeps its mark.
+    document.querySelectorAll('.step-card.running').forEach(el => el.classList.remove('running'));
+
     previewStopped = true;
+    if (previewReconnectTimer) { clearTimeout(previewReconnectTimer); previewReconnectTimer = null; }
     if (previewWs) {
         try { previewWs.close(1000, 'run finished'); } catch (e) {}
         previewWs = null;
@@ -655,6 +661,12 @@ function parseStepLog(line) {
                 if (parsed.success) {
                     // Mark last running step as success
                     if (activeStepIndex >= 0) setStepState(activeStepIndex, 'success');
+                } else if (parsed.stopped) {
+                    // User stop: clear the running spinner, no red error mark.
+                    if (activeStepIndex >= 0) setStepState(activeStepIndex, '');
+                } else {
+                    // Real failure: mark the step that failed.
+                    if (activeStepIndex >= 0) setStepState(activeStepIndex, 'error');
                 }
                 finishExecutionUI();
             }
@@ -739,6 +751,11 @@ let previewScale = { x: 1, y: 1 };
 // so any further reconnect would connect, find a dead upstream, drop, and loop
 // forever. onclose checks this to stop reconnecting.
 let previewStopped = false;
+// The pending WS reconnect timer, so finishExecutionUI can CANCEL it — otherwise
+// a timer scheduled just before the run ended fires afterward, reopens the dead
+// port and restarts the whole reconnect+screenshot loop (a dangling setInterval
+// + WS churn that never stops until the page reloads).
+let previewReconnectTimer = null;
 
 async function launchPreview() {
     const profile = document.getElementById('execProfile').value;
@@ -912,7 +929,8 @@ function connectPreviewWS(port) {
                 const delay = Math.min(attempt * 2000, 10000);
                 appendLog(`Preview disconnected — reconnecting in ${delay / 1000}s (attempt ${attempt}/5)`, 'info');
                 startScreenshotStream(); // Fallback during reconnect
-                setTimeout(() => {
+                previewReconnectTimer = setTimeout(() => {
+                    previewReconnectTimer = null;
                     // Re-check previewStopped: the run may have finished while
                     // this timer was pending. Without this, the timer would call
                     // connectPreviewWS, which clears previewStopped and restarts
@@ -1020,9 +1038,14 @@ function canvasCoords(e) {
 }
 
 let screenshotInterval = null;
+let screenshotFails = 0;
 function startScreenshotStream() {
-    if (!previewSession) return;
+    // Do NOT start (or restart) the screenshot poll for a run that already
+    // finished — its preview server is gone, so every request 502s and the
+    // <img> shows a broken-image icon. previewStopped is the single gate.
+    if (!previewSession || previewStopped) return;
     stopScreenshotStream();
+    screenshotFails = 0;
     const container = document.getElementById('previewContainer');
     container.innerHTML = '<img id="previewImg" alt="Browser Preview" style="width:100%;height:100%;object-fit:contain">';
     const img = document.getElementById('previewImg');
@@ -1031,8 +1054,17 @@ function startScreenshotStream() {
         if (loading) return;
         loading = true;
         const buf = new Image();
-        buf.onload = () => { img.src = buf.src; loading = false; };
-        buf.onerror = () => { loading = false; };
+        buf.onload = () => { img.src = buf.src; loading = false; screenshotFails = 0; };
+        buf.onerror = () => {
+            loading = false;
+            // Upstream preview server dead (502 / connection refused). Stop
+            // hammering it after a few misses and show a neutral ended state
+            // instead of a broken image looping forever.
+            if (++screenshotFails >= 3) {
+                stopScreenshotStream();
+                showPreviewEnded();
+            }
+        };
         const isRemote = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
         const screenshotUrl = isRemote
             ? `${location.origin}/api/v1/scripts/preview/screenshot/${previewSession.port}?t=${Date.now()}`
@@ -1043,6 +1075,16 @@ function startScreenshotStream() {
 
 function stopScreenshotStream() {
     if (screenshotInterval) { clearInterval(screenshotInterval); screenshotInterval = null; }
+}
+
+// Neutral placeholder shown when the preview source is gone (run finished),
+// replacing the broken-image icon.
+function showPreviewEnded() {
+    const container = document.getElementById('previewContainer');
+    if (!container) return;
+    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--muted);font-size:13px;">'
+        + '<span class="material-symbols-outlined" style="font-size:34px;opacity:.5">visibility_off</span>'
+        + '<span>Preview đã kết thúc</span></div>';
 }
 
 async function navigatePreview() {
@@ -1543,30 +1585,48 @@ async function doAIGenerate() {
 }
 
 // ── Log ──
+let _lastLogMsg = null;
 function appendLog(msg, type = '') {
     const log = document.getElementById('logContent');
     const time = new Date().toLocaleTimeString();
 
     // Parse JSON log lines from script_runner.js
     let displayMsg = msg;
+    let wasStopped = false;
     if (typeof msg === 'string' && msg.trimStart().startsWith('{')) {
         try {
             const parsed = JSON.parse(msg);
             displayMsg = parsed.message || parsed.error || msg;
+            wasStopped = parsed.stopped === true;
             // Auto-detect type from status
             if (!type) {
-                if (parsed.status === 'error' || parsed.success === false) type = 'error';
+                if (wasStopped) type = 'warn';                       // user stop ≠ crash
+                else if (parsed.status === 'error' || parsed.success === false) type = 'error';
                 else if (parsed.status === 'done' && parsed.success) type = 'success';
                 else if (parsed.status === 'step') type = 'info';
             }
         } catch (e) {} // not JSON, use as-is
     }
 
-    log.innerHTML += `<div class="log-line ${type}">[${time}] ${esc(displayMsg)}</div>`;
+    // A user-initiated stop is not an error — never paint it red.
+    if (type === 'error' && typeof displayMsg === 'string'
+        && /stopped by user|đã dừng|script stopped/i.test(displayMsg)) {
+        type = 'warn';
+    }
+
+    // Collapse consecutive identical lines: the preview teardown and the
+    // runner/frontend double-logging repeat the same text several times.
+    if (displayMsg === _lastLogMsg) return;
+    _lastLogMsg = displayMsg;
+
+    // 'warn' is a new type; colour it inline so it works even where the served
+    // stylesheet predates the .log-line.warn rule.
+    const extraStyle = type === 'warn' ? ' style="color:#eab308"' : '';
+    log.innerHTML += `<div class="log-line ${type}"${extraStyle}>[${time}] ${esc(displayMsg)}</div>`;
     log.scrollTop = log.scrollHeight;
 }
 
-function clearLog() { document.getElementById('logContent').innerHTML = ''; }
+function clearLog() { document.getElementById('logContent').innerHTML = ''; _lastLogMsg = null; }
 
 // ── Resize Handles ──
 function setupResizeHandles() {

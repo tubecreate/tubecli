@@ -59,7 +59,7 @@
   "auth.lbl_name": "名稱",
   "auth.authz.lbl_scopes_hint": "(在建立憑證時配置)",
   "auth.step2.req_scopes_desc": "請複製以下範圍並在 OAuth 同意畫面上授予權限:",
-  "auth.waiting.ts_sol_1": "前往 Google Cloud $\rightarrow$ <em>OAuth 同意畫面</em> $\rightarrow$ 捲動到 <strong>測試使用者</strong> 並新增您正在使用的電子郵件。",
+  "auth.waiting.ts_sol_1": "前往 Google Cloud → OAuth 同意畫面 → 捲動到 測試使用者 並新增您正在使用的電子郵件。",
   "auth.authz.lbl_scopes": "📦 要授予的範圍",
   "auth.manual.internal_tool_title": "適用於內部工具:",
   "auth.manual.internal_tool_desc": "無需應用程式設定。從 Graph API Explorer 取得令牌並貼到此處可立即授予自動化存取權限。",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "應用程式配置參數",
   "auth.waiting.ts_error_2": "紅色警告",
   "auth.step2.redirect_uri_desc": "(在憑證 > OAuth 客戶端 ID 索引標籤中)",
-  "auth.waiting.ts_sol_2": "點擊底部的 <strong>「進階」</strong> 小字，然後點擊 <strong>「前往 ... (不安全)」</strong> 繼續。",
+  "auth.waiting.ts_sol_2": "點擊底部的 「進階」 小字，然後點擊 「前往 ... (不安全)」 繼續。",
   "auth.title.dashboard": "儀表板",
   "auth.title.auth_manager": "驗證管理器",
   "auth.btn_add_cred": "新增憑證",
@@ -88,5 +88,6 @@
   "auth.msg.failed_providers": "載入提供者失敗",
   "auth.msg.no_providers": "未配置任何提供者",
   "auth.msg.failed_load": "載入失敗",
-  "auth.msg.no_tokens": "尚未授權任何令牌。授權憑證即可開始使用。"
+  "auth.msg.no_tokens": "尚未授權任何令牌。授權憑證即可開始使用。",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

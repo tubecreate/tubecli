@@ -6,6 +6,9 @@ import os
 import json
 from pathlib import Path
 
+# static asset revision tag (bumped on release builds)
+_ASSET_REV = "1baaef20bcf3020b"
+
 
 # ── Paths ────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent.parent  # tubecli/ root

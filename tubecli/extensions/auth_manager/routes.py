@@ -219,6 +219,28 @@ async def api_get_active_token(cred_id: str):
     return {"credential_id": cred_id, "has_token": True, "masked_token": masked}
 
 
+@router.get("/tokens/{cred_id}/access-token")
+async def api_get_access_token_full(cred_id: str):
+    """Return the REAL active access token (auto-refresh nếu hết hạn).
+
+    Cùng cổng xác thực session như mọi endpoint khác — ai có mật khẩu TubeCLI
+    vốn đã có terminal và đọc được token in-process. Endpoint này phục vụ
+    "AI Guide phương án B" (người dùng chủ động chọn, đã được cảnh báo rủi ro):
+    cho AI bên ngoài (ChatGPT/Claude...) tự lấy token mới từ xa sau khi login.
+    """
+    from .extension import auth_manager
+    token = auth_manager.get_active_token(cred_id)
+    if not token:
+        raise HTTPException(404, f"No active token for credential '{cred_id}'")
+    data = auth_manager.get_token_data(cred_id) or {}
+    return {
+        "credential_id": cred_id,
+        "access_token": token,
+        "expires_at": data.get("expires_at", ""),
+        "scopes": data.get("scopes", []),
+    }
+
+
 # ── Callback HTML Template ───────────────────────────────────────
 
 def _callback_html(status: str, message: str, email: str = "", profile: str = "") -> str:

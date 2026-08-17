@@ -7,6 +7,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=8">
+    <!-- Chế độ nhúng (?embed=1): ẩn sidebar khi dashboard được nhúng iframe vào
+         Flow Builder của cloud — chỉ hiện panel, hash #/tab vẫn điều hướng như thường. -->
+    <script>if (new URLSearchParams(location.search).get('embed') === '1') document.documentElement.classList.add('embed-mode');</script>
+    <style>.embed-mode .sidebar { display: none !important; }</style>
 </head>
 <body>
 <div id="app">

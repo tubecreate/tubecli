@@ -342,9 +342,9 @@
   "auth.waiting.desc": "Por favor, complete la pantalla de autorización en el navegador. Esta ventana se cerrará automáticamente cuando termine.",
   "auth.waiting.troubleshoot_title": "⚠️ Solución de problemas de errores comunes (Google):",
   "auth.waiting.ts_error_1": "Error:",
-  "auth.waiting.ts_sol_1": "Vaya a Google Cloud $\\rightarrow$ <em>Pantalla de consentimiento de OAuth</em> $\\rightarrow$ desplácese hasta <strong>Usuarios de prueba</strong> y AÑADA el correo electrónico que está utilizando.",
+  "auth.waiting.ts_sol_1": "Vaya a Google Cloud $\\rightarrow$ Pantalla de consentimiento de OAuth $\\rightarrow$ desplácese hasta Usuarios de prueba y AÑADA el correo electrónico que está utilizando.",
   "auth.waiting.ts_error_2": "Advertencia roja",
-  "auth.waiting.ts_sol_2": "Haga clic en el pequeño texto \"<strong>Avanzado</strong>\" en la parte inferior, luego haga clic en \"<strong>Ir a ... (no seguro)</strong>\" para continuar.",
+  "auth.waiting.ts_sol_2": "Haga clic en el pequeño texto \"Avanzado\" en la parte inferior, luego haga clic en \"Ir a ... (no seguro)\" para continuar.",
   "auth.waiting.btn_cancel": "Omitir / Cancelar espera",
   "auth.waiting.btn_copy": "📋 Copiar enlace de nuevo",
   "auth.svc.custom.label": "➕ Añadir alcance personalizado",
@@ -519,5 +519,6 @@
   "agent_modal.ai_guide_rotate_confirm": "¿Generar una clave nueva? Todas las instrucciones ya enviadas dejarán de funcionar de inmediato.",
   "gen.system_prompt": "Prompt del sistema (opcional)",
   "gen.system_prompt_placeholder": "Déjalo vacío y la IA lo escribe. Si lo rellenas, se usa tal cual y la persona se deriva de él.",
-  "gen.system_prompt_hint": "Son las instrucciones que sigue el agente al conversar."
+  "gen.system_prompt_hint": "Son las instrucciones que sigue el agente al conversar.",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

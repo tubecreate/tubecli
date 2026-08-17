@@ -86,6 +86,15 @@ FILE_OPS_PATTERNS = [
     r"list\s+(files|dir)",
 ]
 
+# Google Sheets/Docs/Drive là tài nguyên cloud, KHÔNG phải file trên đĩa.
+# "tạo file sheet" từng khớp FILE_OPS → file_action → lỗi sandbox; còn
+# "tạo google sheet" khớp SEARCH (chữ "google") → đi Google Search. Cả hai
+# đều phải được chặn và trả về complex_action để pipeline inject SKILL.md
+# (nơi duy nhất có cú pháp create_sheet cho model).
+CLOUD_DOC_RE = re.compile(
+    r"(sheet|spread\s*sheet|spreadsheet|bảng\s*tính|bang\s*tinh|trang\s*tính|"
+    r"google\s*(sheet|doc|drive)|\bdocs?\b|\bdrive\b|excel\s*online|gg\s*sheet)", re.I)
+
 SEARCH_PATTERNS = [
     r"tìm\s+kiếm",
     r"google",
@@ -486,10 +495,23 @@ class IntentRouter:
             )
 
         # ── 5. File Operations ───────────────────────────────────
-        if self._matches_any(text_lower, FILE_OPS_PATTERNS):
+        if self._matches_any(text_lower, FILE_OPS_PATTERNS) and not CLOUD_DOC_RE.search(text_lower):
             return IntentResult(
                 intent_type="file_ops",
                 confidence=0.90,
+            )
+
+        # ── 5a. Google Sheets/Docs/Drive — tài nguyên cloud ──────
+        # Đặt TRƯỚC read_page/SEARCH: "tạo google sheet" có chữ "google" sẽ bị
+        # SEARCH cướp nếu để rơi xuống. complex_action ⇒ pipeline inject
+        # EXTENSION SKILL DOCS (cú pháp create_sheet) vào system prompt.
+        if CLOUD_DOC_RE.search(text_lower):
+            sheet_skills = self._find_skills_by_category(
+                skills, ["sheet", "spreadsheet", "bảng tính", "drive"])
+            return IntentResult(
+                intent_type="complex_action",
+                confidence=0.88,
+                matched_skills=[s["id"] for s in sheet_skills[:1]],
             )
 
         # ── 5b. Read a SPECIFIC page ─────────────────────────────

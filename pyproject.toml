@@ -42,6 +42,14 @@ dependencies = [
     "lxml",
     "pyyaml",
     "stripe>=5.0",
+    # File Manager · Google Drive (drive.py) + Sheets Manager. Thiếu trên bản cài sạch
+    # → mọi thao tác Drive/Sheets chết runtime với "No module named 'googleapiclient'".
+    "google-api-python-client>=2.0",
+    "google-auth>=2.0",
+    "google-auth-httplib2>=0.1",
+    # python-docx / openpyxl: read_file trích text docx/xlsx cho Media node + AI.
+    "python-docx",
+    "openpyxl",
 ]
 
 [project.scripts]

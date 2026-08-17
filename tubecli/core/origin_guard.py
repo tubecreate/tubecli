@@ -93,6 +93,20 @@ def _local_ip_addresses() -> set:
 _learned_hosts: set = set()
 
 
+def _same_site(a: str, b: str) -> bool:
+    """Cùng site đăng ký (so 2 nhãn cuối — đủ cho *.tubecreate.com; eTLD nhiều
+    nhãn kiểu co.uk sẽ rộng hơn thực tế, chấp nhận vì chỉ dùng SAU khi đã chứng
+    minh mật khẩu). IP literal không có quan hệ same-site."""
+    if not a or not b:
+        return False
+    pa, pb = a.split("."), b.split(".")
+    if len(pa) < 2 or len(pb) < 2:
+        return False
+    if all(p.isdigit() for p in pa) or all(p.isdigit() for p in pb):
+        return False
+    return pa[-2:] == pb[-2:]
+
+
 def remember_host(origin: str, host_header: str) -> None:
     """Trust this address from now on, because someone just authenticated on it.
 
@@ -108,12 +122,23 @@ def remember_host(origin: str, host_header: str) -> None:
     Origin == Host means a real browser really was there — and anyone who has
     the password has already won by every other measure.
 
+    SAME-SITE: cloud dashboard (cloud.tubecreate.com) đăng nhập hộ người dùng
+    vào TubeCLI qua tunnel (xxx.tubecreate.com) — Origin ≠ Host nhưng CÙNG site.
+    Trang extension nhúng iframe từ tunnel sau đó gửi Origin = tunnel và bị 403
+    ("Cross-origin request refused" trên VPS). Origin cùng site với Host + mật
+    khẩu đúng ⇒ học Host. Không yếu hơn quy tắc o==h sẵn có: curl giả cả hai
+    header vẫn cần mật khẩu, mà có mật khẩu thì "đã thắng bằng mọi đường khác".
+
     Not persisted. It is re-learned on the next login after a restart, which
     keeps a stale entry from outliving a change of address.
     """
     o, h = _host_of(origin), _host_of(host_header)
-    if o and h and o == h and o not in _LOOPBACK_HOSTS:
-        _learned_hosts.add(o)
+    if not o or not h or h in _LOOPBACK_HOSTS:
+        return
+    if o == h or _same_site(o, h):
+        _learned_hosts.add(h)
+        if o not in _LOOPBACK_HOSTS:
+            _learned_hosts.add(o)  # trang vừa chứng minh mật khẩu — fetch tiếp theo từ nó cũng hợp lệ
 
 
 def _allowed_hosts() -> set:

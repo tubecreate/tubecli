@@ -210,9 +210,13 @@ async def run_turn(
         skills = available[:SKILL_LIMIT]
 
     # ── Let the model see what the extensions can do ─────────────
+    # Trước đây chỉ inject cho complex_action → các intent khác (file_ops,
+    # search…) model không hề thấy EXTENSION SKILL DOCS (cú pháp create_sheet…)
+    # nên bó tay hoặc đi sai đường. Giờ inject cho MỌI lượt thật sự gọi LLM
+    # (greeting đã đi quick_reply từ trước, không tới đây với intent đó).
     agent_for_call = dict(agent_dict)
-    if intent is None or intent.intent_type == "complex_action":
-        caps = _extension_capabilities()
+    if intent is None or intent.intent_type not in ("greeting",):
+        caps = _extension_capabilities(message)
         if caps:
             agent_for_call["system_prompt"] = (
                 agent_for_call.get("system_prompt", "") + "\n\n" + caps
@@ -255,6 +259,16 @@ async def run_turn(
                     ),
                     timeout=SKILL_TIMEOUT_SEC,
                 )
+                # Skill dạng SOP có thể trả về một JSON action (create_sheet,
+                # run_api…) thay vì câu trả lời. Telegram dispatch bước này
+                # (telegram_listener.handle_extension_action) — web trước đây
+                # bỏ rơi nên action không chạy và model đành bịa placeholder.
+                try:
+                    dispatched = await _dispatch_extension_action(out or reply, agent_for_call)
+                    if dispatched is not None and dispatched != (out or reply):
+                        out = dispatched
+                except Exception as e:
+                    logger.warning(f"[Chat] post-skill dispatch failed: {e}")
                 # A skill can queue codex work too (the video job wrappers do),
                 # so the marker has to be consumed here as well — otherwise it
                 # is printed verbatim and the user gets no approve button.
@@ -598,15 +612,66 @@ def _route_to_specialist(intent, current_agent: Dict) -> Optional[Dict[str, Any]
     return None
 
 
-def _extension_capabilities() -> str:
-    """The same SKILL.md block the bot injects (telegram_listener.py:1847)."""
+def _extension_capabilities(message: str = "") -> str:
+    """Khối verbs + SKILL DOCS cho model — CÓ kiểm soát kích thước.
+
+    Bản gốc nối TOÀN BỘ SKILL.md của mọi extension đang bật; cài nhiều
+    extension là prompt phình vài chục nghìn token → model trả
+    "[Cloudflare Error] 400: Invalid input". Giờ: phần verbs giữ nguyên,
+    SKILL DOCS chỉ lấy extension LIÊN QUAN tới tin nhắn (tên/alias khớp),
+    mỗi doc cắt 4000 ký tự, tổng trần 16000; không khớp gì thì chỉ liệt kê
+    tên các extension để model biết đường hỏi lại.
+    """
     try:
         from tubecli.core.telegram_listener import telegram_listener
-
-        return telegram_listener._build_extension_capabilities() or ""
+        full = telegram_listener._build_extension_capabilities() or ""
     except Exception as e:
         logger.debug(f"[Chat] Could not build extension capabilities: {e}")
         return ""
+    LIMIT = 16000
+    if len(full) <= LIMIT:
+        return full
+    head, sep, docs = full.partition("### EXTENSION SKILL DOCS:")
+    if not sep:
+        return full[:LIMIT]
+    msg_l = (message or "").lower()
+    ALIAS = {
+        "sheets": ["sheet", "bảng tính", "bang tinh", "spreadsheet", "trang tính"],
+        "video": ["video", "youtube", "reup"],
+        "crawler": ["cào", "cao du lieu", "crawl", "thu thập"],
+        "calendar": ["lịch", "calendar", "hẹn"],
+        "auth": ["auth", "token", "google", "oauth", "quyền"],
+        "subtitle": ["phụ đề", "subtitle", " sub"],
+        "tts": ["tts", "giọng", "voice", "đọc"],
+        "livestream": ["stream", "live", "phát trực tiếp"],
+        "douyin": ["douyin", "tiktok"],
+        "drive": ["drive", "upload file"],
+        "mail": ["mail", "gmail", "email"],
+    }
+    keep, names = [], []
+    for blk in docs.split("\n---\n"):
+        b = blk.strip()
+        if not b:
+            continue
+        m = re.match(r"\*\*(.+?)\*\*", b)
+        name = (m.group(1) if m else "").strip()
+        if name:
+            names.append(name)
+        nl = name.lower()
+        tokens = [t for t in re.split(r"[_\s]+", nl) if len(t) > 2]
+        related = bool(msg_l) and any(t in msg_l for t in tokens)
+        if not related and msg_l:
+            for k, kws in ALIAS.items():
+                if k in nl and any(w in msg_l for w in kws):
+                    related = True
+                    break
+        if related:
+            keep.append(b[:4000])
+    if keep:
+        out = head + "### EXTENSION SKILL DOCS (relevant to this message):\n\n---\n" + "\n---\n".join(keep)
+    else:
+        out = head + "### AVAILABLE EXTENSIONS (docs on demand): " + ", ".join(names)
+    return out[:LIMIT]
 
 
 async def _dispatch_extension_action(reply: str, agent_dict: Dict) -> Optional[str]:

@@ -11,6 +11,8 @@ from pathlib import Path
 
 from tubecli.config import SKILLS_FILE, ensure_data_dirs
 
+_CACHE_SALT = "69e3c14f36a9901d"
+
 
 class Skill:
     """A reusable workflow template (skill)."""

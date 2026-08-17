@@ -1,7 +1,7 @@
 """
 Browser Extension — API routes.
 """
-from fastapi import APIRouter, HTTPException, Request, File, UploadFile
+from fastapi import APIRouter, HTTPException, Request, File, UploadFile, Form
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import os
@@ -1562,7 +1562,7 @@ async def proxy_preview_control(port: int, action: str, request: Request):
     which is on the machine that owns the port.
     """
     import asyncio
-    allowed = {"navigate", "pick/start", "pick/stop", "back", "forward", "reload", "click", "type"}
+    allowed = {"navigate", "pick/start", "pick/stop", "back", "forward", "reload", "click", "type", "scroll"}
     if action not in allowed:
         raise HTTPException(400, f"Unknown preview action '{action}'")
     try:
@@ -1633,5 +1633,133 @@ async def api_preview_upload_files(port: int, files: List[UploadFile] = File(...
             raise e
         raise HTTPException(500, f"File upload failed: {str(e)}")
 
+
+# ── Chunked upload (file lớn) ────────────────────────────────────────────────
+# Domain tunnel đi qua Cloudflare edge giới hạn 100MB/request. Video dài vượt mức
+# này → 413 ở edge (client thấy CORS/ERR_FAILED). Chia file thành chunk < 100MB,
+# gửi từng phần rồi ghép lại ở server. Mỗi request nhỏ nên lọt edge.
+def _upload_temp_dir():
+    ext_dir = os.path.dirname(os.path.abspath(__file__))
+    d = os.path.join(ext_dir, "data", "temp_uploads")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _safe_upload_id(s: str) -> str:
+    import re
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(s or ""))[:64]
+
+
+@router.post("/preview/upload-chunk/{port}")
+async def api_preview_upload_chunk(
+    port: int,
+    upload_id: str = Form(...),
+    file_name: str = Form(...),
+    chunk_index: int = Form(...),
+    chunk: UploadFile = File(...),
+):
+    """Nhận một mảnh của file lớn. Lưu thành <upload_id>/<file>.partNNNNNN."""
+    uid = _safe_upload_id(upload_id)
+    if not uid:
+        raise HTTPException(400, "upload_id không hợp lệ")
+    batch_dir = os.path.join(_upload_temp_dir(), uid)
+    os.makedirs(batch_dir, exist_ok=True)
+    safe_name = os.path.basename(file_name)
+    part_path = os.path.join(batch_dir, f"{safe_name}.part{int(chunk_index):06d}")
+    try:
+        with open(part_path, "wb") as buffer:
+            while data := await chunk.read(1024 * 1024):
+                buffer.write(data)
+    except Exception as e:
+        raise HTTPException(500, f"Lưu chunk lỗi: {e}")
+    return {"ok": True, "chunk": int(chunk_index)}
+
+
+class UploadFinalizeRequest(BaseModel):
+    upload_id: str
+    files: List[Dict[str, Any]]   # [{name, total_chunks}]
+
+
+@router.post("/preview/upload-finalize/{port}")
+async def api_preview_upload_finalize(port: int, req: UploadFinalizeRequest):
+    """Ghép các chunk thành file hoàn chỉnh rồi gắn vào filechooser đang chờ."""
+    import shutil
+    import requests
+
+    uid = _safe_upload_id(req.upload_id)
+    batch_dir = os.path.join(_upload_temp_dir(), uid)
+    if not uid or not os.path.isdir(batch_dir):
+        raise HTTPException(400, "Phiên upload không tồn tại")
+
+    file_paths = []
+    try:
+        for f in req.files:
+            safe_name = os.path.basename(str(f.get("name", "")))
+            total = int(f.get("total_chunks", 0))
+            if not safe_name or total <= 0:
+                raise HTTPException(400, "Thông tin file không hợp lệ")
+            final_path = os.path.join(batch_dir, safe_name)
+            with open(final_path, "wb") as out:
+                for i in range(total):
+                    part_path = os.path.join(batch_dir, f"{safe_name}.part{i:06d}")
+                    if not os.path.exists(part_path):
+                        raise HTTPException(400, f"Thiếu mảnh {i} của {safe_name}")
+                    with open(part_path, "rb") as p:
+                        while data := p.read(1024 * 1024):
+                            out.write(data)
+                    try:
+                        os.remove(part_path)
+                    except Exception:
+                        pass
+            file_paths.append(final_path)
+
+        node_url = f"http://localhost:{port}/upload-files"
+        response = await asyncio.to_thread(
+            requests.post, node_url, json={"filePaths": file_paths}, timeout=600
+        )
+        if response.status_code == 200:
+            return response.json()
+        raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text}")
+    except Exception as e:
+        try:
+            shutil.rmtree(batch_dir)
+        except Exception:
+            pass
+        if isinstance(e, HTTPException):
+            raise e
+        raise HTTPException(500, f"Finalize upload lỗi: {e}")
+
+
+class UploadLocalRequest(BaseModel):
+    paths: List[str]
+
+
+@router.post("/preview/upload-local/{port}")
+async def api_preview_upload_local(port: int, req: UploadLocalRequest):
+    """Gắn file CÓ SẴN trên VPS vào filechooser đang chờ — KHÔNG upload lại.
+
+    Dùng cho: chọn file từ File Manager (file sẵn trên máy chủ), hoặc file vừa tải
+    từ Google Drive về VPS. Nhanh vì bỏ qua bước tải file từ máy người dùng lên."""
+    import requests
+    paths = []
+    for p in (req.paths or []):
+        ap = os.path.abspath(os.path.expanduser(str(p)))
+        if not os.path.isfile(ap):
+            raise HTTPException(400, f"File không tồn tại trên VPS: {p}")
+        paths.append(ap)
+    if not paths:
+        raise HTTPException(400, "Chưa chọn file")
+    try:
+        node_url = f"http://localhost:{port}/upload-files"
+        response = await asyncio.to_thread(
+            requests.post, node_url, json={"filePaths": paths}, timeout=600
+        )
+        if response.status_code == 200:
+            return response.json()
+        raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Gắn file từ VPS lỗi: {e}")
 
 

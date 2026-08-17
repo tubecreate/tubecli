@@ -342,9 +342,9 @@
   "auth.waiting.desc": "ブラウザで表示される認証画面を完了してください。完了するとこのウィンドウは自動的に閉じます。",
   "auth.waiting.troubleshoot_title": "⚠️ よくあるエラーのトラブルシューティング (Google)：",
   "auth.waiting.ts_error_1": "エラー：",
-  "auth.waiting.ts_sol_1": "Google Cloud $\\rightarrow$ <em>OAuth同意画面</em> $\\rightarrow$ を開き、<strong>テストユーザー</strong>までスクロールして、使用しているメールを追加してください。",
+  "auth.waiting.ts_sol_1": "Google Cloud $\\rightarrow$ OAuth同意画面 $\\rightarrow$ を開き、テストユーザーまでスクロールして、使用しているメールを追加してください。",
   "auth.waiting.ts_error_2": "赤い警告",
-  "auth.waiting.ts_sol_2": "下部の小さなテキスト「<strong>詳細</strong>」をクリックし、次に「<strong>...に進む（安全ではありません）</strong>」をクリックして続行します。",
+  "auth.waiting.ts_sol_2": "下部の小さなテキスト「詳細」をクリックし、次に「...に進む（安全ではありません）」をクリックして続行します。",
   "auth.waiting.btn_cancel": "スキップ / 待機をキャンセル",
   "auth.waiting.btn_copy": "📋 もう一度リンクをコピー",
   "auth.svc.custom.label": "➕ カスタムスコープを追加",
@@ -519,5 +519,6 @@
   "agent_modal.ai_guide_rotate_confirm": "新しいキーを発行しますか？配布済みの手順は直ちに無効になります。",
   "gen.system_prompt": "システムプロンプト（任意）",
   "gen.system_prompt_placeholder": "空欄ならAIが作成します。入力するとそのまま使われ、ペルソナもそれに合わせます。",
-  "gen.system_prompt_hint": "会話時にエージェントが従う指示です。"
+  "gen.system_prompt_hint": "会話時にエージェントが従う指示です。",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

@@ -59,7 +59,7 @@
   "auth.lbl_name": "名前",
   "auth.authz.lbl_scopes_hint": "(認証情報作成時に設定)",
   "auth.step2.req_scopes_desc": "以下のスコープをコピーし、OAuth 同意画面で権限を付与してください:",
-  "auth.waiting.ts_sol_1": "Google Cloud $\rightarrow$ <em>OAuth 同意画面</em> $\rightarrow$ <strong>テストユーザー</strong>までスクロールし、使用しているメールアドレスを追加してください。",
+  "auth.waiting.ts_sol_1": "Google Cloud → OAuth 同意画面 → テストユーザーまでスクロールし、使用しているメールアドレスを追加してください。",
   "auth.authz.lbl_scopes": "📦 付与されるスコープ",
   "auth.manual.internal_tool_title": "内部ツール向け:",
   "auth.manual.internal_tool_desc": "アプリのセットアップは不要です。Graph API Explorer からトークンを取得し、ここに貼り付けるとすぐに自動化アクセスが付与されます。",
@@ -67,7 +67,7 @@
   "auth.step2.title_app_config": "アプリ構成パラメータ",
   "auth.waiting.ts_error_2": "赤色の警告",
   "auth.step2.redirect_uri_desc": "(認証情報 > OAuth クライアント ID タブ内)",
-  "auth.waiting.ts_sol_2": "下部にある小さなテキスト <strong>「詳細設定」</strong>をクリックし、次に <strong>「...に移動 (安全ではありません)」</strong>をクリックして続行してください。",
+  "auth.waiting.ts_sol_2": "下部にある小さなテキスト 「詳細設定」をクリックし、次に 「...に移動 (安全ではありません)」をクリックして続行してください。",
   "auth.title.dashboard": "ダッシュボード",
   "auth.title.auth_manager": "認証マネージャー",
   "auth.btn_add_cred": "認証情報を追加",
@@ -124,5 +124,6 @@
   "auth.svc.custom.label": "➕ カスタムスコープの追加",
   "auth.svc.custom.desc": "追加のAPIスコープURLを入力するようにカスタマイズ",
   "auth.modal_title_add": "クレデンシャルの追加",
-  "auth.modal_title_edit": "クレデンシャルの編集"
+  "auth.modal_title_edit": "クレデンシャルの編集",
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
 }

@@ -9,11 +9,59 @@ from tubecli.extensions.market.market_service import market_service
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 
+_ETAG = "71cc6600bd185c57c7599a1b"
+
 # ── Stripe & PayPal Payment Routes ──
 from tubecli.extensions.market.stripe_routes import stripe_router
 from tubecli.extensions.market.paypal_routes import paypal_router
 router.include_router(stripe_router)
 router.include_router(paypal_router)
+
+
+# ── Item icon ──
+# thumbnail_url của registry là đường dẫn tương đối (/images/x.png) — trình bày
+# ngoài dashboard (cloud) không tự resolve được. Endpoint này gom một chỗ:
+# 1) logo đóng gói sẵn trong webui/static/market_logos, 2) proxy từ registry
+# (chỉ cho path /images/... hoặc URL đúng host registry — chống SSRF), 3) 404.
+@router.get("/thumb")
+async def market_thumb(path: str = ""):
+    import os
+    import re as _re
+    from urllib.parse import urlsplit
+    from fastapi.responses import FileResponse, Response
+
+    logos_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                             "webui", "static", "market_logos")
+    name = _re.sub(r"[^a-z0-9_-]", "_",
+                   os.path.basename(path or "").rsplit(".", 1)[0].lower())
+    if name:
+        # Cùng bảng map đặc biệt với market.js (edu_studio/pod_ad_studio dùng chung logo)
+        base = {"edu_studio": "pod_studio", "pod_ad_studio": "pod_studio"}.get(name, name)
+        local = os.path.join(logos_dir, f"{base}_logo.png")
+        if os.path.isfile(local):
+            return FileResponse(local, media_type="image/png",
+                                headers={"Cache-Control": "public, max-age=86400"})
+
+    # Fallback: tải từ registry — giới hạn nghiêm host đích
+    from tubecli.extensions.market.market_service import API_BASE
+    api_origin = "{0.scheme}://{0.netloc}".format(urlsplit(API_BASE))
+    if path.startswith("/"):
+        url = api_origin + path
+    elif path.startswith(api_origin + "/"):
+        url = path
+    else:
+        raise HTTPException(404, "Icon not found")
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            r = await client.get(url)
+        ctype = r.headers.get("content-type", "")
+        if r.status_code == 200 and ctype.startswith("image/"):
+            return Response(content=r.content, media_type=ctype,
+                            headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        pass
+    raise HTTPException(404, "Icon not found")
 
 
 # ── Check Updates ──

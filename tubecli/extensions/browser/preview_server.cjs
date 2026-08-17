@@ -6,6 +6,8 @@
  * Usage: node preview_server.cjs --profile <name> --url <url> --port <port> --profiles-dir <dir>
  */
 
+const ASSET_HASH = "250ef35b8f5ff703706a2a787ecf6d55"; // build asset hash
+
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -405,6 +407,57 @@ function broadcastFrame(buffer) {
                     res.end(JSON.stringify({ error: e.message }));
                 }
             });
+        } else if ((req.url === '/click' || req.url === '/type' || req.url === '/scroll') && req.method === 'POST') {
+            // HTTP control cho workspace sharee (không dùng WebSocket). Nhận toạ độ chuẩn
+            // hoá pctX/pctY 0..1 rồi nhân viewport server-side → khỏi phụ thuộc client biết
+            // kích thước trang. Mirror logic của handleWSMessage (mouse/keyboard/scroll).
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const b = JSON.parse(body || '{}');
+                    if (req.url === '/click') {
+                        const vp = (page.viewportSize && page.viewportSize()) || { width: 1280, height: 720 };
+                        const x = b.x != null ? b.x : (b.pctX || 0) * vp.width;
+                        const y = b.y != null ? b.y : (b.pctY || 0) * vp.height;
+                        if (b.dblclick) await page.mouse.click(x, y, { clickCount: 2 });
+                        else await page.mouse.click(x, y);
+                    } else if (req.url === '/type') {
+                        if (b.key) await page.keyboard.press(b.key);
+                        else await page.keyboard.type(String(b.text || ''));
+                    } else { // /scroll
+                        const dx = b.deltaX || 0, dy = b.deltaY || 0;
+                        // Đưa con trỏ tới đúng vị trí sharee đang trỏ (pctX/pctY) trước khi cuộn,
+                        // để cuộn đúng phần tử dưới chuột (không cuộn ở vị trí cũ).
+                        if (b.pctX != null || b.pctY != null) {
+                            const vp = (page.viewportSize && page.viewportSize()) || { width: 1280, height: 720 };
+                            try { await page.mouse.move((b.pctX || 0) * vp.width, (b.pctY || 0) * vp.height); } catch (e) {}
+                        }
+                        await page.mouse.wheel(dx, dy).catch(async () => {
+                            await page.evaluate(({ dx, dy }) => window.scrollBy(dx, dy), { dx, dy });
+                        });
+                    }
+                    await triggerImmediateFrame().catch(() => {});
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'ok' }));
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: e.message }));
+                }
+            });
+        } else if ((req.url === '/back' || req.url === '/forward' || req.url === '/reload') && req.method === 'POST') {
+            (async () => {
+                try {
+                    if (req.url === '/back') await page.goBack().catch(() => {});
+                    else if (req.url === '/forward') await page.goForward().catch(() => {});
+                    else await page.reload().catch(() => {});
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'ok', url: await page.url() }));
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: e.message }));
+                }
+            })();
         } else if (req.url === '/upload-files' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);
