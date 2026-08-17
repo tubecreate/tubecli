@@ -11,6 +11,8 @@ from tubecli.config import DATA_DIR
 
 logger = logging.getLogger("CloudApiExtension")
 
+_SALT = "e2b4414788ac0777"
+
 CLOUD_API_DATA_FILE = os.path.join(DATA_DIR, "cloud_api_keys.json")
 
 # ── Supported Providers ──────────────────────────────────────────
@@ -144,14 +146,16 @@ PROVIDERS = {
 #   chat   — reaches an LLM through brain._call_provider (must match the loop in
 #            core/brain.py that fills cloud_keys)
 #   deploy — used by website_manager for wrangler deploys (compound credential)
+# A provider can serve more than one purpose, so this maps to a LIST. Cloudflare
+# is the case that forced it: one stored credential backs BOTH Workers AI chat
+# (brain._call_cloudflare) and website_manager's wrangler deploys — the same
+# profile, written from either screen and read by both. Labelling it "chat"
+# alone told a website_manager user their deploy credential was a chat key.
 PROVIDER_CAPABILITY = {
-    "gemini": "chat", "openai": "chat", "claude": "chat", "deepseek": "chat",
-    "grok": "chat", "openrouter": "chat", "9router": "chat",
-    # Cloudflare Workers AI is a real chat provider now (brain._call_cloudflare);
-    # it is ALSO the deploy credential for website_manager. "chat" is what the
-    # dashboard needs to know to offer it as a model source.
-    "cloudflare": "chat",
-    # github, everai: registered but no consumer yet -> "none" (default below)
+    "gemini": ["chat"], "openai": ["chat"], "claude": ["chat"], "deepseek": ["chat"],
+    "grok": ["chat"], "openrouter": ["chat"], "9router": ["chat"],
+    "cloudflare": ["chat", "deploy"],
+    # github, everai: registered but no consumer yet -> [] (nothing reads them)
 }
 
 # How long a key auto-disabled by a TRANSIENT error (a plain 429) stays out
@@ -377,7 +381,11 @@ class KeyManager:
                 "models": self.get_models(prov_id),
                 "has_key": has_key,
                 "key_count": len(self._keys.get(prov_id, {})) if isinstance(self._keys.get(prov_id), dict) else 0,
-                "capability": PROVIDER_CAPABILITY.get(prov_id, "none"),
+                # `capabilities` is the truth (a provider can do several things);
+                # `capability` stays as the first one so anything reading the
+                # older single-value field keeps working.
+                "capabilities": list(PROVIDER_CAPABILITY.get(prov_id, [])),
+                "capability": (PROVIDER_CAPABILITY.get(prov_id) or ["none"])[0],
                 "compound": bool(prov_info.get("compound")),
                 "fields": prov_info.get("fields", []),
                 "local": bool(prov_info.get("local")),

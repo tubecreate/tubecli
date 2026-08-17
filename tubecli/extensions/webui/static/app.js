@@ -1,6 +1,7 @@
 /**
  * TubeCLI Dashboard — SPA Logic
  * Dashboard → Extensions → API Manager → Settings
+ * rev 1601045c71cd
  */
 const API = localStorage.getItem('tubecli_api') || window.location.origin;
 
@@ -2212,10 +2213,14 @@ async function renderCloudApiExt(el) {
     h += '<div class="cards-grid" style="margin-bottom:28px">';
     providers.forEach(p => {
         const icon = p.icon || provIcons[p.id] || '☁️';
-        const cap = p.capability || 'none';
+        // A provider can serve several purposes — Cloudflare's one credential
+        // backs both Workers AI chat and website_manager deploys — so show every
+        // badge it earns, not just the first.
+        const caps = (p.capabilities && p.capabilities.length) ? p.capabilities
+                   : (p.capability && p.capability !== 'none' ? [p.capability] : []);
         // A provider with no consumer must not offer an Add button that pretends
         // its key will be used — that was the "Failed." trap on Cloudflare/GitHub.
-        const addBtn = cap === 'none'
+        const addBtn = !caps.length
             ? `<button class="btn-sm" disabled style="opacity:.5;cursor:not-allowed" title="${T('cloud_api.cap_none_hint')}">${T('cloud_api.cap_none')}</button>`
             : `<button class="btn-sm btn-primary" onclick="prefillAddKey('${esc(p.id)}')">${T('cloud_api.add')}</button>`;
         h += `<div class="card" style="text-align:center">
@@ -2225,7 +2230,7 @@ async function renderCloudApiExt(el) {
         <h3>${esc(p.name)}</h3>
         <p class="card-desc" title="${esc(p.models.join(', '))}">${p.models.slice(0,3).join(', ')}${p.models.length>3?'...':''}</p>
         <div class="card-footer" style="justify-content:center;gap:6px;flex-wrap:wrap">
-            ${capBadge[cap] || ''}
+            ${caps.length ? caps.map(cv => capBadge[cv] || '').join('') : capBadge.none}
             <span class="tag ${p.has_key?'green':''}">${p.has_key?T('cloud_api.active'):T('cloud_api.no_key')} <span style="font-size:0.75rem;margin-left:4px">(${p.key_count || 0})</span></span>
             ${addBtn}
         </div>

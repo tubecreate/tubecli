@@ -67,12 +67,20 @@ print("=" * 70)
 km, _ = fresh()
 provs = {p["id"]: p for p in km.list_providers()}
 check("all ten providers listed", len(provs) == 10, sorted(provs))
-check("gemini is a chat provider", provs["gemini"]["capability"] == "chat", provs["gemini"])
-check("github has no consumer", provs["github"]["capability"] == "none", provs["github"])
-check("everai has no consumer", provs["everai"]["capability"] == "none", provs["everai"])
-# The two that decide whether the Cloudflare card works at all.
-check("cloudflare is a chat provider now", provs["cloudflare"]["capability"] == "chat",
-      "Workers AI integration not reflected in capability")
+check("gemini is a chat provider", provs["gemini"]["capabilities"] == ["chat"], provs["gemini"])
+check("github has no consumer", provs["github"]["capabilities"] == [], provs["github"])
+check("everai has no consumer", provs["everai"]["capabilities"] == [], provs["everai"])
+# Cloudflare is the case that forced capabilities to be a LIST: ONE stored
+# credential backs both Workers AI chat and website_manager's wrangler deploys.
+# Calling it "chat" alone told a website_manager user their deploy credential
+# was a chat key.
+check("cloudflare is BOTH chat and deploy",
+      sorted(provs["cloudflare"]["capabilities"]) == ["chat", "deploy"],
+      provs["cloudflare"].get("capabilities"))
+check("legacy single-value field still resolves",
+      provs["cloudflare"]["capability"] in ("chat", "deploy")
+      and provs["github"]["capability"] == "none",
+      "the old field broke for a consumer that has not migrated")
 check("cloudflare is compound", provs["cloudflare"]["compound"] is True, "compound stripped again")
 check("cloudflare exposes its fields", len(provs["cloudflare"]["fields"]) == 2,
       "the dashboard cannot render the two-field form without these")
