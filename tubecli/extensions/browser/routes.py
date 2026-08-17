@@ -1159,6 +1159,30 @@ async def api_get_result(token: str, command_id: str):
 import logging
 _preview_processes = {}
 
+
+def _resolve_profile_for_port(port):
+    """Profile của preview đang chạy ở PORT này (None nếu không có / proc đã chết).
+
+    Dùng cho GUEST scope (workspace chia sẻ): endpoint địa chỉ theo port (screenshot/
+    ws) không mang profile, nên map port→profile qua đây để chặn port ngoài phạm vi.
+    Reap luôn proc chết như is_profile_running.
+    """
+    try:
+        port = int(port)
+    except Exception:
+        return None
+    dead, prof = [], None
+    for sid, info in list(_preview_processes.items()):
+        proc = info.get("proc")
+        if proc is not None and proc.poll() is not None:
+            dead.append(sid)
+            continue
+        if info.get("port") == port:
+            prof = info.get("profile")
+    for sid in dead:
+        _preview_processes.pop(sid, None)
+    return prof
+
 # ── Node dependency bootstrap ────────────────────────────────────────────────
 # The extension installs its npm packages in on_enable(), which runs once. A host
 # that had no Node at that moment — the normal case on Linux, where the installer
@@ -1418,7 +1442,21 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
     """
     from tubecli.core.ws_auth import reject_unless_allowed
 
-    if not await reject_unless_allowed(websocket):
+    # GUEST (workspace chia sẻ): opt-in per-endpoint. Cho qua NẾU cookie guest hợp lệ
+    # VÀ port này thuộc profile ∈ scope. Không phải guest → owner check như thường.
+    # FAIL-CLOSED: lỗi → coi như không phải guest. (browser_scripts WS KHÔNG có nhánh
+    # này nên guest luôn bị từ chối ở đó — đúng ý G1 chỉ browser.)
+    guest_ok = False
+    try:
+        from tubecli.core import auth
+        _gscope = auth.guest_scope_for(websocket.cookies.get(auth.GUEST_COOKIE))
+        if _gscope:
+            _prof = _resolve_profile_for_port(port)
+            guest_ok = bool(_prof) and _prof in set(str(x) for x in (_gscope.get("profiles") or []))
+    except Exception:
+        guest_ok = False
+
+    if not guest_ok and not await reject_unless_allowed(websocket):
         return
     await websocket.accept()
     preview_logger.info(f"[WS Proxy] Client connected, proxying to localhost:{port}")

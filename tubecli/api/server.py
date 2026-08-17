@@ -116,14 +116,40 @@ def _read_key_authorised(request: Request) -> bool:
     return auth.scraped_read_token_valid(_read_key_from(request))
 
 
-def _guest_allowed(request: Request, scope: dict) -> bool:
+async def _guest_allowed(request: Request, scope: dict) -> bool:
     """Guest (workspace được chia sẻ có phạm vi) có được chạm path này không?
 
-    DENY MẶC ĐỊNH — chỉ mở đúng thứ trong scope. G0: chưa allow gì (nền token,
-    kiểm cookie + fail-closed). G1+ mở dần: browser preview theo profile (port→
-    profile), chat theo agent_id, extension page/api theo route. Xem
+    DENY MẶC ĐỊNH. G1: chỉ BROWSER preview scoped theo profile — enforce TRỌN ở đây
+    (1 điểm, ít lỗ hổng). launch/stop kiểm profile trong body (Starlette cache body
+    nên route vẫn đọc lại được); screenshot theo port→profile; status/profiles read-
+    only cho qua. WS enforce RIÊNG ở /preview/ws. Terminal/file/credentials/agent/
+    extension/profile-CRUD... → False. G2/G3 mở thêm chat + extension. Xem
     docs/guest-scoped-workspace-design.md.
     """
+    p = request.url.path
+    m = request.method
+    profiles = set(str(x) for x in (scope.get("profiles") or []))
+
+    if m == "GET" and p in ("/api/v1/browser/status", "/api/v1/browser/profiles"):
+        return True
+
+    if m == "POST" and p in ("/api/v1/browser/preview/launch",
+                             "/api/v1/browser/preview/stop",
+                             "/api/v1/browser/stop"):
+        try:
+            body = await request.json()
+        except Exception:
+            return False
+        return str((body or {}).get("profile") or "") in profiles
+
+    mo = _re.match(r"^/api/v1/browser/preview/screenshot/(\d+)$", p)
+    if mo and m == "GET":
+        try:
+            from tubecli.extensions.browser.routes import _resolve_profile_for_port
+            return (_resolve_profile_for_port(int(mo.group(1))) or "") in profiles
+        except Exception:
+            return False
+
     return False
 
 
@@ -188,7 +214,7 @@ async def _require_login(request: Request, call_next):
             if gscope is not None:
                 allowed = False
                 try:
-                    allowed = _guest_allowed(request, gscope)
+                    allowed = await _guest_allowed(request, gscope)
                 except Exception:
                     allowed = False
                 if allowed:
