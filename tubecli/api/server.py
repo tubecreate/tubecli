@@ -159,6 +159,19 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         except Exception:
             return False
 
+    # Gắn file VPS (∈ folder/file được chia sẻ) vào browser theo PROFILE — profile∈scope + path∈scope.
+    if m == "POST" and p == "/api/v1/browser/preview/attach-file":
+        try:
+            from tubecli.core import auth
+            body = await request.json()
+        except Exception:
+            return False
+        if str((body or {}).get("profile") or "") not in profiles:
+            return False
+        path = (body or {}).get("path")
+        return bool(path) and (auth.path_in_folders(path, scope.get("folders") or [])
+                               or auth.path_is_shared_file(path, scope.get("files") or []))
+
     # ── File được chia sẻ: FOLDER node (prefix) + FILE node lẻ (exact) ──
     # list/read/raw CHỈ đọc (GET/HEAD), realpath+prefix/exact chặn traversal/symlink
     # (xem auth._canon_fs). list chỉ trong folders (file không phải thư mục để liệt kê);

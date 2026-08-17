@@ -1183,6 +1183,29 @@ def _resolve_profile_for_port(port):
         _preview_processes.pop(sid, None)
     return prof
 
+
+def _resolve_port_for_profile(profile):
+    """Port của preview đang chạy cho PROFILE này (None nếu không có / proc đã chết).
+
+    Ngược với _resolve_profile_for_port: dùng cho attach-file (guest kéo file trong Nhóm
+    lên browser) khi client chỉ biết profile (node.data.profile) — server tự tìm port
+    đang chạy, client KHÔNG được chỉ định port (chống SSRF tới port tuỳ ý).
+    """
+    if not profile:
+        return None
+    profile = str(profile)
+    dead, port = [], None
+    for sid, info in list(_preview_processes.items()):
+        proc = info.get("proc")
+        if proc is not None and proc.poll() is not None:
+            dead.append(sid)
+            continue
+        if str(info.get("profile")) == profile:
+            port = info.get("port")
+    for sid in dead:
+        _preview_processes.pop(sid, None)
+    return port
+
 # ── Node dependency bootstrap ────────────────────────────────────────────────
 # The extension installs its npm packages in on_enable(), which runs once. A host
 # that had no Node at that moment — the normal case on Linux, where the installer
@@ -1799,6 +1822,55 @@ async def api_preview_upload_local(port: int, req: UploadLocalRequest):
         raise
     except Exception as e:
         raise HTTPException(500, f"Gắn file từ VPS lỗi: {e}")
+
+
+class AttachFileRequest(BaseModel):
+    profile: str
+    path: str
+
+
+@router.post("/preview/attach-file")
+async def api_preview_attach_file(req: AttachFileRequest, request: Request):
+    """Gắn MỘT file VPS (∈ folder/file được chia sẻ) vào filechooser browser của PROFILE.
+
+    GUEST kéo file trong Nhóm lên browser để DÙNG. Client chỉ gửi {profile, path}; server
+    tự tìm port đang chạy của profile (client KHÔNG chỉ định port) + canonical hoá path
+    GIỐNG file-manager route rồi feed realpath cho Playwright. Enforce chính ở _guest_allowed
+    (profile∈scope + path∈folders/files); đây là lớp 2 defense-in-depth. File đã trên VPS →
+    không staging, không exfil (file sharee vốn được phép đọc, nay đưa vào chính browser họ).
+    """
+    import requests as _rq
+    from tubecli.core import auth
+
+    prof = str(req.profile or "")
+    raw = req.path or ""
+    safe = auth._canon_fs(raw)
+
+    gscope = getattr(getattr(request, "state", None), "guest_scope", None)
+    if gscope is not None:
+        if prof not in set(str(x) for x in (gscope.get("profiles") or [])):
+            raise HTTPException(403, "Profile ngoài phạm vi được chia sẻ")
+        folders = gscope.get("folders") or []
+        files = gscope.get("files") or []
+        if not (auth.path_in_folders(raw, folders) or auth.path_is_shared_file(raw, files)):
+            raise HTTPException(403, "File ngoài phạm vi được chia sẻ")
+
+    if not os.path.isfile(safe):
+        raise HTTPException(404, "File không tồn tại")
+    port = _resolve_port_for_profile(prof)
+    if not port:
+        raise HTTPException(409, "Browser của profile này chưa mở")
+
+    try:
+        node_url = f"http://localhost:{port}/upload-files"
+        response = await asyncio.to_thread(_rq.post, node_url, json={"filePaths": [safe]}, timeout=600)
+        if response.status_code != 200:
+            raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text[:200]}")
+        return {"status": "attached", "name": os.path.basename(safe)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Gắn file vào browser lỗi: {e}")
 
 
 class DriveAttachRequest(BaseModel):

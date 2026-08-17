@@ -603,7 +603,11 @@ async def raw_media(
     treats a plain 200 as an unusable source, and with no Accept-Ranges the
     scrub bar is dead in every engine. None of it is worth hand-rolling.
     """
-    _require_same_origin_fetch(request)
+    # Guest (workspace scoped) đã qua cổng scope + auth bằng cookie guest ở middleware →
+    # trang workspace cloud là nơi NHÚNG HỢP LỆ (<img>/<video> cross-site). Bỏ guard
+    # chống-hotlink CHỈ cho guest hợp lệ (owner vẫn bị guard như cũ).
+    if not getattr(getattr(request, "state", None), "guest_scope", None):
+        _require_same_origin_fetch(request)
 
     svc = _get_service()
     safe = _validate(svc, path)
