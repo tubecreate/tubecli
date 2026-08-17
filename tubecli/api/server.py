@@ -150,6 +150,41 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         except Exception:
             return False
 
+    # Upload file TỪ MÁY SHAREE vào browser trong nhóm (không đọc VPS) — chỉ port∈profiles.
+    mo = _re.match(r"^/api/v1/browser/preview/(?:upload|upload-chunk|upload-finalize)/(\d+)$", p)
+    if mo and m == "POST":
+        try:
+            from tubecli.extensions.browser.routes import _resolve_profile_for_port
+            return (_resolve_profile_for_port(int(mo.group(1))) or "") in profiles
+        except Exception:
+            return False
+
+    # ── File Manager / Drive (G3): CHỈ khi scope.file_manager.drive bật ──
+    # Cho: liệt kê account (lộ email — chấp nhận, siết sau), duyệt Drive (cred_id∈scope,
+    # CHẶN ?q= search toàn Drive), và GẮN file Drive vào browser (endpoint hợp nhất, không
+    # path). CHẶN: drive/download|fetch|upload|write, upload-local, mọi file cục bộ.
+    fm = scope.get("file_manager") or {}
+    if fm.get("drive"):
+        creds = set(str(x) for x in (fm.get("drive_cred_ids") or []))
+        if m == "GET" and p == "/api/v1/file-manager/drive/accounts":
+            return True
+        if m == "GET" and p == "/api/v1/file-manager/drive/list":
+            q = request.query_params
+            if q.get("q"):
+                return False
+            return str(q.get("cred_id") or "") in creds
+        mo = _re.match(r"^/api/v1/browser/preview/drive-attach/(\d+)$", p)
+        if mo and m == "POST":
+            try:
+                from tubecli.extensions.browser.routes import _resolve_profile_for_port
+                if (_resolve_profile_for_port(int(mo.group(1))) or "") not in profiles:
+                    return False
+                body = await request.json()
+                cid = (body or {}).get("cred_id")
+                return cid is None or str(cid) in creds
+            except Exception:
+                return False
+
     return False
 
 

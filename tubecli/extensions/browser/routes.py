@@ -1801,3 +1801,71 @@ async def api_preview_upload_local(port: int, req: UploadLocalRequest):
         raise HTTPException(500, f"Gắn file từ VPS lỗi: {e}")
 
 
+class DriveAttachRequest(BaseModel):
+    file_id: str
+    cred_id: Optional[str] = None
+
+
+@router.post("/preview/drive-attach/{port}")
+async def api_preview_drive_attach(port: int, req: DriveAttachRequest, request: Request):
+    """Tải MỘT file Google Drive rồi GẮN thẳng vào filechooser của browser ở {port}.
+
+    Đường AN TOÀN cho GUEST (workspace chia sẻ): guest CHỈ gửi file_id + cred_id, KHÔNG
+    gửi path nào — server tự đặt thư mục staging CỐ ĐỊNH. Thay cho luồng download+upload-
+    local (upload-local nhận abs path tuỳ ý = exfil, KHÔNG mở cho guest). Enforce chính ở
+    _guest_allowed; đây là lớp 2 (defense-in-depth) + dùng được cho cả chủ.
+    """
+    import requests as _rq
+    import uuid as _uuid
+    from tubecli.config import DATA_DIR
+    from tubecli.extensions.file_manager.drive import _svc, _download_to_spool
+
+    gscope = getattr(getattr(request, "state", None), "guest_scope", None)
+    if gscope is not None:
+        prof = _resolve_profile_for_port(port)
+        if not prof or prof not in set(str(x) for x in (gscope.get("profiles") or [])):
+            raise HTTPException(403, "Port ngoài phạm vi được chia sẻ")
+        fm = gscope.get("file_manager") or {}
+        allowed = set(str(x) for x in (fm.get("drive_cred_ids") or []))
+        if not fm.get("drive") or (req.cred_id is not None and str(req.cred_id) not in allowed):
+            raise HTTPException(403, "Drive account ngoài phạm vi được chia sẻ")
+
+    def work():
+        svc, _email = _svc(req.cred_id)
+        spool, name, _mime = _download_to_spool(svc, req.file_id)
+        ws = str((gscope or {}).get("workspace") or "direct")
+        stage = os.path.join(str(DATA_DIR), "guest_drive", ws, _uuid.uuid4().hex)
+        os.makedirs(stage, exist_ok=True)
+        dest = os.path.join(stage, os.path.basename(name) or "file")
+        try:
+            with open(dest, "wb") as f:
+                while True:
+                    chunk = spool.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+        finally:
+            spool.close()
+        return dest, name
+
+    try:
+        dest, name = await asyncio.to_thread(work)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Tải file từ Drive lỗi: {e}")
+
+    # KHÔNG xoá staging ngay: Playwright setFiles đọc file lúc trang SUBMIT (sau này),
+    # xoá sớm sẽ hỏng upload. Dọn theo workspace khi revoke/hết hạn (auth.revoke...).
+    try:
+        node_url = f"http://localhost:{port}/upload-files"
+        response = await asyncio.to_thread(_rq.post, node_url, json={"filePaths": [dest]}, timeout=600)
+        if response.status_code != 200:
+            raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text[:200]}")
+        return {"status": "attached", "name": os.path.basename(dest)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Gắn file Drive vào browser lỗi: {e}")
+
+

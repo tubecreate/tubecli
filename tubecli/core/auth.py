@@ -486,4 +486,11 @@ def revoke_guest_tokens_for_workspace(workspace: str) -> int:
     if removed:
         _write_private(_guest_file(), keep)
         _guest_cache.clear()
+    # Dọn thư mục staging Drive (file guest tải về để attach vào browser) của workspace.
+    try:
+        import shutil
+        from tubecli.config import DATA_DIR
+        shutil.rmtree(os.path.join(str(DATA_DIR), "guest_drive", str(workspace)), ignore_errors=True)
+    except Exception:
+        pass
     return removed
