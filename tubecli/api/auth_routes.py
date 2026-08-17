@@ -22,6 +22,14 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 
+class GuestTokenRequest(BaseModel):
+    scope: dict = {}
+
+
+class GuestLoginRequest(BaseModel):
+    guest_token: str
+
+
 def _client(request: Request) -> str:
     return request.client.host if request.client else ""
 
@@ -87,6 +95,44 @@ async def login(body: LoginRequest, request: Request, response: Response):
         max_age=auth.SESSION_TTL_SECONDS,
         httponly=True,      # JavaScript cannot read it, so an XSS cannot steal it
         samesite="lax",     # not sent on cross-site POSTs, which is the CSRF case
+        path="/",
+    )
+    return response
+
+
+@router.post("/api/v1/auth/guest-token")
+async def guest_token(body: GuestTokenRequest, request: Request):
+    """Chủ mint guest token có SCOPE cho người được chia sẻ workspace.
+
+    KHÔNG exempt → đi qua login gate của server.py, nên chỉ chủ (loopback hoặc
+    cloud gọi qua tubecliFetch với cookie chủ) tới được đây. Body {scope}.
+    """
+    result = auth.mint_guest_token(body.scope or {})
+    return {"ok": True, **result}
+
+
+@router.post("/api/v1/auth/guest-login")
+async def guest_login(body: GuestLoginRequest, request: Request, response: Response):
+    """Sharee đổi guest token lấy cookie tubecli_guest (first-party cho tunnel).
+
+    Exempt trong server.py (gọi trước khi có session). Verify token còn hạn rồi
+    set cookie; cookie này middleware sẽ enforce SCOPE, không phải owner-session.
+    """
+    scope = auth.guest_scope_for(body.guest_token)
+    if scope is None:
+        return JSONResponse(status_code=401, content={"detail": "Guest token không hợp lệ hoặc đã hết hạn."})
+    try:
+        from tubecli.core.origin_guard import remember_host
+
+        remember_host(request.headers.get("origin", ""), request.headers.get("host", ""))
+    except Exception:
+        pass
+    response = JSONResponse(content={"ok": True})
+    response.set_cookie(
+        auth.GUEST_COOKIE, body.guest_token,
+        max_age=auth.GUEST_TTL_SECONDS,
+        httponly=True,
+        samesite="lax",
         path="/",
     )
     return response

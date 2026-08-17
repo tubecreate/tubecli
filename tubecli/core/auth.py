@@ -413,3 +413,77 @@ def scraped_read_token_valid(candidate: Optional[str]) -> bool:
         return False
     # compare_digest so a wrong key takes the same time as a right one.
     return hmac.compare_digest(candidate.strip(), current)
+
+
+# ── Guest tokens (workspace chia sẻ có phạm vi) ──────────────────────────
+# Chủ mint một guest token gắn SCOPE (workspace + profiles/agent_ids/extension
+# routes) cho người được chia sẻ. Sharee đăng nhập guest → cookie tubecli_guest
+# (KHÁC tubecli_session của chủ). Middleware enforce scope, DENY mặc định.
+# Lưu riêng guest_tokens.json (0600) — KHÔNG để trong auth.json vì set_password
+# ghi đè wholesale. Ngắn hạn; mất khi restart là chấp nhận (sharee login lại).
+GUEST_COOKIE = "tubecli_guest"
+GUEST_TOKEN_PREFIX = "gt_"
+GUEST_TTL_SECONDS = 6 * 3600
+_guest_cache: dict = {}      # token -> {"scope":..., "exp":...} (cache của file)
+
+
+def _guest_file():
+    from tubecli.config import DATA_DIR
+
+    return DATA_DIR / "guest_tokens.json"
+
+
+def _load_guest_tokens() -> dict:
+    path = _guest_file()
+    if not path.exists():
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def mint_guest_token(scope: dict, ttl_seconds: int = GUEST_TTL_SECONDS) -> dict:
+    """Chủ mint token cho một scope. Prune token hết hạn. Trả {guest_token, exp}."""
+    token = GUEST_TOKEN_PREFIX + secrets.token_urlsafe(24)
+    now = int(time.time())
+    exp = now + int(ttl_seconds)
+    data = _load_guest_tokens()
+    data = {k: v for k, v in data.items()
+            if isinstance(v, dict) and int(v.get("exp", 0)) > now}
+    data[token] = {"scope": scope if isinstance(scope, dict) else {}, "exp": exp}
+    _write_private(_guest_file(), data)
+    _guest_cache.clear()
+    return {"guest_token": token, "exp": exp}
+
+
+def guest_scope_for(token: Optional[str]) -> Optional[dict]:
+    """Scope nếu guest token hợp lệ + chưa hết hạn; None nếu không (FAIL-CLOSED)."""
+    if not token or not isinstance(token, str) or not token.startswith(GUEST_TOKEN_PREFIX):
+        return None
+    now = int(time.time())
+    ent = _guest_cache.get(token)
+    if ent is None:
+        ent = _load_guest_tokens().get(token)
+        if isinstance(ent, dict):
+            _guest_cache[token] = ent
+    if not isinstance(ent, dict) or int(ent.get("exp", 0)) <= now:
+        return None
+    scope = ent.get("scope")
+    return scope if isinstance(scope, dict) else None
+
+
+def revoke_guest_tokens_for_workspace(workspace: str) -> int:
+    """Thu hồi mọi guest token của một workspace (khi chủ revoke). Trả số xoá."""
+    if not workspace:
+        return 0
+    data = _load_guest_tokens()
+    keep = {k: v for k, v in data.items()
+            if not (isinstance(v, dict) and (v.get("scope") or {}).get("workspace") == workspace)}
+    removed = len(data) - len(keep)
+    if removed:
+        _write_private(_guest_file(), keep)
+        _guest_cache.clear()
+    return removed

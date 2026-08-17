@@ -58,6 +58,10 @@ app.add_middleware(
 # in. Deliberately short, and matched by exact path or prefix — never by
 # substring, so a crafted URL like /api/v1/files/read?x=/login cannot slip past.
 _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
+                      # Sharee đổi guest token lấy cookie tubecli_guest — phải gọi
+                      # được TRƯỚC khi có session (như /auth/login). Mint token thì
+                      # KHÔNG exempt (chủ-authed).
+                      "/api/v1/auth/guest-login",
                       "/api/v1/auth/banner.js", "/favicon.ico",
                       # Health is exempt so "curl http://<ip>:5295/api/v1/health"
                       # works from the user's laptop as the install-check the
@@ -112,6 +116,17 @@ def _read_key_authorised(request: Request) -> bool:
     return auth.scraped_read_token_valid(_read_key_from(request))
 
 
+def _guest_allowed(request: Request, scope: dict) -> bool:
+    """Guest (workspace được chia sẻ có phạm vi) có được chạm path này không?
+
+    DENY MẶC ĐỊNH — chỉ mở đúng thứ trong scope. G0: chưa allow gì (nền token,
+    kiểm cookie + fail-closed). G1+ mở dần: browser preview theo profile (port→
+    profile), chat theo agent_id, extension page/api theo route. Xem
+    docs/guest-scoped-workspace-design.md.
+    """
+    return False
+
+
 def _cors_error_headers(request):
     """Header CORS cho response lỗi của gate (401/403).
 
@@ -161,6 +176,27 @@ async def _require_login(request: Request, call_next):
         )
         if refusal is not None:
             from fastapi.responses import JSONResponse, RedirectResponse
+
+            # Không phải chủ → thử GUEST (workspace chia sẻ có phạm vi). FAIL-CLOSED:
+            # mỗi bước bọc try riêng, bất kỳ lỗi nào → coi như không phải guest (giữ
+            # refusal của chủ). Guest hợp lệ nhưng NGOÀI scope → 403 (khác 401 của chủ).
+            gscope = None
+            try:
+                gscope = auth.guest_scope_for(request.cookies.get(auth.GUEST_COOKIE))
+            except Exception:
+                gscope = None
+            if gscope is not None:
+                allowed = False
+                try:
+                    allowed = _guest_allowed(request, gscope)
+                except Exception:
+                    allowed = False
+                if allowed:
+                    request.state.guest_scope = gscope
+                    return await call_next(request)
+                return JSONResponse(status_code=403,
+                                    content={"detail": "Ngoài phạm vi được chia sẻ."},
+                                    headers=_cors_error_headers(request))
 
             # A browser asking for a page gets the login screen; anything else
             # gets JSON it can act on. Sending HTML to a fetch() is how the
