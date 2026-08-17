@@ -278,6 +278,12 @@
       transition: opacity .22s ease;
     }
     .modal-overlay.open { opacity: 1; pointer-events: all; }
+    /* opacity+pointer-events hides a modal from the mouse but NOT from the
+       keyboard or a screen reader: all four closed dialogs kept ~28 focusable
+       controls in the tab order of the list view, including the Cloudflare
+       token and admin password fields. visibility:hidden removes them while
+       still animating (display:none would kill the fade). */
+    .modal-overlay:not(.open) { visibility: hidden; }
 
     .modal {
       background: var(--surface);
@@ -358,7 +364,9 @@
     }
     .form-select option { background: var(--surface2); }
     .form-textarea { resize: vertical; min-height: 80px; }
-    .form-hint { font-size: .73rem; color: var(--text3); margin-top: 4px; }
+    /* These hints carry the only instructions on the page for getting a
+       Cloudflare token — and they were set in the faintest colour on it. */
+    .form-hint { font-size: .78rem; color: var(--text2); margin-top: 4px; line-height: 1.45; }
     .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
     .input-with-action { display: flex; gap: 8px; }
     .input-with-action .form-input { flex: 1; }
@@ -394,9 +402,25 @@
       cursor: pointer;
       transition: all .18s ease;
       position: relative;
+      /* It is a <button> now (so it is keyboard-reachable); these reset the
+         button defaults that would otherwise fight the card layout. */
+      display: block;
+      width: 100%;
+      padding: 0;
+      margin: 0;
+      background: var(--surface);
+      color: inherit;
+      font: inherit;
+      text-align: left;
     }
     .theme-card:hover { border-color: var(--border-hover); transform: translateY(-2px); }
+    .theme-card:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
     .theme-card.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+    .theme-desc {
+      font-size: .72rem; color: var(--text2); line-height: 1.4;
+      margin: 3px 0 6px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
     .theme-thumb {
       height: 110px;
       background: var(--surface2);
@@ -503,6 +527,24 @@
       .stats-bar { gap: 10px; }
       .cards-grid { grid-template-columns: 1fr; }
       .themes-grid { grid-template-columns: repeat(2, 1fr); }
+      /* These rows were non-wrapping flex, so on a narrow screen the primary
+         action ("＋ Thêm website") and the Cloudflare "Cấu hình" button were
+         pushed off the right edge with no way to reach them, and the fixed
+         220px search box was clipped. */
+      .header { flex-wrap: wrap; padding: 14px 16px; }
+      .header-actions { margin-left: 0; width: 100%; }
+      .header-actions .btn { flex: 1; justify-content: center; }
+      .section-header { flex-wrap: wrap; }
+      .search-box { flex: 1 1 100%; }
+      .search-box input { width: 100%; min-width: 0; }
+      .cf-bar { flex-wrap: wrap; }
+      /* A 340px terminal with break-all left ~6 characters per line on a phone;
+         break-word keeps paths and URLs readable. */
+      .terminal-body { height: 45vh; min-height: 200px; word-break: break-word; }
+      .deploy-progress { flex-wrap: wrap; }
+      .progress-bar { flex: 1 0 100%; order: 3; }
+      /* Below the 44px comfortable-touch minimum before this. */
+      .card-actions .btn, .modal-close { min-height: 44px; }
     }
   </style>
 </head>
@@ -668,7 +710,7 @@
             <div class="form-row">
               <div class="form-group">
                 <label class="form-label" data-i18n="cf.api_token">CF API Token *</label>
-                <input class="form-input" id="d-cf-token" type="password" placeholder="cfut_xxxxxxxxxxxx" style="border-color:rgba(246,130,31,.3);" />
+                <input class="form-input" id="d-cf-token" type="password" placeholder="Token 40 ký tự (không có tiền tố)" style="border-color:rgba(246,130,31,.3);" />
                 <div class="form-hint" data-i18n="cf.api_token_hint">Tạo tại: Cloudflare Dashboard → API Tokens</div>
               </div>
               <div class="form-group">
@@ -677,9 +719,17 @@
                 <div class="form-hint" data-i18n="cf.account_id_hint">Cloudflare Dashboard → bên phải trang chủ</div>
               </div>
             </div>
+            <!-- This used to be a "💾 Lưu vào Cloud Keys" button that read the
+                 email input belonging to the OTHER modal (#cf-new-email lives in
+                 modal-cf), which is closed here — so email was always empty and
+                 every Global API Key saved from this spot was stored as an API
+                 Token and failed with 401. It also hard-coded label:'default',
+                 overwriting an existing profile without asking. Credentials are
+                 now entered in exactly one place: the Cloudflare modal, which
+                 has the email field and its own label handling. -->
             <div style="display:flex; gap:8px; align-items:center;">
-              <button class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-save-cf-inline" data-i18n="cf.save_to_keys">💾 Lưu vào Cloud Keys</button>
-              <span style="font-size:.75rem; color:var(--text3);" data-i18n="cf.save_hint">Lưu để dùng lại lần sau</span>
+              <button type="button" class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-open-cf-from-deploy" data-i18n="cf.save_to_keys">⚡ Lưu vào Cloud Keys</button>
+              <span style="font-size:.75rem; color:var(--text3);" data-i18n="cf.save_hint">Lưu để dùng lại cho lần sau</span>
             </div>
           </div>
         </div>
@@ -712,6 +762,11 @@
       <button class="modal-close" data-close="modal-deploy">✕</button>
     </div>
     <div class="modal-body" style="padding:16px;">
+      <!-- Filled in when the run ends: the site URL, the admin link and the
+           login name on success, or the diagnosed reason on failure. All of it
+           already existed (in the DEPLOY_RESULT line and in the last ❌ log
+           line) and was being discarded. -->
+      <div id="deploy-outcome" style="display:none; margin-bottom:14px;"></div>
       <div class="terminal">
         <div class="terminal-header">
           <div class="terminal-dot" style="background:#ef4444;"></div>
@@ -761,8 +816,8 @@
         </div>
         <div class="form-group">
           <label class="form-label" data-i18n="cfm.token_or_key">CF API Token / Global API Key *</label>
-          <input class="form-input" id="cf-new-token" type="password" placeholder="cfut_xxxx (API Token) hoặc Global API Key" data-i18n-ph="cfm.token_ph" />
-          <div class="form-hint" data-i18n="cfm.token_hint">API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (cần điền Email bên dưới)</div>
+          <input class="form-input" id="cf-new-token" type="password" placeholder="Dán API Token (40 ký tự) hoặc Global API Key" data-i18n-ph="cfm.token_ph" />
+          <div class="form-hint" data-i18n-html="cfm.token_hint">Mở trang API Tokens của Cloudflare → Create Token. Quyền cần: Workers Scripts·Edit, D1·Edit, R2·Edit.</div>
         </div>
         <div class="form-group">
           <label class="form-label"><span data-i18n="cfm.email">CF Email</span> <span style="color:var(--text3);font-weight:400;" data-i18n="cfm.email_note">(chỉ khi dùng Global API Key)</span></label>
@@ -833,6 +888,7 @@
 // ═══════════════════════════════════════════════════════════════
 const API_BASE = '';
 let _sites = [];
+let _filter = '';   // bộ lọc tìm kiếm sống ngoài DOM để auto-refresh không nuốt mất
 let _templates = [];
 let _cfProfiles = [];
 let _sseConnection = null;
@@ -866,8 +922,8 @@ const I18N = {
     'add.submit_manual': 'Thêm Website', 'add.submit_deploy': 'Deploy Website',
     'cf.saved_profile': 'Profile đã lưu', 'cf.manual_entry': '➕ Nhập thủ công (thêm mới)',
     'cf.profile_hint': 'Chọn profile đã lưu để dùng ngay, hoặc "Nhập thủ công" để thêm credentials mới.',
-    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Tạo tại: Cloudflare Dashboard → API Tokens',
-    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': 'Cloudflare Dashboard → bên phải trang chủ',
+    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Tạo token tại Cloudflare → API Tokens. Quyền cần: Workers Scripts·Edit, D1·Edit, R2·Edit',
+    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': 'Chuỗi 32 ký tự, xem ở cột phải trang chủ Cloudflare',
     'cf.save_to_keys': '💾 Lưu vào Cloud Keys', 'cf.save_hint': 'Lưu để dùng lại lần sau',
     'cf.source_manual': 'Nhập thủ công', 'cf.source_profile': 'Dùng profile: {label}',
     'cf.saved': 'Đã lưu Cloudflare credentials!', 'cf.err_need_both': 'Nhập đầy đủ Token và Account ID.',
@@ -875,8 +931,8 @@ const I18N = {
     'common.timeout': 'Hết thời gian phản hồi (Timeout). Vui lòng thử lại.',
     'cfm.desc': 'Lưu API Token và Account ID để tái sử dụng khi deploy website. Dữ liệu lưu trong <strong>Cloud Keys</strong>.',
     'cfm.add_update': '➕ Thêm / Cập nhật Profile', 'cfm.profile_name': 'Tên profile',
-    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'cfut_xxxx (API Token) hoặc Global API Key',
-    'cfm.token_hint': 'API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (cần điền Email bên dưới)',
+    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'Dán API Token (40 ký tự) hoặc Global API Key',
+    'cfm.token_hint': '<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Mở trang API Tokens của Cloudflare ↗</a> → Create Token. Quyền cần: <b>Workers Scripts·Edit</b>, <b>D1·Edit</b>, <b>R2·Edit</b>.<br>Hoặc dùng Global API Key (toàn quyền tài khoản — chỉ nên dùng khi cần) và điền thêm Email bên dưới.',
     'cfm.email': 'CF Email', 'cfm.email_note': '(chỉ khi dùng Global API Key)',
     'cfm.email_ph': 'email@cloudflare-account.com — để trống nếu dùng API Token',
     'cfm.email_hint': 'Có email → xác thực kiểu Global API Key (X-Auth-Email + X-Auth-Key). Để trống → API Token (Bearer).',
@@ -901,6 +957,17 @@ const I18N = {
     'err.deploy_unknown': 'Lỗi không xác định khi gọi API deploy', 'err.load_fail': 'Lỗi tải themes: {e}',
     'step.clone': 'Clone template', 'step.npm': 'npm install', 'step.d1': 'Tạo D1 DB', 'step.schema': 'Schema SQL',
     'step.toml': 'wrangler.toml', 'step.build': 'Build OpenNext', 'step.deploy': 'Deploy CF', 'step.seed': 'Seed Admin', 'step.token': 'wptoken',
+    'outcome.ok_title': '🎉 Website đã chạy!',
+    'outcome.open_site': 'Mở website',
+    'outcome.open_admin': 'Trang quản trị',
+    'outcome.copy_url': 'Chép link',
+    'outcome.login_as': 'Đăng nhập bằng tài khoản',
+    'outcome.pw_note': 'mật khẩu là cái bạn vừa đặt — lưu lại ngay, hệ thống không hiện lại.',
+    'outcome.copied': 'Đã chép!',
+    'outcome.copy_failed': 'Không chép được — hãy bôi đen rồi Ctrl+C.',
+    'outcome.fail_title': '❌ Deploy thất bại',
+    'outcome.fail_unknown': 'Không rõ nguyên nhân — xem log bên dưới.',
+    'outcome.copy_log': 'Chép log',
   },
   en: {
     'app.subtitle': 'Manage and deploy Cloudflare Workers websites',
@@ -927,8 +994,8 @@ const I18N = {
     'add.submit_manual': 'Add Website', 'add.submit_deploy': 'Deploy Website',
     'cf.saved_profile': 'Saved profile', 'cf.manual_entry': '➕ Manual entry (new)',
     'cf.profile_hint': 'Pick a saved profile to use immediately, or "Manual entry" to add new credentials.',
-    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Create at: Cloudflare Dashboard → API Tokens',
-    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': 'Cloudflare Dashboard → right sidebar of home',
+    'cf.api_token': 'CF API Token *', 'cf.api_token_hint': 'Create a token at Cloudflare → API Tokens. Needs: Workers Scripts·Edit, D1·Edit, R2·Edit',
+    'cf.account_id': 'CF Account ID *', 'cf.account_id_hint': '32-character string, shown in the right sidebar of the Cloudflare home page',
     'cf.save_to_keys': '💾 Save to Cloud Keys', 'cf.save_hint': 'Save for later use',
     'cf.source_manual': 'Manual entry', 'cf.source_profile': 'Using profile: {label}',
     'cf.saved': 'Cloudflare credentials saved!', 'cf.err_need_both': 'Enter both Token and Account ID.',
@@ -936,8 +1003,8 @@ const I18N = {
     'common.timeout': 'Response timed out. Please try again.',
     'cfm.desc': 'Save API Token and Account ID to reuse when deploying. Stored in <strong>Cloud Keys</strong>.',
     'cfm.add_update': '➕ Add / Update Profile', 'cfm.profile_name': 'Profile name',
-    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'cfut_xxxx (API Token) or Global API Key',
-    'cfm.token_hint': 'API Token: My Profile → API Tokens → Create Token. Global API Key: My Profile → API Tokens → Global API Key (fill Email below)',
+    'cfm.token_or_key': 'CF API Token / Global API Key *', 'cfm.token_ph': 'Paste an API Token (40 chars) or a Global API Key',
+    'cfm.token_hint': '<a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">Open Cloudflare API Tokens ↗</a> → Create Token. Needs: <b>Workers Scripts·Edit</b>, <b>D1·Edit</b>, <b>R2·Edit</b>.<br>Or use a Global API Key (full account access — only when you must) and also fill in Email below.',
     'cfm.email': 'CF Email', 'cfm.email_note': '(only for Global API Key)',
     'cfm.email_ph': 'email@cloudflare-account.com — leave empty for API Token',
     'cfm.email_hint': 'With email → Global API Key auth (X-Auth-Email + X-Auth-Key). Empty → API Token (Bearer).',
@@ -962,6 +1029,17 @@ const I18N = {
     'err.deploy_unknown': 'Unknown error calling the deploy API', 'err.load_fail': 'Failed to load themes: {e}',
     'step.clone': 'Clone template', 'step.npm': 'npm install', 'step.d1': 'Create D1 DB', 'step.schema': 'Schema SQL',
     'step.toml': 'wrangler.toml', 'step.build': 'Build OpenNext', 'step.deploy': 'Deploy CF', 'step.seed': 'Seed Admin', 'step.token': 'wptoken',
+    'outcome.ok_title': '🎉 Your website is live!',
+    'outcome.open_site': 'Open website',
+    'outcome.open_admin': 'Admin panel',
+    'outcome.copy_url': 'Copy link',
+    'outcome.login_as': 'Log in as',
+    'outcome.pw_note': 'the password is the one you just set — save it now, it is never shown again.',
+    'outcome.copied': 'Copied!',
+    'outcome.copy_failed': 'Could not copy — select the text and press Ctrl+C.',
+    'outcome.fail_title': '❌ Deploy failed',
+    'outcome.fail_unknown': 'No reason reported — see the log below.',
+    'outcome.copy_log': 'Copy log',
   },
 };
 
@@ -996,7 +1074,7 @@ function _applyLang(lang) {
   _lang = mapped;
   applyI18n();
   // Re-render các phần động (card/stats/cf bar/deploy dropdown) theo ngôn ngữ mới
-  try { renderCards(document.getElementById('search-input')?.value || ''); } catch (e) {}
+  try { renderCards(_filter); } catch (e) {}
   try { renderCfBar(); } catch (e) {}
   try { renderCfProfilesInDeploy(); } catch (e) {}
 }
@@ -1085,7 +1163,7 @@ async function loadSites() {
   try {
     const data = await api('GET', '/api/v1/website-manager/sites');
     _sites = data.sites || [];
-    renderCards();
+    renderCards(_filter);   // giữ bộ lọc: auto-refresh 8s từng xoá sạch kết quả tìm kiếm
     updateStats();
   } catch (e) {
     document.getElementById('cards-grid').innerHTML = `
@@ -1316,17 +1394,25 @@ function renderThemes() {
     if (/^\//.test(s)) return 'https://autoweb.tubecreate.com' + s;
     return '';   // http://, data:, javascript:, or anything unexpected
   };
+  // A real <button>, not a <div>: picking a theme is REQUIRED to deploy, and as
+  // a click-only div it made the whole Create & Deploy flow impossible without a
+  // mouse. A native button is focusable and fires click on Enter/Space, so the
+  // existing listener below needs no change. aria-pressed carries the selection
+  // to a screen reader, which the .selected outline alone did not.
+  // The description is shown too — it is the sentence that actually decides
+  // which template you want, and the API has always returned it.
   grid.innerHTML = _templates.map(t => `
-    <div class="theme-card" data-id="${esc(t.id)}" data-github="${esc(t.githubUrl || '')}">
+    <button type="button" class="theme-card" aria-pressed="false" data-id="${esc(t.id)}" data-github="${esc(t.githubUrl || '')}">
       <div class="theme-thumb" style="background:${safeColor(t.color)}22;">
-        ${thumbUrl(t.thumbnail) ? `<img src="${esc(thumbUrl(t.thumbnail))}" alt="${esc(t.name)}" loading="lazy" onerror="this.style.display='none'" />` : '🌐'}
+        ${thumbUrl(t.thumbnail) ? `<img src="${esc(thumbUrl(t.thumbnail))}" alt="" loading="lazy" onerror="this.style.display='none'" />` : '🌐'}
         <div class="theme-check">✓</div>
       </div>
       <div class="theme-info">
         <div class="theme-name">${esc(t.name)}</div>
+        ${t.description ? `<div class="theme-desc">${esc(t.description)}</div>` : ''}
         <div class="theme-tags">${(t.tags || []).map(tag => `<span class="theme-tag">${esc(tag)}</span>`).join('')}</div>
       </div>
-    </div>
+    </button>
   `).join('');
   grid.querySelectorAll('.theme-card').forEach(card => {
     card.addEventListener('click', () => selectTheme(card.dataset.id, card.dataset.github));
@@ -1334,10 +1420,16 @@ function renderThemes() {
 }
 
 function selectTheme(id, githubUrl) {
-  document.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+  document.querySelectorAll('.theme-card').forEach(c => {
+    c.classList.remove('selected');
+    c.setAttribute('aria-pressed', 'false');
+  });
   // CSS.escape: id đến từ host ngoài, có thể chứa " hoặc ] làm vỡ selector.
   const sel = window.CSS && CSS.escape ? CSS.escape(id) : id;
-  try { document.querySelector(`.theme-card[data-id="${sel}"]`)?.classList.add('selected'); } catch (_) {}
+  try {
+    const card = document.querySelector(`.theme-card[data-id="${sel}"]`);
+    if (card) { card.classList.add('selected'); card.setAttribute('aria-pressed', 'true'); }
+  } catch (_) {}
   document.getElementById('d-template-id').value = id;
   document.getElementById('d-github-url').value = githubUrl;
 }
@@ -1345,7 +1437,34 @@ function selectTheme(id, githubUrl) {
 // ═══════════════════════════════════════════════════════════════
 // Modal: Add Website
 // ═══════════════════════════════════════════════════════════════
+// Tên site trở thành địa chỉ vĩnh viễn của website, nên phải bỏ DẤU trước khi
+// lọc ký tự — không thì "Cà Phê Sáng" ra "c-ph-sng" (regex cũ vứt luôn chữ có
+// dấu) thay vì "ca-phe-sang". NFD tách dấu ra để xoá; đ/Đ không phân tách được
+// nên phải map tay.
+function slugifySiteName(v) {
+  return String(v || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9\-]/g, '');
+}
+
 function openAddModal() {
+  // Clear the form before showing it. This used to only reset the tab, so the
+  // hidden #d-template-id survived from the previous session while
+  // loadTemplates() rebuilt the grid and dropped the visible .selected outline:
+  // the screen showed no theme chosen, yet a theme was still armed and the
+  // guard at submit passed. The admin password and any typed token lingered too.
+  ['d-template-id', 'd-github-url', 'd-name', 'd-title', 'd-admin-pw',
+   'd-cf-token', 'd-cf-account',
+   'm-name', 'm-url', 'm-user-token', 'm-wp-token', 'm-thumbnail'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  const banner = document.getElementById('deploy-error-banner');
+  if (banner) banner.style.display = 'none';
+
   openModal('modal-add');
   loadTemplates();
   renderCfProfilesInDeploy();
@@ -1426,7 +1545,7 @@ async function submitDeploy() {
   if (!templateId) return showErr(t('err.pick_theme'));
 
   // Auto-slugify name
-  name = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  name = slugifySiteName(name);
   document.getElementById('d-name').value = name;
 
   if (!name) return showErr(t('err.name_empty'));
@@ -1447,8 +1566,17 @@ async function submitDeploy() {
 
   try {
     const payload = { name, template_id: templateId, github_url: githubUrl, admin_password: adminPw, site_title: title || name };
-    if (cfToken) payload.cf_api_token = cfToken;
-    if (cfAccount) payload.cf_account_id = cfAccount;
+    // Only send the typed credentials when the user is actually in manual mode.
+    // updateCfMode() merely display:none's those inputs, so a token typed before
+    // switching to a saved profile survived and was still posted here — and the
+    // server gives posted fields priority over the stored profile (routes.py:242).
+    // The site then deployed to a DIFFERENT Cloudflare account while the badge
+    // read "using profile <label>". useProfile was already computed above and
+    // simply never consulted.
+    if (!useProfile) {
+      if (cfToken) payload.cf_api_token = cfToken;
+      if (cfAccount) payload.cf_account_id = cfAccount;
+    }
     if (cfProfileLabel) payload.cf_profile_label = cfProfileLabel;
 
     const res = await api('POST', '/api/v1/website-manager/sites/deploy', payload);
@@ -1476,6 +1604,11 @@ function openDeployModal(siteName, autoScroll = true) {
 
   const body = document.getElementById('terminal-body');
   if (body) body.textContent = '';
+
+  // Clear the previous run's outcome, or a success panel from the last deploy
+  // would sit above the log of the new one.
+  const outcome = document.getElementById('deploy-outcome');
+  if (outcome) { outcome.style.display = 'none'; outcome.innerHTML = ''; }
 
   const progressFill = document.getElementById('deploy-progress-fill');
   if (progressFill) progressFill.style.width = '0%';
@@ -1526,6 +1659,8 @@ function openDeployModal(siteName, autoScroll = true) {
   let _rafScheduled = false;
   let _errCount = 0;              // đóng SSE sau vài lỗi liên tiếp (khỏi auto-reconnect vô hạn)
   let _done = false;
+  let _result = null;             // nội dung dòng DEPLOY_RESULT (url, admin_url…)
+  let _lastError = '';            // dòng ❌ cuối — chính là chẩn đoán của _analyze_error
 
   function classifyLine(line, isError) {
     if (line.includes('❌') || line.toLowerCase().includes('error') || line.toLowerCase().includes('failed') || isError) return 'log-err';
@@ -1552,6 +1687,61 @@ function openDeployModal(siteName, autoScroll = true) {
     if (autoScroll) body.scrollTop = body.scrollHeight;
   }
 
+  // What the user actually came for. On success: where the site is, how to get
+  // into it, and the reminder that the password is never shown again. On
+  // failure: the diagnosis _analyze_error already produced (extension.py:499),
+  // which until now was buried in a 340px scrollback, plus a way to copy the
+  // log and try again. Nothing here is new data — it was all being thrown away.
+  function showOutcome(ok, result, lastError) {
+    const box = document.getElementById('deploy-outcome');
+    if (!box) return;
+    const url = (result && result.url) || '';
+    if (ok) {
+      const seeded = !result || result.adminSeeded !== false;
+      box.innerHTML =
+        '<div style="border:1px solid var(--green);background:rgba(16,185,129,.10);border-radius:10px;padding:14px 16px;">' +
+          '<div style="font-weight:700;margin-bottom:8px;">' + esc(t('outcome.ok_title')) + '</div>' +
+          (url
+            ? '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">' +
+                '<a class="btn btn-sm btn-primary" target="_blank" rel="noopener" href="' + esc(url) + '">↗ ' + esc(t('outcome.open_site')) + '</a>' +
+                '<a class="btn btn-sm" target="_blank" rel="noopener" href="' + esc(url + '/admin') + '">🔐 ' + esc(t('outcome.open_admin')) + '</a>' +
+                '<button type="button" class="btn btn-sm btn-ghost" id="btn-copy-url">📋 ' + esc(t('outcome.copy_url')) + '</button>' +
+              '</div>' +
+              '<div style="font-family:var(--mono,monospace);font-size:.78rem;color:var(--text2);word-break:break-all;">' + esc(url) + '</div>'
+            : '') +
+          '<div style="margin-top:10px;font-size:.83rem;color:var(--text2);">' +
+            esc(t('outcome.login_as')) + ' <code>admin</code> · ' + esc(t('outcome.pw_note')) +
+          '</div>' +
+          (seeded ? '' :
+            '<div style="margin-top:8px;font-size:.82rem;color:var(--yellow);">⚠️ ' + esc(t('card.warn_default_pw')) + '</div>') +
+        '</div>';
+      const copyBtn = document.getElementById('btn-copy-url');
+      if (copyBtn && url) copyBtn.addEventListener('click', () => {
+        navigator.clipboard?.writeText(url).then(() => toast(t('outcome.copied'), 'success'))
+          .catch(() => toast(url, 'info'));
+      });
+    } else {
+      box.innerHTML =
+        '<div style="border:1px solid var(--red);background:rgba(239,68,68,.10);border-radius:10px;padding:14px 16px;">' +
+          '<div style="font-weight:700;margin-bottom:6px;">' + esc(t('outcome.fail_title')) + '</div>' +
+          '<div style="font-size:.85rem;color:var(--text2);white-space:pre-wrap;word-break:break-word;">' +
+            esc(lastError || t('outcome.fail_unknown')) +
+          '</div>' +
+          '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">' +
+            '<button type="button" class="btn btn-sm btn-ghost" id="btn-copy-log">📋 ' + esc(t('outcome.copy_log')) + '</button>' +
+          '</div>' +
+        '</div>';
+      const cl = document.getElementById('btn-copy-log');
+      if (cl) cl.addEventListener('click', () => {
+        const txt = document.getElementById('terminal-body')?.innerText || '';
+        navigator.clipboard?.writeText(txt).then(() => toast(t('outcome.copied'), 'success'))
+          .catch(() => toast(t('outcome.copy_failed'), 'error'));
+      });
+    }
+    box.style.display = 'block';
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
   function setProgress(idx) {
     const pct = Math.round((idx / 9) * 100);
     const pFill = document.getElementById('deploy-progress-fill');
@@ -1569,10 +1759,16 @@ function openDeployModal(siteName, autoScroll = true) {
     const msg = data.message || '';
     if (data.is_history && body) { body.textContent = ''; _pending = []; }
 
-    // Ẩn dòng marker máy-đọc khỏi hiển thị người dùng
+    // Ẩn dòng marker máy-đọc khỏi hiển thị người dùng — nhưng GIỮ LẤY nội dung:
+    // nó chứa url + admin_url, thứ người dùng bấm Deploy để có. Trước đây dòng
+    // này bị `continue` bỏ qua và deploy xong không trả lại địa chỉ nào.
     const lines = msg.split('\n');
     for (const line of lines) {
-      if (line.startsWith('DEPLOY_RESULT ')) continue;
+      if (line.startsWith('DEPLOY_RESULT ')) {
+        try { _result = JSON.parse(line.slice('DEPLOY_RESULT '.length)); } catch (_) {}
+        continue;
+      }
+      if (line.trim().startsWith('❌')) _lastError = line.trim();
       _pending.push([line, classifyLine(line, data.is_error)]);
       const m = line.match(/\[(\d+)\/9\]/);
       if (m) { stepIdx = parseInt(m[1]); setProgress(stepIdx); }
@@ -1589,6 +1785,7 @@ function openDeployModal(siteName, autoScroll = true) {
       const sLbl = document.getElementById('deploy-step-label');
       if (sLbl) sLbl.textContent = t('deploy.done');
       hideCancel();
+      showOutcome(true, _result, _lastError);
       es.close(); _sseConnection = null;   // deploy xong → đóng SSE, không để reconnect
       loadSites();
     }
@@ -1597,6 +1794,7 @@ function openDeployModal(siteName, autoScroll = true) {
       const sLbl = document.getElementById('deploy-step-label');
       if (sLbl) sLbl.textContent = msg.includes('HỦY') ? t('deploy.cancelled') : t('deploy.failed');
       hideCancel();
+      showOutcome(false, _result, _lastError);
       es.close(); _sseConnection = null;
       loadSites();
     }
@@ -1704,34 +1902,38 @@ document.getElementById('btn-verify-cf')?.addEventListener('click', async () => 
   result.textContent = t('cfm.verifying');
   result.style.color = 'var(--text2)';
   try {
-    // Save first (kèm email nếu là Global API Key), rồi verify
+    // Check WITHOUT saving. This used to POST the credential into the store
+    // before testing, under a label prefilled to "default" — so anyone
+    // sanity-checking a pasted token silently destroyed the profile they were
+    // already deploying with. Verifying is a read-only act now; saving is the
+    // separate button next to it.
     const token = document.getElementById('cf-new-token').value.trim();
     const account = document.getElementById('cf-new-account').value.trim();
     const email = document.getElementById('cf-new-email').value.trim();
-    if (token && account) {
-      await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label, email });
-    }
-    const res = await api('POST', `/api/v1/cloud-api/cloudflare/profiles/${label}/test`);
+    const res = token
+      ? await api('POST', '/api/v1/cloud-api/cloudflare/probe',
+                  { api_token: token, account_id: account, email })
+      : await api('POST', `/api/v1/cloud-api/cloudflare/profiles/${label}/test`);
     result.textContent = res.message;
-    result.style.color = res.status === 'success' ? 'var(--green)' : 'var(--red)';
+    result.style.color = res.status === 'success' ? 'var(--green)'
+                       : res.status === 'info' ? 'var(--yellow)' : 'var(--red)';
   } catch (e) {
     result.textContent = '❌ ' + e.message;
     result.style.color = 'var(--red)';
   }
 });
 
-// Save CF inline from deploy modal
-document.getElementById('btn-save-cf-inline')?.addEventListener('click', async () => {
+// Saving a credential happens in ONE place — the Cloudflare modal. This button
+// used to POST straight from the deploy tab while reading #cf-new-email out of
+// that other, closed modal: email always came back empty, so a Global API Key
+// was stored as an API Token and every deploy with it 401'd. Carry whatever the
+// user has already typed over to the modal so nothing is retyped.
+document.getElementById('btn-open-cf-from-deploy')?.addEventListener('click', () => {
   const token = document.getElementById('d-cf-token').value.trim();
   const account = document.getElementById('d-cf-account').value.trim();
-  const email = (document.getElementById('cf-new-email')?.value || '').trim();
-  if (!token || !account) return toast(t('cf.err_need_both'), 'error');
-  try {
-    await api('POST', '/api/v1/cloud-api/cloudflare/profiles', { api_token: token, account_id: account, label: 'default', email });
-    toast(t('cf.saved'), 'success');
-    await loadCfProfiles();
-    renderCfProfilesInDeploy();  // refresh dropdown + auto-chọn 'default' vừa lưu (ẩn ô nhập)
-  } catch (e) { toast(e.message, 'error'); }
+  openModal('modal-cf');
+  if (token) document.getElementById('cf-new-token').value = token;
+  if (account) document.getElementById('cf-new-account').value = account;
 });
 
 // Đổi profile trong form deploy → ẩn/hiện ô nhập tay
@@ -1740,7 +1942,7 @@ document.getElementById('d-cf-profile')?.addEventListener('change', updateCfMode
 // Auto slugify d-name input
 document.getElementById('d-name')?.addEventListener('input', e => {
   const start = e.target.selectionStart;
-  e.target.value = e.target.value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9\-]/g, '');
+  e.target.value = slugifySiteName(e.target.value);
   e.target.setSelectionRange(start, start);
 });
 
@@ -1748,7 +1950,8 @@ document.getElementById('d-name')?.addEventListener('input', e => {
 // Search
 // ═══════════════════════════════════════════════════════════════
 document.getElementById('search-input')?.addEventListener('input', e => {
-  renderCards(e.target.value.trim().toLowerCase());
+  _filter = e.target.value.trim().toLowerCase();
+  renderCards(_filter);
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1761,6 +1964,15 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => {
     if (e.target === overlay) closeModal(overlay.id);
   });
+});
+// Esc closes the top-most open dialog. There was no keyboard way out of any
+// modal at all. Routed through closeModal so the deploy modal's SSE teardown
+// (closeModal, above) still runs instead of leaking the connection.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  const open = document.querySelectorAll('.modal-overlay.open');
+  const top = open[open.length - 1];
+  if (top) closeModal(top.id);
 });
 
 document.getElementById('btn-open-add')?.addEventListener('click', openAddModal);

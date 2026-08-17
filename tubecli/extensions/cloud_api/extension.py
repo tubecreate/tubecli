@@ -581,48 +581,88 @@ class KeyManager:
             })
         return result
 
-    def test_cloudflare_key(self, label: str = "default") -> dict:
-        """Verify Cloudflare credentials.
+    @staticmethod
+    def probe_cloudflare(api_token: str, account_id: str = "", email: str = "") -> dict:
+        """Check a Cloudflare credential WITHOUT storing it.
 
-        - Có email → Global API Key: GET /user với X-Auth-Email + X-Auth-Key.
-        - Không email → API Token: GET /user/tokens/verify với Bearer.
+        Two stages, because identity is not permission. The old check called
+        /user/tokens/verify (or /user) and stopped there — that only answers
+        "does this credential exist". It said "✅ hợp lệ" for a token with no
+        Workers or D1 scope, which then died at step 3/9 of a real deploy with a
+        message blaming the token and Account ID, both of which were correct.
+        account_id was even read and then never used in any request.
+
+        Stage 2 therefore makes one ACCOUNT-SCOPED call with the same headers.
+        A 403/404 there means the credential is real but cannot do the job, and
+        that is worth saying plainly before the user depends on it.
         """
-        creds = self.get_cloudflare_creds(label)
-        if not creds.get("api_token"):
-            return {"status": "error", "message": "Không tìm thấy Cloudflare API Token/Key."}
-        email = (creds.get("email") or "").strip()
-        try:
-            import urllib.request
-            import urllib.error
-            if email:
-                # Global API Key
-                req = urllib.request.Request(
-                    "https://api.cloudflare.com/client/v4/user",
-                    headers={
-                        "X-Auth-Email": email,
-                        "X-Auth-Key": creds["api_token"],
-                        "Content-Type": "application/json",
-                    },
-                )
-                ok_msg = "✅ Cloudflare Global API Key hợp lệ!"
-            else:
-                # API Token
-                req = urllib.request.Request(
-                    "https://api.cloudflare.com/client/v4/user/tokens/verify",
-                    headers={"Authorization": f"Bearer {creds['api_token']}", "Content-Type": "application/json"},
-                )
-                ok_msg = "✅ Cloudflare API Token hợp lệ!"
+        api_token = (api_token or "").strip()
+        email = (email or "").strip()
+        account_id = (account_id or "").strip()
+        if not api_token:
+            return {"status": "error", "verified": False,
+                    "message": "Không tìm thấy Cloudflare API Token/Key."}
+
+        import urllib.request
+        import urllib.error
+
+        if email:
+            headers = {"X-Auth-Email": email, "X-Auth-Key": api_token, "Content-Type": "application/json"}
+            kind = "Global API Key"
+            identity_url = "https://api.cloudflare.com/client/v4/user"
+        else:
+            headers = {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+            kind = "API Token"
+            identity_url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+
+        def _get(url):
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-                if data.get("success"):
-                    return {"status": "success", "message": ok_msg, "result": data.get("result", {})}
-                errors = ", ".join([e.get("message", "") for e in data.get("errors", [])])
-                return {"status": "error", "message": f"Không hợp lệ: {errors}"}
+                return json.loads(resp.read().decode())
+
+        # ── stage 1: is the credential real? ────────────────────────────────
+        try:
+            data = _get(identity_url)
+            if not data.get("success"):
+                errors = ", ".join(e.get("message", "") for e in data.get("errors", []))
+                return {"status": "error", "verified": False, "message": f"Không hợp lệ: {errors}"}
         except urllib.error.HTTPError as e:
-            hint = " (Global API Key cần đúng email; hoặc dùng API Token thì bỏ trống email)" if e.code == 401 else ""
-            return {"status": "error", "message": f"Lỗi kiểm tra: HTTP {e.code}{hint}"}
+            hint = (" (Global API Key phải kèm đúng email; nếu dùng API Token thì bỏ trống email)"
+                    if e.code == 401 else "")
+            return {"status": "error", "verified": False, "message": f"Lỗi kiểm tra: HTTP {e.code}{hint}"}
         except Exception as e:
-            return {"status": "error", "message": f"Lỗi kiểm tra: {e}"}
+            return {"status": "error", "verified": False, "message": f"Lỗi kiểm tra: {e}"}
+
+        # ── stage 2: can it actually work on this account? ──────────────────
+        if not account_id:
+            return {"status": "info", "verified": False,
+                    "message": f"✅ {kind} hợp lệ, nhưng chưa có Account ID nên chưa kiểm được quyền deploy."}
+        try:
+            _get(f"https://api.cloudflare.com/client/v4/accounts/{account_id}/d1/database?per_page=1")
+            return {"status": "success", "verified": True,
+                    "message": f"✅ {kind} hợp lệ và có quyền D1/Workers trên account này."}
+        except urllib.error.HTTPError as e:
+            # 401 shows up here too, not just 403/404: with a Global API Key an
+            # account that is not yours answers 401 rather than 403. The
+            # identity call already succeeded, so at this point the credential
+            # is real and the actionable causes are the same three.
+            if e.code in (401, 403, 404):
+                return {"status": "error", "verified": False,
+                        "message": (f"{kind} hợp lệ, nhưng không dùng được trên account "
+                                    f"{account_id}. Kiểm tra lại Account ID, hoặc cấp cho token "
+                                    f"các quyền: Workers Scripts·Edit, D1·Edit, R2·Edit.")}
+            return {"status": "error", "verified": False,
+                    "message": f"{kind} hợp lệ, nhưng kiểm quyền lỗi: HTTP {e.code}"}
+        except Exception as e:
+            return {"status": "error", "verified": False,
+                    "message": f"{kind} hợp lệ, nhưng kiểm quyền lỗi: {e}"}
+
+    def test_cloudflare_key(self, label: str = "default") -> dict:
+        """Verify a STORED Cloudflare profile (identity + account permission)."""
+        creds = self.get_cloudflare_creds(label)
+        return self.probe_cloudflare(creds.get("api_token", ""),
+                                     creds.get("account_id", ""),
+                                     creds.get("email", ""))
 
 
 # Global singleton

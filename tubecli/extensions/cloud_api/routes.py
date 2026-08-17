@@ -222,6 +222,25 @@ async def api_delete_cloudflare_profile(label: str):
     return result
 
 
+class ProbeCloudflareRequest(BaseModel):
+    api_token: str
+    account_id: str = ""
+    email: str = ""
+
+
+@router.post("/cloudflare/probe")
+async def api_probe_cloudflare(req: ProbeCloudflareRequest):
+    """Check a Cloudflare credential WITHOUT saving it.
+
+    The dashboard's "Verify" button used to POST the credential into the store
+    and only then test it — so sanity-checking a pasted token overwrote the
+    working profile under the same label, with no confirmation. Checking is now
+    a read-only operation.
+    """
+    from tubecli.extensions.cloud_api.extension import key_manager
+    return key_manager.probe_cloudflare(req.api_token, req.account_id, req.email)
+
+
 @router.post("/cloudflare/profiles/{label}/test")
 async def api_test_cloudflare_profile(label: str):
     """Test a Cloudflare API Token by calling the verify endpoint."""

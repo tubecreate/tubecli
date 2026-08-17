@@ -87,6 +87,28 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .sidebar.collapsed .nav-icon { margin-right: 0; font-size: 1.2rem; }
 .sidebar.collapsed .sidebar-footer { justify-content: center; padding: 16px 0; }
 
+/* On a phone the sidebar has to give the content room. It was a fixed 240px
+   with flex-shrink:0 and no breakpoint touching it, so on a 390px screen an
+   extension iframe received 150px — narrower than any layout in the product is
+   built for, which is why the mobile persona scored lowest by a wide margin.
+   Reuses the collapsed rules above rather than inventing a second mode; the
+   iframe goes from 150px to 322px. */
+@media (max-width: 720px) {
+  .sidebar { width: 68px; }
+  .sidebar .sidebar-logo,
+  .sidebar .sidebar-logo-container,
+  .sidebar .nav-section-label,
+  .sidebar .nav-text,
+  .sidebar .sidebar-footer span:not(.status-dot):not(.material-symbols-outlined),
+  .sidebar .sidebar-version,
+  .sidebar .sidebar-update { display: none; }
+  .sidebar .nav-item { padding: 10px; justify-content: center; }
+  .sidebar .nav-icon { margin-right: 0; font-size: 1.2rem; }
+  .sidebar .sidebar-footer { justify-content: center; padding: 16px 0; }
+  .sidebar .sidebar-menu-btn { width: 100%; text-align: center; justify-content: center; margin: 0 auto; display: flex; }
+  .content { padding: 16px 12px; }
+}
+
 /* ─── Content ─── */
 .content { flex: 1; overflow-y: auto; padding: 28px 32px; position: relative; }
 .content.no-padding { padding: 0; overflow: hidden; }
