@@ -518,6 +518,31 @@ def path_in_folders(req_path, folders) -> bool:
     return False
 
 
+def path_is_shared_file(req_path, files) -> bool:
+    """True nếu req_path canonical KHỚP CHÍNH XÁC một file được chia sẻ (file node lẻ).
+
+    Khác path_in_folders (prefix): đây là exact-match từng file, để chia sẻ đúng 1 file mà
+    KHÔNG mở cả thư mục chứa nó. Canon cùng cách route mở (realpath(normpath(...))) nên
+    symlink/'..'/mọi cách viết khác của cùng file vẫn khớp; file KHÁC thì không.
+    """
+    import os
+    if not req_path:
+        return False
+    try:
+        rp = _canon_fs(req_path)
+    except Exception:
+        return False
+    for f in (files or []):
+        if not f or not os.path.isabs(str(f)):
+            continue
+        try:
+            if rp == _canon_fs(f):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def revoke_guest_tokens_for_workspace(workspace: str) -> int:
     """Thu hồi mọi guest token của một workspace (khi chủ revoke). Trả số xoá."""
     if not workspace:
