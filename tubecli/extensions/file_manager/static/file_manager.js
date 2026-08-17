@@ -1527,12 +1527,13 @@
                 grid.addEventListener('pointerdown', function (e) {
                     if (e.button !== 0) return;
                     var card = e.target.closest ? e.target.closest('.fm-file-card') : null;
-                    if (!card || card.getAttribute('data-dir') === '1') return;
+                    if (!card) return;
+                    var isDir = card.getAttribute('data-dir') === '1';   // kéo cả THƯ MỤC → Folder node
                     var path = card.getAttribute('data-path');
                     fmDrag = {
                         id: e.pointerId, el: card, x: e.clientX, y: e.clientY, started: false,
                         ref: {
-                            v: 1, source: 'local', path: path,
+                            v: 1, source: 'local', path: path, is_dir: isDir ? 1 : 0,
                             name: card.getAttribute('data-name') || (path || '').split('/').pop(),
                             ext: card.getAttribute('data-ext') || null,
                             size: card.getAttribute('data-size') ? Number(card.getAttribute('data-size')) : null
