@@ -1302,10 +1302,24 @@ function renderThemes() {
   // onclick inline (chỉ một dấu ' là thoát ra chạy JS tuỳ ý trong trang admin
   // đang giữ CF token). Escape mọi field + gắn listener qua dataset.
   const safeColor = (c) => /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? c : '#1a2332';
+  // A thumbnail is either a path on autoweb (/themes/x.png) or a full URL to an
+  // image host. The old code prefixed the autoweb origin onto BOTH, so an
+  // absolute URL became "https://autoweb.tubecreate.comhttps://images.unsplash…"
+  // — an invalid URL that failed to load, and onerror then hid it, leaving the
+  // seven Unsplash-backed templates as blank cards. Only relative paths get the
+  // prefix now. http: is rejected so a template cannot downgrade the page to
+  // mixed content (it would be blocked anyway, silently).
+  const thumbUrl = (raw) => {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    if (/^https:\/\//i.test(s)) return s;
+    if (/^\//.test(s)) return 'https://autoweb.tubecreate.com' + s;
+    return '';   // http://, data:, javascript:, or anything unexpected
+  };
   grid.innerHTML = _templates.map(t => `
     <div class="theme-card" data-id="${esc(t.id)}" data-github="${esc(t.githubUrl || '')}">
       <div class="theme-thumb" style="background:${safeColor(t.color)}22;">
-        ${t.thumbnail ? `<img src="https://autoweb.tubecreate.com${esc(t.thumbnail)}" alt="${esc(t.name)}" onerror="this.style.display='none'" />` : '🌐'}
+        ${thumbUrl(t.thumbnail) ? `<img src="${esc(thumbUrl(t.thumbnail))}" alt="${esc(t.name)}" loading="lazy" onerror="this.style.display='none'" />` : '🌐'}
         <div class="theme-check">✓</div>
       </div>
       <div class="theme-info">

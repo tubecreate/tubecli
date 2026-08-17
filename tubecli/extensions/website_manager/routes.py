@@ -369,11 +369,13 @@ async def stream_logs(site_name: str, request: Request):
     )
 
 
+# Templates withdrawn from the picker. The catalogue is served by
+# autoweb.tubecreate.com, which this code cannot edit, so a retired template is
+# filtered here instead — in _fetch_templates, so it disappears from BOTH the
+# dashboard picker and the agent deploy skill rather than only the UI.
+_HIDDEN_TEMPLATE_IDS = {"ngo-quyen"}   # school/government portal, retired
+
 _FALLBACK_TEMPLATES = [
-    {"id": "ngo-quyen", "name": "Cổng thông tin trường học",
-     "description": "Trang tin tức tiếng Việt, phù hợp cho trường học, cơ quan hành chính.",
-     "thumbnail": "/themes/ngo-quyen.png", "tags": ["Tiếng Việt", "Tin tức", "Giáo dục"],
-     "color": "#1a56a0", "githubUrl": "https://github.com/tiensyk09/template-ngo-quyen.git"},
     {"id": "commandcode", "name": "Tech Landing Page",
      "description": "Landing page tiếng Anh phong cách hiện đại tối màu, dành cho SaaS.",
      "thumbnail": "/themes/commandcode.png", "tags": ["Tiếng Anh", "Tech", "SaaS"],
@@ -389,6 +391,12 @@ _FALLBACK_TEMPLATES = [
 ]
 
 
+def _visible(templates: list) -> list:
+    """Drop retired templates (see _HIDDEN_TEMPLATE_IDS)."""
+    return [t for t in templates
+            if isinstance(t, dict) and t.get("id") not in _HIDDEN_TEMPLATE_IDS]
+
+
 def _fetch_templates() -> tuple:
     """Trả (list templates, is_fallback). Dùng chung cho GET /templates và skill deploy."""
     import urllib.request
@@ -400,10 +408,14 @@ def _fetch_templates() -> tuple:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
             if isinstance(data, list) and data:
-                return data, False
+                visible = _visible(data)
+                # Only treat the remote list as usable if something survived the
+                # filter; otherwise fall through to the local list.
+                if visible:
+                    return visible, False
     except Exception as e:
         logger.error(f"Failed to fetch templates: {e}")
-    return list(_FALLBACK_TEMPLATES), True
+    return _visible(_FALLBACK_TEMPLATES), True
 
 
 @router.get("/templates")
