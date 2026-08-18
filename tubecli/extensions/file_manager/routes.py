@@ -52,7 +52,7 @@ import stat
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
@@ -563,6 +563,33 @@ async def create_file(req: CreateFileRequest):
         raise HTTPException(status_code=403, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@_shared.post("/upload")
+async def upload_files(dir: str = Form(...), files: List[UploadFile] = File(...)):
+    """Tải MỘT/NHIỀU file từ máy người dùng vào thư mục `dir` trên server.
+
+    CHỈ CHỦ (write): _guest_allowed deny-default mọi endpoint trừ list/read/raw → sharee KHÔNG
+    bao giờ tới được đây. Path do write_bytes()->_validate_path jail (BLOCKED_PATHS); tên file rút
+    về basename để chặn traversal.
+    """
+    svc = _get_service()
+    saved, errors = [], []
+    for f in files:
+        name = os.path.basename(f.filename or "").strip()
+        if not name:
+            continue
+        try:
+            data = await f.read()
+            result = svc.write_bytes(os.path.join(dir, name), data)
+            saved.append({"name": name, **result})
+        except ValueError as e:
+            errors.append({"name": name, "error": str(e)})
+        except Exception as e:
+            errors.append({"name": name, "error": str(e)})
+    if not saved and errors:
+        raise HTTPException(status_code=403, detail=errors[0]["error"])
+    return {"success": True, "saved": saved, "count": len(saved), "errors": errors}
 
 
 @_shared.get("/read")

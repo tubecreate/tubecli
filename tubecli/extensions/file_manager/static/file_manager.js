@@ -68,6 +68,11 @@
             'fm.err_aborted': 'Đã dừng yêu cầu theo lệnh của bạn. Máy chủ có thể vẫn đang xử lý.',
 
             'fm.new_folder': 'Tạo thư mục',
+            'fm.upload': 'Tải lên',
+            'fm.uploading': 'Đang tải lên {n} file…',
+            'fm.uploaded': 'Đã tải lên {n} file',
+            'fm.drop_here': 'Thả file vào đây để tải lên thư mục hiện tại',
+            'fm.upload_no_dir': 'Hãy mở một thư mục trước khi tải lên.',
             'fm.new_file': 'Tạo file',
             'fm.rename': 'Đổi tên',
             'fm.delete': 'Xóa',
@@ -245,6 +250,11 @@
             'fm.err_aborted': 'Request stopped at your request. The server may still be working.',
 
             'fm.new_folder': 'New folder',
+            'fm.upload': 'Upload',
+            'fm.uploading': 'Uploading {n} file(s)…',
+            'fm.uploaded': 'Uploaded {n} file(s)',
+            'fm.drop_here': 'Drop files here to upload to the current folder',
+            'fm.upload_no_dir': 'Open a folder before uploading.',
             'fm.new_file': 'New file',
             'fm.rename': 'Rename',
             'fm.delete': 'Delete',
@@ -1619,10 +1629,66 @@
                 });
             };
             var frag = document.createDocumentFragment();
+            // Upload TỪ MÁY: nút mở hộp chọn file (ẩn <input type=file multiple>).
+            var upInput = h('input', { id: 'fmUploadInput', type: 'file' });
+            upInput.multiple = true; upInput.style.display = 'none';
+            upInput.addEventListener('change', function () {
+                if (upInput.files && upInput.files.length) FM.uploadFiles(upInput.files);
+                upInput.value = '';
+            });
+            document.body.appendChild(upInput);
+            frag.appendChild(mk('btnUpload', T('fm.upload'), function () { var i = byId('fmUploadInput'); if (i) i.click(); }));
             frag.appendChild(mk('btnStorageScan', T('fm.scan_title'), function () { FM.openScan(); }));
             frag.appendChild(mk('btnCleanup', T('fm.cleanup_title'), function () { FM.openCleanup(); }));
             frag.appendChild(mk('btnPermissions', T('fm.perm_title'), function () { FM.openPermissions(); }));
             host.insertBefore(frag, host.firstChild);
+            // Nhúng iframe (cloud): nút "Về Dashboard" điều hướng _top của cloud → vô tác dụng → ẩn.
+            try { if (window.self !== window.top) { var bk = document.querySelector('.fm-back'); if (bk) bk.style.display = 'none'; } } catch (e) {}
+            this.bindDropZone();
+        },
+
+        // Kéo-thả file TỪ MÁY vào bất kỳ đâu trong FM → upload vào thư mục đang xem.
+        bindDropZone() {
+            if (window.__fmUploadBound) return;
+            window.__fmUploadBound = true;
+            var self = this;
+            var overlay = h('div', { id: 'fmDropOverlay' });
+            overlay.style.cssText = 'position:fixed;inset:0;z-index:99998;display:none;align-items:center;justify-content:center;background:rgba(124,58,237,.14);border:3px dashed rgba(124,58,237,.75);color:#c4b5fd;font-weight:700;font-size:16px;pointer-events:none;';
+            overlay.textContent = T('fm.drop_here');
+            document.body.appendChild(overlay);
+            var depth = 0;
+            var hasFiles = function (e) { try { return Array.prototype.indexOf.call((e.dataTransfer && e.dataTransfer.types) || [], 'Files') >= 0; } catch (x) { return false; } };
+            window.addEventListener('dragenter', function (e) { if (!hasFiles(e)) return; e.preventDefault(); depth++; overlay.style.display = 'flex'; });
+            window.addEventListener('dragover', function (e) { if (!hasFiles(e)) return; e.preventDefault(); try { e.dataTransfer.dropEffect = 'copy'; } catch (x) {} });
+            window.addEventListener('dragleave', function (e) { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) overlay.style.display = 'none'; });
+            window.addEventListener('drop', function (e) {
+                if (!hasFiles(e)) return;
+                e.preventDefault(); depth = 0; overlay.style.display = 'none';
+                if (e.dataTransfer.files && e.dataTransfer.files.length) self.uploadFiles(e.dataTransfer.files);
+            });
+        },
+
+        // Upload danh sách file vào currentPath (FormData multipart) rồi refresh thư mục.
+        async uploadFiles(fileList) {
+            var files = Array.prototype.slice.call(fileList || []);
+            if (!files.length) return;
+            if (!this.currentPath) { this.showGridError(T('fm.upload_no_dir')); return; }
+            var fd = new FormData();
+            fd.append('dir', this.currentPath);
+            files.forEach(function (f) { fd.append('files', f, f.name); });
+            var here = this.currentPath;
+            this.setStatus(here, T('fm.uploading', { n: files.length }));
+            try {
+                var data = await requestJson('/api/v1/file-manager/upload', { method: 'POST', body: fd, credentials: 'include' });
+                await this.navigate(here);
+                var n = (data && data.saved ? data.saved.length : files.length);
+                this.setStatus(here, T('fm.uploaded', { n: n }));
+                if (data && data.errors && data.errors.length) {
+                    this.showGridError(data.errors.map(function (x) { return x.name + ': ' + x.error; }).join('\n'));
+                }
+            } catch (e) {
+                this.showGridError(e.message);
+            }
         },
 
         // ── Navigation ───────────────────────────────────────────────
