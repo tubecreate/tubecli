@@ -1459,6 +1459,7 @@
             // later applyI18n() pass.
             await loadI18n();
             this.injectToolbarButtons();
+            this.setupUpload();
 
             // Roots and volumes are independent: one failing must not hide the
             // other, so they are awaited separately rather than in a Promise.all
@@ -1629,20 +1630,28 @@
                 });
             };
             var frag = document.createDocumentFragment();
-            // Upload TỪ MÁY: nút mở hộp chọn file (ẩn <input type=file multiple>).
-            var upInput = h('input', { id: 'fmUploadInput', type: 'file' });
-            upInput.multiple = true; upInput.style.display = 'none';
-            upInput.addEventListener('change', function () {
-                if (upInput.files && upInput.files.length) FM.uploadFiles(upInput.files);
-                upInput.value = '';
-            });
-            document.body.appendChild(upInput);
-            frag.appendChild(mk('btnUpload', T('fm.upload'), function () { var i = byId('fmUploadInput'); if (i) i.click(); }));
             frag.appendChild(mk('btnStorageScan', T('fm.scan_title'), function () { FM.openScan(); }));
             frag.appendChild(mk('btnCleanup', T('fm.cleanup_title'), function () { FM.openCleanup(); }));
             frag.appendChild(mk('btnPermissions', T('fm.perm_title'), function () { FM.openPermissions(); }));
             host.insertBefore(frag, host.firstChild);
-            // Nhúng iframe (cloud): nút "Về Dashboard" điều hướng _top của cloud → vô tác dụng → ẩn.
+        },
+
+        // Upload từ máy: dây nút Upload (trong HTML) + input ẩn, ẩn "Về Dashboard" khi nhúng iframe,
+        // và bật kéo-thả. Gọi TRỰC TIẾP từ init() (KHÔNG nằm trong injectToolbarButtons vì hàm đó
+        // thoát sớm khi thiếu host → mọi thứ bên trong bị bỏ qua).
+        setupUpload() {
+            if (this._uploadReady) return;
+            this._uploadReady = true;
+            var input = byId('fmUploadInput');
+            var btn = byId('btnFmUpload');
+            if (btn && input) {
+                btn.addEventListener('click', function () { input.click(); });
+                input.addEventListener('change', function () {
+                    if (input.files && input.files.length) FM.uploadFiles(input.files);
+                    input.value = '';
+                });
+            }
+            // Nhúng iframe (cloud): nút "Về Dashboard" điều hướng _top = shell cloud → vô tác dụng → ẩn.
             try { if (window.self !== window.top) { var bk = document.querySelector('.fm-back'); if (bk) bk.style.display = 'none'; } } catch (e) {}
             this.bindDropZone();
         },

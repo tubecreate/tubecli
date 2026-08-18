@@ -269,6 +269,11 @@
               <svg class="fm-ico" aria-hidden="true"><use href="#i-file-plus"/></svg>
               <span class="fm-btn-label" data-i18n="fm.browse.new_file"></span>
             </button>
+            <button type="button" class="fm-btn" id="btnFmUpload">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-up"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.upload"></span>
+            </button>
+            <input type="file" id="fmUploadInput" multiple style="display:none">
           </div>
 
           <span class="fm-rule" aria-hidden="true"></span>
@@ -1365,7 +1370,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=13"></script>
+<script src="/file-manager-static/file_manager.js?v=14"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
