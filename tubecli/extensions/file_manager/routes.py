@@ -587,6 +587,68 @@ async def write_text(req: WriteTextRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class WriteSheetRequest(BaseModel):
+    path: str
+    sheets: List[Dict[str, Any]]
+
+
+class WriteDocRequest(BaseModel):
+    path: str
+    paragraphs: List[Dict[str, Any]]
+
+
+@_shared.get("/read-sheet")
+async def read_sheet(path: str = Query(..., description="Đường dẫn .xlsx")):
+    """Đọc .xlsx thành lưới ô cho trình sửa bảng tính trên canvas."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.read_sheet(path)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@_shared.post("/write-sheet")
+async def write_sheet(req: WriteSheetRequest):
+    """Lưu lưới ô trở lại .xlsx (openpyxl). CHỈ CHỦ — guest deny-default mọi thao tác ghi."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.write_sheet(req.path, req.sheets)}
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@_shared.get("/read-doc")
+async def read_doc(path: str = Query(..., description="Đường dẫn .docx")):
+    """Đọc .docx thành danh sách đoạn có style cho trình soạn thảo trên canvas."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.read_doc(path)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@_shared.post("/write-doc")
+async def write_doc(req: WriteDocRequest):
+    """Lưu các đoạn trở lại .docx (python-docx). CHỈ CHỦ — guest deny-default."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.write_doc(req.path, req.paragraphs)}
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @_shared.post("/upload")
 async def upload_files(dir: str = Form(...), files: List[UploadFile] = File(...)):
     """Tải MỘT/NHIỀU file từ máy người dùng vào thư mục `dir` trên server.

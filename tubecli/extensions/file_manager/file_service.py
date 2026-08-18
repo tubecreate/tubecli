@@ -453,6 +453,95 @@ class FileService:
             "size_human": self._human_size(size),
         }
 
+    # ── Trình sửa có cấu trúc (canvas): xlsx dạng lưới, docx dạng đoạn có format ──
+    # read_file() trả TEXT phẳng (cho AI/xem nhanh); các hàm dưới giữ CẤU TRÚC để sửa rồi
+    # ghi lại ĐÚNG định dạng gốc, thay vì làm phẳng thành .txt.
+
+    MAX_SHEET_ROWS = 500
+    MAX_SHEET_COLS = 60
+
+    def read_sheet(self, path: str) -> Dict[str, Any]:
+        """Đọc .xlsx thành các sheet dạng lưới ô (giới hạn 500 dòng × 60 cột mỗi sheet)."""
+        safe_path = self._validate_path(path)
+        if not os.path.isfile(safe_path):
+            raise FileNotFoundError(f"File không tồn tại: {path}")
+        from openpyxl import load_workbook
+        wb = load_workbook(safe_path, read_only=True, data_only=True)
+        try:
+            sheets = []
+            for ws in wb.worksheets:
+                rows, truncated = [], False
+                for i, row in enumerate(ws.iter_rows(values_only=True)):
+                    if i >= self.MAX_SHEET_ROWS:
+                        truncated = True
+                        break
+                    cells = ["" if c is None else str(c) for c in row[: self.MAX_SHEET_COLS]]
+                    rows.append(cells)
+                width = max([len(r) for r in rows] or [1])
+                for r in rows:
+                    r.extend([""] * (width - len(r)))
+                sheets.append({"name": ws.title, "rows": rows, "truncated": truncated})
+            return {"sheets": sheets, "path": safe_path}
+        finally:
+            wb.close()
+
+    def write_sheet(self, path: str, sheets: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Ghi lại .xlsx từ các sheet dạng lưới. GHI ĐÈ nội dung ô, giữ đúng định dạng file."""
+        safe_path = self._validate_path(path)
+        from openpyxl import Workbook
+        wb = Workbook()
+        wb.remove(wb.active)
+        for sh in (sheets or []):
+            ws = wb.create_sheet(title=(str(sh.get("name") or "Sheet")[:31] or "Sheet"))
+            for row in (sh.get("rows") or []):
+                ws.append(["" if c is None else c for c in row])
+        if not wb.sheetnames:
+            wb.create_sheet(title="Sheet")
+        wb.save(safe_path)
+        size = os.path.getsize(safe_path)
+        return {"status": "saved", "path": safe_path, "size": size, "size_human": self._human_size(size)}
+
+    def read_doc(self, path: str) -> Dict[str, Any]:
+        """Đọc .docx thành danh sách đoạn kèm style (heading/bullet) + đậm/nghiêng của từng đoạn."""
+        safe_path = self._validate_path(path)
+        if not os.path.isfile(safe_path):
+            raise FileNotFoundError(f"File không tồn tại: {path}")
+        from docx import Document
+        doc = Document(safe_path)
+        paras = []
+        for p in doc.paragraphs:
+            style = (p.style.name if p.style is not None else "") or "Normal"
+            runs = p.runs
+            paras.append({
+                "text": p.text,
+                "style": style,
+                # Đậm/nghiêng ở mức ĐOẠN (đủ cho trình sửa nhẹ); run-level giữ khi không đổi text.
+                "bold": bool(runs and all(r.bold for r in runs if r.text.strip())),
+                "italic": bool(runs and all(r.italic for r in runs if r.text.strip())),
+            })
+        return {"paragraphs": paras, "path": safe_path}
+
+    def write_doc(self, path: str, paragraphs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Ghi lại .docx từ danh sách đoạn (giữ heading/bullet + đậm/nghiêng)."""
+        safe_path = self._validate_path(path)
+        from docx import Document
+        doc = Document()
+        for p in (paragraphs or []):
+            style = str(p.get("style") or "Normal")
+            text = "" if p.get("text") is None else str(p.get("text"))
+            try:
+                para = doc.add_paragraph(style=style)
+            except Exception:
+                para = doc.add_paragraph()   # style lạ (file gốc dùng style riêng) → dùng mặc định
+            run = para.add_run(text)
+            if p.get("bold"):
+                run.bold = True
+            if p.get("italic"):
+                run.italic = True
+        doc.save(safe_path)
+        size = os.path.getsize(safe_path)
+        return {"status": "saved", "path": safe_path, "size": size, "size_human": self._human_size(size)}
+
     def get_allowed_roots(self) -> List[Dict[str, str]]:
         """Return list of quick-access root directories for the UI.
 
