@@ -501,30 +501,65 @@ class FileService:
         size = os.path.getsize(safe_path)
         return {"status": "saved", "path": safe_path, "size": size, "size_human": self._human_size(size)}
 
+    # Căn lề: python-docx dùng enum WD_PARAGRAPH_ALIGNMENT (0..3). Văn bản hành chính VN
+    # phụ thuộc nặng vào CĂN GIỮA (quốc hiệu, tiêu đề) nên phải đọc/ghi được, nếu không
+    # tài liệu mở ra trông "mất format" dù chữ vẫn đúng.
+    _ALIGN_TO_STR = {0: "left", 1: "center", 2: "right", 3: "justify"}
+    _STR_TO_ALIGN = {"left": 0, "center": 1, "right": 2, "justify": 3}
+
     def read_doc(self, path: str) -> Dict[str, Any]:
-        """Đọc .docx thành danh sách đoạn kèm style (heading/bullet) + đậm/nghiêng của từng đoạn."""
+        """Đọc .docx thành các đoạn kèm style, căn lề, cỡ chữ, đậm/nghiêng/gạch chân."""
         safe_path = self._validate_path(path)
         if not os.path.isfile(safe_path):
             raise FileNotFoundError(f"File không tồn tại: {path}")
         from docx import Document
         doc = Document(safe_path)
+
+        def _base_pt(p):
+            """Cỡ chữ của đoạn: ưu tiên run có chữ, rồi tới style, rồi mặc định của tài liệu."""
+            for r in p.runs:
+                if r.text.strip() and r.font.size is not None:
+                    return round(r.font.size.pt, 1)
+            try:
+                if p.style is not None and p.style.font.size is not None:
+                    return round(p.style.font.size.pt, 1)
+            except Exception:
+                pass
+            try:
+                sz = doc.styles["Normal"].font.size
+                if sz is not None:
+                    return round(sz.pt, 1)
+            except Exception:
+                pass
+            return None
+
         paras = []
         for p in doc.paragraphs:
             style = (p.style.name if p.style is not None else "") or "Normal"
-            runs = p.runs
+            marked = [r for r in p.runs if r.text.strip()]
+            align = p.alignment
+            if align is None:                       # kế thừa từ style của đoạn
+                try:
+                    align = p.style.paragraph_format.alignment
+                except Exception:
+                    align = None
             paras.append({
                 "text": p.text,
                 "style": style,
-                # Đậm/nghiêng ở mức ĐOẠN (đủ cho trình sửa nhẹ); run-level giữ khi không đổi text.
-                "bold": bool(runs and all(r.bold for r in runs if r.text.strip())),
-                "italic": bool(runs and all(r.italic for r in runs if r.text.strip())),
+                # Đậm/nghiêng/gạch chân ở mức ĐOẠN (đủ cho trình sửa nhẹ).
+                "bold": bool(marked and all(r.bold for r in marked)),
+                "italic": bool(marked and all(r.italic for r in marked)),
+                "underline": bool(marked and all(r.underline for r in marked)),
+                "align": self._ALIGN_TO_STR.get(int(align), "left") if align is not None else None,
+                "size": _base_pt(p),
             })
         return {"paragraphs": paras, "path": safe_path}
 
     def write_doc(self, path: str, paragraphs: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Ghi lại .docx từ danh sách đoạn (giữ heading/bullet + đậm/nghiêng)."""
+        """Ghi lại .docx từ danh sách đoạn (style, căn lề, cỡ chữ, đậm/nghiêng/gạch chân)."""
         safe_path = self._validate_path(path)
         from docx import Document
+        from docx.shared import Pt
         doc = Document()
         for p in (paragraphs or []):
             style = str(p.get("style") or "Normal")
@@ -533,11 +568,21 @@ class FileService:
                 para = doc.add_paragraph(style=style)
             except Exception:
                 para = doc.add_paragraph()   # style lạ (file gốc dùng style riêng) → dùng mặc định
+            al = p.get("align")
+            if al in self._STR_TO_ALIGN:
+                para.alignment = self._STR_TO_ALIGN[al]
             run = para.add_run(text)
             if p.get("bold"):
                 run.bold = True
             if p.get("italic"):
                 run.italic = True
+            if p.get("underline"):
+                run.underline = True
+            try:
+                if p.get("size"):
+                    run.font.size = Pt(float(p["size"]))
+            except Exception:
+                pass
         doc.save(safe_path)
         size = os.path.getsize(safe_path)
         return {"status": "saved", "path": safe_path, "size": size, "size_human": self._human_size(size)}
