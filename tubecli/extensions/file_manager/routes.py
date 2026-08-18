@@ -565,6 +565,28 @@ async def create_file(req: CreateFileRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class WriteTextRequest(BaseModel):
+    path: str
+    content: str
+
+
+@_shared.post("/write")
+async def write_text(req: WriteTextRequest):
+    """Ghi ĐÈ nội dung text vào một file đã có (nút Lưu của trình sửa trên canvas).
+
+    Khác /create-file (tạo mới): đây là lưu nội dung đang sửa. create_file() đã biết .docx/.xlsx
+    nên lưu đúng định dạng cho các loại đó. CHỈ CHỦ — _guest_allowed deny-default mọi thao tác ghi.
+    """
+    svc = _get_service()
+    try:
+        result = svc.create_file(req.path, req.content)
+        return {"success": True, **result}
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @_shared.post("/upload")
 async def upload_files(dir: str = Form(...), files: List[UploadFile] = File(...)):
     """Tải MỘT/NHIỀU file từ máy người dùng vào thư mục `dir` trên server.
