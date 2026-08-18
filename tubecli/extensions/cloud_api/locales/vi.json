@@ -38,5 +38,10 @@
   "add_key.test_failed": "Không kiểm tra được key.",
   "add_key.key_required": "Hãy nhập API key.",
   "add_key.account_required": "Cloudflare cần Account ID.",
-  "add_key.cloudflare_hint": "Dán API Token (Bearer). Nếu dùng Global API Key thì điền thêm Email."
+  "add_key.cloudflare_hint": "Dán API Token (Bearer). Nếu dùng Global API Key thì điền thêm Email.",
+  "models.refresh": "🔄 Lấy từ API",
+  "models.src_api": "Danh sách lấy từ API của provider lúc {when}.",
+  "models.src_custom": "Danh sách do bạn tự chỉnh.",
+  "models.src_builtin": "Danh sách mặc định đi kèm — có thể lỗi thời. Bấm \"Lấy từ API\" để cập nhật.",
+  "models.refreshed": "Đã lấy {n} model từ API."
 }

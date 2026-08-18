@@ -2184,6 +2184,32 @@ function renderMarketExt(el) {
 }
 
 // ── Cloud API Ext ──
+// Real provider marks, drawn inline as SVG (no CDN — the dashboard must work
+// offline). Each is the provider's own recognisable shape in its brand colour,
+// replacing the emoji set (✨🤖🧠…) that identified nobody.
+const PROVIDER_LOGOS = {
+    // Gemini: the four-point twinkle, Google's blue→violet gradient.
+    gemini: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><defs><linearGradient id="lg-gem" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#4285F4"/><stop offset="100%" stop-color="#9B72CB"/></linearGradient></defs><path fill="url(#lg-gem)" d="M12 0c.63 6.53 5.47 11.37 12 12-6.53.63-11.37 5.47-12 12-.63-6.53-5.47-11.37-12-12C6.53 11.37 11.37 6.53 12 0z"/></svg>`,
+    // OpenAI: the six-petal knot, approximated as six rotated rounded links.
+    openai: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><g fill="none" stroke="#74AA9C" stroke-width="2.1" stroke-linecap="round">${[0,60,120,180,240,300].map(a=>`<path transform="rotate(${a} 12 12)" d="M12 3.2 L17.6 6.4 L17.6 12"/>`).join('')}</g></svg>`,
+    // Claude: the Anthropic starburst in its clay orange.
+    claude: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><g stroke="#D97757" stroke-width="2.2" stroke-linecap="round">${[[12,12,12,2.5],[12,12,18.5,5.5],[12,12,21.5,12],[12,12,18.5,18.5],[12,12,12,21.5],[12,12,5.5,18.5],[12,12,2.5,12],[12,12,5.5,5.5]].map(([x1,y1,x2,y2])=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"/>`).join('')}</g><circle cx="12" cy="12" r="2.6" fill="#D97757"/></svg>`,
+    // DeepSeek: the whale curve in its cobalt blue.
+    deepseek: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path fill="none" stroke="#4D6BFE" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M2.8 13.5c2-5.5 7.5-8 12.2-6.8 3.4.9 5.6 3.3 6.2 6.3-1.4-.7-2.7-.8-3.9-.4-.4 1.9-1.7 3.5-3.6 4.3-3.8 1.6-8.6.3-10.9-3.4z"/><path fill="none" stroke="#4D6BFE" stroke-width="2" stroke-linecap="round" d="M18.6 8.4c.9-1 2.2-1.6 3.6-1.6-.4 1.3-1.2 2.4-2.4 3"/><circle cx="8.6" cy="12.4" r="1.15" fill="#4D6BFE"/></svg>`,
+    // xAI Grok: the slashed X.
+    grok: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><g fill="currentColor"><polygon points="3,3 6.4,3 21,21 17.6,21"/><polygon points="21,3 17.6,3 13.2,8.5 14.9,10.6"/><polygon points="3,21 6.4,21 10.8,15.5 9.1,13.4"/></g></svg>`,
+    // OpenRouter: routes forking to endpoints.
+    openrouter: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><g fill="none" stroke="#8B7CF6" stroke-width="2.1" stroke-linecap="round"><path d="M3 12h4c3 0 4-5 8-5h4"/><path d="M3 12h4c3 0 4 5 8 5h4"/></g><g fill="#8B7CF6"><polygon points="18,4.2 23,7 18,9.8"/><polygon points="18,14.2 23,17 18,19.8"/></g></svg>`,
+    // EverAI TTS: a microphone.
+    everai: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><g fill="none" stroke="#E8618C" stroke-width="2" stroke-linecap="round"><rect x="9" y="2.5" width="6" height="11" rx="3" fill="#E8618C" stroke="none"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/><line x1="12" y1="18" x2="12" y2="21.5"/><line x1="8.5" y1="21.5" x2="15.5" y2="21.5"/></g></svg>`,
+    // 9Router: its numeral, badged.
+    '9router': `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6" fill="#3B82F6"/><text x="12" y="17" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="13.5" font-weight="700" fill="#fff">9R</text></svg>`,
+    // GitHub: the octocat silhouette (the canonical mark path).
+    github: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path fill="currentColor" d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg>`,
+    // Cloudflare: the cloud in its orange.
+    cloudflare: `<svg viewBox="0 0 24 24" width="34" height="34" aria-hidden="true"><path fill="#F6821F" d="M18.6 10.2a5.1 5.1 0 0 0-9.7-1.6A4.3 4.3 0 0 0 4.6 17h13.2a3.4 3.4 0 0 0 .8-6.8z"/><path fill="#FBAD41" d="M20.2 11.4a3 3 0 0 1 1.9 5.3c-.5.2-1 .3-1.6.3h-1.3a4.1 4.1 0 0 0 1-5.6z"/></svg>`,
+};
+
 async function renderCloudApiExt(el) {
     if (!el) return;
     const isPoller = el.querySelector('.cards-grid') || el.querySelector('.table-container') || el.querySelector('.text-muted');
@@ -2201,7 +2227,7 @@ async function renderCloudApiExt(el) {
     // Cache the provider metadata so the add-key modal (dropdown, compound
     // fields, capability hint) reads from the same source these cards do.
     window._cloudProviders = providers;
-    const provIcons = { gemini:'✨', openai:'🤖', claude:'🧠', deepseek:'🔍', grok:'⚡', everai:'🎙️', openrouter:'🌐', '9router':'🔀', github:'🐙', cloudflare:'☁️' };
+    const provIcons = PROVIDER_LOGOS;
     // How each capability reads on a card — chat/deploy work, none is honest about it.
     const capBadge = {
         chat:   `<span class="tag" style="background:rgba(34,197,94,.15);color:var(--green)">${T('cloud_api.cap_chat')}</span>`,
@@ -2212,7 +2238,9 @@ async function renderCloudApiExt(el) {
     // Provider cards
     h += '<div class="cards-grid" style="margin-bottom:28px">';
     providers.forEach(p => {
-        const icon = p.icon || provIcons[p.id] || '☁️';
+        // SVG mark first; p.icon (a backend emoji) only for a provider that has
+        // no drawn mark yet — the emoji must not override the real logo.
+        const icon = provIcons[p.id] || p.icon || '☁️';
         // A provider can serve several purposes — Cloudflare's one credential
         // backs both Workers AI chat and website_manager deploys — so show every
         // badge it earns, not just the first.
@@ -2327,10 +2355,49 @@ function editProviderSettings(provider, currentModelsStr) {
     document.getElementById('edit-models-title').innerHTML = `⚙️ Models: <strong>${esc(provider.toUpperCase())}</strong>`;
     document.getElementById('add-model-input').value = '';
     document.getElementById('model-test-panel').style.display = 'none';
+    _renderModelsSourceNote();
     renderEditModelsList();
     document.getElementById('modal-edit-models').classList.remove('hidden');
     setTimeout(() => document.getElementById('add-model-input').focus(), 100);
 }
+
+// Say where the current list came from, so "why is this stale" answers itself:
+// builtin = the shipped fallback (rots over time), api = fetched from the
+// provider (with a date), custom = hand-edited.
+function _renderModelsSourceNote() {
+    const note = document.getElementById('models-source-note');
+    if (!note) return;
+    const meta = (window._cloudProviders || []).find(p => p.id === currentEditProvider) || {};
+    if (meta.models_source === 'api' && meta.models_updated_at) {
+        const when = new Date(meta.models_updated_at * 1000).toLocaleString();
+        note.textContent = T('models.src_api', { when }) || `Danh sách lấy từ API lúc ${when}.`;
+    } else if (meta.models_source === 'custom') {
+        note.textContent = T('models.src_custom') || 'Danh sách do bạn tự chỉnh.';
+    } else {
+        note.textContent = T('models.src_builtin') || 'Danh sách mặc định đi kèm — có thể lỗi thời. Bấm "Lấy từ API" để cập nhật.';
+    }
+}
+
+// Ask the provider itself which models exist right now. This is the cure for
+// the hardcoded lists still saying gemini-2.5 while Google was already serving
+// gemini-3.7 — the fallback rots, the provider's own /models endpoint does not.
+window.refreshModelsFromApi = async function(btn) {
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ ...';
+    try {
+        const r = await apiPost(`/api/v1/cloud-api/providers/${currentEditProvider}/refresh-models`, {});
+        if (r && r.status === 'success' && Array.isArray(r.models)) {
+            currentEditModels = r.models;
+            renderEditModelsList();
+            const note = document.getElementById('models-source-note');
+            if (note) note.textContent = (T('models.refreshed', { n: r.models.length }) || `Đã lấy ${r.models.length} model từ API.`);
+            renderCloudApiExt(_cloudExtBody());   // card descriptions update too
+        } else {
+            alert((r && (r.detail || r.message)) || 'Không lấy được danh sách model.');
+        }
+    } catch (e) { alert(String(e)); }
+    btn.disabled = false; btn.textContent = orig;
+};
 
 window.addModelToList = function() {
     const input = document.getElementById('add-model-input');

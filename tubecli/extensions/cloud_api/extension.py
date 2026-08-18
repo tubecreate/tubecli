@@ -18,22 +18,32 @@ CLOUD_API_DATA_FILE = os.path.join(DATA_DIR, "cloud_api_keys.json")
 # ── Supported Providers ──────────────────────────────────────────
 
 PROVIDERS = {
+    # NOTE on the "models" lists below: they are FALLBACKS, shown only until a
+    # key is added. Once a key tests OK, refresh_models() replaces them with the
+    # provider's own live catalogue (stored in _settings, which get_models
+    # prefers). The old lists had rotted — this registry said gemini-2.5 while
+    # Google's /models endpoint was returning gemini-3.7 — so treat these as a
+    # first impression, not a source of truth.
     "gemini": {
         "name": "Google Gemini",
         "base_url": "https://generativelanguage.googleapis.com",
-        "models": ["gemini-2.5-flash", "gemini-2.5-pro"],
+        # Verified live against /v1beta/models (2026-08).
+        "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash",
+                   "gemini-3.5-flash-lite", "gemini-3.1-pro-preview",
+                   "gemini-2.5-pro", "gemini-2.5-flash"],
         "env_var": "GEMINI_API_KEY",
     },
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1",
-        "models": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "o1", "o3-mini"],
+        "models": ["gpt-5.3-chat", "gpt-5.2", "gpt-5.2-pro", "gpt-5.1", "gpt-5-mini", "gpt-4o"],
         "env_var": "OPENAI_API_KEY",
     },
     "claude": {
         "name": "Anthropic Claude",
         "base_url": "https://api.anthropic.com/v1",
-        "models": ["claude-sonnet-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
+        "models": ["claude-opus-4.6", "claude-sonnet-4.6", "claude-haiku-4.5",
+                   "claude-sonnet-4-20250514"],
         "env_var": "ANTHROPIC_API_KEY",
     },
     "deepseek": {
@@ -46,7 +56,7 @@ PROVIDERS = {
     "grok": {
         "name": "xAI Grok",
         "base_url": "https://api.x.ai/v1",
-        "models": ["grok-2", "grok-2-mini"],
+        "models": ["grok-4.6", "grok-4.1-fast", "grok-4", "grok-3"],
         "env_var": "XAI_API_KEY",
     },
     "openrouter": {
@@ -253,11 +263,149 @@ class KeyManager:
         """Save a custom list of models for a provider."""
         if provider not in PROVIDERS:
             return {"status": "error", "message": f"Unknown provider: {provider}"}
+        self._load()
         settings = self._keys.setdefault("_settings", {})
         prov_settings = settings.setdefault(provider, {})
         prov_settings["models"] = models
         self._save()
         return {"status": "success", "message": f"Models updated for {provider}"}
+
+    # ── Live model catalogues ────────────────────────────────────────────────
+    #
+    # The hardcoded lists in PROVIDERS rot: they shipped saying gemini-2.5 while
+    # Google's own /models endpoint was already returning gemini-3.5/3.6/3.7.
+    # Every chat provider here HAS a list-models API, so the registry lists are
+    # demoted to a fallback for the moment before a key exists, and the real
+    # catalogue is fetched from the provider and stored in _settings — the same
+    # slot get_models already prefers. Nothing downstream changes.
+
+    @staticmethod
+    def _fetch_json(url: str, headers: dict = None) -> dict:
+        """One place to do the network read, so tests can stub it."""
+        import urllib.request
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode())
+
+    # Substrings that mark a model as not-a-chat-model. The catalogues mix in
+    # TTS, image, embedding, robotics and research endpoints that would only
+    # clutter a chat-model dropdown.
+    _NON_CHAT = ("embed", "tts", "whisper", "audio", "image", "dall-e", "vision-only",
+                 "moderation", "transcribe", "realtime", "search-", "-instruct-",
+                 "robotics", "lyria", "deep-research", "computer-use", "nano-banana",
+                 "antigravity", "veo", "imagen")
+
+    @classmethod
+    def _looks_chat(cls, model_id: str) -> bool:
+        low = model_id.lower()
+        return not any(t in low for t in cls._NON_CHAT)
+
+    def fetch_provider_models(self, provider: str) -> List[str]:
+        """Ask the PROVIDER what models it serves right now. Raises on failure —
+        the caller decides whether that is an error or just 'keep the old list'."""
+        p = provider.lower()
+
+        if p == "gemini":
+            key = self.get_active_key("gemini")
+            if not key:
+                raise RuntimeError("Chưa có key Gemini để hỏi danh sách model.")
+            data = self._fetch_json(
+                f"https://generativelanguage.googleapis.com/v1beta/models?key={key}&pageSize=200")
+            out = []
+            for m in data.get("models", []):
+                if "generateContent" not in m.get("supportedGenerationMethods", []):
+                    continue
+                name = m.get("name", "").replace("models/", "")
+                if name and self._looks_chat(name):
+                    out.append(name)
+            # Newest version first, gemini before gemma. A plain reverse-alpha
+            # sort put "gemma-4" above "gemini-3.7" (alphabet, not recency).
+            import re as _re
+
+            def _ver(n):
+                m2 = _re.search(r"(\d+(?:\.\d+)?)", n)
+                return float(m2.group(1)) if m2 else 0.0
+
+            out.sort(key=lambda n: (n.startswith("gemma"), -_ver(n), n))
+            return out
+
+        if p in ("openai", "deepseek", "grok"):
+            key = self.get_active_key(p)
+            if not key:
+                raise RuntimeError(f"Chưa có key {p} để hỏi danh sách model.")
+            base = {"openai": "https://api.openai.com/v1",
+                    "deepseek": "https://api.deepseek.com/v1",
+                    "grok": "https://api.x.ai/v1"}[p]
+            data = self._fetch_json(f"{base}/models", {"Authorization": f"Bearer {key}"})
+            ids = [m.get("id", "") for m in data.get("data", [])]
+            if p == "openai":
+                ids = [i for i in ids if self._looks_chat(i)
+                       and (i.startswith(("gpt", "o", "chatgpt")))]
+            else:
+                ids = [i for i in ids if i and self._looks_chat(i)]
+            return sorted(set(ids), reverse=True)
+
+        if p == "claude":
+            key = self.get_active_key("claude")
+            if not key:
+                raise RuntimeError("Chưa có key Claude để hỏi danh sách model.")
+            data = self._fetch_json("https://api.anthropic.com/v1/models",
+                                    {"x-api-key": key, "anthropic-version": "2023-06-01"})
+            return [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+
+        if p == "openrouter":
+            # Public endpoint, no key needed. Hundreds of models — keep the 40
+            # newest so the dropdown stays usable; the user can still type any id.
+            data = self._fetch_json("https://openrouter.ai/api/v1/models")
+            rows = sorted(data.get("data", []), key=lambda m: m.get("created", 0), reverse=True)
+            return [m["id"] for m in rows[:40] if m.get("id")]
+
+        if p == "cloudflare":
+            creds = self.get_cloudflare_creds()
+            if not creds.get("api_token") or not creds.get("account_id"):
+                raise RuntimeError("Chưa có credential Cloudflare (token + account_id).")
+            if creds.get("email"):
+                headers = {"X-Auth-Email": creds["email"], "X-Auth-Key": creds["api_token"]}
+            else:
+                headers = {"Authorization": f"Bearer {creds['api_token']}"}
+            data = self._fetch_json(
+                f"https://api.cloudflare.com/client/v4/accounts/{creds['account_id']}"
+                f"/ai/models/search?task=Text%20Generation&per_page=60", headers)
+            return [m.get("name", "") for m in data.get("result", []) if m.get("name")]
+
+        if p == "9router":
+            data = self._fetch_json("http://localhost:20128/v1/models")
+            return [m.get("id", m.get("name", "")) for m in data.get("data", [])]
+
+        raise RuntimeError(f"Provider {provider} chưa có API danh sách model.")
+
+    def refresh_models(self, provider: str) -> dict:
+        """Fetch the live catalogue and store it where get_models reads first."""
+        if provider not in PROVIDERS:
+            return {"status": "error", "message": f"Unknown provider: {provider}"}
+        try:
+            models = self.fetch_provider_models(provider)
+        except Exception as e:
+            return {"status": "error", "message": f"Không lấy được danh sách model: {e}"}
+        if not models:
+            return {"status": "error", "message": "Provider trả về danh sách rỗng — giữ nguyên danh sách cũ."}
+        import time as _t
+        self._load()
+        settings = self._keys.setdefault("_settings", {})
+        prov = settings.setdefault(provider, {})
+        prov["models"] = models
+        prov["models_updated_at"] = int(_t.time())
+        prov["models_source"] = "api"
+        self._save()
+        return {"status": "success", "count": len(models), "models": models,
+                "message": f"Đã cập nhật {len(models)} model từ API của {provider}."}
+
+    def models_meta(self, provider: str) -> dict:
+        """When and how the current model list was obtained."""
+        self._load()
+        s = self._keys.get("_settings", {}).get(provider, {})
+        return {"models_updated_at": s.get("models_updated_at"),
+                "models_source": s.get("models_source", "builtin" if "models" not in s else "custom")}
 
     def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded",
                          transient: bool = False) -> None:
@@ -391,6 +539,10 @@ class KeyManager:
                 "local": bool(prov_info.get("local")),
                 "icon": prov_info.get("icon", ""),
                 "description": prov_info.get("description", ""),
+                # When the model list was fetched from the provider's API, and
+                # whether it is live ("api"), user-edited ("custom") or the
+                # shipped fallback ("builtin") — so the UI can say which.
+                **self.models_meta(prov_id),
             })
         return result
 
@@ -430,6 +582,12 @@ class KeyManager:
             entry["verified"] = True
             entry["status_msg"] = ""
             self._save()
+            # A verified key is the moment the live catalogue becomes reachable,
+            # so refresh it now — best-effort, a failure must not fail the test.
+            try:
+                self.refresh_models(provider)
+            except Exception:
+                pass
             return {"status": "success", "verified": True, "message": msg}
 
         def stored(msg):

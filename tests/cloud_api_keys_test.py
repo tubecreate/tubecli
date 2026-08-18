@@ -88,6 +88,56 @@ check("cloudflare ships Workers AI models", len(provs["cloudflare"]["models"]) >
       provs["cloudflare"]["models"])
 check("cloudflare models are @cf/ ids", all(m.startswith("@cf/") for m in provs["cloudflare"]["models"]),
       provs["cloudflare"]["models"])
+# The fallback lists must not regress to the rotten 2025 names: the registry
+# said gemini-2.5 while Google's own /models endpoint served gemini-3.7.
+check("gemini fallback leads with a 3.x model", provs["gemini"]["models"][0].startswith("gemini-3"),
+      provs["gemini"]["models"][:3])
+check("provider metadata carries models_source", "models_source" in provs["gemini"],
+      "the UI cannot say where the list came from")
+
+# ── refresh_models: the live catalogue replaces the fallback ────────────────
+km, _ = fresh()
+_orig_fetch = ext.KeyManager._fetch_json
+try:
+    # Stub the network: gemini answers with a catalogue containing newer models
+    # AND noise (tts/image/embedding) that must be filtered out of a chat list.
+    def fake_fetch(url, headers=None):
+        assert "generativelanguage" in url, url
+        mk = lambda n, methods: {"name": f"models/{n}", "supportedGenerationMethods": methods}
+        return {"models": [
+            mk("gemini-9.9-flash", ["generateContent"]),
+            mk("gemini-2.5-flash", ["generateContent"]),
+            mk("gemma-4-31b-it", ["generateContent"]),
+            mk("gemini-9.9-flash-tts", ["generateContent"]),     # non-chat: tts
+            mk("text-embedding-005", ["embedContent"]),           # wrong method
+            mk("gemini-9.9-image", ["generateContent"]),          # non-chat: image
+        ]}
+    ext.KeyManager._fetch_json = staticmethod(fake_fetch)
+    km.add_key("gemini", "AIzaSomeKey", "k")
+    r = km.refresh_models("gemini")
+    check("refresh_models succeeds", r["status"] == "success", r)
+    got = km.get_models("gemini")
+    check("live catalogue replaces the fallback", "gemini-9.9-flash" in got, got)
+    check("newest version sorts first", got[0] == "gemini-9.9-flash", got[:3])
+    check("gemma sorts after gemini", got.index("gemma-4-31b-it") > got.index("gemini-2.5-flash"), got)
+    check("tts/image/embedding are filtered out",
+          not any(("tts" in m or "image" in m or "embedding" in m) for m in got), got)
+    meta = km.models_meta("gemini")
+    check("refresh stamps source=api with a time", meta["models_source"] == "api" and meta["models_updated_at"], meta)
+
+    # An empty or failing fetch must NOT wipe a working list.
+    ext.KeyManager._fetch_json = staticmethod(lambda url, headers=None: {"models": []})
+    r = km.refresh_models("gemini")
+    check("an empty catalogue is refused", r["status"] == "error", r)
+    check("the previous list survives an empty fetch", km.get_models("gemini") == got, km.get_models("gemini")[:3])
+
+    def boom(url, headers=None): raise RuntimeError("network down")
+    ext.KeyManager._fetch_json = staticmethod(boom)
+    r = km.refresh_models("gemini")
+    check("a failed fetch is an error, not an exception", r["status"] == "error", r)
+    check("the previous list survives a failed fetch", km.get_models("gemini") == got, "list was clobbered")
+finally:
+    ext.KeyManager._fetch_json = _orig_fetch
 
 # ── add_key stores as UNVERIFIED, not a fake green ──────────────────────────
 km, _ = fresh()

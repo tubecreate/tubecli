@@ -97,6 +97,20 @@ async def api_get_active_key(provider: str):
 class UpdateProviderSettings(BaseModel):
     models: list[str]
 
+@router.post("/providers/{provider}/refresh-models")
+def api_refresh_models(provider: str):
+    """Replace the model list with the provider's own live catalogue.
+
+    `def`, not `async def`: this does a blocking urllib fetch, and Starlette
+    runs sync endpoints in the threadpool instead of freezing the event loop.
+    """
+    from tubecli.extensions.cloud_api.extension import key_manager
+    result = key_manager.refresh_models(provider)
+    if result["status"] == "error":
+        raise HTTPException(400, result["message"])
+    return result
+
+
 @router.put("/providers/{provider}/settings")
 async def api_update_provider_settings(provider: str, req: UpdateProviderSettings):
     """Update settings (e.g. models list) for a provider."""

@@ -944,9 +944,11 @@
         <div class="modal-body" style="display:flex;flex-direction:column;gap:12px;margin-top:10px;max-height:70vh;overflow-y:auto;padding-right:5px">
             <p class="text-muted" style="font-size:0.9rem;margin-bottom:0" data-i18n="models.config_desc">Quản lý danh sách các AI Models hỗ trợ cho Provider này.</p>
             <div style="display:flex;gap:8px">
-                <input type="text" id="add-model-input" placeholder="Nhập tên model (vd: gemini-2.5-pro)" data-i18n-placeholder="models.name_ph" autocomplete="off" onkeypress="if(event.key==='Enter') window.addModelToList()" style="flex:1">
+                <input type="text" id="add-model-input" placeholder="Nhập tên model (vd: gemini-3.7-flash)" data-i18n-placeholder="models.name_ph" autocomplete="off" onkeypress="if(event.key==='Enter') window.addModelToList()" style="flex:1">
                 <button class="btn-primary" onclick="window.addModelToList()" data-i18n="common.add">Thêm</button>
+                <button class="btn-secondary" id="btn-refresh-models" onclick="window.refreshModelsFromApi(this)" data-i18n="models.refresh" title="Hỏi thẳng API của provider">🔄 Lấy từ API</button>
             </div>
+            <div id="models-source-note" style="font-size:.76rem;color:var(--text-muted);"></div>
             <div class="table-container" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;background:var(--bg-lighter);margin-top:8px;">
                 <table class="data-table">
                     <tbody id="edit-models-list">
