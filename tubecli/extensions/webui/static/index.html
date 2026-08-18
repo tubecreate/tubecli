@@ -946,7 +946,7 @@
                  row had a two-line "Fetch from API" button with a broken-glyph
                  emoji and an input whose focus ring looked pasted on. -->
             <div style="display:flex;gap:8px;align-items:stretch;">
-                <input type="text" id="add-model-input" placeholder="gemini-3.7-flash" data-i18n-placeholder="models.name_ph" autocomplete="off" onkeypress="if(event.key==='Enter') window.addModelToList()" style="flex:1;min-width:0;height:38px;">
+                <input type="text" id="add-model-input" placeholder="model-id" autocomplete="off" onkeypress="if(event.key==='Enter') window.addModelToList()" style="flex:1;min-width:0;height:38px;">
                 <button class="btn-primary" onclick="window.addModelToList()" data-i18n="common.add" style="height:38px;white-space:nowrap;padding:0 16px;">Thêm</button>
                 <button class="btn-secondary" id="btn-refresh-models" onclick="window.refreshModelsFromApi(this)" title="Hỏi thẳng API của provider" style="height:38px;white-space:nowrap;padding:0 14px;display:inline-flex;align-items:center;gap:6px;"><span class="material-symbols-outlined" style="font-size:17px">sync</span><span data-i18n="models.refresh_short">Lấy từ API</span></button>
             </div>

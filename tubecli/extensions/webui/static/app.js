@@ -2353,7 +2353,13 @@ function editProviderSettings(provider, currentModelsStr) {
     currentEditProvider = provider;
     currentEditModels = currentModelsStr ? currentModelsStr.split(',').map(m => m.trim()).filter(Boolean) : [];
     document.getElementById('edit-models-title').innerHTML = `⚙️ Models: <strong>${esc(provider.toUpperCase())}</strong>`;
-    document.getElementById('add-model-input').value = '';
+    const inp = document.getElementById('add-model-input');
+    inp.value = '';
+    // The placeholder is an example for THIS provider — a static one showed
+    // "gemini-3.7-flash" inside the OpenAI modal. The provider's own first
+    // model is always a correct example of its naming shape.
+    inp.placeholder = currentEditModels[0] ||
+        ((window._cloudProviders || []).find(p => p.id === provider)?.models?.[0]) || 'model-id';
     document.getElementById('model-test-panel').style.display = 'none';
     _renderModelsSourceNote();
     renderEditModelsList();
