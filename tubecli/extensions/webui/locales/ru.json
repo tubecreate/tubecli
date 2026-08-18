@@ -520,5 +520,10 @@
   "gen.system_prompt": "Системный промпт (необязательно)",
   "gen.system_prompt_placeholder": "Оставьте пустым — ИИ напишет сам. Заполните — будет использован дословно, а персона выведена из него.",
   "gen.system_prompt_hint": "Это инструкции, по которым агент работает в диалоге.",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "models.name_ph": "gemini-3.7-flash",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }

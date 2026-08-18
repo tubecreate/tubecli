@@ -278,6 +278,13 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
 .form-group input, .form-group select { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.9rem; font-family: inherit; }
 .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--cyan); }
+
+/* #add-model-input sits outside any .form-group, so it inherited NO styling —
+   the raw browser default, including the thick white focus outline that stuck
+   out of the Models modal. Give it the same treatment as every other input. */
+#add-model-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); padding: 0 12px; font-size: .88rem; }
+#add-model-input:focus { outline: none; border-color: var(--cyan); }
+#add-model-input::placeholder { color: var(--text-muted); opacity: .6; }
 .form-row { display: flex; gap: 16px; margin-bottom: 14px; }
 .form-row .form-group { flex: 1; margin-bottom: 0; }
 .custom-control-flex { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: var(--bg3); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }

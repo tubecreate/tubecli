@@ -39,7 +39,7 @@
   "add_key.key_required": "Introduce la API key.",
   "add_key.account_required": "Cloudflare requiere el Account ID.",
   "add_key.cloudflare_hint": "Pega un API Token (Bearer). Para Global API Key, rellena también el correo.",
-  "models.refresh": "🔄 Fetch from API",
+  "models.refresh": "Fetch from API",
   "models.src_api": "List fetched from the provider's API at {when}.",
   "models.src_custom": "List edited by you.",
   "models.src_builtin": "Shipped default list — may be outdated. Click \"Fetch from API\" to update.",

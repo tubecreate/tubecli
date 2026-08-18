@@ -39,7 +39,7 @@
   "add_key.key_required": "API 키를 입력하세요.",
   "add_key.account_required": "Cloudflare에는 Account ID가 필요합니다.",
   "add_key.cloudflare_hint": "API Token(Bearer)을 붙여넣으세요. Global API Key면 이메일도 입력.",
-  "models.refresh": "🔄 Fetch from API",
+  "models.refresh": "Fetch from API",
   "models.src_api": "List fetched from the provider's API at {when}.",
   "models.src_custom": "List edited by you.",
   "models.src_builtin": "Shipped default list — may be outdated. Click \"Fetch from API\" to update.",

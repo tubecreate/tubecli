@@ -520,5 +520,10 @@
   "gen.system_prompt": "시스템 프롬프트 (선택)",
   "gen.system_prompt_placeholder": "비워 두면 AI가 작성합니다. 입력하면 그대로 사용되고 페르소나도 이에 맞춰집니다.",
   "gen.system_prompt_hint": "대화 시 에이전트가 따르는 지침입니다.",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "models.name_ph": "gemini-3.7-flash",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }

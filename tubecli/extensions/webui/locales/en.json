@@ -606,7 +606,7 @@
   "common.download_txt": "Download (.txt)",
   "models.config_title": "⚙️ Configure models",
   "models.config_desc": "Manage the models available for this provider.",
-  "models.name_ph": "Model name (e.g. gemini-2.5-pro)",
+  "models.name_ph": "gemini-3.7-flash",
   "common.add": "Add",
   "models.send_request": "▶ Send request 🚀",
   "models.response_ph": "The response will appear here...",
@@ -687,5 +687,9 @@
   "auth.ai.tab_safe": "Safe — no secrets",
   "auth.ai.tab_full": "Self-contained — real token",
   "auth.badge.auto_refresh": "Auto-refresh on use",
-  "auth.badge.auto_refresh_tip": "Google access tokens only live ~1 hour by design. This token has a refresh token, so the system silently gets a fresh one every time it is used — no action needed. If refreshing starts failing after ~7 days: your OAuth consent screen is in \"Testing\" mode (Google revokes refresh tokens after 7 days there). Fix once: Google Cloud Console -> OAuth consent screen -> Publish app, then Authorize again."
+  "auth.badge.auto_refresh_tip": "Google access tokens only live ~1 hour by design. This token has a refresh token, so the system silently gets a fresh one every time it is used — no action needed. If refreshing starts failing after ~7 days: your OAuth consent screen is in \"Testing\" mode (Google revokes refresh tokens after 7 days there). Fix once: Google Cloud Console -> OAuth consent screen -> Publish app, then Authorize again.",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }

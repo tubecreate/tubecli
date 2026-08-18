@@ -520,5 +520,10 @@
   "gen.system_prompt": "系统提示词（可选）",
   "gen.system_prompt_placeholder": "留空则由 AI 撰写；填写则原样使用，并据此生成人设。",
   "gen.system_prompt_hint": "这是代理在对话中实际遵循的指令。",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "models.name_ph": "gemini-3.7-flash",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }

@@ -520,5 +520,10 @@
   "gen.system_prompt": "Prompt del sistema (opcional)",
   "gen.system_prompt_placeholder": "Déjalo vacío y la IA lo escribe. Si lo rellenas, se usa tal cual y la persona se deriva de él.",
   "gen.system_prompt_hint": "Son las instrucciones que sigue el agente al conversar.",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "models.name_ph": "gemini-3.7-flash",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }

@@ -606,7 +606,7 @@
   "common.download_txt": "Tải về (.txt)",
   "models.config_title": "⚙️ Cấu hình Models",
   "models.config_desc": "Quản lý danh sách các AI Models hỗ trợ cho Provider này.",
-  "models.name_ph": "Nhập tên model (vd: gemini-2.5-pro)",
+  "models.name_ph": "gemini-3.7-flash",
   "common.add": "Thêm",
   "models.send_request": "▶ Gửi Request 🚀",
   "models.response_ph": "Dữ liệu trả về sẽ hiển thị ở đây...",
@@ -687,5 +687,9 @@
   "auth.ai.tab_safe": "An toàn — không chứa secret",
   "auth.ai.tab_full": "Tự chứa — token thật",
   "auth.badge.auto_refresh": "Tự làm mới khi dùng",
-  "auth.badge.auto_refresh_tip": "Access token Google chỉ sống ~1 giờ (thiết kế của Google). Token này có refresh token nên hệ thống tự lấy token mới mỗi lần dùng — không cần làm gì. Nếu sau ~7 ngày làm mới bắt đầu thất bại: OAuth consent screen đang ở chế độ \"Testing\" (Google thu hồi refresh token sau 7 ngày). Fix một lần: Google Cloud Console -> OAuth consent screen -> Publish app, rồi Ủy quyền lại."
+  "auth.badge.auto_refresh_tip": "Access token Google chỉ sống ~1 giờ (thiết kế của Google). Token này có refresh token nên hệ thống tự lấy token mới mỗi lần dùng — không cần làm gì. Nếu sau ~7 ngày làm mới bắt đầu thất bại: OAuth consent screen đang ở chế độ \"Testing\" (Google thu hồi refresh token sau 7 ngày). Fix một lần: Google Cloud Console -> OAuth consent screen -> Publish app, rồi Ủy quyền lại.",
+  "models.refresh_short": "Lấy từ API",
+  "models.empty": "Chưa có model nào — thêm ở trên, hoặc bấm \"Lấy từ API\".",
+  "models.test": "Test",
+  "common.remove": "Xoá"
 }

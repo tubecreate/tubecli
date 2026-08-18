@@ -520,5 +520,10 @@
   "gen.system_prompt": "Sistem istemi (isteğe bağlı)",
   "gen.system_prompt_placeholder": "Boş bırakırsanız yapay zekâ yazar. Doldurursanız aynen kullanılır ve kişilik buna göre türetilir.",
   "gen.system_prompt_hint": "Ajanın sohbette uyduğu yönergelerdir.",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "models.name_ph": "gemini-3.7-flash",
+  "models.refresh_short": "Fetch from API",
+  "models.empty": "No models yet — add one above, or click \"Fetch from API\".",
+  "models.test": "Test",
+  "common.remove": "Remove"
 }
