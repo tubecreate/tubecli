@@ -663,8 +663,26 @@ function broadcastFrame(buffer) {
         await triggerImmediateFrame(); broadcastTabs();
     }
 
+    // ── Nối vào phiên cũ thay vì chất thêm tab ───────────────────────
+    // Chromium tự khôi phục các tab của phiên trước (đúng thứ người dùng muốn), NHƯNG
+    // mỗi lần khởi động lại kèm một about:blank từ tham số dòng lệnh, và goto(startUrl)
+    // đè lên pages()[0] biến tab trắng thành một tab mới nữa → mỗi lần mở là +1 tab,
+    // vài hôm sau thành một đống (đã thấy: about:blank ×5, YouTube ×3).
+    // Quy tắc: dọn hết tab trắng thừa; đã có tab đúng trang cần mở thì DÙNG LẠI nó;
+    // không có gì khôi phục thì mới điều hướng tab trắng còn lại.
+    {
+        const all = context.pages();
+        const real = all.filter((p) => p.url() !== 'about:blank');
+        const blanks = all.filter((p) => p.url() === 'about:blank');
+        // giữ đúng 1 tab trắng khi không còn tab thật nào — đóng sạch thì context chết
+        const keep = real.length ? 0 : 1;
+        for (let i = 0; i < blanks.length - keep; i++) {
+            try { await blanks[i].close(); } catch (e) {}
+        }
+        log(`Phiên cũ: ${real.length} tab thật, dọn ${Math.max(0, blanks.length - keep)} tab trắng thừa`);
+    }
     page = context.pages()[0] || await context.newPage();
-    
+
     attachPageListeners(page);
     context.on('page', async (np) => {
         attachPageListeners(np);
@@ -679,7 +697,25 @@ function broadcastFrame(buffer) {
     }
 
     if (startUrl !== 'about:blank') {
-        await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        // So theo origin+path (bỏ query): trang như YouTube Studio tự đổi query liên tục,
+        // so cả chuỗi URL thì không bao giờ trúng và lại mở trùng tab.
+        const sameDoc = (a, b) => {
+            try { const x = new URL(a), y = new URL(b); return x.origin === y.origin && x.pathname === y.pathname; } catch (e) { return false; }
+        };
+        const pages = context.pages();
+        const hit = pages.find((p) => sameDoc(p.url(), startUrl));
+        if (hit) {
+            await switchToPage(hit);                    // phiên cũ đã có trang này → dùng lại
+        } else {
+            const blank = pages.find((p) => p.url() === 'about:blank');
+            const target = blank || (pages.some((p) => p.url() !== 'about:blank') ? await context.newPage() : page);
+            page = target; attachPageListeners(target);
+            await target.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+    } else {
+        // Không yêu cầu URL nào → về đúng tab CUỐI của phiên trước, không mở gì thêm.
+        const real = context.pages().filter((p) => p.url() !== 'about:blank');
+        if (real.length) await switchToPage(real[real.length - 1]);
     }
     log(`Browser ready at: ${await page.url()}`);
 
