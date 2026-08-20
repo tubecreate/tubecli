@@ -85,6 +85,20 @@ function clearProgressLog() {
     }
 }
 
+
+// gzip+base64 a string with the browser's native CompressionStream. Python's
+// gzip.decompress reads this directly (same RFC 1952 format).
+async function _gzipB64String(str) {
+    const cs = new CompressionStream('gzip');
+    const ab = await new Response(new Blob([str]).stream().pipeThrough(cs)).arrayBuffer();
+    const bytes = new Uint8Array(ab);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+}
+
 function syncPackageManifest(itemDataObj, metadata, category) {
     if (!itemDataObj) return itemDataObj;
     
@@ -1228,23 +1242,11 @@ function goToUploadStep(step) {
                     .then(r => r.json())
                     .then(pkg => {
                         if (pkg.status === 'success') {
-                            // Prefer the compressed form: a big extension's raw
-                            // {manifest, files} JSON can exceed the market
-                            // server's body limit (capcut_tts: 1.1 MB -> HTTP
-                            // 413; packed: ~350 KB). The installer's
-                            // _unwrap_item_data understands this envelope.
-                            document.getElementById('uploadData').value = pkg.packed
-                                ? JSON.stringify({
-                                    format: 'gzip+b64',
-                                    name: pkg.manifest?.name || '',
-                                    version: pkg.manifest?.version || '',
-                                    data: pkg.packed,
-                                  })
-                                : JSON.stringify({
-                                    manifest: pkg.manifest,
-                                    files: pkg.files,
-                                  });
-                            console.log(`[Market] Packaged extension: ${pkg.file_count} files` + (pkg.packed ? ` (compressed ${(pkg.packed_size/1024).toFixed(0)} KB, raw ${(pkg.unpacked_size/1024).toFixed(0)} KB)` : ''));
+                            document.getElementById('uploadData').value = JSON.stringify({
+                                manifest: pkg.manifest,
+                                files: pkg.files,
+                            });
+                            console.log(`[Market] Packaged extension: ${pkg.file_count} files`);
                             
                             // Auto-fill version from manifest
                             if (pkg.manifest?.version) {
@@ -1501,6 +1503,27 @@ async function submitUpload(e) {
         })(),
         git_url: metadata.gitUrl || undefined,
     };
+
+    // A big extension's item_data blows the market server's request limit
+    // (capcut_tts: 1.1 MB of JSON -> HTTP 413). Compress AFTER the manifest
+    // sync so the sync always operates on the plain {manifest, files} object;
+    // the installer's _unwrap_item_data decompresses this envelope.
+    if (category === 'extension' && typeof CompressionStream !== 'undefined'
+        && payload.item_data && payload.item_data.length > 600_000) {
+        try {
+            const rawKB = Math.round(payload.item_data.length / 1024);
+            const packedData = await _gzipB64String(payload.item_data);
+            payload.item_data = JSON.stringify({
+                format: 'gzip+b64',
+                name: displayName, version: version,
+                data: packedData,
+            });
+            updateProgressLog(`Đã nén gói: ${rawKB} KB → ${Math.round(payload.item_data.length / 1024)} KB.`, "success");
+        } catch (err) {
+            updateProgressLog("Không nén được gói — gửi bản thường.", "warn");
+            console.error('[Market] compress failed:', err);
+        }
+    }
 
     try {
         const token = getAuthToken();
