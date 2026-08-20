@@ -3322,6 +3322,21 @@ async def package_extension(name: str):
     SKIP_EXTS = {".pyc", ".pyo", ".egg-info", ".sqlite3", ".db", ".log", ".exe", ".dll", ".so", ".zip", ".tar", ".gz"}
     MAX_FILE_SIZE = 500_000  # 500KB per file
 
+    # An extension can OPT SPECIFIC DIRS BACK IN via "package_keep_dirs" in its
+    # manifest. SKIP_DIRS drops every folder named dist/build on the theory that
+    # they are rebuildable artifacts — but capcut_tts ships server/dist ON
+    # PURPOSE (a low-RAM VPS must never run tsc), and skipping it silently sold
+    # a package whose buyers would have had to compile TypeScript themselves.
+    keep_dirs: set = set()
+    manifest_path_early = os.path.join(ext_dir, "tubecli-extension.json")
+    if os.path.isfile(manifest_path_early):
+        try:
+            with open(manifest_path_early, "r", encoding="utf-8-sig") as f:
+                _m = json_lib.load(f)
+            keep_dirs = {str(p).replace("\\", "/").strip("/") for p in _m.get("package_keep_dirs", [])}
+        except Exception:
+            pass
+
     # ── Parse .gitignore for extra exclusions ──
     gitignore_patterns = set()
     gitignore_path = os.path.join(ext_dir, ".gitignore")
@@ -3338,8 +3353,15 @@ async def package_extension(name: str):
     files = []
     all_imports: set = set()
 
+    def _kept(root_dir: str, d: str) -> bool:
+        """True if this dir (or one of its ancestors) is opted back in."""
+        rel = os.path.relpath(os.path.join(root_dir, d), ext_dir).replace("\\", "/")
+        return any(rel == k or rel.startswith(k + "/") or k.startswith(rel + "/")
+                   for k in keep_dirs)
+
     for root, dirs, filenames in os.walk(ext_dir):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and d not in gitignore_patterns]
+        dirs[:] = [d for d in dirs
+                   if (d not in SKIP_DIRS and d not in gitignore_patterns) or _kept(root, d)]
 
         for fname in filenames:
             if any(fname.endswith(e) for e in SKIP_EXTS):
