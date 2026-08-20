@@ -195,7 +195,8 @@ class MarketService:
                             err_data = r.json()
                             error_msg = err_data.get("error", r.text[:200])
                         except Exception:
-                            error_msg = f"Server error (HTTP {r.status_code}). Server có thể đang bảo trì."
+                            error_msg = ("Gói quá lớn so với giới hạn của server chợ (HTTP 413). "
+                                          "Hãy cập nhật TubeCLI để dùng upload nén.") if r.status_code == 413                                 else f"Server error (HTTP {r.status_code}). Server có thể đang bảo trì."
                         print(f"[MarketCLI] Upload HTTP {r.status_code}: {error_msg}")
                         return {"status": "error", "error": error_msg}
                     # Guard: server returned 200 but might be HTML (Cloudflare)

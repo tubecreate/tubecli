@@ -765,13 +765,23 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         # ── Step 1: Try to get files from item_data ──
         # Sometimes item_data is double-encoded JSON string
         def _unwrap_item_data(data):
-            """Recursively unwrap item_data if it's a JSON string."""
+            """Recursively unwrap item_data: JSON strings, and the gzip+b64
+            envelope large extensions upload to stay under the market server's
+            request-size limit ({"format": "gzip+b64", "data": "<base64>"})."""
             if isinstance(data, str):
                 try:
                     data = json_lib.loads(data)
                     return _unwrap_item_data(data)  # recurse in case of double-encoding
                 except (json_lib.JSONDecodeError, TypeError):
                     pass
+            if isinstance(data, dict) and data.get("format") == "gzip+b64" and data.get("data"):
+                try:
+                    import gzip as _gzip
+                    import base64 as _b64
+                    raw = _gzip.decompress(_b64.b64decode(data["data"])).decode("utf-8")
+                    return _unwrap_item_data(raw)
+                except Exception as e:
+                    print(f"[Market] Failed to decompress packed item_data: {e}")
             return data
 
         item_data = _unwrap_item_data(item_data)

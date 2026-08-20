@@ -1228,11 +1228,23 @@ function goToUploadStep(step) {
                     .then(r => r.json())
                     .then(pkg => {
                         if (pkg.status === 'success') {
-                            document.getElementById('uploadData').value = JSON.stringify({
-                                manifest: pkg.manifest,
-                                files: pkg.files,
-                            });
-                            console.log(`[Market] Packaged extension: ${pkg.file_count} files`);
+                            // Prefer the compressed form: a big extension's raw
+                            // {manifest, files} JSON can exceed the market
+                            // server's body limit (capcut_tts: 1.1 MB -> HTTP
+                            // 413; packed: ~350 KB). The installer's
+                            // _unwrap_item_data understands this envelope.
+                            document.getElementById('uploadData').value = pkg.packed
+                                ? JSON.stringify({
+                                    format: 'gzip+b64',
+                                    name: pkg.manifest?.name || '',
+                                    version: pkg.manifest?.version || '',
+                                    data: pkg.packed,
+                                  })
+                                : JSON.stringify({
+                                    manifest: pkg.manifest,
+                                    files: pkg.files,
+                                  });
+                            console.log(`[Market] Packaged extension: ${pkg.file_count} files` + (pkg.packed ? ` (compressed ${(pkg.packed_size/1024).toFixed(0)} KB, raw ${(pkg.unpacked_size/1024).toFixed(0)} KB)` : ''));
                             
                             // Auto-fill version from manifest
                             if (pkg.manifest?.version) {

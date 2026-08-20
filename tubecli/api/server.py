@@ -3459,12 +3459,25 @@ async def package_extension(name: str):
     # Update manifest with auto-detected deps
     manifest["dependencies"] = final_deps
 
+    # `packed` is the same {manifest, files} payload gzip+base64'd. The market
+    # upload sends item_data in a JSON body, and a large extension blows the
+    # market server's request-size limit — capcut_tts (351 files, ~1.1 MB of
+    # JSON) came back HTTP 413. Compressed it is ~350 KB. The uploader prefers
+    # this form when present; the installer's _unwrap_item_data understands it.
+    import gzip as _gzip
+    import base64 as _b64
+    packed_raw = json_lib.dumps({"manifest": manifest, "files": files}, ensure_ascii=False).encode("utf-8")
+    packed = _b64.b64encode(_gzip.compress(packed_raw, 9)).decode()
+
     return {
         "status": "success",
         "manifest": manifest,
         "files": files,
         "file_count": len(files),
         "detected_deps": final_deps,
+        "packed": packed,
+        "packed_size": len(packed),
+        "unpacked_size": len(packed_raw),
     }
 
 
