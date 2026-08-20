@@ -522,7 +522,12 @@
     </div>
 </dialog>
 
-<script src="/static/market.js?v=3.10"></script>
+<!-- Bump this on EVERY market.js change: the market page lives in an
+     iframe, where a main-frame hard reload does not reach — with a
+     stale buster the browser keeps serving the cached old script. That
+     is exactly how the compressed-upload fix sat unused while the
+     publish kept failing with 413. -->
+<script src="/static/market.js?v=3.11"></script>
 
 </body>
 </html>
