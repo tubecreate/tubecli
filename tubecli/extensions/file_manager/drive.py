@@ -434,6 +434,29 @@ async def drive_upload_content(
         raise _drive_error(e, "tải file lên")
 
 
+# Tiến trình tải Drive theo file_id, cho client hỏi thăm trong lúc chờ.
+# next_chunk() vốn TRẢ VỀ status có % — bản cũ vứt đi (`_, done`) nên client chỉ thấy
+# "đang tải…" đứng im hàng chục giây với file lớn, không phân biệt được với treo.
+DL_PROGRESS: dict = {}
+_DL_KEEP = 40
+
+
+def _dl_note(file_id: str, loaded: int, total: int, done: bool = False) -> None:
+    import time as _t
+    if len(DL_PROGRESS) > _DL_KEEP:
+        for k, _ in sorted(DL_PROGRESS.items(), key=lambda kv: kv[1]["ts"])[: len(DL_PROGRESS) - _DL_KEEP]:
+            DL_PROGRESS.pop(k, None)
+    DL_PROGRESS[str(file_id)] = {"loaded": int(loaded), "total": int(total),
+                                 "done": bool(done), "ts": _t.time()}
+
+
+def _dl_fail(file_id: str, msg: str) -> None:
+    import time as _t
+    ent = DL_PROGRESS.get(str(file_id)) or {"loaded": 0, "total": 0}
+    ent.update({"done": True, "error": str(msg)[:500], "ts": _t.time()})
+    DL_PROGRESS[str(file_id)] = ent
+
+
 def _download_to_spool(service, file_id: str):
     """Fetch Drive content into a spooled temp file. Returns (spool, name, mime)."""
     _, _, _, MediaIoBaseDownload, _ = _gapi()
@@ -461,11 +484,24 @@ def _download_to_spool(service, file_id: str):
 
     spool = tempfile.SpooledTemporaryFile(max_size=50 * 1024 * 1024)
     downloader = MediaIoBaseDownload(spool, request, chunksize=8 * 1024 * 1024)
+    total = int(meta.get("size") or 0)
+    _dl_note(file_id, 0, total)
     done = False
     while not done:
-        _, done = downloader.next_chunk()
+        status, done = downloader.next_chunk()
+        try:
+            _dl_note(file_id, int(status.resumable_progress), total, done)
+        except Exception:
+            pass
+    _dl_note(file_id, total or 1, total or 1, True)
     spool.seek(0)
     return spool, name, mime
+
+
+@router_drive.get("/progress")
+async def drive_progress(file_id: str = Query(...)):
+    """Tiến trình tải Drive đang chạy — client hỏi mỗi giây để vẽ %."""
+    return DL_PROGRESS.get(str(file_id)) or {"loaded": 0, "total": 0, "done": False}
 
 
 @router_drive.get("/fetch")
@@ -505,6 +541,69 @@ async def drive_fetch(file_id: str = Query(...), cred_id: Optional[str] = Query(
     )
 
 
+def _download_to_dir(cred_id, file_id, safe_dir):
+    import shutil as _sh
+
+    service, acting_email = _svc(cred_id)
+    _, _, _, MediaIoBaseDownload, _ = _gapi()
+
+    # KHÔNG đi qua _download_to_spool: đường spool dính trần cứng MAX_TRANSFER_MB
+    # (512MB) và ghi đĩa HAI lần (spool → dest). Lưu về đĩa server thì trần đúng
+    # là DUNG LƯỢNG TRỐNG THẬT — video 7.6GB từ Drive hoàn toàn hợp lệ nếu đĩa chứa nổi.
+    # Trần 512MB vẫn giữ nguyên cho /fetch (stream về trình duyệt) và upload.
+    meta = service.files().get(fileId=file_id, fields="id, name, mimeType, size").execute()
+    name = meta.get("name") or file_id
+    mime = meta.get("mimeType") or "application/octet-stream"
+    size = int(meta.get("size") or 0)
+
+    if mime in _EXPORT_FORMATS:
+        export_mime, ext = _EXPORT_FORMATS[mime]
+        request = service.files().export_media(fileId=file_id, mimeType=export_mime)
+        if not name.lower().endswith(ext):
+            name += ext
+        mime = export_mime
+    elif mime.startswith("application/vnd.google-apps"):
+        raise HTTPException(400, f"Loại file Google '{mime}' không tải về được dưới dạng dữ liệu.")
+    else:
+        request = service.files().get_media(fileId=file_id)
+
+    os.makedirs(safe_dir, exist_ok=True)
+    free = _sh.disk_usage(safe_dir).free
+    if size and free < size + 200 * 1024 * 1024:          # chừa 200MB thở cho hệ thống
+        raise HTTPException(
+            507,
+            f"Đĩa không đủ chỗ: file {size // 1048576}MB nhưng chỉ còn trống "
+            f"{free // 1048576}MB. Hãy dọn bớt bằng tab Dọn dẹp của File Manager.",
+        )
+
+    dest = os.path.join(safe_dir, os.path.basename(name))
+    part = dest + ".part"
+    _dl_note(file_id, 0, size)
+    try:
+        with open(part, "wb") as f:
+            downloader = MediaIoBaseDownload(f, request, chunksize=16 * 1024 * 1024)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+                try:
+                    _dl_note(file_id, int(status.resumable_progress), size, done)
+                except Exception:
+                    pass
+        os.replace(part, dest)                      # nguyên tử: không bao giờ thấy file dở
+    except BaseException:
+        try:
+            os.remove(part)
+        except OSError:
+            pass
+        raise
+    _dl_note(file_id, size or 1, size or 1, True)
+    return {
+        "status": "ok", "owner_email": acting_email, "path": dest,
+        "name": os.path.basename(dest), "mime_type": mime,
+        "size": os.path.getsize(dest),
+    }
+
+
 @router_drive.post("/download")
 async def drive_download_to_server(req: DownloadRequest):
     """Save a Drive file onto THIS server's disk.
@@ -521,24 +620,7 @@ async def drive_download_to_server(req: DownloadRequest):
         raise HTTPException(status_code=403, detail=str(e))
 
     def work():
-        service, acting_email = _svc(req.cred_id)
-        spool, name, mime = _download_to_spool(service, req.file_id)
-        try:
-            os.makedirs(safe_dir, exist_ok=True)
-            dest = os.path.join(safe_dir, os.path.basename(name))
-            with open(dest, "wb") as f:
-                while True:
-                    chunk = spool.read(1024 * 1024)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-        finally:
-            spool.close()
-        return {
-            "status": "ok", "owner_email": acting_email, "path": dest,
-            "name": os.path.basename(dest), "mime_type": mime,
-            "size": os.path.getsize(dest),
-        }
+        return _download_to_dir(req.cred_id, req.file_id, safe_dir)
 
     try:
         return await run_in_threadpool(work)
@@ -546,6 +628,45 @@ async def drive_download_to_server(req: DownloadRequest):
         raise
     except Exception as e:
         raise _drive_error(e, "tải file về máy chủ")
+
+
+@router_drive.post("/download-start")
+async def drive_download_start(req: DownloadRequest):
+    """Tải Drive → đĩa server ở TÁC VỤ NỀN, trả về ngay. Hỏi tiến độ qua /drive/progress.
+
+    /download (đồng bộ) giữ kết nối HTTP mở suốt quá trình tải — file hàng GB mất nhiều
+    phút, Cloudflare Tunnel cắt ở ~100s và phản hồi lỗi của edge không có header CORS,
+    nên client thấy "CORS error" trong khi server vẫn đang tải ngon lành. Mẫu đúng là
+    giao việc rồi hỏi thăm: mỗi request chỉ sống vài chục mili-giây, tunnel không có gì
+    để cắt. /drive/progress trả kèm path khi xong, error khi hỏng.
+    """
+    import asyncio
+
+    from tubecli.extensions.file_manager.file_service import file_service as strict_svc
+    try:
+        safe_dir = strict_svc._validate_path(req.dest_dir)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    ent = DL_PROGRESS.get(str(req.file_id))
+    if ent and not ent.get("done"):
+        return {"status": "already_running", "file_id": req.file_id}
+
+    _dl_note(req.file_id, 0, 0)
+
+    async def run():
+        try:
+            res = await run_in_threadpool(_download_to_dir, req.cred_id, req.file_id, safe_dir)
+            ent2 = DL_PROGRESS.get(str(req.file_id)) or {}
+            ent2.update({"done": True, "path": res["path"], "name": res["name"], "size": res["size"]})
+            DL_PROGRESS[str(req.file_id)] = ent2
+        except HTTPException as e:
+            _dl_fail(req.file_id, e.detail)
+        except Exception as e:                       # noqa: BLE001 — lỗi nào cũng phải tới client
+            _dl_fail(req.file_id, str(e) or e.__class__.__name__)
+
+    asyncio.create_task(run())
+    return {"status": "started", "file_id": req.file_id}
 
 
 @router_drive.post("/rename")
