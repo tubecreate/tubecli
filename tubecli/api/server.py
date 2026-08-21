@@ -1121,6 +1121,65 @@ async def get_version_info():
         pass
     return info
 
+
+def _git_pull_safe(repo: str, pull_args=("git", "pull")) -> dict:
+    """git pull that survives local modifications and reports WHY it failed.
+
+    The dashboard's Update button used to call `git pull` bare and then show
+    `stdout or stderr`. On a blocked pull git prints "Updating <old>..<new>" to
+    STDOUT and the actual reason ("Your local changes to the following files
+    would be overwritten by merge: …") to STDERR — so the user saw only
+    "git pull failed: Updating 25a1" and nothing about what to do.
+
+    Now: tracked local changes are stashed first, the pull runs, and the stash
+    is popped back. If the pop conflicts with the new code, the working tree is
+    reset to the fresh HEAD (so the app runs the new version) and the user's
+    changes stay safe in `git stash list` — the message says so, by file.
+    """
+    import subprocess
+    import time as _time
+
+    def run(cmd, timeout=60):
+        return subprocess.run(cmd, capture_output=True, text=True, cwd=repo, timeout=timeout)
+
+    notes = []
+    st = run(["git", "status", "--porcelain", "--untracked-files=no"], 15)
+    dirty = [l[3:].strip() for l in st.stdout.splitlines() if l.strip()] if st.returncode == 0 else []
+    stashed = False
+    if dirty:
+        s = run(["git", "stash", "push", "-m",
+                 f"tubecli-auto-update {_time.strftime('%Y-%m-%d %H:%M:%S')}"], 30)
+        if s.returncode != 0:
+            return {"ok": False, "dirty": dirty, "notes": notes,
+                    "message": "Có thay đổi cục bộ chưa commit và không cất tạm được: "
+                               + (s.stderr.strip() or s.stdout.strip())
+                               + " — file: " + ", ".join(dirty)}
+        stashed = True
+        notes.append(f"Đã cất tạm {len(dirty)} file sửa cục bộ (git stash): " + ", ".join(dirty))
+
+    r = run(list(pull_args), 120)
+    if r.returncode != 0:
+        reason = r.stderr.strip() or r.stdout.strip()
+        if stashed:
+            pop = run(["git", "stash", "pop"], 30)
+            notes.append("Đã khôi phục thay đổi cục bộ." if pop.returncode == 0
+                         else "Thay đổi cục bộ vẫn nằm trong `git stash list`.")
+        return {"ok": False, "dirty": dirty, "notes": notes,
+                "message": f"git pull failed: {reason}", "output": r.stdout.strip()}
+
+    out = r.stdout.strip()
+    if stashed:
+        pop = run(["git", "stash", "pop"], 30)
+        if pop.returncode == 0:
+            notes.append("Đã khôi phục thay đổi cục bộ sau khi cập nhật.")
+        else:
+            # A conflicting pop leaves conflict markers in the tree; the app
+            # must not run that. Reset to the new HEAD — the stash is kept.
+            run(["git", "reset", "--hard", "HEAD"], 30)
+            notes.append("Thay đổi cục bộ XUNG ĐỘT với bản mới nên được giữ nguyên trong "
+                         "`git stash list` (chạy `git stash pop` để xử lý tay). File: " + ", ".join(dirty))
+    return {"ok": True, "dirty": dirty, "notes": notes, "message": out, "output": out}
+
 @app.post("/api/v1/version/update")
 async def perform_git_update():
     """Safe update: git pull + install only missing deps + restart.
@@ -1133,11 +1192,12 @@ async def perform_git_update():
     try:
         repo = str(BASE_DIR)
 
-        # Step 1: git pull
-        r = subprocess.run(["git", "pull"], capture_output=True, text=True, cwd=repo, timeout=60)
-        pull_output = r.stdout.strip() or r.stderr.strip()
-        if r.returncode != 0:
-            return {"status": "error", "output": f"git pull failed: {pull_output}"}
+        # Step 1: git pull — stash-aware, and the failure message carries the
+        # real reason (stderr) plus the files involved, not just "Updating abc".
+        pr = _git_pull_safe(repo, ("git", "pull"))
+        pull_output = pr["message"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else "")
+        if not pr["ok"]:
+            return {"status": "error", "output": pull_output, "dirty_files": pr["dirty"]}
 
         # Step 2: Check which files changed to determine if deps need updating
         changed_files = []
@@ -3598,13 +3658,12 @@ async def system_update():
     old_version = __version__
 
     try:
-        # Git pull
-        r_pull = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            cwd=project_root, capture_output=True, text=True, timeout=60,
-        )
-        if r_pull.returncode != 0:
-            return {"status": "error", "error": f"git pull failed: {r_pull.stderr}"}
+        # Git pull — stash-aware (see _git_pull_safe)
+        pr = _git_pull_safe(project_root, ("git", "pull", "origin", "main"))
+        if not pr["ok"]:
+            return {"status": "error",
+                    "error": pr["message"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else ""),
+                    "dirty_files": pr["dirty"]}
 
         # Reinstall (update dependencies)
         r_install = subprocess.run(
@@ -3628,7 +3687,7 @@ async def system_update():
             "status": "success",
             "old_version": old_version,
             "new_version": new_version,
-            "git_output": r_pull.stdout.strip()[:500],
+            "git_output": (pr["output"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else ""))[:500],
             "message": "Updated successfully! Please restart the API server to apply changes.",
         }
     except Exception as e:
