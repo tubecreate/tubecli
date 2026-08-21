@@ -300,6 +300,12 @@
             <p id="authSubtitle" style="color:var(--text-muted,#6868a0);margin:0 0 20px;font-size:0.9rem;">&#x0110;&#x0103;ng nh&#x1EAD;p &#x0111;&#x1EC3; b&#xE1;n tr&#xEA;n Market</p>
             <div id="authErrorMsg" style="display:none;background:rgba(239,68,68,.15);color:#ef4444;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;"></div>
 
+            <!-- Đăng nhập bằng phiên cloud: khỏi gõ lại mật khẩu, cùng tài khoản với cloud.tubecreate.com -->
+            <button type="button" id="btnCloudSso" onclick="loginWithCloud()" style="width:100%;padding:11px 14px;border-radius:9px;border:1px solid #7c3aed;background:rgba(124,58,237,.14);color:#c4b5fd;font-weight:700;font-size:0.9rem;cursor:pointer;margin-bottom:14px;">&#x2601;&#xFE0F; &#x0110;&#x0103;ng nh&#x1EAD;p b&#x1EB1;ng TubeCLI Cloud</button>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;color:var(--text-muted,#6868a0);font-size:0.78rem;">
+                <span style="flex:1;height:1px;background:var(--border,#2a2a4a);"></span>ho&#x1EB7;c d&#xF9;ng email<span style="flex:1;height:1px;background:var(--border,#2a2a4a);"></span>
+            </div>
+
             <!-- Register-only fields (top) -->
             <div id="registerFieldsTop" style="display:none;">
                 <div class="form-group" style="margin-bottom:12px;">
@@ -527,7 +533,7 @@
      stale buster the browser keeps serving the cached old script. That
      is exactly how the compressed-upload fix sat unused while the
      publish kept failing with 413. -->
-<script src="/static/market.js?v=3.13"></script>
+<script src="/static/market.js?v=3.14"></script>
 
 </body>
 </html>

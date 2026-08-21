@@ -1788,6 +1788,46 @@ function requireAuth(callback) {
     }
 }
 
+
+// ── SSO với TubeCLI Cloud ────────────────────────────────────────────────────
+// Chợ chạy trên domain của server này nên localStorage KHÔNG dùng chung với
+// cloud.tubecreate.com. Thay vì bắt gõ lại email/mật khẩu: mở popup sang cloud (đã đăng nhập
+// sẵn ở đó), cloud kiểm origin này có thuộc server của chính user rồi postMessage token về.
+const CLOUD_ORIGIN = 'https://cloud.tubecreate.com';
+
+function loginWithCloud() {
+    const url = `${CLOUD_ORIGIN}/sso/market?origin=${encodeURIComponent(location.origin)}`;
+    const w = window.open(url, 'tubecli-cloud-sso', 'width=460,height=560,menubar=no,toolbar=no');
+    if (!w) { showToast('Trình duyệt chặn cửa sổ bật lên — hãy cho phép rồi thử lại.', 'error'); return; }
+    const btn = document.getElementById('btnCloudSso');
+    if (btn) { btn.disabled = true; btn.dataset.old = btn.innerHTML; btn.innerHTML = '⏳ Đang chờ cửa sổ đăng nhập…'; }
+    // Người dùng đóng popup giữa chừng → mở khoá nút
+    const iv = setInterval(() => {
+        if (w.closed) {
+            clearInterval(iv);
+            if (btn && btn.disabled) { btn.disabled = false; btn.innerHTML = btn.dataset.old || btn.innerHTML; }
+        }
+    }, 700);
+}
+
+window.addEventListener('message', (e) => {
+    if (e.origin !== CLOUD_ORIGIN) return;                       // chỉ tin cloud
+    const d = e.data || {};
+    if (d.type !== 'tubecli-market-sso' || !d.token) return;
+    localStorage.setItem('user_token', d.token);
+    localStorage.setItem('market_user', JSON.stringify(d.user || {}));
+    try { closeLoginModal(); } catch {}
+    updateMarketAuthUI();
+    try { loadStripeBalance(); } catch {}
+    showToast(`Đã đăng nhập bằng tài khoản Cloud${d.user && d.user.username ? ' (' + d.user.username + ')' : ''}`, 'success');
+    if (typeof pendingSellAction !== 'undefined' && pendingSellAction) {
+        pendingSellAction = false;
+        setTimeout(() => openUploadModal(), 300);
+    } else {
+        setTimeout(() => { try { loadMarketItems(); } catch {} }, 300);
+    }
+});
+
 function showLoginModal() {
     const modal = document.getElementById('loginModal');
     if (!modal) return;
