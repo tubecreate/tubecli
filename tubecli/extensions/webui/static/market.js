@@ -1798,9 +1798,9 @@ const CLOUD_ORIGIN = 'https://cloud.tubecreate.com';
 function loginWithCloud() {
     const url = `${CLOUD_ORIGIN}/sso/market?origin=${encodeURIComponent(location.origin)}`;
     const w = window.open(url, 'tubecli-cloud-sso', 'width=460,height=560,menubar=no,toolbar=no');
-    if (!w) { showToast('Trình duyệt chặn cửa sổ bật lên — hãy cho phép rồi thử lại.', 'error'); return; }
+    if (!w) { showToast(T('auth.sso_popup_blocked') || 'Your browser blocked the popup — allow it and try again.', 'error'); return; }
     const btn = document.getElementById('btnCloudSso');
-    if (btn) { btn.disabled = true; btn.dataset.old = btn.innerHTML; btn.innerHTML = '⏳ Đang chờ cửa sổ đăng nhập…'; }
+    if (btn) { btn.disabled = true; btn.dataset.old = btn.innerHTML; btn.innerHTML = '⏳ ' + (T('auth.sso_waiting') || 'Waiting for the sign-in window…'); }
     // Người dùng đóng popup giữa chừng → mở khoá nút
     const iv = setInterval(() => {
         if (w.closed) {
@@ -1819,7 +1819,7 @@ window.addEventListener('message', (e) => {
     try { closeLoginModal(); } catch {}
     updateMarketAuthUI();
     try { loadStripeBalance(); } catch {}
-    showToast(`Đã đăng nhập bằng tài khoản Cloud${d.user && d.user.username ? ' (' + d.user.username + ')' : ''}`, 'success');
+    showToast((T('auth.sso_ok') || 'Signed in with your Cloud account') + (d.user && d.user.username ? ' (' + d.user.username + ')' : ''), 'success');
     if (typeof pendingSellAction !== 'undefined' && pendingSellAction) {
         pendingSellAction = false;
         setTimeout(() => openUploadModal(), 300);

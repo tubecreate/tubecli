@@ -98,5 +98,16 @@
   "topup.step5": "네트워크 이체 수수료를 부담하여 전액이 우리에게 도달하도록 합니다",
   "topup.step6": "거래를 실행하고 블록체인 확인을 기다립니다",
   "topup.tracking": "시스템이 블록체인을 자동으로 추적하고 있습니다...",
-  "topup.warning": "⚠️ <b>이 페이지를 닫지 마십시오</b>. 이체 중 네트워크를 변경하지 마십시오. 금액 부족을 피하려면 보낸 금액에 거래소 인출 수수료가 포함되어 있는지 확인하십시오."
+  "topup.warning": "⚠️ <b>이 페이지를 닫지 마십시오</b>. 이체 중 네트워크를 변경하지 마십시오. 금액 부족을 피하려면 보낸 금액에 거래소 인출 수수료가 포함되어 있는지 확인하십시오.",
+  "card.install": "설치",
+  "topup.received": "입금 확인 — 지갑에 반영되었습니다",
+  "topup.partial": "금액 부족 — 받은 만큼만 반영, 나머지를 보내세요",
+  "topup.failed": "주문이 만료되었거나 실패했습니다 — 새로 만드세요",
+  "topup.confirming": "거래 확인됨 — 입금을 기다리는 중…",
+  "sell.git_url": "Git URL (백업)",
+  "auth.cloud_sso": "TubeCLI Cloud로 로그인",
+  "auth.or_email": "또는 이메일 사용",
+  "auth.sso_waiting": "로그인 창을 기다리는 중…",
+  "auth.sso_popup_blocked": "브라우저가 팝업을 차단했습니다 — 허용 후 다시 시도하세요.",
+  "auth.sso_ok": "Cloud 계정으로 로그인했습니다"
 }

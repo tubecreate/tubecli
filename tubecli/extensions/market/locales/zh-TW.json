@@ -98,5 +98,16 @@
   "topup.step5": "支付網路轉帳費，以便我們收到全額",
   "topup.step6": "執行交易並等待區塊鏈確認",
   "topup.tracking": "系統正在自動追蹤區塊鏈...",
-  "topup.warning": "⚠️ <b>請勿關閉此頁面</b>，並在轉帳期間不要更改網路。請確保您發送的金額包含交易所提款費，以避免付款不足。"
+  "topup.warning": "⚠️ <b>請勿關閉此頁面</b>，並在轉帳期間不要更改網路。請確保您發送的金額包含交易所提款費，以避免付款不足。",
+  "card.install": "安裝",
+  "topup.received": "已收到款項 — 餘額已入帳！",
+  "topup.partial": "金額不足 — 已入帳部分，請補足差額",
+  "topup.failed": "訂單已過期或失敗 — 請重新建立",
+  "topup.confirming": "已偵測到交易 — 等待入帳…",
+  "sell.git_url": "Git 網址（備用）",
+  "auth.cloud_sso": "使用 TubeCLI Cloud 登入",
+  "auth.or_email": "或使用電子郵件",
+  "auth.sso_waiting": "等待登入視窗…",
+  "auth.sso_popup_blocked": "瀏覽器封鎖了彈出視窗 — 請允許後再試。",
+  "auth.sso_ok": "已使用 Cloud 帳號登入"
 }

@@ -98,5 +98,16 @@
   "topup.step5": "Tam miktarı alabilmemiz için ağ transfer ücretini karşılayın",
   "topup.step6": "İşlemi gerçekleştirin ve Blockchain onayı bekleyin",
   "topup.tracking": "Sistem Blockchain'i otomatik olarak takip ediyor...",
-  "topup.warning": "⚠️ <b>Lütfen bu sayfayı kapatmayın</b> ve transfer sırasında ağları değiştirmeyin. Eksik ödeme yapmamak için gönderdiğiniz miktarın borsa çekim ücretlerini içerdiğinden emin olun."
+  "topup.warning": "⚠️ <b>Lütfen bu sayfayı kapatmayın</b> ve transfer sırasında ağları değiştirmeyin. Eksik ödeme yapmamak için gönderdiğiniz miktarın borsa çekim ücretlerini içerdiğinden emin olun.",
+  "card.install": "Kur",
+  "topup.received": "Ödeme alındı — bakiye yüklendi",
+  "topup.partial": "Eksik ödeme — alınan kısım yüklendi, kalanı gönderin",
+  "topup.failed": "Sipariş süresi doldu veya başarısız — yeni bir tane oluşturun",
+  "topup.confirming": "İşlem görüldü — hesaba geçmesi bekleniyor…",
+  "sell.git_url": "Git URL (yedek)",
+  "auth.cloud_sso": "TubeCLI Cloud ile giriş yap",
+  "auth.or_email": "ya da e-posta kullan",
+  "auth.sso_waiting": "Giriş penceresi bekleniyor…",
+  "auth.sso_popup_blocked": "Tarayıcı açılır pencereyi engelledi — izin verip tekrar deneyin.",
+  "auth.sso_ok": "Cloud hesabınla giriş yapıldı"
 }

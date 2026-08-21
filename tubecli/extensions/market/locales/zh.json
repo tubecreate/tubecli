@@ -98,5 +98,16 @@
   "topup.step5": "支付网络转账费，以便我们收到全额",
   "topup.step6": "执行交易并等待区块链确认",
   "topup.tracking": "系统正在自动跟踪区块链...",
-  "topup.warning": "⚠️ <b>请勿关闭此页面</b>，并在转账期间不要更改网络。请确保您发送的金额包含交易所提款费，以避免付款不足。"
+  "topup.warning": "⚠️ <b>请勿关闭此页面</b>，并在转账期间不要更改网络。请确保您发送的金额包含交易所提款费，以避免付款不足。",
+  "card.install": "安装",
+  "topup.received": "已收到付款 — 余额已到账！",
+  "topup.partial": "金额不足 — 已到账部分，请补足差额",
+  "topup.failed": "订单已过期或失败 — 请重新创建",
+  "topup.confirming": "已检测到交易 — 等待到账…",
+  "sell.git_url": "Git 地址（备用）",
+  "auth.cloud_sso": "使用 TubeCLI Cloud 登录",
+  "auth.or_email": "或使用邮箱",
+  "auth.sso_waiting": "等待登录窗口…",
+  "auth.sso_popup_blocked": "浏览器拦截了弹出窗口 — 请允许后重试。",
+  "auth.sso_ok": "已使用 Cloud 账号登录"
 }

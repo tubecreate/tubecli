@@ -98,5 +98,16 @@
   "topup.step5": "Cubre la tarifa de transferencia de red para que recibamos la cantidad completa",
   "topup.step6": "Ejecuta la transacción y espera la confirmación de la cadena de bloques",
   "topup.tracking": "El sistema está rastreando automáticamente la cadena de bloques...",
-  "topup.warning": "⚠️ <b>Por favor, no cierres esta página</b> y no cambies de red mientras realizas la transferencia. Asegúrate de que la cantidad enviada incluya las tarifas de retiro del intercambio para evitar pagos insuficientes."
+  "topup.warning": "⚠️ <b>Por favor, no cierres esta página</b> y no cambies de red mientras realizas la transferencia. Asegúrate de que la cantidad enviada incluya las tarifas de retiro del intercambio para evitar pagos insuficientes.",
+  "card.install": "Instalar",
+  "topup.received": "Pago recibido: saldo acreditado",
+  "topup.partial": "Pago incompleto: se acreditó lo recibido, envía el resto",
+  "topup.failed": "La orden expiró o falló: crea una nueva",
+  "topup.confirming": "Transacción detectada: esperando la acreditación…",
+  "sell.git_url": "URL de Git (respaldo)",
+  "auth.cloud_sso": "Iniciar sesión con TubeCLI Cloud",
+  "auth.or_email": "o usa tu correo",
+  "auth.sso_waiting": "Esperando la ventana de inicio de sesión…",
+  "auth.sso_popup_blocked": "El navegador bloqueó la ventana emergente: permítela e inténtalo de nuevo.",
+  "auth.sso_ok": "Sesión iniciada con tu cuenta Cloud"
 }
