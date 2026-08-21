@@ -484,7 +484,22 @@ function buildSidebar(extensions, groups) {
             const panel = document.createElement('section');
             panel.className = 'tab-panel';
             panel.id = 'tab-' + tabId;
-            panel.innerHTML = `<div class="iframe-container"><iframe data-src="${ext.page_url}" class="ext-iframe"></iframe></div>`;
+            if (ext.route_error) {
+                // The extension object loaded (so it is in the sidebar) but its
+                // routes did not mount — every URL would 404. Until now that
+                // rendered as a bare {"detail":"Not Found"} in the iframe with
+                // no hint. Show the recorded reason and the usual remedy.
+                panel.innerHTML = `
+                    <div style="max-width:720px;margin:40px auto;padding:22px 24px;border:1px solid var(--red);border-radius:12px;background:rgba(239,68,68,.08)">
+                        <h3 style="margin:0 0 8px;color:var(--red)">⚠️ ${esc(ext.display_name || ext.name)} — ${esc(T('ext.route_error_title') || 'không nạp được API/trang')}</h3>
+                        <p style="margin:0 0 10px;color:var(--text-muted);font-size:.9rem">${esc(T('ext.route_error_hint') || 'Extension đã được cài nhưng mã của nó lỗi khi nạp, nên mọi đường dẫn trả 404. Lý do hệ thống ghi nhận:')}</p>
+                        <pre style="white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.8rem;margin:0 0 12px">${esc(ext.route_error)}${ext.deps_error ? '\n' + esc(ext.deps_error) : ''}</pre>
+                        <p style="margin:0;color:var(--text-muted);font-size:.86rem">${esc(T('ext.route_error_fix') || 'Thường do thiếu thư viện Python trên máy này. Trong thư mục TubeCLI, chạy:')}</p>
+                        <pre style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:.8rem;margin:6px 0 0">pip install ${esc((ext.dependencies || []).join(' ') || '&lt;thư viện trong lỗi trên&gt;')}\ntubecli api restart</pre>
+                    </div>`;
+            } else {
+                panel.innerHTML = `<div class="iframe-container"><iframe data-src="${ext.page_url}" class="ext-iframe"></iframe></div>`;
+            }
             document.querySelector('.content').appendChild(panel);
         }
 

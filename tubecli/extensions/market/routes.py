@@ -934,6 +934,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
 
         # Register with ExtensionManager and auto-enable
         from tubecli.core.extension_manager import extension_manager
+        hot_mount_error = None
         extension_manager.discover_external_extensions()
 
         # Auto-enable: try by name, install_id, or partial match
@@ -960,16 +961,41 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             if ext_d and ext_d not in _sys.path:
                 _sys.path.insert(0, ext_d)
 
+            hot_mount_error = None
             try:
                 from tubecli.api.server import app
+                # Make sure declared pip deps are present BEFORE importing the
+                # extension's routes — the same step startup does.
+                try:
+                    extension_manager._ensure_extension_deps(ext_obj)
+                except Exception as _de:
+                    print(f"[Market] deps check warning: {_de}")
                 ext_router = ext_obj.get_routes()
+                ext_obj.route_error = None
                 if ext_router:
-                    app.include_router(ext_router)
-                    print(f"[Market] Hot-mounted {len(ext_router.routes)} routes for {ext_obj.name}")
+                    # get_routes() may return ONE router or a LIST of routers
+                    # (capcut_tts returns [api_router, page_router]). The old
+                    # code passed the list straight to include_router, which
+                    # raised, was swallowed, and left the freshly installed
+                    # extension with no routes until a manual restart — while
+                    # the response still said "Refresh page to use".
+                    routers = ext_router if isinstance(ext_router, list) else [ext_router]
+                    n = 0
+                    for r in routers:
+                        app.include_router(r)
+                        n += len(getattr(r, "routes", []))
+                    # A route table added after startup is not seen by the
+                    # already-compiled middleware/router stack unless the app's
+                    # route cache is invalidated; Starlette handles that on
+                    # include_router, but openapi schema is stale — drop it.
+                    app.openapi_schema = None
+                    print(f"[Market] Hot-mounted {n} routes ({len(routers)} router(s)) for {ext_obj.name}")
                 else:
                     print(f"[Market] No routes returned by {ext_obj.name}")
             except Exception as e:
-                print(f"[Market] Could not hot-mount routes (restart server to activate): {e}")
+                hot_mount_error = f"{type(e).__name__}: {e}"
+                ext_obj.route_error = hot_mount_error
+                print(f"[Market] Could not hot-mount routes: {e}")
                 import traceback
                 traceback.print_exc()
 
@@ -988,6 +1014,14 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             except Exception as e:
                 print(f"[Market] on_install warning: {e}")
 
+        if hot_mount_error:
+            # Files are on disk and the extension is enabled, but its code did
+            # not load — say so, instead of "Refresh page to use" followed by a
+            # 404 on every URL.
+            return {"status": "success", "type": "extension", "restart_required": True,
+                    "route_error": hot_mount_error,
+                    "message": (f"Extension '{req.item_name}' đã cài nhưng KHÔNG nạp được mã: {hot_mount_error}. "
+                                f"Thường do thiếu thư viện Python — cài theo thông báo rồi restart TubeCLI.")}
         return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled. Refresh page to use.", "type": "extension", "restart_required": False}
 
     elif category == "skill":

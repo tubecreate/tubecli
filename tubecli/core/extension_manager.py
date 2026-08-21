@@ -337,6 +337,14 @@ class Extension:
             "homepage": manifest.get("homepage", ""),
             "donate": manifest.get("donate", ""),
             "git_url": git_url,
+            # Why the extension's URLs 404 even though it is listed: set by
+            # register_api_routes when get_routes() raised (typically an
+            # ImportError for a missing Python dependency), and by
+            # _ensure_extension_deps when pip itself failed.
+            "route_error": getattr(self, "route_error", None),
+            "deps_error": getattr(self, "deps_error", None),
+            # So the dashboard can print the exact `pip install …` remedy.
+            "dependencies": manifest.get("dependencies", []),
         }
 
 
@@ -662,16 +670,31 @@ class ExtensionManager:
             except ImportError:
                 missing.append(pkg)
 
+        extension.deps_error = None
         if missing:
             print(f"[ExtensionManager] Installing dependencies for '{extension.name}': {', '.join(missing)}")
             try:
-                subprocess.run(
+                # 120 s was too short for a package that has to compile on the
+                # host (cryptography without a matching wheel); and the return
+                # code was never checked, so a failed pip still printed
+                # "installed successfully" and the import error that followed
+                # looked unrelated. Check it, keep pip's last lines as the reason.
+                r = subprocess.run(
                     [sys.executable, "-m", "pip", "install", *missing, "--quiet"],
-                    capture_output=True, timeout=120,
+                    capture_output=True, text=True, timeout=300,
                 )
-                print(f"[ExtensionManager] Dependencies installed successfully for '{extension.name}'")
+                if r.returncode == 0:
+                    print(f"[ExtensionManager] Dependencies installed successfully for '{extension.name}'")
+                else:
+                    tail = (r.stderr or r.stdout or "").strip().splitlines()[-3:]
+                    extension.deps_error = f"pip install {' '.join(missing)} failed: " + " | ".join(tail)
+                    print(f"[ExtensionManager] WARNING: {extension.deps_error}", file=sys.stderr)
+            except subprocess.TimeoutExpired:
+                extension.deps_error = f"pip install {' '.join(missing)} timed out (300 s) — cài tay rồi restart."
+                print(f"[ExtensionManager] WARNING: {extension.deps_error}", file=sys.stderr)
             except Exception as e:
-                print(f"[ExtensionManager] WARNING: Failed to install deps for '{extension.name}': {e}")
+                extension.deps_error = f"pip install {' '.join(missing)} error: {e}"
+                print(f"[ExtensionManager] WARNING: Failed to install deps for '{extension.name}': {e}", file=sys.stderr)
 
     def register_api_routes(self, app):
         """Register all enabled extension API routes to the FastAPI app."""
@@ -687,6 +710,9 @@ class ExtensionManager:
                 self._ensure_extension_deps(extension)
 
                 router = extension.get_routes()
+                # Reached here → get_routes imported fine. Clear any earlier
+                # failure so a fixed dependency stops showing as broken.
+                extension.route_error = None
                 if router:
                     # Support extensions returning a list of routers
                     routers = router if isinstance(router, list) else [router]
@@ -701,6 +727,14 @@ class ExtensionManager:
                         print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
             except Exception as e:
                 import traceback
+                # Remember WHY, on the extension itself. Until now this failure
+                # was swallowed here: the extension still appeared in the sidebar
+                # (its object had loaded) while every one of its URLs 404'd, and
+                # the only trace was a line in a server log the user never sees.
+                # to_dict exposes route_error, and the dashboard shows it in
+                # place of the dead iframe.
+                deps_note = getattr(extension, "deps_error", None)
+                extension.route_error = f"{type(e).__name__}: {e}" + (f" (pip: {deps_note})" if deps_note else "")
                 # Failures are always shown: quiet is about routine noise, not about
                 # hiding something that went wrong.
                 logger.error(f"Failed to register API routes for extension '{extension.name}': {e}")
