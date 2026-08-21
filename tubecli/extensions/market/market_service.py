@@ -14,7 +14,10 @@ except ImportError:
     import requests
     _HTTPX_AVAILABLE = False
 
-API_BASE = "https://api.tubecreate.com/api/market-cli"
+# Chợ đã di trú sang Cloudflare Worker (market.tubecreate.com) — cùng user, cùng ví USD,
+# cùng PayPal với cloud.tubecreate.com. PHP cũ ở api.tubecreate.com chỉ còn phục vụ
+# client chưa cập nhật; endpoint giữ nguyên tên .php nên chỉ đổi host.
+API_BASE = "https://market.tubecreate.com/api/market-cli"
 TIMEOUT = 15
 TIMEOUT_LONG = 60  # For upload/download large extensions
 

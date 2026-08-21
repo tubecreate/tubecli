@@ -2751,12 +2751,15 @@ function _dlgClose(id) {
 }
 
 
+// Ví giờ tính bằng USD (hợp nhất với cloud.tubecreate.com): "credits" = số USD vào ví.
+// Gói giữ nguyên id/giá cũ; 1 credit cũ = $0.001 nên bonus gói cũ quy ra USD thật.
 const STRIPE_PACKAGES_DEFAULT = [
-    { id: 'starter',  name: 'Starter',  credits: 5000,   price_usd: 5.00,  badge: null,          color: '#6366f1' },
-    { id: 'pro',      name: 'Pro',       credits: 15000,  price_usd: 12.00, badge: 'Popular',     color: '#8b5cf6' },
-    { id: 'power',    name: 'Power',     credits: 50000,  price_usd: 35.00, badge: 'Best Value',  color: '#a855f7' },
-    { id: 'ultimate', name: 'Ultimate',  credits: 150000, price_usd: 90.00, badge: 'Pro',         color: '#ec4899' },
+    { id: 'starter',  name: 'Starter',  credits: 5,   bonus_usd: 0,  price_usd: 5.00,  badge: null,          color: '#6366f1' },
+    { id: 'pro',      name: 'Pro',       credits: 15,  bonus_usd: 3,  price_usd: 12.00, badge: 'Popular',     color: '#8b5cf6' },
+    { id: 'power',    name: 'Power',     credits: 50,  bonus_usd: 15, price_usd: 35.00, badge: 'Best Value',  color: '#a855f7' },
+    { id: 'ultimate', name: 'Ultimate',  credits: 150, bonus_usd: 60, price_usd: 90.00, badge: 'Pro',         color: '#ec4899' },
 ];
+const fmtUsd = (n) => '$' + Number(n || 0).toFixed(2);
 
 
 // ── Init: Load Stripe config + balance on page load ──
@@ -2797,8 +2800,8 @@ function renderCreditBadge() {
     el.style.display = 'flex';
     el.innerHTML = `
         <span style="opacity:0.7;font-size:0.75rem;">💎</span>
-        <span id="creditBalanceVal" style="font-weight:700;">${Math.floor(_stripeBalance)}</span>
-        <span style="opacity:0.6;font-size:0.75rem;">credits</span>
+        <span id="creditBalanceVal" style="font-weight:700;">${fmtUsd(_stripeBalance)}</span>
+        <span style="opacity:0.6;font-size:0.75rem;">USD</span>
         <button onclick="openTopUpModal()" style="margin-left:6px;padding:2px 10px;font-size:0.72rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">+ Nạp</button>
     `;
 }
@@ -2835,9 +2838,10 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
     _paymentChoicePrice  = priceCredits;
     _paymentChoiceTitle  = title;
 
-    const priceUsd  = (priceCredits * 0.10).toFixed(2);
-    const balance   = _stripeBalance !== null ? Math.floor(_stripeBalance) : null;
-    const canAfford = balance !== null && balance >= priceCredits;
+    // Giá item và số dư đều là USD (ví hợp nhất với cloud) — không còn quy đổi credits.
+    const priceUsd  = Number(priceCredits).toFixed(2);
+    const balance   = _stripeBalance !== null ? Number(_stripeBalance) : null;
+    const canAfford = balance !== null && balance + 1e-9 >= Number(priceCredits);
 
     const dlg = document.getElementById('paymentChoiceModal');
     if (!dlg) { buyItemWithCredits(publicId); return; }
@@ -2848,8 +2852,7 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
             <div>
                 <div style="font-weight:700;font-size:1rem;color:#fff">${escapeHtml(title)}</div>
                 <div style="font-size:0.8rem;color:var(--text-muted);margin-top:3px">
-                    Giá: <strong style="color:#818cf8">${priceCredits} credits</strong>
-                    &nbsp;≈&nbsp; <strong>$${priceUsd} USD</strong>
+                    Giá: <strong style="color:#818cf8">$${priceUsd} USD</strong>
                 </div>
             </div>
         </div>
@@ -2857,8 +2860,8 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
         ${balance !== null ? `
         <div class="pmc-balance">
             <span>💎 Số dư của bạn:</span>
-            <strong style="color:${canAfford ? '#4ade80' : '#f87171'}">${balance} credits</strong>
-            ${!canAfford ? `<span style="color:#f87171;font-size:0.74rem;margin-left:6px;">⚠ Thiếu ${priceCredits - balance} credits</span>` : ''}
+            <strong style="color:${canAfford ? '#4ade80' : '#f87171'}">${fmtUsd(balance)}</strong>
+            ${!canAfford ? `<span style="color:#f87171;font-size:0.74rem;margin-left:6px;">⚠ Thiếu ${fmtUsd(Number(priceCredits) - balance)}</span>` : ''}
         </div>` : ''}
 
         <div class="pmc-options">
@@ -2938,10 +2941,10 @@ function renderTopUpPackages(packages) {
         return `
         <div class="topup-pkg ${isPopular ? 'topup-popular' : ''} ${isBest ? 'topup-best' : ''}" onclick="startTopUp('${pkg.id}', this)">
             ${pkg.badge ? `<div class="topup-badge">${pkg.badge}</div>` : ''}
-            <div class="topup-credits-num">${pkg.credits.toLocaleString()}</div>
-            <div class="topup-credits-lbl">credits</div>
-            <div class="topup-price-tag">$${pkg.price_usd.toFixed(2)} <span style="font-size:0.7rem;opacity:0.6;">USD</span></div>
-            <div class="topup-rate">${Math.round(pkg.credits / pkg.price_usd).toLocaleString()} credits / $1</div>
+            <div class="topup-credits-num">${fmtUsd(pkg.credits)}</div>
+            <div class="topup-credits-lbl">vào ví</div>
+            <div class="topup-price-tag">Trả $${Number(pkg.price_usd).toFixed(2)} <span style="font-size:0.7rem;opacity:0.6;">USD</span></div>
+            <div class="topup-rate">${pkg.bonus_usd ? `🎁 Tặng thêm ${fmtUsd(pkg.bonus_usd)}` : 'Không bonus'}</div>
             <button class="topup-go-btn">Nạp ngay →</button>
         </div>`;
     }).join('');
@@ -3318,7 +3321,7 @@ async function executePaypalCapture(orderId) {
         const result = await res.json();
         
         if (result.status === 'success') {
-            showToast(`🎉 Nạp thành công +${result.credits || ''} credits vào tài khoản!`, "success");
+            showToast(`🎉 Nạp thành công +${fmtUsd(result.credits)} vào ví!`, "success");
             history.replaceState({}, '', window.location.pathname);
             await loadStripeBalance();
             closeTopUpModal();

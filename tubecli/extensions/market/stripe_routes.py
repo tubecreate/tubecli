@@ -24,11 +24,11 @@ def _get_php_stripe_base() -> str:
     """Get the PHP Stripe API base URL."""
     try:
         from tubecli.extensions.market.market_service import API_BASE
-        # API_BASE = https://api.tubecreate.com/api/market-cli
-        # Stripe base = https://api.tubecreate.com/api/stripe
-        return API_BASE.replace("/api/market-cli", "/api/stripe").replace("/market-cli", "/stripe")
+        # Stripe đã GỘP vào PayPal của cloud (thẻ Visa/Master đi qua PayPal Card Fields).
+        # Worker vẫn phục vụ path stripe/* (config/balance/topup/quickpay) để client không 404.
+        return f"{API_BASE}/stripe"
     except Exception:
-        return "https://api.tubecreate.com/api/stripe"
+        return "https://market.tubecreate.com/api/market-cli/stripe"
 
 
 # ── GET /config ──────────────────────────────────────────────────────────────

@@ -6,10 +6,11 @@ This module proxies requests from the local dashboard to the PHP API.
 Endpoints:
   GET  /api/v1/market/paypal/config            — Proxy to PHP /api/paypal/config.php
   GET  /api/v1/market/paypal/balance           — Proxy to PHP /api/stripe/balance.php (shared balance)
-  POST /api/v1/market/paypal/topup-session     — Proxy to PHP /api/paypal/create-session.php
-  POST /api/v1/market/paypal/quickpay-session  — Proxy to PHP /api/paypal/create-session.php
+  POST /api/v1/market/paypal/topup-session     — Worker market-cli/paypal/topup-session (ví USD chung cloud)
+  POST /api/v1/market/paypal/quickpay-session  — Worker market-cli/paypal/quickpay-session
 
-Note: IPN is handled directly by PHP at /api/paypal/ipn.php
+Note: capture xác nhận trực tiếp với PayPal ở Worker (idempotent theo capture_id) — không còn IPN PHP.
+      Crypto (NOWPayments) CHƯA hợp nhất, vẫn gọi PHP /api/order/usdt-create.php.
       (PayPal calls PHP server directly, not through TubeCLI)
 """
 import os
@@ -24,20 +25,20 @@ def _get_php_api_base() -> str:
     """Get the PHP API base URL."""
     try:
         from tubecli.extensions.market.market_service import API_BASE
-        # API_BASE = https://api.tubecreate.com/api/market-cli
-        # We need https://api.tubecreate.com/api/paypal
-        return API_BASE.replace("/api/market-cli", "/api/paypal").replace("/market-cli", "/paypal")
+        # Thanh toán HỢP NHẤT với cloud: cùng ví USD, cùng PayPal, cùng user —
+        # phục vụ tại market.tubecreate.com/api/market-cli/paypal/* (Worker), không còn PHP.
+        return f"{API_BASE}/paypal"
     except Exception:
-        return "https://api.tubecreate.com/api/paypal"
+        return "https://market.tubecreate.com/api/market-cli/paypal"
 
 
 def _get_php_stripe_base() -> str:
     """Get the PHP Stripe/Balance API base URL (balance is shared)."""
     try:
         from tubecli.extensions.market.market_service import API_BASE
-        return API_BASE.replace("/api/market-cli", "/api/stripe").replace("/market-cli", "/stripe")
+        return f"{API_BASE}/stripe"
     except Exception:
-        return "https://api.tubecreate.com/api/stripe"
+        return "https://market.tubecreate.com/api/market-cli/stripe"
 
 
 # ── GET /config ──────────────────────────────────────────────────────────────
@@ -101,7 +102,7 @@ async def create_topup_session(req: TopUpRequest, authorization: Optional[str] =
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{_get_php_api_base()}/create-session.php",
+                f"{_get_php_api_base()}/topup-session.php",
                 json={
                     "type": "topup",
                     "package_id":  req.package_id,
@@ -131,7 +132,7 @@ async def create_quickpay_session(req: QuickPayRequest, authorization: Optional[
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                f"{_get_php_api_base()}/create-session.php",
+                f"{_get_php_api_base()}/quickpay-session.php",
                 json={
                     "type": "quickpay",
                     "item_public_id": req.item_public_id,
