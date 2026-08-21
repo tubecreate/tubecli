@@ -3483,15 +3483,16 @@ async function startCryptoPaymentFlow() {
     }
     
     try {
+        // Bearer bắt buộc: Worker suy user từ token (bản cũ gửi username tự khai — giả được).
         const res = await fetch(`${API}/paypal/crypto-session`, {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${getAuthToken()}`
             },
             body: JSON.stringify({
                 package_id: _selectedTopUpPackage,
-                currency: currency,
-                username: username
+                currency: currency
             })
         });
         
@@ -3614,7 +3615,7 @@ async function startCryptoPaymentFlow() {
                         <div style="padding:6px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); border-radius:8px;">
                             <p style="margin:0; font-size:0.7rem; color:#34d399; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
                                 <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:#34d399 transparent transparent transparent; margin:0;"></span>
-                                ${T('topup.tracking') || 'Hệ thống đang tự động theo dõi Blockchain...'}
+                                <span id="crypto-track-text">${T('topup.tracking') || 'Hệ thống đang tự động theo dõi Blockchain...'}</span>
                             </p>
                         </div>
 
@@ -3632,15 +3633,18 @@ async function startCryptoPaymentFlow() {
             mount.style.display = 'block';
             payBtn.style.display = 'none'; // hide payment creation button once created
             
-            // Start countdown timer
-            let timeLeft = 60 * 60; // 60 minutes
+            // Đếm ngược theo HẠN THẬT của đơn (expires_at từ NOWPayments); thiếu thì 60 phút.
+            const expMs = data.expires_at ? Date.parse(data.expires_at) : 0;
+            let timeLeft = expMs > Date.now() ? Math.floor((expMs - Date.now()) / 1000) : 60 * 60;
             if (window._cryptoTimerInterval) clearInterval(window._cryptoTimerInterval);
-            
+            if (window._cryptoPollInterval) clearInterval(window._cryptoPollInterval);
+
             window._cryptoTimerInterval = setInterval(() => {
                 timeLeft--;
                 if (timeLeft <= 0) {
                     clearInterval(window._cryptoTimerInterval);
-                    document.getElementById('crypto-countdown-val').textContent = 'EXPIRED';
+                    const ex = document.getElementById('crypto-countdown-val');
+                    if (ex) ex.textContent = 'EXPIRED';
                     return;
                 }
                 const mins = Math.floor(timeLeft / 60);
@@ -3650,6 +3654,37 @@ async function startCryptoPaymentFlow() {
                     displayEl.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
                 }
             }, 1000);
+
+            // Poll trạng thái mỗi 6s: Worker tự hỏi NOWPayments + cộng ví khi xong → người dùng
+            // thấy "đã nhận" và số dư mới ngay, không phải reload. Bản cũ không poll, chữ
+            // "đang theo dõi Blockchain" chỉ là spinner trang trí.
+            const pid = data.payment_id;
+            if (pid) {
+                window._cryptoPollInterval = setInterval(async () => {
+                    try {
+                        const sr = await fetch(`${API}/paypal/crypto-status?payment_id=${encodeURIComponent(pid)}`, {
+                            headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+                        });
+                        const st = await sr.json();
+                        if (!sr.ok) return;
+                        const badge = document.getElementById('crypto-track-text');
+                        if (st.done) {
+                            clearInterval(window._cryptoPollInterval); clearInterval(window._cryptoTimerInterval);
+                            if (badge) badge.textContent = '✅ ' + (T('topup.received') || 'Đã nhận tiền — ví đã được cộng!');
+                            showToast(`🎉 ${T('topup.received') || 'Đã nhận tiền'} +${fmtUsd(st.credited_cents / 100)}`, 'success');
+                            loadStripeBalance();
+                        } else if (st.partially_paid) {
+                            if (badge) badge.textContent = '⚠ ' + (T('topup.partial') || 'Nhận thiếu — đã cộng phần nhận được, gửi thêm phần còn lại');
+                            loadStripeBalance();
+                        } else if (st.failed) {
+                            clearInterval(window._cryptoPollInterval);
+                            if (badge) badge.textContent = '❌ ' + (T('topup.failed') || 'Đơn hết hạn hoặc thất bại — tạo đơn mới');
+                        } else if (st.seen && badge) {
+                            badge.textContent = '⏳ ' + (T('topup.confirming') || 'Đã thấy giao dịch — đang chờ tiền về ví…');
+                        }
+                    } catch (e) { /* rớt một nhịp thì thôi */ }
+                }, 6000);
+            }
 
             showToast(T('topup.crypto_success') || "Tạo yêu cầu thanh toán Crypto thành công! Vui lòng gửi tiền.", "success");
         }

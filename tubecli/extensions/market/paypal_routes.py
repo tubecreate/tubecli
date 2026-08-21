@@ -184,41 +184,64 @@ async def capture_paypal_order(req: CaptureRequest, authorization: Optional[str]
 # ── Pydantic models for Crypto ────────────────────────────────────────────────
 class CryptoTopUpRequest(BaseModel):
     package_id: str          # starter | pro | power | ultimate
-    currency: str            # usdttrc20 | bnb | btc | etc.
-    username: str
+    currency: str            # usdttrc20 | usdtbsc | btc | eth | …
+    username: Optional[str] = None   # KHÔNG dùng nữa — user suy từ Bearer token; giữ để client cũ không lỗi
+
+
+def _crypto_base() -> str:
+    return f"{_get_php_api_base().rsplit('/paypal', 1)[0]}/crypto"
 
 
 # ── POST /crypto-session ──────────────────────────────────────────────────────
 @paypal_router.post("/crypto-session")
-async def create_crypto_session(req: CryptoTopUpRequest):
-    """Proxy to PHP /api/order/usdt-create.php — creates a NOWPayments crypto payment."""
+async def create_crypto_session(req: CryptoTopUpRequest, authorization: Optional[str] = Header(None)):
+    """Crypto HỢP NHẤT với cloud (NOWPayments trên Worker): cùng ví USD, cùng user.
+
+    Khác bản PHP cũ: (1) bắt buộc Bearer — trước đây client tự khai username, ai cũng giả
+    được; (2) gói lạ bị từ chối thay vì mặc định $5; (3) Worker trả thêm payment_id +
+    expires_at để UI poll trạng thái và hiện hạn thật.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Đăng nhập để nạp crypto")
     import httpx
     try:
-        packages = {
-            "starter": 5.0,
-            "pro": 12.0,
-            "power": 35.0,
-            "ultimate": 90.0
-        }
-        amount = packages.get(req.package_id, 5.0)
-        
         async with httpx.AsyncClient(timeout=30) as client:
             r = await client.post(
-                "https://api.tubecreate.com/api/order/usdt-create.php",
-                json={
-                    "username": req.username,
-                    "currency": req.currency,
-                    "amount": amount,
-                    "plan_slug": req.package_id
-                }
+                f"{_crypto_base()}/create.php",
+                json={"package_id": req.package_id, "currency": req.currency},
+                headers={"Authorization": authorization},
             )
             data = r.json()
             if r.status_code >= 400:
-                raise HTTPException(r.status_code, data.get("error", "PHP server error"))
+                raise HTTPException(r.status_code, data.get("error") or data.get("message") or "Lỗi tạo đơn crypto")
             return data
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Crypto proxy error: {str(e)}")
+
+
+# ── GET /crypto-status ────────────────────────────────────────────────────────
+@paypal_router.get("/crypto-status")
+async def crypto_status(payment_id: str, authorization: Optional[str] = Header(None)):
+    """Poll trạng thái đơn crypto. Worker tự hỏi NOWPayments + cộng ví (idempotent) nếu xong."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Đăng nhập để xem trạng thái")
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(
+                f"{_crypto_base()}/status.php",
+                params={"payment_id": payment_id},
+                headers={"Authorization": authorization},
+            )
+            data = r.json()
+            if r.status_code >= 400:
+                raise HTTPException(r.status_code, data.get("error") or "Lỗi trạng thái crypto")
+            return data
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Crypto status error: {str(e)}")
 
 
