@@ -221,6 +221,20 @@ async def create_crypto_session(req: CryptoTopUpRequest, authorization: Optional
         raise HTTPException(500, f"Crypto proxy error: {str(e)}")
 
 
+# ── GET /crypto-config ────────────────────────────────────────────────────────
+@paypal_router.get("/crypto-config")
+async def crypto_config():
+    """Bật/tắt, coin, và MỨC TỐI THIỂU thật (NOWPayments theo ví payout) để UI chặn gói dưới mức
+    trước khi người dùng bấm — thay vì tạo đơn rồi mới lỗi."""
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(f"{_crypto_base()}/config.php")
+            return r.json()
+    except Exception as e:
+        return {"enabled": False, "currencies": [], "packages": [], "min_usd": 5, "error": str(e)}
+
+
 # ── GET /crypto-status ────────────────────────────────────────────────────────
 @paypal_router.get("/crypto-status")
 async def crypto_status(payment_id: str, authorization: Optional[str] = Header(None)):

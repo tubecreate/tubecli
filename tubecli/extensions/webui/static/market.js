@@ -3482,6 +3482,24 @@ async function startCryptoPaymentFlow() {
         return;
     }
     
+    // Chặn SỚM gói dưới mức tối thiểu crypto (NOWPayments theo ví payout, đo thật ~$19): báo rõ
+    // và gợi ý gói đủ mức, thay vì tạo đơn rồi nhận lỗi.
+    try {
+        if (!window._cryptoCfg) {
+            const cr = await fetch(`${API}/paypal/crypto-config`); window._cryptoCfg = await cr.json();
+        }
+        const cfgMin = Number(window._cryptoCfg?.min_usd || 0);
+        const pkgs = _stripePackages.length ? _stripePackages : STRIPE_PACKAGES_DEFAULT;
+        const pk = pkgs.find(p => p.id === _selectedTopUpPackage);
+        if (cfgMin && pk && Number(pk.price_usd) < cfgMin) {
+            const okPk = pkgs.filter(p => Number(p.price_usd) >= cfgMin).map(p => p.name).join(' / ');
+            showToast(`Nạp crypto tối thiểu ${fmtUsd(cfgMin)} — gói ${pk.name} ($${pk.price_usd}) chưa đủ. Hãy chọn ${okPk || 'gói lớn hơn'} hoặc dùng PayPal/thẻ.`, 'warn');
+            payBtn.disabled = false;
+            payBtn.innerHTML = T('topup.crypto_pay_btn') || '⚡ Bấm để lấy mã QR thanh toán';
+            return;
+        }
+    } catch (e) { /* không lấy được config thì để server quyết */ }
+
     try {
         // Bearer bắt buộc: Worker suy user từ token (bản cũ gửi username tự khai — giả được).
         const res = await fetch(`${API}/paypal/crypto-session`, {
