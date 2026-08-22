@@ -67,6 +67,10 @@ class LaunchRequest(BaseModel):
 
 class StopRequest(BaseModel):
     profile: str
+    # Mặc định dọn triệt để: tìm theo thư mục profile nên bắt được cả tiến trình mồ
+    # côi còn sót sau khi TubeCLI restart. force=False giữ hành vi cũ (chỉ dừng cái
+    # đang theo dõi trong RAM).
+    force: bool = True
 
 
 @router.get("/profiles")
@@ -370,7 +374,7 @@ async def api_launch_browser(req: LaunchRequest):
 
 @router.post("/stop")
 async def api_stop_browser(req: StopRequest):
-    from .process_manager import browser_process_manager
+    from .process_manager import browser_process_manager, force_kill_profile
     stopped = False
     
     # 1. Stop normal browser process
@@ -398,9 +402,23 @@ async def api_stop_browser(req: StopRequest):
             _preview_processes.pop(session_id, None)
             stopped = True
             
-    if stopped:
-        return {"status": "stopped", "profile": req.profile}
-    raise HTTPException(404, f"No running browser for profile '{req.profile}'")
+    # Dọn phần hệ điều hành còn giữ: chrome mồ côi từ phiên trước, node preview
+    # server không còn trong dict, và khoá Singleton chrome để lại khi bị giết cứng.
+    report = {}
+    if req.force:
+        report = await asyncio.to_thread(force_kill_profile, req.profile)
+        if report.get("killed") or report.get("locks_removed"):
+            stopped = True
+
+    # "Không có gì để dừng" là kết quả hợp lệ của lệnh dọn, không phải lỗi 404 —
+    # trước đây client phải nuốt lỗi rồi mở tiếp vào một profile vẫn đang bị khoá.
+    return {
+        "status": "stopped" if stopped else "idle",
+        "profile": req.profile,
+        "killed": report.get("killed", []),
+        "locks_removed": report.get("locks_removed", []),
+        "errors": report.get("errors", []),
+    }
 
 @router.get("/status")
 async def api_browser_status():
@@ -1355,9 +1373,24 @@ async def launch_preview(request: Request):
     if not url or url == "about:blank":
         url = "https://google.com"
 
+    # force (mặc định): mở lại luôn được — dọn sạch phiên cũ của CHÍNH profile này
+    # rồi chạy. Trước đây gặp phiên cũ là ném 400 "already running", trong khi phiên
+    # đó thường đã chết từ lần restart trước và chỉ còn lại khoá.
+    force = bool(body.get("force", True))
     async with _launching_lock:
         if _is_launching(profile) or is_profile_running(profile):
-            raise HTTPException(400, f"Profile '{profile}' is already running or opening.")
+            if not force:
+                raise HTTPException(400, f"Profile '{profile}' is already running or opening.")
+            from .process_manager import force_kill_profile, browser_process_manager
+            try:
+                browser_process_manager.stop_by_profile(profile)
+            except Exception:
+                pass
+            for sid, info in list(_preview_processes.items()):
+                if info.get("profile") == profile:
+                    _preview_processes.pop(sid, None)
+            await asyncio.to_thread(force_kill_profile, profile)
+            _launching_profiles.pop(profile, None)
         import time as _time
 
         _launching_profiles[profile] = _time.time()

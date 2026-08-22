@@ -467,3 +467,120 @@ class BrowserProcessManager:
 
 # Global singleton
 browser_process_manager = BrowserProcessManager()
+
+
+# ── Dọn sạch một profile ─────────────────────────────────────────────────────
+# Vì sao cần: /stop cũ chỉ giết những tiến trình còn nằm trong dict RAM của tiến
+# trình TubeCLI hiện tại. Mỗi lần restart TubeCLI (cập nhật, sập, deploy) dict đó
+# rỗng lại, trong khi chrome cũ vẫn sống và vẫn giữ khoá user-data-dir. Lần mở sau
+# chrome mới thấy profile đang bị chiếm, thoát ngay -> WebSocket đóng trước khi có
+# khung hình nào, và người dùng chỉ thấy "phiên live view đã đóng, thử lại".
+# Ở đây tìm theo THƯ MỤC PROFILE trong dòng lệnh, nên bắt được cả tiến trình mồ côi.
+
+_CHROME_LOCKS = ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
+
+
+def _profile_dir(profile_name: str) -> str:
+    from .profile_manager import PROFILES_DIR
+    return os.path.abspath(os.path.join(PROFILES_DIR, profile_name))
+
+
+def _owns_profile(cmdline, prof_dir: str) -> bool:
+    """Dòng lệnh này có đang mở đúng profile đó không.
+
+    So theo biên thư mục: "…/browser_profiles/tuan5" không được khớp với
+    "…/browser_profiles/tuan50" — nếu không, dọn một profile sẽ giết nhầm profile khác.
+    """
+    if not cmdline:
+        return False
+    target = os.path.normcase(prof_dir)
+    for arg in cmdline:
+        a = os.path.normcase(str(arg))
+        idx = a.find(target)
+        if idx == -1:
+            continue
+        tail = a[idx + len(target):idx + len(target) + 1]
+        if tail in ("", "/", "\\", '"', "'"):
+            return True
+    return False
+
+
+def force_kill_profile(profile_name: str, wait: float = 3.0) -> dict:
+    """Giết mọi tiến trình đang giữ `profile_name` rồi gỡ khoá Chrome còn sót.
+
+    Trả báo cáo thay vì ném lỗi: "không có gì để dọn" là kết quả hợp lệ của một
+    thao tác dọn dẹp, không phải sự cố.
+    """
+    report = {"killed": [], "locks_removed": [], "errors": []}
+    prof_dir = _profile_dir(profile_name)
+
+    try:
+        import psutil
+    except Exception as e:                       # không có psutil: chịu, nhưng nói ra
+        report["errors"].append(f"psutil không dùng được: {e}")
+        psutil = None
+
+    if psutil:
+        me = os.getpid()
+        # Không tự sát: TubeCLI (và cha của nó) phải sống sót qua thao tác này.
+        protected = {me}
+        try:
+            protected |= {p.pid for p in psutil.Process(me).parents()}
+        except Exception:
+            pass
+
+        victims = []
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                if proc.pid in protected:
+                    continue
+                if _owns_profile(proc.info.get("cmdline"), prof_dir):
+                    victims.append(proc)
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        # Con trước, cha sau: giết cha trước thì chrome con thành mồ côi và vẫn giữ khoá.
+        expanded = []
+        for v in victims:
+            try:
+                expanded.extend(v.children(recursive=True))
+            except Exception:
+                pass
+            expanded.append(v)
+
+        seen = set()
+        ordered = []
+        for pr in expanded:
+            if pr.pid not in seen and pr.pid not in protected:
+                seen.add(pr.pid)
+                ordered.append(pr)
+
+        for pr in ordered:
+            try:
+                report["killed"].append({"pid": pr.pid, "name": pr.name()})
+                pr.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                pass
+            except Exception as e:
+                report["errors"].append(str(e))
+
+        gone, alive = psutil.wait_procs(ordered, timeout=wait)
+        for pr in alive:                          # xin không được thì lấy bằng vũ lực
+            try:
+                pr.kill()
+            except Exception:
+                pass
+        if alive:
+            psutil.wait_procs(alive, timeout=1.5)
+
+    # Chrome bị giết cứng để lại khoá; lần mở sau nó thấy khoá là từ chối chạy.
+    for lock in _CHROME_LOCKS:
+        for path in (os.path.join(prof_dir, lock), os.path.join(prof_dir, "Default", lock)):
+            try:
+                if os.path.lexists(path):
+                    os.remove(path)
+                    report["locks_removed"].append(path)
+            except OSError as e:
+                report["errors"].append(f"{path}: {e}")
+
+    return report
