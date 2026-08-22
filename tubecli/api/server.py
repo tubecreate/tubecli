@@ -778,6 +778,19 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     
     if agent.auth:
         context["auth"] = agent.auth
+
+    # Flow Builder groups the agent belongs to. The routine has no system
+    # prompt — `prompt` above is a browsing instruction for open.js — so the
+    # GROUP WORKSPACE block rides along in the context file for whatever the
+    # browser agent chooses to do with it. Best-effort: never blocks the run.
+    try:
+        from tubecli.core import group_context as _gc
+        _groups = _gc.effective_groups(agent.id)
+        if _groups:
+            context["group_ids"] = [g.get("group_id", "") for g in _groups if g.get("group_id")]
+            context["group_workspace"] = _gc.prompt_block(_groups)
+    except Exception as _ge:
+        print(f"[Scheduler Callback] Group context skipped: {_ge}")
         
     # Session time: average 5 min, max 10 min. Clamp read_time to 120-480s.
     read_time = max(120, min(480, read_time))   # 2-8 min
@@ -3923,6 +3936,11 @@ async def set_default_profile_setting(req: ProfileUpdateRequest):
 # shadowed by an extension that happens to claim the same path.
 from tubecli.api.auth_routes import router as _auth_router
 app.include_router(_auth_router)
+
+# Group context: what each Flow Builder group shares with the agents inside it
+# (PUT by the cloud canvas after every save; read by chat/Telegram/scheduler).
+from tubecli.api.group_routes import router as _group_router
+app.include_router(_group_router)
 
 # Web terminal: trang /terminal + WS pty shell, nhúng iframe trong Flow Builder.
 from tubecli.api.terminal_routes import router as _terminal_router

@@ -2,10 +2,12 @@
 Auth Manager Extension — FastAPI routes.
 OAuth callback uses the same API port (no separate server).
 """
-from fastapi import APIRouter, HTTPException, Request
+import asyncio
+import re
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Any, Optional, List
 
 router = APIRouter(prefix="/api/v1/auth-manager", tags=["auth-manager"])
 
@@ -239,6 +241,84 @@ async def api_get_access_token_full(cred_id: str):
         "expires_at": data.get("expires_at", ""),
         "scopes": data.get("scopes", []),
     }
+
+
+# ── Google Sheets (group-context Sheet node) ─────────────────────
+# Thin HTTP face over gsheets.py so the cloud Sheet node can inspect / preview a
+# spreadsheet with the owner's token while the browser never holds that token.
+# Owner-only like the rest of this router (the guest gate denies by default).
+
+_SHEET_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+class GSheetsAppendRequest(BaseModel):
+    cred_id: str
+    tab: str = ""
+    rows: List[Any] = []
+
+
+def _gsheets_http_status(err) -> int:
+    # Collapse Google's vocabulary into what the node distinguishes: bad request,
+    # no access, not found, or "Google is unhappy" (429 / 5xx / unreachable).
+    if err.status == 400:
+        return 400
+    if err.status in (401, 403):
+        return 403
+    if err.status == 404:
+        return 404
+    return 502
+
+
+def _check_sheet_id(sheet_id: str) -> str:
+    if not _SHEET_ID_RE.match(sheet_id or ""):
+        raise HTTPException(400, "Invalid spreadsheet id")
+    return sheet_id
+
+
+@router.get("/gsheets/inspect")
+async def api_gsheets_inspect(cred_id: str = "", url: str = ""):
+    """Title + tabs of a spreadsheet given its URL (or bare id) and a credential."""
+    from . import gsheets
+    sheet_id = gsheets.parse_sheet_id(url)
+    if not sheet_id:
+        raise HTTPException(400, "Invalid Google Sheets URL or id")
+    if not cred_id:
+        raise HTTPException(400, "cred_id is required")
+    try:
+        return await asyncio.to_thread(gsheets.inspect, cred_id, sheet_id)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+
+
+@router.get("/gsheets/{sheet_id}/values")
+async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
+                             range_: str = Query("", alias="range"),
+                             max_rows: int = 200, tail: int = 0):
+    """Rows of a tab (first `max_rows`, or the last `tail` rows when tail > 0)."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not cred_id:
+        raise HTTPException(400, "cred_id is required")
+    max_rows = max(1, min(int(max_rows or 200), 1000))
+    tail = max(0, min(int(tail or 0), 1000))
+    try:
+        return await asyncio.to_thread(gsheets.read, cred_id, sheet_id, tab, range_ or None, max_rows, tail)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+
+
+@router.post("/gsheets/{sheet_id}/append")
+async def api_gsheets_append(sheet_id: str, req: GSheetsAppendRequest):
+    """Append rows after the last filled row of a tab."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        raise HTTPException(400, "cred_id is required")
+    try:
+        res = await asyncio.to_thread(gsheets.append, req.cred_id, sheet_id, req.tab, req.rows)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+    return {"updated_range": res["updated_range"], "updated_rows": res["updated_rows"], "tab": res["tab"]}
 
 
 # ── Callback HTML Template ───────────────────────────────────────

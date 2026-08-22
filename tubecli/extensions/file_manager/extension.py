@@ -2,6 +2,7 @@
 File Manager Extension — Quản lý file/folder cho AI agents và WebUI.
 Cung cấp API tạo, xóa, di chuyển, sao chép file/folder.
 """
+import asyncio
 import logging
 import os
 from tubecli.core.extension_manager import Extension
@@ -42,6 +43,9 @@ class FileManagerExtension(Extension):
             "drive_share": self._action_drive_share,
             "drive_mkdir": self._action_drive_mkdir,
             "drive_delete": self._action_drive_delete,
+            "xlsx_read": self._action_xlsx_read,
+            "xlsx_append": self._action_xlsx_append,
+            "xlsx_write": self._action_xlsx_write,
         }
 
     async def _drive_call(self, method: str, path: str, payload: dict = None, params: dict = None):
@@ -200,6 +204,228 @@ class FileManagerExtension(Extension):
             )
         except Exception as e:
             return self._drive_err(e)
+
+    # ── Spreadsheet actions (xlsx_read / xlsx_append / xlsx_write) ─────────
+    # Boundary first, file second. A group manifest (tubecli.core.group_context)
+    # is the whole world for an agent that has one: a path no File/Folder node
+    # covers does not exist for it, whatever the sandbox would say, and the
+    # entry's `access` decides read/append/write. Resolved group paths go
+    # through user_file_service (BLOCKED_PATHS still applies) because the
+    # owner put that exact file in the group on purpose and it may live
+    # outside ~/Desktop|Documents|Downloads. Without any group the classic AI
+    # sandbox (file_service) applies — the same line file_action has always
+    # drawn. The workbook is edited IN PLACE (append_sheet_rows /
+    # update_sheet_cells), never rebuilt through write_sheet.
+
+    _XLSX_NEED = {"xlsx_read": "read", "xlsx_append": "append", "xlsx_write": "write"}
+    _XLSX_MAX_CHARS = 12000   # a 500×60 sheet would flood the model's context
+    _XLSX_TEXT = {
+        "en": {
+            "missing_path": "❌ Missing 'path' — the spreadsheet file (.xlsx/.xlsm/.csv) to work on.",
+            "not_shared": "❌ {path} is not shared with this agent's group. Only spreadsheet files or folders "
+                          "placed in the group are available — ask the owner to add a File/Folder node for it.",
+            "no_access": "❌ '{name}' is shared with access '{have}' but {action} needs '{need}'. "
+                         "Change the access on its node in the group.",
+            "read_err": "❌ Cannot read {path}: {err}",
+            "write_err": "❌ Cannot write {path}: {err}",
+            "appended": "✅ Appended {n} row(s) to {name}{sheet_part} at rows {first}–{last}.\n📍 {path}",
+            "written": "✅ Wrote {targets} in {name}{sheet_part}.\n📍 {path}",
+            "read_head": "📊 {name}{sheet_part} — showing {shown} of {total} row(s)\n📍 {path}",
+            "other_sheets": "\nOther sheets: {sheets}",
+            "empty": "(empty — no rows)",
+            "truncated": "… {more} more row(s) not shown. Raise max_rows (up to 500) to read further.",
+            "cut": "… output cut at {n} characters; ask for fewer rows.",
+            "sheet_part": " — sheet '{sheet}'",
+            "uncomputed": "ℹ️ {n} formula cell(s) show the formula instead of a result: this server does not "
+                          "calculate spreadsheets, and saving an edit here drops the results Excel had cached. "
+                          "Work the number out from the rows yourself, or open and save the file in "
+                          "Excel/LibreOffice to refresh it.",
+        },
+        "vi": {
+            "missing_path": "❌ Thiếu 'path' — file bảng tính (.xlsx/.xlsm/.csv) cần thao tác.",
+            "not_shared": "❌ {path} không được chia sẻ với nhóm của agent này. Chỉ file/thư mục bảng tính "
+                          "đã đặt trong nhóm mới dùng được — nhờ chủ thêm node File/Folder cho nó.",
+            "no_access": "❌ '{name}' được chia sẻ với quyền '{have}' nhưng {action} cần quyền '{need}'. "
+                         "Đổi quyền trên node đó trong nhóm.",
+            "read_err": "❌ Không đọc được {path}: {err}",
+            "write_err": "❌ Không ghi được {path}: {err}",
+            "appended": "✅ Đã thêm {n} dòng vào {name}{sheet_part} ở dòng {first}–{last}.\n📍 {path}",
+            "written": "✅ Đã ghi {targets} trong {name}{sheet_part}.\n📍 {path}",
+            "read_head": "📊 {name}{sheet_part} — hiện {shown}/{total} dòng\n📍 {path}",
+            "other_sheets": "\nSheet khác: {sheets}",
+            "empty": "(trống — không có dòng nào)",
+            "truncated": "… còn {more} dòng chưa hiện. Tăng max_rows (tối đa 500) để đọc tiếp.",
+            "cut": "… kết quả bị cắt ở {n} ký tự; hãy xin ít dòng hơn.",
+            "sheet_part": " — sheet '{sheet}'",
+            "uncomputed": "ℹ️ {n} ô công thức đang hiện chính công thức thay vì kết quả: máy chủ không tính "
+                          "bảng tính, và lưu sửa đổi ở đây làm mất kết quả Excel đã cache. Hãy tự tính từ "
+                          "các dòng, hoặc mở và lưu file bằng Excel/LibreOffice để cập nhật.",
+        },
+    }
+
+    @classmethod
+    def _xt(cls, context: dict, key: str, **kw) -> str:
+        """Handler text in the bot language (vi/en); everything else falls back to
+        English because that is the language of the group prompt block."""
+        lang = str((context or {}).get("lang") or "en").lower()
+        table = cls._XLSX_TEXT["vi"] if lang.startswith("vi") else cls._XLSX_TEXT["en"]
+        try:
+            return table[key].format(**kw)
+        except Exception:
+            return cls._XLSX_TEXT["en"].get(key, key)
+
+    @staticmethod
+    def _groups_in_effect(context: dict) -> list:
+        """Groups the calling agent works in. The pipeline / Telegram listener pass
+        `group_ids` when they already know them; otherwise the union of every
+        group containing the agent (scheduled and Telegram runs). Empty list =
+        no group, and any failure also lands there: the sandbox is still a
+        boundary, a missing module must not turn into a crash."""
+        try:
+            from tubecli.core import group_context
+        except Exception:
+            return []
+        ctx = context or {}
+        agent_id = str((ctx.get("agent") or {}).get("id") or "")
+        try:
+            gids = ctx.get("group_ids")
+            if isinstance(gids, (list, tuple)):
+                # Khoá có mặt = người gọi đã quyết định (pipeline web gửi [] khi lượt
+                # chat không thuộc nhóm nào). Danh sách rỗng KHÔNG được hiểu là "tự
+                # tính hợp các nhóm": sau khi route sang specialist, "agent" trong
+                # context là agent khác, và hợp của nó không phải quyền của lượt này.
+                return [g for g in (group_context.load(str(gid)) for gid in gids) if g]
+            return list(group_context.effective_groups(agent_id, str(ctx.get("group_id") or "")) or [])
+        except Exception as e:
+            logger.warning(f"[xlsx] group context unavailable, falling back to sandbox: {e}")
+            return []
+
+    @staticmethod
+    def _alias_entry(groups: list, ref: str):
+        """The prompt block names files as "alias" — path, so the model sometimes
+        sends just the alias or the file name. Map it onto the group's own entry;
+        nothing outside the manifest can match, so this loosens nothing."""
+        key = str(ref or "").strip().casefold()
+        if not key:
+            return None
+        for g in groups:
+            for f in (g.get("files") or []):
+                p = str(f.get("path") or "")
+                if not p:
+                    continue
+                if key in (str(f.get("alias") or "").strip().casefold(), os.path.basename(p).casefold()):
+                    return f
+        return None
+
+    def _sheet_target(self, action: str, path: str, context: dict):
+        """(service, path, None) to operate on, or (None, None, refusal text)."""
+        from tubecli.extensions.file_manager.file_service import file_service, user_file_service
+        groups = self._groups_in_effect(context)
+        if not groups:
+            return file_service, path, None
+        from tubecli.core import group_context
+        entry = group_context.resolve_xlsx(groups, path)
+        if not entry:
+            alias = self._alias_entry(groups, path)
+            if alias:
+                entry = group_context.resolve_xlsx(groups, alias["path"])
+        if not entry or not entry.get("path"):
+            return None, None, self._xt(context, "not_shared", path=path)
+        need = self._XLSX_NEED[action]
+        have = str(entry.get("access") or "write")
+        if not group_context.allows(have, need):
+            return None, None, self._xt(context, "no_access", name=os.path.basename(entry["path"]),
+                                        have=have, need=need, action=action)
+        return user_file_service, entry["path"], None
+
+    @staticmethod
+    def _xlsx_cell(v) -> str:
+        s = "" if v is None else str(v)
+        s = s.replace("\r", " ").replace("\n", " ").replace("|", "\\|")
+        return s if len(s) <= 120 else s[:117] + "…"
+
+    @classmethod
+    def _xlsx_render(cls, context: dict, r: dict) -> str:
+        name = os.path.basename(r["path"])
+        sheet_part = cls._xt(context, "sheet_part", sheet=r["sheet"]) if r.get("sheet") else ""
+        shown, total = len(r["rows"]), r["total_rows"]
+        out = cls._xt(context, "read_head", name=name, sheet_part=sheet_part, shown=shown, total=total, path=r["path"])
+        others = [x for x in (r.get("sheets") or []) if x != r.get("sheet")]
+        if others:
+            out += cls._xt(context, "other_sheets", sheets=", ".join(others[:20]))
+        if not r["rows"]:
+            return out + "\n" + cls._xt(context, "empty")
+        body = "\n".join("| " + " | ".join(cls._xlsx_cell(c) for c in row) + " |" for row in r["rows"])
+        if len(body) > cls._XLSX_MAX_CHARS:
+            body = body[: cls._XLSX_MAX_CHARS].rsplit("\n", 1)[0] + "\n" + cls._xt(context, "cut", n=cls._XLSX_MAX_CHARS)
+        out += "\n" + body
+        if r.get("truncated"):
+            out += "\n" + cls._xt(context, "truncated", more=total - shown)
+        # A blank where a total should be is the one thing the model must not
+        # take at face value — see FileService._xlsx_rows for why it happens.
+        if r.get("formulas_uncomputed"):
+            out += "\n" + cls._xt(context, "uncomputed", n=r["formulas_uncomputed"])
+        return out
+
+    async def _action_xlsx_read(self, action_data: dict, context: dict) -> str:
+        path = str(action_data.get("path") or "").strip()
+        if not path:
+            return self._xt(context, "missing_path")
+        svc, target, err = self._sheet_target("xlsx_read", path, context)
+        if err:
+            return err
+        try:
+            # openpyxl is synchronous; on the event loop it would stall every other request.
+            r = await asyncio.to_thread(svc.read_sheet_rows, target, action_data.get("sheet"),
+                                        action_data.get("max_rows") or 100)
+        except Exception as e:
+            return self._xt(context, "read_err", path=path, err=e)
+        return self._xlsx_render(context, r)
+
+    async def _action_xlsx_append(self, action_data: dict, context: dict) -> str:
+        path = str(action_data.get("path") or "").strip()
+        if not path:
+            return self._xt(context, "missing_path")
+        svc, target, err = self._sheet_target("xlsx_append", path, context)
+        if err:
+            return err
+        rows = action_data.get("rows")
+        if rows is None:
+            rows = action_data.get("values")
+        try:
+            r = await asyncio.to_thread(svc.append_sheet_rows, target, action_data.get("sheet"), rows)
+        except Exception as e:
+            return self._xt(context, "write_err", path=path, err=e)
+        sheet_part = self._xt(context, "sheet_part", sheet=r["sheet"]) if r.get("sheet") else ""
+        return self._xt(context, "appended", n=r["rows_added"], name=os.path.basename(r["path"]),
+                        sheet_part=sheet_part, first=r["first_row"], last=r["last_row"], path=r["path"])
+
+    async def _action_xlsx_write(self, action_data: dict, context: dict) -> str:
+        path = str(action_data.get("path") or "").strip()
+        if not path:
+            return self._xt(context, "missing_path")
+        svc, target, err = self._sheet_target("xlsx_write", path, context)
+        if err:
+            return err
+        cells = action_data.get("cells")
+        rows = action_data.get("rows")
+        start = action_data.get("start") or "A1"
+        # Models trained on the gsheet_update shape send range + values; honour it
+        # instead of bouncing a perfectly clear request.
+        if rows is None and action_data.get("values") is not None:
+            rows = action_data.get("values")
+            rng = str(action_data.get("range") or "").strip()
+            if rng:
+                start = rng.split(":", 1)[0]
+        try:
+            r = await asyncio.to_thread(svc.update_sheet_cells, target, action_data.get("sheet"),
+                                        cells, rows, start)
+        except Exception as e:
+            return self._xt(context, "write_err", path=path, err=e)
+        sheet_part = self._xt(context, "sheet_part", sheet=r["sheet"]) if r.get("sheet") else ""
+        targets = ", ".join(r.get("targets") or []) or "0 cells"
+        return self._xt(context, "written", targets=targets, name=os.path.basename(r["path"]),
+                        sheet_part=sheet_part, path=r["path"])
 
     def get_skills(self):
         return [

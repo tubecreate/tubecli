@@ -28,3 +28,23 @@ Supported `provider` values: `google`, `facebook`, `tiktok`.
 If you don't know the scopes, you can leave it empty `[]`, and the system will automatically use the most common default scope.
 
 > **Note:** After the bot responds with JSON, the system will return a link for the user to click and grant permission.
+
+## Google Sheets shared through a group (gsheet_*)
+
+When the agent sits inside a Flow Builder group that contains a **Sheet** node, the
+group prompt block lists that sheet by alias and the exact JSON syntax. Five actions
+are handled here (auth_manager owns the Google token):
+
+| action | needs access | purpose |
+|---|---|---|
+| `gsheet_read` | read | rows of a tab / range (`max_rows`, `tail`) |
+| `gsheet_tabs` | read | list tabs |
+| `gsheet_append` | append | add rows after the last filled row |
+| `gsheet_update` | write | overwrite an explicit `range` |
+| `gsheet_create_tab` | manage | add a tab |
+
+Rules: refer to the sheet by its **alias** (`"sheet": "<alias>"`) — never by id or
+credential; a sheet that is not in the agent's group(s) does not exist and the action
+is refused. Without any group sheet the answer is "No Google Sheet is shared with this
+agent". The HTTP side used by the cloud Sheet node: `GET /gsheets/inspect`,
+`GET /gsheets/{id}/values`, `POST /gsheets/{id}/append` under `/api/v1/auth-manager`.

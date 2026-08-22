@@ -236,6 +236,13 @@ class TelegramListener:
         agent_dict = agent.to_dict()
         self._enrich_agent_config(agent_dict)
 
+        # Nhóm Flow Builder: Telegram không biết node nào gửi tin, nên lấy HỢP
+        # mọi nhóm chứa agent — khối GROUP WORKSPACE vào prompt, group_ids vào
+        # context để handler gsheet_*/xlsx_* resolve alias + kiểm quyền.
+        groups = self._inject_group_context(agent_dict, agent_id)
+        context["group_ids"] = [g.get("group_id", "") for g in groups if g.get("group_id")]
+        context["group_id"] = ""
+
         # ── Get all skills ──
         all_skills = skill_manager.get_all()
         if agent.allowed_skills:
@@ -713,6 +720,7 @@ class TelegramListener:
                 print(f"[Router] 🎯 Delegating to specialist: {target_agent.name}")
                 target_dict = target_agent.to_dict()
                 self._enrich_agent_config(target_dict)
+                self._inject_group_context(target_dict, agent_id)   # acts for the home agent
                 
                 # Select skills for this specialist
                 selected_skills = skill_selector.select_for_team(
@@ -744,6 +752,8 @@ class TelegramListener:
         if specialist and specialist.id != agent_dict.get("id"):
             agent_dict = specialist.to_dict()
             self._enrich_agent_config(agent_dict)
+            # to_dict() là prompt gốc → khối nhóm của HOME agent phải nhét lại.
+            self._inject_group_context(agent_dict, agent_id)
             # Restrict skill choice to the specialist's own allowed set. Dựng
             # lại từ CATALOG ĐẦY ĐỦ (all_skills), không phải available_skills đã
             # bị lọc theo home agent — nếu không sẽ thành HOME ∩ specialist và
@@ -790,6 +800,9 @@ class TelegramListener:
         )
 
         result = await self._handle_brain_actions(brain_result, text, agent_dict, selected_skills, context)
+        # Worklog nhóm: chỉ khi action/skill THẬT SỰ chạy (dispatcher đổi text,
+        # hoặc model chọn run_skill) — cùng tiêu chí với web chat.
+        self._record_group_worklog(groups, home_agent_dict, text, brain_result, result)
         self._save_history(agent_id, home_agent_dict, text, result, history, chat_id=chat_id)
         return result
 
@@ -1070,6 +1083,47 @@ class TelegramListener:
     # ═══════════════════════════════════════════════════════════════
     #  HELPER METHODS
     # ═══════════════════════════════════════════════════════════════
+
+    def _inject_group_context(self, agent_dict: Dict, agent_id: str) -> list:
+        """Nối khối GROUP WORKSPACE (hợp mọi nhóm chứa agent) vào system_prompt.
+
+        Trả về danh sách nhóm để caller gửi group_ids theo action context.
+        Không bao giờ raise: manifest hỏng trên đĩa không được làm bot câm.
+        """
+        try:
+            from tubecli.core import group_context
+            groups = group_context.effective_groups(agent_id or agent_dict.get("id", ""))
+            block = group_context.prompt_block(groups) if groups else ""
+            if block:
+                base = agent_dict.get("system_prompt", "You are a helpful assistant.")
+                agent_dict["system_prompt"] = f"{base}\n\n{block}"
+            return groups
+        except Exception as e:
+            print(f"[TelegramListener] Group context skipped: {e}")
+            return []
+
+    def _record_group_worklog(self, groups, agent_dict: Dict, text: str, brain_result, result):
+        """Ghi 1 dòng vào sheet worklog của nhóm khi có việc thật sự chạy (nền, không raise)."""
+        if not groups:
+            return
+        try:
+            from tubecli.core import group_context
+            brain = brain_result if isinstance(brain_result, dict) else {}
+            ran = brain.get("action") == "run_skill"
+            if isinstance(result, dict):
+                result_text = f"[File sent: {result.get('caption', '')}]"
+                ran = True
+            else:
+                result_text = result if isinstance(result, str) else str(result or "")
+                # handle_extension_action trả NGUYÊN reply khi không có action.
+                ran = ran or (result_text != (brain.get("reply") or ""))
+            if not ran:
+                return
+            status = "error" if result_text.lstrip().startswith(("❌", "⚠️", "⏰", "⏱")) else "done"
+            group_context.record_worklog(groups, agent_dict, task=text, result=result_text,
+                                         artifacts=[], status=status)
+        except Exception as e:
+            print(f"[TelegramListener] Worklog skipped: {e}")
 
     def _enrich_agent_config(self, agent_dict: Dict):
         """Override model with global settings + inject cloud API keys."""

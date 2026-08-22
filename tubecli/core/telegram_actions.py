@@ -1402,6 +1402,12 @@ async def handle_extension_action(reply: str, agent_dict: Dict, context: Dict = 
                 chat_id = context.get("chat_id")
                 ext_context["chat_id"] = chat_id
                 ext_context["lang"] = get_user_lang(chat_id)
+                # Nhóm Flow Builder: handler gsheet_*/xlsx_* cần biết nhóm đang
+                # hiệu lực để resolve alias + kiểm quyền. Chỉ chép khi CÓ — vắng
+                # key nghĩa là "tự tính union theo agent" (Telegram/scheduled cũ).
+                for key in ("group_ids", "group_id", "source"):
+                    if key in context:
+                        ext_context[key] = context[key]
             else:
                 ext_context["lang"] = get_user_lang()
             result = await handler_fn(action_data, ext_context)

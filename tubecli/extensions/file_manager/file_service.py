@@ -2,7 +2,9 @@
 File Service — Sandboxed file operations.
 Security: Only allows operations within allowed directories.
 """
+import csv
 import os
+import re
 import shutil
 import glob
 import time
@@ -500,6 +502,275 @@ class FileService:
         wb.save(safe_path)
         size = os.path.getsize(safe_path)
         return {"status": "saved", "path": safe_path, "size": size, "size_human": self._human_size(size)}
+
+    # ── Sửa bảng tính TẠI CHỖ (xlsx_read / xlsx_append / xlsx_write) ──────────
+    # write_sheet() ở trên dựng lại cả workbook từ lưới ô: tab không gửi lên biến
+    # mất, định dạng/độ rộng cột/công thức cũng vậy. Agent trong nhóm chỉ được
+    # nối dòng hoặc sửa vài ô trong file MẪU của chủ (template upload video…),
+    # nên các hàm dưới load_workbook (data_only=False để giữ công thức) rồi chỉ
+    # chạm đúng ô cần đổi. Giới hạn của openpyxl vẫn còn: ảnh/biểu đồ nhúng trong
+    # workbook không sống sót qua load→save — nói rõ với người dùng khi họ hỏi.
+    # CSV không có tab/ô nên chỉ đọc + nối dòng; muốn sửa ô thì chuyển sang .xlsx.
+
+    SPREADSHEET_EXTS = (".xlsx", ".xlsm", ".csv", ".tsv")
+    _CELL_REF = re.compile(r"^([A-Za-z]{1,3})([1-9][0-9]{0,6})$")
+
+    @staticmethod
+    def _cell_value(v: Any) -> Any:
+        """Giá trị từ JSON của model → giá trị ô. openpyxl chỉ nhận scalar; list/dict
+        lồng nhau thì ghi dạng chuỗi còn hơn nổ giữa chừng sau khi đã ghi nửa bảng."""
+        if v is None or isinstance(v, (str, int, float, bool)):
+            return v
+        return str(v)
+
+    @classmethod
+    def _norm_rows(cls, rows: Any) -> List[List[Any]]:
+        """Chuẩn hoá 'rows' model gửi: [[a,b],[c,d]] là chuẩn; một list phẳng [a,b]
+        được hiểu là MỘT dòng (model hay gửi thế khi chỉ thêm một bản ghi)."""
+        if rows is None:
+            raise ValueError("Thiếu 'rows' (danh sách dòng, mỗi dòng là một danh sách ô)")
+        if isinstance(rows, (str, bytes, dict)) or not hasattr(rows, "__iter__"):
+            raise ValueError("'rows' phải là danh sách các dòng, ví dụ [[\"a\", 1], [\"b\", 2]]")
+        rows = list(rows)
+        if rows and not any(isinstance(r, (list, tuple, dict)) for r in rows):
+            return [[cls._cell_value(c) for c in rows]]
+        out = []
+        for r in rows:
+            if isinstance(r, dict):
+                r = list(r.values())
+            elif not isinstance(r, (list, tuple)):
+                r = [r]
+            out.append([cls._cell_value(c) for c in r])
+        return out
+
+    def _spreadsheet_path(self, path: str, exts=SPREADSHEET_EXTS):
+        """Sandbox + tồn tại + đúng loại file. Trả (safe_path, ext)."""
+        safe_path = self._validate_path(path)
+        if not os.path.isfile(safe_path):
+            raise FileNotFoundError(f"File không tồn tại: {path}")
+        ext = os.path.splitext(safe_path)[1].lower()
+        if ext not in exts:
+            raise ValueError(f"Không phải file bảng tính ({', '.join(exts)}): {path}")
+        return safe_path, ext
+
+    @staticmethod
+    def _csv_delim(ext: str) -> str:
+        return "\t" if ext == ".tsv" else ","
+
+    @staticmethod
+    def _pick_ws(wb, sheet: Any):
+        """Chọn tab: tên (khớp chính xác, rồi bỏ hoa/thường + khoảng trắng), hoặc số
+        thứ tự 1-based; rỗng = tab đang mở. Không thấy → ValueError kể tên các tab
+        để model tự sửa thay vì đoán."""
+        names = wb.sheetnames
+        if sheet is None or str(sheet).strip() == "":
+            return wb.active if wb.active is not None else wb.worksheets[0]
+        key = str(sheet).strip()
+        if key in names:
+            return wb[key]
+        for n in names:
+            if n.casefold().strip() == key.casefold():
+                return wb[n]
+        if key.isdigit() and 1 <= int(key) <= len(names):
+            return wb.worksheets[int(key) - 1]
+        raise ValueError(f"Không có sheet '{sheet}'. Các sheet hiện có: {', '.join(names)}")
+
+    @staticmethod
+    def _last_used_row(ws) -> int:
+        """Dòng cuối CÓ dữ liệu. ws.max_row tính cả dòng trống đã kẻ viền sẵn trong
+        file mẫu; dựa vào nó thì dòng mới bị đẩy xuống dưới một khoảng trắng."""
+        last = 0
+        for idx, row in enumerate(ws.iter_rows(values_only=True), 1):
+            if any(c is not None and str(c) != "" for c in row):
+                last = idx
+        return last
+
+    @staticmethod
+    def _strip_trailing_blank(rows: List[List[Any]]) -> List[List[Any]]:
+        while rows and not any(c not in (None, "") for c in rows[-1]):
+            rows.pop()
+        return rows
+
+    @staticmethod
+    def _formula_text(v: Any) -> Optional[str]:
+        """Công thức của ô khi mở data_only=False ('=SUM(A1:A2)'), None nếu là ô
+        thường. Công thức mảng / bảng dữ liệu về dạng object có .text."""
+        if isinstance(v, str):
+            return v if v.startswith("=") else None
+        t = getattr(v, "text", None)
+        if isinstance(t, str) and t:
+            return t if t.startswith("=") else "=" + t
+        return None
+
+    def _xlsx_rows(self, safe_path: str, sheet: Any, max_cols: int):
+        """(tên tab, danh sách tab, dòng, số ô công thức, [(dòng, cột) ô công thức
+        không có kết quả]).
+
+        openpyxl không tính công thức, và khi append_sheet_rows / update_sheet_cells
+        lưu lại thì kết quả Excel đã cache cũng không được ghi ra — nên mở
+        data_only=True sau lần sửa đầu tiên trả None cho MỌI ô công thức: tổng,
+        lookup trong file mẫu của chủ hiện thành ô trống và model tin đó là
+        trống thật. Vì vậy đọc công thức trước; tab nào có công thức thì mở thêm
+        một lần data_only=True: ô còn cache lấy giá trị, ô mất cache hiện chính
+        công thức và được đếm để handler nói rõ con số chưa được tính."""
+        from openpyxl import load_workbook
+        wb = load_workbook(safe_path, read_only=True, data_only=False)
+        try:
+            ws = self._pick_ws(wb, sheet)
+            title, names = ws.title, list(wb.sheetnames)
+            rows = [list(r) for r in ws.iter_rows(values_only=True, max_col=max_cols)]
+        finally:
+            wb.close()
+        formulas = []
+        for i, r in enumerate(rows):
+            for j, c in enumerate(r):
+                f = self._formula_text(c)
+                if f is not None:
+                    formulas.append((i, j, f))
+        uncomputed: List[tuple] = []
+        if formulas:
+            wb = load_workbook(safe_path, read_only=True, data_only=True)
+            try:
+                cached = [list(r) for r in wb[title].iter_rows(values_only=True, max_col=max_cols)]
+            finally:
+                wb.close()
+            for i, j, f in formulas:
+                v = cached[i][j] if i < len(cached) and j < len(cached[i]) else None
+                if v is None:
+                    uncomputed.append((i, j))
+                rows[i][j] = f if v is None else v
+        return title, names, rows, len(formulas), uncomputed
+
+    def _csv_rows(self, safe_path: str, ext: str, max_cols: int) -> List[List[str]]:
+        # utf-8-sig: Excel ghi BOM ở đầu; errors=replace: một ô lệch mã không được
+        # làm hỏng cả lần đọc (cùng lý do _safe_str ở trên).
+        with open(safe_path, "r", newline="", encoding="utf-8-sig", errors="replace") as f:
+            return [list(r[:max_cols]) for r in csv.reader(f, delimiter=self._csv_delim(ext))]
+
+    def read_sheet_rows(self, path: str, sheet: Any = None, max_rows: int = 100,
+                        max_cols: Optional[int] = None) -> Dict[str, Any]:
+        """Đọc MỘT tab (hoặc CSV) thành danh sách dòng chuỗi, cắt ở max_rows nhưng vẫn
+        báo tổng số dòng để model biết còn bao nhiêu chưa xem."""
+        safe_path, ext = self._spreadsheet_path(path)
+        try:
+            max_rows = int(max_rows or 100)
+        except (TypeError, ValueError):
+            max_rows = 100
+        max_rows = max(1, min(max_rows, self.MAX_SHEET_ROWS))
+        max_cols = max(1, min(int(max_cols or self.MAX_SHEET_COLS), self.MAX_SHEET_COLS))
+
+        if ext in (".csv", ".tsv"):
+            rows = self._strip_trailing_blank(self._csv_rows(safe_path, ext, max_cols))
+            name, names, n_formula, uncomputed = "", [], 0, []
+        else:
+            name, names, rows, n_formula, uncomputed = self._xlsx_rows(safe_path, sheet, max_cols)
+            rows = self._strip_trailing_blank(rows)
+
+        total = len(rows)
+        shown = [["" if c is None else str(c) for c in r] for r in rows[:max_rows]]
+        width = max([len(r) for r in shown] or [1])
+        for r in shown:
+            r.extend([""] * (width - len(r)))
+        return {
+            "path": safe_path,
+            "sheet": name,
+            "sheets": names,
+            "rows": shown,
+            "total_rows": total,
+            "max_rows": max_rows,
+            "truncated": total > len(shown),
+            "formula_cells": n_formula,
+            # Chỉ đếm trong phần đang hiện: ghi chú đi kèm bảng nói về bảng đó.
+            "formulas_uncomputed": sum(1 for i, _ in uncomputed if i < max_rows),
+        }
+
+    def append_sheet_rows(self, path: str, sheet: Any = None, rows: Any = None) -> Dict[str, Any]:
+        """Nối dòng vào SAU dòng cuối có dữ liệu của một tab (hoặc cuối file CSV),
+        giữ nguyên mọi tab khác, định dạng và công thức đang có."""
+        safe_path, ext = self._spreadsheet_path(path)
+        rows = self._norm_rows(rows)
+        if not rows:
+            raise ValueError("'rows' rỗng — không có gì để thêm")
+
+        if ext in (".csv", ".tsv"):
+            delim = self._csv_delim(ext)
+            existing = self._strip_trailing_blank(self._csv_rows(safe_path, ext, self.MAX_SHEET_COLS))
+            first = len(existing) + 1
+            # File do tay người/ứng dụng khác ghi có thể thiếu newline cuối; nối thẳng
+            # vào thì dòng mới dính vào dòng cũ thành một bản ghi hỏng.
+            with open(safe_path, "rb+") as f:
+                f.seek(0, os.SEEK_END)
+                if f.tell() > 0:
+                    f.seek(-1, os.SEEK_END)
+                    if f.read(1) not in (b"\n", b"\r"):
+                        f.write(b"\r\n")
+            with open(safe_path, "a", newline="", encoding="utf-8") as f:
+                w = csv.writer(f, delimiter=delim)
+                for r in rows:
+                    w.writerow(["" if c is None else c for c in r])
+            return {"status": "appended", "path": safe_path, "sheet": "", "rows_added": len(rows),
+                    "first_row": first, "last_row": first + len(rows) - 1}
+
+        from openpyxl import load_workbook
+        wb = load_workbook(safe_path, keep_vba=(ext == ".xlsm"))
+        try:
+            ws = self._pick_ws(wb, sheet)
+            first = self._last_used_row(ws) + 1
+            for i, r in enumerate(rows):
+                for j, v in enumerate(r):
+                    ws.cell(row=first + i, column=j + 1, value=v)
+            wb.save(safe_path)
+            title = ws.title
+        finally:
+            wb.close()
+        return {"status": "appended", "path": safe_path, "sheet": title, "rows_added": len(rows),
+                "first_row": first, "last_row": first + len(rows) - 1}
+
+    def update_sheet_cells(self, path: str, sheet: Any = None, cells: Optional[Dict[str, Any]] = None,
+                           rows: Any = None, start: str = "A1") -> Dict[str, Any]:
+        """Ghi đè từng ô ({"A1": v, "B2": 3}) và/hoặc một khối 'rows' bắt đầu từ ô
+        'start'; mọi ô khác, tab khác, định dạng, công thức giữ nguyên."""
+        safe_path, ext = self._spreadsheet_path(path, exts=(".xlsx", ".xlsm"))
+        if not cells and not rows:
+            raise ValueError("Cần 'cells' ({\"A1\": ...}) hoặc 'rows' + 'start' để biết ghi gì vào đâu")
+        if cells is not None and not isinstance(cells, dict):
+            raise ValueError("'cells' phải là object {\"A1\": giá_trị, ...}")
+
+        from openpyxl import load_workbook
+        from openpyxl.utils.cell import column_index_from_string, get_column_letter
+        wb = load_workbook(safe_path, keep_vba=(ext == ".xlsm"))
+        try:
+            ws = self._pick_ws(wb, sheet)
+            written: List[str] = []
+            block_range = ""
+            for ref, val in (cells or {}).items():
+                m = self._CELL_REF.match(str(ref).strip())
+                if not m:
+                    raise ValueError(f"Ô không hợp lệ: '{ref}' (dạng A1, B12, AC7)")
+                coord = m.group(1).upper() + m.group(2)
+                ws[coord] = self._cell_value(val)
+                written.append(coord)
+            if rows:
+                block = self._norm_rows(rows)
+                m = self._CELL_REF.match(str(start or "A1").strip())
+                if not m:
+                    raise ValueError(f"'start' không hợp lệ: '{start}' (dạng A1)")
+                col0, row0 = column_index_from_string(m.group(1).upper()), int(m.group(2))
+                width = 0
+                for i, r in enumerate(block):
+                    width = max(width, len(r))
+                    for j, v in enumerate(r):
+                        ws.cell(row=row0 + i, column=col0 + j, value=v)
+                if block and width:
+                    block_range = (f"{m.group(1).upper()}{row0}:"
+                                   f"{get_column_letter(col0 + width - 1)}{row0 + len(block) - 1}")
+                    written.append(block_range)
+            wb.save(safe_path)
+            title = ws.title
+        finally:
+            wb.close()
+        return {"status": "saved", "path": safe_path, "sheet": title,
+                "cells_written": len(cells or {}), "range": block_range, "targets": written[:50]}
 
     # Căn lề: python-docx dùng enum WD_PARAGRAPH_ALIGNMENT (0..3). Văn bản hành chính VN
     # phụ thuộc nặng vào CĂN GIỮA (quốc hiệu, tiêu đề) nên phải đọc/ghi được, nếu không

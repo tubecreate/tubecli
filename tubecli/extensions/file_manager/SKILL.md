@@ -91,6 +91,40 @@ A specific person: `{"action": "drive_share", "file_id": "...", "type": "user", 
 {"action": "drive_delete", "file_id": "<drive file id>", "cred_id": "..."}
 ```
 
+## Spreadsheet Actions (xlsx_read / xlsx_append / xlsx_write)
+
+These edit `.xlsx` / `.xlsm` workbooks IN PLACE (other sheets, formatting and
+formulas are kept) and read/append `.csv`. Use them for spreadsheets instead of
+`file_action` read/create_file, which flattens the file to text.
+
+### 15. Read a sheet as a table
+```json
+{"action": "xlsx_read", "path": "~/Downloads/plan.xlsx", "sheet": "Sheet1", "max_rows": 100}
+```
+`sheet` is optional (active sheet). The reply shows `| a | b |` rows, the total
+row count and the other sheet names. Formula cells show their last computed
+result; the server does not calculate formulas, and after `xlsx_append` /
+`xlsx_write` the cached results are gone, so those cells show the formula text
+(e.g. `=SUM(B2:B9)`) and the reply says how many. Compute such totals yourself
+from the rows when you need the number.
+
+### 16. Append rows after the last filled row
+```json
+{"action": "xlsx_append", "path": "~/Downloads/plan.xlsx", "sheet": "Sheet1", "rows": [["a", "b"], ["c", "d"]]}
+```
+
+### 17. Write specific cells
+```json
+{"action": "xlsx_write", "path": "~/Downloads/plan.xlsx", "sheet": "Sheet1", "cells": {"A1": "v", "B2": 3}}
+```
+A block works too: `{"action": "xlsx_write", "path": "...", "rows": [[1, 2], [3, 4]], "start": "B2"}`.
+CSV files support `xlsx_read` and `xlsx_append` only.
+
+Boundary: when the agent belongs to a group (a `GROUP WORKSPACE` block in the
+prompt), ONLY the spreadsheet files and folders listed there can be used, with
+the access of their node (`read` < `append` < `write`) — nothing else exists,
+even inside the sandbox below. Without a group, the sandbox below applies.
+
 ## Allowed Area (applies to AI file_action only)
 AI-triggered LOCAL file operations are sandboxed to:
 - `~/Desktop` — Main screen

@@ -5,6 +5,7 @@ Core extension: provides token/credential storage used by other extensions (brow
 import os
 import json
 import uuid
+import asyncio
 import logging
 import secrets
 import threading
@@ -1120,7 +1121,12 @@ class AuthManagerExtension(Extension):
 
     def get_telegram_actions(self):
         return {
-            "generate_auth_link": self._action_generate_auth_link
+            "generate_auth_link": self._action_generate_auth_link,
+            "gsheet_read": self._action_gsheet_read,
+            "gsheet_append": self._action_gsheet_append,
+            "gsheet_update": self._action_gsheet_update,
+            "gsheet_tabs": self._action_gsheet_tabs,
+            "gsheet_create_tab": self._action_gsheet_create_tab,
         }
 
     async def _action_generate_auth_link(self, action_data: dict, context: dict) -> str:
@@ -1166,3 +1172,224 @@ class AuthManagerExtension(Extension):
         msg += f"👉 [Bấm Vào Đây Để Cấp Quyền]({link})\n\n"
         msg += f"Sau khi ấn vào link và chọn Tài khoản, hệ thống sẽ tự động lưu lại phiên đăng nhập."
         return msg
+
+    # ── Google Sheets actions (group context) ─────────────────────
+    # The model addresses a sheet by ALIAS only; sheet_id / cred_id stay inside the
+    # group context on disk, so a prompt-injected reply can never point us at a
+    # spreadsheet the owner did not share. Deny by default: a sheet outside the
+    # agent's group(s) does not exist, and each action needs the entry's access
+    # level (read < append < write < manage). Output is English — the pipeline
+    # already tells the model which language to answer the user in.
+
+    _GSHEET_NEED = {
+        "gsheet_read": "read",
+        "gsheet_tabs": "read",
+        "gsheet_append": "append",
+        "gsheet_update": "write",
+        "gsheet_create_tab": "manage",
+    }
+    _NO_SHEET_MSG = "❌ No Google Sheet is shared with this agent. Add a Sheet node to the agent's group."
+
+    @staticmethod
+    def _group_context_module():
+        # group_context ships with the core, but an older core (hot-patched
+        # extensions on an un-updated server) must refuse cleanly rather than
+        # traceback inside the chat turn. import_module honours sys.modules so
+        # tests can stub it.
+        try:
+            import importlib
+            return importlib.import_module("tubecli.core.group_context")
+        except Exception as e:
+            logger.warning(f"group_context unavailable: {e}")
+            return None
+
+    @staticmethod
+    def _gsheet_groups(gc, context: dict) -> list:
+        """Groups in effect for this call. The web pipeline / Telegram pass
+        `group_ids` (already decided: the sending node's group, or the union);
+        an older caller without it gets the union for the agent."""
+        agent = context.get("agent") or {}
+        agent_id = str(agent.get("id") or "")
+        group_ids = context.get("group_ids")
+        if isinstance(group_ids, (list, tuple)):
+            groups = []
+            for gid in group_ids:
+                try:
+                    g = gc.load(str(gid))
+                except Exception:
+                    g = None
+                if g:
+                    groups.append(g)
+            return groups
+        if not agent_id:
+            return []
+        return gc.effective_groups(agent_id, str(context.get("group_id") or "")) or []
+
+    def _gsheet_resolve(self, action: str, action_data: dict, context: dict):
+        """→ (entry, None) when the sheet is shared with enough access, else (None, refusal)."""
+        gc = self._group_context_module()
+        if gc is None:
+            return None, "❌ Group context is not available on this server (update TubeCLI to use shared Google Sheets)."
+        try:
+            groups = self._gsheet_groups(gc, context)
+        except Exception as e:
+            logger.warning(f"gsheet: cannot load groups: {e}")
+            return None, f"❌ Cannot load the agent's groups: {e}"
+        all_sheets = [s for g in groups for s in (g.get("sheets") or []) if isinstance(s, dict)]
+        if not all_sheets:
+            return None, self._NO_SHEET_MSG
+
+        ref = str(action_data.get("sheet") or action_data.get("alias")
+                  or action_data.get("sheet_id") or action_data.get("url") or "").strip()
+        entry = None
+        if ref:
+            entry = gc.resolve_sheet(groups, ref)
+        elif len(all_sheets) == 1:
+            entry = all_sheets[0]  # only one sheet in scope: "the sheet" is unambiguous
+        if isinstance(entry, dict) and entry.get("ambiguous"):
+            # Một tên, hai bảng (agent thuộc nhiều nhóm) — hỏi lại thay vì đoán.
+            opts = "; ".join(f'"{c.get("alias")}" (group {c.get("group_label") or "?"})'
+                             for c in entry.get("choices") or [])
+            return None, f'❌ "{ref}" matches more than one sheet: {opts}. Say which group you mean.'
+        if not entry:
+            # Chỉ nêu alias: sheet_id không được lộ cho model ngay cả trong câu từ chối.
+            names = ", ".join(f'"{s.get("alias") or "?"}"' for s in all_sheets[:20])
+            if ref:
+                return None, f'❌ Sheet "{ref}" is not shared with this agent. Shared sheets: {names}.'
+            return None, f'❌ Which sheet? Set "sheet" to one of: {names}.'
+
+        need = self._GSHEET_NEED.get(action, "manage")
+        have = str(entry.get("access") or "read")
+        if not gc.allows(have, need):
+            return None, (f'❌ Sheet "{entry.get("alias")}" is shared with access "{have}"; '
+                          f'{action} needs "{need}".')
+        if not entry.get("sheet_id") or not entry.get("cred_id"):
+            return None, (f'❌ Sheet "{entry.get("alias")}" has no spreadsheet id / Google credential attached '
+                          f'— re-check it in the Sheet node.')
+        return entry, None
+
+    @staticmethod
+    def _gsheet_err(entry: dict, e: Exception) -> str:
+        return f'❌ Google Sheets error on "{entry.get("alias")}": {getattr(e, "message", None) or e}'
+
+    @staticmethod
+    def _gsheet_table(values: list, max_rows: int = 0) -> str:
+        """`| a | b |` lines; ragged rows padded so columns line up for the model."""
+        rows = values[:max_rows] if max_rows and max_rows > 0 else values
+        if not rows:
+            return "(no data in this range)"
+        width = max(len(r) for r in rows)
+
+        def cell(v):
+            return str(v if v is not None else "").replace("\n", " ").replace("|", "\\|")
+
+        return "\n".join("| " + " | ".join(cell(c) for c in list(r) + [""] * (width - len(r))) + " |"
+                         for r in rows)
+
+    @staticmethod
+    def _gsheet_int(value, default: int, lo: int, hi: int) -> int:
+        try:
+            n = int(value)
+        except (TypeError, ValueError):
+            n = default
+        return max(lo, min(n, hi))
+
+    async def _action_gsheet_read(self, action_data: dict, context: dict) -> str:
+        entry, err = self._gsheet_resolve("gsheet_read", action_data, context)
+        if err:
+            return err
+        from tubecli.extensions.auth_manager import gsheets
+        tab = str(action_data.get("tab") or entry.get("default_tab") or "")
+        rng = str(action_data.get("range") or "")
+        max_rows = self._gsheet_int(action_data.get("max_rows"), 100, 1, 500)
+        tail = self._gsheet_int(action_data.get("tail"), 0, 0, 500)
+        try:
+            res = await asyncio.to_thread(gsheets.read, entry["cred_id"], entry["sheet_id"],
+                                          tab, rng or None, max_rows, tail)
+        except gsheets.GSheetsError as e:
+            return self._gsheet_err(entry, e)
+        total = res["total_rows"]
+        shown = len(res["values"])
+        head = f'📊 "{entry.get("alias")}" › {res["range"]} — {total} row(s)'
+        body = self._gsheet_table(res["values"])
+        note = ""
+        if res["truncated"]:
+            which = f"last {shown}" if tail else f"first {shown}"
+            note = f"\n… showing the {which} of {total} rows (narrow the range, raise max_rows, or use tail)."
+        return f"{head}\n{body}{note}"
+
+    async def _action_gsheet_append(self, action_data: dict, context: dict) -> str:
+        entry, err = self._gsheet_resolve("gsheet_append", action_data, context)
+        if err:
+            return err
+        from tubecli.extensions.auth_manager import gsheets
+        tab = str(action_data.get("tab") or entry.get("default_tab") or "")
+        raw = action_data.get("rows")
+        if raw is None:
+            raw = action_data.get("values")
+        try:
+            rows = gsheets.normalise_rows(raw)
+            if not rows:
+                return '❌ gsheet_append needs "rows": a list of rows, e.g. [["a","b"],["c","d"]].'
+            res = await asyncio.to_thread(gsheets.append, entry["cred_id"], entry["sheet_id"], tab, rows)
+        except gsheets.GSheetsError as e:
+            return self._gsheet_err(entry, e)
+        preview = self._gsheet_table(rows, 5)
+        more = f"\n… and {len(rows) - 5} more row(s)." if len(rows) > 5 else ""
+        return (f'✅ Appended {res["updated_rows"]} row(s) to "{entry.get("alias")}" › tab "{res["tab"]}" '
+                f'({res["updated_range"] or "end of tab"}).\n{preview}{more}')
+
+    async def _action_gsheet_update(self, action_data: dict, context: dict) -> str:
+        entry, err = self._gsheet_resolve("gsheet_update", action_data, context)
+        if err:
+            return err
+        from tubecli.extensions.auth_manager import gsheets
+        tab = str(action_data.get("tab") or entry.get("default_tab") or "")
+        rng = str(action_data.get("range") or "").strip()
+        if not rng:
+            return '❌ gsheet_update needs "range" (e.g. "B2:C2") — it overwrites cells, so be explicit.'
+        raw = action_data.get("values")
+        if raw is None:
+            raw = action_data.get("rows")
+        try:
+            values = gsheets.normalise_rows(raw)
+            if not values:
+                return '❌ gsheet_update needs "values": a list of rows, e.g. [["x","y"]].'
+            res = await asyncio.to_thread(gsheets.update, entry["cred_id"], entry["sheet_id"], tab, rng, values)
+        except gsheets.GSheetsError as e:
+            return self._gsheet_err(entry, e)
+        return (f'✅ Updated {res["updated_cells"]} cell(s) in "{entry.get("alias")}" › {res["updated_range"]}.\n'
+                f'{self._gsheet_table(values, 5)}')
+
+    async def _action_gsheet_tabs(self, action_data: dict, context: dict) -> str:
+        entry, err = self._gsheet_resolve("gsheet_tabs", action_data, context)
+        if err:
+            return err
+        from tubecli.extensions.auth_manager import gsheets
+        try:
+            info = await asyncio.to_thread(gsheets.inspect, entry["cred_id"], entry["sheet_id"])
+        except gsheets.GSheetsError as e:
+            return self._gsheet_err(entry, e)
+        tabs = info.get("tabs") or []
+        if not tabs:
+            return f'📊 "{entry.get("alias")}" ({info.get("title")}) has no tabs.'
+        lines = [f'📊 "{entry.get("alias")}" — {info.get("title")} — {len(tabs)} tab(s):']
+        for t in tabs:
+            lines.append(f'- {t["title"]} (grid {t.get("rows", 0)}×{t.get("cols", 0)})')
+        if entry.get("default_tab"):
+            lines.append(f'Default tab: {entry["default_tab"]}')
+        return "\n".join(lines)
+
+    async def _action_gsheet_create_tab(self, action_data: dict, context: dict) -> str:
+        entry, err = self._gsheet_resolve("gsheet_create_tab", action_data, context)
+        if err:
+            return err
+        from tubecli.extensions.auth_manager import gsheets
+        title = str(action_data.get("title") or action_data.get("tab") or "").strip()
+        if not title:
+            return '❌ gsheet_create_tab needs "title" for the new tab.'
+        try:
+            res = await asyncio.to_thread(gsheets.create_tab, entry["cred_id"], entry["sheet_id"], title)
+        except gsheets.GSheetsError as e:
+            return self._gsheet_err(entry, e)
+        return f'✅ Created tab "{res["title"]}" in "{entry.get("alias")}".'

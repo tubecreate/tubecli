@@ -40,6 +40,7 @@ async def run_turn(
     model_override: str = "",
     provider_override: str = "",
     session_id: str = "",
+    group_id: str = "",
 ) -> Tuple[str, Dict[str, Any]]:
     """Process one user turn. Returns (reply_text, meta).
 
@@ -47,6 +48,9 @@ async def run_turn(
     survive specialist routing: whichever agent ends up answering, the picked
     model wins. The provider travels with the model because a model id alone is
     ambiguous across OpenAI-compatible proxies.
+
+    `group_id` is the Flow Builder group of the node that sent the message;
+    "" means the union of the agent's groups (see core.group_context).
     """
     from tubecli.core.brain import AgentBrain
 
@@ -60,6 +64,9 @@ async def run_turn(
         return a
 
     agent_dict = _apply_override(agent_dict)
+    # Group membership follows the agent the user put on the canvas, not a
+    # specialist that may take over this one turn — remembered before routing.
+    home_agent_id = agent_dict.get("id", "")
 
     meta: Dict[str, Any] = {
         "agent_id": agent_dict.get("id", ""),
@@ -233,6 +240,19 @@ async def run_turn(
             agent_for_call.get("system_prompt", "") + "\n\n" + _artifact_block(artifacts)
         )
 
+    # ── …and what the Flow Builder group shares with this agent ──
+    # A node inside a group is usable by every agent in that group and by
+    # nobody else. The canvas names the group of the node that sent the
+    # message; with none named it is the union of the agent's groups. The
+    # block lists only what exists, so an agent outside any group sees nothing.
+    groups = _group_workspace(home_agent_id, group_id)
+    group_block = _group_prompt(groups) if groups else ""
+    if group_block:
+        agent_for_call["system_prompt"] = (
+            agent_for_call.get("system_prompt", "") + "\n\n" + group_block
+        )
+    group_ids = [g.get("group_id", "") for g in groups if g.get("group_id")]
+
     # Applied LAST, after any specialist swap: routing replaces the whole agent
     # dict, so an instruction added earlier would be thrown away — which is
     # exactly why a Japanese question kept coming back in Vietnamese.
@@ -264,7 +284,8 @@ async def run_turn(
                 # (telegram_listener.handle_extension_action) — web trước đây
                 # bỏ rơi nên action không chạy và model đành bịa placeholder.
                 try:
-                    dispatched = await _dispatch_extension_action(out or reply, agent_for_call)
+                    dispatched = await _dispatch_extension_action(
+                        out or reply, agent_for_call, group_ids, group_id)
                     if dispatched is not None and dispatched != (out or reply):
                         out = dispatched
                 except Exception as e:
@@ -275,31 +296,46 @@ async def run_turn(
                 text, task = _extract_task_marker(out or reply)
                 if task:
                     meta["codex_task"] = task
+                # A skill ran — that is a unit of work the group worklog records.
+                _log_worklog(groups, agent_for_call, message, text, artifacts)
                 return text, meta
             except asyncio.TimeoutError:
-                return (
-                    f"⏱ Skill '{skill.get('name')}' chạy quá {SKILL_TIMEOUT_SEC}s và đã bị dừng.",
-                    meta,
-                )
+                timed_out = f"⏱ Skill '{skill.get('name')}' chạy quá {SKILL_TIMEOUT_SEC}s và đã bị dừng."
+                _log_worklog(groups, agent_for_call, message, timed_out, artifacts, "error")
+                return timed_out, meta
             except Exception as e:
                 logger.error(f"[Chat] Skill run failed: {e}", exc_info=True)
-                return f"❌ Lỗi khi chạy skill '{skill.get('name')}': {e}", meta
+                failed = f"❌ Lỗi khi chạy skill '{skill.get('name')}': {e}"
+                _log_worklog(groups, agent_for_call, message, failed, artifacts, "error")
+                return failed, meta
         return reply, meta
 
     # Any other verb (codex_create_task, add_tracker, run_api, …) goes to the
     # shared dispatcher — this is the piece the stock web chat is missing.
-    dispatched = await _dispatch_extension_action(reply, agent_for_call)
+    dispatched = await _dispatch_extension_action(reply, agent_for_call, group_ids, group_id)
     if dispatched is not None and dispatched != reply:
         text, task = _extract_task_marker(dispatched)
         if task:
             # The chat turns this into a live card: approve/reject buttons, a
             # progress bar while it runs, and the result when it finishes.
             meta["codex_task"] = task
+        # The dispatcher changed the text, so an action really ran.
+        _log_worklog(groups, agent_for_call, message, text, artifacts)
         return text, meta
 
     text, task = _extract_task_marker(_clean(reply))
     if task:
         meta["codex_task"] = task
+    # file_action không đi qua dispatch: _clean() (clean_reply_text) tự thực thi nó
+    # ngay tại chỗ, nên tới đây dispatched=None dù agent vừa tạo/xoá/di chuyển file.
+    # Với nhóm có nhật ký công việc, đó vẫn là một việc đã làm — ghi lại.
+    try:
+        from tubecli.core.telegram_actions import extract_json_action
+        _act = extract_json_action(reply) or {}
+        if _act.get("action") == "file_action":
+            _log_worklog(groups, agent_for_call, message, text, artifacts)
+    except Exception:
+        pass
     return text, meta
 
 
@@ -674,13 +710,23 @@ def _extension_capabilities(message: str = "") -> str:
     return out[:LIMIT]
 
 
-async def _dispatch_extension_action(reply: str, agent_dict: Dict) -> Optional[str]:
+async def _dispatch_extension_action(reply: str, agent_dict: Dict,
+                                     group_ids: Optional[List[str]] = None,
+                                     group_id: str = "") -> Optional[str]:
     try:
         from tubecli.core.telegram_actions import handle_extension_action
 
         # No token/chat_id: this turn came from the browser, so notifications
         # fall back to the globally configured Telegram target.
-        result = await handle_extension_action(reply, agent_dict, {"source": "web_chat"})
+        # group_ids is ALWAYS a list here — an empty one tells gsheet_*/xlsx_*
+        # handlers "no group is in effect" (refuse sheets, sandbox for files)
+        # rather than "unknown, compute it yourself" as a missing key would.
+        context = {
+            "source": "web_chat",
+            "group_ids": list(group_ids or []),
+            "group_id": group_id or "",
+        }
+        result = await handle_extension_action(reply, agent_dict, context)
         if isinstance(result, str):
             return result
         if isinstance(result, dict):
@@ -689,6 +735,57 @@ async def _dispatch_extension_action(reply: str, agent_dict: Dict) -> Optional[s
     except Exception as e:
         logger.warning(f"[Chat] Extension action dispatch failed: {e}")
         return None
+
+
+def _group_workspace(agent_id: str, group_id: str = "") -> List[Dict[str, Any]]:
+    """Groups in effect for this turn. Never raises — a broken manifest on
+    disk must not take the chat down with it."""
+    try:
+        from tubecli.core import group_context
+
+        return group_context.effective_groups(agent_id, group_id)
+    except Exception as e:
+        logger.warning(f"[Chat] group context unavailable: {e}")
+        return []
+
+
+def _group_prompt(groups: List[Dict[str, Any]]) -> str:
+    try:
+        from tubecli.core import group_context
+
+        return group_context.prompt_block(groups) or ""
+    except Exception as e:
+        logger.warning(f"[Chat] group prompt skipped: {e}")
+        return ""
+
+
+def _worklog_status(text: str) -> str:
+    # The handlers speak to the user, not to us; the leading glyph is the only
+    # outcome signal they all share.
+    return "error" if (text or "").lstrip().startswith(("❌", "⚠️", "⏰", "⏱")) else "done"
+
+
+def _log_worklog(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any], task: str,
+                 result_text: str, artifacts: List[str], status: str = "") -> None:
+    """One row in the group's worklog sheet, if it has one. Fire-and-forget:
+    record_worklog runs on its own thread and swallows its own failures, so
+    the reply is never delayed by Google."""
+    if not groups:
+        return
+    try:
+        from tubecli.core import group_context
+
+        found: List[str] = []
+        _paths_in(result_text, found)          # what this action just produced
+        for p in artifacts or []:
+            if p not in found:
+                found.append(p)
+        group_context.record_worklog(
+            groups, agent_dict, task=task, result=result_text, artifacts=found,
+            status=status or _worklog_status(result_text),
+        )
+    except Exception as e:
+        logger.warning(f"[Chat] worklog skipped: {e}")
 
 
 # Handlers that queue a codex task append this marker so the chat can render

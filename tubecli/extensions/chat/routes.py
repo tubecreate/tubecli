@@ -6,7 +6,7 @@ import mimetypes
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -55,6 +55,8 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 class CreateSessionRequest(BaseModel):
     title: str = ""
     agent_id: str = ""
+    # Flow Builder group of the agent node opening the chat ("" = none).
+    group_id: str = ""
 
 
 class UpdateSessionRequest(BaseModel):
@@ -71,6 +73,12 @@ class SendMessageRequest(BaseModel):
     model: str = ""
     provider: str = ""
     auto_route: bool = True
+    # Group of the node sending THIS message. Wins over the session's value
+    # because a node can be dragged into another group — or out of every
+    # group — after the session exists: "" means "no group now" and clears
+    # what the session remembers. Absent (None: the chat page, older callers)
+    # keeps the session's value.
+    group_id: Optional[str] = None
 
 
 def _require(session_id: str) -> Dict[str, Any]:
@@ -91,10 +99,20 @@ async def create_session(req: CreateSessionRequest):
     from tubecli.extensions.chat.pipeline import resolve_agent
 
     agent = resolve_agent(req.agent_id)
+    group_id = (req.group_id or "").strip()
+    if group_id:
+        from tubecli.core import group_context
+
+        # Same rule as send_message: an id that cannot name a file would sit on
+        # the session and make every later message without its own group_id
+        # fail with 400 — refuse it here, where the caller can still fix it.
+        if not group_context.valid_group_id(group_id):
+            raise HTTPException(400, f"invalid group_id: {group_id}")
     session = conversation_store.create_session(
         title=req.title,
         agent_id=(agent or {}).get("id", ""),
         agent_name=(agent or {}).get("name", ""),
+        group_id=group_id,
     )
     return {"status": "created", "session": session}
 
@@ -136,7 +154,7 @@ async def get_messages(session_id: str, limit: int = 200):
 
 
 @router.post("/sessions/{session_id}/messages")
-async def send_message(session_id: str, req: SendMessageRequest):
+async def send_message(session_id: str, req: SendMessageRequest, request: Request):
     """Run one full turn through the Telegram-grade pipeline."""
     from tubecli.extensions.chat.pipeline import resolve_agent, run_turn
 
@@ -158,6 +176,29 @@ async def send_message(session_id: str, req: SendMessageRequest):
     else:
         provider_override = (session.get("provider") or "").strip()
 
+    # Which Flow Builder group is in effect for this turn. The node sends its
+    # group on every message ("" once it has left every group), so a value it
+    # sends is the truth and the session only fills in for callers that send
+    # none. A guest (shared workspace) works inside the ONE group the owner
+    # shared, whatever the page sends: the scope is the server's word, not
+    # the client's.
+    group_explicit = req.group_id is not None
+    if group_explicit:
+        group_id = str(req.group_id).strip()
+    else:
+        group_id = str(session.get("group_id") or "").strip()
+    guest_scope = getattr(request.state, "guest_scope", None)
+    if isinstance(guest_scope, dict):
+        group_id = str(guest_scope.get("group_id") or "").strip()
+        group_explicit = True
+    if group_id:
+        from tubecli.core import group_context
+
+        # Fail closed: an id that cannot name a file must not quietly widen
+        # the turn to the union of the agent's groups.
+        if not group_context.valid_group_id(group_id):
+            raise HTTPException(400, f"invalid group_id: {group_id}")
+
     user_msg = conversation_store.append_message(session_id, "user", text)
     history = conversation_store.get_history_for_llm(session_id, turns=10)
     # Drop the turn we just stored — it is passed as the prompt, not as history.
@@ -171,6 +212,7 @@ async def send_message(session_id: str, req: SendMessageRequest):
             model_override=model_override,
             provider_override=provider_override,
             session_id=session_id,
+            group_id=group_id,
         )
     except Exception as e:
         logger.error(f"[Chat] Turn failed: {e}", exc_info=True)
@@ -211,6 +253,13 @@ async def send_message(session_id: str, req: SendMessageRequest):
         conversation_store.update_session(
             session_id, agent_id=agent["id"], agent_name=agent.get("name", "")
         )
+    # Remember the group the node is in now — including "none": a node
+    # dragged out of its group sends "" and must not keep the old group's
+    # sheets and files for the rest of the session. A message that omits the
+    # field (the chat page) leaves the stored value alone, so a session
+    # reopened from history still lands in the same workspace.
+    if group_explicit and (session.get("group_id") or "") != group_id:
+        conversation_store.update_session(session_id, group_id=group_id)
 
     return {
         "status": "ok",

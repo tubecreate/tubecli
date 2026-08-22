@@ -94,7 +94,7 @@ class ConversationStore:
 
     def create_session(
         self, title: str = "", agent_id: str = "", agent_name: str = "",
-        model: str = "", provider: str = "",
+        model: str = "", provider: str = "", group_id: str = "",
     ) -> Dict[str, Any]:
         self._ensure_loaded()
         session = {
@@ -107,6 +107,10 @@ class ConversationStore:
             # ambiguous (9router serves OpenRouter-shaped ids like "ag/...").
             "model": model,
             "provider": provider,
+            # Flow Builder group of the agent node that opened this chat; ""
+            # = none. The message body may carry a newer one (the node can be
+            # dragged into another group), which the route then stores here.
+            "group_id": group_id or "",
             "created_at": _now(),
             "updated_at": _now(),
             "message_count": 0,
@@ -138,7 +142,7 @@ class ConversationStore:
 
     def update_session(self, session_id: str, **updates) -> Optional[Dict[str, Any]]:
         self._ensure_loaded()
-        editable = {"title", "agent_id", "agent_name", "pinned", "model", "provider"}
+        editable = {"title", "agent_id", "agent_name", "pinned", "model", "provider", "group_id"}
         with self._lock:
             s = self._sessions.get(session_id)
             if not s:
