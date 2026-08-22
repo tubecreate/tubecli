@@ -528,5 +528,15 @@
   "common.remove": "Remove",
   "ext.route_error_title": "failed to load its API/page",
   "ext.route_error_hint": "The extension is installed, but its code raised while loading, so every one of its URLs returns 404. Reason recorded by the system:",
-  "ext.route_error_fix": "Usually a missing Python library on this machine. In the TubeCLI folder run:"
+  "ext.route_error_fix": "Usually a missing Python library on this machine. In the TubeCLI folder run:",
+  "browser.badge_latest": "最新",
+  "browser.badge_latest_hint": "ShardX 发布的最新内核",
+  "browser.engine_update_available": "有新的浏览器内核",
+  "browser.engine_up_to_date": "浏览器内核已是最新",
+  "browser.engine_installed_now": "已安装",
+  "browser.engine_none_installed": "尚未安装内核",
+  "browser.engine_src_manifest": "来源：ShardX 清单",
+  "browser.engine_src_fallback": "无法读取清单 — 显示上次已知版本",
+  "browser.engine_forced": "由 SHARDX_ENGINE_VERSION 强制指定",
+  "browser.btn_check_update": "检查更新"
 }

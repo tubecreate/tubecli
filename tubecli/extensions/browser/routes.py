@@ -612,6 +612,7 @@ async def api_get_engine_versions():
 
             # 3. Check local install status — data/script/{bas_version}/
             # plugin.setWorkingFolder(__dirname) in open.js makes plugin look here
+            _sx_latest = sx.current_version()
             for v in versions:
                 bas_ver = v.get("bas_version", "")
                 if not bas_ver:
@@ -626,6 +627,12 @@ async def api_get_engine_versions():
                     installed = bool(chrome and chrome.exists())
                     v["downloaded"] = installed
                     v["path"] = str(chrome.parent) if installed else "-"
+                    # Bản ShardX đang phát hành: UI cần phân biệt "mới nhất" với
+                    # "bản cũ còn giữ lại", nếu không người dùng không biết nên cài cái nào.
+                    v["is_current"] = (version_num == _sx_latest)
+                    v["chromium_version"] = version_num
+                    if v["is_current"]:
+                        v["name"] = f"{v['browser_version']} (mới nhất)"
                 else:
                     script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
                     is_installed = os.path.isdir(script_dir) and os.path.isfile(
@@ -659,6 +666,9 @@ async def api_get_engine_versions():
                     "supported": spec.supported,
                     "bas_available": sx.supports_bas(),
                 },
+                # Phiên bản nhân ShardX đang phát hành + đã cài, để UI nói được
+                # "có bản mới" thay vì bắt người dùng tự đối chiếu số.
+                "engine_update": sx.check_update(),
             }
             if not spec.supported:
                 result["platform_error"] = spec.reason
@@ -685,6 +695,34 @@ async def api_get_engine_versions():
             return {"success": False, "status": "error", "message": str(e), "error": str(e)}
 
     return await asyncio.to_thread(_fetch)
+
+@router.get("/engine/check-update")
+async def api_engine_check_update(force: bool = True):
+    """Phiên bản nhân ShardX mới nhất so với bản đã cài.
+
+    force=true bỏ qua cache 30 phút — dùng khi người dùng bấm "Kiểm tra bản mới" và
+    muốn biết ngay, thay vì chờ cache hết hạn.
+    """
+    from . import shardx_runtime as sx
+
+    def _check():
+        if force:
+            sx.fetch_manifest(force=True)
+        info = sx.check_update()
+        info["success"] = True
+        if info["update_available"]:
+            info["message"] = (f"Có nhân mới {info['latest']} "
+                               f"(đang cài {info['newest_installed']}).")
+        elif not info["installed"]:
+            info["message"] = f"Chưa cài nhân nào. Bản mới nhất: {info['latest']}."
+        else:
+            info["message"] = f"Đang dùng nhân mới nhất ({info['latest']})."
+        if not info["manifest_ok"]:
+            info["message"] += " (Không đọc được manifest ShardX — đang dùng bản dự phòng.)"
+        return info
+
+    return await asyncio.to_thread(_check)
+
 
 @router.post("/engine/download/{version}")
 async def api_download_engine(version: str, request: Request):
@@ -752,7 +790,10 @@ async def api_download_engine(version: str, request: Request):
         def download_and_extract_shardx():
             import requests
 
-            url = sx.archive_url(version_num)
+            # Manifest và bucket không đổi cùng lúc, nên thử lần lượt: bản mới nhất
+            # nằm ở CDN dưới tên không số, bản cũ nằm sau worker theo số phiên bản.
+            candidates = sx.download_candidates(version_num) or [sx.archive_url(version_num)]
+            url = candidates[0]
             try:
                 write_progress(
                     "downloading", 3,
@@ -790,7 +831,30 @@ async def api_download_engine(version: str, request: Request):
                 # Resumes across dropped connections instead of restarting the
                 # whole 200 MB transfer, and fails fast on a dead socket rather
                 # than blocking for the full timeout on every chunk.
-                sx.download(url, Path(tmp_zip), on_progress=on_progress)
+                last_err = None
+                for i, cand in enumerate(candidates):
+                    if version in download_cancelled:
+                        raise RuntimeError("cancelled by user")
+                    try:
+                        if i:
+                            # Đường đầu hỏng (404 vì manifest lệch bucket, CDN chặn…)
+                            # → nói rõ đang đổi nguồn thay vì báo lỗi rồi dừng.
+                            write_progress("downloading", 5,
+                                           f"Nguồn {i} không tải được, thử nguồn dự phòng...")
+                            try:
+                                os.remove(tmp_zip)
+                            except OSError:
+                                pass
+                        sx.download(cand, Path(tmp_zip), on_progress=on_progress)
+                        url = cand
+                        last_err = None
+                        break
+                    except RuntimeError:
+                        raise                      # người dùng bấm huỷ
+                    except Exception as e:
+                        last_err = e
+                if last_err is not None:
+                    raise last_err
 
                 write_progress("extracting", 90, "Extracting ShardX engine...")
                 try:

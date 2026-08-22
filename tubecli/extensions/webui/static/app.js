@@ -4734,9 +4734,15 @@ async function showBrowserEnginesModal() {
                 const needsKey = (typeof v === 'object' && v.requires_key);
                 const pill = (bg, text, title) =>
                     `<span title="${esc(title)}" style="font-size:0.65rem;background:${bg};color:#fff;padding:1px 6px;border-radius:4px;margin-left:5px">${esc(text)}</span>`;
+                // Bản ShardX đang phát hành: người dùng cần biết cài cái nào, danh
+                // sách có cả bản cũ giữ lại nên chỉ số phiên bản là không đủ.
+                const current = (typeof v === 'object' && v.is_current)
+                    ? pill('var(--cyan)', T('browser.badge_latest', 'LATEST'),
+                           T('browser.badge_latest_hint', 'Newest engine ShardX publishes'))
+                    : '';
                 const licence = isShardx
                     ? pill('var(--green)', T('browser.badge_free', 'FREE'),
-                           T('browser.badge_free_hint', 'Open engine — no key needed'))
+                           T('browser.badge_free_hint', 'Open engine — no key needed')) + current
                     : (needsKey ? pill(keyMissing ? 'var(--red)' : 'var(--orange)',
                                        T('browser.badge_needs_key', 'NEEDS KEY'),
                                        T('browser.badge_needs_key_hint',
@@ -4760,6 +4766,30 @@ async function showBrowserEnginesModal() {
             
             // The licence difference decides whether a profile can start at
             // all, so it belongs above the table, not buried in a tooltip.
+            // Trạng thái nhân: bản ShardX đang phát hành so với bản đã cài. Không có
+            // dòng này thì "có nhân mới chưa?" chỉ trả lời được bằng cách tự tra GitHub.
+            const eu = r.engine_update || {};
+            const euBox = (() => {
+                if (!eu.latest) return '';
+                const tone = eu.update_available ? 'var(--orange)' : 'var(--green)';
+                const head = eu.update_available
+                    ? `⬆️ ${esc(T('browser.engine_update_available', 'A newer browser core is available'))}: <b>${esc(eu.latest)}</b>`
+                    : `✅ ${esc(T('browser.engine_up_to_date', 'Browser core is up to date'))}: <b>${esc(eu.latest)}</b>`;
+                const cur = eu.newest_installed
+                    ? `${esc(T('browser.engine_installed_now', 'installed'))}: <b>${esc(eu.newest_installed)}</b>`
+                    : esc(T('browser.engine_none_installed', 'no core installed yet'));
+                const src = eu.manifest_ok
+                    ? esc(T('browser.engine_src_manifest', 'source: ShardX manifest'))
+                    : `<span style="color:var(--orange)">${esc(T('browser.engine_src_fallback', 'manifest unreachable — showing last known version'))}</span>`;
+                const forced = eu.forced_by_env
+                    ? ` · <span style="color:var(--orange)">${esc(T('browser.engine_forced', 'forced by SHARDX_ENGINE_VERSION'))}</span>`
+                    : '';
+                return `<div id="engine-update-box" style="background:rgba(255,255,255,0.04);border:1px solid ${tone};border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.6;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <span>${head} · ${cur}</span>
+                    <span style="color:var(--text-muted);font-size:0.75rem">${src}${forced}</span>
+                    <button class="btn-secondary" style="margin-left:auto;padding:2px 10px;font-size:0.78rem" onclick="checkEngineUpdate()">${esc(T('browser.btn_check_update', 'Check for update'))}</button>
+                </div>`;
+            })();
             const legend = `<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border,#333);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.55">
                 <b style="color:var(--green)">ShardX</b> — ${esc(T('browser.legend_shardx', 'free and open: fingerprints are stored locally, no key required.'))}<br>
                 <b style="color:var(--orange)">BAS</b> — ${esc(T('browser.legend_bas', 'needs a BAS Fingerprint API key: profiles fetch their fingerprint from a metered API and will not launch without one.'))}
@@ -4768,7 +4798,7 @@ async function showBrowserEnginesModal() {
                 ⚠️ ${esc(T('browser.no_bas_key', 'No BAS Fingerprint API key is set, so BAS profiles cannot launch. Enter one in Settings, or use a ShardX engine — it is free.'))}
             </div>` : '';
 
-            container.innerHTML = legend + keyWarning + `<table class="data-table">
+            container.innerHTML = euBox + legend + keyWarning + `<table class="data-table">
                 <thead><tr><th>${T('browser.hdr_version', 'Version')}</th><th>${T('browser.hdr_status', 'Status')}</th><th>${T('browser.hdr_path', 'Path')}</th><th style="text-align:right">${T('browser.hdr_action', 'Action')}</th></tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
@@ -4784,6 +4814,26 @@ async function showBrowserEnginesModal() {
     } catch (e) {
         container.innerHTML = `<p class="text-muted">Error: ${esc(e.message)}</p>`;
     }
+}
+
+// Bỏ qua cache manifest 30 phút: người dùng bấm là muốn biết NGAY, không phải chờ
+// hết hạn cache. Sau đó vẽ lại danh sách để badge "MỚI NHẤT" khớp kết quả vừa hỏi.
+async function checkEngineUpdate() {
+    const box = document.getElementById('engine-update-box');
+    if (box) box.style.opacity = '0.55';
+    try {
+        const r = await apiGet('/api/v1/browser/engine/check-update?force=true');
+        if (r && r.success) {
+            if (typeof showToast === 'function') showToast(r.message, r.update_available ? 'warning' : 'success');
+            else alert(r.message);
+        } else {
+            const m = (r && (r.message || r.error)) || 'Check failed';
+            if (typeof showToast === 'function') showToast(m, 'error'); else alert(m);
+        }
+    } catch (e) {
+        if (typeof showToast === 'function') showToast(e.message, 'error'); else alert(e.message);
+    }
+    await showBrowserEnginesModal();
 }
 
 let downloadCancelled = false;

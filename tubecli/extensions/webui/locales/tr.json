@@ -528,5 +528,15 @@
   "common.remove": "Remove",
   "ext.route_error_title": "failed to load its API/page",
   "ext.route_error_hint": "The extension is installed, but its code raised while loading, so every one of its URLs returns 404. Reason recorded by the system:",
-  "ext.route_error_fix": "Usually a missing Python library on this machine. In the TubeCLI folder run:"
+  "ext.route_error_fix": "Usually a missing Python library on this machine. In the TubeCLI folder run:",
+  "browser.badge_latest": "EN YENİ",
+  "browser.badge_latest_hint": "ShardX'in yayınladığı en yeni motor",
+  "browser.engine_update_available": "Daha yeni bir tarayıcı çekirdeği var",
+  "browser.engine_up_to_date": "Tarayıcı çekirdeği güncel",
+  "browser.engine_installed_now": "kurulu",
+  "browser.engine_none_installed": "henüz çekirdek kurulu değil",
+  "browser.engine_src_manifest": "kaynak: ShardX manifesti",
+  "browser.engine_src_fallback": "manifest okunamadı — bilinen son sürüm gösteriliyor",
+  "browser.engine_forced": "SHARDX_ENGINE_VERSION ile zorlandı",
+  "browser.btn_check_update": "Güncelleme denetle"
 }

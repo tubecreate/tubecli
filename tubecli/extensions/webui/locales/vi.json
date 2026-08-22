@@ -694,5 +694,15 @@
   "common.remove": "Xoá",
   "ext.route_error_title": "không nạp được API/trang",
   "ext.route_error_hint": "Extension đã được cài nhưng mã của nó lỗi khi nạp, nên mọi đường dẫn trả 404. Lý do hệ thống ghi nhận:",
-  "ext.route_error_fix": "Thường do thiếu thư viện Python trên máy này. Trong thư mục TubeCLI, chạy:"
+  "ext.route_error_fix": "Thường do thiếu thư viện Python trên máy này. Trong thư mục TubeCLI, chạy:",
+  "browser.badge_latest": "MỚI NHẤT",
+  "browser.badge_latest_hint": "Nhân mới nhất ShardX đang phát hành",
+  "browser.engine_update_available": "Có nhân trình duyệt mới",
+  "browser.engine_up_to_date": "Nhân trình duyệt đang là mới nhất",
+  "browser.engine_installed_now": "đang cài",
+  "browser.engine_none_installed": "chưa cài nhân nào",
+  "browser.engine_src_manifest": "nguồn: manifest ShardX",
+  "browser.engine_src_fallback": "không đọc được manifest — hiện phiên bản biết lần cuối",
+  "browser.engine_forced": "đang ép bằng SHARDX_ENGINE_VERSION",
+  "browser.btn_check_update": "Kiểm tra bản mới"
 }

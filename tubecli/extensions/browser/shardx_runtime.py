@@ -38,9 +38,18 @@ PUB_BASE = "https://pub-e57a7c60f6934eb09a6600bf2fc59cdc.r2.dev"
 WORKER_BASE = "https://cf-r2-worker.tubecli.workers.dev"
 MANIFEST_URL = "https://raw.githubusercontent.com/ProxyShard/ShardBrowser/main/runtime.json"
 
-# The version whose archive lives at PUB_BASE under its plain name; every other
-# version is served by the versioned worker route.
-PINNED_VERSION = "149.0.7827.103"
+# Phiên bản dùng khi KHÔNG đọc được manifest (mất mạng, GitHub chặn). Đây chỉ là
+# lưới an toàn — phiên bản thật luôn lấy từ manifest qua current_version(), nên khi
+# ShardX phát hành nhân mới (150, 151...) extension tự nhận mà không phải sửa code.
+FALLBACK_VERSION = "149.0.7827.103"
+PINNED_VERSION = FALLBACK_VERSION          # tên cũ, giữ cho code ngoài còn import
+
+# Ép một phiên bản cụ thể (thử nhân mới trước khi manifest kịp cập nhật):
+#   SHARDX_ENGINE_VERSION=151.0.7900.10
+ENV_VERSION_OVERRIDE = "SHARDX_ENGINE_VERSION"
+
+_MANIFEST_TTL = 1800          # 30 phút: đủ bắt bản mới trong ngày, không spam GitHub
+_manifest_cache = {"at": 0.0, "data": {}}
 
 _NATIVE_MAGIC = (b"\x7fELF", b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe")
 
@@ -136,11 +145,51 @@ def is_installed(version: str) -> bool:
 
 
 def archive_url(version: str) -> str:
-    """CDN URL of the engine archive for this host and version."""
+    """CDN URL của gói engine cho host này + phiên bản này.
+
+    Bản MỚI NHẤT nằm ở PUB_BASE dưới tên không có số phiên bản (ShardX-Windows.zip) —
+    ShardX ghi đè chính file đó mỗi lần lên nhân mới. Bản cũ hơn nằm sau worker theo
+    route có số phiên bản.
+
+    Trước đây chỗ này so với hằng số PINNED_VERSION cứng trong code: ngay khi ShardX
+    bump manifest (149 -> 150/151), bản mới nhất bị coi là "bản cũ" và tải qua route
+    worker — nơi chưa bao giờ có file đó -> 404. Nay so với manifest.
+    """
     spec = host_spec()
-    if version == PINNED_VERSION:
+    if version == current_version():
         return f"{PUB_BASE}/{spec.archive}"
     return f"{WORKER_BASE}/ShardX-{spec.plat}-{version}.zip"
+
+
+def download_candidates(version: str) -> list:
+    """Các URL để thử lần lượt.
+
+    Manifest và bucket không đổi cùng lúc (bucket thường lên trước). Thử cả hai đường
+    thay vì tin tuyệt đối một cái: hỏng đường này còn đường kia, thay vì ném 404 cho
+    người dùng.
+    """
+    spec = host_spec()
+    if not spec.supported:
+        return []
+    pub = f"{PUB_BASE}/{spec.archive}"
+    worker = f"{WORKER_BASE}/ShardX-{spec.plat}-{version}.zip"
+    urls = [pub, worker] if version == current_version() else [worker, pub]
+    seen, out = set(), []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+def url_exists(url: str, timeout: float = 12.0) -> bool:
+    """HEAD kiểm tra file có thật — để không mời người dùng bấm Tải một URL 404."""
+    try:
+        import requests
+        r = requests.head(url, timeout=timeout, allow_redirects=True)
+        return r.status_code == 200
+    except Exception:
+        return False
 
 
 FINGERPRINTS_ARCHIVE = "ShardX-Fingerprints.zip"
@@ -374,17 +423,108 @@ def fix_exec_bits(root: Path) -> int:
     return fixed
 
 
-def fetch_manifest(timeout: float = 8.0) -> dict:
-    """Current archive etags and chromium version. Returns {} when unreachable."""
+def _manifest_cache_file() -> Path:
+    return launcher_root() / "runtime" / "manifest-cache.json"
+
+
+def fetch_manifest(timeout: float = 8.0, force: bool = False) -> dict:
+    """Manifest ShardX (chromium_version, etag từng gói, grease...).
+
+    Cache 30 phút trong RAM + một bản trên đĩa. Danh sách engine được gọi mỗi lần mở
+    trang; không cache thì mỗi lần mở là một lượt gọi GitHub — chậm và dễ bị giới hạn
+    tần suất. Bản trên đĩa giúp máy mất mạng vẫn biết phiên bản mới nhất đã thấy lần
+    cuối, thay vì tụt về hằng số dự phòng.
+    """
+    import json
+    import time
+    now = time.time()
+    if not force and _manifest_cache["data"] and now - _manifest_cache["at"] < _MANIFEST_TTL:
+        return _manifest_cache["data"]
+
+    data = {}
     try:
         import requests
         r = requests.get(MANIFEST_URL, timeout=timeout)
-        if r.status_code != 200:
-            return {}
-        data = r.json()
-        return data if isinstance(data, dict) else {}
+        if r.status_code == 200:
+            parsed = r.json()
+            if isinstance(parsed, dict):
+                data = parsed
     except Exception:
-        return {}
+        data = {}
+
+    if data:
+        _manifest_cache.update(at=now, data=data)
+        try:
+            f = _manifest_cache_file()
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(data), encoding="utf-8")
+        except Exception:
+            pass
+        return data
+
+    if _manifest_cache["data"]:
+        return _manifest_cache["data"]
+    try:
+        cached = json.loads(_manifest_cache_file().read_text(encoding="utf-8"))
+        if isinstance(cached, dict):
+            _manifest_cache.update(at=now, data=cached)
+            return cached
+    except Exception:
+        pass
+    return {}
+
+
+def current_version() -> str:
+    """Phiên bản nhân MỚI NHẤT mà ShardX đang phát hành cho host này."""
+    forced = (os.environ.get(ENV_VERSION_OVERRIDE) or "").strip()
+    if forced:
+        return forced
+    return fetch_manifest().get("chromium_version") or FALLBACK_VERSION
+
+
+def _version_key(v: str) -> tuple:
+    """So sánh phiên bản theo SỐ, không theo chuỗi — nếu không thì '9' > '151'."""
+    parts = []
+    for chunk in str(v).split("."):
+        digits = "".join(ch for ch in chunk if ch.isdigit())
+        parts.append(int(digits) if digits else 0)
+    while len(parts) < 4:
+        parts.append(0)
+    return tuple(parts[:4])
+
+
+def installed_versions() -> list:
+    """Các phiên bản engine đã cài trên máy (mới nhất trước)."""
+    root = launcher_root() / "runtime" / "engines"
+    if not root.is_dir():
+        return []
+    out = [d.name for d in root.iterdir() if d.is_dir() and is_installed(d.name)]
+    return sorted(out, key=_version_key, reverse=True)
+
+
+def check_update() -> dict:
+    """So phiên bản đã cài với phiên bản ShardX đang phát hành.
+
+    Trả đủ để UI nói một câu rõ ràng: đang cài gì, mới nhất là gì, có nên cập nhật
+    không; và nếu manifest không đọc được thì nói thẳng là đang dùng bản dự phòng.
+    """
+    man = fetch_manifest()
+    latest = current_version()
+    installed = installed_versions()
+    newest = installed[0] if installed else None
+    return {
+        "latest": latest,
+        "installed": installed,
+        "newest_installed": newest,
+        "update_available": bool(newest and _version_key(latest) > _version_key(newest)),
+        "up_to_date": bool(newest and _version_key(latest) <= _version_key(newest)),
+        "manifest_ok": bool(man),
+        "manifest_revision": man.get("revision"),
+        "grease_brand": man.get("grease_brand"),
+        "grease_version": man.get("grease_version"),
+        "forced_by_env": bool((os.environ.get(ENV_VERSION_OVERRIDE) or "").strip()),
+        "source": "manifest" if man else "fallback",
+    }
 
 
 def available_versions() -> list:
@@ -397,7 +537,7 @@ def available_versions() -> list:
     Offering those on Linux meant offering a download that always fails, so list
     them only where they exist.
     """
-    pinned = fetch_manifest().get("chromium_version") or PINNED_VERSION
+    pinned = current_version()
     if sys.platform == "win32":
         extra = ["148.0.7778.216", "148.0.7778.97"]
         return [pinned] + [v for v in extra if v != pinned]
