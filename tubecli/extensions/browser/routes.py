@@ -631,8 +631,9 @@ async def api_get_engine_versions():
                     # "bản cũ còn giữ lại", nếu không người dùng không biết nên cài cái nào.
                     v["is_current"] = (version_num == _sx_latest)
                     v["chromium_version"] = version_num
-                    if v["is_current"]:
-                        v["name"] = f"{v['browser_version']} (mới nhất)"
+                    # KHÔNG gắn chữ "mới nhất" vào name: name đi thẳng ra UI, mà UI có
+                    # 9 ngôn ngữ — chữ cứng tiếng Việt sẽ chen vào giao diện tiếng Anh.
+                    # Badge LATEST (dịch theo ngôn ngữ) đã nói đủ.
                 else:
                     script_dir = os.path.join(ext_dir, "data", "script", bas_ver)
                     is_installed = os.path.isdir(script_dir) and os.path.isfile(
