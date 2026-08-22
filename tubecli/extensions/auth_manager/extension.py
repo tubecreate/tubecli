@@ -1101,6 +1101,88 @@ class AuthManager:
 auth_manager = AuthManager()
 
 
+# ── Group kind: a Sheet node on the Flow canvas ───────────────────────────
+# tubecli.core.group_context keeps the kind registry; the `sheets` shape lives
+# here, next to the gsheet_* handlers that read it, so the core never learns
+# what a Google Sheet is. Guarded import: this extension can meet a core that
+# predates the registry (see _group_context_module below) and must still load.
+try:
+    from tubecli.core import group_context as _gc
+    _EntityKind = _gc.EntityKind
+except Exception:
+    _gc, _EntityKind = None, None
+
+_PROMPT_LIST_CAP = getattr(_gc, "PROMPT_LIST_CAP", 20)
+_WORKLOG_TAB = getattr(_gc, "WORKLOG_TAB", "Log")
+_GSHEET_SYNTAX = (
+    '{"action":"gsheet_read","sheet":"<alias>","tab":"Tasks","range":"A1:F50","max_rows":100}',
+    '{"action":"gsheet_append","sheet":"<alias>","tab":"Log","rows":[["a","b"],["c","d"]]}',
+    '{"action":"gsheet_update","sheet":"<alias>","tab":"Tasks","range":"B2:C2","values":[["x","y"]]}',
+    '{"action":"gsheet_tabs","sheet":"<alias>"}',
+    '{"action":"gsheet_create_tab","sheet":"<alias>","title":"Week 35"}',
+)
+
+
+def _sheet_normalise(raw, index: int):
+    if not isinstance(raw, dict):
+        return None
+    sheet_id = _gc.norm_str(raw.get("sheet_id"), 200)
+    if not sheet_id:
+        return None
+    # Không bao giờ lấy sheet_id làm nhãn: nhãn này đi thẳng vào prompt của model,
+    # mà quy ước là model không được thấy id. Thiếu alias lẫn title thì đánh số.
+    alias = (_gc.norm_str(raw.get("alias"), 200) or _gc.norm_str(raw.get("title"), 200)
+             or f"Sheet {index + 1}")
+    tabs = _gc.norm_str_list(raw.get("tabs"), 100)
+    return {
+        "alias": alias,
+        "sheet_id": sheet_id,
+        "url": _gc.norm_str(raw.get("url"), 1000),
+        "cred_id": _gc.norm_str(raw.get("cred_id"), 200),
+        "tabs": tabs,
+        "default_tab": _gc.norm_str(raw.get("default_tab"), 100) or (tabs[0] if tabs else ""),
+        "access": _gc.norm_access(raw.get("access"), "read"),
+        "role": "worklog" if _gc.norm_str(raw.get("role"), 20).lower() == "worklog" else "",
+    }
+
+
+def _sheets_finalise(entries: list) -> list:
+    # One worklog per group — the first declared wins.
+    seen = False
+    for s in entries:
+        if s.get("role") == "worklog":
+            if seen:
+                s["role"] = ""
+            seen = True
+    return entries
+
+
+def _sheets_describe(entries: list) -> list:
+    lines = ["Google Sheets (refer to them by alias; use gsheet_read / gsheet_append / "
+             "gsheet_update / gsheet_tabs / gsheet_create_tab):"]
+    for s in entries[:_PROMPT_LIST_CAP]:
+        tabs = ", ".join(s.get("tabs") or []) or "unknown"
+        line = f'- "{s.get("alias", "")}" — tabs: {tabs} (access: {s.get("access", "read")})'
+        if s.get("role") == "worklog":
+            line += (" — THIS IS THE GROUP WORKLOG: after finishing a task, "
+                     f'append one row to tab "{_WORKLOG_TAB}".')
+        lines.append(line)
+    if len(entries) > _PROMPT_LIST_CAP:
+        lines.append(f"- …and {len(entries) - _PROMPT_LIST_CAP} more sheets (ask the user for the alias).")
+    return lines
+
+
+def _sheets_action_docs(entries: list) -> list:
+    return list(_GSHEET_SYNTAX)
+
+
+GROUP_KINDS = [] if _EntityKind is None else [
+    _EntityKind(key="sheets", label="Google Sheets", normalise=_sheet_normalise, describe=_sheets_describe,
+                action_docs=_sheets_action_docs, access_default="read", order=40, identity="sheet_id",
+                finalise=_sheets_finalise),
+]
+
+
 class AuthManagerExtension(Extension):
     name = "auth_manager"
     version = "0.1.0"
@@ -1118,6 +1200,9 @@ class AuthManagerExtension(Extension):
     def get_routes(self):
         from tubecli.extensions.auth_manager.routes import router
         return router
+
+    def get_group_kinds(self):
+        return list(GROUP_KINDS)
 
     def get_telegram_actions(self):
         return {

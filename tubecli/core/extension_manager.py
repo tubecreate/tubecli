@@ -279,6 +279,16 @@ class Extension:
         """
         return {}
 
+    def get_group_kinds(self) -> List:
+        """Return the EntityKind objects (tubecli.core.group_context) this
+        extension contributes to Flow Builder groups — the materials a group
+        can hold and describe to its agents (file_manager: files, folders;
+        auth_manager: sheets). Registered when the extension is enabled and
+        withdrawn when it is disabled: a disabled kind's entries stay on disk
+        but are silent, and its actions are unreachable anyway.
+        """
+        return []
+
     def get_manifest(self) -> dict:
         """Return extension manifest data."""
         return self._manifest or {
@@ -591,6 +601,7 @@ class ExtensionManager:
                 extension.on_enable()
             except Exception as e:
                 logger.error(f"Error enabling extension {extension.name}: {e}")
+        self._sync_group_kinds(extension, bool(cfg.get("enabled", False)))
 
     # ── Enable / Disable ─────────────────────────────────────
 
@@ -606,6 +617,7 @@ class ExtensionManager:
         extension.enabled = True
         if not already_enabled:
             extension.on_enable()
+        self._sync_group_kinds(extension, True)
         self._config.setdefault(name, {})["enabled"] = True
         self._save_config()
         return True
@@ -615,10 +627,43 @@ class ExtensionManager:
         if not extension:
             return False
         extension.enabled = False
+        # Withdrawn before on_disable so a hook that raises cannot leave the
+        # kinds registered for an extension that already reads as disabled.
+        self._sync_group_kinds(extension, False)
         extension.on_disable()
         self._config.setdefault(name, {})["enabled"] = False
         self._save_config()
         return True
+
+    # ── Group kinds (tubecli.core.group_context) ─────────────
+
+    def _sync_group_kinds(self, extension: Extension, enabled: bool):
+        """Register the entity kinds an extension contributes to Flow groups
+        while it is enabled, withdraw them when it is not. Same tolerance as
+        get_all_telegram_actions: one extension's failure is logged and costs
+        only its own kinds — never another extension's, and never the
+        enable/disable itself."""
+        try:
+            ext_kinds = extension.get_group_kinds() or []
+        except Exception as e:
+            logger.error(f"Error collecting group kinds for {extension.name}: {e}")
+            return
+        if not ext_kinds:
+            return
+        try:
+            from tubecli.core import group_context
+        except Exception as e:
+            logger.error(f"group_context unavailable, kinds of {extension.name} not registered: {e}")
+            return
+        for k in ext_kinds:
+            try:
+                if enabled:
+                    group_context.register_kind(k)
+                else:
+                    group_context.unregister_kind(getattr(k, "key", ""))
+            except Exception as e:
+                logger.error(f"Error registering group kind {getattr(k, 'key', k)!r} "
+                             f"for {extension.name}: {e}")
 
     # ── Getters ──────────────────────────────────────────────
 

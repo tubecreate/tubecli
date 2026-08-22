@@ -3,9 +3,9 @@
 WHY THIS EXISTS
     A node dropped inside a group on the Flow canvas is meant to be usable by
     every agent in that group: a spreadsheet on this machine, a folder, a
-    Google Sheet. The canvas knew the grouping; the server did not — so an
-    agent either saw nothing, or (through the AI sandbox) saw far more than
-    the owner intended.
+    Google Sheet, a note with the owner's instructions. The canvas knew the
+    grouping; the server did not — so an agent either saw nothing, or
+    (through the AI sandbox) saw far more than the owner intended.
 
     The cloud syncs one JSON per group into data/groups/<group_id>.json. This
     module is the only reader/writer of those files and the one place that
@@ -13,6 +13,23 @@ WHY THIS EXISTS
     handlers (gsheet_* in auth_manager, xlsx_* in file_manager) call resolve_*
     and allows(); the chat and Telegram pipelines call prompt_block() to tell
     the model what exists. Nothing else looks at the files.
+
+KINDS ARE PLUGGABLE
+    A group is an agent's kit of materials, and the list of materials grows
+    (browser profiles, scripts, schedules…). The core therefore owns no shape
+    but `notes`: every other kind is an EntityKind that an extension registers
+    through Extension.get_group_kinds() — file_manager brings `files` and
+    `folders`, auth_manager brings `sheets`. Adding a material is a
+    registration, never an edit to this file or to the pipeline. A kind whose
+    extension is disabled is silent: its entries stay on disk but are neither
+    described to the model nor exposed in the merged view.
+
+CANVAS / SERVER
+    The stored file keeps two halves. `canvas` is what the cloud last synced
+    and is replaced wholesale on every PUT. `server` holds what was added on
+    this machine afterwards (an agent's own schedule, a skill it wrote) and
+    survives the next sync. load() hands callers the merged flat view, so the
+    handlers never need to know which half an entry came from.
 
 THE RULES
     * Deny by default: an entity that is not in one of the agent's groups does
@@ -33,12 +50,14 @@ import logging
 import os
 import re
 import threading
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("GroupContext")
 
 ACCESS_ORDER = {"read": 0, "append": 1, "write": 2, "manage": 3}
 GROUP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+KIND_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 WORKLOG_TAB = "Log"
 WORKLOG_HEADER = ["Time", "Agent", "Task", "Result", "Files", "Status"]
@@ -46,6 +65,30 @@ WORKLOG_HEADER = ["Time", "Agent", "Task", "Result", "Files", "Status"]
 # Entities listed per kind in prompt_block. A group holding hundreds of files
 # would otherwise crowd the agent's own instructions out of the prompt.
 PROMPT_LIST_CAP = 20
+# Entries kept per registered kind and per group.
+MAX_ENTRIES = 500
+# A list under a key no kind claims (synced before its extension was enabled,
+# or written by a newer cloud) is stored untouched — but bounded, because
+# "untouched" must not become "unbounded".
+VERBATIM_MAX_ENTRIES = 200
+VERBATIM_MAX_BYTES = 64 * 1024
+# …and per section (canvas or server) at most this many such lists, this
+# many bytes in all. The per-list cap alone still let one PUT carry
+# thousands of 64 KB lists, re-parsed on every chat turn.
+VERBATIM_MAX_KEYS = 16
+VERBATIM_SECTION_MAX_BYTES = 256 * 1024
+
+# notes kind: one note's text, and all notes' text in one prompt.
+NOTE_TEXT_CAP = 2000
+NOTE_ALIAS_CAP = 40
+NOTES_PROMPT_CAP = 6000
+NOTES_MAX_IN_PROMPT = 30
+
+# Top-level keys of the stored file / PUT body that are not entity lists.
+RESERVED_KEYS = frozenset({"group_id", "label", "updated_at", "agents", "canvas", "server"})
+
+ACTION_SYNTAX_HEAD = ("ACTION SYNTAX (reply with exactly one ```json block when you act; "
+                      "otherwise answer normally):")
 
 _lock = threading.RLock()
 # sheet_ids whose "Log" tab and header were verified in this process. Google
@@ -54,6 +97,196 @@ _lock = threading.RLock()
 _ensured_worklogs: set = set()
 
 _SHEET_URL_RE = re.compile(r"/spreadsheets/d/([A-Za-z0-9_-]+)")
+
+
+# ── Small normalisers (shared with the kinds extensions define) ───────
+
+def _str(value: Any, limit: int = 500) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()[:limit]
+
+
+def _str_list(values: Any, limit: int = 200) -> List[str]:
+    if isinstance(values, str):
+        values = [values]
+    if not isinstance(values, (list, tuple)):
+        return []
+    out: List[str] = []
+    for v in values:
+        s = _str(v)
+        if s and s not in out:
+            out.append(s)
+    return out[:limit]
+
+
+def _norm_access(value: Any, default: str) -> str:
+    v = _str(value, 20).lower()
+    return v if v in ACCESS_ORDER else default
+
+
+# Public names for the extensions that define kinds, so every kind trims and
+# validates the same way without copying these helpers.
+norm_str = _str
+norm_str_list = _str_list
+norm_access = _norm_access
+
+
+# ── Entity kinds ─────────────────────────────────────────────────────
+
+@dataclass
+class EntityKind:
+    """One kind of material a group can hold.
+
+    normalise(raw_entry, index) turns what the canvas sent into the stored
+    entry, or returns None to drop it (a file node without a path is simply
+    not shareable). describe(entries) returns the prompt lines for a group's
+    entries of this kind and MUST NOT include ids or credentials — the model
+    works by alias. action_docs(entries) returns the JSON syntax lines the
+    model needs for these entries; they are pooled and de-duplicated across
+    groups and kinds, and only kinds with entries are asked. `identity` names
+    the entry field that makes two entries the same thing (path for files,
+    sheet_id for sheets, alias otherwise) — add_server_entry replaces rather
+    than duplicates on it. `finalise` is an optional whole-list pass after the
+    per-entry step, for rules that span entries (sheets: one worklog per group).
+    """
+    key: str
+    label: str
+    normalise: Callable[[Any, int], Optional[Dict[str, Any]]]
+    describe: Callable[[List[Dict[str, Any]]], List[str]]
+    action_docs: Callable[[List[Dict[str, Any]]], List[str]] = lambda entries: []
+    access_default: str = "read"
+    order: int = 100
+    identity: str = "alias"
+    finalise: Optional[Callable[[List[Dict[str, Any]]], List[Dict[str, Any]]]] = None
+
+    def __post_init__(self):
+        # The key becomes a JSON key in the stored file and a list key in the
+        # manifest; a key that collides with the container fields would make
+        # "agents" an entity list and break every reader.
+        if not isinstance(self.key, str) or not KIND_KEY_RE.match(self.key) or self.key in RESERVED_KEYS:
+            raise ValueError(f"invalid kind key: {self.key!r}")
+        if not callable(self.normalise) or not callable(self.describe) or not callable(self.action_docs):
+            raise ValueError(f"kind {self.key!r}: normalise/describe/action_docs must be callable")
+        self.access_default = _norm_access(self.access_default, "read")
+
+
+_kinds: Dict[str, EntityKind] = {}
+# Keys unregistered on purpose (their extension was disabled). ensure_default_kinds
+# must not bring these back, otherwise "disabled" would last until the next prompt.
+_withdrawn: set = set()
+
+# The built-in kinds and the module that defines each. Registered lazily by
+# ensure_default_kinds() because the chat pipeline and the tests may call
+# prompt_block()/save() before the extension manager has loaded anything.
+DEFAULT_KIND_OWNERS = {
+    "files": "tubecli.extensions.file_manager.extension",
+    "folders": "tubecli.extensions.file_manager.extension",
+    "sheets": "tubecli.extensions.auth_manager.extension",
+}
+
+
+def register_kind(kind: EntityKind) -> None:
+    """Idempotent by key: registering a key again replaces the earlier kind."""
+    if not isinstance(kind, EntityKind):
+        raise TypeError("register_kind expects an EntityKind")
+    with _lock:
+        _kinds[kind.key] = kind
+        _withdrawn.discard(kind.key)
+
+
+def unregister_kind(key: str) -> None:
+    with _lock:
+        _kinds.pop(key, None)
+        _withdrawn.add(key)
+
+
+def kinds() -> List[EntityKind]:
+    """Registered kinds in prompt order (order, then key)."""
+    return sorted(_kinds.values(), key=lambda k: (k.order, k.key))
+
+
+def kind(key: str) -> Optional[EntityKind]:
+    return _kinds.get(key)
+
+
+def ensure_default_kinds() -> None:
+    """Register the built-in kinds whose extension module can be imported.
+
+    Only kinds that were never registered are tried; a key that an extension
+    withdrew stays withdrawn. The import is cached by Python, so after the
+    first call this is an attribute lookup per missing key.
+    """
+    missing = [k for k in DEFAULT_KIND_OWNERS if k not in _kinds and k not in _withdrawn]
+    if not missing:
+        return
+    for module_name in dict.fromkeys(DEFAULT_KIND_OWNERS[k] for k in missing):
+        try:
+            mod = importlib.import_module(module_name)
+            for k in getattr(mod, "GROUP_KINDS", None) or []:
+                if isinstance(k, EntityKind) and k.key not in _kinds and k.key not in _withdrawn:
+                    register_kind(k)
+        except Exception as e:
+            logger.warning(f"[Groups] default kinds from {module_name} unavailable: {e}")
+
+
+# ── Built-in kind: notes (the group's playbook) ──────────────────────
+
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def _one_line(value, cap: int) -> str:
+    """Một dòng, không ký tự điều khiển: alias được in ở cột 0 của prompt, nên một
+    alias nhiều dòng có thể giả làm tiêu đề mục hệ thống ("### ACTION SYNTAX")."""
+    text = _CONTROL_RE.sub("", str(value or "")).replace("\r", " ").replace("\n", " ")
+    return " ".join(text.split())[:cap]
+
+
+def _note_alias(text: str, index: int) -> str:
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            return line[:NOTE_ALIAS_CAP]
+    return f"Note {index + 1}"
+
+
+def _note_normalise(raw: Any, index: int) -> Optional[Dict[str, Any]]:
+    if isinstance(raw, str):
+        raw = {"text": raw}
+    if not isinstance(raw, dict):
+        return None
+    text = str(raw.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = _CONTROL_RE.sub("", text).strip()
+    if not text:
+        return None
+    if len(text) > NOTE_TEXT_CAP:
+        text = text[:NOTE_TEXT_CAP].rstrip() + " …[truncated]"
+    return {"alias": _one_line(raw.get("alias"), 120) or _note_alias(text, index), "text": text}
+
+
+def _notes_describe(entries: List[Dict[str, Any]]) -> List[str]:
+    lines = ["GROUP PLAYBOOK (written by the owner — follow it):"]
+    used = 0
+    for i, n in enumerate(entries):
+        text = str(n.get("text") or "")
+        alias = _one_line(n.get("alias"), NOTE_ALIAS_CAP) or "Note"
+        # Ngân sách tính cả dòng alias, và chặn số lượng: nhiều ghi chú ngắn cũng
+        # không được lách cap. Ghi chú đầu luôn in (đã cap riêng ở normalise).
+        cost = len(text) + len(alias) + 4
+        if i and (used + cost > NOTES_PROMPT_CAP or i >= NOTES_MAX_IN_PROMPT):
+            lines.append("(more notes omitted)")
+            break
+        used += cost
+        lines.append(f"• {alias}:")
+        lines.extend("  " + ln for ln in text.splitlines())
+    return lines
+
+
+NOTES_KIND = EntityKind(
+    key="notes", label="Playbook", normalise=_note_normalise, describe=_notes_describe,
+    access_default="read", order=10, identity="alias",
+)
+register_kind(NOTES_KIND)
 
 
 # ── Storage ──────────────────────────────────────────────────────────
@@ -80,116 +313,8 @@ def _utc_now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _str(value: Any, limit: int = 500) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()[:limit]
-
-
-def _str_list(values: Any, limit: int = 200) -> List[str]:
-    if isinstance(values, str):
-        values = [values]
-    if not isinstance(values, (list, tuple)):
-        return []
-    out: List[str] = []
-    for v in values:
-        s = _str(v)
-        if s and s not in out:
-            out.append(s)
-    return out[:limit]
-
-
-def _norm_access(value: Any, default: str) -> str:
-    v = _str(value, 20).lower()
-    return v if v in ACCESS_ORDER else default
-
-
-def _entries(data: Dict[str, Any], key: str) -> list:
-    raw = data.get(key)
-    if raw is None:
-        return []
-    if not isinstance(raw, list):
-        raise ValueError(f"'{key}' must be a list")
-    return raw
-
-
-def _normalise(group_id: str, data: Any) -> Dict[str, Any]:
-    """The stored shape. Malformed ENTRIES are dropped (a file node without a
-    path is simply not shareable); a malformed CONTAINER is refused, because
-    that is a client bug the sync should surface rather than silently store
-    an empty group for."""
-    if not isinstance(data, dict):
-        raise ValueError("group context must be a JSON object")
-
-    files: List[Dict[str, Any]] = []
-    for raw in _entries(data, "files"):
-        if isinstance(raw, str):
-            raw = {"path": raw}
-        if not isinstance(raw, dict):
-            continue
-        path = _str(raw.get("path"), 1000)
-        if not path:
-            continue
-        alias = _str(raw.get("alias"), 200) or os.path.basename(path.rstrip("/\\")) or path
-        ext = (_str(raw.get("ext"), 16) or os.path.splitext(path)[1]).lower().lstrip(".")
-        files.append({"alias": alias, "path": path, "ext": ext,
-                      "access": _norm_access(raw.get("access"), "write")})
-
-    folders: List[Dict[str, Any]] = []
-    for raw in _entries(data, "folders"):
-        if isinstance(raw, str):
-            raw = {"path": raw}
-        if not isinstance(raw, dict):
-            continue
-        path = _str(raw.get("path"), 1000)
-        if not path:
-            continue
-        folders.append({"path": path, "access": _norm_access(raw.get("access"), "write")})
-
-    sheets: List[Dict[str, Any]] = []
-    have_worklog = False
-    for raw in _entries(data, "sheets"):
-        if not isinstance(raw, dict):
-            continue
-        sheet_id = _str(raw.get("sheet_id"), 200)
-        if not sheet_id:
-            continue
-        # Không bao giờ lấy sheet_id làm nhãn: nhãn này đi thẳng vào prompt của model,
-        # mà quy ước là model không được thấy id. Thiếu alias lẫn title thì đánh số.
-        alias = _str(raw.get("alias"), 200) or _str(raw.get("title"), 200) or f"Sheet {len(out) + 1}"
-        tabs = _str_list(raw.get("tabs"), 100)
-        default_tab = _str(raw.get("default_tab"), 100) or (tabs[0] if tabs else "")
-        role = "worklog" if _str(raw.get("role"), 20).lower() == "worklog" else ""
-        if role and have_worklog:
-            role = ""          # one worklog per group — the first declared wins
-        have_worklog = have_worklog or bool(role)
-        sheets.append({
-            "alias": alias,
-            "sheet_id": sheet_id,
-            "url": _str(raw.get("url"), 1000),
-            "cred_id": _str(raw.get("cred_id"), 200),
-            "tabs": tabs,
-            "default_tab": default_tab,
-            "access": _norm_access(raw.get("access"), "read"),
-            "role": role,
-        })
-
-    return {
-        "group_id": group_id,
-        "label": _str(data.get("label"), 120) or "Group",
-        "updated_at": _str(data.get("updated_at"), 40),
-        "agents": _str_list(data.get("agents"), 500),
-        "files": files[:500],
-        "folders": folders[:200],
-        "sheets": sheets[:100],
-    }
-
-
-def load(group_id: str) -> Optional[Dict[str, Any]]:
-    """The stored context, or None when there is none (or the id is bad)."""
-    if not valid_group_id(group_id):
-        return None
-    path = os.path.join(_groups_dir(), f"{group_id}.json")
+def _read_raw(path: str) -> Optional[Dict[str, Any]]:
+    """The file as written, or None when absent/unreadable."""
     try:
         with _lock:
             with open(path, "r", encoding="utf-8") as f:
@@ -199,27 +324,250 @@ def load(group_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"[Groups] unreadable {path}: {e}")
         return None
-    # Re-normalised on the way in, so a file edited by hand still carries
-    # every key the callers index without checking.
-    try:
-        return _normalise(group_id, data)
-    except ValueError as e:
-        logger.warning(f"[Groups] {group_id}: {e}")
-        return None
+    return data if isinstance(data, dict) else None
 
 
-def save(group_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """Validate, normalise, write atomically. Returns what was stored."""
-    path = _file_for(group_id)            # raises on a bad id
-    stored = _normalise(group_id, data)
-    stored["updated_at"] = _utc_now()
+def _write(path: str, stored: Dict[str, Any]) -> None:
     with _lock:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(stored, f, indent=2, ensure_ascii=False)
         os.replace(tmp, path)
-    return stored
+
+
+def _cap_verbatim(values: list, budget: int = VERBATIM_MAX_BYTES) -> Tuple[list, int]:
+    """The longest prefix of `values` (at most VERBATIM_MAX_ENTRIES entries)
+    whose JSON form fits in `budget` bytes, and that size.
+
+    Measured entry by entry in one pass. The earlier pop-and-re-dump loop
+    serialised the whole list once per dropped entry — O(n²), around a
+    gigabyte of json.dumps for a single 200 × 64 KB list — on the one path
+    where the body is whatever the caller chose to send.
+    """
+    out: list = []
+    used = 2                                    # "[" and "]"
+    for v in values[:VERBATIM_MAX_ENTRIES]:
+        size = len(json.dumps(v, ensure_ascii=False).encode("utf-8")) + (2 if out else 0)  # ", "
+        if used + size > budget:
+            break
+        used += size
+        out.append(v)
+    return out, used
+
+
+def _normalise_kind(k: EntityKind, raw_list: list) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for i, raw in enumerate(raw_list):
+        try:
+            entry = k.normalise(raw, i)
+        except Exception as e:
+            # One odd entry costs itself, not the group: a kind's bug must not
+            # make the whole manifest unloadable.
+            logger.warning(f"[Groups] kind '{k.key}' rejected entry #{i}: {e}")
+            entry = None
+        if isinstance(entry, dict):
+            out.append(entry)
+        if len(out) >= MAX_ENTRIES:
+            break
+    if k.finalise is not None:
+        try:
+            out = list(k.finalise(out))
+        except Exception as e:
+            logger.warning(f"[Groups] kind '{k.key}' finalise failed: {e}")
+    return out
+
+
+def _normalise_section(data: Dict[str, Any]) -> Dict[str, Any]:
+    """One half (canvas or server): registered kinds normalised; any other
+    list under a kind-shaped key kept verbatim, bounded. A registered key
+    holding a non-list is refused — that is a client bug the sync should
+    surface rather than silently store an empty group for."""
+    out: Dict[str, Any] = {}
+    for k in kinds():
+        raw = data.get(k.key)
+        if raw is None:
+            out[k.key] = []
+            continue
+        if not isinstance(raw, list):
+            raise ValueError(f"'{k.key}' must be a list")
+        out[k.key] = _normalise_kind(k, raw)
+    # Verbatim lists: only under a key a kind could ever claim (EntityKind
+    # refuses anything else, so "" or a 100 KB key would sit on disk for
+    # nothing), and bounded in number and total size as well as per list —
+    # what is stored here is re-read on every chat turn.
+    kept_keys = 0
+    used = 0
+    for key, raw in data.items():
+        if not isinstance(key, str) or key in RESERVED_KEYS or key in out:
+            continue
+        if not KIND_KEY_RE.match(key) or not isinstance(raw, list):
+            continue
+        if kept_keys >= VERBATIM_MAX_KEYS or used >= VERBATIM_SECTION_MAX_BYTES:
+            logger.warning(f"[Groups] verbatim lists cut at '{key}': "
+                           f"{VERBATIM_MAX_KEYS} keys / {VERBATIM_SECTION_MAX_BYTES} bytes per section")
+            break
+        out[key], size = _cap_verbatim(raw, min(VERBATIM_MAX_BYTES, VERBATIM_SECTION_MAX_BYTES - used))
+        kept_keys += 1
+        used += size
+    return out
+
+
+def _build(group_id: str, raw: Any) -> Dict[str, Any]:
+    """The stored shape from either form on disk: the phase-1 flat file (the
+    whole dict is the canvas) or the canvas/server split."""
+    if not isinstance(raw, dict):
+        raise ValueError("group context must be a JSON object")
+    canvas_raw = raw["canvas"] if isinstance(raw.get("canvas"), dict) else raw
+    server_raw = raw["server"] if isinstance(raw.get("server"), dict) else {}
+    canvas: Dict[str, Any] = {"agents": _str_list(canvas_raw.get("agents"), 500)}
+    canvas.update(_normalise_section(canvas_raw))
+    return {
+        "group_id": group_id,
+        "label": _str(raw.get("label"), 120) or "Group",
+        "updated_at": _str(raw.get("updated_at"), 40),
+        "canvas": canvas,
+        "server": _normalise_section(server_raw),
+    }
+
+
+def _view(stored: Dict[str, Any]) -> Dict[str, Any]:
+    """The merged flat view every caller works on: per registered kind, canvas
+    entries then server entries (the latter tagged source="server"), plus the
+    two halves for callers that need the split. Unregistered lists stay inside
+    the halves only — un-normalised entries must not reach the handlers."""
+    canvas = stored["canvas"]
+    server = stored["server"]
+    view: Dict[str, Any] = {
+        "group_id": stored["group_id"],
+        "label": stored["label"],
+        "updated_at": stored["updated_at"],
+        "agents": list(canvas.get("agents") or []),
+    }
+    for k in kinds():
+        merged = [dict(e) for e in canvas.get(k.key) or []]
+        merged.extend(dict(e, source="server") for e in server.get(k.key) or [])
+        # Luat xuyen-muc (sheets: mot nhat ky/nhom) da chay rieng cho tung nua;
+        # gop hai nua lai thi phai chay lai, neu khong moi nua gop mot nhat ky.
+        if k.finalise is not None and merged:
+            try:
+                merged = list(k.finalise(merged))
+            except Exception as e:
+                logger.warning(f"[Groups] kind '{k.key}' finalise (merged view) failed: {e}")
+        view[k.key] = merged
+    view["canvas"] = canvas
+    view["server"] = server
+    return view
+
+
+def load(group_id: str) -> Optional[Dict[str, Any]]:
+    """The merged context (see _view), or None when there is none (or the id is bad)."""
+    if not valid_group_id(group_id):
+        return None
+    raw = _read_raw(os.path.join(_groups_dir(), f"{group_id}.json"))
+    if raw is None:
+        return None
+    ensure_default_kinds()
+    # Re-normalised on the way in, so a file edited by hand still carries
+    # every key the callers index without checking.
+    try:
+        return _view(_build(group_id, raw))
+    except ValueError as e:
+        logger.warning(f"[Groups] {group_id}: {e}")
+        return None
+
+
+def save(group_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Replace the canvas half with the manifest the cloud sent; keep the
+    server half. Validates, normalises, writes atomically. Returns the merged
+    view of what was stored."""
+    path = _file_for(group_id)            # raises on a bad id
+    if not isinstance(data, dict):
+        raise ValueError("group context must be a JSON object")
+    ensure_default_kinds()
+    body = data["canvas"] if isinstance(data.get("canvas"), dict) else data
+    # A merged view echoed back (GET then PUT) carries the server entries
+    # tagged source="server"; they belong to the other half and would
+    # otherwise be duplicated into the canvas on every round trip.
+    body = {key: ([e for e in v if not (isinstance(e, dict) and e.get("source") == "server")]
+                  if isinstance(v, list) else v)
+            for key, v in body.items()}
+    with _lock:
+        previous = _read_raw(path) or {}
+        stored = _build(group_id, {"label": data.get("label"), "canvas": body,
+                                   "server": previous.get("server")})
+        stored["updated_at"] = _utc_now()
+        _write(path, stored)
+    return _view(stored)
+
+
+def _identity(k: EntityKind, entry: Dict[str, Any]) -> str:
+    value = _str(entry.get(k.identity), 2000)
+    if not value:
+        return json.dumps(entry, sort_keys=True, ensure_ascii=False)
+    if k.identity == "path":
+        # Same rule resolve_xlsx applies, plus normcase so C:\X and c:\x meet
+        # on Windows while POSIX paths stay case-sensitive.
+        try:
+            return os.path.normcase(_canon(value))
+        except Exception:
+            return value
+    return value.casefold()
+
+
+def add_server_entry(group_id: str, kind_key: str, entry: Any) -> Dict[str, Any]:
+    """Add (or replace, by the kind's identity) one entry in the server half.
+
+    Raises ValueError for an unknown kind or an entry the kind rejects, and
+    LookupError when the group has no file yet — the canvas creates groups,
+    the server only adds to them.
+    """
+    path = _file_for(group_id)
+    ensure_default_kinds()
+    k = kind(kind_key)
+    if k is None:
+        raise ValueError(f"unknown kind: {kind_key!r}")
+    with _lock:
+        raw = _read_raw(path)
+        if raw is None:
+            raise LookupError(f"group not found: {group_id}")
+        stored = _build(group_id, raw)
+        entries: List[Dict[str, Any]] = list(stored["server"].get(k.key) or [])
+        new = k.normalise(entry, len(entries))
+        if not isinstance(new, dict):
+            raise ValueError(f"entry rejected by kind '{k.key}'")
+        ident = _identity(k, new)
+        entries = [e for e in entries if _identity(k, e) != ident] + [new]
+        if k.finalise is not None:
+            entries = list(k.finalise(entries))
+        stored["server"][k.key] = entries[:MAX_ENTRIES]
+        stored["updated_at"] = _utc_now()
+        _write(path, stored)
+    return dict(new, source="server")
+
+
+def remove_server_entry(group_id: str, kind_key: str,
+                        predicate: Callable[[Dict[str, Any]], bool]) -> int:
+    """Drop the server entries of a kind that `predicate` matches. Returns how
+    many were removed; 0 when the group does not exist (idempotent)."""
+    path = _file_for(group_id)
+    ensure_default_kinds()
+    k = kind(kind_key)
+    if k is None:
+        raise ValueError(f"unknown kind: {kind_key!r}")
+    with _lock:
+        raw = _read_raw(path)
+        if raw is None:
+            return 0
+        stored = _build(group_id, raw)
+        entries = list(stored["server"].get(k.key) or [])
+        keep = [e for e in entries if not predicate(e)]
+        removed = len(entries) - len(keep)
+        if removed:
+            stored["server"][k.key] = keep
+            stored["updated_at"] = _utc_now()
+            _write(path, stored)
+    return removed
 
 
 def delete(group_id: str) -> bool:
@@ -363,6 +711,14 @@ def _canon(path_str: str) -> str:
     return os.path.realpath(normalized)
 
 
+def canon_path(path_str: str) -> str:
+    """_canon for callers outside this module; "" instead of an exception."""
+    try:
+        return _canon(path_str) if _str(path_str, 2000) else ""
+    except Exception:
+        return ""
+
+
 def resolve_xlsx(groups: List[Dict[str, Any]], path: str) -> Optional[Dict[str, Any]]:
     """The file entry `path` matches (exact) or the folder entry containing it
     (prefix), as {"path": <canonical absolute path>, "access": ..., ...}.
@@ -433,78 +789,49 @@ def worklog_sheet(groups: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 # ── Prompt ───────────────────────────────────────────────────────────
 
-_GSHEET_SYNTAX = [
-    '{"action":"gsheet_read","sheet":"<alias>","tab":"Tasks","range":"A1:F50","max_rows":100}',
-    '{"action":"gsheet_append","sheet":"<alias>","tab":"Log","rows":[["a","b"],["c","d"]]}',
-    '{"action":"gsheet_update","sheet":"<alias>","tab":"Tasks","range":"B2:C2","values":[["x","y"]]}',
-    '{"action":"gsheet_tabs","sheet":"<alias>"}',
-    '{"action":"gsheet_create_tab","sheet":"<alias>","title":"Week 35"}',
-]
-_XLSX_SYNTAX = [
-    '{"action":"xlsx_read","path":"/abs/or/~/file.xlsx","sheet":"Sheet1","max_rows":100}',
-    '{"action":"xlsx_append","path":"...","sheet":"Sheet1","rows":[["a","b"]]}',
-    '{"action":"xlsx_write","path":"...","sheet":"Sheet1","cells":{"A1":"v","B2":3}}',
-]
-
-
 def prompt_block(groups: List[Dict[str, Any]]) -> str:
     """What to tell the model. English; the pipeline appends the language rule.
 
-    Lists ONLY what the groups contain — and only the syntax for the kinds
-    present — so an agent with a single Google Sheet is not taught three
-    verbs it can never use. "" when there is nothing to say.
+    Per group: the header, then each registered kind that has entries, in
+    kind order (playbook first). Then ONE action-syntax section: the union of
+    what the kinds with entries asked for — so an agent with a single Google
+    Sheet is not taught three verbs it can never use. Kinds nobody registered
+    are silent. "" when there is nothing to say.
     """
+    ensure_default_kinds()
     sections: List[str] = []
-    kinds: set = set()
+    docs: List[str] = []
     for g in groups or []:
         if not isinstance(g, dict):
             continue
-        files = g.get("files") or []
-        folders = g.get("folders") or []
-        sheets = g.get("sheets") or []
-        if not (files or folders or sheets):
+        present = [(k, g.get(k.key)) for k in kinds()
+                   if isinstance(g.get(k.key), list) and g.get(k.key)]
+        if not present:
             continue
         lines = [
             f"### GROUP WORKSPACE: {g.get('label') or 'Group'}",
             "You are a member of this group. The entities below are shared with you. Nothing else is.",
         ]
-        if files:
-            kinds.add("xlsx")
-            lines.append("Spreadsheet files on this computer (use xlsx_read / xlsx_append / xlsx_write):")
-            for f in files[:PROMPT_LIST_CAP]:
-                lines.append(f'- "{f.get("alias", "")}" — {f.get("path", "")} (access: {f.get("access", "write")})')
-            if len(files) > PROMPT_LIST_CAP:
-                lines.append(f"- …and {len(files) - PROMPT_LIST_CAP} more files (ask the user for the exact path).")
-        if sheets:
-            kinds.add("gsheet")
-            lines.append("Google Sheets (refer to them by alias; use gsheet_read / gsheet_append / "
-                         "gsheet_update / gsheet_tabs / gsheet_create_tab):")
-            for s in sheets[:PROMPT_LIST_CAP]:
-                tabs = ", ".join(s.get("tabs") or []) or "unknown"
-                line = f'- "{s.get("alias", "")}" — tabs: {tabs} (access: {s.get("access", "read")})'
-                if s.get("role") == "worklog":
-                    line += (" — THIS IS THE GROUP WORKLOG: after finishing a task, "
-                             f'append one row to tab "{WORKLOG_TAB}".')
-                lines.append(line)
-            if len(sheets) > PROMPT_LIST_CAP:
-                lines.append(f"- …and {len(sheets) - PROMPT_LIST_CAP} more sheets (ask the user for the alias).")
-        if folders:
-            kinds.add("xlsx")
-            shown = ", ".join(d.get("path", "") for d in folders[:PROMPT_LIST_CAP])
-            if len(folders) > PROMPT_LIST_CAP:
-                shown += f" (+{len(folders) - PROMPT_LIST_CAP} more)"
-            lines.append(f"Folders: {shown}")
+        for k, entries in present:
+            try:
+                lines.extend(str(ln) for ln in k.describe(entries))
+            except Exception as e:
+                # The prompt survives a broken kind; the kind's entries are
+                # simply not described this turn.
+                logger.warning(f"[Groups] kind '{k.key}' describe failed: {e}")
+                continue
+            try:
+                for d in k.action_docs(entries):
+                    if d not in docs:
+                        docs.append(str(d))
+            except Exception as e:
+                logger.warning(f"[Groups] kind '{k.key}' action_docs failed: {e}")
         sections.append("\n".join(lines))
 
     if not sections:
         return ""
-    syntax = ["ACTION SYNTAX (reply with exactly one ```json block when you act; "
-              "otherwise answer normally):"]
-    if "gsheet" in kinds:
-        syntax.extend(_GSHEET_SYNTAX)
-    if "xlsx" in kinds:
-        syntax.extend(_XLSX_SYNTAX)
-    sections.append("\n".join(syntax))
+    if docs:
+        sections.append("\n".join([ACTION_SYNTAX_HEAD] + docs))
     return "\n\n".join(sections)
 
 

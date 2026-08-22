@@ -23,6 +23,28 @@ opened. What this locks in:
 5. THE WORKLOG. record_worklog writes the documented row shape through the
    gsheets client on a background thread, creates the Log tab once, and
    never raises — even when the client is broken.
+
+6. THE REGISTRY. Kinds are pluggable: an extension's get_group_kinds() is
+   registered on enable and withdrawn on disable, a withdrawn built-in kind
+   is not resurrected by ensure_default_kinds, and a list under a key no
+   kind claims is stored verbatim (bounded) instead of being dropped.
+
+7. THE PLAYBOOK. notes are the owner's instructions: trimmed, capped,
+   aliased from the first line, listed before everything else.
+
+8. FILES BY TYPE. A png is an image, not a spreadsheet; the xlsx verbs are
+   taught only when a workbook or a folder is present.
+
+9. CANVAS / SERVER. A PUT replaces the canvas half only; what the server
+   added (add_server_entry, POST …/server/{kind}) survives it, is merged
+   into the flat view tagged source="server", and dedups on the kind's
+   identity.
+
+10. MIGRATION. A phase-1 flat file reads as the canvas half.
+
+11. THE STORE IS NOT IN THE SANDBOX. data/groups/ is refused by the
+    enforce_roots=True FileService the model's file_action uses, so an
+    agent cannot rewrite its own group; the owner's UI service still can.
 """
 import json
 import os
@@ -245,13 +267,14 @@ def main():
         pa = gc.prompt_block([gc.load("group_a")])
         check("tieu de nhom", "### GROUP WORKSPACE: Content team" in pa)
         check("co Google Sheets + worklog", "Google Sheets" in pa and "THIS IS THE GROUP WORKLOG" in pa and 'tab "Log"' in pa)
-        check("co file + folder", "Spreadsheet files" in pa and "Folders: /home/ubuntu/Downloads, /home/ubuntu/Desktop" in pa)
+        check("co file + folder", "Spreadsheet files" in pa and "Folders you may read and write in:" in pa
+              and "- /home/ubuntu/Downloads (access: append)" in pa and "- /home/ubuntu/Desktop (access: write)" in pa)
         check("co cu phap ca 2 loai", '"action":"gsheet_append"' in pa and '"action":"xlsx_write"' in pa)
         check("KHONG lo sheet_id / cred_id", "1AbC_xyz" not in pa and "tok_123" not in pa)
         check("alias + tabs + access", '"Kế hoạch tuần" — tabs: Tasks, Log (access: append)' in pa)
         check("nhom dien hinh < 2000 ky tu", len(pa) < 2000, str(len(pa)))
         pb = gc.prompt_block([gc.load("group_b")])
-        check("chi sheet -> khong xlsx/Folders", "xlsx_" not in pb and "Spreadsheet files" not in pb and "Folders:" not in pb)
+        check("chi sheet -> khong xlsx/Folders", "xlsx_" not in pb and "Spreadsheet files" not in pb and "Folders you may" not in pb)
         check("chi sheet -> co gsheet", "gsheet_read" in pb and "GROUP WORKLOG" not in pb)
         pf = gc.prompt_block([gc.load("group_fs")])
         check("chi file/folder -> khong gsheet", "gsheet_" not in pf and "Google Sheets" not in pf and "xlsx_read" in pf)
@@ -383,6 +406,342 @@ def main():
             time.sleep(0.05)
         check("_log_worklog -> record_worklog", bool(calls) and calls[0][1][0][4] == "/x/y.srt" and calls[0][1][0][5] == "done")
         check("_log_worklog khong nhom -> no-op", pipeline._log_worklog([], agent, "t", "r", []) is None)
+
+        print("\n=== 12. registry: kinds dang ky / thu tu / go bo ===")
+        from tubecli.extensions.file_manager import extension as fm_ext
+        from tubecli.extensions.auth_manager import extension as am_ext
+
+        gc.ensure_default_kinds()
+        order_keys = [k.key for k in gc.kinds()]
+        check("4 kind mac dinh theo thu tu notes, files, folders, sheets",
+              order_keys == ["notes", "files", "folders", "sheets"], order_keys)
+        check("GROUP_KINDS cua extension la nguon",
+              gc.kind("files") is fm_ext.GROUP_KINDS[0] and gc.kind("sheets") is am_ext.GROUP_KINDS[0])
+        check("kind(unknown) -> None", gc.kind("scripts") is None)
+
+        def _script_norm(raw, i):
+            if not isinstance(raw, dict) or not raw.get("cmd"):
+                return None
+            return {"alias": str(raw.get("alias") or f"script {i + 1}"), "cmd": str(raw["cmd"])[:200]}
+
+        scripts_kind = gc.EntityKind(
+            key="scripts", label="Scripts", normalise=_script_norm,
+            describe=lambda es: ["Scripts you may run:"] + [f'- "{e["alias"]}"' for e in es],
+            action_docs=lambda es: ['{"action":"run_script","script":"<alias>"}'], order=50)
+        gc.register_kind(scripts_kind)
+        check("dang ky kind moi -> xep sau theo order", [k.key for k in gc.kinds()][-1] == "scripts")
+        gc.register_kind(gc.EntityKind(key="scripts", label="Scripts v2", normalise=_script_norm,
+                                       describe=scripts_kind.describe, action_docs=scripts_kind.action_docs, order=5))
+        check("dang ky lai cung key -> thay the (order moi, khong trung)",
+              [k.key for k in gc.kinds()][0] == "scripts" and len([k for k in gc.kinds() if k.key == "scripts"]) == 1)
+        gc.register_kind(scripts_kind)
+        for bad in ("agents", "Bad Key", "", "canvas", "1x"):
+            check(f"key kind {bad!r} bi tu choi",
+                  raises(lambda: gc.EntityKind(key=bad, label="x", normalise=_script_norm, describe=lambda e: []), ValueError))
+        check("register_kind(dict) bi tu choi", raises(lambda: gc.register_kind({"key": "x"}), TypeError))
+        ps = gc.prompt_block([gc.save("group_s", {"scripts": [{"alias": "Deploy", "cmd": "make deploy"}, {"alias": "no cmd"}]})])
+        check("kind moi: describe + action docs di vao prompt",
+              "Scripts you may run:" in ps and '- "Deploy"' in ps and '"action":"run_script"' in ps and "no cmd" not in ps, ps)
+
+        # Extension hook + ExtensionManager wiring: enable registers, disable withdraws.
+        from tubecli.core import extension_manager as em_mod
+        check("Extension.get_group_kinds mac dinh []", em_mod.Extension().get_group_kinds() == [])
+        em_mod.EXTENSIONS_CONFIG_FILE = os.path.join(tmp, "extensions.json")
+
+        class _KindExt(em_mod.Extension):
+            name = "fake_kinds"
+
+            def get_group_kinds(self):
+                return [scripts_kind]
+
+        class _BrokenExt(em_mod.Extension):
+            name = "broken_kinds"
+
+            def get_group_kinds(self):
+                raise RuntimeError("boom")
+
+        em = em_mod.ExtensionManager()
+        em.register(_KindExt())
+        check("register (chua enable) -> kind bi rut", gc.kind("scripts") is None)
+        em.register(_BrokenExt())
+        check("enable extension hong khong raise", em.enable("broken_kinds") is True)
+        check("enable -> kind co mat", em.enable("fake_kinds") is True and gc.kind("scripts") is scripts_kind)
+        check("disable -> kind bien mat", em.disable("fake_kinds") is True and gc.kind("scripts") is None)
+        check("disable extension hong khong raise", em.disable("broken_kinds") is True)
+        gc.ensure_default_kinds()
+        check("ensure_default_kinds khong dong cham kind ngoai", gc.kind("scripts") is None)
+        em.enable("fake_kinds")
+        check("config ghi vao file tam, khong phai data that", os.path.exists(os.path.join(tmp, "extensions.json")))
+
+        # A withdrawn default stays withdrawn: "disabled" must outlive the next prompt.
+        gc.unregister_kind("sheets")
+        gc.ensure_default_kinds()
+        check("unregister sheets -> ensure_default_kinds khong hoi sinh", gc.kind("sheets") is None)
+        pa_nosheets = gc.prompt_block([gc.load("group_a")])
+        check("kind bi rut -> im lang trong prompt",
+              "Google Sheets" not in pa_nosheets and "gsheet_" not in pa_nosheets and "Spreadsheet files" in pa_nosheets)
+        check("kind bi rut -> khong co o view hop nhat", "sheets" not in gc.load("group_a"))
+        check("...nhung van nam trong canvas tren dia (verbatim)", len(gc.load("group_a")["canvas"]["sheets"]) == 2)
+        gc.save("group_a", SPEC_GROUP)
+        check("PUT khi kind bi rut -> danh sach giu nguyen verbatim (3 entry tho)",
+              len(gc.load("group_a")["canvas"]["sheets"]) == 3)
+        gc.register_kind(am_ext.GROUP_KINDS[0])
+        check("dang ky lai -> chuan hoa lai tu verbatim (2 sheet, 1 worklog)",
+              len(gc.load("group_a")["sheets"]) == 2 and gc.load("group_a")["sheets"][0]["role"] == "worklog"
+              and gc.load("group_a")["sheets"][1]["role"] == "")
+        check("unregister key la khong sao", gc.unregister_kind("nope") is None)
+
+        print("\n=== 13. kind chua dang ky: giu verbatim, im lang ===")
+        raw_bp = [{"alias": "Work", "profile": "p1", "extra": {"k": 1}}, "plain-string", 7]
+        st = gc.save("group_v", {"agents": ["agent1"], "browser_profiles": raw_bp,
+                                  "files": [{"path": "/srv/v.xlsx"}]})
+        check("list la -> khong o view hop nhat", "browser_profiles" not in st)
+        check("...nhung nam nguyen trong canvas", st["canvas"]["browser_profiles"] == raw_bp)
+        on_disk = json.load(open(os.path.join(tmp, "groups", "group_v.json"), encoding="utf-8"))
+        check("tren dia: canvas/server tach doi, list la o canvas",
+              on_disk["canvas"]["browser_profiles"] == raw_bp and "server" in on_disk and "files" not in on_disk)
+        check("load giu verbatim", gc.load("group_v")["canvas"]["browser_profiles"] == raw_bp)
+        pv = gc.prompt_block([gc.load("group_v")])
+        check("prompt im lang ve kind la", "browser_profiles" not in pv and "p1" not in pv and "Spreadsheet files" in pv)
+        check("gia tri khong phai list cua key la -> bo qua (khong loi)",
+              "meta" not in gc.save("group_v", {"meta": {"a": 1}})["canvas"])
+        big_v = gc.save("group_v", {"zzz": [{"i": i} for i in range(300)]})
+        check("verbatim cap 200 entry", len(big_v["canvas"]["zzz"]) == 200)
+        fat = gc.save("group_v", {"zzz": [{"blob": "x" * 1000} for _ in range(100)]})
+        check("verbatim cap 64KB", len(json.dumps(fat["canvas"]["zzz"])) <= 64 * 1024 and 0 < len(fat["canvas"]["zzz"]) < 100)
+        check("key dang ky khong phai list van bi tu choi", raises(lambda: gc.save("group_v", {"notes": "x"}), ValueError))
+        # Cap tung list chua du: ten key, so key va tong byte cung phai bi chan.
+
+        def _verbatim(ctx):
+            return {k: v for k, v in ctx["canvas"].items() if k != "agents" and gc.kind(k) is None}
+
+        odd = gc.save("group_v", {"Bad Key": [1], "": [1], "1x": [1], "x" * 33: [1], "a\nb": [1],
+                                  "canvas": [1], "ok_key": [1]})
+        check("key khong hop KIND_KEY_RE / reserved bi bo, key hop le giu",
+              list(_verbatim(odd)) == ["ok_key"], list(_verbatim(odd)))
+        wide = gc.save("group_v", {f"k{i:02d}": [i] for i in range(40)})
+        check("toi da 16 key verbatim / section (40 -> 16 dau tien)",
+              list(_verbatim(wide)) == [f"k{i:02d}" for i in range(16)], list(_verbatim(wide)))
+        fat_keys = gc.save("group_v", {f"blob{i}": [{"b": "x" * 1000} for _ in range(60)] for i in range(8)})
+        sizes = {k: len(json.dumps(v, ensure_ascii=False).encode("utf-8")) for k, v in _verbatim(fat_keys).items()}
+        check("tong verbatim / section <= 256KB (8 x ~60KB -> khoang 4 list day)",
+              200 * 1024 < sum(sizes.values()) <= 256 * 1024 and 4 <= len([s for s in sizes.values() if s > 2]) <= 5, sizes)
+        kept, used = gc._cap_verbatim([{"b": "x" * 100} for _ in range(10)], 500)
+        check("_cap_verbatim: 1 luot, size == json.dumps(prefix), <= budget",
+              len(kept) == 4 and used <= 500 and used == len(json.dumps(kept, ensure_ascii=False).encode("utf-8"))
+              and len(json.dumps(kept + [{"b": "x" * 100}], ensure_ascii=False).encode("utf-8")) > 500, (len(kept), used))
+        t0 = time.time()
+        huge = gc.save("group_v", {"zzz": [{"blob": "x" * (64 * 1024)} for _ in range(200)]})
+        dt = time.time() - t0
+        check("200 x 64KB: moi entry qua cap -> [] va khong O(n^2) (< 2s)",
+              huge["canvas"]["zzz"] == [] and dt < 2.0, f"{dt:.2f}s")
+
+        print("\n=== 14. notes: playbook cua nhom ===")
+        long_text = "Rule one\n" + "y" * 2500
+        st = gc.save("group_n", {
+            "agents": ["agent1"],
+            "notes": [
+                {"alias": "Weekly routine", "text": "Post on Monday.\r\nReview on Friday."},
+                {"text": long_text},
+                {"text": "   \n  \n"},
+                {"alias": "Empty", "text": ""},
+                "Plain string note",
+                {"text": "\n\n" + "Z" * 60 + "\nsecond line"},
+                {"alias": "Dict only"},
+                5,
+            ],
+            "files": [{"path": "/srv/plan.xlsx"}],
+        })
+        notes = st["notes"]
+        check("note khong text bi bo (8 -> 4)", len(notes) == 4, [n["alias"] for n in notes])
+        check("alias giu, CRLF -> LF", notes[0] == {"alias": "Weekly routine", "text": "Post on Monday.\nReview on Friday."})
+        check("text > 2000 -> cat + …[truncated]",
+              len(notes[1]["text"]) <= 2000 + len(" …[truncated]") and notes[1]["text"].endswith(" …[truncated]"))
+        check("alias fallback = dong dau", notes[1]["alias"] == "Rule one")
+        check("note dang chuoi duoc nhan", notes[2] == {"alias": "Plain string note", "text": "Plain string note"})
+        check("dong dau dai -> cat 40 ky tu", notes[3]["alias"] == "Z" * 40)
+        check("'Note N' khi khong co dong nao", gc._note_alias("   ", 6) == "Note 7")
+        pn = gc.prompt_block([st])
+        check("playbook dung dau, truoc files",
+              0 < pn.index("GROUP PLAYBOOK (written by the owner — follow it):") < pn.index("Spreadsheet files"))
+        check("bullet alias + text thut 2 khoang", "• Weekly routine:\n  Post on Monday.\n  Review on Friday." in pn)
+        check("notes khong co action docs rieng", "note" not in pn.split("ACTION SYNTAX")[1])
+        many = gc.save("group_n2", {"notes": [{"alias": f"n{i}", "text": "w" * 1900} for i in range(5)]})
+        pm = gc.prompt_block([many])
+        check("tong text notes cap 6000 + '(more notes omitted)'",
+              pm.count("• n") == 3 and "(more notes omitted)" in pm and "ACTION SYNTAX" not in pm, str(pm.count("• n")))
+
+        print("\n=== 15. files theo loai ===")
+        st = gc.save("group_t", {"agents": ["agent1"], "files": [
+            {"path": "/srv/shot.PNG"}, {"path": "/srv/report.docx"}, {"path": "/srv/data.xlsx"},
+            {"path": "/srv/tool.exe"}, {"path": "/srv/notes.md"}, {"path": "/srv/plan.csv", "alias": "Plan"}]})
+        pt = gc.prompt_block([st])
+        i_sheet = pt.index("Spreadsheet files (xlsx_read / xlsx_append / xlsx_write):")
+        i_img = pt.index("Images:")
+        i_doc = pt.index("Documents (read with file_action read):")
+        i_other = pt.index("Other files:")
+        check("4 nhom theo thu tu", i_sheet < i_img < i_doc < i_other)
+        check("png nam duoi Images, khong duoi Spreadsheet",
+              i_img < pt.index("/srv/shot.PNG") < i_doc and i_sheet < pt.index("/srv/data.xlsx") < i_img)
+        check("csv la spreadsheet (alias Plan)", i_sheet < pt.index('"Plan" — /srv/plan.csv') < i_img)
+        check("docx + md la Documents",
+              i_doc < pt.index("/srv/report.docx") < i_other and i_doc < pt.index("/srv/notes.md") < i_other)
+        check("exe -> Other files", pt.index("/srv/tool.exe") > i_other)
+        check("co xlsx syntax vi co spreadsheet", '"action":"xlsx_read"' in pt)
+        only_media = gc.save("group_m", {"files": [{"path": "/srv/a.png"}, {"path": "/srv/b.pdf"}]})
+        pmedia = gc.prompt_block([only_media])
+        check("chi anh + tai lieu -> khong xlsx syntax, khong ACTION SYNTAX",
+              "xlsx_" not in pmedia and "ACTION SYNTAX" not in pmedia and "Images:" in pmedia and "Documents" in pmedia)
+        only_folder = gc.save("group_f", {"folders": ["/srv/inbox"]})
+        pfold = gc.prompt_block([only_folder])
+        check("chi folder -> van co xlsx syntax (folder co the chua workbook)",
+              '"action":"xlsx_append"' in pfold and "Folders you may read and write in:" in pfold)
+        check("folder co access", "- /srv/inbox (access: write)" in pfold)
+        check("dedup action docs qua nhieu nhom", gc.prompt_block([st, only_folder]).count('"action":"xlsx_read"') == 1)
+
+        print("\n=== 16. canvas / server: them tu may chu, PUT khong xoa ===")
+        check("add vao nhom khong ton tai -> LookupError",
+              raises(lambda: gc.add_server_entry("group_zz", "files", {"path": "/x"}), LookupError))
+        check("kind la -> ValueError", raises(lambda: gc.add_server_entry("group_a", "nope", {"path": "/x"}), ValueError))
+        check("entry bi kind tu choi -> ValueError",
+              raises(lambda: gc.add_server_entry("group_a", "files", {"alias": "no path"}), ValueError))
+        check("id xau -> ValueError", raises(lambda: gc.add_server_entry("../x", "files", {"path": "/x"}), ValueError))
+        e1 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "read"})
+        check("tra ve entry chuan hoa + source=server",
+              e1 == {"alias": "report.xlsx", "path": "/srv/auto/report.xlsx", "ext": "xlsx", "access": "read", "source": "server"}, e1)
+        ga = gc.load("group_a")
+        check("view hop nhat: canvas truoc, server sau (co source)",
+              ga["files"][-1] == e1 and all("source" not in f for f in ga["files"][:-1]) and len(ga["files"]) == 3)
+        check("canvas khong chua entry server", all(f["path"] != "/srv/auto/report.xlsx" for f in ga["canvas"]["files"]))
+        check("server chua entry (khong tag source tren dia)",
+              ga["server"]["files"] == [{"alias": "report.xlsx", "path": "/srv/auto/report.xlsx", "ext": "xlsx", "access": "read"}])
+        gc.save("group_a", SPEC_GROUP)
+        check("PUT canvas -> entry server con nguyen", gc.load("group_a")["files"][-1] == e1)
+        e2 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "write"})
+        check("dedup theo path: thay the, khong nhan doi",
+              len(gc.load("group_a")["server"]["files"]) == 1 and e2["access"] == "write")
+        gc.add_server_entry("group_a", "notes", {"alias": "Learned", "text": "Always CC the editor."})
+        gc.add_server_entry("group_a", "notes", {"alias": "learned", "text": "Always CC the editor (v2)."})
+        check("dedup notes theo alias (casefold)",
+              [n["text"] for n in gc.load("group_a")["server"]["notes"]] == ["Always CC the editor (v2)."])
+        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log", "sheet_id": "SRV1", "cred_id": "tok_9", "role": "worklog"})
+        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log 2", "sheet_id": "SRV1", "cred_id": "tok_9"})
+        check("dedup sheets theo sheet_id", [s["alias"] for s in gc.load("group_a")["server"]["sheets"]] == ["Auto log 2"])
+        pa2 = gc.prompt_block([gc.load("group_a")])
+        check("prompt ke ca entry server",
+              "/srv/auto/report.xlsx" in pa2 and "• learned:" in pa2 and '"Auto log 2"' in pa2
+              and "SRV1" not in pa2 and "tok_9" not in pa2)
+        check("resolve_xlsx thay file server",
+              (gc.resolve_xlsx(gc.effective_groups("agent1", "group_a"), "/srv/auto/report.xlsx") or {}).get("access") == "write")
+        # Echoing the merged view back (GET then PUT, flat) must not copy server entries into the canvas.
+        gc.save("group_a", {k: v for k, v in gc.load("group_a").items() if k not in ("canvas", "server")})
+        ga = gc.load("group_a")
+        check("PUT lai view hop nhat (phang) -> khong nhan doi vao canvas",
+              len([f for f in ga["files"] if f["path"] == "/srv/auto/report.xlsx"]) == 1 and ga["files"][-1]["source"] == "server")
+        gc.save("group_a", gc.load("group_a"))
+        check("PUT lai view hop nhat (co canvas/server) -> nhu tren",
+              len([f for f in gc.load("group_a")["files"] if f["path"] == "/srv/auto/report.xlsx"]) == 1)
+        check("remove theo predicate -> 1",
+              gc.remove_server_entry("group_a", "files", lambda e: e["path"] == "/srv/auto/report.xlsx") == 1)
+        check("remove lan 2 -> 0",
+              gc.remove_server_entry("group_a", "files", lambda e: e["path"] == "/srv/auto/report.xlsx") == 0)
+        check("remove nhom khong ton tai -> 0", gc.remove_server_entry("group_zz", "files", lambda e: True) == 0)
+        check("remove kind la -> ValueError", raises(lambda: gc.remove_server_entry("group_a", "nope", lambda e: True), ValueError))
+        # routes
+        r = c.post("/api/v1/groups/group_a/server/files", json={"path": "/srv/auto/weekly.csv"})
+        check("POST server entry -> ok + entry",
+              r.status_code == 200 and r.json()["entry"]["source"] == "server" and r.json()["entry"]["ext"] == "csv", r.text[:200])
+        check("GET context thay entry server",
+              any(f.get("source") == "server" and f["path"] == "/srv/auto/weekly.csv"
+                  for f in c.get("/api/v1/groups/group_a/context").json()["files"]))
+        check("POST nhom khong ton tai -> 404", c.post("/api/v1/groups/group_zz/server/files", json={"path": "/x"}).status_code == 404)
+        check("POST kind la -> 400", c.post("/api/v1/groups/group_a/server/nope", json={"path": "/x"}).status_code == 400)
+        check("POST entry hong -> 400", c.post("/api/v1/groups/group_a/server/files", json={"alias": "x"}).status_code == 400)
+        check("POST body khong phai object -> 400", c.post("/api/v1/groups/group_a/server/files", json=[1]).status_code == 400)
+        check("POST id xau -> 400", c.post("/api/v1/groups/a.b/server/files", json={"path": "/x"}).status_code == 400)
+        check("DELETE khong selector -> 400", c.delete("/api/v1/groups/group_a/server/files").status_code == 400)
+        echo_path = "/srv/auto/../auto/WEEKLY.csv" if os.name == "nt" else "/srv/auto/../auto/weekly.csv"
+        r = c.delete("/api/v1/groups/group_a/server/files", params={"path": echo_path})
+        check("DELETE theo path (canonical) -> removed 1", r.status_code == 200 and r.json()["removed"] == 1, r.text)
+        check("DELETE lan 2 -> removed 0",
+              c.delete("/api/v1/groups/group_a/server/files", params={"path": "/srv/auto/weekly.csv"}).json()["removed"] == 0)
+        r = c.delete("/api/v1/groups/group_a/server/notes", params={"alias": "LEARNED"})
+        check("DELETE theo alias (casefold) -> 1", r.json()["removed"] == 1, r.text)
+        check("DELETE theo sheet_id -> 1",
+              c.delete("/api/v1/groups/group_a/server/sheets", params={"sheet_id": "SRV1"}).json()["removed"] == 1)
+        check("DELETE kind la -> 400", c.delete("/api/v1/groups/group_a/server/nope", params={"alias": "x"}).status_code == 400)
+        check("server trong lai", all(v == [] for v in gc.load("group_a")["server"].values()))
+
+        print("\n=== 17. file phang (phase 1) -> doc nhu canvas ===")
+        flat = {"group_id": "group_old", "label": "Old", "updated_at": "2026-01-01T00:00:00Z",
+                "agents": ["agent1"],
+                "files": [{"alias": "a.xlsx", "path": "/old/a.xlsx", "ext": "xlsx", "access": "write"}],
+                "folders": [],
+                "sheets": [{"alias": "S", "sheet_id": "OLD1", "cred_id": "t", "tabs": ["Log"], "default_tab": "Log",
+                            "access": "read", "role": "worklog"}]}
+        with open(os.path.join(tmp, "groups", "group_old.json"), "w", encoding="utf-8") as f:
+            json.dump(flat, f)
+        old = gc.load("group_old")
+        check("load file phang: agents + files + sheets o canvas",
+              old["agents"] == ["agent1"] and old["canvas"]["files"][0]["path"] == "/old/a.xlsx"
+              and old["canvas"]["sheets"][0]["sheet_id"] == "OLD1")
+        check("file phang: server rong, notes []",
+              all(v == [] for v in old["server"].values()) and old["notes"] == [] and old["canvas"]["notes"] == [])
+        check("view hop nhat nhu cu",
+              old["files"][0]["alias"] == "a.xlsx" and old["sheets"][0]["role"] == "worklog" and "source" not in old["files"][0])
+        check("label + updated_at giu", old["label"] == "Old" and old["updated_at"] == "2026-01-01T00:00:00Z")
+        gc.add_server_entry("group_old", "folders", "/old/out")
+        on_disk = json.load(open(os.path.join(tmp, "groups", "group_old.json"), encoding="utf-8"))
+        check("ghi lai -> dang tach canvas/server, khong con list o top-level",
+              "canvas" in on_disk and "server" in on_disk and "files" not in on_disk
+              and on_disk["server"]["folders"] == [{"path": "/old/out", "access": "write"}])
+        check("canvas cu van con sau khi them server", gc.load("group_old")["files"][0]["path"] == "/old/a.xlsx")
+        gc.save("group_old", {"agents": ["agent1"], "files": []})
+        check("PUT sau migration: canvas thay, server giu",
+              gc.load("group_old")["files"] == []
+              and gc.load("group_old")["folders"][0] == {"path": "/old/out", "access": "write", "source": "server"})
+        print("\n=== 18. data/groups nam ngoai sandbox cua AI ===")
+        from tubecli.extensions.file_manager import file_service as fs_mod
+
+        # tmp nam duoi ~/AppData/Local tren Windows — BLOCKED_PATHS chan moi nguoi o
+        # do — nen dung mot data dir KHONG ton tai duoi ~/Documents (root cho phep):
+        # validate_path khong can no ton tai, va khong duoc tao ra gi tren dia.
+        fake_data = os.path.join(os.path.expanduser("~/Documents"), "tubecli-groups-test-does-not-exist")
+        gdir = os.path.join(fake_data, "groups")
+        cfg.DATA_DIR = pathlib.Path(fake_data)
+        try:
+            ai = fs_mod.FileService(enforce_roots=True)
+        finally:
+            cfg.DATA_DIR = pathlib.Path(tmp)
+        try:
+            check("DATA_DIR/groups nam trong ai_blocked",
+                  any(os.path.normcase(b) == os.path.normcase(os.path.normpath(gdir)) for b in ai.ai_blocked), ai.ai_blocked)
+            check("phan con lai cua data dir van mo cho AI",
+                  ai.validate_path(os.path.join(fake_data, "exports", "x.txt")).endswith("x.txt"))
+            attempts = {
+                "validate_path": lambda: ai.validate_path(os.path.join(gdir, "group_a.json")),
+                "create_file": lambda: ai.create_file(os.path.join(gdir, "group_a.json"), '{"agents":["evil"]}'),
+                "read_file": lambda: ai.read_file(os.path.join(gdir, "group_a.json")),
+                "list_dir": lambda: ai.list_dir(gdir),
+                "delete": lambda: ai.delete(os.path.join(gdir, "group_a.json")),
+                "create_folder": lambda: ai.create_folder(os.path.join(gdir, "sub")),
+                "'..' vao groups": lambda: ai.validate_path(os.path.join(fake_data, "exports", "..", "groups", "g.json")),
+                "chinh thu muc groups": lambda: ai.validate_path(gdir),
+                "hoa/thuong (Windows)": lambda: ai.validate_path(os.path.join(fake_data, "GROUPS", "g.json")) if os.name == "nt" else ai.validate_path(gdir),
+            }
+            for name, fn in attempts.items():
+                check(f"AI {name} trong groups/ -> ValueError", raises(fn, ValueError))
+            check("khong co gi duoc tao tren dia", not os.path.exists(fake_data))
+            check("groups_x ben canh KHONG bi chan (tach theo os.sep)",
+                  ai.validate_path(os.path.join(fake_data, "groups_x", "y.txt")).endswith("y.txt"))
+            sandbox_groups = os.path.join(os.path.abspath(os.environ.get("TUBECLI_DATA_DIR", "data")), "groups", "z.json")
+            check("singleton file_action chan <cwd>/data/groups",
+                  raises(lambda: fs_mod.file_service.validate_path(sandbox_groups), ValueError))
+            check("UI (enforce_roots=False) van mo groups/ cho chu may",
+                  fs_mod.user_file_service.validate_path(os.path.join(gdir, "group_a.json")).endswith("group_a.json"))
+        finally:
+            shutil.rmtree(fake_data, ignore_errors=True)
+        gc.unregister_kind("scripts")
     finally:
         cfg.DATA_DIR = saved
         sys.modules.pop("tubecli.extensions.auth_manager.gsheets", None)

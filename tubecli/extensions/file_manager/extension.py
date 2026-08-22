@@ -9,6 +9,120 @@ from tubecli.core.extension_manager import Extension
 
 logger = logging.getLogger("FileManagerExtension")
 
+# ── Group kinds: what a File / Folder node on the Flow canvas shares ──────
+# tubecli.core.group_context owns the kind registry and only the `notes`
+# kind; the shapes of `files` and `folders` live here, next to the xlsx_*
+# handlers that consume them, so the next material is a registration, never
+# a core edit. The import is guarded because this file is also hot-patched
+# onto servers whose core predates the registry — there get_group_kinds()
+# simply has nothing to offer and the handlers keep working as before.
+try:
+    from tubecli.core import group_context as _gc
+    _EntityKind = _gc.EntityKind
+except Exception:
+    _gc, _EntityKind = None, None
+
+_PROMPT_LIST_CAP = getattr(_gc, "PROMPT_LIST_CAP", 20)
+_SPREADSHEET_EXT = ("xlsx", "xlsm", "xls", "csv", "tsv")
+_IMAGE_EXT = ("png", "jpg", "jpeg", "gif", "webp", "svg", "bmp")
+_DOCUMENT_EXT = ("docx", "doc", "pdf", "txt", "md", "json", "html")
+# Described by type so the model reaches for the right verb: xlsx_* for
+# workbooks, file_action read for documents — and never xlsx_read on a png.
+_FILE_BUCKETS = (
+    ("Spreadsheet files (xlsx_read / xlsx_append / xlsx_write):", _SPREADSHEET_EXT),
+    ("Images:", _IMAGE_EXT),
+    ("Documents (read with file_action read):", _DOCUMENT_EXT),
+)
+_OTHER_FILES_HEADING = "Other files:"
+_XLSX_SYNTAX = (
+    '{"action":"xlsx_read","path":"/abs/or/~/file.xlsx","sheet":"Sheet1","max_rows":100}',
+    '{"action":"xlsx_append","path":"...","sheet":"Sheet1","rows":[["a","b"]]}',
+    '{"action":"xlsx_write","path":"...","sheet":"Sheet1","cells":{"A1":"v","B2":3}}',
+)
+
+
+def _file_normalise(raw, index: int):
+    if isinstance(raw, str):
+        raw = {"path": raw}
+    if not isinstance(raw, dict):
+        return None
+    path = _gc.norm_str(raw.get("path"), 1000)
+    if not path:
+        return None
+    alias = _gc.norm_str(raw.get("alias"), 200) or os.path.basename(path.rstrip("/\\")) or path
+    ext = (_gc.norm_str(raw.get("ext"), 16) or os.path.splitext(path)[1]).lower().lstrip(".")
+    # The owner's own files: write unless the node says otherwise.
+    return {"alias": alias, "path": path, "ext": ext, "access": _gc.norm_access(raw.get("access"), "write")}
+
+
+def _file_line(f: dict) -> str:
+    return f'- "{f.get("alias", "")}" — {f.get("path", "")} (access: {f.get("access", "write")})'
+
+
+def _files_describe(entries: list) -> list:
+    shown = entries[:_PROMPT_LIST_CAP]
+    buckets = {heading: [] for heading, _ in _FILE_BUCKETS}
+    other = []
+    for f in shown:
+        ext = str(f.get("ext") or "").lower()
+        for heading, exts in _FILE_BUCKETS:
+            if ext in exts:
+                buckets[heading].append(f)
+                break
+        else:
+            other.append(f)
+    lines = []
+    for heading, _ in _FILE_BUCKETS:
+        if buckets[heading]:
+            lines.append(heading)
+            lines.extend(_file_line(f) for f in buckets[heading])
+    if other:
+        lines.append(_OTHER_FILES_HEADING)
+        lines.extend(_file_line(f) for f in other)
+    if len(entries) > _PROMPT_LIST_CAP:
+        lines.append(f"- …and {len(entries) - _PROMPT_LIST_CAP} more files (ask the user for the exact path).")
+    return lines
+
+
+def _files_action_docs(entries: list) -> list:
+    # Only a workbook earns the xlsx verbs; a group of images gets none.
+    if any(str(f.get("ext") or "").lower() in _SPREADSHEET_EXT for f in entries):
+        return list(_XLSX_SYNTAX)
+    return []
+
+
+def _folder_normalise(raw, index: int):
+    if isinstance(raw, str):
+        raw = {"path": raw}
+    if not isinstance(raw, dict):
+        return None
+    path = _gc.norm_str(raw.get("path"), 1000)
+    if not path:
+        return None
+    return {"path": path, "access": _gc.norm_access(raw.get("access"), "write")}
+
+
+def _folders_describe(entries: list) -> list:
+    lines = ["Folders you may read and write in:"]
+    for d in entries[:_PROMPT_LIST_CAP]:
+        lines.append(f'- {d.get("path", "")} (access: {d.get("access", "write")})')
+    if len(entries) > _PROMPT_LIST_CAP:
+        lines.append(f"- …and {len(entries) - _PROMPT_LIST_CAP} more folders.")
+    return lines
+
+
+def _folders_action_docs(entries: list) -> list:
+    # A folder may hold workbooks the canvas never listed one by one.
+    return list(_XLSX_SYNTAX)
+
+
+GROUP_KINDS = [] if _EntityKind is None else [
+    _EntityKind(key="files", label="Files", normalise=_file_normalise, describe=_files_describe,
+                action_docs=_files_action_docs, access_default="write", order=20, identity="path"),
+    _EntityKind(key="folders", label="Folders", normalise=_folder_normalise, describe=_folders_describe,
+                action_docs=_folders_action_docs, access_default="write", order=30, identity="path"),
+]
+
 
 class FileManagerExtension(Extension):
     name = "file_manager"
@@ -27,6 +141,9 @@ class FileManagerExtension(Extension):
     def get_nodes(self):
         from tubecli.nodes.file_manager_node import FileManagerNode
         return {"file_manager": FileManagerNode}
+
+    def get_group_kinds(self):
+        return list(GROUP_KINDS)
 
     # ── Google Drive actions (chat / Telegram AI) ────────────────
     # The AI emits JSON action blocks; handle_extension_action routes them here.

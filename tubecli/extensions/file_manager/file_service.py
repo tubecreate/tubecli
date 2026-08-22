@@ -27,6 +27,16 @@ BLOCKED_PATHS = [
     os.path.expanduser("~/AppData/Local"),
 ]
 
+# Subfolders of the data dir the AI may not touch even though the rest of
+# the data dir is in its sandbox. groups/ holds the group manifests
+# (tubecli.core.group_context): which agent may use which file, folder or
+# sheet, and the owner's playbook notes. An agent that could write there
+# through its own file_action would widen its own permissions, or plant a
+# note the prompt presents as the owner's instructions — so in enforced
+# mode the subtree does not exist. The human UI (enforce_roots=False) is
+# not affected: the owner may inspect their own manifests.
+AI_PROTECTED_DATA_SUBDIRS = ["groups"]
+
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 
 
@@ -80,6 +90,21 @@ class FileService:
             self.allowed_roots.extend(extra_roots)
         # Normalize all paths
         self.allowed_roots = [os.path.normpath(r) for r in self.allowed_roots]
+        # Both data roots get the protected subfolders: the one this sandbox
+        # exposes (cwd-relative, like the allowlist entry above) and the one
+        # the package writes the manifests under. They coincide when the
+        # service runs from the repo root; a repo kept under ~/Documents and
+        # started elsewhere would otherwise leave the real groups/ reachable
+        # through the Documents root.
+        data_roots = [os.path.abspath(data_dir)]
+        try:
+            from tubecli.config import DATA_DIR as _package_data_dir
+            data_roots.append(os.path.abspath(str(_package_data_dir)))
+        except Exception:
+            pass
+        self.ai_blocked = [os.path.normpath(os.path.join(root, sub))
+                           for root in dict.fromkeys(data_roots)
+                           for sub in AI_PROTECTED_DATA_SUBDIRS]
 
     @staticmethod
     def _under(path: str, root: str) -> bool:
@@ -134,6 +159,15 @@ class FileService:
         for blocked in BLOCKED_PATHS:
             if self._under(normalized, blocked) or self._under(resolved, blocked):
                 raise ValueError(f"Đường dẫn bị chặn vì lý do bảo mật: {path}")
+
+        # The data dir is inside the AI's allowlist, but not all of it: the
+        # group manifests live there (AI_PROTECTED_DATA_SUBDIRS). Checked
+        # before the allowlist so the refusal reads as a security block, not
+        # as "outside the roots" with the roots listed.
+        if self.enforce_roots:
+            for blocked in self.ai_blocked:
+                if self._under(normalized, blocked) or self._under(resolved, blocked):
+                    raise ValueError(f"Đường dẫn bị chặn vì lý do bảo mật: {path}")
 
         # Check if within allowed roots — skipped for the human-facing UI
         # service (enforce_roots=False); the blocklist above already ran.
@@ -602,6 +636,14 @@ class FileService:
             return t if t.startswith("=") else "=" + t
         return None
 
+    @staticmethod
+    def _rtrim_cells(row: list) -> list:
+        """Bo cac o rong (None / chuoi trang) o cuoi dong; giu o rong nam giua."""
+        end = len(row)
+        while end and (row[end - 1] is None or (isinstance(row[end - 1], str) and not row[end - 1].strip())):
+            end -= 1
+        return row[:end]
+
     def _xlsx_rows(self, safe_path: str, sheet: Any, max_cols: int):
         """(tên tab, danh sách tab, dòng, số ô công thức, [(dòng, cột) ô công thức
         không có kết quả]).
@@ -621,6 +663,10 @@ class FileService:
             rows = [list(r) for r in ws.iter_rows(values_only=True, max_col=max_cols)]
         finally:
             wb.close()
+        # max_col lam openpyxl dem du max_cols o cho MOI dong, ke ca o chua tung co gia
+        # tri: bang tra ve model thanh "| a | b |  |  | ... |" voi hang chuc o rong moi
+        # dong — toan ngu canh ma khong mang thong tin. Cat o rong o duoi cung moi dong.
+        rows = [self._rtrim_cells(r) for r in rows]
         formulas = []
         for i, r in enumerate(rows):
             for j, c in enumerate(r):
@@ -645,7 +691,7 @@ class FileService:
         # utf-8-sig: Excel ghi BOM ở đầu; errors=replace: một ô lệch mã không được
         # làm hỏng cả lần đọc (cùng lý do _safe_str ở trên).
         with open(safe_path, "r", newline="", encoding="utf-8-sig", errors="replace") as f:
-            return [list(r[:max_cols]) for r in csv.reader(f, delimiter=self._csv_delim(ext))]
+            return [self._rtrim_cells(list(r[:max_cols])) for r in csv.reader(f, delimiter=self._csv_delim(ext))]
 
     def read_sheet_rows(self, path: str, sheet: Any = None, max_rows: int = 100,
                         max_cols: Optional[int] = None) -> Dict[str, Any]:
