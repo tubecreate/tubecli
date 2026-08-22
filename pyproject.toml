@@ -4,7 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tubecli"
-version = "2026.08.09.59"
+# Version CHỈ khai ở tubecli/__init__.py. Trước đây số nằm ở cả hai nơi và trôi lệch
+# nhau (__init__ lên .64 trong khi bản cài vẫn dựng ra .59), nên "đã update chưa?"
+# không có câu trả lời tin được.
+dynamic = ["version"]
 description = "Open Source AI Agent CLI System — Install, manage, and orchestrate AI agents, skills, and workflows from the command line."
 readme = "README.md"
 license = {text = "MIT"}
@@ -54,6 +57,9 @@ dependencies = [
 
 [project.scripts]
 tubecli = "tubecli.main:cli"
+
+[tool.setuptools.dynamic]
+version = {attr = "tubecli.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
