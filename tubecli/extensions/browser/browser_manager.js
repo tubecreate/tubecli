@@ -1471,6 +1471,19 @@ export class BrowserManager {
         if (await fs.pathExists(savedFpPath)) {
             shardxFpFile = savedFpPath;
             console.log(`[ShardX] Using saved ShardX fingerprint: ${savedFpPath}`);
+            // Profile cũ có thể đang giữ fingerprint Windows sinh ra từ thời chọn theo
+            // 'win*'. Nói thẳng ra đây, vì đây chính là lý do bài test báo "Masking
+            // detected" mà không có gì trong log giải thích.
+            try {
+                const savedFp = await fs.readJson(savedFpPath);
+                const fpPlat = String(savedFp?.navigator?.platform || '').toLowerCase();
+                const hostPlat = process.platform === 'win32' ? 'windows'
+                    : process.platform === 'darwin' ? 'macos' : 'linux';
+                if (fpPlat && !fpPlat.includes(hostPlat)) {
+                    console.warn(`[ShardX] ⚠ Fingerprint của profile khai '${savedFp.navigator.platform}' nhưng engine chạy trên ${hostPlat}. `
+                        + `Dấu vân tay sẽ không nhất quán (WebGPU, font, GPU). Xoá ${path.basename(savedFpPath)} để hệ thống cấp lại bản khớp OS.`);
+                }
+            } catch (e) { /* fingerprint hỏng thì luồng dưới đã xử lý */ }
         } else if (fingerprint) {
             let finalFp = fingerprint;
             if (!isShardXFpFormat(fingerprint)) {
@@ -1526,20 +1539,52 @@ export class BrowserManager {
                     ? path.join(process.env.XDG_CACHE_HOME || path.join(home, '.cache'), 'shardx-sdk', 'fingerprints') : null,
             ].filter(Boolean);
 
+            // Fingerprint phải khớp HỆ ĐIỀU HÀNH đang chạy engine.
+            //
+            // Chỗ này từng luôn ưu tiên 'win*' với lý do "Windows là phổ biến nhất".
+            // Trên server Linux điều đó tạo ra mâu thuẫn không thể vá bằng JS: thư
+            // viện của ShardX cho bản win-* có khối "webgpu", bản linux-* thì KHÔNG
+            // (ShardX tắt WebGPU trên Linux để khớp Chrome Linux thật). Trình duyệt
+            // khai là Windows Chrome 149 mà không có WebGPU, cộng thêm font Windows
+            // không tồn tại trên máy và GPU thật là phần mềm dựng hình — các trang
+            // kiểm tra dấu vân tay bắt ngay và báo "Masking detected".
+            //
+            // Muốn cố tình giả OS khác (chấp nhận bị phát hiện) thì đặt trong
+            // data/global_settings.json: "shardx_fingerprint_platform": "win"|"linux"|"mac".
+            const hostFpPrefix = process.platform === 'win32' ? 'win'
+                : process.platform === 'darwin' ? 'mac' : 'linux';
+            let wantPrefix = hostFpPrefix;
+            try {
+                const extDir2 = path.dirname(fileURLToPath(import.meta.url));
+                const gsPath = path.resolve(extDir2, '..', '..', '..', 'data', 'global_settings.json');
+                if (await fs.pathExists(gsPath)) {
+                    const gs = await fs.readJson(gsPath);
+                    const pick = String(gs.shardx_fingerprint_platform || 'auto').toLowerCase();
+                    if (['win', 'windows', 'linux', 'mac', 'macos'].includes(pick)) {
+                        wantPrefix = pick.startsWith('win') ? 'win' : (pick.startsWith('mac') ? 'mac' : 'linux');
+                    }
+                }
+            } catch (e) { /* thiếu settings thì cứ theo host */ }
+
             let bundledFp = null;
             for (const fpDir of shardxFpDirs) {
                 if (!await fs.pathExists(fpDir)) continue;
                 const all = (await fs.readdir(fpDir)).filter(f => f.endsWith('.json'));
-                // Prefer Windows fingerprints — presenting as the most common
-                // platform is the point of a spoofed profile — but take whatever the
-                // library has rather than finding nothing and launching bare.
-                let files = all.filter(f => f.startsWith('win'));
-                if (files.length === 0) files = all;
+                let files = all.filter(f => f.startsWith(wantPrefix));
+                if (files.length === 0) {
+                    // Thư viện thiếu bản cho OS này: dùng tạm bản khác còn hơn chạy
+                    // trần không fingerprint, nhưng phải nói rõ vì kết quả sẽ lệch.
+                    console.warn(`[ShardX] Thư viện không có fingerprint '${wantPrefix}*'; dùng tạm bản khác — dấu vân tay sẽ không khớp hệ điều hành.`);
+                    files = all;
+                }
+                if (wantPrefix !== hostFpPrefix && files.length) {
+                    console.warn(`[ShardX] Ép fingerprint '${wantPrefix}' trên máy '${hostFpPrefix}' theo cấu hình — trang kiểm tra dấu vân tay sẽ báo không nhất quán.`);
+                }
                 if (files.length > 0) {
                     // Pick a stable fingerprint per profile name (hash-based, consistent across runs)
                     const idx = profileName.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % files.length;
                     bundledFp = path.join(fpDir, files[idx]);
-                    console.log(`[ShardX] Picked bundled fingerprint: ${files[idx]} (from ${fpDir})`);
+                    console.log(`[ShardX] Picked bundled fingerprint: ${files[idx]} (khớp OS '${wantPrefix}', từ ${fpDir})`);
                     break;
                 }
             }
