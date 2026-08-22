@@ -55,7 +55,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("GroupContext")
 
-ACCESS_ORDER = {"read": 0, "append": 1, "write": 2, "manage": 3}
+# read < use/run < append < write/edit < manage. Driving something the group
+# owns — a browser profile, a script — is more than looking at it and less
+# than writing data into it, so `use` and `run` share the rung between read
+# and append. `edit` is `write` under the name the Script node shows. Two
+# spellings on one rung is deliberate: allows() compares rungs, and a kind
+# should be able to name its levels the way its owner thinks about them.
+ACCESS_ORDER = {"read": 0, "use": 1, "run": 1, "append": 2, "write": 3, "edit": 3, "manage": 4}
 GROUP_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 KIND_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -424,7 +430,11 @@ def _build(group_id: str, raw: Any) -> Dict[str, Any]:
     canvas.update(_normalise_section(canvas_raw))
     return {
         "group_id": group_id,
-        "label": _str(raw.get("label"), 120) or "Group",
+        # _one_line, not _str: prompt_block prints the label right after
+        # "### GROUP WORKSPACE: " at column 0, so a label with a newline in it
+        # forged a second section heading — and every line after it — inside
+        # the model's prompt. Aliases are sanitised for that reason already.
+        "label": _one_line(raw.get("label"), 120) or "Group",
         "updated_at": _str(raw.get("updated_at"), 40),
         "canvas": canvas,
         "server": _normalise_section(server_raw),
@@ -501,18 +511,36 @@ def save(group_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     return _view(stored)
 
 
-def _identity(k: EntityKind, entry: Dict[str, Any]) -> str:
-    value = _str(entry.get(k.identity), 2000)
+def _path_key(value: Any) -> str:
+    r"""Comparable form of a path: the same canonical form resolve_xlsx uses,
+    plus normcase so C:\X and c:\x meet on Windows while POSIX paths stay
+    case-sensitive. "" when there is nothing usable to compare."""
+    raw = _str(value, 2000)
+    if not raw:
+        return ""
+    try:
+        return os.path.normcase(_canon(raw))
+    except Exception:
+        return ""
+
+
+def _entry_identity(identity: str, entry: Dict[str, Any]) -> str:
+    """What makes two entries the same thing, as one comparable string.
+
+    The kind names the field (path for files, sheet_id for sheets, profile
+    for browser profiles, alias otherwise). An entry that has nothing under
+    that field is only ever equal to itself — hence the whole-entry dump.
+    """
+    value = _str(entry.get(identity), 2000)
     if not value:
         return json.dumps(entry, sort_keys=True, ensure_ascii=False)
-    if k.identity == "path":
-        # Same rule resolve_xlsx applies, plus normcase so C:\X and c:\x meet
-        # on Windows while POSIX paths stay case-sensitive.
-        try:
-            return os.path.normcase(_canon(value))
-        except Exception:
-            return value
+    if identity == "path":
+        return _path_key(value) or value
     return value.casefold()
+
+
+def _identity(k: EntityKind, entry: Dict[str, Any]) -> str:
+    return _entry_identity(k.identity, entry)
 
 
 def add_server_entry(group_id: str, kind_key: str, entry: Any) -> Dict[str, Any]:
@@ -639,7 +667,7 @@ def effective_groups(agent_id: str, group_id: str = "") -> List[Dict[str, Any]]:
 # ── Permission + resolution ──────────────────────────────────────────
 
 def allows(have: str, need: str) -> bool:
-    """Is `have` at least `need` on read < append < write < manage?
+    """Is `have` at least `need` on read < use/run < append < write/edit < manage?
 
     An unknown value on EITHER side is a refusal: a missing access on an entry
     must not grant, and a typo in a handler's requirement must not grant.
@@ -772,6 +800,182 @@ def resolve_xlsx(groups: List[Dict[str, Any]], path: str) -> Optional[Dict[str, 
                     "group_id": gid, "via": "folder",
                 })
     return best
+
+
+def _kind_identity(kind_key: str) -> str:
+    """The field the registered kind compares entries on.
+
+    A kind nobody registered can still be asked for: load() keeps its entries
+    out of the merged view, so this only happens for scopes a caller built by
+    hand (tests, a handler assembling its own groups). Alias is the safe
+    fallback — every kind has one, and it never grants more than the name.
+    """
+    k = kind(kind_key)
+    return k.identity if k is not None else "alias"
+
+
+def _stamped(entry: Dict[str, Any], group: Dict[str, Any]) -> Dict[str, Any]:
+    """The stored entry plus which group granted it, so a handler can say so."""
+    out = dict(entry)
+    out["group_id"] = group.get("group_id", "")
+    out["group_label"] = group.get("label", "")
+    return out
+
+
+def _ambiguous(candidates) -> Dict[str, Any]:
+    """The same shape resolve_sheet returns: names and group labels only —
+    an id must not leak through a refusal either."""
+    return {
+        "ambiguous": True,
+        "choices": [{"alias": c.get("alias", ""), "group_label": c.get("group_label", "")}
+                    for c in candidates],
+    }
+
+
+def resolve_entry(groups: List[Dict[str, Any]], kind_key: str, ref: str) -> Optional[Dict[str, Any]]:
+    """The entry of `kind_key` that `ref` names, or None.
+
+    `ref` is what the model wrote: the ALIAS first (that is what prompt_block
+    taught it, and the comparison is trimmed + casefolded), then the kind's
+    identity value — a profile name, a script id, a path — compared exactly,
+    because an id that differs only in case is a different id. The result is
+    the stored entry plus `group_id` and `group_label`.
+
+    One name, two different entities (the agent is in several groups) is
+    never resolved silently: {"ambiguous": True, "choices": [...]} comes back
+    instead, exactly as resolve_sheet does, so the handler can ask which one.
+    """
+    key = _str(kind_key, 64)
+    if not key:
+        return None
+    ensure_default_kinds()
+    if key == "sheets":
+        # Sheets keep their own resolver: people paste a whole spreadsheet
+        # URL, and the id inside it still has to match.
+        return resolve_sheet(groups, ref)
+    raw = _str(ref, 2000)
+    if not raw:
+        return None
+    folded = raw.casefold()
+    identity = _kind_identity(key)
+    want_path = _path_key(raw) if identity == "path" else ""
+
+    best: Optional[Dict[str, Any]] = None
+    distinct: Dict[str, Dict[str, Any]] = {}
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        for e in g.get(key) or []:
+            if not isinstance(e, dict):
+                continue
+            alias = _str(e.get("alias"), 200).casefold()
+            value = _str(e.get(identity), 2000)
+            hit = bool(alias) and alias == folded
+            if not hit and value:
+                if identity == "path":
+                    hit = bool(want_path) and _path_key(value) == want_path
+                else:
+                    hit = value == raw
+            if not hit:
+                continue
+            cand = _stamped(e, g)
+            distinct.setdefault(_entry_identity(identity, e), cand)
+            best = _better(best, cand)
+    if len(distinct) > 1:
+        return _ambiguous(distinct.values())
+    return best
+
+
+def only_entry(groups: List[Dict[str, Any]], kind_key: str) -> Optional[Dict[str, Any]]:
+    """The single entry of this kind in scope, or None when there are none or
+    several — what lets a handler act on "the group's browser profile" when
+    the model named none.
+
+    The same entity shared by two groups still counts as one (compared on the
+    kind's identity) and comes back with the wider access. Two different ones
+    are a question for the user, so None is the only safe answer.
+    """
+    key = _str(kind_key, 64)
+    if not key:
+        return None
+    ensure_default_kinds()
+    identity = _kind_identity(key)
+    found: Dict[str, Dict[str, Any]] = {}
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        for e in g.get(key) or []:
+            if not isinstance(e, dict):
+                continue
+            ident = _entry_identity(identity, e)
+            found[ident] = _better(found.get(ident), _stamped(e, g))
+            if len(found) > 1:
+                return None
+    if len(found) != 1:
+        return None
+    return next(iter(found.values()))
+
+
+def _abs_canon(value: Any) -> str:
+    """A shared path an action may act on: absolute (after ~), canonical. ""
+    for anything else — a relative entry would resolve against whatever
+    directory the server happens to run in."""
+    raw = _str(value, 1000)
+    if not raw or not os.path.isabs(os.path.expanduser(raw)):
+        return ""
+    try:
+        return _canon(raw)
+    except Exception:
+        return ""
+
+
+def _looks_like_path(ref: str) -> bool:
+    return ref.startswith("~") or "/" in ref or "\\" in ref or os.path.isabs(ref)
+
+
+def resolve_file(groups: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, Any]]:
+    """Any file the groups share — of any type, not just workbooks — named by
+    alias or by path, as an entry whose `path` is absolute and canonical.
+
+    Alias first, because that is how the prompt lists file nodes. A path is
+    accepted too: a model that just read a listing will paste one, and a file
+    that lives inside a shared FOLDER has no entry of its own — resolve_xlsx
+    already knows that rule (realpath + os.sep prefix) and is reused for it.
+    Handlers must upload/open the path THIS returns and never the string the
+    model sent; that substitution is the whole boundary.
+
+    None when no group shares it, {"ambiguous": True, ...} when one alias
+    names two different files.
+    """
+    raw = _str(ref, 2000)
+    if not raw:
+        return None
+    entry = resolve_entry(groups, "files", raw)
+    if isinstance(entry, dict) and entry.get("ambiguous"):
+        return entry
+    if isinstance(entry, dict):
+        path = _abs_canon(entry.get("path"))
+        if path:
+            out = dict(entry)
+            out["path"] = path
+            out["access"] = entry.get("access") or "write"
+            out.setdefault("via", "file")
+            return out
+        # An entry whose path is unusable is not a hit; the folder rule below
+        # may still cover the same file.
+    if not _looks_like_path(raw):
+        return None
+    hit = resolve_xlsx(groups, raw)
+    if not hit:
+        return None
+    out = dict(hit)
+    gid = out.get("group_id", "")
+    for g in groups or []:
+        if isinstance(g, dict) and g.get("group_id") == gid:
+            out["group_label"] = g.get("label", "")
+            break
+    out.setdefault("group_label", "")
+    return out
 
 
 def worklog_sheet(groups: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

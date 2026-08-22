@@ -14,6 +14,37 @@ except ImportError:
 logger = logging.getLogger("ScriptStudio")
 
 
+def _load_group_scripts():
+    """group_scripts.py — the `scripts` group kind and the script_run handler.
+
+    Imported as a package submodule normally; loaded by path when this file was
+    itself loaded by path (the external-extension loader gives it no package,
+    so a relative import would fail). A failure costs the group feature only:
+    Script Studio itself must still load.
+    """
+    try:
+        from tubecli.extensions.browser_scripts import group_scripts as mod
+        return mod
+    except Exception:
+        pass
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "group_scripts.py")
+        spec = importlib.util.spec_from_file_location("browser_scripts_group_scripts", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:
+        logger.warning(f"Script Studio: group support unavailable: {e}")
+        return None
+
+
+group_scripts = _load_group_scripts()
+# Module-level, like the other extensions that bring a kind (file_manager,
+# auth_manager): tubecli.core.group_context.ensure_default_kinds() reads
+# GROUP_KINDS off the module when nobody has registered the kind yet.
+GROUP_KINDS = list(getattr(group_scripts, "GROUP_KINDS", []) or [])
+
+
 class BrowserScriptsExtension(Extension):
     name = "browser_scripts"
     version = "1.0.0"
@@ -126,6 +157,21 @@ class BrowserScriptsExtension(Extension):
         except Exception as e:
             logger.warning(f"Could not register Script Studio skill: {e}")
 
+    def get_group_kinds(self):
+        """A Script node inside a Flow group = the agents there may run it."""
+        return list(GROUP_KINDS)
+
+    def get_telegram_actions(self):
+        # script_run only ever runs what a group shares; with no group in
+        # effect it refuses. Registered unconditionally so the refusal is a
+        # sentence the model can act on, not an unknown action.
+        if group_scripts is None:
+            return {}
+        return {"script_run": self._action_script_run}
+
+    async def _action_script_run(self, action_data: dict, context: dict) -> str:
+        return await group_scripts.script_run(action_data, context)
+
     def get_routes(self):
         """Load and return FastAPI routers (API + static UI)."""
         try:
@@ -137,6 +183,13 @@ class BrowserScriptsExtension(Extension):
             spec = importlib.util.spec_from_file_location("script_studio_routes", routes_file)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
+            # Loading by path leaves no entry in sys.modules, so anything that
+            # imported script_routes the normal way would get a SECOND copy —
+            # a second _attach_running and a second store. Publish this one and
+            # hand it to the group handler, so the run lock is one lock.
+            sys.modules["script_studio_routes"] = mod
+            if group_scripts is not None:
+                group_scripts.set_routes_module(mod)
 
             # Merge API + UI routers
             from fastapi import APIRouter

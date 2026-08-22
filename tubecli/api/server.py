@@ -448,6 +448,32 @@ Rules for evolution and progression:
     return {}
 
 
+def _group_browser_profiles(groups) -> List[tuple]:
+    """(profile name, group label) for every browser profile the agent's Flow
+    groups share with it.
+
+    The `profiles` kind is registered by the browser extension; with that
+    extension disabled the merged group view has no such key and this list is
+    empty — which is exactly what "the group shares no profile" should mean.
+    Access is checked, not assumed: an entry shared below `use` is listed to
+    the agent but never driven on a schedule.
+    """
+    from tubecli.core import group_context
+
+    out = []
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        label = g.get("label") or g.get("group_id") or ""
+        for p in g.get("profiles") or []:
+            if not isinstance(p, dict):
+                continue
+            name = str(p.get("profile") or "").strip()
+            if name and group_context.allows(p.get("access") or "use", "use"):
+                out.append((name, label))
+    return out
+
+
 def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
     """Callback for running an agent's daily behavior routine on schedule.
 
@@ -475,8 +501,28 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     print(f"\n[Scheduler Callback] >>> Executing scheduled behavior routine for agent '{agent.name}' ({agent.id}) <<<")
     
     # 1. Resolve Profile Name
+    # A Browser node the owner dropped into one of the agent's Flow groups is
+    # the owner's word on which profile this agent drives, so it outranks
+    # allowed_profiles (the older per-agent setting) and certainly outranks
+    # "any profile on this machine". The groups are loaded once here and
+    # reused for the context block further down; a failure never blocks the
+    # run, it only falls back to the old behaviour.
     profile_name = "default"
-    if agent.allowed_profiles:
+    group_ctxs = []
+    group_profiles = []
+    _gc = None
+    try:
+        from tubecli.core import group_context as _gc
+        group_ctxs = _gc.effective_groups(agent.id)
+        group_profiles = _group_browser_profiles(group_ctxs)
+    except Exception as _ge:
+        print(f"[Scheduler Callback] Group context skipped: {_ge}")
+
+    if group_profiles:
+        profile_name, _group_label = random.choice(group_profiles)
+        print(f"[Scheduler Callback] Selected profile '{profile_name}' from group "
+              f"'{_group_label}' ({len(group_profiles)} profile(s) shared with this agent)")
+    elif agent.allowed_profiles:
         selected = random.choice(agent.allowed_profiles)
         if isinstance(selected, dict):
             profile_name = selected.get("name", "default")
@@ -779,18 +825,17 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     if agent.auth:
         context["auth"] = agent.auth
 
-    # Flow Builder groups the agent belongs to. The routine has no system
-    # prompt — `prompt` above is a browsing instruction for open.js — so the
-    # GROUP WORKSPACE block rides along in the context file for whatever the
-    # browser agent chooses to do with it. Best-effort: never blocks the run.
+    # Flow Builder groups the agent belongs to — the same ones the profile
+    # step above already loaded. The routine has no system prompt — `prompt`
+    # above is a browsing instruction for open.js — so the GROUP WORKSPACE
+    # block rides along in the context file for whatever the browser agent
+    # chooses to do with it. Best-effort: never blocks the run.
     try:
-        from tubecli.core import group_context as _gc
-        _groups = _gc.effective_groups(agent.id)
-        if _groups:
-            context["group_ids"] = [g.get("group_id", "") for g in _groups if g.get("group_id")]
-            context["group_workspace"] = _gc.prompt_block(_groups)
+        if group_ctxs and _gc is not None:
+            context["group_ids"] = [g.get("group_id", "") for g in group_ctxs if g.get("group_id")]
+            context["group_workspace"] = _gc.prompt_block(group_ctxs)
     except Exception as _ge:
-        print(f"[Scheduler Callback] Group context skipped: {_ge}")
+        print(f"[Scheduler Callback] Group workspace skipped: {_ge}")
         
     # Session time: average 5 min, max 10 min. Clamp read_time to 120-480s.
     read_time = max(120, min(480, read_time))   # 2-8 min

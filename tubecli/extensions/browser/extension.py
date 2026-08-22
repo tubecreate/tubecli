@@ -1,7 +1,19 @@
 """
-Browser Extension class — registers CLI commands and API routes.
+Browser Extension class — registers CLI commands, API routes, and the
+`profiles` group kind with its four agent actions.
 """
 from tubecli.core.extension_manager import Extension
+
+# The shape of a shared browser profile and the browser_* handlers live in
+# group_actions.py — this class only publishes them. Guarded because the
+# extension must still load on a core whose group_context predates the kind
+# registry (hot-patched servers), where there is simply nothing to publish.
+try:
+    from .group_actions import GROUP_KINDS, TELEGRAM_ACTIONS
+except Exception as _e:  # pragma: no cover
+    import logging
+    logging.getLogger("BrowserExtension").warning(f"group actions unavailable: {_e}")
+    GROUP_KINDS, TELEGRAM_ACTIONS = [], {}
 
 
 class BrowserExtension(Extension):
@@ -66,3 +78,12 @@ class BrowserExtension(Extension):
     def get_routes(self):
         from .routes import router
         return router
+
+    def get_group_kinds(self):
+        return list(GROUP_KINDS)
+
+    def get_telegram_actions(self):
+        # Disabling this extension withdraws both the kind and these actions:
+        # the group's profiles then stop existing for the agent, which is the
+        # intended off switch.
+        return dict(TELEGRAM_ACTIONS)

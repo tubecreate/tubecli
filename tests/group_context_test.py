@@ -45,6 +45,15 @@ opened. What this locks in:
 11. THE STORE IS NOT IN THE SANDBOX. data/groups/ is refused by the
     enforce_roots=True FileService the model's file_action uses, so an
     agent cannot rewrite its own group; the owner's UI service still can.
+
+12. MATERIALS BY NAME. resolve_entry finds a material by alias or by the
+    kind's identity (a profile name, a script id, a path), refuses to guess
+    when one name means two different things, and answers nothing for a kind
+    nobody registered. resolve_file takes an alias or a path — including a
+    path that only a shared FOLDER covers — and always hands back an
+    absolute canonical path, because that is what a handler uploads.
+    only_entry answers "the group's one profile" and None as soon as there
+    are two. The scheduled run drives a profile the group shares.
 """
 import json
 import os
@@ -180,7 +189,7 @@ def main():
         check("effective: them lai agent -> co nhom lai",
               [g["group_id"] for g in gc.effective_groups("agent1", "group_b")] == ["group_b"])
 
-        print("\n=== 4. allows: read < append < write < manage ===")
+        print("\n=== 4. allows: read < use/run < append < write/edit < manage ===")
         order = ["read", "append", "write", "manage"]
         ok = True
         for i, have in enumerate(order):
@@ -191,6 +200,21 @@ def main():
         check("access la -> tu choi", not gc.allows("owner", "read") and not gc.allows("", "read"))
         check("need la (typo trong handler) -> tu choi", not gc.allows("manage", "wrte"))
         check("khong phan biet hoa/thuong", gc.allows("Write", "APPEND"))
+        # Phase 2b: dieu khien mot thu cua nhom (browser profile, script) nam GIUA
+        # doc va ghi — xem duoc chua chac lai duoc, ma lai duoc thi chua duoc ghi du lieu.
+        ladder = ["read", "use", "append", "write", "manage"]
+        ok = all(gc.allows(h, n) == (i >= j)
+                 for i, h in enumerate(ladder) for j, n in enumerate(ladder))
+        check("use xen giua read va append", ok)
+        check("run ngang use", gc.ACCESS_ORDER["run"] == gc.ACCESS_ORDER["use"]
+              and gc.allows("run", "use") and gc.allows("use", "run"))
+        check("edit ngang write", gc.ACCESS_ORDER["edit"] == gc.ACCESS_ORDER["write"]
+              and gc.allows("edit", "write") and gc.allows("write", "edit"))
+        check("read chua du de dieu khien", not gc.allows("read", "use") and not gc.allows("read", "run"))
+        check("use chua du de ghi", not gc.allows("use", "append") and not gc.allows("use", "write"))
+        check("ghi/quan tri thi dieu khien duoc", gc.allows("append", "use") and gc.allows("manage", "run"))
+        check("norm_access giu ten moi", gc.norm_access("use", "read") == "use"
+              and gc.norm_access("RUN", "read") == "run" and gc.norm_access("Edit", "read") == "edit")
 
         print("\n=== 5. resolve_sheet: alias / id / URL ===")
         groups = gc.effective_groups("agent1")
@@ -741,6 +765,186 @@ def main():
                   fs_mod.user_file_service.validate_path(os.path.join(gdir, "group_a.json")).endswith("group_a.json"))
         finally:
             shutil.rmtree(fake_data, ignore_errors=True)
+        print("\n=== 19. resolve_entry / only_entry / resolve_file: nguyen lieu goi theo TEN ===")
+        # Hai kind nay se do extension browser / browser_scripts mang toi (spec 2b).
+        # Dinh nghia ban sao o day de resolver duoc thu tren identity KHONG phai alias,
+        # va de test khong phu thuoc vao extension nao da load.
+        def _profile_norm(raw, i):
+            if isinstance(raw, str):
+                raw = {"profile": raw}
+            if not isinstance(raw, dict):
+                return None
+            name = gc.norm_str(raw.get("profile"), 200)
+            if not name:
+                return None
+            return {"alias": gc.norm_str(raw.get("alias"), 200) or name, "profile": name,
+                    "access": gc.norm_access(raw.get("access"), "use")}
+
+        def _script_norm2(raw, i):
+            if not isinstance(raw, dict):
+                return None
+            sid = gc.norm_str(raw.get("script_id"), 200)
+            if not sid:
+                return None
+            slug = gc.norm_str(raw.get("slug"), 200)
+            return {"alias": gc.norm_str(raw.get("alias"), 200) or slug or f"Script {i + 1}",
+                    "script_id": sid, "slug": slug,
+                    "access": gc.norm_access(raw.get("access"), "run")}
+
+        gc.register_kind(gc.EntityKind(
+            key="profiles", label="Browser profiles", normalise=_profile_norm,
+            describe=lambda es: ["Browser profiles you may drive:"] + [f'- "{e["alias"]}"' for e in es],
+            access_default="use", order=25, identity="profile"))
+        gc.register_kind(gc.EntityKind(
+            key="scripts", label="Browser scripts", normalise=_script_norm2,
+            describe=lambda es: ["Browser scripts you may run:"] + [f'- "{e["alias"]}"' for e in es],
+            access_default="run", order=35, identity="script_id"))
+
+        open(os.path.join(d5, "poster.png"), "wb").close()
+        gc.save("group_2b", {
+            "label": "Studio", "agents": ["agent2b"],
+            "profiles": [{"alias": "Tuấn", "profile": "tuan5"},
+                         {"profile": "ads1", "access": "manage"}, {"profile": ""}],
+            "scripts": [{"alias": "Upload TikTok", "script_id": "sc_1", "slug": "upload-tiktok"},
+                        {"script_id": "sc_2", "slug": "warmup"}],
+            "files": [{"alias": "Poster", "path": os.path.join(d5, "poster.png")},
+                      {"path": os.path.join(d50, "a.xlsx")},
+                      {"alias": "Tuong doi", "path": "relative/x.xlsx"}],
+            "folders": [{"path": d5, "access": "append"}],
+        })
+        g2b = gc.effective_groups("agent2b")
+        check("nhom 2b co profiles/scripts sau khi dang ky kind",
+              len(g2b) == 1 and len(g2b[0]["profiles"]) == 2 and len(g2b[0]["scripts"]) == 2)
+
+        r = gc.resolve_entry(g2b, "profiles", "  tuẤn ")
+        check("resolve_entry theo alias (casefold + trim)", (r or {}).get("profile") == "tuan5", r)
+        check("kem group_id + group_label", r["group_id"] == "group_2b" and r["group_label"] == "Studio")
+        check("resolve_entry theo identity (ten profile, khong phai alias)",
+              (gc.resolve_entry(g2b, "profiles", "tuan5") or {}).get("alias") == "Tuấn")
+        check("alias mac dinh = profile", (gc.resolve_entry(g2b, "profiles", "ADS1") or {}).get("access") == "manage")
+        check("profile ngoai nhom -> None", gc.resolve_entry(g2b, "profiles", "tuan50") is None)
+        check("ref rong / kind rong -> None",
+              gc.resolve_entry(g2b, "profiles", "") is None and gc.resolve_entry(g2b, "", "tuan5") is None
+              and gc.resolve_entry(g2b, "profiles", None) is None)
+        check("khong nhom -> None", gc.resolve_entry([], "profiles", "tuan5") is None
+              and gc.resolve_entry(None, "profiles", "tuan5") is None)
+        check("script theo alias", (gc.resolve_entry(g2b, "scripts", "upload tiktok") or {}).get("script_id") == "sc_1")
+        check("script theo slug (alias mac dinh = slug)", (gc.resolve_entry(g2b, "scripts", "Warmup") or {}).get("script_id") == "sc_2")
+        check("script theo id", (gc.resolve_entry(g2b, "scripts", "sc_2") or {}).get("slug") == "warmup")
+        # Id so KHOP TUYET DOI: hai id chi khac hoa/thuong la hai id khac nhau.
+        check("id sai hoa/thuong -> None", gc.resolve_entry(g2b, "scripts", "SC_2") is None)
+        check("kind khong co trong nhom -> None", gc.resolve_entry(g2b, "notes", "bat ky") is None)
+        check("access mac dinh cua kind duoc giu",
+              gc.resolve_entry(g2b, "profiles", "Tuấn")["access"] == "use"
+              and gc.resolve_entry(g2b, "scripts", "sc_1")["access"] == "run")
+        # sheets van di qua resolve_sheet: nguoi dung dan ca URL bang tinh.
+        check("kind sheets -> uy quyen cho resolve_sheet (URL van khop)",
+              (gc.resolve_entry(gc.effective_groups("agent1"), "sheets",
+                                "https://docs.google.com/spreadsheets/d/2DeF/edit") or {}).get("alias") == "Second log")
+        # Kind chua dang ky (extension tat): chi con alias — load() da bo entry khoi
+        # view hop nhat roi, day chi la luoi an toan cho scope tu dung tay.
+        hand = [{"group_id": "gx", "label": "Tay", "widgets": [{"alias": "Nut do", "widget_id": "w1"}]}]
+        check("kind la: khop alias, khong khop identity la",
+              (gc.resolve_entry(hand, "widgets", "nut do") or {}).get("widget_id") == "w1"
+              and gc.resolve_entry(hand, "widgets", "w1") is None)
+
+        twin_p = [
+            {"group_id": "g1", "label": "Nhóm A", "agents": ["a"], "profiles": [{"alias": "Chính", "profile": "p_a", "access": "use"}]},
+            {"group_id": "g2", "label": "Nhóm B", "agents": ["a"], "profiles": [{"alias": "chính", "profile": "p_b", "access": "manage"}]},
+        ]
+        amb = gc.resolve_entry(twin_p, "profiles", "CHÍNH")
+        check("mot ten, hai profile khac nhau -> ambiguous", isinstance(amb, dict) and amb.get("ambiguous") is True)
+        check("ambiguous chi lo alias + nhan nhom",
+              {c["group_label"] for c in amb["choices"]} == {"Nhóm A", "Nhóm B"}
+              and "p_a" not in str(amb) and "p_b" not in str(amb))
+        same_p = [
+            {"group_id": "g1", "label": "Nhóm A", "profiles": [{"alias": "A", "profile": "p_x", "access": "use"}]},
+            {"group_id": "g2", "label": "Nhóm B", "profiles": [{"alias": "B", "profile": "p_x", "access": "manage"}]},
+        ]
+        r = gc.resolve_entry(same_p, "profiles", "p_x")
+        check("cung mot profile o 2 nhom -> khong mo ho, lay quyen rong nhat",
+              not r.get("ambiguous") and r["access"] == "manage" and r["group_id"] == "g2", r)
+
+        print("--- only_entry ---")
+        check("2 profile -> None (phai hoi)", gc.only_entry(g2b, "profiles") is None)
+        one = gc.save("group_one", {"label": "Mot", "agents": ["agent2c"],
+                                    "profiles": [{"profile": "solo"}], "scripts": []})
+        g1 = gc.effective_groups("agent2c")
+        o = gc.only_entry(g1, "profiles")
+        check("dung 1 profile -> tra ve kem nhom", (o or {}).get("profile") == "solo" and o["group_label"] == "Mot", o)
+        check("kind rong -> None", gc.only_entry(g1, "scripts") is None)
+        check("kind la / rong -> None", gc.only_entry(g1, "nope") is None and gc.only_entry(g1, "") is None)
+        check("khong nhom -> None", gc.only_entry([], "profiles") is None and gc.only_entry(None, "profiles") is None)
+        check("cung profile o 2 nhom -> van la MOT (quyen rong nhat)",
+              (gc.only_entry(same_p, "profiles") or {}).get("access") == "manage")
+        check("hai profile khac nhau o 2 nhom -> None", gc.only_entry(twin_p, "profiles") is None)
+        check("only_entry cua scripts trong group_2b -> None (2 script)", gc.only_entry(g2b, "scripts") is None)
+
+        print("--- resolve_file ---")
+        rf = gc.resolve_file(g2b, "poster")
+        check("theo alias, moi loai file (png cung duoc)",
+              (rf or {}).get("path") == os.path.realpath(os.path.join(d5, "poster.png")), rf)
+        check("kem access + nhom", rf["access"] == "write" and rf["group_id"] == "group_2b"
+              and rf["group_label"] == "Studio" and rf["via"] == "file")
+        check("theo path chinh xac cua entry",
+              (gc.resolve_file(g2b, os.path.join(d50, "a.xlsx")) or {}).get("via") == "file")
+        rf = gc.resolve_file(g2b, os.path.join(d5, "sub", "b.xlsx"))
+        check("path CHI nam trong folder chia se -> via folder, access cua folder",
+              (rf or {}).get("via") == "folder" and rf["access"] == "append" and rf["group_label"] == "Studio", rf)
+        check("path '..' duoc gop truoc khi so",
+              (gc.resolve_file(g2b, os.path.join(d5, "sub", "..", "a.xlsx")) or {}).get("via") == "folder")
+        check("file ngoai nhom -> None", gc.resolve_file(g2b, os.path.join(tmp, "lone.xlsx")) is None)
+        check("path model tu bia -> None", gc.resolve_file(g2b, "/etc/passwd") is None
+              and gc.resolve_file(g2b, os.path.join(d50, "zzz.xlsx")) is None)
+        check("alias khong co -> None", gc.resolve_file(g2b, "khong-ton-tai") is None)
+        check("ref rong / khong nhom -> None",
+              gc.resolve_file(g2b, "") is None and gc.resolve_file([], "poster") is None)
+        # Entry co path tuong doi khong bao gio thanh duong dan thao tac: handler se
+        # upload chinh chuoi nay, ma tuong doi thi phu thuoc cwd cua server.
+        check("entry path tuong doi -> None (khong tra path tuong doi)",
+              gc.resolve_file(g2b, "Tuong doi") is None)
+        twin_f = [
+            {"group_id": "g1", "label": "Nhóm A", "files": [{"alias": "Poster", "path": os.path.join(d5, "poster.png"), "access": "write"}]},
+            {"group_id": "g2", "label": "Nhóm B", "files": [{"alias": "poster", "path": os.path.join(d50, "a.xlsx"), "access": "read"}]},
+        ]
+        ambf = gc.resolve_file(twin_f, "POSTER")
+        check("mot alias, hai file khac nhau -> ambiguous",
+              isinstance(ambf, dict) and ambf.get("ambiguous") is True
+              and {c["group_label"] for c in ambf["choices"]} == {"Nhóm A", "Nhóm B"})
+        if os.name == "nt":
+            check("Windows: path khac hoa/thuong van khop",
+                  (gc.resolve_file(g2b, os.path.join(d50, "A.XLSX")) or {}).get("via") == "file")
+
+        print("\n=== 20. luot chay theo lich dung profile cua nhom ===")
+        # KHONG import tubecli.api.server: import no chay extension_manager.
+        # discover_extensions() (co the git clone, va se dang ky kind cua MOI
+        # extension vao registry ma muc 12 vua kiem tra). Rut dung ham can thu
+        # ra khoi source bang ast — thu duoc van la code that da landed.
+        import ast
+
+        server_src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "tubecli", "api", "server.py")
+        with open(server_src, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        picker = [n for n in tree.body
+                  if isinstance(n, ast.FunctionDef) and n.name == "_group_browser_profiles"]
+        check("server.py co _group_browser_profiles", len(picker) == 1)
+        ns = {"List": list}
+        exec(compile(ast.Module(body=picker[:1], type_ignores=[]), server_src, "exec"), ns)
+        pick = ns.get("_group_browser_profiles", lambda groups: [])
+        gc.save("group_ads", {"label": "Ads", "agents": ["agent2b"],
+                              "profiles": [{"profile": "ads_only", "access": "manage"},
+                                           {"profile": "chi_xem", "access": "read"}]})
+        got = sorted(pick(gc.effective_groups("agent2b")))
+        check("chi lay profile cua nhom, bo cai duoi 'use'",
+              got == [("ads1", "Studio"), ("ads_only", "Ads"), ("tuan5", "Studio")], got)
+        check("agent khong co nhom -> [] (giu duong cu: allowed_profiles)",
+              pick(gc.effective_groups("nobody")) == [] and pick([]) == [] and pick(None) == [])
+        check("entry rac khong lam vo", pick([{"profiles": ["chuoi", None, {}]}, "x"]) == [])
+        gc.unregister_kind("profiles")
+        check("extension browser tat -> khong con profile nhom -> ve duong cu",
+              pick(gc.effective_groups("agent2b")) == [])
+
         gc.unregister_kind("scripts")
     finally:
         cfg.DATA_DIR = saved

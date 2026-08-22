@@ -458,6 +458,45 @@ function broadcastFrame(buffer) {
                     res.end(JSON.stringify({ error: e.message }));
                 }
             })();
+        } else if (req.url === '/set-input-files' && req.method === 'POST') {
+            // Gắn file vào ô <input type=file> mà KHÔNG cần filechooser.
+            // /upload-files chỉ chạy khi Playwright vừa bắn sự kiện 'filechooser', tức là
+            // khi CÓ NGƯỜI bấm nút tải lên trên trang. Một agent chạy một mình không có
+            // ai bấm hộ, nên nó cần đường này: setInputFiles thao tác thẳng lên input.
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                try {
+                    const { filePaths, selector } = JSON.parse(body || '{}');
+                    if (!filePaths || !filePaths.length) {
+                        res.writeHead(400, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: 'no files' }));
+                        return;
+                    }
+                    const sel = (typeof selector === 'string' && selector.trim()) || 'input[type=file]';
+                    // Ô upload hay nằm trong iframe (trình tải video, khung nhúng) và
+                    // thường bị ẩn sau nút giả, nên duyệt mọi frame và KHÔNG đòi visible.
+                    let done = null;
+                    for (const fr of page.frames()) {
+                        const h = await fr.$(sel).catch(() => null);
+                        if (!h) continue;
+                        await h.setInputFiles(filePaths);
+                        done = { frame: fr.url() || 'main', count: filePaths.length };
+                        break;
+                    }
+                    if (!done) {
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ error: `no element matching ${sel} on this page` }));
+                        return;
+                    }
+                    log(`setInputFiles: ${filePaths.length} file(s) -> ${sel}`);
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ status: 'attached', ...done }));
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: e.message }));
+                }
+            });
         } else if (req.url === '/upload-files' && req.method === 'POST') {
             let body = '';
             req.on('data', chunk => body += chunk);

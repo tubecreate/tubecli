@@ -1922,6 +1922,45 @@ async def api_preview_upload_local(port: int, req: UploadLocalRequest):
         raise HTTPException(500, f"Gắn file từ VPS lỗi: {e}")
 
 
+class SetInputRequest(BaseModel):
+    paths: List[str]
+    selector: Optional[str] = None
+
+
+@router.post("/preview/set-input/{port}")
+async def api_preview_set_input(port: int, req: SetInputRequest):
+    """Gắn file VPS thẳng vào ô <input type=file> của trang đang mở.
+
+    Khác /preview/upload-local: đường kia đòi filechooser đang chờ, tức là đòi một
+    người vừa bấm nút tải lên. Agent chạy theo lịch không có ai bấm hộ. KHÔNG mở cho
+    guest (không nằm trong allowlist ở server.py, deny mặc định) — path tuỳ ý ở đây
+    cũng là exfil như upload-local.
+    """
+    import requests
+    paths = []
+    for p in (req.paths or []):
+        ap = os.path.abspath(os.path.expanduser(str(p)))
+        if not os.path.isfile(ap):
+            raise HTTPException(400, f"File không tồn tại trên VPS: {p}")
+        paths.append(ap)
+    if not paths:
+        raise HTTPException(400, "Chưa chọn file")
+    payload = {"filePaths": paths}
+    if req.selector:
+        payload["selector"] = str(req.selector)[:200]
+    try:
+        response = await asyncio.to_thread(
+            requests.post, f"http://localhost:{port}/set-input-files", json=payload, timeout=300
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Gắn file vào input lỗi: {e}")
+    if response.status_code == 200:
+        return response.json()
+    if response.status_code == 404:
+        raise HTTPException(404, "Trang đang mở không có ô chọn file nào khớp")
+    raise HTTPException(502, f"Node preview server returned {response.status_code}: {response.text}")
+
+
 class AttachFileRequest(BaseModel):
     profile: str
     path: str

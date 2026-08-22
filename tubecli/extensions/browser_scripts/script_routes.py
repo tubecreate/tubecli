@@ -390,9 +390,12 @@ async def run_script(script_id: str, req: RunRequest):
     if not script:
         raise HTTPException(404, "Script not found")
 
-    # Attach: chỉ cho 1 phiên/profile — 2 runner cùng thao tác 1 browser live sẽ
-    # đan xen chuột/phím làm hỏng flow. Dọn khoá cũ nếu tiến trình đã chết.
-    if req.attach and req.profile:
+    # Chỉ 1 lượt chạy trên mỗi profile — kể cả attach=false: attach thì 2 runner
+    # đan xen chuột/phím làm hỏng flow, không attach thì runner tự mở Chromium
+    # trên chính user-data-dir ấy nên cái thứ hai chết vì khoá profile. Nút
+    # "Chạy thử" của node Script và lượt chạy của agent (group script_run) dùng chung
+    # khoá này nên thấy nhau. Dọn khoá cũ nếu tiến trình đã chết.
+    if req.profile:
         prev = _attach_running.get(req.profile)
         if prev and prev in _running_processes and _running_processes[prev].poll() is None:
             raise HTTPException(409, f"Đang có script chạy trên browser '{req.profile}'. Chờ nó xong rồi thử lại.")
@@ -446,7 +449,9 @@ async def run_script(script_id: str, req: RunRequest):
         }, f, ensure_ascii=False, indent=2)
 
     _running_logs[exec_id] = []
-    if req.attach and req.profile:
+    if req.profile:
+        # Giữ khoá cho MỌI lượt chạy có profile (xem chỗ 409 ở trên);
+        # khối finally của run_bg trả lại khoá này.
         _attach_running[req.profile] = exec_id
 
     def run_bg():
@@ -492,8 +497,60 @@ async def run_script(script_id: str, req: RunRequest):
     threading.Thread(target=run_bg, daemon=True).start()
     return {"status": "started", "exec_id": exec_id}
 
-def run_script_sync(script_id: str, variables: dict = None, profile: str = "", headless: bool = True) -> dict:
-    """Run a browser script synchronously and return its output variables."""
+class RunResult(dict):
+    """The runner's output variables — plus how the run ENDED.
+
+    WHY a dict subclass: a failed run writes a result file too (the runner sets
+    success=false and still saves the variables it had), so a caller that only
+    saw the returned dict read "did not raise" as "the script did its job" and
+    told the user a half-finished upload was done. Every existing caller uses
+    the return value as a plain mapping (brain.py json-dumps it, the web
+    crawler reads keys off it), so the outcome rides alongside as attributes
+    instead of changing the shape: result.success, result.log, result.exec_id.
+    """
+
+    def __init__(self, variables=None, success: bool = True, log: str = "", exec_id=None):
+        super().__init__(variables if isinstance(variables, dict) else {})
+        self.success = bool(success)
+        self.log = log or ""
+        self.exec_id = exec_id
+
+
+def _kill_run_tree(proc) -> None:
+    """Kill the runner AND the browser it started.
+
+    Playwright's Chromium is a child of the node process and it is what holds
+    the profile's user-data-dir; killing node alone leaves it running, so the
+    next run on that profile would die on the profile lock instead.
+    """
+    try:
+        import platform
+        if platform.system() == "Windows":
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, timeout=10)
+        else:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+    except Exception as e:
+        logger.warning(f"Could not kill run tree {getattr(proc, 'pid', '?')}: {e}")
+    try:
+        proc.kill()
+    except Exception:
+        pass
+
+
+def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
+                    headless: bool = True, timeout: float = None) -> dict:
+    """Run a browser script synchronously and return its output variables.
+
+    `timeout` (seconds) is the deadline for the whole run. Without one the
+    calling THREAD stays blocked for as long as the browser lives — and the
+    callers are `asyncio.to_thread`, whose default executor is shared by the
+    whole API process, so a run hung on a captcha starves everything else.
+    """
     script = _store().get_script(script_id)
     if not script:
         raise ValueError(f"Script {script_id} not found")
@@ -523,29 +580,50 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "", h
 
     try:
         env = _get_node_env()
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             ["node", runner_path, "--exec-file", tmp_file],
-            capture_output=True, text=True, cwd=ext_dir, env=env
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            cwd=ext_dir, env=env,
         )
-        
+        try:
+            out, _err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Popen, not subprocess.run(timeout=…): run() kills the node process
+            # only, and the browser it started would keep the profile locked.
+            _kill_run_tree(proc)
+            out, _err = proc.communicate()
+            _db().update_execution(
+                exec_id, status="error",
+                log=((out or "")[-4900:] + f"\nTIMEOUT after {timeout}s"),
+                finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            )
+            raise TimeoutError(f"Script execution timed out after {timeout}s and was stopped.")
+        out = out or ""
+
         # Read result file
         if os.path.exists(result_file):
             with open(result_file, "r", encoding="utf-8") as rf:
                 result_data = json.load(rf)
-                
+
+            ok = bool(result_data.get("success"))
             _db().update_execution(
                 exec_id,
-                status="success" if result_data.get("success") else "error",
-                log=proc.stdout[-5000:],
+                status="success" if ok else "error",
+                log=out[-5000:],
                 finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             )
-            return result_data.get("variables", {})
+            # The runner writes this file on failure too, with whatever
+            # variables it had — hence RunResult: "variables came back" has
+            # never meant "the script finished its job".
+            return RunResult(result_data.get("variables", {}), success=ok,
+                             log=out[-5000:], exec_id=exec_id)
         else:
             _db().update_execution(
-                exec_id, status="error", log=proc.stdout[-5000:],
+                exec_id, status="error", log=out[-5000:],
                 finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             )
-            raise RuntimeError(f"Script execution failed. No result file found. Log: {proc.stdout[-500:]}")
+            raise RuntimeError(f"Script execution failed. No result file found. Log: {out[-500:]}")
 
     finally:
         try: os.remove(tmp_file)
