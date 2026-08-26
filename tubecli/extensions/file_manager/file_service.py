@@ -46,8 +46,17 @@ BLOCKED_PATHS = [
 # own group's attach at ANOTHER group's browser. Nothing AI-facing writes
 # there: profiles are managed by the browser extension, and script downloads
 # go to their own output_dir.
+#
+# extensions_data/group_logs is the third. It is the ticker the canvas panel
+# shows (tubecli.core.group_log): one file per group, holding the titles, agent
+# names and handler replies of everything done in that group. One agent works
+# in several of the owner's groups, so an agent that can list and read this
+# folder reads the activity of groups that were never shared with it — and the
+# stolen text then lands back in its OWN group's log as `detail`. It is written
+# by group_log alone, which does not go through this sandbox.
 AI_PROTECTED_DATA_SUBDIRS = ["groups",
-                             os.path.join("extensions_data", "browser", "browser_profiles")]
+                             os.path.join("extensions_data", "browser", "browser_profiles"),
+                             os.path.join("extensions_data", "group_logs")]
 
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 

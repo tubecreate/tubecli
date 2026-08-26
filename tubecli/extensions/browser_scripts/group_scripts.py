@@ -176,6 +176,13 @@ def scripts_describe(entries: list) -> list:
     if len(entries) > PROMPT_LIST_CAP:
         lines.append(f"- …and {len(entries) - PROMPT_LIST_CAP} more scripts "
                      f"(ask the user for the name).")
+    # Vì sao phải nói: bảo "vào google tìm X" thì model chọn đường ngắn nhất —
+    # browser_goto tới ...google.com/search?q=X. Trang ra đúng, nhưng đó là nhảy
+    # thẳng vào URL kết quả: không gõ, không cuộn, không bấm. Với tài khoản thật
+    # thì khác nhau hoàn toàn, nên kịch bản đóng gói phải được ưu tiên.
+    lines.append("Prefer a script over browser_goto whenever one of these covers the task: "
+                 "a script types, scrolls and clicks like a person, while navigating to a "
+                 "result URL only makes the page appear.")
     return lines
 
 

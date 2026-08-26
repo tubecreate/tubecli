@@ -1357,7 +1357,13 @@ async def execute_livestream_pipeline(
 # ═══════════════════════════════════════════════════════════════
 
 async def handle_extension_action(reply: str, agent_dict: Dict, context: Dict = None) -> Any:
-    """Parse AI reply for JSON action blocks and execute extension logic."""
+    """Parse AI reply for JSON action blocks and execute extension logic.
+
+    Every action an agent takes — core or extension — funnels through here, so
+    this is also the ONE place the group activity log can be written from. The
+    work itself stays in _run_action; this wrapper only decides whether what
+    came back is worth a line on the canvas.
+    """
     if not isinstance(reply, str):
         return reply
 
@@ -1366,7 +1372,53 @@ async def handle_extension_action(reply: str, agent_dict: Dict, context: Dict = 
         return reply
 
     action_type = action_data.get("action", "")
+    result = await _run_action(action_type, action_data, reply, agent_dict, context)
+    # `result is reply` nghĩa là không handler nào nhận action này — chưa có
+    # việc gì xảy ra, đừng ghi vào nhật ký nhóm. None cũng vậy: handler đã bỏ
+    # lượt, caller sẽ rơi về câu trả lời của model.
+    if result is not reply and result is not None:
+        # Ghi nhật ký là I/O đồng bộ (mở file, thỉnh thoảng cắt lại cả file) và
+        # đây là vòng lặp sự kiện đang phục vụ MỌI request khác — đẩy sang thread.
+        # Vẫn `await`: giữ nguyên thứ tự dòng trong nhóm, và dòng đã nằm trên đĩa
+        # trước khi lượt này trả về (panel/poll đọc ngay sau đó vẫn thấy).
+        await asyncio.to_thread(_log_action_to_groups, action_type, action_data,
+                                result, agent_dict, context)
+    return result
 
+
+def _log_action_to_groups(action_type: str, action_data: Dict, result: Any,
+                          agent_dict: Dict, context: Dict = None) -> None:
+    """Một dòng trên bảng Nhật ký của MỖI nhóm đang hiệu lực cho lượt này.
+
+    Chỉ ghi khi caller đã chốt `group_ids` (canvas chat / Telegram / lượt chạy
+    theo lịch). Vắng key = "tự tính lấy" của caller đời cũ: không biết nhóm nào
+    thì không ghi, còn hơn ghi nhầm sang nhóm khác của chủ.
+
+    Bọc try trọn gói: nhật ký hỏng KHÔNG được làm hỏng action vừa chạy.
+    """
+    try:
+        gids = (context or {}).get("group_ids")
+        if not isinstance(gids, (list, tuple)) or not gids:
+            return
+        from tubecli.core import group_log
+
+        agent = agent_dict if isinstance(agent_dict, dict) else {}
+        text = result if isinstance(result, str) else str(result)
+        title = group_log.summarise_action(action_type, action_data)
+        # Quy ước của mọi handler trong repo này: câu trả lời mở đầu bằng ❌ là
+        # từ chối/thất bại. Chấm đỏ trên canvas đọc đúng dấu đó.
+        ok = not text.strip().startswith("❌")
+        for gid in gids:
+            group_log.append(str(gid), agent.get("id", ""), agent.get("name", ""),
+                             kind=action_type or "action", title=title,
+                             detail=text, ok=ok)
+    except Exception as e:
+        print(f"[Actions] Group log skipped: {e}")
+
+
+async def _run_action(action_type: str, action_data: Dict, reply: str,
+                      agent_dict: Dict, context: Dict = None) -> Any:
+    """Chạy action; trả về `reply` nguyên vẹn khi không ai nhận."""
     # ── Core built-in actions ──
     if action_type == "download_video":
         url = action_data.get("url", "")
@@ -1507,6 +1559,51 @@ async def exec_create_team(action_data: Dict) -> str:
         return f"❌ Lỗi tạo team: {e}"
 
 
+# run_api is a core action with no allowlist: it calls the internal API over
+# loopback, which is exempt from auth, so whatever it asks for comes back with
+# the server's own privileges. The group routes are precisely the ones an agent
+# must never reach that way. /context IS the agent's permission boundary — the
+# files, folders and sheets it may touch — so a PUT there widens its own rights;
+# /log narrates the work of every OTHER group the owner runs the same agent in.
+# Both are owner-only over HTTP; loopback is the back door.
+_GROUP_API_RE = re.compile(r"^/api/v\d+/groups(?:[/?#]|$)", re.IGNORECASE)
+
+
+def _canon_endpoint(endpoint: str) -> str:
+    """Duong dan da chuan hoa de DOI CHIEU voi danh sach cam.
+
+    So thang chuoi la cong chan hinh thuc: `//api/v1/groups/x`, `/./api/...`,
+    `/api/v1//groups/x`, `/api/v1/agents/../groups/x` va `%61pi` deu lot, trong
+    khi uvicorn/httpx van dua chung toi dung route. Bo % ma (lap co gioi han,
+    vi `%2561` giai ma hai lan moi ra `%61`), gop dau gach, roi rut gon `.`/`..`.
+    """
+    import posixpath
+    from urllib.parse import unquote, urlsplit
+
+    text = str(endpoint or "")
+    for _ in range(3):
+        decoded = unquote(text)
+        if decoded == text:
+            break
+        text = decoded
+    # urlsplit("//api/v1/...") coi "//api" la TEN MIEN, tra path "/v1/..." — cong
+    # chan nhin thay mot duong dan khac han cai se duoc goi. Chi tach URL khi that
+    # su co scheme; con lai chi cat query/fragment.
+    if "://" in text:
+        path = urlsplit(text).path or "/"
+    else:
+        path = text.split("?", 1)[0].split("#", 1)[0]
+    path = path.replace("\\", "/")
+    if not path.startswith("/"):
+        path = "/" + path
+    while "//" in path:
+        path = path.replace("//", "/")
+    collapsed = posixpath.normpath(path)
+    if path.endswith("/") and not collapsed.endswith("/"):
+        collapsed += "/"
+    return collapsed
+
+
 async def exec_run_api(action_data: Dict) -> str:
     """Execute a direct internal API call."""
     method = action_data.get("method", "GET").upper()
@@ -1515,6 +1612,9 @@ async def exec_run_api(action_data: Dict) -> str:
 
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
+
+    if _GROUP_API_RE.match(_canon_endpoint(endpoint)):
+        return "❌ Không được gọi API nhóm (/api/v1/groups) bằng run_api."
 
     url = f"{TUBECLI_BASE_URL}{endpoint}"
     print(f"[Actions] run_api: {method} {url}")

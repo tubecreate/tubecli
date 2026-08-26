@@ -474,6 +474,34 @@ def _group_browser_profiles(groups) -> List[tuple]:
     return out
 
 
+def _group_log_routine(groups, agent, title: str, detail: str = "", ok: bool = True) -> None:
+    """One "schedule" line on the log panel of every group this agent is in.
+
+    A scheduled run is the only thing an agent does with nobody watching, and
+    it was also the only thing the canvas could not see: run_log records it for
+    the owner's dashboard, keyed by agent, while the panel beside the group is
+    keyed by group. Two lines per run — one when the routine is decided, one
+    when the browser either came up or did not — is what turns "the group looks
+    idle" into "it ran at 03:00 and the profile was busy".
+
+    Best effort, like every other logging call in this file: a run must never
+    fail because of its own log.
+    """
+    if not groups:
+        return
+    try:
+        from tubecli.core import group_log
+
+        for g in groups:
+            gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
+            if not gid:
+                continue
+            group_log.append(gid, getattr(agent, "id", ""), getattr(agent, "name", ""),
+                             kind="schedule", title=title, detail=detail, ok=ok)
+    except Exception as e:
+        print(f"[Scheduler Callback] Group log skipped: {e}")
+
+
 def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
     """Callback for running an agent's daily behavior routine on schedule.
 
@@ -837,6 +865,15 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     except Exception as _ge:
         print(f"[Scheduler Callback] Group workspace skipped: {_ge}")
         
+    # The canvas log panel gets the same two beats run_log gives the dashboard:
+    # what this run decided to do, and (below, once the browser answered) how it
+    # went. Written here, after the profile and query are chosen, so the line
+    # already says which browser is about to move.
+    _group_log_routine(group_ctxs, agent,
+                       f"schedule {profile_name} → {base_query}"
+                       if profile_name else f"schedule → {base_query}",
+                       detail=prompt)
+
     # Session time: average 5 min, max 10 min. Clamp read_time to 120-480s.
     read_time = max(120, min(480, read_time))   # 2-8 min
     # session_minutes = ceil(read_time / 60), capped to 10, floors at 2
@@ -886,6 +923,15 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             if spawn_status == "error":
                 print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
 
+            # Kết thúc phần việc chạy được TRONG hàm này: trình duyệt lên hay
+            # không. Phiên duyệt web sau đó do process_manager theo dõi và ghi
+            # vào run_log — bảng nhóm chỉ cần biết lượt chạy đã khởi động được.
+            _group_log_routine(
+                group_ctxs, agent,
+                f"schedule {profile_name} — browser {spawn_status}",
+                detail=str(result.get("error") or "")[:400],
+                ok=spawn_status != "error")
+
             # Everything above was print-only until now. On success the monitor
             # thread writes the matching `end` row when the process exits; on a
             # failed spawn there will be no monitor, so this row is the whole story.
@@ -908,6 +954,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 )
         except Exception as e:
             print(f"[Scheduler Callback] Error launching browser: {e}")
+            _group_log_routine(group_ctxs, agent,
+                               f"schedule {profile_name} — launch failed",
+                               detail=str(e)[:400], ok=False)
             # A run that dies here would otherwise show as "running" forever,
             # since no browser was spawned and so no monitor will ever close it.
             if run_id:

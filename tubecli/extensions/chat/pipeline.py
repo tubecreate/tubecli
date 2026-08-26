@@ -298,16 +298,20 @@ async def run_turn(
                     meta["codex_task"] = task
                 # A skill ran — that is a unit of work the group worklog records.
                 _log_worklog(groups, agent_for_call, message, text, artifacts)
+                _log_group_activity(groups, agent_for_call, message, text)
                 return text, meta
             except asyncio.TimeoutError:
                 timed_out = f"⏱ Skill '{skill.get('name')}' chạy quá {SKILL_TIMEOUT_SEC}s và đã bị dừng."
                 _log_worklog(groups, agent_for_call, message, timed_out, artifacts, "error")
+                _log_group_activity(groups, agent_for_call, message, timed_out, ok=False)
                 return timed_out, meta
             except Exception as e:
                 logger.error(f"[Chat] Skill run failed: {e}", exc_info=True)
                 failed = f"❌ Lỗi khi chạy skill '{skill.get('name')}': {e}"
                 _log_worklog(groups, agent_for_call, message, failed, artifacts, "error")
+                _log_group_activity(groups, agent_for_call, message, failed, ok=False)
                 return failed, meta
+        _log_group_activity(groups, agent_for_call, message, reply)
         return reply, meta
 
     # Any other verb (codex_create_task, add_tracker, run_api, …) goes to the
@@ -321,6 +325,7 @@ async def run_turn(
             meta["codex_task"] = task
         # The dispatcher changed the text, so an action really ran.
         _log_worklog(groups, agent_for_call, message, text, artifacts)
+        _log_group_activity(groups, agent_for_call, message, text)
         return text, meta
 
     text, task = _extract_task_marker(_clean(reply))
@@ -336,6 +341,7 @@ async def run_turn(
             _log_worklog(groups, agent_for_call, message, text, artifacts)
     except Exception:
         pass
+    _log_group_activity(groups, agent_for_call, message, text)
     return text, meta
 
 
@@ -786,6 +792,36 @@ def _log_worklog(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any], task:
         )
     except Exception as e:
         logger.warning(f"[Chat] worklog skipped: {e}")
+
+
+def _log_group_activity(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any],
+                        message: str, reply_text: str, ok: bool = True) -> None:
+    """Một dòng "chat" trên bảng Nhật ký nhóm nổi bên cạnh canvas.
+
+    Khác _log_worklog ở trên: cái đó ghi vào SHEET nhật ký công việc của chủ và
+    chỉ cho những lượt thật sự làm ra việc. Bảng này chạy realtime, người xem
+    canvas cần thấy CẢ những lượt agent chỉ trả lời — im lặng suốt một lượt là
+    chính thứ khiến người ta tưởng agent chết.
+
+    Nhớ: dòng action (browser_open, gsheet_append…) do handle_extension_action
+    ghi riêng, nên một lượt có hành động sẽ có hai dòng — lời nhờ và việc làm.
+    """
+    if not groups:
+        return
+    try:
+        from tubecli.core import group_log
+
+        agent = agent_dict if isinstance(agent_dict, dict) else {}
+        answered_ok = ok and not str(reply_text or "").strip().startswith("❌")
+        for g in groups:
+            gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
+            if not gid:
+                continue
+            group_log.append(gid, agent.get("id", ""), agent.get("name", ""),
+                             kind="chat", title=str(message or "")[:120],
+                             detail=str(reply_text or ""), ok=answered_ok)
+    except Exception as e:
+        logger.warning(f"[Chat] group log skipped: {e}")
 
 
 # Handlers that queue a codex task append this marker so the chat can render
