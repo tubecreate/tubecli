@@ -1544,7 +1544,20 @@ async def stop_preview(request: Request):
                     capture_output=True, timeout=5
                 )
             else:
+                # SIGTERM rồi phải KIỂM lại. Ta vừa xoá phiên khỏi _preview_processes,
+                # nên nếu node không chết thì không còn ai theo dõi nó nữa, mà Chromium
+                # con của nó vẫn giữ user-data-dir của profile — lần mở sau chết vì
+                # SingletonLock và cổng preview thì bị chiếm tới lúc restart. Một
+                # preview_server cũ (máy vá nóng lệch phiên bản) bắt SIGTERM mà không
+                # thoát là đúng cảnh đó. Xin không được thì lấy bằng vũ lực.
                 proc.terminate()
+                try:
+                    await asyncio.to_thread(proc.wait, 3)
+                except Exception:
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
         except Exception:
             pass
         return {"status": "stopped"}

@@ -10,6 +10,7 @@ const ASSET_HASH = "250ef35b8f5ff703706a2a787ecf6d55"; // build asset hash
 
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
 const http = require('http');
 const minimist = require('minimist');
 // Optional. playwright-with-fingerprints is the BAS binding, and BAS ships Windows
@@ -120,6 +121,89 @@ function broadcastFrame(buffer) {
             fs.rmSync(tempDir, { recursive: true, force: true });
         } catch (e) {}
     }
+
+    // ── Cổng CDP của phiên live view ────────────────────────────────────────
+    // Playwright điều khiển Chromium qua pipe, nên nếu không ép cổng thì KHÔNG có
+    // CDP nào để script attach vào, và <profile>/DevToolsActivePort chỉ còn là rác
+    // của phiên cũ (đúng cái bẫy làm nút ▶ chạy script báo ECONNREFUSED).
+    const cdpFile = storageDir ? path.join(storageDir, 'preview_cdp.json') : '';
+    let cdpPort = 0;
+    // Dấu vết CỔNG của phiên trước phải chết cùng phiên đó. /preview/stop trên
+    // Windows là taskkill /F: handler thoát không chạy, nên preview_cdp.json (và
+    // DevToolsActivePort) ở lại, trỏ vào một cổng không còn của ai. Cổng ephemeral
+    // thì hệ điều hành cấp lại cho tiến trình sau, nên lần attach sau nối vào
+    // browser CỦA PROFILE KHÁC. Khung này đang mở lại chính profile này, nên mọi
+    // file cổng còn sót ở đây là rác.
+    if (storageDir) {
+        for (const stale of ['preview_cdp.json', 'DevToolsActivePort']) {
+            try {
+                const p = path.join(storageDir, stale);
+                if (fs.existsSync(p)) fs.unlinkSync(p);
+            } catch (e) {}
+        }
+    }
+    // Cổng Chromium THỰC SỰ mở, do chính nó ghi ra. Ép --remote-debugging-port=N
+    // chỉ là phỏng đoán: N lấy được lúc thăm dò rồi nhả ra ngay, tới lúc launch có
+    // thể đã bị tiến trình khác chiếm (hay gặp nhất: preview của profile khác khởi
+    // động cùng lúc). Khi đó /json/version vẫn trả 200 — của browser NGƯỜI KHÁC —
+    // và ta công bố cổng của họ dưới tên profile này. File này (bản cũ đã xoá ở
+    // trên) là lời của chính Chromium vừa mở, nên nó là trọng tài.
+    const boundCdpPort = () => {
+        if (!storageDir) return 0;
+        try {
+            const raw = fs.readFileSync(path.join(storageDir, 'DevToolsActivePort'), 'utf-8');
+            return parseInt(String(raw).split('\n')[0].trim(), 10) || 0;
+        } catch (e) { return 0; }
+    };
+    const freePort = () => new Promise((resolve, reject) => {
+        const srv = net.createServer();
+        srv.once('error', reject);
+        srv.listen(0, '127.0.0.1', () => {
+            const p = srv.address().port;
+            srv.close(() => resolve(p));
+        });
+    });
+    const cdpAlive = (port) => new Promise((resolve) => {
+        const req = http.get({ host: '127.0.0.1', port, path: '/json/version', timeout: 1500 },
+            (res) => { res.resume(); resolve(res.statusCode === 200); });
+        req.on('error', () => resolve(false));
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+    });
+    const publishCdp = async () => {
+        if (!cdpFile || !cdpPort) return;
+        for (let i = 0; i < 20; i++) {                 // Chromium mở cổng sau khi khởi động
+            const bound = boundCdpPort();
+            if (bound && bound !== cdpPort) {
+                log(`Cảnh báo: Chromium mở CDP ở cổng ${bound} chứ không phải ${cdpPort} — KHÔNG công bố (cổng kia có thể là của profile khác).`);
+                return;
+            }
+            if (await cdpAlive(cdpPort)) {
+                try {
+                    fs.writeFileSync(cdpFile, JSON.stringify({
+                        cdp_port: cdpPort, preview_port: port, pid: process.pid,
+                        profile: profileName, started_at: new Date().toISOString(),
+                    }), 'utf-8');
+                    log(`CDP sẵn sàng ở cổng ${cdpPort} (đã ghi preview_cdp.json)`);
+                } catch (e) { log('Không ghi được preview_cdp.json: ' + e.message); }
+                return;
+            }
+            await new Promise((r) => setTimeout(r, 250));
+        }
+        log(`Cảnh báo: cổng CDP ${cdpPort} không phản hồi — script sẽ không attach được.`);
+    };
+    const unpublishCdp = () => {
+        // File còn lại sau khi phiên chết = lần attach sau nối vào cổng ma. Xoá ngay.
+        try { if (cdpFile && fs.existsSync(cdpFile)) fs.unlinkSync(cdpFile); } catch (e) {}
+    };
+    // 'exit' chỉ dọn file. Còn SIGINT/SIGTERM: hễ đăng ký listener là Node BỎ hành
+    // vi mặc định "nhận tín hiệu thì thoát", nên nếu chỉ dọn file thì tiến trình
+    // sống tiếp. Trên Linux/macOS mọi đường dừng preview đều là proc.terminate()
+    // (SIGTERM) — /preview/stop, /stop, dọn khi khởi động quá hạn — nên khung đóng
+    // xong mà node và Chromium của nó vẫn giữ user-data-dir của profile, lần mở sau
+    // chết vì SingletonLock. Windows không lộ ra vì taskkill /F không gửi tín hiệu.
+    process.on('exit', unpublishCdp);
+    process.once('SIGINT', () => { unpublishCdp(); process.exit(130); });
+    process.once('SIGTERM', () => { unpublishCdp(); process.exit(143); });
 
     log('Launching preview browser using BrowserManager...');
     if (plugin) plugin.setWorkingFolder(path.join(__dirname, 'data'));
@@ -353,7 +437,18 @@ function broadcastFrame(buffer) {
 
         if (req.url === '/status') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ status: isBrowserReady ? 'running' : 'initializing', profile: profileName }));
+            // active_tab: tab ĐANG ĐƯỢC STREAM. Script attach mặc định chạy trên tab
+            // "đang hoạt động" của CDP — thường KHÔNG phải tab người dùng đang nhìn,
+            // nên nó chạy ở nơi không ai thấy. Ai muốn "trực quan" thì hỏi chỗ này.
+            // KHÔNG kèm cổng CDP ở đây: endpoint này trả Access-Control-Allow-Origin:*
+            // và không ai cần cổng đó qua HTTP (script_runner đọc preview_cdp.json,
+            // phía nhóm hỏi routes.py) — phát ra chỉ là chỉ đường tới cả cái browser.
+            let activeTab = -1;
+            try { activeTab = context ? context.pages().indexOf(page) : -1; } catch (e) {}
+            let activeUrl = '';
+            try { activeUrl = page ? page.url() : ''; } catch (e) {}
+            res.end(JSON.stringify({ status: isBrowserReady ? 'running' : 'initializing',
+                profile: profileName, active_tab: activeTab, active_url: activeUrl }));
             return;
         }
 
@@ -614,6 +709,10 @@ function broadcastFrame(buffer) {
             }
 
             try {
+                if (!cdpPort) {
+                    try { cdpPort = await freePort(); } catch (e) { log('Không lấy được cổng CDP trống: ' + e.message); }
+                }
+                if (cdpPort) launchArgs.push(`--remote-debugging-port=${cdpPort}`);
                 context = await browserManager.launch(profileName, {
                     headless: true,
                     fingerprint,
@@ -621,9 +720,16 @@ function broadcastFrame(buffer) {
                 });
                 success = true;
                 log(`Launch successful on attempt ${attempt}`);
+                publishCdp();                       // không await: khung phải stream ngay
             } catch (e) {
                 lastError = e;
                 log(`Launch attempt ${attempt} failed: ${e.message}`);
+                // Cổng đã ghim có thể chính là lý do hỏng: Chromium không bind được
+                // thì không in dòng "DevTools listening on ...", mà Playwright chờ
+                // đúng dòng đó khi args có --remote-debugging-port — launch treo tới
+                // hết hạn. Giữ nguyên số cũ là ba lần thử cùng một cổng chết, và
+                // khung live view không bao giờ mở. Lấy cổng khác.
+                cdpPort = 0;
                 
                 // Clear fingerprint on fatal fingerprint error or incorrect format
                 if (e.message === 'FINGERPRINT_FATAL_ERROR' || e.message.toLowerCase().includes('fingerprint') || e.message.toLowerCase().includes('incorrect format')) {

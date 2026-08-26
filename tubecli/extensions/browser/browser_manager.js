@@ -1627,9 +1627,22 @@ export class BrowserManager {
             '--disable-blink-features=AutomationControlled',
             '--proxy-bypass-list=localhost,127.0.0.1,::1',
             '--remote-debugging-port=0',
-            '--remote-allow-origins=*',
+            // KHÔNG có '--remote-allow-origins=*'. Cờ đó tắt lượt kiểm Origin trên
+            // bắt tay WebSocket của DevTools — đúng thứ Chrome thêm vào để một trang
+            // web không lái được cổng debug mà nó với tới. Trước thì cổng chỉ mở vài
+            // giây cho một lượt chạy script; giờ khung live view giữ nó mở suốt phiên,
+            // và sau cổng ấy là toàn bộ cookie + mọi tab đã đăng nhập. Người dùng duy
+            // nhất là connectOverCDP của runner (chạy trong Node, không gửi Origin
+            // nào — đã đối chiếu playwright-core), nên bỏ cờ này không mất gì.
             ...args
-        ];
+        ]
+            // Người gọi (preview server) có thể chỉ định cổng CDP cố định để công bố
+            // cho runner attach. Chromium lấy lần xuất hiện SAU của cùng một switch,
+            // nhưng để hai cái cùng tên trong dòng lệnh là mời gọi hiểu nhầm — bỏ
+            // mặc định '=0' đi khi người gọi đã tự chọn.
+            .filter((a, i, all) => !(a === '--remote-debugging-port=0'
+                && all.some((b, j) => j !== i && b.startsWith('--remote-debugging-port=')
+                    && b !== '--remote-debugging-port=0')));
 
         if (shardxFpFile) {
             try {

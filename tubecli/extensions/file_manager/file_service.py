@@ -35,7 +35,19 @@ BLOCKED_PATHS = [
 # note the prompt presents as the owner's instructions — so in enforced
 # mode the subtree does not exist. The human UI (enforce_roots=False) is
 # not affected: the owner may inspect their own manifests.
-AI_PROTECTED_DATA_SUBDIRS = ["groups"]
+#
+# extensions_data/browser/browser_profiles is the same story one floor down.
+# A profile folder is the browser's user-data-dir: its config.json holds the
+# saved account (email, password, recovery address, 2FA codes), its Cookies
+# database holds the live sessions, and preview_cdp.json publishes the CDP
+# port of the live view — the address of a browser already logged into those
+# accounts. An agent that can read that folder does not need to run a script
+# to take an account, and one that can write preview_cdp.json can point its
+# own group's attach at ANOTHER group's browser. Nothing AI-facing writes
+# there: profiles are managed by the browser extension, and script downloads
+# go to their own output_dir.
+AI_PROTECTED_DATA_SUBDIRS = ["groups",
+                             os.path.join("extensions_data", "browser", "browser_profiles")]
 
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 

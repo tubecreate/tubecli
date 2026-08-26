@@ -479,6 +479,12 @@ browser_process_manager = BrowserProcessManager()
 
 _CHROME_LOCKS = ("SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile")
 
+# Dấu vết CỔNG CDP của phiên đã chết. Không phải khoá của Chrome, nhưng cùng một
+# kiểu rác và nguy hiểm hơn: cổng ephemeral được hệ điều hành cấp lại, nên một
+# preview_cdp.json mồ côi trỏ script attach vào browser của profile KHÁC (đúng
+# tài khoản khác). Đã dọn profile thì dọn cả nó.
+_STALE_CDP_FILES = ("preview_cdp.json", "DevToolsActivePort")
+
 
 def _profile_dir(profile_name: str) -> str:
     from .profile_manager import PROFILES_DIR
@@ -574,7 +580,7 @@ def force_kill_profile(profile_name: str, wait: float = 3.0) -> dict:
             psutil.wait_procs(alive, timeout=1.5)
 
     # Chrome bị giết cứng để lại khoá; lần mở sau nó thấy khoá là từ chối chạy.
-    for lock in _CHROME_LOCKS:
+    for lock in _CHROME_LOCKS + _STALE_CDP_FILES:
         for path in (os.path.join(prof_dir, lock), os.path.join(prof_dir, "Default", lock)):
             try:
                 if os.path.lexists(path):

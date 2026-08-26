@@ -143,6 +143,16 @@ class RunRequest(BaseModel):
     engine: str = "playwright"  # "playwright" or "bablosoft" (Security Browser)
     attach: bool = False  # True: chạy trên browser live đang mở (khung Browser) qua CDP
     tab_index: int = -1  # index tab đang xem (context.pages()) — chạy đúng tab đó
+    # URL của tab đang được chiếu. Chỉ số tab không so được giữa preview server và
+    # runner attach (hai danh sách pages() khác nhau), URL thì so được — nên đây là
+    # cách ghim đáng tin, tab_index chỉ còn là dự phòng.
+    tab_url: str = ""
+    # Có nhét email/mật khẩu/2FA đã lưu của profile vào biến chạy không. Mặc định
+    # có, vì nút Chạy của giao diện là người chủ tự bấm trên máy mình. Lượt chạy do
+    # AGENT khởi động đặt False: runner ghi cả giỏ biến ra result_<exec_id>.json và
+    # phía nhóm in giỏ đó vào câu trả lời, nên bơm bí mật vào đây là đọc mật khẩu
+    # thật lên chat. Đường agent cũ (run_script_sync) chưa bao giờ bơm gì cả.
+    inject_credentials: bool = True
 
 
 # ── Script CRUD ──
@@ -384,6 +394,46 @@ _running_processes = {}
 _running_logs = {}  # exec_id -> list of log lines (real-time)
 _attach_running = {}  # profile -> exec_id: chỉ 1 phiên attach mỗi profile (tránh 2 runner cùng điều khiển 1 browser live)
 
+
+class _Reservation:
+    """Chỗ giữ profile trong _running_processes: poll() là thứ duy nhất dict đó bị hỏi.
+
+    Giữa lượt KIỂM khoá và lượt GHI exec_id thật có `await` (đọc profile trong
+    thread). Hai lượt chạy vào cùng một nhịp event loop vì thế đều thấy profile
+    rảnh, cùng khởi động runner và cùng connectOverCDP vào một browser live — hai
+    con trỏ đan nhau trên cùng một tab, rồi lượt sau trả khoá trong khi lượt trước
+    vẫn đang gõ. Đặt chỗ NGAY tại chỗ kiểm biến "kiểm rồi ghi" thành một bước.
+
+    Có hạn dùng, như mọi khoá khác ở đây: một ngoại lệ giữa lúc giữ chỗ và lúc
+    chạy thật không được phép khoá profile tới lần restart sau.
+    """
+
+    def __init__(self, seconds: float = 120.0):
+        self.key = f"reserve:{time.time():.6f}"
+        self.deadline = time.time() + seconds
+
+    def poll(self):
+        return None if time.time() < self.deadline else 0
+
+
+def _sweep_run_tmp(tmp_dir: str, hours: float = 6.0) -> None:
+    """Dọn exec_*/result_* của những lượt chạy đã xong từ lâu.
+
+    run_bg chỉ xoá exec_<id>.json, và chỉ khi tiến trình kết thúc bình thường;
+    result_<id>.json thì không ai xoá trên đường /run. Thư mục này vì thế phình
+    mãi — và tệ hơn: id execution là AUTOINCREMENT, cài lại DB là id quay về 1, nên
+    một file cũ trùng tên sẽ được đọc như kết quả của lượt chạy mới.
+    """
+    import glob as _glob
+    cutoff = time.time() - max(0.0, hours) * 3600
+    for pattern in ("exec_*.json", "result_*.json"):
+        for path in _glob.glob(os.path.join(tmp_dir, pattern)):
+            try:
+                if os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+            except OSError:
+                pass
+
 @router.post("/{script_id}/run")
 async def run_script(script_id: str, req: RunRequest):
     script = _store().get_script(script_id)
@@ -395,14 +445,21 @@ async def run_script(script_id: str, req: RunRequest):
     # trên chính user-data-dir ấy nên cái thứ hai chết vì khoá profile. Nút
     # "Chạy thử" của node Script và lượt chạy của agent (group script_run) dùng chung
     # khoá này nên thấy nhau. Dọn khoá cũ nếu tiến trình đã chết.
+    reserved = None
     if req.profile:
         prev = _attach_running.get(req.profile)
         if prev and prev in _running_processes and _running_processes[prev].poll() is None:
             raise HTTPException(409, f"Đang có script chạy trên browser '{req.profile}'. Chờ nó xong rồi thử lại.")
-        _attach_running.pop(req.profile, None)
+        # Khoá cũ đã chết (hoặc chỗ giữ đã hết hạn): dọn luôn để dict đừng phình.
+        if prev is not None:
+            _running_processes.pop(prev, None)
+        # Giữ chỗ trước lần `await` đầu tiên — xem _Reservation.
+        reserved = _Reservation()
+        _running_processes[reserved.key] = reserved
+        _attach_running[req.profile] = reserved.key
 
     # Auto-inject profile account credentials if a profile is specified
-    if req.profile:
+    if req.profile and req.inject_credentials:
         import asyncio
         from tubecli.extensions.browser.profile_manager import get_profile
         profile_data = await asyncio.to_thread(get_profile, req.profile)
@@ -433,6 +490,7 @@ async def run_script(script_id: str, req: RunRequest):
     # Write temp script file for runner
     tmp_dir = os.path.join(ext_dir, "runner", "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
+    _sweep_run_tmp(tmp_dir)
     tmp_file = os.path.join(tmp_dir, f"exec_{exec_id}.json")
     with open(tmp_file, "w", encoding="utf-8") as f:
         json.dump({
@@ -443,6 +501,9 @@ async def run_script(script_id: str, req: RunRequest):
             "engine": req.engine,
             "attach": req.attach,
             "tab_index": req.tab_index,
+            "tab_url": req.tab_url,
+            # Chạy từ giao diện: có người đang xem, giữ cửa sổ lại để soi.
+            "keep_open": (not req.headless) and (not req.attach),
             "exec_id": exec_id,
             "profiles_dir": _get_profiles_dir(),
             "scripts_dir": os.path.join(ext_dir, "scripts"),
@@ -451,8 +512,11 @@ async def run_script(script_id: str, req: RunRequest):
     _running_logs[exec_id] = []
     if req.profile:
         # Giữ khoá cho MỌI lượt chạy có profile (xem chỗ 409 ở trên);
-        # khối finally của run_bg trả lại khoá này.
+        # khối finally của run_bg trả lại khoá này. Chỗ giữ tạm nhường chỗ cho
+        # exec_id thật ở đây.
         _attach_running[req.profile] = exec_id
+    if reserved is not None:
+        _running_processes.pop(reserved.key, None)
 
     def run_bg():
         try:
@@ -563,6 +627,7 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
 
     tmp_dir = os.path.join(ext_dir, "runner", "tmp")
     os.makedirs(tmp_dir, exist_ok=True)
+    _sweep_run_tmp(tmp_dir)
     tmp_file = os.path.join(tmp_dir, f"exec_{exec_id}.json")
     result_file = os.path.join(tmp_dir, f"result_{exec_id}.json")
 
@@ -573,6 +638,10 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
             "profile": profile,
             "headless": headless,
             "engine": "playwright",
+            # Lời gọi đồng bộ: không ai ngồi xem cửa sổ, mà người gọi thì đang chờ
+            # kết quả. Giữ browser mở ở đây = tiến trình không thoát = timeout cho
+            # một lượt chạy đã xong.
+            "keep_open": False,
             "exec_id": exec_id,
             "profiles_dir": _get_profiles_dir(),
             "scripts_dir": os.path.join(ext_dir, "scripts"),

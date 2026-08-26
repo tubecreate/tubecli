@@ -20,7 +20,10 @@ if (!execFile || !fs.existsSync(execFile)) {
 }
 
 const execData = JSON.parse(fs.readFileSync(execFile, 'utf-8'));
-const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id, attach = false, tab_index = -1 } = execData;
+const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id, attach = false, tab_index = -1, tab_url = '' } = execData;
+// Giu cua so lai sau khi xong? Mac dinh theo nep cu (chay co giao dien thi giu),
+// nhung nguoi goi noi ro duoc: run_script_sync dat false vi no dang bi chan cho.
+const keepOpen = execData.keep_open === undefined ? !headless : !!execData.keep_open;
 const steps = script.steps || [];
 
 function log(msg) { console.log(JSON.stringify({ status: 'log', exec_id, message: msg, time: new Date().toISOString() })); }
@@ -445,6 +448,86 @@ async function executeStep(page, step, index) {
             // ── Page State Check after click (wait for potential navigation) ──
             await sleep(1500); // Give page time to start navigating
             await checkPageState(page, index, type);
+            break;
+        }
+        case 'upload': {
+            // Nạp file vào <input type=file> — kể cả input BỊ ẨN (YouTube Studio,
+            // Facebook: nút thật là div, input nằm sau nó). Vì vậy chờ 'attached'
+            // chứ không chờ 'visible', và không click gì cả: click sẽ mở hộp thoại
+            // chọn file của hệ điều hành, thứ Playwright không với tới được.
+            const filePath = interpolate(params.file || params.path || params.text || '');
+            if (!filePath) throw new Error('upload: thiếu đường dẫn file (params.file)');
+            const upSel = selector || "input[type='file']";
+            const inp = page.locator(upSel).first();
+            await inp.waitFor({ state: 'attached', timeout }).catch(() => {});
+            await inp.setInputFiles(filePath);
+            stepLog(index, type, `Đã nạp file lên input: ${filePath}`);
+            await sleep(1500);
+            break;
+        }
+        case 'click_if_exists': {
+            // Bấm nếu có, không có thì đi tiếp — KHÔNG phải lỗi. Hộp thoại "Đồng ý",
+            // "Bỏ qua", banner cookie chỉ hiện tuỳ phiên; ép chúng thành bước bắt
+            // buộc là kịch bản gãy ngẫu nhiên. Nhiều selector ngăn bằng dấu phẩy,
+            // bấm cái đầu tiên đang hiện.
+            // params.selectors (mảng) là cách nói rõ ràng. Chuỗi thì vẫn tách theo dấu
+            // phẩy như trước, nhưng CHỈ dấu phẩy ngoài cùng: [aria-label="Đồng ý, tiếp
+            // tục"], :has-text("a,b") hay :is(a, b) mà bị cắt đôi thì mảnh nào cũng ném
+            // lỗi, catch rỗng nuốt mất, và bước này báo "không thấy phần tử nào" trong
+            // khi hộp thoại đang chình ình trên màn hình. Nhãn nút tiếng Việt có dấu
+            // phẩy là chuyện hằng ngày ở đây.
+            const splitSelectors = (s) => {
+                const out = []; let buf = '', depth = 0, quote = '';
+                for (const ch of String(s || '')) {
+                    if (quote) { buf += ch; if (ch === quote) quote = ''; continue; }
+                    if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+                    if (ch === '(' || ch === '[') depth++;
+                    if (ch === ')' || ch === ']') depth--;
+                    if (ch === ',' && depth <= 0) { out.push(buf); buf = ''; continue; }
+                    buf += ch;
+                }
+                out.push(buf);
+                return out.map((x) => x.trim()).filter(Boolean);
+            };
+            const list = Array.isArray(params.selectors)
+                ? params.selectors.map((x) => String(x).trim()).filter(Boolean)
+                : splitSelectors(selector);
+            let clicked = false;
+            for (const sel of list) {
+                try {
+                    const loc = page.locator(sel).first();
+                    // isVisible() KHÔNG chờ: Playwright ghi rõ tuỳ chọn timeout của nó
+                    // bị bỏ qua ("does not wait ... returns immediately"). Mà banner
+                    // cookie / hộp "Đồng ý" đúng là thứ hiện sau khi trang tải xong một
+                    // nhịp — hỏi một phát rồi đi tiếp là bỏ sót đúng cái bước này sinh
+                    // ra để bấm, rồi cả kịch bản chạy sau một lớp modal.
+                    const visible = await loc.waitFor({ state: 'visible', timeout: params.timeout || 2000 })
+                        .then(() => true).catch(() => false);
+                    if (!visible) continue;
+                    const box = await loc.boundingBox();
+                    if (box) {
+                        await humanMove(page, box.x + box.width * 0.5, box.y + box.height * 0.5);
+                        await sleep(randBetween(100, 250));
+                    }
+                    await loc.click({ timeout: 3000 });
+                    stepLog(index, type, `Clicked (if exists): ${sel}`);
+                    clicked = true;
+                    await sleep(1500);
+                    await checkPageState(page, index, type);
+                    break;
+                } catch (e) { /* selector này không dùng được — thử cái kế */ }
+            }
+            if (!clicked) stepLog(index, type, 'click_if_exists: không thấy phần tử nào — bỏ qua');
+            break;
+        }
+        case 'fill': {
+            // fill() của Playwright: focus + xoá + đặt giá trị một lần + bắn
+            // input/change. Ô ngày/giờ (YouTube lên lịch) không nhận được chuỗi gõ
+            // từng phím, nhưng nhận fill.
+            const fillText = interpolate(params.text || '');
+            const floc = await resolveVisibleLocator(page, selector, timeout);
+            await floc.fill(fillText, { timeout });
+            stepLog(index, type, `Filled ${fillText.length} chars into ${selector}`);
             break;
         }
         case 'type': {
@@ -1718,11 +1801,58 @@ function resolveShardxExe(browserVersion) {
         // không gắn được thì BÁO LỖI RỒI THOÁT — KHÔNG rơi xuống nhánh launch, vì
         // kill-block đã bị bỏ qua nên launch mới sẽ đụng SingletonLock của session live.
         try {
-            const dtap = path.join(storageDir || '', 'DevToolsActivePort');
-            if (!storageDir || !fs.existsSync(dtap)) {
-                throw new Error('Không thấy DevToolsActivePort — hãy mở khung Browser (đúng profile) trước khi chạy script.');
+            // preview_cdp.json là thứ khung Browser ĐANG CHẠY công bố; DevToolsActivePort
+            // chỉ là dự phòng cho browser mở bằng đường khác. Cả hai đều có thể là rác
+            // của phiên đã chết, nên cổng nào cũng phải thử trước khi tin.
+            const alive = (port) => new Promise((resolve) => {
+                const req = require('http').get(
+                    { host: '127.0.0.1', port, path: '/json/version', timeout: 1500 },
+                    (res) => { res.resume(); resolve(res.statusCode === 200); });
+                req.on('error', () => resolve(false));
+                req.on('timeout', () => { req.destroy(); resolve(false); });
+            });
+            const candidates = [];
+            const cdpFile = path.join(storageDir || '', 'preview_cdp.json');
+            if (storageDir && fs.existsSync(cdpFile)) {
+                try {
+                    const info = JSON.parse(fs.readFileSync(cdpFile, 'utf-8')) || {};
+                    // "File bảo cổng X" chưa bao giờ là bằng chứng X thuộc profile
+                    // này. Bắt nó tự khai chủ: đúng tên profile, và pid ghi trong đó
+                    // phải là tiến trình CÒN SỐNG. Cổng ephemeral bị hệ điều hành cấp
+                    // lại liên tục, nên một file mồ côi (taskkill /F không cho handler
+                    // thoát chạy) trỏ thẳng sang browser của profile khác — script gõ
+                    // phím vào tài khoản người khác mà log không hề nói gì.
+                    const owner = String(info.profile || '');
+                    const ownerPid = parseInt(info.pid, 10) || 0;
+                    let ownerAlive = false;
+                    if (ownerPid) {
+                        try { process.kill(ownerPid, 0); ownerAlive = true; }
+                        catch (e) { ownerAlive = !!(e && e.code === 'EPERM'); }
+                    }
+                    if (owner && profile && owner !== profile) {
+                        log(`Bỏ qua preview_cdp.json: file ghi profile "${owner}", lượt chạy này là "${profile}".`);
+                    } else if (ownerPid && !ownerAlive) {
+                        log(`Bỏ qua preview_cdp.json: khung Browser (pid ${ownerPid}) không còn chạy.`);
+                    } else if (info.cdp_port) {
+                        candidates.push(String(info.cdp_port));
+                    }
+                } catch (e) {}
             }
-            const cdpPort = fs.readFileSync(dtap, 'utf-8').split('\n')[0].trim();
+            const dtap = path.join(storageDir || '', 'DevToolsActivePort');
+            if (storageDir && fs.existsSync(dtap)) {
+                const p = fs.readFileSync(dtap, 'utf-8').split('\n')[0].trim();
+                if (p && !candidates.includes(p)) candidates.push(p);
+            }
+            if (!candidates.length) {
+                throw new Error('Khung Browser của profile này chưa mở (không có preview_cdp.json) — mở live view rồi chạy lại.');
+            }
+            let cdpPort = '';
+            for (const p of candidates) {
+                if (await alive(p)) { cdpPort = p; break; }
+            }
+            if (!cdpPort) {
+                throw new Error(`Cổng CDP ${candidates.join(', ')} không phản hồi — khung Browser đã đóng hoặc là dấu vết của phiên cũ. Mở lại live view rồi chạy lại.`);
+            }
             log(`Attach: kết nối browser live qua CDP cổng ${cdpPort}...`);
             const b = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
             context = b.contexts()[0] || (await b.newContext());
@@ -2031,9 +2161,38 @@ function resolveShardxExe(browserVersion) {
     let page;
     if (attached) {
       const ps = context.pages();
-      page = (tab_index >= 0 && ps[tab_index]) || ps[ps.length - 1] || await context.newPage();
+      // Ưu tiên URL: khung Browser gửi URL của tab nó đang chiếu, và cùng một tab
+      // thì URL giống nhau ở cả hai phía — chỉ số thì không.
+      // So URL phải CHỊU ĐƯỢC thay đổi giữa lúc hỏi và lúc nối: trang tự chuyển
+      // hướng (google.com/ncr -> google.com/), tự thêm tham số. Khớp nguyên văn
+      // trước, rồi tới host+đường dẫn, cuối cùng chỉ host — và chỉ khi host ấy có
+      // đúng MỘT tab (xem bên dưới).
+      const norm = (u) => { try { const x = new URL(u); return { full: x.href, hp: x.host + x.pathname.replace(/\/$/, ''), host: x.host }; } catch (e) { return null; } };
+      const want = tab_url ? norm(tab_url) : null;
+      const atIdx = (tab_index >= 0 && ps[tab_index]) || null;
+      let byUrl = null;
+      if (want) {
+        const seen = ps.map((p) => { let u = ''; try { u = p.url(); } catch (e) {} return { p, n: norm(u) }; });
+        const nAt = atIdx ? (seen[tab_index] || {}).n : null;
+        if (nAt && (nAt.full === want.full || nAt.hp === want.hp)) {
+          // Chỉ số và URL cùng chỉ về một tab: dùng luôn tab đó. Vứt chỉ số đi trong
+          // trường hợp này là tự bốc nhầm khi hai tab mở CÙNG một trang (chuyện
+          // thường), vì find() luôn trả cái đứng trước.
+          byUrl = atIdx;
+        } else {
+          // Chỉ còn host là lưới quá thưa: URL không có host (about:blank, file://,
+          // data:) cho host === '' nên khớp với BẤT KỲ trang không host nào khác, và
+          // một host mở hai tab thì "cái đầu tiên" chưa chắc là tab đang chiếu. Chỉ
+          // nhận khi đúng một tab thuộc host đó; còn lại nhường cho chỉ số.
+          const hostHits = want.host ? seen.filter((x) => x.n && x.n.host === want.host) : [];
+          byUrl = (seen.find((x) => x.n && x.n.full === want.full)
+                || seen.find((x) => x.n && x.n.hp === want.hp)
+                || (hostHits.length === 1 ? hostHits[0] : null) || {}).p || null;
+        }
+      }
+      page = byUrl || atIdx || ps[ps.length - 1] || await context.newPage();
       const idx = ps.indexOf(page);
-      log(`Attach: chạy trên tab #${idx >= 0 ? idx : '?'} — ${(() => { try { return page.url(); } catch (e) { return ''; } })()}`);
+      log(`Attach: chạy trên tab #${idx >= 0 ? idx : '?'}${byUrl ? ' (khớp URL khung đang chiếu)' : ''} — ${(() => { try { return page.url(); } catch (e) { return ''; } })()}`);
     } else {
       page = context.pages()[0] || await context.newPage();
     }
@@ -2269,7 +2428,7 @@ function resolveShardxExe(browserVersion) {
         status: 'done', exec_id, success, stopped,
         preview_port: previewPort,
         preview_ws: true,
-        message: stopped ? 'Đã dừng.' : (success ? (headless ? 'Completed!' : 'Completed! Browser kept open for preview.') : (headless ? 'Failed.' : 'Failed. Browser kept open for inspection.'))
+        message: stopped ? 'Đã dừng.' : (success ? ((headless || !keepOpen) ? 'Completed!' : 'Completed! Browser kept open for preview.') : ((headless || !keepOpen) ? 'Failed.' : 'Failed. Browser kept open for inspection.'))
     }));
 
     // Attach: KHÔNG đóng browser live (của khung Browser) — chỉ ngắt kết nối CDP
@@ -2282,7 +2441,7 @@ function resolveShardxExe(browserVersion) {
         process.exit(success ? 0 : 1);
     }
 
-    if (headless) {
+    if (headless || !keepOpen) {
         try { if (cdp) cdp.send('Page.stopScreencast').catch(() => {}); httpServer.close(); await context.close(); } catch (e) {}
         process.exit(success ? 0 : 1);
     }

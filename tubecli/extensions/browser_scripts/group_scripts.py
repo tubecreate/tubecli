@@ -36,6 +36,7 @@ import logging
 import os
 import re
 import sys
+import threading
 import time
 
 logger = logging.getLogger("ScriptStudio.Groups")
@@ -713,6 +714,319 @@ class _LiveRun:
         return None
 
 
+CDP_WAIT = 30              # giây chờ khung Browser lên xong trước khi attach
+
+# Những khoá script_routes tự bơm từ tài khoản đã lưu của profile (mật khẩu, email
+# khôi phục, mã 2FA). Runner ghi CẢ giỏ biến — kể cả biến vào — ra
+# result_<exec_id>.json, còn handler thì in giỏ đó thẳng vào câu trả lời chat, nên
+# một khoá thừa ở đây là một mật khẩu thật nằm trong ngữ cảnh của model.
+CREDENTIAL_SERVICES = ("google", "facebook", "tiktok", "x", "discord", "telegram")
+CREDENTIAL_KEYS = frozenset(f"{svc}_{part}" for svc in CREDENTIAL_SERVICES
+                            for part in ("email", "password", "recovery", "2fa"))
+
+
+def preview_pid_of(profile: str):
+    """PID tiến trình preview mà routes.py ĐÃ tự khởi động cho profile này (hoặc None).
+
+    Đây là nguồn tin KHÔNG nằm trên đĩa. preview_cdp.json nằm dưới data/ — file_action
+    của AI đã bị chặn khỏi thư mục profile (file_service.AI_PROTECTED_DATA_SUBDIRS),
+    nhưng một file mồ côi sau taskkill /F thì vẫn còn đó — nên "file nói cổng X" chưa
+    bao giờ là bằng chứng cổng X thuộc về profile này.
+    """
+    try:
+        from tubecli.extensions.browser.routes import _preview_processes
+    except Exception:
+        return None
+    for info in list(_preview_processes.values()):
+        proc = info.get("proc")
+        if proc is None or proc.poll() is not None:
+            continue
+        if str(info.get("profile")) == str(profile or ""):
+            return getattr(proc, "pid", None)
+    return None
+
+
+def _same_preview_process(filed_pid: int, live_pid: int) -> bool:
+    """pid trong preview_cdp.json có phải chính tiến trình preview routes.py mở không.
+
+    Thường là bằng nhau. Không bằng thì vẫn có một trường hợp thật: `node` được
+    gọi qua shim (Chocolatey, scoop) nên pid routes.py cầm là shim, còn pid tự
+    khai là node con của nó. Chấp nhận đúng quan hệ cha–con ấy, ngoài ra thì không.
+    """
+    if not filed_pid:
+        return False
+    if filed_pid == live_pid:
+        return True
+    try:
+        import psutil
+        return any(parent.pid == live_pid for parent in psutil.Process(filed_pid).parents())
+    except Exception:
+        return False
+
+
+def cdp_port_of(profile: str):
+    """Cổng CDP mà khung Browser CỦA PROFILE NÀY đang công bố, hoặc None.
+
+    preview_server ghi <profile>/preview_cdp.json khi cổng đã trả lời, và xoá lúc
+    thoát — nhưng tiến trình bị giết cứng thì file ở lại, nên bản thân file không
+    chứng minh được gì. Ba lần kiểm, mỗi lần chặn một cách hỏng có thật:
+      * `profile` trong file phải đúng profile đang hỏi — ai ghi được vào đó cũng
+        đặt được cổng của người khác vào;
+      * `pid` phải là pid preview routes.py đang giữ cho profile này — cổng
+        ephemeral bị hệ điều hành cấp lại, nên một file cũ trỏ sang browser của
+        profile KHÁC là chuyện thường, và attach nhầm = điều khiển tài khoản khác;
+      * cổng phải trả lời /json/version — bắt tay TCP suông thì tiến trình nào
+        đang chiếm cổng cũng qua, kể cả thứ không phải Chromium.
+    """
+    import json as _json
+    import urllib.request as _u
+    try:
+        from tubecli.extensions.browser.profile_manager import PROFILES_DIR
+    except Exception:
+        return None
+    path = os.path.join(str(PROFILES_DIR), str(profile or ""), "preview_cdp.json")
+    try:
+        if not os.path.isfile(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        port = int(data.get("cdp_port") or 0)
+    except Exception:
+        return None
+    if not port:
+        return None
+    owner = _str(data.get("profile"), 200)
+    if owner and owner != str(profile or ""):
+        logger.warning(f"[script] preview_cdp.json of '{profile}' names profile "
+                       f"'{owner}' — ignored")
+        return None
+    live_pid = preview_pid_of(profile)
+    try:
+        filed_pid = int(data.get("pid") or 0)
+    except Exception:
+        filed_pid = 0
+    if live_pid is not None and not _same_preview_process(filed_pid, live_pid):
+        logger.warning(f"[script] preview_cdp.json of '{profile}' names pid {filed_pid}, "
+                       f"but its live view runs as pid {live_pid} — ignored")
+        return None
+    try:
+        with _u.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=1.5) as r:
+            if int(getattr(r, "status", 0) or r.getcode()) != 200:
+                return None
+    except Exception:
+        return None
+    return port
+
+
+def streamed_tab(profile: str):
+    """(chỉ số, URL) của tab khung Browser đang chiếu — (None, "") nếu không hỏi được."""
+    port = preview_port_for(profile)
+    if not port:
+        return (None, "")
+    try:
+        import json as _json
+        import urllib.request as _u
+        with _u.urlopen(f"http://127.0.0.1:{int(port)}/status", timeout=3) as r:
+            data = _json.loads(r.read().decode("utf-8", "replace"))
+        idx = data.get("active_tab")
+        return ((int(idx) if isinstance(idx, int) and idx >= 0 else None),
+                _str(data.get("active_url"), 2000))
+    except Exception as e:
+        logger.debug(f"[script] cannot read the streamed tab of '{profile}': {e}")
+        return (None, "")
+
+
+async def wait_cdp_ready(profile: str, seconds: int = CDP_WAIT):
+    """Chờ tới khi khung Browser công bố một cổng CDP CÒN SỐNG."""
+    deadline = time.time() + max(0, seconds)
+    while True:
+        port = await asyncio.to_thread(cdp_port_of, profile)
+        if port:
+            return port
+        if time.time() >= deadline:
+            return None
+        await asyncio.sleep(0.5)
+
+
+class AttachResult(dict):
+    """Cùng hình dạng RunResult của script_routes: biến ra + .success/.log/.exec_id.
+    Handler đọc `.success` để không báo ✅ cho một lượt chạy hỏng."""
+
+    def __init__(self, variables=None, success=True, log="", exec_id=None):
+        super().__init__(variables if isinstance(variables, dict) else {})
+        self.success, self.log, self.exec_id = bool(success), log or "", exec_id
+
+
+def verdict_from_log(log: str, exec_id) -> bool:
+    """Lượt chạy attach có thành công không, theo DÒNG KẾT THÚC runner tự in ra.
+
+    Không được dò chuỗi '"success":true' trong cả log: log chép nguyên văn thứ
+    trang web trả về (bước evaluate/extract in ra 200 ký tự kết quả), nên chỉ cần
+    một API trả {"success": true} là một lượt chạy hỏng được báo ✅ — đúng cái
+    "agent báo đã upload trong khi chưa" mà chỗ kiểm success sinh ra để chặn.
+    Chỉ dòng {"status":"done", …} của chính runner mới là lời của runner; không
+    có dòng nào thì kết quả là KHÔNG BIẾT, và không biết thì không phải thành công.
+    """
+    ok = False
+    for raw in str(log or "").splitlines():
+        raw = raw.strip()
+        if not raw.startswith("{"):
+            continue
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(parsed, dict) or parsed.get("status") != "done":
+            continue
+        if str(parsed.get("exec_id", exec_id)) != str(exec_id):
+            continue
+        ok = bool(parsed.get("success"))
+    return ok
+
+
+def without_injected(out, sent: dict) -> dict:
+    """Giỏ biến runner trả về, trừ đi mật khẩu/2FA mà server tự bơm vào.
+
+    inject_credentials=False đã chặn từ gốc; đây là lớp thứ hai, cho máy chủ vá
+    nóng lệch phiên bản (group_scripts mới gặp script_routes cũ vẫn bơm). Giỏ này
+    đi thẳng vào câu trả lời chat qua summarise_output, nên một khoá thừa là một
+    mật khẩu thật bị đọc lên.
+    """
+    if not isinstance(out, dict):
+        return {}
+    sent = sent if isinstance(sent, dict) else {}
+    return {k: v for k, v in out.items() if k not in CREDENTIAL_KEYS or k in sent}
+
+
+def guard_deadline(routes, exec_id, seconds: float) -> None:
+    """Giết lượt chạy attach quá hạn — kể cả khi lượt chat đã bỏ cuộc.
+
+    asyncio.wait_for chỉ huỷ CORO đang chờ; tiến trình runner vẫn sống, và khoá
+    profile của nó (_attach_running) chỉ được trả lại lúc tiến trình chết. Một
+    step treo (loop, hoặc 'pause' không ai gỡ) vì thế khoá profile tới lần restart
+    sau: mọi script_run báo "đang có script chạy", nút ▶ trả 409. Đường không
+    attach đã có hạn chót (run_script_sync timeout=), đường này phải có hạn ở một
+    LUỒNG NỀN — nằm trong coroutine thì bị huỷ cùng nó.
+    """
+    procs = getattr(routes, "_running_processes", None)
+    kill = getattr(routes, "_kill_run_tree", None)
+    if not isinstance(procs, dict) or not callable(kill):
+        return
+
+    def guard():
+        end = time.time() + max(1.0, seconds)
+        while time.time() < end:
+            proc = procs.get(exec_id)
+            if proc is None or proc.poll() is not None:
+                return
+            time.sleep(1.0)
+        proc = procs.get(exec_id)
+        if proc is not None and proc.poll() is None:
+            logger.warning(f"[script] attached run {exec_id} passed {seconds}s — stopping it "
+                           f"so the profile is not locked until the next restart")
+            try:
+                kill(proc)
+            except Exception as e:
+                logger.warning(f"[script] could not stop attached run {exec_id}: {e}")
+
+    threading.Thread(target=guard, name=f"attach-deadline-{exec_id}", daemon=True).start()
+
+
+async def run_attached(routes, run_id: str, variables: dict, profile: str):
+    """Chạy script TRÊN browser live đang mở của profile, qua đường attach có sẵn.
+
+    routes.run_script là handler bất đồng bộ: nó khởi động runner ở luồng nền rồi
+    trả {status, exec_id} ngay. Ở đây phải chờ tới lúc xong mới trả lời được, nên
+    theo dõi _running_processes (còn tiến trình = còn chạy) và đọc kết quả từ
+    result_<exec_id>.json — chính file run_script_sync đọc, nên "thất bại vẫn có
+    biến trả về" được hiểu đúng là thất bại.
+    """
+    import json as _json
+    import os as _os
+
+    RunRequest = getattr(routes, "RunRequest", None)
+    run_script = getattr(routes, "run_script", None)
+    if RunRequest is None or not callable(run_script):
+        raise RuntimeError("this server's browser_scripts has no attach path")
+
+    # headless=False: browser đã mở sẵn, cờ này chỉ nói runner đừng tự mở cái mới.
+    # tab_index=-1: tab đang hoạt động — đúng tab người dùng đang nhìn.
+    # Khung Browser vừa mở thì Chromium còn đang lên: preview server nghe cổng
+    # (browser_open trả lời ở đó) TRƯỚC khi browser sẵn sàng ~10s. Agent gọi liền
+    # browser_open → script_run là đúng cách dùng, nên chờ ở đây thay vì bắt nó
+    # thử lại. Không chờ thì mọi chuỗi "mở rồi chạy" đều hỏng lần đầu.
+    ready = await wait_cdp_ready(profile, CDP_WAIT)
+    if not ready:
+        raise RuntimeError(
+            f'the live view of "{profile}" has not finished starting (no CDP port after '
+            f'{CDP_WAIT}s) — wait a moment and run it again')
+    # Chạy trên ĐÚNG tab khung Browser đang chiếu. tab_index=-1 nghĩa là "tab đang
+    # hoạt động của CDP", mà tab đó thường là tab mở sau cùng — script chạy ngon
+    # lành ở một tab không ai nhìn thấy, đúng thứ khiến "trực quan" mất nghĩa.
+    tab, tab_url = await asyncio.to_thread(streamed_tab, profile)
+    sent = dict(variables or {})
+    # inject_credentials=False: run_script (đường của giao diện) tự nhét
+    # google_password/…_2fa của profile vào biến chạy, còn run_script_sync — đường
+    # agent vẫn đi — thì không. Đi vòng qua handler kia mà quên cờ này là mỗi lượt
+    # chạy attach lại đọc mật khẩu thật của tài khoản lên chat.
+    req = RunRequest(profile=profile, variables=dict(sent),
+                     headless=False, engine="playwright", attach=True,
+                     tab_index=tab if tab is not None else -1, tab_url=tab_url or "",
+                     inject_credentials=False)
+    started_at = time.time()
+    started = await run_script(run_id, req)
+    exec_id = (started or {}).get("exec_id")
+    if exec_id is None:
+        raise RuntimeError("attach run did not start")
+    guard_deadline(routes, exec_id, RUN_TIMEOUT + 30)
+
+    procs = getattr(routes, "_running_processes", {})
+    logs = getattr(routes, "_running_logs", {})
+    # run_script trả về NGAY khi đã xếp lịch: tiến trình được ghi vào
+    # _running_processes bởi luồng nền, vài chục ms sau. Nhìn dict lúc này rồi kết
+    # luận "không thấy tiến trình = đã xong" là báo hỏng cho một lượt vừa mới bắt
+    # đầu — chờ nó XUẤT HIỆN trước đã.
+    appeared = time.time() + 20
+    while exec_id not in procs and time.time() < appeared:
+        await asyncio.sleep(0.2)
+    while exec_id in procs and getattr(procs.get(exec_id), "poll", lambda: 0)() is None:
+        await asyncio.sleep(0.4)
+    # Tiến trình xong nhưng luồng nền còn đang gom nốt log/ghi DB — chờ một nhịp.
+    await asyncio.sleep(0.6)
+
+    log = "\n".join(logs.get(exec_id, [])[-500:])
+    ext_dir = _os.path.dirname(_os.path.abspath(getattr(routes, "__file__", "") or "."))
+    result_file = _os.path.join(ext_dir, "runner", "tmp", f"result_{exec_id}.json")
+    data = None
+    try:
+        if _os.path.exists(result_file):
+            # Đường /run KHÔNG xoá result_<exec_id>.json (chỉ run_script_sync xoá),
+            # nên thư mục tmp còn kết quả của những lượt chạy từ đời trước. Id
+            # execution là AUTOINCREMENT: cài lại DB là id quay về 1, và một lượt
+            # chạy chết trước khi kịp ghi kết quả sẽ đọc trúng file cũ trùng tên rồi
+            # báo ✅ bằng biến của tháng trước. File có trước lúc ta bấm chạy = rác.
+            if _os.path.getmtime(result_file) + 2 < started_at:
+                logger.warning(f"[script] result_{exec_id}.json is older than this run — ignored")
+            else:
+                with open(result_file, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+    except Exception as e:
+        logger.warning(f"[script] cannot read attach result: {e}")
+    finally:
+        # Đọc xong thì dọn: ta là người đọc duy nhất, và không dọn thì chính file
+        # này là cái rác đánh lừa lượt chạy mang id ấy lần sau.
+        try:
+            _os.remove(result_file)
+        except OSError:
+            pass
+    if data is None:
+        # Không có file kết quả: hỏi dòng kết thúc của runner, đừng dò chuỗi trong log.
+        return AttachResult({}, success=verdict_from_log(log, exec_id),
+                            log=log, exec_id=exec_id)
+    return AttachResult(without_injected(data.get("variables", {}), sent),
+                        success=bool(data.get("success")), log=log, exec_id=exec_id)
+
+
 def take_profile(routes, profile: str) -> str:
     """Hold the profile in script_routes' OWN lock for the length of the run.
 
@@ -809,14 +1123,15 @@ async def script_run(action_data: dict, context: dict) -> str:
     if profile_busy(routes, profile):
         return (f'❌ A script is already running on browser profile "{profile}". '
                 f'Wait for it to finish and try again.')
-    if preview_port_for(profile):
-        return (f'❌ The browser profile "{profile}" is open in a live view, and a script '
-                f'needs it to itself. Close it (browser_close) and run this again.')
+    # Live view đang mở → chạy NGAY TRONG khung đó (attach CDP), không mở Chromium
+    # thứ hai trên cùng user-data-dir (cái thứ hai sẽ chết vì khoá profile).
+    attached = bool(preview_port_for(profile))
 
     alias = _one_line(entry.get("alias"), 200)
     # get_script() keys on the slug; the id is only a fallback for old entries.
     run_id = _str(entry.get("slug"), 200) or _str(entry.get("script_id"), 200)
-    where = f' on profile "{profile}"' if profile else " headless (no profile)"
+    where = (f' in the live view of profile "{profile}"' if attached
+             else (f' on profile "{profile}"' if profile else " headless (no profile)"))
 
     # Bound the variables to the holes THIS script left: the runner pastes them
     # into step text, `evaluate` bodies included, so an unannounced name is not
@@ -826,7 +1141,10 @@ async def script_run(action_data: dict, context: dict) -> str:
         variables, refused = filter_variables(definition, variables)
         dropped.extend(refused)
 
-    lock_key = take_profile(routes, profile)
+    # Attach thì KHÔNG đặt khoá ở đây: run_script (đường attach) tự giữ khoá bằng
+    # exec_id thật của nó, và nó từ chối 409 khi thấy khoá — kể cả khoá của chính
+    # ta. Đặt trước là tự khoá cửa rồi đứng ngoài gõ.
+    lock_key = "" if attached else take_profile(routes, profile)
     release = True
     try:
         # run_script_sync blocks on a subprocess, so it goes to a thread — one of
@@ -834,12 +1152,16 @@ async def script_run(action_data: dict, context: dict) -> str:
         # TURN only; what releases the thread is the deadline the run itself
         # carries (run_deadline), a little past this one so a nearly finished run
         # still lands in Script Studio.
-        loop = asyncio.get_running_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(run_pool(), functools.partial(
-                run_sync, run_id, variables, profile, headless, **run_deadline(run_sync))),
-            timeout=RUN_TIMEOUT,
-        )
+        if attached:
+            result = await asyncio.wait_for(
+                run_attached(routes, run_id, variables, profile), timeout=RUN_TIMEOUT)
+        else:
+            loop = asyncio.get_running_loop()
+            result = await asyncio.wait_for(
+                loop.run_in_executor(run_pool(), functools.partial(
+                    run_sync, run_id, variables, profile, headless, **run_deadline(run_sync))),
+                timeout=RUN_TIMEOUT,
+            )
     except asyncio.TimeoutError:
         # The browser is still that run's. Keep the profile held (the sentinel
         # expires on its own) instead of inviting a second runner onto it.

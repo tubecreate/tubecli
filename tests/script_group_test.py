@@ -116,9 +116,44 @@ class FakeRoutes:
         self.scripts = {}
         self._attach_running = {}
         self._running_processes = {}
+        self._running_logs = {}
+        self.attach_fails = False
+        # group_scripts suy thư mục runner/tmp từ routes.__file__
+        self.__file__ = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "_fake_routes_dir", "script_routes.py")
 
     def _store(self):
         return FakeStore(self.scripts)
+
+    # ── đường attach (nút ▶ của node Browser dùng nó, giờ agent cũng dùng) ──
+    class RunRequest:
+        def __init__(self, profile="", variables=None, headless=True, engine="playwright",
+                     attach=False, tab_index=-1, tab_url="", inject_credentials=True):
+            self.tab_url = tab_url
+            self.profile, self.variables = profile, dict(variables or {})
+            self.headless, self.engine = headless, engine
+            self.attach, self.tab_index = attach, tab_index
+            self.inject_credentials = inject_credentials
+
+    async def run_script(self, script_id, req):
+        """Ghi lại lời gọi rồi 'chạy xong ngay': tiến trình biến mất khỏi
+        _running_processes, kết quả nằm ở result_<exec_id>.json như thật."""
+        self.calls.append({"script_id": script_id, "variables": dict(req.variables),
+                           "profile": req.profile, "headless": req.headless,
+                           "attach": req.attach, "tab_index": req.tab_index,
+                           "tab_url": getattr(req, "tab_url", ""),
+                           "inject_credentials": getattr(req, "inject_credentials", True),
+                           "locked": dict(self._attach_running)})
+        if self.error:
+            raise self.error
+        exec_id = 4242
+        self._running_logs[exec_id] = ['{"status":"done","success":true}']
+        import json as _json, os as _os
+        d = _os.path.join(_os.path.dirname(_os.path.abspath(self.__file__)), "runner", "tmp")
+        _os.makedirs(d, exist_ok=True)
+        with open(_os.path.join(d, f"result_{exec_id}.json"), "w", encoding="utf-8") as f:
+            _json.dump({"success": not self.attach_fails, "variables": self.result}, f)
+        return {"status": "started", "exec_id": exec_id}
 
     def run_script_sync(self, script_id, variables=None, profile="", headless=True):
         self.calls.append({"script_id": script_id, "variables": variables,
@@ -147,6 +182,8 @@ def fresh_routes():
     ROUTES.result = {"video_url": "https://tiktok.com/@me/video/1", "status": "uploaded"}
     ROUTES.scripts = {}
     ROUTES._attach_running = {}
+    ROUTES._running_logs = {}
+    ROUTES.attach_fails = False
     ROUTES._running_processes = {}
     return ROUTES
 
@@ -526,16 +563,72 @@ def part_handler_real_core():
 
     fresh_routes()
     saved_preview = gs.preview_port_for
+    saved_cdp = gs.cdp_port_of
     gs.preview_port_for = lambda profile: 5310 if profile == "tuan5" else None
+    # Khung Browser đã lên xong và đang công bố cổng CDP (thật thì preview_cdp.json)
+    gs.cdp_port_of = lambda profile: 61999 if profile == "tuan5" else None
+    saved_streamed = gs.streamed_tab
+    # Khung đang chiếu tab #2, URL này — handler phải gửi CẢ HAI xuống runner
+    gs.streamed_tab = lambda profile: ((2, "https://www.tiktok.com/upload")
+                                       if profile == "tuan5" else (None, ""))
     try:
+        # Live view đang mở KHÔNG còn là lời từ chối: chạy ngay trong khung đó qua
+        # attach — đây là thứ người dùng nhìn thấy chuyển động, giá trị chính của
+        # việc để browser trong nhóm.
         out = run(handler({"script": "Upload TikTok"}, ctx("a1", ["g_script"])))
-        check("a profile already open in a live view is not stolen",
-              out.startswith("❌") and "live view" in out, out[:180])
-        check("nothing ran", ROUTES.calls == [])
+        check("a live view is driven, not refused", out.startswith("✅"), out[:200])
+        check("the answer says it ran in the live view", "live view" in out, out[:200])
+        check("it attached instead of opening a second Chromium",
+              ROUTES.last and ROUTES.last["attach"] is True
+              and ROUTES.last["headless"] is False, ROUTES.last)
+        check("it drives the tab being watched, pinned by URL not index",
+              ROUTES.last["tab_url"] == "https://www.tiktok.com/upload"
+              and ROUTES.last["tab_index"] == 2, ROUTES.last)
+        check("it runs on the profile of the group, not some other one",
+              ROUTES.last["profile"] == "tuan5", ROUTES.last)
+        check("the attached run went through run_script, not run_script_sync",
+              "attach" in (ROUTES.last or {}), ROUTES.last)
+        # run_script (đường của giao diện) tự nhét mật khẩu/2FA đã lưu của profile
+        # vào biến chạy, rồi runner ghi CẢ giỏ biến ra file kết quả và handler in
+        # giỏ đó vào câu trả lời. Đường agent phải tắt việc bơm đó.
+        check("an agent run never asks for the profile's saved passwords",
+              ROUTES.last["inject_credentials"] is False, ROUTES.last)
+        check("and none of the injected keys can come back out",
+              gs.without_injected({"video_url": "u", "google_password": "hunter2"},
+                                  {"video_url": "u"}) == {"video_url": "u"})
+        # Log là kênh KHÔNG tin được: bước evaluate/extract in nguyên văn thứ trang
+        # web trả về, nên một mẩu JSON của trang không được phép quyết định ✅/❌.
+        check("a page that prints {\"success\": true} cannot fake a verdict",
+              gs.verdict_from_log('{"status":"log","message":"Evaluated, result: '
+                                  '{\"success\": true}"}', 7) is False)
+        check("the runner's own done line decides",
+              gs.verdict_from_log('{"status":"done","exec_id":7,"success":true}', 7) is True)
+        # Một lượt attach HỎNG vẫn phải bị gọi là hỏng
+        fresh_routes()
+        ROUTES.scripts["upload_tiktok"] = PUBLISHED_SCRIPT
+        ROUTES.attach_fails = True
+        out = run(handler({"script": "Upload TikTok"}, ctx("a1", ["g_script"])))
+        check("a failed attached run is reported as failed, never ✅",
+              out.startswith("❌") and "failed step" in out, out[:200])
+        ROUTES.attach_fails = False
+        # Khung chưa lên xong (chưa có cổng CDP): phải nói rõ là chờ, KHÔNG được
+        # ném traceback và cũng không được lặng lẽ mở Chromium thứ hai.
+        fresh_routes()
+        ROUTES.scripts["upload_tiktok"] = PUBLISHED_SCRIPT
+        gs.cdp_port_of = lambda profile: None
+        saved_wait = gs.CDP_WAIT
+        gs.CDP_WAIT = 0
+        out = run(handler({"script": "Upload TikTok"}, ctx("a1", ["g_script"])))
+        check("a live view still starting -> asks to retry, nothing ran",
+              out.startswith("❌") and "not finished starting" in out and ROUTES.calls == [], out[:200])
+        gs.CDP_WAIT = saved_wait
+        gs.cdp_port_of = lambda profile: 61999 if profile == "tuan5" else None
         out = run(handler({"script": "Solo"}, ctx("a4", ["g_noprofile"])))
         check("a profile-less run is unaffected by a live view", out.startswith("✅"), out[:120])
     finally:
         gs.preview_port_for = saved_preview
+        gs.cdp_port_of = saved_cdp
+        gs.streamed_tab = saved_streamed
 
     fresh_routes()
     saved_timeout = gs.RUN_TIMEOUT
