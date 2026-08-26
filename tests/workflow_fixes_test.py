@@ -111,10 +111,14 @@ def main():
 
     print("\n=== 4. luot chay hong phai bao hong ===")
     from tubecli.core.workflow_engine import WorkflowEngine
-    from tubecli.nodes.registry import create_node_from_dict
+    from tubecli.nodes.registry import NodePolicy, create_node_from_dict
 
+    # NodePolicy.user: this section is about what a PERSON's flow reports when
+    # a box is left empty, and python_code is exactly such a box. The model
+    # allowlist is exercised in tests/node_policy_test.py instead.
     def mk(t, nid, label="", **cfg):
-        return create_node_from_dict({"id": nid, "type": t, "label": label, "config": cfg})
+        return create_node_from_dict({"id": nid, "type": t, "label": label, "config": cfg},
+                                     policy=NodePolicy.user("test.workflow_fixes"))
 
     async def run(nodes, conns=None):
         return await WorkflowEngine(nodes, conns or []).run()

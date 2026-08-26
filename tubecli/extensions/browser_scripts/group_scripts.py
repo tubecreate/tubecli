@@ -336,16 +336,29 @@ def resolve_entry(gc, groups: list, kind_key: str, ref: str, identity: str, matc
 
 
 def only_entry(gc, groups: list, kind_key: str, identity: str):
-    """The single entry of that kind in scope, or None when there are 0 or 2+."""
+    """The single entry of that kind in scope, or None when there are 0 or 2+.
+
+    When the core HAS only_entry, its answer is returned VERBATIM - None
+    included. None from the core is not "the core does not know", it is a
+    refusal: since the permission union was removed, one entity shared by two
+    groups at two different access levels returns None precisely so the caller
+    asks the user (core/group_context.only_entry). Falling through to the local
+    loop below answered anyway, out of a `setdefault` that keeps whichever
+    group came first - so with one profile shared `read` in group A and
+    `manage` in group B, manifest ORDER decided the access, and
+    profile_level_refusal() then let a read-only agent drive the browser. The
+    local loop is only for a core too old to have the function at all.
+    """
     fn = getattr(gc, "only_entry", None)
     if callable(fn):
         try:
-            found = fn(groups, kind_key)
+            return fn(groups, kind_key)
         except Exception as e:
             logger.warning(f"[scripts] only_entry('{kind_key}') failed: {e}")
-            found = None
-        if found:
-            return found
+            # Fail closed as well: a core that raised has not said which entry
+            # is the one, and picking one ourselves is the very widening this
+            # change removes. None sends the caller back to the user.
+            return None
     distinct = {}
     for e in entries_of(groups, kind_key):
         distinct.setdefault(_str(e.get(identity), 200).casefold()
@@ -495,7 +508,14 @@ def sanitise_variables(raw):
 # (`output_dir`, `filename`). A value landing in one of those is code, a URL or
 # a path — so it is checked like one, not like a caption.
 _CODE_PARAMS = {"code", "break_on", "expression", "js", "script"}
-_PATH_PARAMS = {"output_dir", "filename", "path", "save_path", "save_to", "download_dir", "file"}
+# `function_slug`/`slug` belong here, and their absence was a hole: the
+# call_function step builds scripts_dir/<slug>.json out of the interpolated
+# slug, so a slug filled from a variable IS a path. Judged as "plain" it went
+# through untouched, and "../../../../etc/passwd" read — then EXECUTED — any
+# .json the server user could open. Judged as a path, a separator or a ".." in
+# it is refused before the runner is spawned.
+_PATH_PARAMS = {"output_dir", "filename", "path", "save_path", "save_to", "download_dir", "file",
+                "function_slug", "slug"}
 _URL_PARAMS = {"url", "target_url", "href"}
 _PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
 # Everything that can end the JS string a value is pasted into, or start a new

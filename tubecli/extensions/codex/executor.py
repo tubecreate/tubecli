@@ -32,7 +32,26 @@ async def execute_task(
 
     `report(name, status, message="", label="")` mirrors the PipelineStep
     vocabulary: pending | running | success | error | skipped.
+
+    MỘT task = MỘT lượt, có trần hành động như chat web và Telegram. Trần từng
+    chỉ nằm trong extensions/chat/pipeline.run_turn — hàm mà đường này không
+    bao giờ gọi — nên một task tự sinh task/skill lồng nhau chạy không giới hạn.
     """
+    from tubecli.core.turn_budget import depth_refusal, turn_budget
+
+    with turn_budget() as budget:
+        refusal = depth_refusal(budget)
+        if refusal:
+            report("depth", "error", refusal, label="Chuỗi quá sâu")
+            return refusal
+        return await _execute_task_turn(task, report, is_cancelled)
+
+
+async def _execute_task_turn(
+    task: Dict[str, Any],
+    report: Callable[..., None],
+    is_cancelled: Callable[[], bool],
+) -> str:
     assignee_type = (task.get("assignee_type") or "agent").lower()
 
     if is_cancelled():

@@ -3,7 +3,8 @@ Node Registry — Maps node type strings to node classes.
 Used by WorkflowEngine to instantiate nodes from JSON definitions.
 """
 import logging
-from typing import Dict, Type
+from dataclasses import dataclass
+from typing import Dict, FrozenSet, Optional, Type
 from tubecli.nodes.base_node import BaseNode
 from tubecli.nodes.text_input_node import TextInputNode
 from tubecli.nodes.loop_node import LoopNode
@@ -58,6 +59,104 @@ NODE_REGISTRY: Dict[str, Type[BaseNode]] = {
 }
 
 
+# ── Who is allowed to build which node ───────────────────────────────
+#
+# A node is not a drawing. run_command shells out, python_code/custom call
+# exec() on a string, api_request reaches this server's OWN loopback API (which
+# skips auth for 127.0.0.1), output writes to any path it is handed, if_node
+# eval()s an expression. create_node_from_dict used to take a bare dict from
+# whoever happened to hold one - including a workflow the model wrote a second
+# earlier, or a tool name the model invented mid-ReAct-loop - so every one of
+# those was a single JSON field away from the model.
+#
+# Callers therefore have to say WHOSE dict this is. `policy` is keyword-only
+# and has NO default on purpose: the eighth call site, added next year, fails
+# loudly at the call instead of silently inheriting the owner's rights.
+
+# The only node types a model-authored workflow may instantiate. An allowlist,
+# not a blocklist, because extensions register node types at runtime (the
+# video_editor extension alone adds ffmpeg_command, which runs arbitrary ffmpeg
+# arguments) - anything not named here, in today's registry or next month's, is
+# refused.
+#
+# What is deliberately absent, and why:
+#   python_code, custom       exec() of source the model wrote
+#   run_command               subprocess
+#   ffmpeg_command & other    extension nodes that shell out
+#   if_node                   eval(condition); `{"__builtins__": {}}` is not a
+#                             sandbox, and the condition comes from the model
+#   api_request               arbitrary HTTP including loopback - the same door
+#                             run_api is (core/telegram_actions.exec_run_api),
+#                             and loopback is exempt from auth
+#   output, file_manager      write/delete any path as the server user, which
+#                             is enough to rewrite data/global_settings.json,
+#                             where the technician_mode switch lives
+#   browser_action            drives the owner's logged-in browser profiles
+#   google_auth/_sheets/      the owner's Google credentials, and outside the
+#   google_calendar           group permission gate the gsheet_* actions go
+#                             through (core/group_context.py)
+#
+# What is left is text in, text out: prompting, parsing, routing, searching.
+MODEL_SAFE_NODE_TYPES: FrozenSet[str] = frozenset({
+    "text_input", "manual_input",
+    "ai_node", "ai_summarizer", "model_agent",
+    "json_parser",
+    "web_search", "browser_search", "search",
+    "loop", "switch_node", "merge_node",
+})
+
+
+class NodePolicyError(ValueError):
+    """A node type the caller is not allowed to build.
+
+    Subclasses ValueError so the `except Exception -> HTTP 400` already wrapped
+    around every call site reports it as a bad request, not a 500.
+    """
+
+
+@dataclass(frozen=True)
+class NodePolicy:
+    """allow=None means every registered node; otherwise only these types.
+
+    `where` names the call site and only ever reaches the log line - it is what
+    turns "a node was refused" into "the ReAct loop asked for run_command".
+    """
+    allow: Optional[FrozenSet[str]]
+    source: str            # "user" (a person acted) | "model" (an LLM did)
+    where: str = ""
+
+    @classmethod
+    def user(cls, where: str = "") -> "NodePolicy":
+        """A person clicked or typed this: the CLI, or an owner session."""
+        return cls(None, "user", where)
+
+    @classmethod
+    def model(cls, where: str = "") -> "NodePolicy":
+        """An LLM produced this workflow, or picked this node."""
+        return cls(MODEL_SAFE_NODE_TYPES, "model", where)
+
+    def permits(self, node_type: str) -> bool:
+        return self.allow is None or str(node_type or "") in self.allow
+
+    def enforce(self, node_type: str) -> None:
+        """Raise NodePolicyError unless this policy allows `node_type`.
+
+        Refusals are logged and raised, never swallowed: a node quietly dropped
+        from a generated workflow is how "the AI made me a flow that does
+        nothing" happens, and a refusal nobody can see is one nobody can audit.
+        """
+        if self.permits(node_type):
+            return
+        logger.warning("Node policy refused '%s' (source=%s, where=%s)",
+                       node_type, self.source, self.where or "?")
+        raise NodePolicyError(
+            f"Node type '{node_type}' is not available to AI-generated workflows. "
+            f"Allowed here: {', '.join(sorted(self.allow or ()))}. "
+            "Nodes that run commands, code or arbitrary HTTP can only be placed "
+            "by a person, on the canvas."
+        )
+
+
 _EXT_NODES_LOADED = False
 
 
@@ -108,9 +207,16 @@ def ensure_extension_nodes() -> int:
     return added
 
 
-def create_node_from_dict(node_data: dict) -> BaseNode:
-    """Create a node instance from a JSON definition."""
+def create_node_from_dict(node_data: dict, *, policy: NodePolicy) -> BaseNode:
+    """Create a node instance from a JSON definition.
+
+    `policy` is keyword-only and mandatory - see NodePolicy above. Pass
+    NodePolicy.user(...) only where a PERSON chose the node.
+    """
     node_type = node_data.get("type", "")
+    # Checked before the registry lookup, so a refused type never reaches
+    # from_dict() and an unknown type cannot be told apart from a denied one.
+    policy.enforce(node_type)
     node_cls = NODE_REGISTRY.get(node_type)
     if not node_cls:
         ensure_extension_nodes()
@@ -193,13 +299,24 @@ def build_port_defs() -> dict:
     return defs
 
 
-def get_node_tool_schemas() -> list:
-    """Return list of available nodes formatted as OpenAI/Anthropic Tool JSON schemas."""
+def get_node_tool_schemas(policy: NodePolicy) -> list:
+    """Available nodes as OpenAI/Anthropic Tool JSON schemas, filtered by policy.
+
+    Same policy object as create_node_from_dict, and for the same reason:
+    teaching a model about a tool it is not allowed to call is an invitation
+    to try it. The refusal at build time is the wall; this keeps the model
+    from walking into it, and from burning a ReAct step on it.
+    """
     ensure_extension_nodes()
     seen = set()
     tools = []
     
     for key, cls in NODE_REGISTRY.items():
+        # Filtered BEFORE the dedup-by-class below: `seen` keeps the first key
+        # that maps to a class, so filtering afterwards could drop an allowed
+        # alias just because a refused one came earlier in the dict.
+        if not policy.permits(key):
+            continue
         if cls not in seen:
             seen.add(cls)
             try:

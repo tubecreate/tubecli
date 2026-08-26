@@ -21,7 +21,7 @@ def workflow_cmd():
 @click.option("--input", "-i", "input_text", default="", help="Input text injection")
 def run_workflow(file, input_text):
     """Run a workflow from a JSON file."""
-    from tubecli.nodes.registry import create_node_from_dict
+    from tubecli.nodes.registry import NodePolicy, create_node_from_dict
     from tubecli.core.workflow_engine import WorkflowEngine
     from tubecli.i18n import t
 
@@ -51,7 +51,9 @@ def run_workflow(file, input_text):
     console.print(t("workflow.node_info", nodes=len(nodes_data), connections=len(connections)))
 
     try:
-        nodes = [create_node_from_dict(nd) for nd in nodes_data]
+        # A file the person picked, run from their own terminal - full rights.
+        _policy = NodePolicy.user("cli.workflow_run")
+        nodes = [create_node_from_dict(nd, policy=_policy) for nd in nodes_data]
     except Exception as e:
         console.print(t("workflow.node_error", error=e))
         return

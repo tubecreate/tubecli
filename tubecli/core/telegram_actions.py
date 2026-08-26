@@ -25,53 +25,79 @@ SETTINGS_FILE = DATA_DIR / "global_settings.json"
 #  JSON EXTRACTION & CLEANING
 # ═══════════════════════════════════════════════════════════════
 
-def extract_json_action(text: str) -> Optional[Dict]:
-    """Extract the first valid JSON action block from text."""
-    if not text or not isinstance(text, str):
+# Chỉ HAI hình thức được coi là "model ra lệnh": cả câu trả lời là MỘT object
+# JSON, hoặc một code fence ```json. Bước thứ ba cũ — tìm "{" rồi đếm độ sâu
+# ngoặc trên toàn bộ văn bản — đã bị bỏ hẳn: nó biến một câu TRÍCH DẪN thành
+# lệnh chạy thật. Agent đọc được khối JSON trên một trang web, nhắc lại nó
+# trong câu trả lời, và action chạy. Trích dẫn không phải là mệnh lệnh.
+_FENCE_RE = re.compile(r"```[ \t]*([A-Za-z0-9_+#.-]*)[ \t]*\r?\n?(.*?)```", re.DOTALL)
+# Fence CÓ TAG được chấp nhận: chỉ `json`. ```text, ```html, ```python… là NỘI
+# DUNG đang được trưng ra cho người đọc xem — đúng cách một agent trích lại thứ
+# nó vừa đọc — nên không bao giờ chạy.
+_FENCE_LANGS = ("json",)
+
+
+def _as_json_object(raw: str) -> Optional[Dict]:
+    """`raw` là MỘT object JSON trọn vẹn → dict; mọi thứ khác → None.
+
+    Trọn vẹn: sau khi trim phải bắt đầu bằng `{` và kết thúc bằng `}`, và cả
+    chuỗi phải parse được. Không cắt từ dấu `{` đầu tiên tới dấu `}` cuối cùng
+    như bản cũ — chính phép cắt đó moi được một object nằm lọt giữa văn xuôi.
+    """
+    s = (raw or "").strip()
+    if not s.startswith("{") or not s.endswith("}"):
         return None
+    try:
+        data = json.loads(s)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
 
-    # 1. Try code block first: ```json {...} ```
-    code_match = re.search(r'```(?:json)?\s*(\{.+\})\s*```', text, re.DOTALL)
-    if code_match:
-        try:
-            data = json.loads(code_match.group(1))
-            if "action" in data:
-                return data
-        except Exception:
-            pass
 
-    # 2. Try parsing entire text as JSON
+def _json_blocks(text: str) -> List[Dict]:
+    """Các object JSON model THẬT SỰ phát ra, theo đúng hai hình thức trên.
+
+    Một nơi duy nhất định nghĩa luật, để extract_json_action (chạy action) và
+    clean_reply_text (chọn câu trả lời hiển thị) không bao giờ lệch nhau nữa —
+    hai bộ parse khác luật chính là chỗ một khối JSON bị một bên bỏ qua còn
+    bên kia đem đi thực thi.
+    """
+    out: List[Dict] = []
+    if not text or not isinstance(text, str):
+        return out
+    whole = _as_json_object(text)
+    if whole is not None:
+        out.append(whole)
     stripped = text.strip()
-    if stripped.startswith("{"):
-        try:
-            data = json.loads(stripped)
-            if isinstance(data, dict) and "action" in data:
-                return data
-        except Exception:
-            pass
+    for m in _FENCE_RE.finditer(text):
+        lang = (m.group(1) or "").strip().lower()
+        if lang not in _FENCE_LANGS:
+            # Fence KHÔNG TAG: model hay quên tag, nên vẫn nhận — nhưng CHỈ khi
+            # cái fence đó là TOÀN BỘ câu trả lời. Một fence không tag nằm giữa
+            # văn xuôi ("trang này có khối JSON sau: ``` … ``` mình chỉ trích
+            # lại thôi") chính là cách agent trưng ra thứ nó vừa đọc được ở nơi
+            # khác — và đó là lỗ hổng §6 đã đóng ở mọi hình thức khác, chỉ còn
+            # sót đúng cách viết này. Trích dẫn luôn có văn xuôi quanh nó; câu
+            # lệnh model tự phát ra thì không.
+            if lang or m.group(0).strip() != stripped:
+                continue
+        data = _as_json_object(m.group(2))
+        if data is not None:
+            out.append(data)
+    return out
 
-    # 3. Find JSON by bracket-depth matching
-    start_idx = text.find("{")
-    while start_idx >= 0:
-        depth = 0
-        end_idx = start_idx
-        for i in range(start_idx, len(text)):
-            if text[i] == "{":
-                depth += 1
-            elif text[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    end_idx = i + 1
-                    break
-        if end_idx > start_idx:
-            try:
-                data = json.loads(text[start_idx:end_idx])
-                if isinstance(data, dict) and "action" in data:
-                    return data
-            except Exception:
-                pass
-        start_idx = text.find("{", start_idx + 1)
 
+def extract_json_action(text: str) -> Optional[Dict]:
+    """Action model phát ra, hoặc None.
+
+    Nhận: (a) toàn bộ câu trả lời là một JSON hợp lệ, (b) một code fence
+    ```json. Không nhận: JSON nằm trong văn xuôi, trong ngoặc kép, trong một
+    fence ngôn ngữ khác — đó là văn bản agent trích lại từ nguồn ngoài.
+    """
+    for data in _json_blocks(text):
+        action = data.get("action")
+        if isinstance(action, str) and action.strip():
+            return data
     return None
 
 
@@ -89,41 +115,13 @@ def clean_reply_text(text: str) -> str:
         if "message" in data and isinstance(data["message"], str) and len(data["message"]) > 10:
             return data["message"]
 
-        # Action JSON that wasn't handled — execute file_action inline
-        if data.get("action") == "file_action":
-            try:
-                from tubecli.extensions.file_manager.file_service import file_service
-                op = data.get("operation", "")
-                path = data.get("path", "")
-                if op == "create_folder":
-                    r = file_service.create_folder(path)
-                    return f"✅ Đã tạo thư mục: {r.get('path', path)}"
-                elif op == "create_file":
-                    r = file_service.create_file(path, data.get("content", ""))
-                    return f"✅ Đã tạo file: {r.get('path', path)}"
-                elif op == "delete":
-                    file_service.delete(path)
-                    return f"✅ Đã xóa: {path}"
-                elif op == "list":
-                    r = file_service.list_dir(path or "~/Desktop")
-                    items = r.get("items", [])
-                    lines = [f"📂 {r.get('path', path)} ({r.get('count', 0)} mục):"]
-                    for item in items[:15]:
-                        icon = "📁" if item.get("is_dir") else "📄"
-                        lines.append(f"  {icon} {item['name']}")
-                    return "\n".join(lines)
-                elif op == "read":
-                    r = file_service.read_file(path)
-                    return f"📄 {path}:\n{r.get('content', '')[:1500]}"
-                elif op == "move":
-                    file_service.move(path, data.get("destination", ""))
-                    return f"✅ Đã di chuyển: {path}"
-                elif op == "copy":
-                    file_service.copy(path, data.get("destination", ""))
-                    return f"✅ Đã sao chép: {path}"
-            except Exception as e:
-                return f"❌ Lỗi: {str(e)}"
-
+        # file_action KHÔNG còn chạy ở đây. Hàm này chỉ có một việc: chọn câu
+        # chữ để hiển thị. Trước đây nó gọi thẳng file_service ngay giữa lúc
+        # "dọn text", nên một thao tác tạo/xoá/di chuyển file chạy ngoài mọi
+        # dispatcher: không qua gate nhóm, không có một dòng nào trong nhật ký
+        # nhóm, và caller (chat pipeline) phải tự đoán ngược lại là có việc gì
+        # vừa xảy ra. Giờ nó đi đúng đường như mọi action khác —
+        # handle_extension_action → _run_action → exec_file_action.
         params = data.get("params", {})
         if isinstance(params, dict):
             for key in ("finalAnswer", "final_answer", "answer", "result"):
@@ -131,51 +129,10 @@ def clean_reply_text(text: str) -> str:
                     return str(params[key])
         return None
 
-    stripped = text.strip()
-
-    # 1. Try parsing the entire text as JSON directly
-    if stripped.startswith("{"):
-        try:
-            data = json.loads(stripped)
-            answer = _extract_answer(data)
-            if answer:
-                return answer
-        except Exception:
-            pass
-
-    # 2. Try extracting from ```json ... ``` code blocks
-    try:
-        code_match = re.search(r'```(?:json)?\s*(\{.+\})\s*```', text, re.DOTALL)
-        if code_match:
-            data = json.loads(code_match.group(1))
-            answer = _extract_answer(data)
-            if answer:
-                return answer
-    except Exception:
-        pass
-
-    # 3. Try finding JSON-like block by bracket matching
-    start_idx = stripped.find("{")
-    if start_idx >= 0:
-        depth = 0
-        end_idx = start_idx
-        for i in range(start_idx, len(stripped)):
-            if stripped[i] == "{":
-                depth += 1
-            elif stripped[i] == "}":
-                depth -= 1
-                if depth == 0:
-                    end_idx = i + 1
-                    break
-        if end_idx > start_idx:
-            try:
-                data = json.loads(stripped[start_idx:end_idx])
-                answer = _extract_answer(data)
-                if answer:
-                    return answer
-            except Exception:
-                pass
-
+    for data in _json_blocks(text):
+        answer = _extract_answer(data)
+        if answer:
+            return answer
     return text
 
 
@@ -183,6 +140,12 @@ def clean_reply_text(text: str) -> str:
 #  DOWNLOAD ACTIONS
 # ═══════════════════════════════════════════════════════════════
 
+# Hằng số này từng bị xoá cùng lúc với việc viết lại phần trích JSON ở trên,
+# mà người dùng duy nhất của nó thì còn nguyên: `execute_download` gọi
+# `_is_douyin_family` ở dòng ĐẦU TIÊN, ngoài `try`, nên MỌI lượt tải video —
+# Telegram, chat web, fork_agent — ném thẳng NameError ra tận caller.
+# `compileall` không thấy được (tên toàn cục chỉ phân giải lúc gọi), nên phải
+# có một test gọi thật vào nhánh này mới bắt được — tests/action_extraction_test.py.
 DOUYIN_HOSTS = ("douyin.com", "iesdouyin.com", "tiktok.com")
 
 
@@ -1418,7 +1381,20 @@ def _log_action_to_groups(action_type: str, action_data: Dict, result: Any,
 
 async def _run_action(action_type: str, action_data: Dict, reply: str,
                       agent_dict: Dict, context: Dict = None) -> Any:
-    """Chạy action; trả về `reply` nguyên vẹn khi không ai nhận."""
+    """Chạy action; trả về `reply` nguyên vẹn khi không ai nhận.
+
+    Trần "N việc trong một lượt" tiêu ở ĐÂY chứ không ở từng caller: đây là chỗ
+    duy nhất mọi action đi qua, nên Telegram, chat web, codex và fork_agent
+    dùng chung một bộ đếm. Đặt trần ở caller thì mỗi caller mới lại là một
+    đường vòng — đúng cái đã xảy ra khi trần chỉ nằm trong chat pipeline.
+    Không có ngân sách nào đang mở ⇒ spend_action trả None ⇒ không chặn gì.
+    """
+    from tubecli.core.turn_budget import spend_action
+
+    capped = spend_action(action_type or "action")
+    if capped:
+        return capped
+
     # ── Core built-in actions ──
     if action_type == "download_video":
         url = action_data.get("url", "")
@@ -1437,6 +1413,11 @@ async def _run_action(action_type: str, action_data: Dict, reply: str,
 
     elif action_type == "create_livestream":
         return await exec_create_livestream(action_data, context)
+
+    elif action_type == "file_action":
+        # Đi qua đây thì mới có một dòng trong nhật ký nhóm (handle_extension_action
+        # ghi cho MỌI action chạy được). Trước đây clean_reply_text chạy nó inline.
+        return await exec_file_action(action_data, context)
 
 
     # ── Dynamic extension actions ──
@@ -1604,8 +1585,75 @@ def _canon_endpoint(endpoint: str) -> str:
     return collapsed
 
 
-async def exec_run_api(action_data: Dict) -> str:
-    """Execute a direct internal API call."""
+# ── Công tắc "chế độ kỹ thuật viên" — run_api mặc định TẮT ────────
+#
+# run_api là cửa duy nhất cho phép model gọi thẳng API nội bộ qua loopback —
+# nơi auth.check_request cố tình cho qua không cần phiên — nên mọi thứ nó xin
+# đều trả về với quyền của chính server. Chủ sản phẩm quyết: giữ lại cho kỹ
+# thuật viên, nhưng MẶC ĐỊNH TẮT.
+#
+# Vì sao đọc từ FILE chứ không phải biến môi trường: os.environ sửa được ngay
+# trong tiến trình, một node python_code là đủ để model tự bật cho mình. Công
+# tắc này chỉ có nghĩa khi model KHÔNG tự gật được, nên cả hai cửa ghi đều
+# phải đóng: node ghi file (output, file_manager, python_code) nằm ngoài
+# allowlist của model trong nodes/registry.py, còn data/global_settings.json
+# nằm trong AI_PROTECTED_DATA_SUBDIRS của sandbox file AI
+# (extensions/file_manager/file_service.py) nên file_action cũng không chạm
+# tới — đã thử thật trước khi chốt: trước khi thêm dòng đó, một lệnh
+# file_action create_file là đủ bật lại run_api.
+#
+# Đọc lại MỖI lần gọi, không cache: chủ bật/tắt là có hiệu lực ngay, không
+# phải khởi động lại server. Đọc hỏng ⇒ coi như TẮT.
+def _technician_mode_on() -> bool:
+    """Có được phép chạy run_api không? (data/global_settings.json)"""
+    try:
+        if os.path.exists(SETTINGS_FILE):
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return bool((json.load(f) or {}).get("technician_mode", False))
+    except Exception as e:
+        print(f"[Actions] technician_mode không đọc được ({e}) → coi như TẮT")
+    return False
+
+
+_RUN_API_OFF = (
+    "❌ run_api đang TẮT.\n\n"
+    "Đây là cửa gọi thẳng API nội bộ bằng quyền của server nên mặc định khoá "
+    "(chế độ kỹ thuật viên).\n"
+    "Bật: mở `data/global_settings.json`, đặt `\"technician_mode\": true` — có hiệu "
+    "lực ngay, không cần khởi động lại.\n"
+    "Rủi ro khi bật: agent gọi được gần như mọi API nội bộ của máy này (riêng API "
+    "nhóm /api/v1/groups vẫn bị chặn). Chỉ bật khi bạn đang ngồi xem, và tắt lại "
+    "sau khi xong việc."
+)
+
+
+def _log_run_api(context: Dict, title: str, detail: str, ok: bool) -> None:
+    """Một dòng nhật ký nhóm cho MỖI lượt run_api — cả lượt thành công.
+
+    Đường canvas đi qua handle_extension_action, chỗ đó đã ghi kết quả action
+    (_log_action_to_groups) nên caller đó KHÔNG truyền context vào đây — tránh
+    hai dòng trùng. Đường Telegram gọi thẳng exec_run_api, không qua dispatcher,
+    nên dòng nhật ký duy nhất của nó là dòng này.
+
+    Bọc try trọn gói: nhật ký hỏng không được làm hỏng lời gọi.
+    """
+    try:
+        gids = (context or {}).get("group_ids")
+        if not isinstance(gids, (list, tuple)) or not gids:
+            return
+        from tubecli.core import group_log
+
+        agent = (context or {}).get("agent")
+        agent = agent if isinstance(agent, dict) else {}
+        for gid in gids:
+            group_log.append(str(gid), agent.get("id", ""), agent.get("name", ""),
+                             kind="run_api", title=title[:160], detail=detail, ok=ok)
+    except Exception as e:
+        print(f"[Actions] Group log skipped: {e}")
+
+
+async def exec_run_api(action_data: Dict, context: Dict = None) -> str:
+    """Execute a direct internal API call. OFF unless technician_mode is set."""
     method = action_data.get("method", "GET").upper()
     endpoint = action_data.get("endpoint", "")
     body = action_data.get("body", {})
@@ -1613,14 +1661,39 @@ async def exec_run_api(action_data: Dict) -> str:
     if not endpoint.startswith("/"):
         endpoint = "/" + endpoint
 
-    if _GROUP_API_RE.match(_canon_endpoint(endpoint)):
-        return "❌ Không được gọi API nhóm (/api/v1/groups) bằng run_api."
+    # Tiêu đề nhật ký dùng ĐƯỜNG ĐÃ CHUẨN HOÁ: nếu model gọi
+    # `/api/v1/agents/../groups/x` thì dòng log phải nói đúng chỗ nó định tới.
+    title = f"run_api {method} {_canon_endpoint(endpoint)}"
 
+    # Tắt trước, kiểm sau: khi công tắc đang tắt thì không có lời gọi nào được
+    # phép, kể cả lời gọi "vô hại".
+    if not _technician_mode_on():
+        _log_run_api(context, title, _RUN_API_OFF, ok=False)
+        return _RUN_API_OFF
+
+    if _GROUP_API_RE.match(_canon_endpoint(endpoint)):
+        refusal = "❌ Không được gọi API nhóm (/api/v1/groups) bằng run_api."
+        _log_run_api(context, title, refusal, ok=False)
+        return refusal
+
+    reply = await _run_api_call(method, endpoint, body)
+    # Quy ước của mọi handler trong repo này: câu trả lời mở đầu bằng ❌ là hỏng.
+    _log_run_api(context, title, reply, ok=not reply.strip().startswith("❌"))
+    return reply
+
+
+async def _run_api_call(method: str, endpoint: str, body: Dict) -> str:
+    """Lời gọi HTTP thật — tách ra để exec_run_api chỉ còn cổng + nhật ký."""
     url = f"{TUBECLI_BASE_URL}{endpoint}"
     print(f"[Actions] run_api: {method} {url}")
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        # X-TubeCLI-Agent: nói cho chính server biết lượt này là của AGENT, không
+        # phải của chủ. Loopback được miễn auth nên route không còn cách nào khác
+        # để phân biệt (xem api/server.py::_node_policy_for_request). Model điều
+        # khiển endpoint và body của lời gọi này, không bao giờ điều khiển header.
+        headers = {"X-TubeCLI-Agent": "run_api"}
+        async with httpx.AsyncClient(timeout=30, headers=headers) as client:
             if method == "GET":
                 resp = await client.get(url)
             elif method == "POST":
@@ -1714,3 +1787,104 @@ async def exec_create_livestream(action_data: Dict, context: Dict = None) -> str
                 return f"❌ Livestream API error ({resp.status_code}): {err}"
     except Exception as e:
         return f"❌ Livestream error: {str(e)[:300]}"
+
+
+# ═══════════════════════════════════════════════════════════════
+#  FILE ACTION
+# ═══════════════════════════════════════════════════════════════
+
+async def exec_file_action(action_data: Dict, context: Dict = None) -> str:
+    """Thao tác file model yêu cầu, chạy qua ĐÚNG một cửa như mọi action khác.
+
+    Hai điều bắt buộc, và đó là lý do hàm này tồn tại thay vì gọi thẳng
+    file_service ở giữa clean_reply_text như trước:
+
+    * `file_service` là singleton CÓ sandbox (enforce_roots=True) — mọi đường
+      model chạm tới đĩa đều phải là cái này, không phải user_file_service.
+    * Đi qua _run_action nghĩa là handle_extension_action ghi được một dòng
+      nhật ký nhóm cho việc vừa làm. Việc chạy lén không để lại vết là thứ
+      khiến chủ nhóm không bao giờ biết agent đã đụng vào cái gì.
+
+    Nội dung đọc lên từ đĩa được bọc delimiter trước khi trả về: nó sẽ nằm
+    trong hội thoại và quay lại prompt ở lượt sau, nên phải nói rõ với model
+    rằng đó là DỮ LIỆU, không phải mệnh lệnh.
+
+    `context` nhận theo đúng quy ước của _run_action (như exec_create_livestream):
+    handle_extension_action đọc `group_ids` trong đó để ghi nhật ký nhóm, còn
+    hàm này chỉ cần sandbox của file_service.
+    """
+    from tubecli.extensions.file_manager.file_service import file_service
+
+    # Cùng cái chốt AgentBrain dùng: path là URL, hoặc thiếu path, hoặc là một
+    # cái tên trơn ("Google Sheets") thì dừng — đừng đoán chỗ trên đĩa.
+    try:
+        from tubecli.core.brain import AgentBrain
+
+        guard = AgentBrain._reject_non_file_path(action_data)
+        if guard:
+            return guard
+    except Exception as e:
+        print(f"[Actions] file_action guard unavailable: {e}")
+        if not str(action_data.get("path", "") or "").strip():
+            return "❌ Thiếu đường dẫn cho file_action."
+
+    op = str(action_data.get("operation", "") or "").strip()
+    path = str(action_data.get("path", "") or "")
+    content = action_data.get("content", "")
+    destination = str(action_data.get("destination", "") or "")
+
+    def _run() -> str:
+        if op == "create_folder":
+            r = file_service.create_folder(path)
+            return f"✅ Đã tạo thư mục: {r.get('path', path)}"
+        if op == "create_file":
+            r = file_service.create_file(path, content if isinstance(content, str) else str(content))
+            return f"✅ Đã tạo file: {r.get('path', path)}"
+        if op == "delete":
+            file_service.delete(path)
+            return f"✅ Đã xóa: {path}"
+        if op == "move":
+            if not destination:
+                return "❌ Thiếu đích (destination) để di chuyển."
+            file_service.move(path, destination)
+            return f"✅ Đã di chuyển: {path} → {destination}"
+        if op == "copy":
+            if not destination:
+                return "❌ Thiếu đích (destination) để sao chép."
+            file_service.copy(path, destination)
+            return f"✅ Đã sao chép: {path} → {destination}"
+        if op == "list":
+            r = file_service.list_dir(path)
+            items = r.get("items", [])
+            lines = [f"📂 {r.get('path', path)} ({r.get('count', len(items))} mục):"]
+            for item in items[:20]:
+                icon = "📁" if item.get("is_dir") else "📄"
+                lines.append(f"  {icon} {item.get('name', '')}")
+            if len(items) > 20:
+                lines.append(f"  ... và {len(items) - 20} mục khác")
+            return _as_external_data("\n".join(lines), f"thư mục {r.get('path', path)}")
+        if op == "read":
+            r = file_service.read_file(path)
+            body = str(r.get("content", ""))[:2000]
+            return f"📄 {path}:\n" + _as_external_data(body, f"file {path}")
+        return f"❌ Operation không hợp lệ: {op}"
+
+    try:
+        return await asyncio.to_thread(_run)
+    except Exception as e:
+        return f"❌ Lỗi file: {str(e)[:300]}"
+
+
+def _as_external_data(body: str, source: str) -> str:
+    """Bọc văn bản LẤY TỪ NGOÀI bằng delimiter chung của chat pipeline.
+
+    Luật (và câu nói với model) chỉ định nghĩa MỘT chỗ — pipeline.wrap_external.
+    Import trễ vì đây là core gọi sang extension; extension tắt thì vẫn trả về
+    nội dung, chỉ mất lớp bọc.
+    """
+    try:
+        from tubecli.extensions.chat.pipeline import wrap_external
+
+        return wrap_external(body, source)
+    except Exception:
+        return body

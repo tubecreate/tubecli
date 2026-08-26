@@ -423,7 +423,14 @@ def scraped_read_token_valid(candidate: Optional[str]) -> bool:
 # ghi đè wholesale. Ngắn hạn; mất khi restart là chấp nhận (sharee login lại).
 GUEST_COOKIE = "tubecli_guest"
 GUEST_TOKEN_PREFIX = "gt_"
-GUEST_TTL_SECONDS = 6 * 3600
+# 30 phút, KHÔNG phải 6 giờ. Token này là bearer: một khi đã phát, máy chủ chỉ
+# biết nó còn hạn hay không — chủ bỏ chia sẻ ở cloud thì máy chủ vẫn chưa hay
+# biết gì. revoke_guest_tokens_for_workspace() đóng cửa ngay khi cloud gọi được
+# xuống; TTL này là cái lưới cho lúc KHÔNG gọi được (tunnel đứt, máy đang tắt) —
+# cửa hé tối đa nửa tiếng thay vì hết ngày làm việc. Sharee không bị đá ra giữa
+# chừng: WorkspaceViewer xin token mới trước khi hết hạn, và cloud chỉ cấp lại
+# khi workspace còn 'active' — tức mỗi 30 phút là một lần kiểm tra lại quyền.
+GUEST_TTL_SECONDS = 30 * 60
 _guest_cache: dict = {}      # token -> {"scope":..., "exp":...} (cache của file)
 
 
@@ -543,8 +550,23 @@ def path_is_shared_file(req_path, files) -> bool:
     return False
 
 
-def revoke_guest_tokens_for_workspace(workspace: str) -> int:
-    """Thu hồi mọi guest token của một workspace (khi chủ revoke). Trả số xoá."""
+def revoke_guest_tokens_for_workspace(workspace: str, drop_staging: bool = True) -> int:
+    """Thu hồi mọi guest token của một workspace (khi chủ revoke). Trả số xoá.
+
+    Gọi từ POST /api/v1/auth/guest-token/revoke (auth_routes.py) — cloud bắn
+    xuống ngay khi workspace bị thu hồi/xoá/đổi phạm vi. Xoá khỏi FILE và xoá
+    cache, nên request kế tiếp của sharee đã bị từ chối, không đợi hết hạn.
+
+    `drop_staging=False` cho ĐỒNG BỘ PHẠM VI (resync). Thu hồi và đồng bộ là
+    hai việc khác nhau dù cùng giết token: thu hồi là cắt hẳn sharee, còn đồng
+    bộ là thao tác bảo trì thường ngày của chủ ("Cập nhật lại danh sách browser
+    theo nhóm hiện tại") NGAY TRONG LÚC sharee đang làm việc — sharee xin token
+    mới và làm tiếp. Thư mục guest_drive/<workspace> không phải rác tạm: file
+    trong đó được Playwright đọc lúc trang SUBMIT, tức là SAU khi chọn file
+    (extensions/browser/routes.py nói rõ điều này), nên xoá nó giữa chừng làm
+    hỏng đúng cái upload sharee đang làm dở, với một lỗi filesystem mà họ không
+    thể hiểu nổi.
+    """
     if not workspace:
         return 0
     data = _load_guest_tokens()
@@ -555,10 +577,13 @@ def revoke_guest_tokens_for_workspace(workspace: str) -> int:
         _write_private(_guest_file(), keep)
         _guest_cache.clear()
     # Dọn thư mục staging Drive (file guest tải về để attach vào browser) của workspace.
-    try:
-        import shutil
-        from tubecli.config import DATA_DIR
-        shutil.rmtree(os.path.join(str(DATA_DIR), "guest_drive", str(workspace)), ignore_errors=True)
-    except Exception:
-        pass
+    # KHÔNG kẹp trong `if removed`: một lượt thu hồi mà token vừa tự hết hạn vẫn
+    # phải dọn, nếu không thì staging nằm lại vĩnh viễn.
+    if drop_staging:
+        try:
+            import shutil
+            from tubecli.config import DATA_DIR
+            shutil.rmtree(os.path.join(str(DATA_DIR), "guest_drive", str(workspace)), ignore_errors=True)
+        except Exception:
+            pass
     return removed

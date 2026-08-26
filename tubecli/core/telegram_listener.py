@@ -205,6 +205,24 @@ class TelegramListener:
             )
 
     async def _process_message(self, text: str, context: Dict[str, Any]):
+        """MỘT tin nhắn Telegram = MỘT lượt, có trần như chat web.
+
+        Vỏ mỏng quanh _process_message_turn để trần bao được MỌI đường ra —
+        kể cả những nhánh trả lời sớm ở giữa hàm. Trước đây trần chỉ nằm trong
+        extensions/chat/pipeline.run_turn, mà hàm đó chỉ được chat web gọi:
+        agent chạy qua Telegram vì thế không có trần nào cả, và skill-gọi-skill
+        không có trần độ sâu. Lượt lồng bên trong dùng chung ngân sách này.
+        """
+        from tubecli.core.turn_budget import depth_refusal, turn_budget
+
+        with turn_budget() as budget:
+            refusal = depth_refusal(budget)
+            if refusal:
+                print(f"[Telegram] turn depth cap hit: {budget.get('depth')}")
+                return refusal
+            return await self._process_message_turn(text, context)
+
+    async def _process_message_turn(self, text: str, context: Dict[str, Any]):
         """
         ★ CORE: 2-Tier Intent Routing ★
         
@@ -817,6 +835,18 @@ class TelegramListener:
         reply = brain_result.get("reply", "...")
         action = brain_result.get("action")
 
+        # Cac verb duoi day chay THANG, khong roi xuong handle_extension_action,
+        # nen phai tu tieu mot suat cua luot. Cac verb con lai di qua dispatcher
+        # (telegram_actions._run_action) va da tieu o do roi -> dem o day nua la
+        # dem doi.
+        from tubecli.core.turn_budget import spend_action
+
+        if action in ("run_skill", "create_skill", "download_video", "create_team",
+                      "run_api", "schedule_event"):
+            capped = spend_action(str(action))
+            if capped:
+                return capped
+
         if action == "run_skill" and brain_result.get("skill_id"):
             skill_id = brain_result["skill_id"]
             skill = skill_manager.get(skill_id)
@@ -848,7 +878,10 @@ class TelegramListener:
                 skill_manager.create(
                     name=name, description=desc, skill_type="AI Self-Created",
                     workflow_data={"sop": sop_text, "nodes": [{"type": "text", "data": {"text": sop_text}}]},
-                    commands=[name.lower()]
+                    commands=[name.lower()],
+                    # Model tu tao skill nay -> dau "model": brain.run_workflow_linear
+                    # se khong bao gio chay node cua no voi quyen chu.
+                    authored_by="model",
                 )
             except Exception as e:
                 reply = f"[Create Skill Error] {e}"
@@ -863,7 +896,10 @@ class TelegramListener:
             return await exec_create_team(brain_result.get("action_data", {}))
 
         elif action == "run_api":
-            return await exec_run_api(brain_result.get("action_data", {}))
+            # context mang group_ids (dựng ở :243) — đường này không qua
+            # handle_extension_action nên nếu không truyền thì lượt run_api
+            # qua Telegram sẽ không để lại dòng nào trong nhật ký nhóm.
+            return await exec_run_api(brain_result.get("action_data", {}), context)
 
         elif action == "schedule_event":
             return await exec_schedule_event(brain_result.get("action_data", {}))

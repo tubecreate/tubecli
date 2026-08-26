@@ -30,6 +30,13 @@ class GuestLoginRequest(BaseModel):
     guest_token: str
 
 
+class GuestRevokeRequest(BaseModel):
+    workspace: str = ""
+    # Thu hồi (mặc định) dọn luôn thư mục staging Drive của workspace. Đồng bộ
+    # phạm vi thì KHÔNG: xem revoke_guest_tokens_for_workspace.
+    keep_staging: bool = False
+
+
 def _client(request: Request) -> str:
     return request.client.host if request.client else ""
 
@@ -109,6 +116,34 @@ async def guest_token(body: GuestTokenRequest, request: Request):
     """
     result = auth.mint_guest_token(body.scope or {})
     return {"ok": True, **result}
+
+
+@router.post("/api/v1/auth/guest-token/revoke")
+async def guest_token_revoke(body: GuestRevokeRequest, request: Request):
+    """Chủ thu hồi NGAY mọi guest token của một workspace.
+
+    Trước đây thu hồi chia sẻ chỉ đổi trạng thái trong D1 của cloud: sharee đang
+    cầm cookie tubecli_guest vẫn dùng tiếp cho tới khi token hết hạn, vì máy chủ
+    không hề hay biết. Cloud gọi xuống đây (tubecliFetch, cookie CHỦ) mỗi khi
+    workspace bị thu hồi / xoá / đổi phạm vi.
+
+    Owner-only theo đúng nếp của /auth/guest-token (mint): KHÔNG nằm trong
+    _AUTH_EXEMPT_* nên phải qua login gate, và _guest_allowed từ chối mặc định
+    nên chính sharee không tự thu hồi (hay tự gia hạn) được gì.
+
+    Idempotent: workspace không có token nào → ok với revoked=0.
+
+    `keep_staging=true`: chỉ giết token, giữ nguyên thư mục guest_drive của
+    workspace. Cloud gửi cờ này khi chủ bấm "Đồng bộ profile" — sharee vẫn
+    đang làm việc và sẽ xin token mới, nên xoá staging giữa chừng là làm hỏng
+    upload đang dở của họ.
+    """
+    workspace = (body.workspace or "").strip()
+    if not workspace:
+        return JSONResponse(status_code=400, content={"detail": "Thiếu workspace."})
+    revoked = auth.revoke_guest_tokens_for_workspace(
+        workspace, drop_staging=not body.keep_staging)
+    return {"ok": True, "revoked": revoked}
 
 
 @router.post("/api/v1/auth/guest-login")

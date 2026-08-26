@@ -250,6 +250,20 @@ GROUPS = {
         "scripts": [{"alias": "Solo2", "script_id": "solo2", "slug": "solo2"}],
         "profiles": [{"alias": "tuan5", "profile": "tuan5"}, {"alias": "tuan6", "profile": "tuan6"}],
     },
+    # ONE profile, TWO groups, TWO access levels. Since the permission union was
+    # removed, core only_entry answers None here on purpose ("ask the user").
+    "g_share_ro": {
+        "label": "Read desk",
+        "agents": ["a7"],
+        "scripts": [{"alias": "Solo4", "script_id": "solo4", "slug": "solo4"}],
+        "profiles": [{"alias": "Chung", "profile": "tuanX", "access": "read"}],
+    },
+    "g_share_rw": {
+        "label": "Manage desk",
+        "agents": ["a7"],
+        "scripts": [{"alias": "Solo5", "script_id": "solo5", "slug": "solo5"}],
+        "profiles": [{"alias": "Chung", "profile": "tuanX", "access": "manage"}],
+    },
 }
 
 
@@ -424,6 +438,36 @@ def part_handler_real_core():
     out = run(handler({"script": "Solo", "profile": "tuan5"}, ctx("a4", ["g_noprofile"])))
     check("a profile from ANOTHER group is not reachable either",
           out.startswith("❌") and "No browser profile is shared" in out, out[:160])
+    check("nothing ran", ROUTES.calls == [])
+
+    print("\n--- one profile, two groups, two access levels ---")
+    # The core answers None here BY DESIGN: since the permission union went, one
+    # entity at two levels is a question for the user, not a merge. This wrapper
+    # used to read that None as "the core does not know" and answer from its own
+    # `distinct.setdefault` loop, which keeps whichever group it saw FIRST — so
+    # manifest ORDER decided the access, and profile_level_refusal() then let the
+    # read-only side drive the browser. Both orders, so an accidental pass cannot
+    # come from ordering.
+    both = [gc.load("g_share_ro"), gc.load("g_share_rw")]
+    check("core refuses (one entity, two levels)", gc.only_entry(both, "profiles") is None,
+          str(gc.only_entry(both, "profiles")))
+    for order in (both, list(reversed(both))):
+        labels = [g.get("label") for g in order]
+        picked = gs.only_entry(gc, order, "profiles", "profile")
+        check(f"wrapper returns the core's refusal verbatim {labels}", picked is None, str(picked))
+
+    for gids in (["g_share_ro", "g_share_rw"], ["g_share_rw", "g_share_ro"]):
+        fresh_routes()
+        out = run(handler({"script": "Solo4"}, ctx("a7", gids)))
+        check(f"script_run asks instead of picking {gids}",
+              out.startswith("❌") and "Which browser profile" in out, out[:160])
+        check("nothing ran", ROUTES.calls == [])
+
+    # Naming it explicitly is still a question — resolve_entry marks it ambiguous
+    # rather than merging, so no order can hand out "manage".
+    fresh_routes()
+    out = run(handler({"script": "Solo4", "profile": "Chung"}, ctx("a7", ["g_share_ro", "g_share_rw"])))
+    check("naming it does not merge the two levels either", out.startswith("❌"), out[:200])
     check("nothing ran", ROUTES.calls == [])
 
     print("\n--- variables are inputs, not a channel ---")

@@ -543,10 +543,38 @@ def _identity(k: EntityKind, entry: Dict[str, Any]) -> str:
     return _entry_identity(k.identity, entry)
 
 
-def add_server_entry(group_id: str, kind_key: str, entry: Any) -> Dict[str, Any]:
+# Kinds an agent may add to the server half BY ITSELF. Deliberately tiny, and
+# allowed to be empty: every kind registered today hands whoever adds it a NEW
+# capability — a file path, a Google Sheet carrying the owner's credential, a
+# browser profile holding live logins, a script to run, or a playbook line that
+# every agent in the group then reads as an instruction. `schedules` is named
+# because a group's own timer is what the server half was invented for; no
+# extension registers that kind yet, so today the effective set is empty and
+# that is the right answer, not a gap.
+AGENT_ADDABLE_KINDS = frozenset({"schedules"})
+
+
+def add_server_entry(group_id: str, kind_key: str, entry: Any, *, actor: str) -> Dict[str, Any]:
     """Add (or replace, by the kind's identity) one entry in the server half.
 
-    Raises ValueError for an unknown kind or an entry the kind rejects, and
+    `actor` is keyword-only and has NO default on purpose. This function is the
+    layer where a group's permissions actually change, so the eighth call site
+    written next year must say who is asking instead of inheriting a
+    safe-looking default nobody thought about. Only a route that has proved a
+    real owner session passes "owner"; everything else — the model's actions,
+    run_api, any other in-process helper — is "agent", and an agent may add
+    only AGENT_ADDABLE_KINDS, at no more than the kind's default access. That
+    is the point: a model must not be able to widen its own permissions, and
+    blocking that only at the HTTP route would leave the in-process door open.
+
+    The owner path is not access-clamped, on purpose: `access_default` is a
+    DEFAULT, not a ceiling (browser_scripts declares "run" but its normaliser
+    accepts "edit"), and the owner's real door — the canvas half, replaced
+    wholesale by PUT /context — has no clamp either, so clamping the owner here
+    would be theatre with a latent bug attached.
+
+    Raises ValueError for an unknown kind, an unknown actor or an entry the
+    kind rejects; PermissionError when the actor may not add this kind; and
     LookupError when the group has no file yet — the canvas creates groups,
     the server only adds to them.
     """
@@ -555,6 +583,14 @@ def add_server_entry(group_id: str, kind_key: str, entry: Any) -> Dict[str, Any]
     k = kind(kind_key)
     if k is None:
         raise ValueError(f"unknown kind: {kind_key!r}")
+    if actor not in ("owner", "agent"):
+        raise ValueError(f"actor must be 'owner' or 'agent', not {actor!r}")
+    if actor != "owner" and k.key not in AGENT_ADDABLE_KINDS:
+        # Log, never a silent drop: a refusal nobody can see is a refusal
+        # somebody deletes later for "not doing anything".
+        logger.warning("[Groups] refused agent add of kind %r to group %s", k.key, group_id)
+        raise PermissionError(
+            f"an agent may not add '{k.key}' to a group — ask the owner to add it on the canvas")
     with _lock:
         raw = _read_raw(path)
         if raw is None:
@@ -564,6 +600,16 @@ def add_server_entry(group_id: str, kind_key: str, entry: Any) -> Dict[str, Any]
         new = k.normalise(entry, len(entries))
         if not isinstance(new, dict):
             raise ValueError(f"entry rejected by kind '{k.key}'")
+        if actor != "owner" and "access" in new:
+            # Trần cứng cho đường agent: entry tự thêm không bao giờ rộng hơn
+            # mức mặc định của kind. Chỉ sửa khi entry ĐÃ có khoá access, để
+            # không đổi hình dạng entry của những kind không dùng access.
+            want = _norm_access(new.get("access"), k.access_default)
+            if ACCESS_ORDER.get(want, 0) > ACCESS_ORDER.get(k.access_default, 0):
+                logger.warning("[Groups] clamped agent access %r -> %r on %s/%s",
+                               want, k.access_default, group_id, k.key)
+                want = k.access_default
+            new["access"] = want
         ident = _identity(k, new)
         entries = [e for e in entries if _identity(k, e) != ident] + [new]
         if k.finalise is not None:
@@ -679,13 +725,42 @@ def allows(have: str, need: str) -> bool:
     return h >= n
 
 
-def _better(current: Optional[Dict[str, Any]], candidate: Dict[str, Any]) -> Dict[str, Any]:
-    """When the same entity sits in two groups, the union grants the wider access."""
+def _choice(entry: Dict[str, Any]) -> Dict[str, str]:
+    """Một dòng trong danh sách "ý bạn là cái nào?" — tên và nhãn nhóm, hết.
+    Không bao giờ kèm id: một câu từ chối cũng không được làm lộ sheet_id."""
+    return {"alias": _str(entry.get("alias"), 200),
+            "group_label": _str(entry.get("group_label"), 200)}
+
+
+def _merge_shared(current: Optional[Dict[str, Any]], candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """Cùng MỘT thực thể gặp lại lần thứ hai trong tầm nhìn của lượt này.
+
+    Bản cũ (tên `_better`) lấy quyền RỘNG HƠN. Đó là CỘNG GỘP quyền giữa hai
+    nhóm: bàn A chia sẻ `read`, bàn B chia sẻ `write` ⇒ agent ghi được kể cả
+    khi đang làm ở bàn A, dù chủ bàn A chưa bao giờ đồng ý cho ghi. Nay hai
+    mức khác nhau ở HAI nhóm khác nhau ⇒ trả về dấu hiệu mơ hồ để handler hỏi
+    lại, đúng luật `distinct` mà resolve_sheet đã dùng cho "một alias hai
+    thực thể".
+
+    Hai entry trong CÙNG một nhóm (một file lẻ nằm trong folder cũng được chia
+    sẻ) thì không phải cộng gộp: cùng một manifest, cùng một chủ, chủ nhìn thấy
+    cả hai dòng khi kéo node — giữ nguyên luật cũ, đừng bắt người dùng phân xử
+    một câu hỏi mà chỉ chủ nhóm mới trả lời được (bằng cách sửa canvas).
+    """
     if current is None:
         return candidate
-    if ACCESS_ORDER.get(candidate.get("access", ""), -1) > ACCESS_ORDER.get(current.get("access", ""), -1):
-        return candidate
-    return current
+    if current.get("ambiguous"):
+        # Đã mơ hồ thì không ứng viên nào làm nó rõ ra được — chỉ dài thêm danh sách.
+        return {"ambiguous": True, "reason": current.get("reason", "access"),
+                "choices": list(current.get("choices") or []) + [_choice(candidate)]}
+    cur_rank = ACCESS_ORDER.get(_str(current.get("access"), 20).lower(), -1)
+    new_rank = ACCESS_ORDER.get(_str(candidate.get("access"), 20).lower(), -1)
+    if cur_rank == new_rank:
+        return current
+    if _str(current.get("group_id"), 64) == _str(candidate.get("group_id"), 64):
+        return candidate if new_rank > cur_rank else current
+    return {"ambiguous": True, "reason": "access",
+            "choices": [_choice(current), _choice(candidate)]}
 
 
 def resolve_sheet(groups: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, Any]]:
@@ -717,7 +792,7 @@ def resolve_sheet(groups: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, 
             cand["group_id"] = g.get("group_id", "")
             cand["group_label"] = g.get("label", "")
             distinct.setdefault(sid or alias, cand)
-            best = _better(best, cand)
+            best = _merge_shared(best, cand)
     # Cùng một tên trỏ tới HAI bảng khác nhau (agent ở nhiều nhóm): chọn thầm bảng
     # "rộng quyền hơn" là ghi nhầm chỗ. Trả về dấu hiệu mơ hồ để handler hỏi lại,
     # kèm nhãn nhóm để model phân biệt được.
@@ -778,9 +853,10 @@ def resolve_xlsx(groups: List[Dict[str, Any]], path: str) -> Optional[Dict[str, 
                     continue
             except Exception:
                 continue
-            best = _better(best, {
+            best = _merge_shared(best, {
                 "path": rp, "access": f.get("access", "write"), "alias": f.get("alias", ""),
-                "ext": f.get("ext", ""), "group_id": gid, "via": "file",
+                "ext": f.get("ext", ""), "group_id": gid, "group_label": g.get("label", ""),
+                "via": "file",
             })
         for d in g.get("folders") or []:
             dp = _str(d.get("path"), 1000)
@@ -795,9 +871,9 @@ def resolve_xlsx(groups: List[Dict[str, Any]], path: str) -> Optional[Dict[str, 
             base = rd.rstrip(os.sep)
             # Prefix joined with os.sep so /a/x does not admit /a/xy.
             if rp == base or rp.startswith(base + os.sep):
-                best = _better(best, {
+                best = _merge_shared(best, {
                     "path": rp, "access": d.get("access", "write"), "folder": rd,
-                    "group_id": gid, "via": "folder",
+                    "group_id": gid, "group_label": g.get("label", ""), "via": "folder",
                 })
     return best
 
@@ -880,7 +956,7 @@ def resolve_entry(groups: List[Dict[str, Any]], kind_key: str, ref: str) -> Opti
                 continue
             cand = _stamped(e, g)
             distinct.setdefault(_entry_identity(identity, e), cand)
-            best = _better(best, cand)
+            best = _merge_shared(best, cand)
     if len(distinct) > 1:
         return _ambiguous(distinct.values())
     return best
@@ -892,8 +968,9 @@ def only_entry(groups: List[Dict[str, Any]], kind_key: str) -> Optional[Dict[str
     the model named none.
 
     The same entity shared by two groups still counts as one (compared on the
-    kind's identity) and comes back with the wider access. Two different ones
-    are a question for the user, so None is the only safe answer.
+    kind's identity) — but ONLY when both groups grant the same access. Two
+    different entities, or one entity at two different access levels, are a
+    question for the user, so None is the only safe answer.
     """
     key = _str(kind_key, 64)
     if not key:
@@ -908,12 +985,18 @@ def only_entry(groups: List[Dict[str, Any]], kind_key: str) -> Optional[Dict[str
             if not isinstance(e, dict):
                 continue
             ident = _entry_identity(identity, e)
-            found[ident] = _better(found.get(ident), _stamped(e, g))
+            found[ident] = _merge_shared(found.get(ident), _stamped(e, g))
             if len(found) > 1:
                 return None
     if len(found) != 1:
         return None
-    return next(iter(found.values()))
+    entry = next(iter(found.values()))
+    if entry.get("ambiguous"):
+        # Vẫn là MỘT thực thể, nhưng hai nhóm cho hai mức quyền khác nhau nên
+        # "được làm gì với nó" không có câu trả lời. Callers đọc None là "hỏi
+        # lại người dùng" — đó đúng là việc phải làm ở đây.
+        return None
+    return entry
 
 
 def _abs_canon(value: Any) -> str:
@@ -968,6 +1051,8 @@ def resolve_file(groups: List[Dict[str, Any]], ref: str) -> Optional[Dict[str, A
     hit = resolve_xlsx(groups, raw)
     if not hit:
         return None
+    if hit.get("ambiguous"):
+        return hit
     out = dict(hit)
     gid = out.get("group_id", "")
     for g in groups or []:

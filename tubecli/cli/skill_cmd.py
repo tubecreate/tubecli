@@ -55,7 +55,7 @@ def list_skills():
 def run_skill(name, input_text):
     """Run a skill by name."""
     from tubecli.core.skill import skill_manager
-    from tubecli.nodes.registry import create_node_from_dict
+    from tubecli.nodes.registry import NodePolicy, create_node_from_dict
     from tubecli.core.workflow_engine import WorkflowEngine
     from tubecli.i18n import t
 
@@ -77,9 +77,12 @@ def run_skill(name, input_text):
             if nd.get("type") in ("text_input", "manual_input"):
                 nd.setdefault("config", {})["text"] = input_text
 
-    # Create node instances
+    # Create node instances. NodePolicy.user: whoever typed this command has a
+    # shell already - the policy is about what the MODEL can reach, not about
+    # taking the terminal away from its owner.
     try:
-        nodes = [create_node_from_dict(nd) for nd in nodes_data]
+        _policy = NodePolicy.user("cli.skill_run")
+        nodes = [create_node_from_dict(nd, policy=_policy) for nd in nodes_data]
     except Exception as e:
         console.print(t("skill.node_error", error=e))
         return

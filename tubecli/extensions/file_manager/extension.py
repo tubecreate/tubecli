@@ -341,6 +341,13 @@ class FileManagerExtension(Extension):
             "missing_path": "❌ Missing 'path' — the spreadsheet file (.xlsx/.xlsm/.csv) to work on.",
             "not_shared": "❌ {path} is not shared with this agent's group. Only spreadsheet files or folders "
                           "placed in the group are available — ask the owner to add a File/Folder node for it.",
+            # group_context returns this when the SAME file is shared by two
+            # groups at two different access levels. It IS shared — what is
+            # missing is which permission applies — so "not shared" would be a
+            # lie, and one that sends the owner hunting for a node they already added.
+            "ambiguous": "❌ {path} is shared by more than one group, at different access levels "
+                         "({choices}). Say which group you mean, or ask the owner to make the "
+                         "access match.",
             "no_access": "❌ '{name}' is shared with access '{have}' but {action} needs '{need}'. "
                          "Change the access on its node in the group.",
             "read_err": "❌ Cannot read {path}: {err}",
@@ -362,6 +369,9 @@ class FileManagerExtension(Extension):
             "missing_path": "❌ Thiếu 'path' — file bảng tính (.xlsx/.xlsm/.csv) cần thao tác.",
             "not_shared": "❌ {path} không được chia sẻ với nhóm của agent này. Chỉ file/thư mục bảng tính "
                           "đã đặt trong nhóm mới dùng được — nhờ chủ thêm node File/Folder cho nó.",
+            "ambiguous": "❌ {path} đang được chia sẻ ở nhiều nhóm với mức quyền khác nhau "
+                         "({choices}). Hãy nói rõ nhóm nào, hoặc nhờ chủ chỉnh cho hai bên "
+                         "cùng một mức quyền.",
             "no_access": "❌ '{name}' được chia sẻ với quyền '{have}' nhưng {action} cần quyền '{need}'. "
                          "Đổi quyền trên node đó trong nhóm.",
             "read_err": "❌ Không đọc được {path}: {err}",
@@ -446,6 +456,13 @@ class FileManagerExtension(Extension):
             alias = self._alias_entry(groups, path)
             if alias:
                 entry = group_context.resolve_xlsx(groups, alias["path"])
+        if isinstance(entry, dict) and entry.get("ambiguous"):
+            # Cùng một file, hai nhóm cho hai mức quyền: đoán bừa một mức là ghi
+            # bằng quyền mà chủ của nhóm kia chưa hề đồng ý (group_context._merge_shared).
+            choices = "; ".join(
+                f'{c.get("alias") or "?"} (nhóm {c.get("group_label") or "?"})'
+                for c in (entry.get("choices") or []))
+            return None, None, self._xt(context, "ambiguous", path=path, choices=choices)
         if not entry or not entry.get("path"):
             return None, None, self._xt(context, "not_shared", path=path)
         need = self._XLSX_NEED[action]

@@ -36,6 +36,7 @@ class Skill:
         next_run: Optional[str] = None,
         created_at: str = None,
         id: Optional[str] = None,
+        authored_by: str = "user",
         **kwargs,
     ):
         self.id = id or str(uuid.uuid4())
@@ -65,6 +66,15 @@ class Skill:
         self.last_run = last_run
         self.next_run = next_run
         self.created_at = created_at or datetime.datetime.now().isoformat()
+        # AI dựng workflow này, hay người? Quyết định node nào skill được phép
+        # dựng khi một AGENT kích hoạt nó (core/brain.run_workflow_linear và
+        # POST /skills/{id}/run). "user" là mặc định vì mọi skill có sẵn —
+        # skill mẫu, skill extension đăng ký lúc khởi động, skill chủ vẽ trên
+        # canvas trước khi có trường này — đều là của người. Đường nào AI tạo
+        # được skill thì tự đóng dấu "model" tại đó (api/server.py), và dấu ấy
+        # không bao giờ nâng lên được: đóng dấu theo _node_policy_for_request
+        # chứ không theo thứ caller gửi lên.
+        self.authored_by = "model" if str(authored_by).strip().lower() == "model" else "user"
 
     @property
     def is_runnable(self) -> bool:
@@ -104,6 +114,7 @@ class Skill:
             "when_to_use": self.when_to_use,
             "examples": self.examples,
             "is_runnable": self.is_runnable,
+            "authored_by": self.authored_by,
             "schedule_enabled": self.schedule_enabled,
             "schedule_type": self.schedule_type,
             "schedule_value": self.schedule_value,

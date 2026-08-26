@@ -35,6 +35,62 @@ function interpolate(text) {
     return text.replace(/\{\{(\w+)\}\}/g, (_, key) => variables[key] !== undefined ? variables[key] : `{{${key}}}`);
 }
 
+// ── call_function: mot slug la mot DUONG DAN ─────────────────────────────
+// Buoc call_function ghep scripts_dir/<slug>.json roi CHAY cac step ben trong,
+// va slug do di qua interpolate() nen no co the den thang tu mot bien. Khong
+// kiem gi thi "../../../../etc/passwd" doc — roi THUC THI — bat ky file .json
+// nao tai khoan chay server mo duoc. path.join() khong noi duoc dieu do: no ghep
+// xong roi rut gon '..' trong im lang.
+//
+// Hai lop o day, doc lap nhau:
+//   1. containment — giai duong dan ROI so voi thu muc kho. Chi nhan mot ten
+//      PHANG nam ngay trong kho: khong thu muc con, khong '..', khong duong dan
+//      tuyet doi, khong dau phan cach.
+//   2. allowlist — ten phai CO TRONG KHO. script_routes gui danh sach xuong
+//      (function_slugs); thieu no thi tu doc thu muc, van la allowlist chu khong
+//      phai "cai gi mo duoc thi nap".
+let _fnAllowlist = null;
+function functionAllowlist(scriptsDir) {
+    if (_fnAllowlist) return _fnAllowlist;
+    const given = execData.function_slugs;
+    if (Array.isArray(given)) {
+        _fnAllowlist = new Set(given.map(v => String(v)));
+        return _fnAllowlist;
+    }
+    try {
+        _fnAllowlist = new Set(fs.readdirSync(scriptsDir)
+            .filter(n => n.endsWith('.json'))
+            .map(n => n.slice(0, -5)));
+    } catch (e) {
+        // Khong doc duoc kho = khong biet cai gi hop le = khong nap gi.
+        _fnAllowlist = new Set();
+    }
+    return _fnAllowlist;
+}
+
+function resolveFunctionScript(scriptsDir, slug) {
+    const name = String(slug == null ? '' : slug);
+    if (!name) return { path: null, reason: 'empty function name' };
+    let root, target, rel;
+    try {
+        root = path.resolve(scriptsDir);
+        target = path.resolve(root, `${name}.json`);
+        rel = path.relative(root, target);
+    } catch (e) {
+        return { path: null, reason: 'not a usable function name' };
+    }
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel) || rel.split(/[\\/]/).length > 1) {
+        return { path: null, reason: 'a function name is a name, not a path' };
+    }
+    if (!functionAllowlist(scriptsDir).has(name)) {
+        return { path: null, reason: 'no such function in the script store' };
+    }
+    if (!fs.existsSync(target)) {
+        return { path: null, reason: 'no such function in the script store' };
+    }
+    return { path: target, reason: '' };
+}
+
 const sleep = ms => {
     return new Promise((resolve, reject) => {
         const start = Date.now();
@@ -867,7 +923,7 @@ async function executeStep(page, step, index) {
             break;
         }
         case 'call_function': {
-            const fnSlug = interpolate(params.function_slug || params.slug || '');
+            const fnSlug = String(interpolate(params.function_slug || params.slug || '') || '');
             if (!fnSlug) {
                 stepLog(index, type, `❌ call_function: missing function_slug`);
                 break;
@@ -875,14 +931,17 @@ async function executeStep(page, step, index) {
 
             stepLog(index, type, `📦 Calling function: ${fnSlug}`);
 
-            // Load function script from scripts/ directory
+            // Load function script from the store — BY NAME, never by path.
+            // Xem resolveFunctionScript() o dau file.
             const scriptsDir = execData.scripts_dir || path.join(__dirname, '..', 'scripts');
-            const fnPath = path.join(scriptsDir, `${fnSlug}.json`);
-
-            if (!fs.existsSync(fnPath)) {
-                stepLog(index, type, `❌ Function not found: ${fnPath}`);
+            const resolvedFn = resolveFunctionScript(scriptsDir, fnSlug);
+            if (!resolvedFn.path) {
+                // Khong in duong dan tuyet doi ra log: cau tra loi cho mot lan
+                // doan duong dan khong duoc phep la mot tam ban do.
+                stepLog(index, type, `❌ call_function refused "${fnSlug}": ${resolvedFn.reason}`);
                 break;
             }
+            const fnPath = resolvedFn.path;
 
             const fnScript = JSON.parse(fs.readFileSync(fnPath, 'utf-8'));
             const fnSteps = fnScript.steps || [];

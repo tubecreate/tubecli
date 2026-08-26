@@ -54,9 +54,39 @@ BLOCKED_PATHS = [
 # folder reads the activity of groups that were never shared with it — and the
 # stolen text then lands back in its OWN group's log as `detail`. It is written
 # by group_log alone, which does not go through this sandbox.
+#
+# global_settings.json is the fourth, and the first that is a FILE rather
+# than a folder. It holds technician_mode, the switch that decides whether
+# run_api may run at all - run_api being the agent's direct line to this
+# server's own loopback API, which is exempt from auth
+# (core/telegram_actions.py::exec_run_api). A switch the agent can flip is
+# not a switch: the data dir is inside the AI's allowlist, so one
+# file_action create_file was enough to turn run_api back on, and the same
+# file also carries telegram_bot_token. Nothing AI-facing writes settings -
+# the dashboard saves them through webui/routes.py, which never touches this
+# sandbox - so blocking the file costs the owner nothing.
+#
+# skills.json and agents.json are the fifth and sixth, and they are switches
+# in exactly the same sense. Both files carry `schedule_enabled` + `next_run`,
+# and core/scheduler.py:_tick reads them every 30 s and fires whatever is due
+# through api/server.py::_OwnerInProcessCall - a sentinel that hands the run
+# NodePolicy.user (run_command, python_code, api_request), on the stated
+# ground that "no route can set schedule_enabled, so a schedule can only come
+# from the owner". That premise held only as long as the FILE was out of
+# reach; it was not. One file_action create_file over skills.json planted a
+# scheduled skill that minted owner node rights on the next restart, because
+# SkillManager caches in memory and re-reads only at construction - a delay
+# that also makes the escalation hard to attribute. skills.json carries
+# `authored_by` too, the flag brain.run_workflow_linear trusts. Nothing
+# AI-facing writes either file: skill_manager and agent_manager own them, and
+# the AI reaches them through their own routes (which stamp provenance), so
+# blocking the raw files costs the owner nothing here either.
 AI_PROTECTED_DATA_SUBDIRS = ["groups",
                              os.path.join("extensions_data", "browser", "browser_profiles"),
-                             os.path.join("extensions_data", "group_logs")]
+                             os.path.join("extensions_data", "group_logs"),
+                             "global_settings.json",
+                             "skills.json",
+                             "agents.json"]
 
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 

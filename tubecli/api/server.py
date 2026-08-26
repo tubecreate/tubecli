@@ -1007,7 +1007,11 @@ async def startup_event():
             async def _run():
                 try:
                     print(f"[Scheduler] Executing scheduled skill {skill_id}...")
-                    await run_skill(skill_id)
+                    # run_skill nhận `request` để biết AI đang gọi hay người
+                    # đang gọi. Ở đây không có request nào — lượt này là lịch
+                    # của chủ — nên nói thẳng ra thay vì để nó rơi vào nhánh
+                    # mặc định (model) hoặc nổ TypeError vì thiếu tham số.
+                    await run_skill(skill_id, _OwnerInProcessCall("scheduler"))
                 except Exception as e:
                     print(f"[Scheduler] Error running scheduled skill {skill_id}: {e}")
             try:
@@ -2587,7 +2591,8 @@ async def agent_chat(agent_id: str, req: ChatRequest):
         # 3. Save as a reusable skill for future similar requests
         from tubecli.core.ai_workflow_builder import generate_workflow
         from tubecli.core.workflow_engine import WorkflowEngine
-        from tubecli.nodes.registry import create_node_from_dict
+        from tubecli.nodes.registry import (NodePolicy, NodePolicyError,
+                                            create_node_from_dict)
 
         action_data_raw = brain_result.get("_raw_action", {})
         skill_name = action_data_raw.get("name") or brain_result.get("skill_name", "New Skill")
@@ -2603,6 +2608,7 @@ async def agent_chat(agent_id: str, req: ChatRequest):
 
         wf_data = None
         wf_result = None
+        wf_blocked = ""      # loại node bị chính sách từ chối, để nói thật với người dùng
         try:
             # Build enriched prompt: original request + instructions hint
             gen_prompt = req.message
@@ -2627,9 +2633,25 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                         nd.setdefault("config", {})["text"] = req.message
                         break
 
-                wf_nodes = [create_node_from_dict(nd) for nd in nodes_data]
+                # generate_workflow() output is the model's own JSON, three lines
+                # old. Nothing about the owner asking for a skill turns it into
+                # the owner's choice of node, so it runs under the model allowlist.
+                wf_nodes = [create_node_from_dict(
+                    nd, policy=NodePolicy.model("api.chat.create_skill"))
+                    for nd in nodes_data]
                 engine = WorkflowEngine(nodes=wf_nodes, connections=connections)
                 wf_result = await engine.run()
+
+        except NodePolicyError as pol_err:
+            # KHÔNG nuốt. ai_workflow_builder dạy model dùng google_auth +
+            # google_sheets + python_code + output, mà chính sách "model" từ
+            # chối đúng những loại đó — nên phần lớn workflow AI sinh ra đều
+            # dừng ở đây. Nuốt lỗi thì `wf_result` = None, luồng rơi xuống
+            # nhánh else và người dùng đọc "✅ Đã tạo skill" cho một việc CHƯA
+            # từng chạy. Skill vẫn được lưu (mang dấu "model") để chủ mở canvas
+            # xem và bấm Run — ở đó chủ là người quyết, nên quyền là của chủ.
+            wf_blocked = str(pol_err)
+            print(f"[AutoSkill] Workflow refused by node policy: {pol_err}")
 
         except Exception as wf_err:
             print(f"[AutoSkill] Workflow generate/run failed: {wf_err}")
@@ -2651,6 +2673,12 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                     workflow_data=wf_data,
                     description=skill_desc or f"AI-generated: {skill_name}",
                     commands=trigger_cmds,
+                    # Model viết workflow này, nên nó không bao giờ được chạy
+                    # với quyền chủ khi một agent kích hoạt lại sau này
+                    # (brain.run_workflow_linear đọc dấu này). Cả nhánh update:
+                    # ghi đè workflow của một skill trùng tên = đưa node của
+                    # model vào chỗ node của người, dấu phải đi theo nội dung.
+                    authored_by="model",
                 )
                 new_skill = existing_skill
             else:
@@ -2663,6 +2691,7 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                         "nodes": []
                     },
                     commands=trigger_cmds,
+                    authored_by="model",
                 )
             skill_used = f"Created Skill: {skill_name}"
 
@@ -2684,6 +2713,18 @@ async def agent_chat(agent_id: str, req: ChatRequest):
                     reply += f"\n\n✅ *Đã lưu thành skill '{skill_name}'* — lần sau hỏi tương tự sẽ dùng ngay."
                 else:
                     reply = f"✅ Đã tạo và chạy workflow cho '{skill_name}'.\nĐã lưu thành skill để dùng lại."
+            elif wf_blocked:
+                # Nói thẳng: đã lưu, CHƯA chạy, và vì sao.
+                reply = (
+                    f"✅ Đã tạo skill **{skill_name}** — nhưng mình CHƯA chạy nó lần này.\n"
+                    f"📝 {skill_desc}\n"
+                    f"🔑 Triggers: `{'`, `'.join(trigger_cmds)}`\n\n"
+                    f"⚠️ Workflow do AI dựng có loại node mà AI không được phép tự dựng:\n"
+                    f"{wf_blocked}\n\n"
+                    f"Mở **{skill_name}** trên canvas Workflow, xem lại từng node rồi bấm Run ở đó — "
+                    f"bạn bấm thì bạn là người quyết nên nó chạy đủ quyền. Bấm Lưu từ canvas cũng "
+                    f"đánh dấu skill này là do bạn dựng, và từ đó agent chạy lại được."
+                )
             else:
                 reply = (
                     f"✅ Đã tạo skill **{skill_name}**\n"
@@ -2848,7 +2889,7 @@ async def get_skill(skill_id: str):
     return skill.to_dict()
 
 @app.post("/api/v1/skills")
-async def create_skill(req: SkillCreateRequest):
+async def create_skill(req: SkillCreateRequest, request: Request):
     from tubecli.core.skill import skill_manager
     data = req.model_dump()
     # Drop unset optional fields so Skill defaults apply
@@ -2858,11 +2899,17 @@ async def create_skill(req: SkillCreateRequest):
     if trigger and not commands:
         commands = [c.strip() for c in trigger.split(",") if c.strip()]
     data["commands"] = commands
+    # Nguồn gốc do MÁY CHỦ quyết, không do body: một agent gọi route này (header
+    # X-TubeCLI-Agent, phiên guest…) cất được skill vào kho, nhưng skill đó mang
+    # dấu "model" nên brain.run_workflow_linear không bao giờ chạy nó với quyền
+    # chủ. Đây là cửa duy nhất còn lại để đưa node vào kho sau khi skills.json
+    # bị chặn khỏi sandbox AI.
+    data["authored_by"] = _skill_author_for_request(request)
     skill = skill_manager.create(**data)
     return {"status": "created", "skill": skill.to_dict()}
 
 @app.put("/api/v1/skills/{skill_id}")
-async def update_skill_endpoint(skill_id: str, req: SkillCreateRequest):
+async def update_skill_endpoint(skill_id: str, req: SkillCreateRequest, request: Request):
     from tubecli.core.skill import skill_manager
     data = req.model_dump()
     # Drop unset optional fields so a partial update never clobbers them
@@ -2876,7 +2923,10 @@ async def update_skill_endpoint(skill_id: str, req: SkillCreateRequest):
     # Remove id/created_at if passed in updates
     data.pop("id", None)
     data.pop("created_at", None)
-    
+    # Sửa workflow = đưa node mới vào kho, nên đóng dấu lại y như lúc tạo. Agent
+    # sửa skill của chủ thì skill đó tụt xuống "model" (phía an toàn); chủ mở
+    # canvas sửa lại rồi lưu thì nó trở về "user".
+    data["authored_by"] = _skill_author_for_request(request)
     skill = skill_manager.update(skill_id, **data)
     if not skill:
         raise HTTPException(404, f"Skill {skill_id} not found")
@@ -2914,7 +2964,7 @@ class SaveAsSkillRequest(BaseModel):
 
 
 @app.post("/api/v1/workflows/save-as-skill")
-async def save_workflow_as_skill(req: SaveAsSkillRequest):
+async def save_workflow_as_skill(req: SaveAsSkillRequest, request: Request):
     """Convert a workflow into a reusable Skill that Agents can execute."""
     from tubecli.core.skill import skill_manager
 
@@ -2922,6 +2972,9 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
         raise HTTPException(400, "Skill name is required")
 
     commands = [req.trigger.strip()] if req.trigger and req.trigger.strip() else []
+    # Cùng cửa vào kho như POST /skills — nút Save của canvas (phiên chủ /
+    # Origin dashboard) đóng dấu "user", mọi caller khác đóng dấu "model".
+    authored_by = _skill_author_for_request(request)
 
     if req.id:
         existing = skill_manager.get(req.id)
@@ -2932,6 +2985,7 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
                 workflow_data=req.workflow_data,
                 description=req.description,
                 commands=commands,
+                authored_by=authored_by,
             )
             return {"status": "updated", "skill": existing.to_dict(), "message": f"Skill '{req.name}' updated"}
 
@@ -2943,6 +2997,7 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
             workflow_data=req.workflow_data,
             description=req.description,
             commands=commands,
+            authored_by=authored_by,
         )
         return {"status": "updated", "skill": existing_by_name.to_dict(), "message": f"Skill '{req.name}' updated (by name)"}
 
@@ -2951,13 +3006,138 @@ async def save_workflow_as_skill(req: SaveAsSkillRequest):
         description=req.description or f"Workflow skill: {req.name}",
         skill_type=req.skill_type,
         workflow_data=req.workflow_data,
-        commands=commands
+        commands=commands,
+        authored_by=authored_by,
     )
     return {"status": "created", "skill": skill.to_dict(), "message": f"Skill '{req.name}' created successfully"}
 
 
+# ── Who is behind a request that builds nodes? ───────────────────
+#
+# /skills/{id}/run and /workflows/run both take a workflow and instantiate
+# its nodes, and both are reachable over loopback - which auth.check_request
+# lets through with no session on purpose, because that is how this machine
+# talks to itself. So "it came from 127.0.0.1" says nothing about WHO asked,
+# and an agent calling its own server is indistinguishable from the owner
+# unless somebody decides. This is that somebody, and it fails towards the
+# model:
+#
+#   X-TubeCLI-Agent header -> model. exec_run_api stamps it on every internal
+#          call it makes (core/telegram_actions.py). The model controls that
+#          call's endpoint and body; it never controls its headers.
+#   guest session -> model. A sharee is not the owner. (_guest_allowed denies
+#          these paths outright today; this survives the day one opens.)
+#   owner session cookie -> user.
+#   one of our own browser pages (an ORIGIN the origin guard accepts)
+#          -> user. This is the dashboard's Run button on an install where no
+#          password has been set, so no session cookie can exist at all.
+#          Origin ONLY, never Referer: the cross-origin middleware above
+#          (_guard_cross_origin) validates `origin` and nothing else, so a
+#          Referer is a header any local curl can type - and _allowed_hosts()
+#          always contains the loopback hosts. Browsers attach Origin to every
+#          non-GET/HEAD fetch including same-origin ones, so both callers that
+#          matter (workflow.js Run, app.js) are unaffected.
+#   an in-process call that DECLARES itself the owner's (_OwnerInProcessCall,
+#          below) -> user. Only the scheduler does this, and only because the
+#          owner is the only one who can set a schedule.
+#   anything else -> model. curl on the box, any other in-process caller, an
+#          extension: full node rights need evidence, not silence. The CLI
+#          (tubecli workflow run) is the unrestricted path for a person.
+class _OwnerInProcessCall:
+    """Đứng thay một Request cho lời gọi KHÔNG có HTTP nào phía sau, mà vẫn là
+    của CHỦ.
+
+    Đúng một caller hôm nay: scheduler nền chạy một skill CHỦ đã đặt lịch
+    (`_run_skill_bg` ở on_startup). Không route nào đặt được `schedule_enabled`
+    — SkillCreateRequest không có trường đó, nên lịch chỉ đến từ dashboard/
+    skills.json, tức từ chính chủ. Một lượt chạy theo lịch vì thế là hành động
+    của chủ bị hoãn lại về thời gian, giống hệt `tubecli skill run`.
+
+    Vì sao không để nó rơi vào nhánh mặc định (model): làm thế thì mọi skill
+    đặt lịch có node browser/api/file lặng lẽ ngừng chạy — một thay đổi hành vi
+    không ai yêu cầu, và người dùng chỉ thấy "tự dưng lịch không chạy nữa".
+
+    ĐIỀU KIỆN để câu trên còn đúng: model KHÔNG đặt được lịch — KHÔNG qua
+    route, và cũng KHÔNG bằng cách ghi thẳng file. Vế thứ hai từng sai: data/
+    nằm trong allowlist của sandbox AI, `skills.json` thì không có trong
+    AI_PROTECTED_DATA_SUBDIRS, nên một `file_action create_file` ghi đè cả kho
+    skill — kể cả `schedule_enabled` — và lịch đó mint quyền chủ ở lần khởi
+    động sau (SkillManager đọc file lúc dựng, không đọc lại). Nay skills.json
+    và agents.json đã nằm trong danh sách chặn đó
+    (extensions/file_manager/file_service.py). Ngày nào có một route (hay một
+    action) cho agent bật `schedule_enabled`, hoặc kho skill lại ghi được từ
+    sandbox, chỗ này phải hạ xuống NodePolicy.model ngay — nếu không, "đặt
+    lịch" thành cửa rửa quyền.
+    """
+
+    def __init__(self, why: str):
+        self.why = why
+        self.headers = {}
+        self.cookies = {}
+        from types import SimpleNamespace
+
+        self.state = SimpleNamespace()
+
+
+def _skill_author_for_request(request: Request) -> str:
+    """"user" | "model" — AI hay người đứng sau lời gọi tạo/sửa skill này.
+
+    Dùng CHÍNH bộ nhận diện của node policy, để "ai được dựng node gì" và "ai
+    được cất node gì vào kho" không bao giờ trả lời khác nhau. Đóng dấu theo
+    người gọi chứ không theo trường trong body: caller tự khai `authored_by`
+    thì dấu này vô nghĩa.
+    """
+    return "model" if _node_policy_for_request(request, "api.skills.author").source == "model" else "user"
+
+
+def _policy_for_stored_skill(request: Request, skill, where: str):
+    """Chính sách node cho một skill ĐÃ NẰM TRONG KHO.
+
+    Lấy phần HẸP hơn giữa (a) người gọi là ai và (b) ai đã dựng skill này.
+    Skill mang dấu "model" thì dù chủ có bấm Run trên dashboard cũng chỉ được
+    allowlist: nội dung workflow là chữ model viết, và chủ bấm Run trên một
+    thẻ skill không có nghĩa là chủ đã đọc từng node bên trong. Đây đúng là
+    "skill do model tạo" mà §1 nói tới.
+    """
+    from tubecli.nodes.registry import NodePolicy
+
+    policy = _node_policy_for_request(request, where)
+    if str(getattr(skill, "authored_by", "user") or "user").lower() == "model":
+        return NodePolicy.model(where + ":model_authored")
+    return policy
+
+
+def _node_policy_for_request(request: Request, where: str):
+    from tubecli.nodes.registry import NodePolicy
+
+    # Lời gọi in-process đã được khai rõ là của chủ (xem _OwnerInProcessCall).
+    # Đứng TRƯỚC mọi thứ khác vì nó không có header, cookie hay Origin nào để
+    # xét — và cũng không bao giờ đến từ mạng, nên không ai giả được nó.
+    if isinstance(request, _OwnerInProcessCall):
+        return NodePolicy.user(f"{where}:{request.why}")
+
+    try:
+        if request.headers.get("x-tubecli-agent"):
+            return NodePolicy.model(where + ":agent")
+        if getattr(request.state, "guest_scope", None):
+            return NodePolicy.model(where + ":guest")
+        from tubecli.core import auth
+
+        if auth.session_valid(request.cookies.get(auth.SESSION_COOKIE)):
+            return NodePolicy.user(where + ":session")
+        page = request.headers.get("origin") or ""
+        if page:
+            from tubecli.core.origin_guard import is_origin_allowed
+
+            if is_origin_allowed(page, request.headers.get("host", "")):
+                return NodePolicy.user(where + ":dashboard")
+    except Exception:
+        pass  # a check that breaks must land on the safe side, not the open one
+    return NodePolicy.model(where)
+
+
 @app.post("/api/v1/skills/{skill_id}/run")
-async def run_skill(skill_id: str, input_text: str = ""):
+async def run_skill(skill_id: str, request: Request, input_text: str = ""):
     """Run a skill by executing its stored workflow. Returns error guidance for AI agents."""
     from tubecli.core.skill import skill_manager
     from tubecli.nodes.registry import create_node_from_dict
@@ -3049,7 +3229,13 @@ async def run_skill(skill_id: str, input_text: str = ""):
                 nd.setdefault("config", {})["text"] = input_text
 
     try:
-        nodes = [create_node_from_dict(nd) for nd in nodes_data]
+        # A stored skill is a recipe; input_text above is whoever is calling.
+        # If that caller cannot be shown to be the owner, the recipe runs with
+        # the model allowlist - otherwise an agent could launder a shell command
+        # through a skill the owner drew months ago. And a recipe the MODEL
+        # wrote stays on the allowlist whoever presses Run.
+        _policy = _policy_for_stored_skill(request, skill, "api.skills.run")
+        nodes = [create_node_from_dict(nd, policy=_policy) for nd in nodes_data]
     except Exception as e:
         raise HTTPException(400, f"Node creation error: {e}")
 
@@ -3100,7 +3286,16 @@ async def generate_workflow_with_ai(req: WorkflowGenerateRequest):
 
 
 @app.post("/api/v1/workflows/run")
-async def run_workflow(req: WorkflowRunRequest):
+async def run_workflow(req: WorkflowRunRequest, request: Request):
+    """Run a workflow posted as JSON.
+
+    The whole workflow arrives in the body, so this route is the shortest path
+    from "can issue an HTTP request to this box" to "run_command node". Two
+    things stand in the way: the login gate in the middleware above (this path
+    is NOT in _AUTH_EXEMPT_EXACT/_PREFIX - checked, and it must stay out), and
+    the node policy below, which is what covers the loopback hole the login
+    gate deliberately leaves open.
+    """
     import asyncio
     from tubecli.nodes.registry import create_node_from_dict
     from tubecli.core.workflow_engine import WorkflowEngine
@@ -3114,7 +3309,8 @@ async def run_workflow(req: WorkflowRunRequest):
                 nd.setdefault("config", {})["text"] = req.input_text
 
     try:
-        nodes = [create_node_from_dict(nd) for nd in nodes_data]
+        _policy = _node_policy_for_request(request, "api.workflows.run")
+        nodes = [create_node_from_dict(nd, policy=_policy) for nd in nodes_data]
     except Exception as e:
         raise HTTPException(400, f"Node creation error: {e}")
 

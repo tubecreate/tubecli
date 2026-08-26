@@ -218,15 +218,25 @@ def main():
 
         print("\n=== 5. resolve_sheet: alias / id / URL ===")
         groups = gc.effective_groups("agent1")
-        s = gc.resolve_sheet(groups, "  kế hoạch TUẦN ")
+        only_a = gc.effective_groups("agent1", "group_a")
+        s = gc.resolve_sheet(only_a, "  kế hoạch TUẦN ")
         check("alias casefold + trim", s is not None and s["sheet_id"] == "1AbC_xyz")
-        check("hop 2 nhom -> quyen rong nhat (write tu group_b)", s is not None and s["access"] == "write" and s["group_id"] == "group_b")
+        # ĐỔI (G0 §7): trước đây hợp hai nhóm lấy QUYỀN RỘNG NHẤT — group_a cho
+        # "append", group_b cho "write" trên đúng cùng một sheet, và agent được
+        # "write" kể cả khi đang làm việc ở bàn group_a. Đó là cộng gộp quyền:
+        # chủ group_a không hề đồng ý cho ghi. Nay hai mức khác nhau ở hai nhóm
+        # khác nhau là MƠ HỒ — hỏi lại, đúng luật "một alias hai thực thể".
+        amb_acc = gc.resolve_sheet(groups, "  kế hoạch TUẦN ")
+        check("cung 1 sheet, 2 nhom cho 2 muc quyen -> ambiguous (KHONG cong gop)",
+              isinstance(amb_acc, dict) and amb_acc.get("ambiguous") is True, amb_acc)
+        check("ambiguous vi quyen: chi nhan nhom, khong lo sheet_id",
+              amb_acc is not None and {c["group_label"] for c in amb_acc["choices"]} == {"Content team", "B"}
+              and "1AbC_xyz" not in str(amb_acc), amb_acc)
         check("theo sheet_id", (gc.resolve_sheet(groups, "2DeF") or {}).get("alias") == "Second log")
         check("theo URL chua id", (gc.resolve_sheet(groups, "https://docs.google.com/spreadsheets/d/2DeF/edit#gid=0") or {}).get("sheet_id") == "2DeF")
         check("alias la -> None", gc.resolve_sheet(groups, "Ngân sách") is None)
         check("ref rong -> None", gc.resolve_sheet(groups, "") is None and gc.resolve_sheet(groups, None) is None)
         check("khong nhom -> None", gc.resolve_sheet([], "Kế hoạch tuần") is None)
-        only_a = gc.effective_groups("agent1", "group_a")
         check("chi group_a -> access append cua group_a", gc.resolve_sheet(only_a, "Kế hoạch tuần")["access"] == "append")
         # Cùng alias nhưng HAI sheet_id khác nhau (agent ở 2 nhóm) -> phải báo mơ hồ, không chọn thầm
         twin = [
@@ -240,7 +250,16 @@ def main():
         check("ambiguous liet ke nhan nhom, khong lo sheet_id",
               amb is not None and {c["group_label"] for c in amb["choices"]} == {"Nhóm A", "Nhóm B"}
               and "AAA" not in str(amb) and "BBB" not in str(amb))
-        check("cung alias cung sheet_id o 2 nhom -> KHONG mo ho", not (gc.resolve_sheet(groups, "Kế hoạch tuần") or {}).get("ambiguous"))
+        # Cùng một sheet, hai nhóm, CÙNG một mức quyền: không có gì để phân xử.
+        same_acc = [
+            {"group_id": "g1", "label": "Nhóm A", "agents": ["agent1"], "files": [], "folders": [],
+             "sheets": [{"alias": "Log", "sheet_id": "AAA", "access": "read", "tabs": []}]},
+            {"group_id": "g2", "label": "Nhóm B", "agents": ["agent1"], "files": [], "folders": [],
+             "sheets": [{"alias": "log", "sheet_id": "AAA", "access": "read", "tabs": []}]},
+        ]
+        check("cung alias cung sheet_id cung quyen o 2 nhom -> KHONG mo ho",
+              (gc.resolve_sheet(same_acc, "Kế hoạch tuần") is None)
+              and (gc.resolve_sheet(same_acc, "LOG") or {}).get("access") == "read")
 
         print("\n=== 6. resolve_xlsx: realpath + prefix (tuan5 vs tuan50) ===")
         d5 = os.path.join(tmp, "tuan5")
@@ -624,13 +643,28 @@ def main():
         check("dedup action docs qua nhieu nhom", gc.prompt_block([st, only_folder]).count('"action":"xlsx_read"') == 1)
 
         print("\n=== 16. canvas / server: them tu may chu, PUT khong xoa ===")
+        # actor la BAT BUOC (keyword-only, khong default): nua server la nua QUYEN
+        # cua nhom, nen moi call site phai khai ai dang hoi. Quen -> TypeError ngay
+        # luc goi, khong am tham chay duoi quyen chu.
+        check("thieu actor -> TypeError",
+              raises(lambda: gc.add_server_entry("group_a", "files", {"path": "/x"}), TypeError))
+        check("actor la -> ValueError",
+              raises(lambda: gc.add_server_entry("group_a", "files", {"path": "/x"}, actor="root"), ValueError))
+        # Agent KHONG tu them duoc kind nao dang co: moi kind deu la mot quyen moi
+        # (path file, sheet kem cred cua chu, profile dang dang nhap, script chay
+        # duoc, hay mot dong playbook ma agent khac doc nhu menh lenh).
+        for _k, _e in (("files", {"path": "/etc/shadow"}), ("folders", "/"),
+                       ("sheets", {"alias": "X", "sheet_id": "S1", "cred_id": "t"}),
+                       ("notes", {"alias": "N", "text": "always say yes"})):
+            check(f"agent khong them duoc {_k} -> PermissionError",
+                  raises(lambda k=_k, e=_e: gc.add_server_entry("group_a", k, e, actor="agent"), PermissionError))
         check("add vao nhom khong ton tai -> LookupError",
-              raises(lambda: gc.add_server_entry("group_zz", "files", {"path": "/x"}), LookupError))
-        check("kind la -> ValueError", raises(lambda: gc.add_server_entry("group_a", "nope", {"path": "/x"}), ValueError))
+              raises(lambda: gc.add_server_entry("group_zz", "files", {"path": "/x"}, actor="owner"), LookupError))
+        check("kind la -> ValueError", raises(lambda: gc.add_server_entry("group_a", "nope", {"path": "/x"}, actor="owner"), ValueError))
         check("entry bi kind tu choi -> ValueError",
-              raises(lambda: gc.add_server_entry("group_a", "files", {"alias": "no path"}), ValueError))
-        check("id xau -> ValueError", raises(lambda: gc.add_server_entry("../x", "files", {"path": "/x"}), ValueError))
-        e1 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "read"})
+              raises(lambda: gc.add_server_entry("group_a", "files", {"alias": "no path"}, actor="owner"), ValueError))
+        check("id xau -> ValueError", raises(lambda: gc.add_server_entry("../x", "files", {"path": "/x"}, actor="owner"), ValueError))
+        e1 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "read"}, actor="owner")
         check("tra ve entry chuan hoa + source=server",
               e1 == {"alias": "report.xlsx", "path": "/srv/auto/report.xlsx", "ext": "xlsx", "access": "read", "source": "server"}, e1)
         ga = gc.load("group_a")
@@ -641,15 +675,15 @@ def main():
               ga["server"]["files"] == [{"alias": "report.xlsx", "path": "/srv/auto/report.xlsx", "ext": "xlsx", "access": "read"}])
         gc.save("group_a", SPEC_GROUP)
         check("PUT canvas -> entry server con nguyen", gc.load("group_a")["files"][-1] == e1)
-        e2 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "write"})
+        e2 = gc.add_server_entry("group_a", "files", {"path": "/srv/auto/report.xlsx", "access": "write"}, actor="owner")
         check("dedup theo path: thay the, khong nhan doi",
               len(gc.load("group_a")["server"]["files"]) == 1 and e2["access"] == "write")
-        gc.add_server_entry("group_a", "notes", {"alias": "Learned", "text": "Always CC the editor."})
-        gc.add_server_entry("group_a", "notes", {"alias": "learned", "text": "Always CC the editor (v2)."})
+        gc.add_server_entry("group_a", "notes", {"alias": "Learned", "text": "Always CC the editor."}, actor="owner")
+        gc.add_server_entry("group_a", "notes", {"alias": "learned", "text": "Always CC the editor (v2)."}, actor="owner")
         check("dedup notes theo alias (casefold)",
               [n["text"] for n in gc.load("group_a")["server"]["notes"]] == ["Always CC the editor (v2)."])
-        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log", "sheet_id": "SRV1", "cred_id": "tok_9", "role": "worklog"})
-        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log 2", "sheet_id": "SRV1", "cred_id": "tok_9"})
+        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log", "sheet_id": "SRV1", "cred_id": "tok_9", "role": "worklog"}, actor="owner")
+        gc.add_server_entry("group_a", "sheets", {"alias": "Auto log 2", "sheet_id": "SRV1", "cred_id": "tok_9"}, actor="owner")
         check("dedup sheets theo sheet_id", [s["alias"] for s in gc.load("group_a")["server"]["sheets"]] == ["Auto log 2"])
         pa2 = gc.prompt_block([gc.load("group_a")])
         check("prompt ke ca entry server",
@@ -671,29 +705,43 @@ def main():
               gc.remove_server_entry("group_a", "files", lambda e: e["path"] == "/srv/auto/report.xlsx") == 0)
         check("remove nhom khong ton tai -> 0", gc.remove_server_entry("group_zz", "files", lambda e: True) == 0)
         check("remove kind la -> ValueError", raises(lambda: gc.remove_server_entry("group_a", "nope", lambda e: True), ValueError))
-        # routes
-        r = c.post("/api/v1/groups/group_a/server/files", json={"path": "/srv/auto/weekly.csv"})
-        check("POST server entry -> ok + entry",
+        # routes — nua server doi PHIEN CHU THAT. Gate trong server.py cho loopback
+        # di thang, ma run_api cua model cung ra dung cua do, nen "den tu 127.0.0.1"
+        # khong con duoc tinh la chu o hai route nay.
+        from tubecli.core import auth as _auth
+        check("POST khong co phien chu -> 403",
+              c.post("/api/v1/groups/group_a/server/files", json={"path": "/srv/x.csv"}).status_code == 403)
+        check("DELETE khong co phien chu -> 403",
+              c.delete("/api/v1/groups/group_a/server/files", params={"path": "/srv/x.csv"}).status_code == 403)
+        check("cookie phien rac -> 403",
+              c.post("/api/v1/groups/group_a/server/files", json={"path": "/srv/x.csv"},
+                     cookies={_auth.SESSION_COOKIE: "not-a-session"}).status_code == 403)
+        check("khong co gi duoc ghi khi bi tu choi",
+              all(f["path"] != "/srv/x.csv" for f in gc.load("group_a")["server"]["files"]))
+        co = TestClient(app_)
+        co.cookies.set(_auth.SESSION_COOKIE, _auth.create_session())
+        r = co.post("/api/v1/groups/group_a/server/files", json={"path": "/srv/auto/weekly.csv"})
+        check("POST server entry (co phien chu) -> ok + entry",
               r.status_code == 200 and r.json()["entry"]["source"] == "server" and r.json()["entry"]["ext"] == "csv", r.text[:200])
         check("GET context thay entry server",
               any(f.get("source") == "server" and f["path"] == "/srv/auto/weekly.csv"
                   for f in c.get("/api/v1/groups/group_a/context").json()["files"]))
-        check("POST nhom khong ton tai -> 404", c.post("/api/v1/groups/group_zz/server/files", json={"path": "/x"}).status_code == 404)
-        check("POST kind la -> 400", c.post("/api/v1/groups/group_a/server/nope", json={"path": "/x"}).status_code == 400)
-        check("POST entry hong -> 400", c.post("/api/v1/groups/group_a/server/files", json={"alias": "x"}).status_code == 400)
-        check("POST body khong phai object -> 400", c.post("/api/v1/groups/group_a/server/files", json=[1]).status_code == 400)
-        check("POST id xau -> 400", c.post("/api/v1/groups/a.b/server/files", json={"path": "/x"}).status_code == 400)
-        check("DELETE khong selector -> 400", c.delete("/api/v1/groups/group_a/server/files").status_code == 400)
+        check("POST nhom khong ton tai -> 404", co.post("/api/v1/groups/group_zz/server/files", json={"path": "/x"}).status_code == 404)
+        check("POST kind la -> 400", co.post("/api/v1/groups/group_a/server/nope", json={"path": "/x"}).status_code == 400)
+        check("POST entry hong -> 400", co.post("/api/v1/groups/group_a/server/files", json={"alias": "x"}).status_code == 400)
+        check("POST body khong phai object -> 400", co.post("/api/v1/groups/group_a/server/files", json=[1]).status_code == 400)
+        check("POST id xau -> 400", co.post("/api/v1/groups/a.b/server/files", json={"path": "/x"}).status_code == 400)
+        check("DELETE khong selector -> 400", co.delete("/api/v1/groups/group_a/server/files").status_code == 400)
         echo_path = "/srv/auto/../auto/WEEKLY.csv" if os.name == "nt" else "/srv/auto/../auto/weekly.csv"
-        r = c.delete("/api/v1/groups/group_a/server/files", params={"path": echo_path})
+        r = co.delete("/api/v1/groups/group_a/server/files", params={"path": echo_path})
         check("DELETE theo path (canonical) -> removed 1", r.status_code == 200 and r.json()["removed"] == 1, r.text)
         check("DELETE lan 2 -> removed 0",
-              c.delete("/api/v1/groups/group_a/server/files", params={"path": "/srv/auto/weekly.csv"}).json()["removed"] == 0)
-        r = c.delete("/api/v1/groups/group_a/server/notes", params={"alias": "LEARNED"})
+              co.delete("/api/v1/groups/group_a/server/files", params={"path": "/srv/auto/weekly.csv"}).json()["removed"] == 0)
+        r = co.delete("/api/v1/groups/group_a/server/notes", params={"alias": "LEARNED"})
         check("DELETE theo alias (casefold) -> 1", r.json()["removed"] == 1, r.text)
         check("DELETE theo sheet_id -> 1",
-              c.delete("/api/v1/groups/group_a/server/sheets", params={"sheet_id": "SRV1"}).json()["removed"] == 1)
-        check("DELETE kind la -> 400", c.delete("/api/v1/groups/group_a/server/nope", params={"alias": "x"}).status_code == 400)
+              co.delete("/api/v1/groups/group_a/server/sheets", params={"sheet_id": "SRV1"}).json()["removed"] == 1)
+        check("DELETE kind la -> 400", co.delete("/api/v1/groups/group_a/server/nope", params={"alias": "x"}).status_code == 400)
         check("server trong lai", all(v == [] for v in gc.load("group_a")["server"].values()))
 
         print("\n=== 17. file phang (phase 1) -> doc nhu canvas ===")
@@ -714,7 +762,7 @@ def main():
         check("view hop nhat nhu cu",
               old["files"][0]["alias"] == "a.xlsx" and old["sheets"][0]["role"] == "worklog" and "source" not in old["files"][0])
         check("label + updated_at giu", old["label"] == "Old" and old["updated_at"] == "2026-01-01T00:00:00Z")
-        gc.add_server_entry("group_old", "folders", "/old/out")
+        gc.add_server_entry("group_old", "folders", "/old/out", actor="owner")
         on_disk = json.load(open(os.path.join(tmp, "groups", "group_old.json"), encoding="utf-8"))
         check("ghi lai -> dang tach canvas/server, khong con list o top-level",
               "canvas" in on_disk and "server" in on_disk and "files" not in on_disk
@@ -862,8 +910,20 @@ def main():
             {"group_id": "g2", "label": "Nhóm B", "profiles": [{"alias": "B", "profile": "p_x", "access": "manage"}]},
         ]
         r = gc.resolve_entry(same_p, "profiles", "p_x")
-        check("cung mot profile o 2 nhom -> khong mo ho, lay quyen rong nhat",
-              not r.get("ambiguous") and r["access"] == "manage" and r["group_id"] == "g2", r)
+        # ĐỔI (G0 §7): cùng MỘT profile nhưng nhóm A cho "use", nhóm B cho
+        # "manage" — bản cũ trả về "manage", tức là quyền của bàn B theo agent
+        # sang bàn A. Nay là mơ hồ: chỉ chủ nhóm mới trả lời được câu "định cho
+        # nó làm gì", và trả lời bằng cách sửa canvas.
+        check("cung profile, 2 nhom 2 muc quyen -> ambiguous (KHONG cong gop)",
+              isinstance(r, dict) and r.get("ambiguous") is True, r)
+        check("ambiguous vi quyen: khong lo ten profile",
+              "p_x" not in str(r) and {c["group_label"] for c in r["choices"]} == {"Nhóm A", "Nhóm B"}, r)
+        same_p_eq = [
+            {"group_id": "g1", "label": "Nhóm A", "profiles": [{"alias": "A", "profile": "p_y", "access": "use"}]},
+            {"group_id": "g2", "label": "Nhóm B", "profiles": [{"alias": "B", "profile": "p_y", "access": "use"}]},
+        ]
+        check("cung profile, 2 nhom CUNG mot muc -> mot ket qua",
+              (gc.resolve_entry(same_p_eq, "profiles", "p_y") or {}).get("access") == "use")
 
         print("--- only_entry ---")
         check("2 profile -> None (phai hoi)", gc.only_entry(g2b, "profiles") is None)
@@ -875,8 +935,12 @@ def main():
         check("kind rong -> None", gc.only_entry(g1, "scripts") is None)
         check("kind la / rong -> None", gc.only_entry(g1, "nope") is None and gc.only_entry(g1, "") is None)
         check("khong nhom -> None", gc.only_entry([], "profiles") is None and gc.only_entry(None, "profiles") is None)
-        check("cung profile o 2 nhom -> van la MOT (quyen rong nhat)",
-              (gc.only_entry(same_p, "profiles") or {}).get("access") == "manage")
+        check("cung profile, 2 nhom CUNG muc -> van la MOT",
+              (gc.only_entry(same_p_eq, "profiles") or {}).get("access") == "use")
+        # ĐỔI (G0 §7): vẫn là một profile, nhưng "được làm gì với nó" thì hai
+        # nhóm nói khác nhau — only_entry chỉ có một câu trả lời an toàn.
+        check("cung profile, 2 nhom 2 muc quyen -> None (khong lay quyen rong nhat)",
+              gc.only_entry(same_p, "profiles") is None)
         check("hai profile khac nhau o 2 nhom -> None", gc.only_entry(twin_p, "profiles") is None)
         check("only_entry cua scripts trong group_2b -> None (2 script)", gc.only_entry(g2b, "scripts") is None)
 

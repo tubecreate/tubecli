@@ -447,9 +447,27 @@ def main():
         # happens before httpx.
         from tubecli.core import telegram_actions as ta
 
-        for ep in ("/api/v1/groups/g_khac/log", "/api/v1/groups", "api/v1/groups/g/context"):
-            r = run(ta.exec_run_api({"method": "GET", "endpoint": ep}))
-            check(f"run_api {ep} bi tu choi", r.startswith("❌"), r[:120])
+        # run_api now sits behind the technician_mode switch and is OFF by
+        # default (spec G0 section 9), so a bare call is refused for a reason
+        # that has nothing to do with /groups. Assert that first, then turn the
+        # switch ON: this block exists to prove the GROUP gate holds, and with
+        # the switch off it would pass whatever that gate did.
+        ta.SETTINGS_FILE = TMP / "global_settings.json"
+        off = run(ta.exec_run_api({"method": "GET", "endpoint": "/api/v1/groups"}))
+        check("run_api TAT theo mac dinh (technician_mode)",
+              off.startswith("❌") and "technician_mode" in off, off[:100])
+        ta.SETTINGS_FILE.write_text(json.dumps({"technician_mode": True}),
+                                    encoding="utf-8")
+        try:
+            for ep in ("/api/v1/groups/g_khac/log", "/api/v1/groups",
+                       "api/v1/groups/g/context"):
+                r = run(ta.exec_run_api({"method": "GET", "endpoint": ep}))
+                check(f"run_api {ep} bi tu choi", r.startswith("❌"), r[:120])
+                check(f"  vi la API nhom, khong phai vi cong tac",
+                      "nhóm" in r, r[:120])
+        finally:
+            # Tra lai mac dinh TAT cho phan con lai cua test.
+            ta.SETTINGS_FILE.unlink()
         check("  route khac khong bi cam nham",
               ta._GROUP_API_RE.match("/api/v1/browser/profiles/tuan5") is None
               and ta._GROUP_API_RE.match("/api/v1/groupsomething") is None)

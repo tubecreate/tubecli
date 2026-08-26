@@ -77,6 +77,59 @@ def _db():
     return db
 
 
+def _safe_variables(value):
+    """Biến của một lượt chạy, đã bỏ mật khẩu/2FA — dùng ĐÚNG bộ lọc của bảng.
+
+    db/database.py đã che ở cả lối vào lẫn lối ra, nên đây là lớp thứ hai, và nó
+    có lý do thật: gói vá nóng chứa file này chứ KHÔNG chứa db/database.py, nên
+    một máy vá nóng có thể đang chạy database.py đời cũ chưa biết che gì. Không
+    gọi được bộ lọc = không trả gì, chứ không phải trả nguyên.
+    """
+    try:
+        _db()  # nạp module db nếu chưa nạp — scrub_variables nằm trong đó
+        return _db_mod.scrub_variables(value)
+    except Exception as e:
+        logger.warning(f"cannot scrub execution variables ({e}) — dropping them")
+        return {}
+
+
+def _safe_execution(row):
+    """Một dòng execution trên đường ra khỏi HTTP."""
+    if isinstance(row, dict) and "variables" in row:
+        row = dict(row)
+        row["variables"] = _safe_variables(row["variables"])
+    return row
+
+
+def _function_slugs(scripts_dir: str):
+    """Những tên script mà bước call_function của runner ĐƯỢC PHÉP nạp.
+
+    call_function ghép slug vào đường dẫn (scripts_dir/<slug>.json) và slug đó có
+    thể do một biến sinh ra, nên bản thân slug là một đường dẫn tuỳ ý. Đây là lớp
+    thứ ba (sau kiểm biến ở group_scripts và kiểm containment trong runner):
+    runner chỉ nạp được cái TÊN CÓ TRONG KHO, không nạp theo đường dẫn.
+
+    Hai nguồn cho cùng một câu trả lời: thư mục runner thật sự đọc, và các slug
+    ScriptStore biết. Gộp lại để đừng chặn nhầm một function có thật khi hai chỗ
+    ấy chưa trỏ về một thư mục.
+    """
+    names = set()
+    try:
+        for item in _store().list_scripts() or []:
+            slug = str((item or {}).get("slug") or "").strip()
+            if slug:
+                names.add(slug)
+    except Exception as e:
+        logger.warning(f"cannot list stored scripts for the call_function allowlist: {e}")
+    try:
+        for fname in os.listdir(scripts_dir):
+            if fname.endswith(".json"):
+                names.add(fname[:-5])
+    except OSError:
+        pass
+    return sorted(names)
+
+
 def _get_node_env():
     """Get environment with NODE_PATH pointing to browser extension's node_modules."""
     env = os.environ.copy()
@@ -507,6 +560,9 @@ async def run_script(script_id: str, req: RunRequest):
             "exec_id": exec_id,
             "profiles_dir": _get_profiles_dir(),
             "scripts_dir": os.path.join(ext_dir, "scripts"),
+            # Kho của call_function. Thiếu khoá này runner tự đọc thư mục lấy
+            # danh sách — vẫn là allowlist, chỉ kém một nguồn tin.
+            "function_slugs": _function_slugs(os.path.join(ext_dir, "scripts")),
         }, f, ensure_ascii=False, indent=2)
 
     _running_logs[exec_id] = []
@@ -645,6 +701,9 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
             "exec_id": exec_id,
             "profiles_dir": _get_profiles_dir(),
             "scripts_dir": os.path.join(ext_dir, "scripts"),
+            # Kho của call_function. Thiếu khoá này runner tự đọc thư mục lấy
+            # danh sách — vẫn là allowlist, chỉ kém một nguồn tin.
+            "function_slugs": _function_slugs(os.path.join(ext_dir, "scripts")),
         }, f, ensure_ascii=False, indent=2)
 
     try:
@@ -718,7 +777,7 @@ async def get_execution_status(script_id: int):
     execs = _db().list_executions(script_id, limit=1)
     if not execs:
         return {"status": "no_executions"}
-    return execs[0]
+    return _safe_execution(execs[0])
 
 @router.post("/execution/{exec_id}/stop")
 async def stop_execution(exec_id: int):
@@ -747,7 +806,10 @@ async def stop_execution(exec_id: int):
 
 @router.get("/executions/history")
 async def execution_history(limit: int = 50):
-    return {"executions": _db().list_executions(limit=limit)}
+    # Bảng executions từng giữ nguyên văn mật khẩu/2FA mà /run tự bơm vào biến
+    # chạy, và chính endpoint này đọc chúng lên. Che ở DB rồi vẫn che lại ở đây:
+    # xem _safe_variables.
+    return {"executions": [_safe_execution(r) for r in _db().list_executions(limit=limit)]}
 
 
 # ── Browser Preview ──

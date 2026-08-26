@@ -14,6 +14,65 @@ _instance = None
 _lock = threading.Lock()
 
 
+# ── Credentials never reach this table ───────────────────────────────
+#
+# `variables` is the bag of inputs a script RUN was given, and
+# POST /api/v1/scripts/{id}/run fills it from the profile's saved account:
+# {service}_password, {service}_recovery, {service}_2fa. Written through
+# verbatim, this table became a plaintext password store — one that
+# GET /api/v1/scripts/executions/history then served back over HTTP.
+#
+# Masked in three places, because there are three ways in: on the way IN
+# (create_execution / update_execution), on the way OUT (_exec_row, for rows
+# older than this code and for a database file restored from a backup), and
+# once over the whole table at startup (scrub_stored_variables).
+#
+# The names come from tubecli.core.secret_names — the same list group_log
+# redacts agent replies with. A copy here would be the one that forgets.
+try:
+    from tubecli.core.secret_names import scrub_mapping as _scrub_mapping
+except Exception as _secret_names_err:  # pragma: no cover - only on an old core
+    _scrub_mapping = None
+    logger.warning(
+        "Script Studio: shared secret-name list unavailable (%s) — execution "
+        "variables will be stored empty until TubeCLI itself is updated",
+        _secret_names_err)
+
+
+def scrub_variables(value):
+    """The variables of a run, minus everything that looks like a credential.
+
+    FAILS CLOSED, three times over:
+      * no shared name list (an extension hot-patched onto an older core, which
+        is a real deployment here) -> nothing is kept;
+      * a column that does not parse as JSON -> there are no keys to judge, so
+        nothing about it can be trusted;
+      * the filter itself raising -> the whole bag is dropped.
+    "We could not check it" must never come out as "so we stored the password".
+    """
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except Exception:
+            return {}
+    if value is None:
+        return {}
+    if not isinstance(value, (dict, list)):
+        return {}
+    if _scrub_mapping is None:
+        return {}
+    try:
+        return _scrub_mapping(value)
+    except Exception as e:
+        logger.warning(f"scrub_variables failed ({e}) — dropping the whole bag")
+        return {}
+
+
+def _variables_column(value):
+    """scrub_variables(), serialised the way this column stores it."""
+    return json.dumps(scrub_variables(value), ensure_ascii=False)
+
+
 class ScriptDatabase:
     """Thread-safe SQLite database for Script Studio."""
 
@@ -89,6 +148,60 @@ class ScriptDatabase:
             """)
             conn.commit()
             logger.info(f"Script Studio DB schema initialized: {self.db_path}")
+        finally:
+            conn.close()
+        # Rows written before create_execution learned to scrub still hold the
+        # password. Closing the door does not empty the room.
+        try:
+            self.scrub_stored_variables()
+        except Exception as e:
+            logger.warning(f"Script Studio: could not sweep old execution variables: {e}")
+
+    # Bumped when a new one-off pass over existing rows is needed.
+    #   1 = executions.variables swept of credentials.
+    SWEEP_VERSION = 1
+
+    def scrub_stored_variables(self, force=False):
+        """One pass over the executions rows written before the door was shut.
+
+        Only the COLUMN is rewritten. The row itself is the owner's record of
+        what ran and when; deleting it to remove a password would be answering
+        a leak with data loss. Returns how many rows changed.
+
+        Skipped entirely when the shared name list is missing: there the filter
+        would mask nothing and empty every row, which is the same data loss by
+        another route. New rows still fail closed (scrub_variables), and the
+        read path still refuses to serve what is down there.
+        """
+        if _scrub_mapping is None:
+            logger.warning("Script Studio: no secret-name list — old execution "
+                           "variables left on disk (they are no longer served)")
+            return 0
+        conn = self._conn()
+        try:
+            done = 0
+            try:
+                done = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+            except Exception:
+                done = 0
+            if done >= self.SWEEP_VERSION and not force:
+                return 0
+            cleaned = 0
+            for row in conn.execute("SELECT id, variables FROM executions").fetchall():
+                raw = row["variables"]
+                if not raw or raw in ("{}", "[]"):
+                    continue
+                safe = _variables_column(raw)
+                if safe != raw:
+                    conn.execute("UPDATE executions SET variables = ? WHERE id = ?",
+                                 (safe, row["id"]))
+                    cleaned += 1
+            conn.execute(f"PRAGMA user_version = {int(self.SWEEP_VERSION)}")
+            conn.commit()
+            if cleaned:
+                logger.warning("Script Studio: scrubbed credentials out of %d old "
+                               "execution row(s) in %s", cleaned, self.db_path)
+            return cleaned
         finally:
             conn.close()
 
@@ -208,7 +321,9 @@ class ScriptDatabase:
             conn.execute(
                 """INSERT INTO executions (script_id, profile_name, status, variables, started_at)
                    VALUES (?, ?, 'running', ?, ?)""",
-                (script_id, profile_name, json.dumps(variables or {}, ensure_ascii=False),
+                # _variables_column, not json.dumps: the caller's dict carries the
+                # profile's real password/2FA when the run was started from the UI.
+                (script_id, profile_name, _variables_column(variables or {}),
                  datetime.utcnow().isoformat())
             )
             conn.commit()
@@ -223,7 +338,12 @@ class ScriptDatabase:
             vals = []
             json_fields = {"variables", "result"}
             for k, v in kwargs.items():
-                if k in json_fields and not isinstance(v, str):
+                if k == "variables":
+                    # The same door as create_execution. No caller updates this
+                    # column today, which is exactly why it has to be shut now:
+                    # the first one that does would otherwise bypass the filter.
+                    v = _variables_column(v)
+                elif k in json_fields and not isinstance(v, str):
                     v = json.dumps(v, ensure_ascii=False)
                 sets.append(f"{k} = ?")
                 vals.append(v)
@@ -245,7 +365,7 @@ class ScriptDatabase:
                 rows = conn.execute(
                     "SELECT * FROM executions ORDER BY id DESC LIMIT ?", (limit,)
                 ).fetchall()
-            return [self._row_to_dict(r) for r in rows]
+            return [self._exec_row(r) for r in rows]
         finally:
             conn.close()
 
@@ -278,6 +398,33 @@ class ScriptDatabase:
             conn.close()
 
     # ── Helpers ──
+
+    def _exec_row(self, row):
+        """An executions row on its way out, with `variables` masked again.
+
+        Not merely belt-and-braces: rows written before this file learned to
+        scrub are still on disk, the startup pass only ever sweeps the database
+        files it is actually run against (an owner who restores an old
+        scripts.db has one that was never swept), and this is the single read
+        path both HTTP endpoints and any in-process caller go through. Scrubbing
+        at the endpoint alone would leave that in-process door open.
+
+        Only the executions table gets this. scripts.variables is the author's
+        DECLARED input list, defaults included — masking those would write
+        "***" back into the script the next time Script Studio saved it.
+        """
+        d = self._row_to_dict(row)
+        if isinstance(d, dict) and "variables" in d:
+            d["variables"] = scrub_variables(d["variables"])
+        # `result` is the runner's variable bag too — run_script_sync reads
+        # result_data["variables"] out of that file, and a script that saves
+        # what it typed into a login form puts the password in there. Nothing
+        # writes this column today, which is the cheapest possible moment to
+        # shut it. Only a MAPPING is masked, so a caller that one day stores a
+        # plain string there still gets its string back.
+        if isinstance(d, dict) and isinstance(d.get("result"), (dict, list)):
+            d["result"] = scrub_variables(d["result"])
+        return d
 
     def _row_to_dict(self, row):
         if not row:

@@ -12,6 +12,12 @@ a manifest — it carries credential ids — nor widen one. The activity log bel
 is on the same footing and for a sharper reason: one agent works in several of
 the owner's groups, so a log the sharee could poll would narrate work in groups
 that were never shared with them.
+
+The two …/server/{kind} paths ask for more than that. They write the half of
+the file that decides what an agent may touch, and the login gate in server.py
+waves loopback through unauthenticated — which is precisely where the model's
+own run_api lands. "It came from 127.0.0.1" therefore proves nothing here, so
+those two demand a real owner session cookie on top; see _require_owner_session.
 """
 import asyncio
 import os
@@ -72,12 +78,35 @@ async def delete_group_context(group_id: str):
     return {"ok": True}
 
 
+def _require_owner_session(request: Request) -> None:
+    """Chỉ CHỦ đang có phiên đăng nhập thật mới đổi được nửa quyền của nhóm.
+
+    Gate trong server.py cho loopback đi thẳng (check_request trả None), nên
+    "đến từ 127.0.0.1" KHÔNG chứng minh là chủ: run_api và mọi đường in-process
+    khác đều ra đúng cái cửa đó. Ở đây đòi cookie phiên chủ — thứ mà chỉ người
+    biết mật khẩu mới có, và cookie guest thì không phải (guest còn bị
+    _guest_allowed từ chối mặc định trước cả khi tới đây).
+
+    403 chứ không 401: người gọi đã qua được gate, cái thiếu là quyền, không
+    phải danh tính.
+    """
+    from tubecli.core import auth
+
+    if not auth.session_valid(request.cookies.get(auth.SESSION_COOKIE)):
+        raise HTTPException(403, "chỉ chủ (phiên đăng nhập) mới sửa được nửa quyền của nhóm — "
+                                 "đăng nhập TubeCLI rồi thử lại")
+
+
 @router.post("/api/v1/groups/{group_id}/server/{kind}")
 async def post_server_entry(group_id: str, kind: str, request: Request):
     """Add one entry to the group's server half — what this machine adds on
     its own (an agent's schedule, a skill it wrote) and the next canvas sync
     must not erase. The body is the entry; the kind decides its shape and
-    which field makes two entries the same (path, sheet_id, alias)."""
+    which field makes two entries the same (path, sheet_id, alias).
+
+    Needs a real owner session, and even then group_context.add_server_entry
+    is the authority on which kinds may land here."""
+    _require_owner_session(request)
     _check_id(group_id)
     try:
         body = await request.json()
@@ -86,9 +115,11 @@ async def post_server_entry(group_id: str, kind: str, request: Request):
     if not isinstance(body, dict):
         raise HTTPException(400, "body must be a JSON object")
     try:
-        entry = group_context.add_server_entry(group_id, kind, body)
+        entry = group_context.add_server_entry(group_id, kind, body, actor="owner")
     except LookupError:
         raise HTTPException(404, f"Group not found: {group_id}")
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True, "group_id": group_id, "kind": kind, "entry": entry}
@@ -107,9 +138,14 @@ def _selector_matches(key: str, have, want: str) -> bool:
 
 
 @router.delete("/api/v1/groups/{group_id}/server/{kind}")
-async def delete_server_entry(group_id: str, kind: str, alias: str = "", path: str = "", sheet_id: str = ""):
+async def delete_server_entry(request: Request, group_id: str, kind: str,
+                              alias: str = "", path: str = "", sheet_id: str = ""):
     """Remove the server entries matching EVERY selector given. Idempotent:
-    removing what is not there is still ok, with removed=0."""
+    removing what is not there is still ok, with removed=0.
+
+    Owner session too: dropping an entry is how an agent would clear the
+    evidence of what it added, and the same loopback exemption applies."""
+    _require_owner_session(request)
     _check_id(group_id)
     wanted = {k: v.strip() for k, v in (("alias", alias), ("path", path), ("sheet_id", sheet_id))
               if v and v.strip()}

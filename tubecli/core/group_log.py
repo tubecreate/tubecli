@@ -46,6 +46,8 @@ import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from tubecli.core.secret_names import ID_NAME_ALT, SECRET_NAME_ALT
+
 logger = logging.getLogger("GroupLog")
 
 # Lines kept per group. Above this the file is rewritten holding the newer
@@ -91,10 +93,12 @@ _CRED_ID_RE = re.compile(r"\b(?:cred|tok|token)_[A-Za-z0-9_-]{3,}", re.IGNORECAS
 # `\w{0,24}` on both sides of the name catches login_password, twoFactorCodes
 # and recoveryEmail. It is BOUNDED rather than `\w*` on purpose: an unbounded
 # prefix makes this a quadratic walk over the 8 KB window below.
+# The names themselves live in tubecli.core.secret_names — the SAME list
+# browser_scripts filters executions.variables with. Spelled out in two files,
+# the two copies drift and whichever loses keeps a password.
 _ID_FIELD_RE = re.compile(
-    r"([\"']?\b\w{0,24}(?:sheet_id|spreadsheet_id|cred_id|credential_id|token_id|"
-    r"access_token|refresh_token|api[_-]?key|apikey|token|password|passwd|pwd|"
-    r"secret|otp|cookie|recovery|two[_-]?factor|2fa|totp|mat_?khau)\w{0,24}\b[\"']?\s*[:=]\s*)"
+    r"([\"']?\b\w{0,24}(?:" + ID_NAME_ALT + "|" + SECRET_NAME_ALT +
+    r")\w{0,24}\b[\"']?\s*[:=]\s*)"
     r"(\"[^\"]*\"|'[^']*'|\[[^\]\r\n]*\]|[^\s,;}\)]+)", re.IGNORECASE)
 # An HTTP auth header carries the whole credential behind a scheme word, with
 # no field name any rule above would recognise ("Authorization: Bearer ya29.…").
@@ -106,9 +110,12 @@ _AUTH_HEADER_RE = re.compile(r"\b((?:Bearer|Basic)[ \t]+)[A-Za-z0-9._~+/=-]{8,}"
 # `.*?` (non-greedy) on purpose: it anchors on the FIRST secret-looking name
 # on the line and `(.+)$` then swallows the whole rest of it. Redacting too
 # much of a log row costs nothing; redacting too little is the bug.
+# Same one list as the rule above. This carried a shorter hand-written copy of
+# it, so a run that echoed back `recovery = …` or `2fa = …` walked onto the
+# canvas while `password = …` was caught — which is exactly how a second copy
+# of a list like this fails.
 _SECRET_KV_RE = re.compile(
-    r"(?im)^(.*?\b(?:password|passwd|pwd|secret|token|otp|cookie|"
-    r"api[_-]?key|mat_?khau)[^\n=]*=\s*)(.+)$")
+    r"(?im)^(.*?\b(?:" + SECRET_NAME_ALT + r")[^\n=]*=\s*)(.+)$")
 # The absolute path of a browser profile names the server's user account and
 # home directory. The tail (browser_profiles/<name>/…) is what the owner
 # actually wants to read, so only the prefix is cut.
