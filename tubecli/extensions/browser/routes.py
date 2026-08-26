@@ -443,7 +443,12 @@ async def api_browser_status():
                     "profile": info.get("profile"),
                     "status": "running",
                     "manual": True,
-                    "is_preview": True
+                    "is_preview": True,
+                    # Cổng của phiên preview: khung Browser trên canvas cần nó để TỰ
+                    # nối vào phiên do agent mở. Không có, khung đứng im ở nút "Mở
+                    # live view" trong khi browser đã chạy — người dùng thấy agent
+                    # bảo "đã mở" mà màn hình trống.
+                    "port": info.get("port")
                 })
                 
     for session_id in dead_sessions:
