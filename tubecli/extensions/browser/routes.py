@@ -1369,6 +1369,198 @@ async def api_browser_deps_install():
     return start_browser_deps_install()
 preview_logger = logging.getLogger("Browser.Preview")
 
+
+# ── Preflight cho /preview/launch ────────────────────────────────────────────
+# Kiểm TRƯỚC khi tốn công spawn node + Chromium. Chắc chắn hỏng thì trả lý do CỤ
+# THỂ để cloud hiện thẳng (không mở WebSocket rồi đóng câm như trước). Mọi nhánh
+# trả dict {reason, message_vi, detail, ...} HOẶC None (mở được). KHÔNG BAO GIỜ
+# ném — đo sai / không đo được thì cho qua, thà không báo còn hơn đoán bừa.
+#
+# Đặt ngay trong routes.py (không tách module riêng) vì bản vá nóng chỉ đẩy
+# routes.py→browser_routes.py sang VPS; một module mới sẽ không được ship và
+# preflight sẽ câm trên đúng cái máy cần nó nhất.
+
+# RAM ước lượng cho MỘT phiên preview: cây ShardX Chromium (browser+zygote+gpu+
+# renderer) ~350–500MB + node/Playwright ~80–120MB. CHƯA đo trên Linux thật (máy
+# build là Windows, không chạy được nhân ShardX Linux) — đây là ước lượng kiến
+# trúc, PHẢI đo lại trên VPS: `ps -o rss --ppid <node_pid>` cộng lại + RSS node
+# cha, rồi đặt env TUBECLI_PREVIEW_SESSION_MB=<số đo được>.
+PREVIEW_SESSION_MB_DEFAULT = 450
+
+
+def _preview_session_mb() -> int:
+    try:
+        v = int(os.environ.get("TUBECLI_PREVIEW_SESSION_MB", "") or 0)
+        return v if v > 0 else PREVIEW_SESSION_MB_DEFAULT
+    except Exception:
+        return PREVIEW_SESSION_MB_DEFAULT
+
+
+def _available_ram_mb() -> Optional[int]:
+    """RAM khả dụng (MB) hay None nếu không đọc được. Trên Linux
+    psutil.virtual_memory().available đọc /proc/meminfo MemAvailable — <1ms, không
+    chặn. Không có psutil thì trả None (bỏ qua, không đoán)."""
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available // (1024 * 1024))
+    except Exception:
+        return None
+
+
+def _minutes_since(value) -> Optional[int]:
+    """Số phút từ mốc bắt đầu tới giờ. Nhận epoch float/int (bản ghi preview) hoặc
+    chuỗi ISO (started_at của agent). None nếu không parse được."""
+    try:
+        import time as _t
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return max(0, int((_t.time() - float(value)) / 60))
+        from datetime import datetime
+        started = datetime.fromisoformat(str(value))
+        return max(0, int((datetime.now() - started).total_seconds() / 60))
+    except Exception:
+        return None
+
+
+def _low_memory_reason(avail_mb, session_mb, in_flight_others: int = 0):
+    """Không đủ RAM cho một phiên mới (cộng phần các phiên đang mở song song sẽ
+    chiếm). Đây chính là "từ chối mở browser thứ ba khi RAM đã cạn" thay vì mở rồi
+    cả mấy cái cùng chết câm."""
+    if avail_mb is None:
+        return None
+    need = int(session_mb) * (1 + max(0, int(in_flight_others)))
+    if avail_mb < need:
+        return {
+            "reason": "low_memory",
+            "free": int(avail_mb),
+            "need": int(need),
+            "session_mb": int(session_mb),
+            "message_vi": (
+                f"Máy còn {int(avail_mb)} MB RAM, mở một trình duyệt cần khoảng "
+                f"{int(need)} MB. Đóng bớt trình duyệt/việc đang chạy hoặc nâng RAM "
+                f"rồi thử lại."
+            ),
+            "detail": (
+                f"MemAvailable={int(avail_mb)}MB need={int(need)}MB "
+                f"session={int(session_mb)}MB inflight_others={int(in_flight_others)}"
+            ),
+        }
+    return None
+
+
+def _preview_busy_reason(profile, preview_sessions, instances):
+    """Profile có phiên SỐNG không (agent điều khiển / khung khác trên canvas)?
+
+    Đây là ranh giới "không được giết phiên của người khác": phải BÁO, không
+    force-kill. `instances` là các bản ghi của browser_process_manager (kèm
+    _process, _agent_id, started_at). `preview_sessions` là _preview_processes
+    (session_id -> {proc, profile, started_at, ...}). Trả dict lý do hoặc None.
+    """
+    profile = str(profile)
+    # 1) Agent (hoặc lần mở tay từ dashboard) đang chạy browser trên profile này.
+    for inst in (instances or []):
+        try:
+            if str(inst.get("profile")) != profile:
+                continue
+            proc = inst.get("_process")
+            if proc is None or proc.poll() is not None:
+                continue                      # đã chết — không tính là bận
+            agent_id = inst.get("_agent_id")
+            mins = _minutes_since(inst.get("started_at"))
+            when = f" (mở {mins} phút trước)" if mins is not None else ""
+            if agent_id:
+                return {
+                    "reason": "profile_busy", "by": "agent",
+                    "who": str(agent_id), "mins": mins, "profile": profile,
+                    "message_vi": (
+                        f"Profile «{profile}» đang được agent «{agent_id}» điều "
+                        f"khiển{when}. Chờ nó xong hoặc dừng phiên đó rồi thử lại."
+                    ),
+                    "detail": (
+                        f"agent_id={agent_id} pid={inst.get('pid')} "
+                        f"started_at={inst.get('started_at')}"
+                    ),
+                }
+            return {
+                "reason": "profile_busy", "by": "manual",
+                "who": None, "mins": mins, "profile": profile,
+                "message_vi": (
+                    f"Profile «{profile}» đang được mở ở nơi khác trên máy này"
+                    f"{when}. Đóng phiên đó rồi thử lại."
+                ),
+                "detail": f"manual pid={inst.get('pid')} started_at={inst.get('started_at')}",
+            }
+        except Exception:
+            continue
+    # 2) Một khung preview khác trên canvas đang mở đúng profile này.
+    for sid, info in list((preview_sessions or {}).items()):
+        try:
+            proc = info.get("proc")
+            if proc is not None and proc.poll() is not None:
+                continue                      # phiên chết — reap ở nơi khác, bỏ qua
+            if str(info.get("profile")) != profile:
+                continue
+            mins = _minutes_since(info.get("started_at"))
+            when = f" (mở {mins} phút trước)" if mins is not None else ""
+            return {
+                "reason": "profile_busy", "by": "frame",
+                "who": None, "mins": mins, "profile": profile,
+                "message_vi": (
+                    f"Profile «{profile}» đang mở ở một khung khác trên canvas"
+                    f"{when}. Đóng khung kia trước rồi thử lại."
+                ),
+                "detail": f"preview_session={sid} port={info.get('port')}",
+            }
+        except Exception:
+            continue
+    return None
+
+
+def _engine_key_reason(profile):
+    """Profile dùng nhân BAS mà chưa có khoá vân tay → không mở được, cần khoá hoặc
+    đổi sang ShardX. (Key HẾT HẠN — có key nhưng expired — chỉ lộ lúc launch, do
+    preview_server.cjs báo qua message WS 'fatal' reason=engine_expired.)"""
+    try:
+        if check_launch_blockers(profile) == "BAS_KEY_REQUIRED":
+            return {
+                "reason": "engine_key", "profile": str(profile),
+                "message_vi": (
+                    f"Profile «{profile}» dùng nhân Security Browser (BAS) cần khoá "
+                    f"vân tay. Nhập khoá trong Cài đặt, hoặc đổi profile sang nhân "
+                    f"ShardX (miễn phí, không cần khoá)."
+                ),
+                "detail": "BAS_KEY_REQUIRED",
+            }
+    except Exception:
+        pass
+    return None
+
+
+def preview_preflight(profile, preview_sessions, instances, in_flight_others: int = 0):
+    """Lý do KHÔNG mở được (dict) hay None (mở được). Thứ tự: cụ thể nhất trước —
+    profile đang bận → thiếu khoá engine → hết RAM. Không nhánh nào được ném."""
+    try:
+        busy = _preview_busy_reason(profile, preview_sessions, instances)
+        if busy:
+            return busy
+    except Exception:
+        pass
+    try:
+        eng = _engine_key_reason(profile)
+        if eng:
+            return eng
+    except Exception:
+        pass
+    try:
+        low = _low_memory_reason(_available_ram_mb(), _preview_session_mb(), in_flight_others)
+        if low:
+            return low
+    except Exception:
+        pass
+    return None
+
+
 @router.post("/preview/launch")
 async def launch_preview(request: Request):
     """Launch a browser for preview/element picking."""
@@ -1383,6 +1575,30 @@ async def launch_preview(request: Request):
     # đó thường đã chết từ lần restart trước và chỉ còn lại khoá.
     force = bool(body.get("force", True))
     async with _launching_lock:
+        # PREFLIGHT — chạy TRƯỚC force-kill: nếu profile đang có phiên SỐNG (agent
+        # hoặc khung khác trên canvas) thì BÁO chứ không giết; nếu RAM/engine chặn
+        # thì từ chối luôn, khỏi spawn node rồi đóng câm. Force-kill bên dưới chỉ để
+        # dọn phiên ĐÃ CHẾT / khoá mồ côi của chính profile này.
+        from .process_manager import browser_process_manager as _bpm
+        try:
+            # Đọc thẳng _instances (kèm _agent_id/_process) thay vì thêm method mới
+            # ở process_manager.py: bản vá nóng chỉ ship routes.py, method mới sẽ
+            # KHÔNG có trên VPS → AttributeError. Cùng tiến trình nên đọc trực tiếp
+            # dưới lock của nó là an toàn.
+            with _bpm._instances_lock:
+                _instances_snapshot = list(_bpm._instances.values())
+        except Exception:
+            _instances_snapshot = []
+        # RAM mà các launch khác đang bay sẽ sớm chiếm — để browser thứ 2/3 bị từ
+        # chối có lý do thay vì cùng OOM (hàng đợi đầy đủ là việc của G1).
+        _in_flight = sum(1 for p in _launching_profiles if p != profile)
+        _pf = preview_preflight(profile, _preview_processes, _instances_snapshot,
+                                in_flight_others=_in_flight)
+        if _pf is not None:
+            # HTTP 200 + {ok:false,...}: cloud hiện message_vi NGAY, không mở WebSocket.
+            preview_logger.info("preflight từ chối %s: %s", profile, _pf.get("reason"))
+            return {"ok": False, **_pf}
+
         if _is_launching(profile) or is_profile_running(profile):
             if not force:
                 raise HTTPException(400, f"Profile '{profile}' is already running or opening.")
@@ -1527,7 +1743,13 @@ async def launch_preview(request: Request):
             )
 
         session_id = f"preview_{int(time.time())}"
-        _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile}
+        # started_at + opened_by: để preflight của LẦN mở sau biết profile này đang
+        # mở ở "một khung khác trên canvas (mở N phút trước)" thay vì báo chung chung.
+        _preview_processes[session_id] = {
+            "proc": proc, "port": port, "profile": profile,
+            "started_at": time.time(),
+            "opened_by": (body.get("opened_by") or "canvas"),
+        }
         return {"status": "launched", "session_id": session_id, "port": port}
     finally:
         async with _launching_lock:

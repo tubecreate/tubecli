@@ -86,6 +86,68 @@ function broadcastFrame(buffer) {
     return { sent, skipped };
 }
 
+// ── Báo lý do CHẾT trước khi tiến trình biến mất ─────────────────────────────
+// Trước đây: mở Chromium hỏng 3 lần thì `throw` trong IIFE không .catch → Node 20
+// kết thúc tiến trình, WS đóng CÂM, cloud chỉ thấy "phiên đóng sớm" không lý do.
+// Giờ: phân loại lastError rồi GỬI một khung WS {type:'fatal',...} cho mọi client,
+// đợi socket đẩy ra dây, MỚI thoát. (Bị OOM SIGKILL thẳng vào tiến trình thì vẫn
+// không kịp gửi gì — đó là lý do phía server có preflight RAM và phía cloud có câu
+// suy đoán mặc định khi đóng câm.)
+//
+// Chỉ dám gọi tên nguyên nhân khi chuỗi lỗi RÕ RÀNG; mơ hồ ("Target closed") thì
+// để 'launch_failed' kèm nguyên văn ở detail, KHÔNG đoán bừa là OOM.
+function classifyFatal(err) {
+    const raw = (err && err.message) ? String(err.message) : String(err || '');
+    const m = raw.toLowerCase();
+    // Key engine hết hạn / thiếu — chuỗi do browser_manager.js ném ra (Key expired!…).
+    if (/key expired|invalid key|security browser|bypass hook|query limit/.test(m)) {
+        return { reason: 'engine_expired',
+                 message: 'Nhân trình duyệt (Security Browser) hết hạn hoặc thiếu khoá. '
+                        + 'Đổi profile này sang nhân ShardX (miễn phí, không cần khoá) rồi thử lại.' };
+    }
+    // Profile đang bị một tiến trình khác giữ khoá.
+    if (/singletonlock|processsingleton|profile.*in use|failed to create.*lock|profilelock/.test(m)) {
+        return { reason: 'lock',
+                 message: 'Profile đang bị một tiến trình khác giữ (khoá SingletonLock). '
+                        + 'Đóng phiên kia rồi thử lại sau vài giây.' };
+    }
+    // CHỈ khi có tín hiệu bộ nhớ RÕ RÀNG mới dám nói OOM.
+    if (/cannot allocate memory|spawn enomem|\benomem\b|out of memory|oom-kill|std::bad_alloc/.test(m)) {
+        return { reason: 'oom',
+                 message: 'Không đủ RAM để mở trình duyệt (hệ điều hành từ chối cấp bộ nhớ). '
+                        + 'Đóng bớt trình duyệt đang mở hoặc nâng RAM rồi thử lại.' };
+    }
+    // Còn lại: nói thẳng "không mở được", nguyên văn lastError nằm ở detail — KHÔNG đoán.
+    return { reason: 'launch_failed',
+             message: 'Không mở được trình duyệt sau nhiều lần thử. Xem chi tiết kỹ thuật '
+                    + 'bên dưới; nếu máy đang thiếu RAM, hãy đóng bớt việc rồi thử lại.' };
+}
+
+let __fatalEmitted = false;
+function emitFatalAndExit(reason, message, detail, code = 1) {
+    // Gửi MỘT lần: nếu vừa emit ở chỗ throw rồi thì handler unhandledRejection sau
+    // đó chỉ việc thoát, không phát 'fatal' nhân đôi.
+    if (__fatalEmitted) { try { process.exit(code); } catch (e) {} return; }
+    __fatalEmitted = true;
+    try { broadcast({ type: 'fatal', reason, message, detail: String(detail || '').slice(0, 2000) }); } catch (e) {}
+    try { log(`FATAL[${reason}]: ${message}`); } catch (e) {}
+    // Cho socket kịp đẩy khung 'fatal' ra dây trước khi tiến trình chết — ws.send
+    // chỉ ghi vào buffer nội bộ; thoát ngay thì cloud lại chỉ thấy onclose câm.
+    setTimeout(() => { try { process.exit(code); } catch (e) {} }, 300);
+}
+
+// Lưới an toàn cho MỌI throw khác trong IIFE (nhánh fallback, page.goto, v.v.):
+// Node 20 vốn đã kết thúc tiến trình khi có unhandledRejection/uncaughtException —
+// ta không làm nó chết thêm, chỉ kịp gửi lý do trước khi chết.
+process.on('unhandledRejection', (err) => {
+    const { reason, message } = classifyFatal(err);
+    emitFatalAndExit(reason, message, (err && err.stack) || String(err));
+});
+process.on('uncaughtException', (err) => {
+    const { reason, message } = classifyFatal(err);
+    emitFatalAndExit(reason, message, (err && err.stack) || String(err));
+});
+
 (async () => {
     // Dynamic import BrowserManager (it's ESM)
     const { BrowserManager } = await import('./browser_manager.js');
@@ -764,7 +826,13 @@ function broadcastFrame(buffer) {
         }
 
         if (!success) {
-            throw new Error(`Failed to launch browser after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
+            // Phân loại lastError (đã được browser_manager.js gắn hint) rồi BÁO qua WS
+            // trước khi thoát — thay cho `throw` câm cũ. return: không throw để tránh
+            // handler unhandledRejection phát 'fatal' lần hai.
+            const { reason, message } = classifyFatal(lastError);
+            const detail = `Failed after ${maxAttempts} attempts. Last error: ${lastError?.message || lastError}`;
+            emitFatalAndExit(reason, message, detail);
+            return;
         }
     } else if (plugin) {
         const browser = await plugin.launch({ headless: true });
