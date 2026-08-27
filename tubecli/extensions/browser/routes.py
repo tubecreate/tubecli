@@ -1294,6 +1294,27 @@ def _resolve_port_for_profile(profile):
         _preview_processes.pop(sid, None)
     return port
 
+
+def _preview_tail_for_profile(profile, n=15):
+    """Vài dòng stdout CUỐI của tiến trình node preview cho PROFILE này (nếu còn sổ).
+
+    launch_preview cất deque early_output vào _preview_processes[...] để đường
+    /preview/last-error gom được nhật ký THẬT vào `detail` (không rỗng). Đọc thôi,
+    không reap — proc có thể đã chết nhưng deque vẫn còn nội dung thread reader đổ vào.
+    """
+    prof = str(profile or "")
+    if not prof:
+        return ""
+    try:
+        for info in list(_preview_processes.values()):
+            if str(info.get("profile")) == prof:
+                buf = info.get("early_output")
+                if buf:
+                    return "\n".join(list(buf)[-n:])
+    except Exception:
+        pass
+    return ""
+
 # ── Node dependency bootstrap ────────────────────────────────────────────────
 # The extension installs its npm packages in on_enable(), which runs once. A host
 # that had no Node at that moment — the normal case on Linux, where the installer
@@ -1749,6 +1770,9 @@ async def launch_preview(request: Request):
             "proc": proc, "port": port, "profile": profile,
             "started_at": time.time(),
             "opened_by": (body.get("opened_by") or "canvas"),
+            # Giữ deque stdout để /preview/last-error gom nhật ký THẬT vào detail nếu
+            # browser chết SAU khi đã listen (crash sau launch-success là ca hay gặp).
+            "early_output": early_output,
         }
         return {"status": "launched", "session_id": session_id, "port": port}
     finally:
@@ -1948,6 +1972,71 @@ async def proxy_screenshot(port: int):
         detail = f"Could not reach preview server on port {port}: {e}"
         preview_logger.error(f"[Screenshot Proxy] {detail}")
     raise HTTPException(502, detail)
+
+
+@router.get("/preview/last-error")
+async def api_preview_last_error(profile: str = "", request: Request = None):
+    """Lý do THẬT khiến preview của <profile> chết TRƯỚC khi hiện được hình.
+
+    preview_server.cjs ghi <profile>/preview_last_error.json {reason,message,detail,at}
+    ngay trước khi thoát khi CHƯA everReady (và xoá khi một phiên đã xem được hình). Cloud
+    gọi đường này khi WebSocket đóng CÂM — khung 'fatal' qua WS có thể mất do timing (WS
+    chưa connect lúc server phát) — để nói ĐÚNG lý do thay vì đoán "hết RAM".
+
+    Trả {reason, message_vi, detail, at} nếu file MỚI (~2 phút), ngược lại {} (không có
+    lỗi gần đây / file cũ không liên quan lần đóng này).
+
+    Owner-only: KHÁCH (workspace chia sẻ) KHÔNG được đọc nhật ký lỗi máy chủ.
+    """
+    # Khách (request.state.guest_scope != None) không được xem log lỗi máy chủ.
+    if request is not None and getattr(getattr(request, "state", None), "guest_scope", None) is not None:
+        raise HTTPException(403, "Chỉ chủ máy mới xem được nhật ký lỗi preview")
+
+    prof = str(profile or "").strip()
+    if not prof:
+        return {}
+
+    from .profile_manager import PROFILES_DIR
+    err_path = os.path.join(PROFILES_DIR, prof, "preview_last_error.json")
+    # Chống path traversal: realpath của file PHẢI nằm trong PROFILES_DIR (chặn "../").
+    try:
+        base = os.path.realpath(PROFILES_DIR)
+        real = os.path.realpath(err_path)
+        if os.path.commonpath([base, real]) != base:
+            return {}
+    except Exception:
+        return {}
+    if not os.path.isfile(err_path):
+        return {}
+
+    # Chỉ trả nếu file MỚI. Cửa sổ ~2 phút (nới hơn con số 60s trong spec) để bù độ trễ
+    # launch (tới 25s) + thời điểm cloud gọi sau khi WS đóng; file cũ hơn là của lần
+    # hỏng xa trước, KHÔNG liên quan lần đóng này nên coi như không có.
+    try:
+        if (time.time() - os.path.getmtime(err_path)) > 120:
+            return {}
+    except Exception:
+        return {}
+    try:
+        with open(err_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+
+    reason = data.get("reason") or "browser_crashed"
+    message = data.get("message") or ""
+    detail = data.get("detail") or ""
+    at = data.get("at") or ""
+
+    # Gom vài dòng stdout CUỐI của tiến trình node preview (nếu phiên còn trong sổ) để
+    # "xem nhật ký" có nội dung thật chứ không rỗng.
+    tail = _preview_tail_for_profile(prof)
+    if tail:
+        detail = (detail + "\n\n--- nhật ký preview (mới nhất) ---\n" + tail) if detail else tail
+
+    return {"reason": reason, "message_vi": message, "detail": detail, "at": at}
 
 
 @router.post("/preview/control/{port}/{action:path}")

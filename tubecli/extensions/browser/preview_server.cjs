@@ -44,6 +44,47 @@ function log(msg) {
 const clients = new Set();
 const wss = new WebSocketServer({ noServer: true });
 
+// ── Trạng thái "đã hiện được hình chưa" + dấu lỗi bền ────────────────────────
+// everReady = đã tới trạng thái ready / đã stream được khung hình đầu. Nó chia đôi
+// mọi đường CHẾT của browser:
+//   • chết khi CHƯA everReady = LỖI mở (phải nói lý do phân loại), KHÔNG phải RAM —
+//     vì các profile khác vẫn mở được thì không thể là hết RAM;
+//   • chết SAU khi everReady = người dùng đã xem được rồi mới đóng ⇒ đóng bình
+//     thường, thoát 0 như cũ.
+// storageDirRef / serverRef nâng storageDir và server (vốn nằm trong IIFE) lên
+// module-scope để các handler lỗi ở mức module (unhandledRejection/uncaughtException/
+// emitFatalAndExit/onBrowserDeath) ghi file và đóng server được.
+let everReady = false;
+let storageDirRef = '';
+let serverRef = null;
+
+function writeLastError(reason, message, detail) {
+    // Ghi lý do CHẾT-TRƯỚC-KHI-HIỆN-HÌNH ra file bền để routes.py đọc lại kể cả khi
+    // khung WS 'fatal' bị mất do timing (WS chưa connect lúc server phát khung này).
+    if (!storageDirRef) return;
+    try {
+        fs.writeFileSync(
+            path.join(storageDirRef, 'preview_last_error.json'),
+            JSON.stringify({ reason, message, detail: String(detail || '').slice(0, 4000),
+                             at: new Date().toISOString() }),
+            'utf-8');
+    } catch (e) {}
+}
+function clearLastError() {
+    // Một phiên đã xem được hình ⇒ dấu lỗi của phiên trước không còn đúng, xoá đi.
+    if (!storageDirRef) return;
+    try {
+        const p = path.join(storageDirRef, 'preview_last_error.json');
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+    } catch (e) {}
+}
+function markReady() {
+    // Gọi khi đã tới ready / khung đầu tới được client. Đặt everReady + xoá dấu lỗi cũ.
+    if (everReady) return;
+    everReady = true;
+    clearLastError();
+}
+
 function broadcast(data) {
     const msg = JSON.stringify(data);
     for (const ws of clients) {
@@ -83,6 +124,7 @@ function broadcastFrame(buffer) {
             clients.delete(ws);
         }
     }
+    if (sent > 0) markReady();   // khung đầu tới được client = đã hiện được hình
     return { sent, skipped };
 }
 
@@ -117,6 +159,19 @@ function classifyFatal(err) {
                  message: 'Không đủ RAM để mở trình duyệt (hệ điều hành từ chối cấp bộ nhớ). '
                         + 'Đóng bớt trình duyệt đang mở hoặc nâng RAM rồi thử lại.' };
     }
+    // Browser MỞ ĐƯỢC rồi target/renderer chết giữa chừng — Playwright ném các chuỗi
+    // này khi context/target/trang biến mất. KHÔNG phải hết RAM (các profile khác vẫn
+    // mở được): thường do hồ sơ hỏng, user-data-dir lỗi, hay nhân trình duyệt không hợp.
+    //
+    // Cố ý KHÔNG bắt "browser has been closed" ở đây: chuỗi "Target page, context or
+    // browser has been closed" là lỗi lúc MỞ (launch thất bại) — để nguyên launch_failed.
+    // Đường CHẾT-SAU-KHI-MỞ đã được onBrowserDeath quy về browser_crashed rồi.
+    if (/(^|[^a-z])target closed|browsercontext.*newpage|protocol error/.test(m)) {
+        return { reason: 'browser_crashed',
+                 message: `Trình duyệt mở lên rồi tắt ngay (hồ sơ «${profileName}»). Thường do hồ sơ `
+                        + `này bị lỗi hoặc nhân trình duyệt không hợp — KHÔNG phải hết RAM (các hồ sơ `
+                        + `khác vẫn mở được). Thử tạo lại hồ sơ hoặc đổi nhân.` };
+    }
     // Còn lại: nói thẳng "không mở được", nguyên văn lastError nằm ở detail — KHÔNG đoán.
     return { reason: 'launch_failed',
              message: 'Không mở được trình duyệt sau nhiều lần thử. Xem chi tiết kỹ thuật '
@@ -129,11 +184,43 @@ function emitFatalAndExit(reason, message, detail, code = 1) {
     // đó chỉ việc thoát, không phát 'fatal' nhân đôi.
     if (__fatalEmitted) { try { process.exit(code); } catch (e) {} return; }
     __fatalEmitted = true;
+    // Trước khi thoát vì BẤT KỲ lý do gì mà CHƯA hiện được hình, ghi lý do ra file bền
+    // để PHẦN B (/preview/last-error) đọc lại kể cả khi khung 'fatal' qua WS bị mất.
+    if (!everReady) writeLastError(reason, message, detail);
     try { broadcast({ type: 'fatal', reason, message, detail: String(detail || '').slice(0, 2000) }); } catch (e) {}
     try { log(`FATAL[${reason}]: ${message}`); } catch (e) {}
     // Cho socket kịp đẩy khung 'fatal' ra dây trước khi tiến trình chết — ws.send
     // chỉ ghi vào buffer nội bộ; thoát ngay thì cloud lại chỉ thấy onclose câm.
     setTimeout(() => { try { process.exit(code); } catch (e) {} }, 300);
+}
+
+// ── Mọi đường CHẾT của browser đều phải mang lý do khi CHƯA hiện được hình ─────
+// Dùng cho context.on('close') / browser.on('disconnected') / page.on('crash').
+// Định nghĩa ở module-scope (dùng serverRef thay vì server) để test trích được
+// nguyên hàm, và để attachPageListeners/context.on trong IIFE gọi qua closure.
+function onBrowserDeath(kind, detail) {
+    if (everReady) {
+        // Người dùng đã xem được hình rồi mới đóng → đóng bình thường, thoát 0 như cũ.
+        try { log(`Browser closed (${kind})`); } catch (e) {}
+        try { if (serverRef) serverRef.close(); } catch (e) {}
+        process.exit(0);
+        return;
+    }
+    // Chết TRƯỚC khi hiện được hình: đây là LỖI mở, KHÔNG phải người dùng đóng.
+    const c = classifyFatal(detail || kind);
+    if (c.reason === 'launch_failed') {
+        // classifyFatal không nhận ra tín hiệu cụ thể (engine/lock/oom). Nhưng browser
+        // ĐÃ mở (launch success) rồi mới chết ⇒ bản chất là "mở rồi tắt ngay" =
+        // browser_crashed. KHÔNG suy đoán hết RAM (các hồ sơ khác vẫn mở được).
+        emitFatalAndExit('browser_crashed',
+            `Trình duyệt mở lên rồi tắt ngay (hồ sơ «${profileName}»). Thường do hồ sơ này bị `
+          + `lỗi hoặc nhân trình duyệt không hợp — KHÔNG phải hết RAM (các hồ sơ khác vẫn mở `
+          + `được). Thử tạo lại hồ sơ hoặc đổi nhân.`,
+            detail || kind);
+    } else {
+        // engine_expired / lock / oom / browser_crashed — nói đúng tên đã phân loại.
+        emitFatalAndExit(c.reason, c.message, detail || kind);
+    }
 }
 
 // Lưới an toàn cho MỌI throw khác trong IIFE (nhánh fallback, page.goto, v.v.):
@@ -165,6 +252,7 @@ process.on('uncaughtException', (err) => {
             storageDir = profileDir;
         }
     }
+    storageDirRef = storageDir;   // để handler lỗi module-scope ghi preview_last_error.json
 
     // Cleanup stale locks
     if (storageDir && fs.existsSync(storageDir)) {
@@ -681,6 +769,7 @@ process.on('uncaughtException', (err) => {
             res.end('Not found');
         }
     });
+    serverRef = server;   // để onBrowserDeath (module-scope) đóng được server khi thoát
 
     // Handle WebSocket upgrade
     server.on('upgrade', (req, socket, head) => {
@@ -853,11 +942,34 @@ process.on('uncaughtException', (err) => {
         context = await browser.newContext();
     }
 
+    // ── Bắt mọi đường CHẾT của browser NGAY khi context tồn tại ───────────────
+    // Đặt SỚM (ngay sau launch) để crash trong lúc goto/khởi tạo trang cũng có
+    // listener bắt, không rơi vào onclose CÂM. context.on('close') là tín hiệu chung
+    // cho cả persistent context (ShardX) lẫn context thường. browser.on('disconnected')
+    // chỉ có khi context.browser() != null (persistent context trả null — 'close' đã
+    // đủ). page.on('crash') gắn trong attachPageListeners. Phân loại & thoát nằm trong
+    // onBrowserDeath: chưa everReady → báo lý do; đã everReady → đóng bình thường.
+    context.on('close', () => onBrowserDeath('context closed'));
+    try {
+        const browserObj = (typeof context.browser === 'function') ? context.browser() : null;
+        if (browserObj && typeof browserObj.on === 'function') {
+            browserObj.on('disconnected', () => onBrowserDeath('browser disconnected'));
+        }
+    } catch (e) {}
+
     // ── Quản lý nhiều tab ────────────────────────────────────────────
     function attachPageListeners(p) {
         if (p.__ssBound) return; p.__ssBound = true;
         p.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
         p.on('filechooser', async (fc) => { activeFileChooser = fc; broadcast({ type: 'file_chooser_open', multiple: fc.isMultiple() }); });
+        p.on('crash', () => {
+            // Renderer của tab chết. Nếu CHƯA hiện được hình (thường tab chính đang tải)
+            // → đây là lỗi mở, báo lý do. Nếu ĐÃ hiện hình rồi thì chỉ MỘT tab hỏng,
+            // browser vẫn sống — KHÔNG xé cả phiên preview, chỉ ghi log (context.on('close')
+            // sẽ lo nếu cả browser chết).
+            if (!everReady) onBrowserDeath('page crashed', 'Target page crashed before first frame');
+            else { try { log('Một tab bị crash (renderer) nhưng phiên vẫn chạy.'); } catch (e) {} }
+        });
         p.on('framenavigated', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
         p.on('load', async () => { if (p === page) { broadcast({ type: 'url_changed', url: p.url() }); await triggerImmediateFrame(); } broadcastTabs(); });
         p.on('close', () => { try { broadcastTabs(); } catch (e) {} });
@@ -969,6 +1081,7 @@ process.on('uncaughtException', (err) => {
     broadcastTabs();
 
     isBrowserReady = true;
+    markReady();   // đã tới ready → everReady, và xoá dấu lỗi phiên trước nếu còn
     log('Browser is now ready and streaming.');
     
     // Broadcast initial state to any already-connected clients
@@ -976,10 +1089,8 @@ process.on('uncaughtException', (err) => {
     broadcast({ type: 'browser_ready', url: page.url() });
     triggerImmediateFrame().catch(()=>{});
 
-    // Handle browser close
-    context.on('close', () => {
-        log('Browser closed');
-        server.close();
-        process.exit(0);
-    });
+    // Đóng browser đã được onBrowserDeath xử lý (đăng ký ngay sau launch, ở trên): chưa
+    // everReady → báo lý do phân loại; đã everReady → log + đóng server + thoát 0. KHÔNG
+    // đăng ký context.on('close') câm ở đây nữa (đó chính là chỗ trước đây thoát 0 không
+    // lý do khiến cloud rơi về câu suy đoán "hết RAM").
 })();
