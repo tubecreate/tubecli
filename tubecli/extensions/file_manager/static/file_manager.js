@@ -32,6 +32,23 @@
 (function () {
     'use strict';
 
+    // ── Theme (?theme=glass → light) ─────────────────────────────────
+    // The authoritative reader is the inline pre-paint script in
+    // file_manager.html <head>; this fallback exists for any host that
+    // serves this script against a stale cached html. Idempotent: it only
+    // writes data-theme when the html script has not already decided.
+    // Coexists with ?mode=picker — init() reads its own params below.
+    try {
+        if (!document.documentElement.hasAttribute('data-theme')) {
+            var themeParam = new URLSearchParams(window.location.search).get('theme');
+            if (themeParam === 'glass' || themeParam === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (themeParam === 'dark' || window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        }
+    } catch (eTheme) { /* dark default stands */ }
+
     // ══════════════════════════════════════════════════════════════════
     // i18n — same T() / applyI18n() / data-i18n contract as the dashboard
     // ══════════════════════════════════════════════════════════════════
@@ -1677,27 +1694,108 @@
             });
         },
 
-        // Upload danh sách file vào currentPath (FormData multipart) rồi refresh thư mục.
+        // Upload vào currentPath. Gửi TỪNG FILE MỘT bằng XHR.
+        //
+        // Bản cũ gộp mọi file vào MỘT request qua fetch(), hỏng ở ba chỗ:
+        //   1. fetch() KHÔNG báo được tiến trình tải lên → không vẽ nổi thanh %, video
+        //      lớn nhìn như treo.
+        //   2. Gộp hết vào một request dễ vượt trần 100MB/request của Cloudflare edge,
+        //      và đi qua tunnel lâu quá ~100s thì bị cắt (524).
+        //   3. Hỏng một file là hỏng cả lô, không biết hỏng cái nào.
+        // Gửi từng file thì mỗi request nhỏ, biết đang ở file nào, và một file lỗi
+        // không kéo theo các file còn lại.
+        _xhrUpload: function (url, fd, onProgress) {
+            return new Promise(function (resolve, reject) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', url);
+                xhr.withCredentials = true;
+                if (xhr.upload) {
+                    xhr.upload.onprogress = function (e) {
+                        if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+                    };
+                }
+                xhr.onload = function () {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        try { resolve(JSON.parse(xhr.responseText || '{}')); }
+                        catch (x) { resolve({}); }
+                    } else {
+                        reject(new Error('HTTP ' + xhr.status +
+                            (xhr.status === 413 ? ' (file quá lớn)' : '') +
+                            (xhr.status === 524 ? ' (quá thời gian qua tunnel)' : '') +
+                            ' ' + String(xhr.responseText || '').slice(0, 160)));
+                    }
+                };
+                xhr.onerror = function () { reject(new Error('Mất kết nối khi tải lên')); };
+                xhr.ontimeout = function () { reject(new Error('Quá thời gian tải lên')); };
+                xhr.send(fd);
+            });
+        },
+
+        _uploadBar: function (show, pct, nhan) {
+            var el = document.getElementById('fmUpBar');
+            if (!el) {
+                el = h('div', { id: 'fmUpBar' });
+                el.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:99999;' +
+                    'min-width:280px;max-width:82vw;background:#1e1e26;border:1px solid #33333f;border-radius:10px;' +
+                    'padding:10px 13px;box-shadow:0 12px 32px rgba(0,0,0,.5);display:none;';
+                el.innerHTML = '<div id="fmUpText" style="font-size:12px;color:#e8e8ef;margin-bottom:7px;' +
+                    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>' +
+                    '<div style="height:6px;border-radius:99px;background:#262630;overflow:hidden">' +
+                    '<i id="fmUpFill" style="display:block;height:100%;width:0;background:#7c3aed;' +
+                    'border-radius:99px;transition:width .15s"></i></div>';
+                document.body.appendChild(el);
+            }
+            el.style.display = show ? 'block' : 'none';
+            if (!show) return;
+            document.getElementById('fmUpText').textContent = nhan || '';
+            document.getElementById('fmUpFill').style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+        },
+
         async uploadFiles(fileList) {
             var files = Array.prototype.slice.call(fileList || []);
             if (!files.length) return;
             if (!this.currentPath) { this.showGridError(T('fm.upload_no_dir')); return; }
-            var fd = new FormData();
-            fd.append('dir', this.currentPath);
-            files.forEach(function (f) { fd.append('files', f, f.name); });
             var here = this.currentPath;
+            var self = this;
+            var tong = files.reduce(function (n, f) { return n + f.size; }, 0);
+            var xong = 0, ok = 0;
+            var loi = [];
+            var mb = function (n) { return (n / 1048576).toFixed(1) + 'MB'; };
+
+            // Cloudflare cắt ở 100MB/request và FM server chưa có endpoint ghép mảnh,
+            // nên file quá lớn phải báo trước thay vì để nó chạy rồi mới lỗi khó hiểu.
+            var QUA_LON = 95 * 1024 * 1024;
+
             this.setStatus(here, T('fm.uploading', { n: files.length }));
-            try {
-                var data = await requestJson('/api/v1/file-manager/upload', { method: 'POST', body: fd, credentials: 'include' });
-                await this.navigate(here);
-                var n = (data && data.saved ? data.saved.length : files.length);
-                this.setStatus(here, T('fm.uploaded', { n: n }));
-                if (data && data.errors && data.errors.length) {
-                    this.showGridError(data.errors.map(function (x) { return x.name + ': ' + x.error; }).join('\n'));
+            this._uploadBar(true, 0, '');
+            for (var i = 0; i < files.length; i++) {
+                var f = files[i];
+                var nhan = (files.length > 1 ? (i + 1) + '/' + files.length + ' · ' : '') + f.name + ' (' + mb(f.size) + ')';
+                if (f.size > QUA_LON) {
+                    loi.push(f.name + ': quá ' + mb(QUA_LON) + ' — hãy dùng Google Drive hoặc chia nhỏ file');
+                    xong += f.size;
+                    continue;
                 }
-            } catch (e) {
-                this.showGridError(e.message);
+                var fd = new FormData();
+                fd.append('dir', here);
+                fd.append('files', f, f.name);
+                var daXong = xong;
+                try {
+                    await this._xhrUpload(API_ORIGIN + '/api/v1/file-manager/upload', fd,
+                        function (loaded) {
+                            self._uploadBar(true, Math.round(((daXong + loaded) / tong) * 100), nhan);
+                        });
+                    ok++;
+                } catch (e) {
+                    loi.push(f.name + ': ' + (e && e.message ? e.message : e));
+                }
+                xong += f.size;
+                this._uploadBar(true, Math.round((xong / tong) * 100), nhan);
             }
+            this._uploadBar(false);
+            await this.navigate(here);
+            this.setStatus(here, T('fm.uploaded', { n: ok }));
+            if (loi.length) this.showGridError(loi.join('\n'));
         },
 
         // ── Navigation ───────────────────────────────────────────────

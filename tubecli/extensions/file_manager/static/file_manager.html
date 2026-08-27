@@ -12,7 +12,32 @@
   SVG sprite rather than an icon font: a failed icon-font load renders the ligature
   name as literal text ("folder_open") and reflows every toolbar.
 -->
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=7">
+<script>
+/*
+ * Pre-paint theme. Must run BEFORE the stylesheet applies so there is no dark
+ * flash when the Flow canvas embeds this page in glass (light) mode.
+ * Contract (same as the cloud's other extension pages): the canvas appends
+ * ?theme=glass to the iframe URL only when its glass theme is active; this
+ * page answers by setting data-theme="light" on <html>, which activates the
+ * light token block in file_manager.css. With no theme param: standalone
+ * follows prefers-color-scheme, but an EMBEDDED page (window.self !== top)
+ * pins itself dark so a dark canvas on a light-OS machine stays coherent.
+ * Coexists with ?mode=picker — both params are read independently.
+ */
+(function () {
+    try {
+        var t = new URLSearchParams(window.location.search).get('theme');
+        if (t === 'glass' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else if (window.self !== window.top) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+})();
+</script>
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=8">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -1370,7 +1395,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=14"></script>
+<script src="/file-manager-static/file_manager.js?v=15"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.

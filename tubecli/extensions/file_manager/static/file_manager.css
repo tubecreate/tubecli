@@ -67,6 +67,67 @@
     --fm-seg-8: #fb7185;
 }
 
+/* ── Light theme ─────────────────────────────────────────────────────────────
+   Values mirror the cloud Flow "glass" palette (.flow-theme-glass in the cloud
+   app's globals.css): ground #f7f8fa, white panels, slate ink #1e293b, lines
+   rgba(15,23,42,.1). Accents (--primary #5276EB, --purple) stay as-is; status
+   inks darken so they pass contrast on white.
+   Activation contract (same as capcut_tts/static/capcut.html):
+   the embedding canvas appends ?theme=glass to the iframe URL and the pre-paint
+   script in file_manager.html (plus a fallback in file_manager.js) sets
+   data-theme="light" on <html>. Standalone, prefers-color-scheme decides —
+   guarded so an explicit data-theme always wins. The two blocks below are
+   intentionally verbatim copies of each other: CSS cannot share a declaration
+   list between a media query and an attribute selector without a preprocessor. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f7f8fa;
+    --bg2: rgba(255, 255, 255, 0.85);
+    --bg3: #eef1f6;
+    --bg-hover: rgba(15, 23, 42, 0.05);
+    --bg-secondary: #eef1f6;
+    --bg-dark: #e8ebf1;
+    --bg-lighter: #f3f5f9;
+    --border: rgba(15, 23, 42, 0.1);
+    --border-subtle: rgba(15, 23, 42, 0.06);
+    --text: #1e293b;
+    --text2: rgba(30, 41, 59, 0.78);
+    --text-muted: rgba(30, 41, 59, 0.66);
+    --text-subtle: rgba(30, 41, 59, 0.5);
+    --green: #15803d;
+    --orange: #b45309;
+    --pink: #db2777;
+    --red: #dc2626;
+    --shadow-soft: 0 1px 3px rgba(15, 23, 42, 0.1);
+    --shadow-warm: 0 2px 12px -2px rgba(82, 118, 235, 0.25);
+    --shadow-elevated: 0 12px 28px -4px rgba(15, 23, 42, 0.18);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --bg2: rgba(255, 255, 255, 0.85);
+        --bg3: #eef1f6;
+        --bg-hover: rgba(15, 23, 42, 0.05);
+        --bg-secondary: #eef1f6;
+        --bg-dark: #e8ebf1;
+        --bg-lighter: #f3f5f9;
+        --border: rgba(15, 23, 42, 0.1);
+        --border-subtle: rgba(15, 23, 42, 0.06);
+        --text: #1e293b;
+        --text2: rgba(30, 41, 59, 0.78);
+        --text-muted: rgba(30, 41, 59, 0.66);
+        --text-subtle: rgba(30, 41, 59, 0.5);
+        --green: #15803d;
+        --orange: #b45309;
+        --pink: #db2777;
+        --red: #dc2626;
+        --shadow-soft: 0 1px 3px rgba(15, 23, 42, 0.1);
+        --shadow-warm: 0 2px 12px -2px rgba(82, 118, 235, 0.25);
+        --shadow-elevated: 0 12px 28px -4px rgba(15, 23, 42, 0.18);
+    }
+}
+
 html { overflow-x: hidden; }
 
 body {

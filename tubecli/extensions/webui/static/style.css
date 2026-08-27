@@ -30,6 +30,83 @@
     --shadow-soft: 0 1px 3px rgba(0,0,0,0.3);
     --shadow-warm: 0 2px 12px -2px rgba(82,118,235,0.2);
     --shadow-elevated: 0 12px 28px -4px rgba(0,0,0,0.45);
+    /* Tokens for values that used to be hardcoded literals, so the light
+       theme below can restyle them without duplicating element rules. */
+    --sidebar-glass: rgba(30,30,30,0.85);
+    --panel-ghost: rgba(255,255,255,0.02);
+    --panel-ghost-2: rgba(255,255,255,0.01);
+    --line-faint: rgba(255,255,255,0.05);
+    --hover-ghost: rgba(255,255,255,0.08);
+    --row-line: rgba(42,42,74,0.5);
+    --shadow-menu: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ═══ Light theme (glass) ═══
+   Activated by the cloud Flow canvas: it appends &theme=glass to extension
+   iframe URLs ONLY while the canvas is in glass mode (nothing is appended in
+   dark). The inline reader in index.html <head> maps theme=glass to
+   data-theme="light" on <html> before first paint.
+   Values mirror the cloud glass palette (tubecli-cloud app/globals.css
+   .flow-theme-glass): ground #f7f8fa, white panels, ink #1e293b, slate lines
+   rgba(15,23,42,.1). Accent colors (--primary #5276EB, --purple, statuses)
+   are intentionally NOT redefined.
+   Pattern per capcut_tts/static/capcut.html:15-28 — the media-query block
+   keeps prefers-color-scheme working when a page is opened standalone, while
+   the [data-theme] attribute set from the URL always wins.
+   KEEP THE TWO BLOCKS IDENTICAL. */
+:root[data-theme="light"] {
+    --bg: #f7f8fa;
+    --bg2: #ffffff;
+    --bg3: rgba(255,255,255,0.9);
+    --bg-hover: rgba(15,23,42,0.05);
+    --bg-secondary: #f1f3f7;
+    --bg-dark: #eef0f4;
+    --bg-lighter: #ffffff;
+    --border: rgba(15,23,42,0.1);
+    --border-subtle: rgba(15,23,42,0.06);
+    --text: #1e293b;
+    --text2: #475569;
+    --text-muted: #64748b;
+    --text-subtle: #94a3b8;
+    --bg-canvas: #f7f8fa;
+    --shadow-soft: 0 1px 3px rgba(15,23,42,0.08);
+    --shadow-warm: 0 2px 12px -2px rgba(82,118,235,0.2);
+    --shadow-elevated: 0 12px 28px -4px rgba(15,23,42,0.16);
+    --sidebar-glass: rgba(255,255,255,0.72);
+    --panel-ghost: rgba(15,23,42,0.02);
+    --panel-ghost-2: rgba(15,23,42,0.015);
+    --line-faint: rgba(15,23,42,0.06);
+    --hover-ghost: rgba(15,23,42,0.06);
+    --row-line: rgba(15,23,42,0.06);
+    --shadow-menu: 0 8px 32px rgba(15,23,42,0.18);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --bg: #f7f8fa;
+        --bg2: #ffffff;
+        --bg3: rgba(255,255,255,0.9);
+        --bg-hover: rgba(15,23,42,0.05);
+        --bg-secondary: #f1f3f7;
+        --bg-dark: #eef0f4;
+        --bg-lighter: #ffffff;
+        --border: rgba(15,23,42,0.1);
+        --border-subtle: rgba(15,23,42,0.06);
+        --text: #1e293b;
+        --text2: #475569;
+        --text-muted: #64748b;
+        --text-subtle: #94a3b8;
+        --bg-canvas: #f7f8fa;
+        --shadow-soft: 0 1px 3px rgba(15,23,42,0.08);
+        --shadow-warm: 0 2px 12px -2px rgba(82,118,235,0.2);
+        --shadow-elevated: 0 12px 28px -4px rgba(15,23,42,0.16);
+        --sidebar-glass: rgba(255,255,255,0.72);
+        --panel-ghost: rgba(15,23,42,0.02);
+        --panel-ghost-2: rgba(15,23,42,0.015);
+        --line-faint: rgba(15,23,42,0.06);
+        --hover-ghost: rgba(15,23,42,0.06);
+        --row-line: rgba(15,23,42,0.06);
+        --shadow-menu: 0 8px 32px rgba(15,23,42,0.18);
+    }
 }
 body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
 #app { display: flex; height: 100vh; }
@@ -42,7 +119,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 ::-webkit-scrollbar-corner { background: var(--bg); }
 
 /* ─── Sidebar ─── */
-.sidebar { width: 240px; background: rgba(30,30,30,0.85); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.sidebar { width: 240px; background: var(--sidebar-glass); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .sidebar-logo { font-size: 1.2rem; font-weight: 800; color: var(--text); white-space: nowrap; display: flex; align-items: center; gap: 10px; }
 .sidebar-logo img { width: 28px; height: 28px; }
 .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 1px; padding: 0 8px; }
@@ -69,7 +146,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 #ext-nav-zone { display: flex; flex-direction: column; gap: 1px; }
 
 /* Extension group custom dropdown */
-.ext-group-dropdown-menu { display: none; position: fixed; z-index: 9999; min-width: 240px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; box-shadow: 0 8px 32px rgba(0,0,0,.5); max-height: 300px; overflow-y: auto; }
+.ext-group-dropdown-menu { display: none; position: fixed; z-index: 9999; min-width: 240px; background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 4px; box-shadow: var(--shadow-menu); max-height: 300px; overflow-y: auto; }
 .ext-group-dropdown-menu.open { display: block !important; }
 
 
@@ -396,7 +473,7 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .api-group-body { display: none; border-top: 1px solid var(--border); }
 .api-group.open .api-group-body { display: block; }
 
-.api-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid rgba(42,42,74,0.5); cursor: pointer; transition: background 0.15s; }
+.api-row { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-bottom: 1px solid var(--row-line); cursor: pointer; transition: background 0.15s; }
 .api-row:last-child { border-bottom: none; }
 .api-row:hover { background: var(--bg-hover); }
 .api-row.hidden { display: none; }
@@ -429,7 +506,7 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 
 /* ─── Profile Settings Button ─── */
 .btn-settings { position: absolute; top: 8px; right: 8px; background: none; border: none; cursor: pointer; font-size: 1.1rem; opacity: 0.5; transition: all 0.2s; padding: 4px; border-radius: 6px; z-index: 2; }
-.btn-settings:hover { opacity: 1; background: rgba(255,255,255,0.08); transform: scale(1.15); }
+.btn-settings:hover { opacity: 1; background: var(--hover-ghost); transform: scale(1.15); }
 .card:hover .btn-settings { opacity: 0.8; }
 
 /* ─── Extension Detail Tab Chips ─── */
@@ -486,7 +563,7 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 /* ─── Settings Page — Modern Card Layout ─── */
 .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 960px) { .settings-grid { grid-template-columns: 1fr; } }
-.settings-card { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 14px; padding: 24px; transition: all 0.25s; position: relative; }
+.settings-card { background: var(--panel-ghost); border: 1px solid var(--border); border-radius: 14px; padding: 24px; transition: all 0.25s; position: relative; }
 .settings-card:hover { border-color: rgba(82,118,235,0.25); box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
 .settings-card.full-width { grid-column: 1 / -1; }
 .settings-card-header { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border-subtle); }
@@ -563,7 +640,7 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 }
 .default-group-card {
     border: 1px dashed var(--border) !important;
-    background: rgba(255, 255, 255, 0.01) !important;
+    background: var(--panel-ghost-2) !important;
     margin-bottom: 12px;
 }
 body.dragging-active .ext-group-card * {
@@ -658,7 +735,7 @@ body.dragging-active .ext-group-card * {
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
-    border-top: 1px solid rgba(255,255,255,0.05);
+    border-top: 1px solid var(--line-faint);
     padding-top: 6px;
     margin-top: 4px;
 }
@@ -677,7 +754,7 @@ body.dragging-active .ext-group-card * {
     color: var(--text-muted);
     margin-left: 6px;
     font-weight: 500;
-    background: rgba(255, 255, 255, 0.02);
+    background: var(--panel-ghost);
 }
 .history-item-status-scraped {
     background: var(--green);

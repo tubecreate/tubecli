@@ -6,7 +6,14 @@
     <title>TubeCLI Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=8">
+    <!-- Theme từ URL: Flow canvas của cloud gắn &theme=glass vào URL iframe
+         CHỈ khi canvas ở chế độ glass (dark thì không gắn gì). theme=glass ->
+         data-theme="light" bật bảng màu sáng trong style.css; script nằm trong
+         <head> nên chạy trước khung hình đầu tiên. Khi bị nhúng iframe mà
+         KHÔNG có theme=glass thì ghim data-theme="dark" để prefers-color-scheme
+         của máy người dùng không làm panel sáng lệch tông giữa canvas tối. -->
+    <script>(function(){try{var t=new URLSearchParams(location.search).get('theme');if(t==='glass'||t==='light'){document.documentElement.dataset.theme='light';}else if(t==='dark'||window.self!==window.top){document.documentElement.dataset.theme='dark';}}catch(e){}})();</script>
+    <link rel="stylesheet" href="/static/style.css?v=9">
     <!-- Chế độ nhúng (?embed=1): ẩn sidebar khi dashboard được nhúng iframe vào
          Flow Builder của cloud — chỉ hiện panel, hash #/tab vẫn điều hướng như thường. -->
     <script>if (new URLSearchParams(location.search).get('embed') === '1') document.documentElement.classList.add('embed-mode');</script>
