@@ -86,7 +86,22 @@ AI_PROTECTED_DATA_SUBDIRS = ["groups",
                              os.path.join("extensions_data", "group_logs"),
                              "global_settings.json",
                              "skills.json",
-                             "agents.json"]
+                             "agents.json",
+                             # ── secrets ────────────────────────────────────
+                             # data/ is inside the AI sandbox's allowlist, and
+                             # extensions keep credentials under it. Verified
+                             # before adding these: an agent with file_action
+                             # could read data/extensions_data/capcut_tts/
+                             # .enc_key AND accounts.json — the AES key and the
+                             # ciphertext it opens — which made that extension's
+                             # encryption decorative. cloud_api_keys.json is not
+                             # even encrypted, so every provider key was one
+                             # read away.
+                             "cloud_api_keys.json",
+                             os.path.join("extensions_data", "capcut_tts"),
+                             # Reserved for the Database Manager extension:
+                             # connection passwords live here.
+                             os.path.join("extensions_data", "database_manager")]
 
 MAX_FILE_SIZE_MB = 50  # Max file size for read operations
 

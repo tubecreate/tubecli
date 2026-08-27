@@ -433,6 +433,23 @@ def main():
             except ValueError as e:
                 check(f"AI khong doc duoc {os.path.basename(probe)}",
                       "bảo mật" in str(e), str(e)[:120])
+        # Secrets live in that same sandbox. Verified before this guard existed:
+        # an agent could read data/extensions_data/capcut_tts/.enc_key AND
+        # accounts.json — the AES key and the ciphertext it opens — which made
+        # that extension's encryption decorative; cloud_api_keys.json is not
+        # encrypted at all, so every provider key was one file_action away.
+        for probe in (os.path.join(real_data, "cloud_api_keys.json"),
+                      os.path.join(real_data, "extensions_data", "capcut_tts"),
+                      os.path.join(real_data, "extensions_data", "capcut_tts", ".enc_key"),
+                      os.path.join(real_data, "extensions_data", "capcut_tts", "accounts.json"),
+                      os.path.join(real_data, "extensions_data", "database_manager")):
+            try:
+                ai_fs.validate_path(probe)
+                check(f"AI khong doc duoc bi mat {os.path.basename(probe)}", False, "khong bi chan")
+            except ValueError as e:
+                check(f"AI khong doc duoc bi mat {os.path.basename(probe)}",
+                      "bảo mật" in str(e), str(e)[:120])
+
         # ...and the control: a sibling folder in the same data dir is still
         # reachable, so what refused above was this rule and not the allowlist.
         try:
