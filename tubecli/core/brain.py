@@ -67,10 +67,48 @@ class AgentBrain:
                     return skill
         return None
 
+    # ── The desk ─────────────────────────────────────────────────
+    # The header core/group_context.prompt_block() writes. Callers append that
+    # block to the agent's system_prompt (chat pipeline, telegram_listener,
+    # codex), which used to bury it in the MIDDLE of the prompt — right after
+    # "### YOUR PERSONA:" and before the skill list, the worst place in a long
+    # prompt for a small model to remember it. build_system_prompt lifts it out
+    # by this marker and re-attaches it at the very END, so every entry point
+    # gets the same order without each caller having to be edited.
+    DESK_MARKER = "### GROUP WORKSPACE:"
+    DESK_BANNER = (
+        "### YOUR DESK — READ THIS BEFORE CHOOSING ANYTHING ABOVE\n"
+        "The section below lists what is on your desk RIGHT NOW: real tools and real "
+        "material someone put in front of you. It is more specific, more current and "
+        "more trustworthy than any general skill listed earlier. When the desk can do "
+        "the job, use the desk and its action syntax.\n"
+        "Having a tool on the desk is NOT a reason to use it: if the user only asks a "
+        "question you can answer yourself, answer in plain text and run nothing.\n"
+    )
+
+    @staticmethod
+    def _split_desk(agent_prompt: str) -> tuple:
+        """(prompt without the desk block, desk block) — split on DESK_MARKER.
+
+        Everything from the marker to the end travels together: the callers
+        append the desk block LAST, so what trails it is at most a line or two
+        they added afterwards (the language rule), which belongs at the end
+        just as much. No marker — the usual case, the agent is in no group —
+        gives back (prompt, "") and nothing moves.
+        """
+        text = agent_prompt or ""
+        idx = text.find(AgentBrain.DESK_MARKER)
+        if idx < 0:
+            return text, ""
+        return text[:idx].rstrip(), text[idx:].strip()
+
     @staticmethod
     def build_system_prompt(agent_prompt: str, skills: List[Dict], memory_context: str = "",
-                            message: str = "") -> str:
+                            message: str = "", skills_total: int = 0) -> str:
         """Build a system prompt with full skill descriptions for intent-based routing.
+
+        `skills_total` is how many skills the CALLER really had before it
+        narrowed the list; 0 means "what you were given is all there was".
 
         Strategy:
         - Fast-path command match happens BEFORE this (no LLM call = 0 tokens)
@@ -127,10 +165,20 @@ class AgentBrain:
                     block += f"\n    Example: {str(ex)[:150]}"
                 lines.append(block)
 
-            total = len(skills)
+            # The count must not lie. `skills` is whatever the CALLER handed
+            # over, and the chat pipeline hands over an ALREADY-NARROWED list
+            # (SKILL_LIMIT = 3), so the header printed "1/1" while the agent
+            # owned dozens — the model read that as "this is everything I
+            # have" and forced the one skill it saw onto the request.
+            # skills_total is the caller's real count; with none we can still
+            # only be honest about the list we were given, minus the dead ones.
+            total = max(int(skills_total or 0), len(runnable_skills))
             shown = len(lines)
+            more = (" — the ones most likely to fit this message; ask the user "
+                    "if none of them fits" if total > shown else "")
             skills_desc = (
-                f"\n\n### AVAILABLE SKILLS ({shown}/{total}) — Analyze user INTENT to pick the right one:\n"
+                f"\n\n### AVAILABLE SKILLS (showing {shown} of {total}){more} — "
+                "Analyze user INTENT to pick the right one:\n"
                 + "\n".join(lines)
                 + '\nTo run a skill, emit a ```json fence containing exactly: {"action": "run_skill", "skill_name": "<exact skill Name from the list>", "input": "<what the skill\'s Input field asks for>"}'
                 + "\nIf user sends a DIRECT video link on ANY platform (YouTube, douyin.com/video/xxx, tiktok.com/@.../video/xxx, Facebook, X…) and wants the file → use download_video action."
@@ -143,6 +191,28 @@ class AgentBrain:
         memory_section = ""
         if memory_context:
             memory_section = f"\n\n### MEMORY:\n{memory_context}\n"
+
+        # The desk is lifted out of the persona HERE, before the rules are
+        # built: an agent that is in no group must get exactly the prompt it
+        # got before this change — same rules, same order, byte for byte — so
+        # every desk sentence below is conditional on there being a desk.
+        safe_agent_prompt = agent_prompt if agent_prompt is not None else "You are a helpful assistant."
+        persona, desk_block = AgentBrain._split_desk(safe_agent_prompt)
+        desk_rules = (
+            "3b. **THE DESK COMES FIRST.** Anything listed under GROUP WORKSPACE (the last section "
+            "of this prompt) is a real tool or a real document already in your hands — a browser "
+            "profile that is open and logged in, a spreadsheet, a file, a script. When the desk and "
+            "a general skill could both serve the request, use the desk and the ACTION SYNTAX "
+            "printed with it. A browser profile beats a web-search skill for reading a named site; "
+            "a shared workbook beats a generic file skill. Fall back to the skills above only when "
+            "nothing on the desk fits.\n"
+            "3c. The user names a desk item by its ALIAS. Copy the alias EXACTLY as printed, quotes "
+            "and all — never invent one, never translate one, never pass an id or a path where an "
+            "alias is asked for.\n"
+            "3d. A tool on the desk is not a reason to use it. If the user asks something you can "
+            "answer from your own knowledge, or is only chatting, answer in plain text and run "
+            "NOTHING.\n"
+        ) if desk_block else ""
 
         # IMPORTANT: Use string CONCATENATION, NOT .format() or f-string on the full block.
         # agent_prompt may contain {"action": "..."} JSON which breaks str.format().
@@ -171,6 +241,7 @@ class AgentBrain:
             "1. Read the user message carefully to understand their INTENT.\n"
             "2. If the intent matches a skill → output run_skill JSON with the skill ID and user's query.\n"
             "3. If user wants info/search/weather/news/lookup → use the search/browser skill.\n"
+            + desk_rules +
             "4. DIRECT video URLs on ANY platform (YouTube, douyin.com/video/xxx, tiktok.com/@.../video/xxx, Facebook, X…) → download_video. But SHORT links (v.douyin.com/xxx) with keywords like 'mới nhất', 'lên kênh', 'theo dõi' → these are USER PROFILE links, route to the correct skill instead.\n"
             "4b. If the user asks for a video job (download, subtitles, translation…) but the message has NO link or file path → ASK for it in plain text. Never answer with a capabilities list instead, and never invent a run_api call.\n"
             "5. File/folder create/delete/move/list → use file_action directly, but ONLY when the user is explicitly talking about files or folders ON THIS COMPUTER and names the path. A URL is never a path. If you do not know which file or folder is meant, ASK — never guess a location and never fall back to the Desktop. "
@@ -183,9 +254,14 @@ class AgentBrain:
             "An action object glued into a sentence does NOT run — the user will just see the JSON and nothing will happen.\n\n"
             "### YOUR PERSONA:\n"
         )
-        safe_agent_prompt = agent_prompt if agent_prompt is not None else "You are a helpful assistant."
-        return (static_prompt + safe_agent_prompt + "\n" + skills_desc + memory_section
-                + "\n" + AgentBrain._external_data_note() + "\n")
+        # SECTION ORDER (deliberate): persona → skills → memory → external-data
+        # rule → THE DESK. The desk goes last because that is the position a
+        # small model recalls best, and because it is the section that decides
+        # which tool the turn uses. An agent in no group has no desk block and
+        # gets a prompt byte-identical to the one it got before this change.
+        desk_section = ("\n\n" + AgentBrain.DESK_BANNER + "\n" + desk_block + "\n") if desk_block else ""
+        return (static_prompt + persona + "\n" + skills_desc + memory_section
+                + "\n" + AgentBrain._external_data_note() + "\n" + desk_section)
 
     # Nội dung trang web, nội dung file, kết quả tool — thứ agent đọc được từ
     # NGOÀI — vào hội thoại bọc trong delimiter (pipeline.wrap_external, và
@@ -323,11 +399,16 @@ class AgentBrain:
         skills: List[Dict],
         history: List[Dict] = None,
         intent_hint: str = "",
+        skills_total: int = 0,
     ) -> Dict[str, Any]:
         """Process a chat message with PRE-FILTERED skills only.
         Called by the IntentRouter after selecting relevant skills.
         Uses intent_hint to further reduce system prompt size.
-        
+
+        `skills_total` = how many skills the agent really had before the
+        caller narrowed the list, so the prompt header can stop claiming that
+        the three it was handed are the only three that exist.
+
         Returns same format as chat().
         """
         from tubecli.i18n import t
@@ -342,6 +423,7 @@ class AgentBrain:
             skills,  # Already filtered to 2-3 skills max
             memory_context=memory_context,
             message=message,
+            skills_total=skills_total,
         )
 
         messages = [{"role": "system", "content": system_prompt}]

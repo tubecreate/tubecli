@@ -1,4 +1,4 @@
-"""Browser profiles as group material, and the four actions that drive them.
+"""Browser profiles as group material, and the five actions that drive them.
 
 WHY THIS FILE EXISTS
     A Browser node dropped inside a Flow Builder group is the owner saying
@@ -9,8 +9,8 @@ WHY THIS FILE EXISTS
     in auth_manager and `files` in file_manager).
 
     The chain the owner is after — the agent opens the group's profile, goes
-    to a page, attaches the group's file, closes the profile — only holds if
-    every step is checked on the server. So:
+    to a page, READS what is on it, attaches the group's file, closes the
+    profile — only holds if every step is checked on the server. So:
 
     * The model addresses a profile by ALIAS. The profile name, the port and
       the file path stay on this side; a prompt-injected reply cannot name a
@@ -21,6 +21,21 @@ WHY THIS FILE EXISTS
       the model wrote is never opened — that is the whole point of the entry.
     * Only http/https, and never back into this machine's own ports: the
       browser runs here, with the owner's cookies, one hop from the API.
+    * browser_read comes back wrapped as EXTERNAL DATA. It reads through the
+      owner's LOGGED-IN session, so the page is written by strangers and can
+      be hostile in a way an anonymous fetch is not: the wrapper (and the rule
+      that travels with it in the system prompt) is what keeps a paragraph
+      saying "ignore your instructions" a paragraph and not an order.
+
+WHY THE DESCRIPTION KNOWS WHERE THE BROWSER IS
+    "- \"Test\"" tells the model a profile exists; it does not tell it that the
+    profile is already sitting on the page the user is asking about, which is
+    the single fact that decides between browser_read and a web search. So the
+    description carries live state — on a HARD budget, because it is built on
+    the chat's critical path: at most _LIVE_CAP profiles, _LIVE_BUDGET seconds
+    for all of them together, a _LIVE_TTL-second cache, and SILENCE (the line
+    exactly as it read before) whenever the answer does not arrive in time.
+    Chat latency wins every argument with this feature.
 
 DEGRADING INSTEAD OF CRASHING
     group_context grows in the same wave as this file, and hot-patched
@@ -34,6 +49,8 @@ import ipaddress
 import logging
 import os
 import re
+import threading
+import time
 from urllib.parse import unquote, urlsplit
 
 logger = logging.getLogger("BrowserGroup")
@@ -59,6 +76,14 @@ _LOCAL_RANK = {"read": 0, "use": 1, "run": 1, "append": 2, "write": 3, "edit": 3
 _BROWSER_SYNTAX = (
     '{"action":"browser_open","profile":"<alias>","url":"https://…"}',
     '{"action":"browser_goto","profile":"<alias>","url":"https://…"}',
+    # Placed straight after browser_goto because that is the order the work
+    # happens in: go to the page, then read it. A model that has just navigated
+    # and finds no reading verb next to the navigating one goes looking for a
+    # web search instead — which is the whole bug this verb exists to end.
+    '{"action":"browser_read","profile":"<alias>"}'
+    ' — returns the text of the page that profile currently has open (its own '
+    'logged-in session), so you can summarise or quote it. It does NOT navigate: '
+    'use browser_goto first when the page you want is not the one already open.',
     '{"action":"browser_close","profile":"<alias>"}',
     # The precondition rides on the syntax line on purpose: the preview server
     # only holds a file chooser while the page is asking for one, and it starts
@@ -70,6 +95,17 @@ _BROWSER_SYNTAX = (
 )
 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# Page text keeps its newlines and tabs — a page read as one long line is
+# unreadable to the model and to the owner who checks the log. Everything else
+# in the C0/C1 range still goes: an ANSI escape or a NUL inside a chat turn is
+# never content.
+_TEXT_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+# How much of a page reaches the model. 6000 characters is a long article and
+# still a small slice of any context window; the point of the cap is that a
+# page the agent did not choose (an infinite feed, a 2 MB log viewer) cannot
+# spend the whole turn. Truncation is ANNOUNCED, outside the data wrapper.
+_READ_CAP = 6000
 
 
 # ── Small normalisers (kept local on purpose) ────────────────────────
@@ -116,9 +152,151 @@ def _profile_normalise(raw, index: int):
     }
 
 
+# ── Live state, on a budget the chat can afford ──────────────────────
+# Nothing below is allowed to make a chat turn slower than _LIVE_BUDGET, and
+# nothing below is allowed to raise: a profile whose state we could not learn
+# in time simply keeps the line it had before this feature existed.
+
+_LIVE_CAP = 4            # profiles asked per prompt build
+_LIVE_BUDGET = 0.30      # seconds, for ALL of them together
+_LIVE_TTL = 5.0          # seconds a state is reused without asking again
+_LIVE_CACHE_MAX = 64     # profile names remembered; a machine has far fewer
+
+# profile -> (when, state). A state is {"known": False} when we could not find
+# out, and that is CACHED too: without the negative entry a preview server that
+# accepts connections and never answers would cost every single chat turn the
+# full budget, for ever. Asked once per _LIVE_TTL is the whole idea.
+_live_cache = {}
+_UNKNOWN = {"known": False}
+_live_lock = threading.Lock()
+_live_pool = None
+
+
+def _live_executor():
+    """One small pool, created on first use and never shut down.
+
+    A `with ThreadPoolExecutor(...)` here would block on shutdown until every
+    worker returned — which is exactly the stall the budget exists to prevent.
+    Workers are bounded by the socket timeout instead, and a straggler simply
+    finishes into the cache for the next turn.
+    """
+    global _live_pool
+    with _live_lock:
+        if _live_pool is None:
+            from concurrent.futures import ThreadPoolExecutor
+            _live_pool = ThreadPoolExecutor(max_workers=_LIVE_CAP,
+                                            thread_name_prefix="browser-live")
+        return _live_pool
+
+
+def _live_ask(port) -> dict:
+    """Ask the preview server on this machine what it is showing.
+
+    /status is the endpoint the live view already polls; `active_url` is the
+    URL of the tab being streamed, i.e. the page a human would say the browser
+    "is on". Loopback only, and the port comes from the server's own process
+    table — never from the model.
+    """
+    import json as _json
+    import urllib.request as _u
+    with _u.urlopen(f"http://127.0.0.1:{int(port)}/status", timeout=_LIVE_BUDGET) as r:
+        data = _json.loads(r.read().decode("utf-8", "replace"))
+    if not isinstance(data, dict):
+        return {"known": True, "open": True, "url": ""}
+    # Capped and stripped of control characters like every other value that
+    # reaches column 0 of the prompt: the URL is set by the page (pushState),
+    # so it is not the owner's text.
+    return {"known": True, "open": True, "url": _line(data.get("active_url"), 200)}
+
+
+def _live_states(entries) -> dict:
+    """{profile name: state} for the first _LIVE_CAP entries. Never raises.
+
+    Absent from the result means "could not tell in time" — the caller then
+    prints nothing extra, which is the pre-existing behaviour.
+    """
+    out, now, pending = {}, time.time(), []
+    for p in (entries or [])[:_LIVE_CAP]:
+        if not isinstance(p, dict):
+            continue
+        profile = str(p.get("profile") or "")
+        if not profile or profile in out:
+            continue
+        hit = _live_cache.get(profile)
+        if hit and (now - hit[0]) < _LIVE_TTL:
+            out[profile] = hit[1]
+            continue
+        try:
+            from .routes import _resolve_port_for_profile
+            port = _resolve_port_for_profile(profile)
+        except Exception:
+            continue                       # no routes module ⇒ say nothing at all
+        if not port:
+            # Free and certain: the server's own process table has no live
+            # preview for this profile. No HTTP call, no budget spent.
+            out[profile] = _remember(profile, {"known": True, "open": False, "url": ""})
+            continue
+        pending.append((profile, port))
+    if not pending:
+        return out
+
+    deadline = time.time() + _LIVE_BUDGET
+    try:
+        futures = [(name, _live_executor().submit(_live_ask, port)) for name, port in pending]
+    except Exception as e:                                   # pragma: no cover
+        logger.debug(f"[browser] live state pool unavailable: {e}")
+        return out
+    for name, fut in futures:
+        left = deadline - time.time()
+        try:
+            if left <= 0:
+                raise TimeoutError(name)
+            out[name] = _remember(name, fut.result(timeout=left))
+        except Exception:
+            fut.cancel()
+            stale = _live_cache.get(name)
+            # Back off for a TTL either way; a state we already had is still
+            # worth printing this turn (five seconds old beats nothing).
+            _remember(name, _UNKNOWN)
+            if stale and stale[1].get("known"):
+                out[name] = stale[1]
+    return out
+
+
+def _remember(profile: str, state: dict) -> dict:
+    if len(_live_cache) >= _LIVE_CACHE_MAX:
+        _live_cache.clear()
+    _live_cache[profile] = (time.time(), state)
+    return state
+
+
+def _where(raw) -> str:
+    """Chỗ trình duyệt đang đứng, in được vào PROMPT HỆ THỐNG: origin + đầu path.
+
+    Dòng bàn làm việc đi vào system prompt ở MỌI lượt chat, tức phần được tin
+    nhất — mà URL thì do TRANG đặt (history.pushState), muốn đổi thành gì cũng
+    được. _line chặn được việc giả tiêu đề mục, nhưng vẫn để lọt 200 ký tự văn
+    xuôi do kẻ khác chọn nằm ở vị trí đó. Cắt còn origin + 40 ký tự đầu của
+    path giữ lại đúng SỰ THẬT model cần (đang ở trang nào) và bỏ cái đuôi kia.
+
+    Còn một lẽ nữa, không dính tới tấn công: query string và fragment của trang
+    chủ máy đang mở — link đặt lại mật khẩu, URL S3 đã ký, ?token=…, id tài
+    liệu riêng — trước đây được gửi NGUYÊN sang nhà cung cấp model ở mọi lượt,
+    kể cả lượt chẳng liên quan gì tới trình duyệt.
+    """
+    parts = urlsplit(_line(raw, 300))
+    if (parts.scheme or "").lower() not in _ALLOWED_SCHEMES or not parts.netloc:
+        return ""
+    shown = f"{parts.scheme}://{parts.netloc}{(parts.path or '')[:40]}"
+    # _line MỘT LẦN NỮA ở đúng chỗ in ra (netloc/path vẫn là chữ của trang), và
+    # tước cả dấu bọc dữ liệu ngoài kẻo một URL tự viết ra dấu đóng.
+    return _line(shown, 80).replace(_ED_CLOSE, "…").replace(_ED_OPEN, "…")
+
+
 def _profiles_describe(entries) -> list:
+    live = _live_states(entries)
     lines = ["Browser profiles you may drive (use browser_open / browser_goto / "
-             "browser_close / browser_upload):"]
+             "browser_read / browser_close / browser_upload):"]
     for p in entries[:_PROMPT_LIST_CAP]:
         line = f'- "{p.get("alias", "")}"'
         access = str(p.get("access") or "use")
@@ -126,6 +304,17 @@ def _profiles_describe(entries) -> list:
         # anything else is worth the model knowing.
         if access != "use":
             line += f" (access: {access})"
+        # Where the browser actually IS. Appended to the same line, so the
+        # shape of this list (and its cap) is the one the prompt always had.
+        state = live.get(str(p.get("profile") or ""))
+        if isinstance(state, dict) and state.get("known"):
+            url = _where(state.get("url"))
+            if not state.get("open"):
+                line += " — not open"
+            elif url:
+                line += f" — open, showing {url}"
+            else:
+                line += " — open"
         lines.append(line)
     if len(entries) > _PROMPT_LIST_CAP:
         lines.append(f"- …and {len(entries) - _PROMPT_LIST_CAP} more profiles "
@@ -440,8 +629,8 @@ async def browser_open(action_data: dict, context: dict) -> str:
     where = url or "its start page"
     return (f'🌐 Opened browser profile "{alias}" at {where}. The live view is running on '
             f"this machine — the owner can watch it in the Browser node on the canvas. "
-            f"Use browser_goto to navigate, browser_upload to attach a file from the group, "
-            f"browser_close when you are done.")
+            f"Use browser_goto to navigate, browser_read to read the page it is on, "
+            f"browser_upload to attach a file from the group, browser_close when you are done.")
 
 
 async def browser_goto(action_data: dict, context: dict) -> str:
@@ -463,7 +652,8 @@ async def browser_goto(action_data: dict, context: dict) -> str:
         res, err = await _launch(profile, url)
         if err:
             return f'❌ Browser profile "{alias}" was not open and could not be opened: {err}'
-        return f'🌐 Browser profile "{alias}" was not open — opened it at {url}.'
+        return (f'🌐 Browser profile "{alias}" was not open — opened it at {url}. '
+                f"Use browser_read to read what is on it.")
 
     try:
         from .routes import proxy_preview_control
@@ -473,7 +663,131 @@ async def browser_goto(action_data: dict, context: dict) -> str:
     if isinstance(res, dict) and res.get("error"):
         return f'❌ Profile "{alias}" could not load {url}: {_line(res.get("error"), 300)}'
     landed = _line((res or {}).get("url"), 500) if isinstance(res, dict) else ""
-    return f'🌐 Browser profile "{alias}" is now at {landed or url}.'
+    return (f'🌐 Browser profile "{alias}" is now at {landed or url}. '
+            f"Use browser_read to read what is on it.")
+
+
+# Bản sao CỨNG của delimiter (nguồn: extensions/chat/pipeline.py) — chỉ dùng
+# cho đường dự phòng cuối cùng dưới đây.
+_ED_OPEN = "<<<EXTERNAL_DATA"
+_ED_CLOSE = "<<<END_EXTERNAL_DATA>>>"
+
+
+def _wrap_local(body: str, source: str) -> str:
+    """Bọc tại chỗ, y hệt pipeline.wrap_external."""
+    def _defang(s) -> str:
+        return str(s or "").replace(_ED_CLOSE, "[…]").replace(_ED_OPEN, "[…]")
+
+    label = " ".join(_defang(source).split())[:120]
+    head = f"{_ED_OPEN} source={label}>>>" if label else f"{_ED_OPEN}>>>"
+    return "\n".join((head, _defang(body), _ED_CLOSE))
+
+
+def _as_external_data(body: str, source: str) -> str:
+    """Wrap page text so it enters the conversation as DATA, not instructions.
+
+    The rule and the delimiters are defined in ONE place — the chat pipeline —
+    and the note that explains them travels in the system prompt. The import is
+    late because this is an extension reaching into another extension: with the
+    chat extension disabled (Telegram-only host) the text still comes back,
+    wrapped by the same helper the core's own file reader falls back to.
+
+    The LAST resort wraps it here, locally. It never returns the body naked: on
+    a host where neither module loads — the very case this chain exists for —
+    the page's text would otherwise enter the model's context with no
+    delimiters at all, while the RULE that names those delimiters is still
+    printed (brain._external_data_note carries its own hardcoded fallback). A
+    rule pointing at delimiters that are not there is worse than either half.
+    """
+    try:
+        from tubecli.extensions.chat.pipeline import wrap_external
+        return wrap_external(body, source)
+    except Exception:
+        pass
+    try:
+        from tubecli.core.telegram_actions import _as_external_data as _core_wrap
+        return _core_wrap(body, source)
+    except Exception as e:                                   # pragma: no cover
+        logger.warning(f"[browser] external-data wrapper unavailable: {e}")
+        return _wrap_local(body, source)
+
+
+async def browser_read(action_data: dict, context: dict) -> str:
+    """The text of the page the group's profile currently has open.
+
+    SECURITY — this is not web_reader. web_reader fetches anonymously; this
+    reads through the OWNER'S LOGGED-IN SESSION, so it can come back with a
+    paid article, a private inbox, an intranet page — and with whatever a
+    hostile page decided to put in front of a machine. Three things hold:
+
+      * the same `_gate(..., need="use")` as every other verb, so the page can
+        only belong to a profile the owner put in this agent's group;
+      * `_as_external_data`, so the text arrives inside the delimiters the
+        system prompt already teaches the model to distrust;
+      * `_READ_CAP`, so one page cannot spend the whole turn.
+
+    It deliberately does NOT navigate. The verb that changes where the browser
+    is, is browser_goto, and keeping the two apart means a page swap is always
+    a thing the owner can see in the group log as its own line.
+    """
+    gc, groups, entry, err = _gate(action_data, context, need="use")
+    if err:
+        return err
+    alias, profile = entry.get("alias", ""), entry["profile"]
+
+    port = _port_for(profile)
+    if not port:
+        return (f'❌ Browser profile "{alias}" is not open, so there is no page to read. '
+                f'Run {{"action":"browser_goto","profile":"{alias}","url":"https://…"}} first '
+                f"(it opens the profile if it has to), then browser_read.")
+
+    try:
+        from .routes import proxy_preview_control
+        res = await proxy_preview_control(
+            int(port), "read", _BodyOnlyRequest({"limit": _READ_CAP}))
+    except Exception as e:
+        return f'❌ Could not read the page open in browser profile "{alias}": {_detail(e)}'
+    if not isinstance(res, dict) or res.get("error"):
+        why = _line((res or {}).get("error"), 300) if isinstance(res, dict) else ""
+        return (f'❌ Could not read the page open in browser profile "{alias}"'
+                + (f": {why}." if why else "."))
+
+    page_url = _line(res.get("url"), 300)
+    where = f" ({page_url})" if page_url else ""
+    if res.get("status") != "ok":
+        # The preview server says the page had nothing to give: a bot check, a
+        # blank tab, a page still loading. Saying which beats an empty block.
+        return (f'⚠️ Nothing readable on the page open in browser profile "{alias}"{where}: '
+                f'{_line(res.get("reason"), 200) or "the page has no text"}. '
+                f"The owner can look at the live view in the Browser node on the canvas.")
+
+    text = _TEXT_CONTROL_RE.sub(" ", str(res.get("text") or "")).strip()
+    if not text:
+        return (f'⚠️ The page open in browser profile "{alias}"{where} came back empty. '
+                f"It may still be loading — try browser_read again, or check the live view.")
+    # The title goes INSIDE the block, with the body. It is free-form prose the
+    # page chose, so it is exactly as much "external content" as the article is;
+    # printing it in the header would be a sentence the page wrote sitting
+    # OUTSIDE the delimiters that say "this is not an instruction". Only the URL
+    # stays outside, as wrap_external's own source label — capped, one line, and
+    # the one fact the owner needs in the group log to see where this came from.
+    title = _line(res.get("title"), 200)
+    whole = f"TITLE: {title}\n\n{text}" if title else text
+    # _READ_CAP bounds EVERYTHING the page contributes, title included: the
+    # promise is a ceiling on how much of a turn one page can spend, and a
+    # ceiling with an exception is not a ceiling.
+    body = whole[:_READ_CAP].strip()
+    try:
+        total = int(res.get("length") or len(text))
+    except Exception:
+        total = len(text)
+    cut = ""
+    if res.get("truncated") or len(whole) > _READ_CAP:
+        cut = (f"\n(Only the first {_READ_CAP} characters are shown, of about {total} on the "
+               f"page. Say so if you answer from a partial page.)")
+
+    head = f'📄 Read from browser profile "{alias}".'
+    return f"{head}\n{_as_external_data(body, page_url or f'browser profile {alias}')}{cut}"
 
 
 async def browser_close(action_data: dict, context: dict) -> str:
@@ -586,6 +900,7 @@ async def browser_upload(action_data: dict, context: dict) -> str:
 TELEGRAM_ACTIONS = {
     "browser_open": browser_open,
     "browser_goto": browser_goto,
+    "browser_read": browser_read,
     "browser_close": browser_close,
     "browser_upload": browser_upload,
 }

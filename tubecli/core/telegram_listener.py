@@ -170,7 +170,7 @@ class TelegramListener:
             context["token"] = token
             context["chat_id"] = chat_id
 
-            result = await self._process_message(text, context)
+            result = self._withhold_external(await self._process_message(text, context))
 
             typing_task.cancel()
 
@@ -203,6 +203,35 @@ class TelegramListener:
                 token, chat_id,
                 t("sys.error", error=f"{type(e).__name__}: {str(e)[:300]}")
             )
+
+    def _withhold_external(self, result):
+        """Nội dung NGOÀI không bao giờ được gửi nguyên văn ra Telegram.
+
+        browser_read (và mọi handler dùng cùng cái bọc) trả về chữ đọc bằng
+        phiên ĐÃ ĐĂNG NHẬP của chủ máy. Trên canvas, chuỗi ấy còn qua một vòng
+        model thứ hai (extensions/chat/pipeline.py) rồi mới thành câu trả lời;
+        ở đây thì KHÔNG — giá trị handler trả về chính là tin nhắn bot gửi đi.
+        Mà bot thì ai nhắn cũng nói chuyện được: chưa có danh sách chat được
+        phép nào trong file này. Nghĩa là người lạ gõ "đọc trang đang mở" sẽ
+        nhận nguyên hộp thư/trang nội bộ của chủ máy.
+
+        Nên: giữ nguyên phần handler tự viết (đọc từ hồ sơ nào, từ URL nào, dài
+        bao nhiêu) và BỎ phần ruột. Không đụng gì tới lượt không có dữ liệu
+        ngoài — chuỗi không mang delimiter đi qua đây y nguyên.
+        """
+        if not isinstance(result, str):
+            return result
+        try:
+            from tubecli.core.telegram_actions import _ED_OPEN, _loggable
+        except Exception:                                    # pragma: no cover
+            _ED_OPEN, _loggable = "<<<EXTERNAL_DATA", None
+        if _ED_OPEN not in result:
+            return result
+        kept = _loggable(result) if _loggable else ""
+        print("[Telegram] external content withheld from the chat reply")
+        return (f"{kept}\n\n" if kept else "") + (
+            "📄 Nội dung trang chỉ hiển thị trong chat trên canvas, không gửi qua Telegram. "
+            "(The page content is not sent over Telegram; open the canvas chat to read it.)")
 
     async def _process_message(self, text: str, context: Dict[str, Any]):
         """MỘT tin nhắn Telegram = MỘT lượt, có trần như chat web.
@@ -1068,7 +1097,9 @@ class TelegramListener:
 
             self._save_history(agent_id, agent_dict, "[auto-execute]", result, history, chat_id=chat_id)
 
-            # Send result back to user
+            # Send result back to user (cùng cái khoá nội dung ngoài như lượt
+            # chat thường: đường này cũng kết thúc bằng một tin nhắn bot gửi đi)
+            result = self._withhold_external(result)
             if isinstance(result, str) and result.strip():
                 await self._send_message(token, chat_id, result)
 
@@ -1156,7 +1187,12 @@ class TelegramListener:
             if not ran:
                 return
             status = "error" if result_text.lstrip().startswith(("❌", "⚠️", "⏰", "⏱")) else "done"
-            group_context.record_worklog(groups, agent_dict, task=text, result=result_text,
+            # Sheet worklog nằm trên Google, tức RỜI khỏi máy này. Nội dung ngoài
+            # (chữ của một trang đọc bằng phiên đã đăng nhập, ruột một file) chỉ
+            # để lại xuất xứ ở đó — cùng luật với chat trên canvas.
+            from tubecli.core.telegram_actions import _loggable
+            group_context.record_worklog(groups, agent_dict, task=text,
+                                         result=_loggable(result_text),
                                          artifacts=[], status=status)
         except Exception as e:
             print(f"[TelegramListener] Worklog skipped: {e}")

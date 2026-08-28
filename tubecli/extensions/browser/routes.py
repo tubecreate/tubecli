@@ -2050,7 +2050,14 @@ async def proxy_preview_control(port: int, action: str, request: Request):
     which is on the machine that owns the port.
     """
     import asyncio
-    allowed = {"navigate", "pick/start", "pick/stop", "back", "forward", "reload", "click", "type", "scroll"}
+    # "read": trả CHỮ của trang đang mở (browser_read của agent trong Nhóm). Đây là
+    # đường DUY NHẤT ra khỏi preview server cho nội dung trang, và nó nằm sau cùng một
+    # cửa như mọi control khác: server.py::_guest_allowed KHÔNG mở /preview/control/*
+    # cho guest (deny mặc định), nên chỉ CHỦ (admin token) — và group_actions gọi
+    # in-process — mới tới được đây. Người gọi không tự chọn được cổng nào khác:
+    # browser_read lấy port từ sổ tiến trình của chính server (_resolve_port_for_profile).
+    allowed = {"navigate", "pick/start", "pick/stop", "back", "forward", "reload",
+               "click", "type", "scroll", "read"}
     if action not in allowed:
         raise HTTPException(400, f"Unknown preview action '{action}'")
     try:

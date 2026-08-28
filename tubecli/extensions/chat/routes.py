@@ -72,6 +72,17 @@ class SendMessageRequest(BaseModel):
     agent_id: str = ""
     model: str = ""
     provider: str = ""
+    # May this turn be handed to a specialist agent? The DEFAULT is not the
+    # rule — read it with the two callers in mind, because this line has
+    # already been misread once as "the canvas swaps agents behind your back":
+    #   * an Agent node on the Flow canvas ALWAYS sends auto_route=false
+    #     (tubecli-cloud/components/flow/nodes.js) — the agent the owner
+    #     dropped there is the agent that answers, start to finish;
+    #   * the chat page sends true only while no agent is picked (AUTO, the
+    #     general chat) and false the moment one is
+    #     (extensions/chat/static/chat.js).
+    # So the default applies to neither of them; it exists for third-party
+    # callers of the API, where "general chat" is the sane assumption.
     auto_route: bool = True
     # Group of the node sending THIS message. Wins over the session's value
     # because a node can be dragged into another group — or out of every

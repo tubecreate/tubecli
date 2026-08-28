@@ -1374,7 +1374,7 @@ def _log_action_to_groups(action_type: str, action_data: Dict, result: Any,
         for gid in gids:
             group_log.append(str(gid), agent.get("id", ""), agent.get("name", ""),
                              kind=action_type or "action", title=title,
-                             detail=text, ok=ok)
+                             detail=_loggable(text), ok=ok)
     except Exception as e:
         print(f"[Actions] Group log skipped: {e}")
 
@@ -1875,16 +1875,61 @@ async def exec_file_action(action_data: Dict, context: Dict = None) -> str:
         return f"❌ Lỗi file: {str(e)[:300]}"
 
 
+# Bản sao CỨNG của delimiter (nguồn: extensions/chat/pipeline.py). Chỉ dùng cho
+# đường dự phòng bên dưới — nơi chat extension không nạp được.
+_ED_OPEN = "<<<EXTERNAL_DATA"
+_ED_CLOSE = "<<<END_EXTERNAL_DATA>>>"
+
+
+def _wrap_local(body: str, source: str) -> str:
+    """Bọc tại chỗ, y hệt pipeline.wrap_external, khi không nạp được pipeline."""
+    def _defang(s) -> str:
+        return str(s or "").replace(_ED_CLOSE, "[…]").replace(_ED_OPEN, "[…]")
+
+    label = " ".join(_defang(source).split())[:120]
+    head = f"{_ED_OPEN} source={label}>>>" if label else f"{_ED_OPEN}>>>"
+    return "\n".join((head, _defang(body), _ED_CLOSE))
+
+
 def _as_external_data(body: str, source: str) -> str:
     """Bọc văn bản LẤY TỪ NGOÀI bằng delimiter chung của chat pipeline.
 
     Luật (và câu nói với model) chỉ định nghĩa MỘT chỗ — pipeline.wrap_external.
-    Import trễ vì đây là core gọi sang extension; extension tắt thì vẫn trả về
-    nội dung, chỉ mất lớp bọc.
+    Import trễ vì đây là core gọi sang extension.
+
+    KHÔNG bao giờ trả về body trần. Trước đây nhánh except trả `body`: trên máy
+    tắt chat extension — đúng cái tình huống lời dặn nêu ra — chữ của trang web
+    vào thẳng ngữ cảnh model không một dấu ngăn nào, trong khi LUẬT phân biệt
+    dữ liệu/mệnh lệnh (brain._external_data_note) vẫn được in ra vì nó có bản dự
+    phòng cứng. Bọc hụt mà luật vẫn còn là tệ nhất trong ba khả năng.
     """
     try:
         from tubecli.extensions.chat.pipeline import wrap_external
 
         return wrap_external(body, source)
     except Exception:
-        return body
+        return _wrap_local(body, source)
+
+
+def _loggable(text) -> str:
+    """Phần được phép GHI của một kết quả có nội dung ngoài: xuất xứ, không phải ruột.
+
+    Cùng lý do (và cùng hình dạng) với pipeline._loggable: browser_read đọc
+    bằng phiên ĐÃ ĐĂNG NHẬP của chủ máy, nên chép nguyên nội dung vào nhật ký
+    nhóm dưới data/ là lưu lại hộp thư/trang nội bộ ở mỗi lần đọc.
+    """
+    s = str(text or "")
+    if _ED_OPEN not in s:
+        return s
+    cut = s.index(_ED_OPEN)
+    head = s[:cut].strip()[:160]
+    rest = s[cut:]
+    first = rest.split("\n", 1)[0]
+    source = ""
+    if "source=" in first:
+        source = first.split("source=", 1)[1].rsplit(">>>", 1)[0].strip()[:160]
+    end = rest.find(_ED_CLOSE)
+    tail = rest[end + len(_ED_CLOSE):].strip()[:200] if end >= 0 else ""
+    note = (f"[external content from {source}: {len(rest)} chars, withheld]"
+            if source else f"[external content: {len(rest)} chars, withheld]")
+    return " ".join(p for p in (head, note, tail) if p)

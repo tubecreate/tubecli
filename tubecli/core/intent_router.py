@@ -30,6 +30,66 @@ class IntentResult:
     extracted_data: Dict[str, Any] = field(default_factory=dict)  # url, params, etc.
     target_agent_id: Optional[str] = None  # for team delegation
     skip_llm: bool = False    # True = no LLM call needed at all
+    # Set by defer_to_model(): the branch this turn WOULD have taken before the
+    # desk overruled it. Kept for the log/meta, never acted on.
+    deferred_from: str = ""
+
+
+# ── When the keyword router must stand down ──────────────────────────
+#
+# Everything classify() decides above comes out of hard-coded keyword tables —
+# and those tables are Vietnamese. The product ships in nine languages, so on
+# eight of them these branches are simply wrong, and on the ninth they are
+# still guesses ("tin tức" lands in SEARCH, "tin mới nhất" does not).
+#
+# That is tolerable while the agent owns nothing but generic skills. It is not
+# tolerable once the agent has a DESK — a browser profile, a workbook, a Sheet,
+# a script someone deliberately put in front of it. There the guess actively
+# takes the decision away from the one component that IS multilingual: the
+# model. So the pipeline asks a purely structural question ("does this group
+# expose an actionable kind?", core.group_context.actionable_kinds) and, when
+# the answer is yes, hands the guessed branches back to the model.
+#
+# Two kinds of result survive that, because neither is a guess about meaning:
+LITERAL_INTENTS = frozenset({
+    # The user typed a skill's command string, character for character
+    # (_match_skill_command). Language-independent by construction: it is the
+    # owner's own command, in whatever language the owner wrote it.
+    "skill_command",
+})
+PASSTHROUGH_INTENTS = frozenset({
+    # Costs no action and picks no tool — it only buys a cheaper reply.
+    "greeting",
+})
+
+
+def defer_to_model(intent: Optional[IntentResult], reason: str = "desk") -> Optional[IntentResult]:
+    """Neutralise a GUESSED classification so the model decides instead.
+
+    Returns the intent untouched when there is nothing to defer (a literal
+    command match, a greeting, or no intent at all). Otherwise returns a fresh
+    complex_action intent: no skip_llm shortcut, no pre-picked skill, no
+    specialist to hand the turn to — just "call the model and let it read the
+    desk". The extracted URL travels along, being a fact rather than a guess.
+
+    NOTE what this function does NOT do: it adds no keyword, in any language.
+    The decision to call it is made from the shape of the group, not the words
+    of the message.
+    """
+    if intent is None:
+        return None
+    was = intent.intent_type or ""
+    if was in LITERAL_INTENTS or was in PASSTHROUGH_INTENTS:
+        return intent
+    return IntentResult(
+        intent_type="complex_action",
+        confidence=0.0,
+        matched_skills=[],
+        extracted_data=dict(intent.extracted_data or {}),
+        target_agent_id=None,
+        skip_llm=False,
+        deferred_from=was or reason,
+    )
 
 
 # ── Intent Patterns ──────────────────────────────────────────────
@@ -607,6 +667,12 @@ class IntentRouter:
             elif any(re.search(p, text_lower) for p in [r"(xóa|delete|remove)", r"browser\s*xóa"]):
                 sub_action = "delete"
             
+            # No profile named is the NORMAL case ("mở trình duyệt", "close the
+            # browser"): every word of those sentences is a keyword, so neither
+            # branch below assigns anything. Without this default the return
+            # below read an unbound local and the whole turn died with
+            # UnboundLocalError — the user got no answer at all.
+            profile_name = ""
             # 1. Match numeric shorthands first ("mở 39", "đóng 5")
             num_match = re.search(r"^(mở|open|launch|đóng|close|stop|tắt|xóa|delete)\s+(\d+)$", text_lower)
             if num_match:

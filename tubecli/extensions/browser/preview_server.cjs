@@ -580,18 +580,36 @@ process.on('uncaughtException', (err) => {
 
     // HTTP + WS server
     const server = http.createServer((req, res) => {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-        if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+        // HAI đường ra mang DỮ LIỆU của trang (chữ đang hiển thị, URL đang mở)
+        // KHÔNG được nhận Access-Control-Allow-Origin: * nữa.
+        //
+        // Server này chạy bên CẠNH cửa đã khoá của API (routes.py::
+        // proxy_preview_control chỉ nhận owner-token), không phải phía sau nó.
+        // Với wildcard, BẤT KỲ trang web nào đang mở trong BẤT KỲ trình duyệt
+        // nào trên máy cũng fetch được http://127.0.0.1:<cổng>/read và ĐỌC
+        // ĐƯỢC phần trả về — tức chữ của trang mà phiên ĐÃ ĐĂNG NHẬP của chủ
+        // máy đang mở (hộp thư, trang nội bộ, bài trả tiền). /status thì lộ
+        // tên hồ sơ + active_url. Không consumer thật nào cần CORS ở đây: mọi
+        // phía (nodes.js, WorkspaceViewer, group_actions) đi qua proxy của API
+        // bằng requests/aiohttp phía server — nơi CORS không tồn tại.
+        const _path = String(req.url || '').split('?')[0];
+        const isData = (_path === '/read' || _path === '/status');
+        if (!isData) {
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        }
+        if (req.method === 'OPTIONS') { res.writeHead(isData ? 403 : 200); res.end(); return; }
 
         if (req.url === '/status') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
             // active_tab: tab ĐANG ĐƯỢC STREAM. Script attach mặc định chạy trên tab
             // "đang hoạt động" của CDP — thường KHÔNG phải tab người dùng đang nhìn,
             // nên nó chạy ở nơi không ai thấy. Ai muốn "trực quan" thì hỏi chỗ này.
-            // KHÔNG kèm cổng CDP ở đây: endpoint này trả Access-Control-Allow-Origin:*
-            // và không ai cần cổng đó qua HTTP (script_runner đọc preview_cdp.json,
+            // KHÔNG kèm cổng CDP ở đây: endpoint này là đường ra dữ liệu (nay đã
+            // bỏ CORS wildcard và chỉ nghe trên loopback, nhưng vẫn không có
+            // xác thực nào) và không ai cần cổng đó qua HTTP (script_runner đọc
+            // preview_cdp.json,
             // phía nhóm hỏi routes.py) — phát ra chỉ là chỉ đường tới cả cái browser.
             let activeTab = -1;
             try { activeTab = context ? context.pages().indexOf(page) : -1; } catch (e) {}
@@ -614,6 +632,59 @@ process.on('uncaughtException', (err) => {
                 res.writeHead(200, { 'Content-Type': 'image/jpeg' });
                 res.end(buf);
             }).catch(() => { res.writeHead(500); res.end(); });
+        } else if (req.url === '/read' && req.method === 'POST') {
+            // CHỮ của trang đang chiếu — đường ra cho browser_read (agent trong Nhóm).
+            //
+            // KHÔNG viết bộ trích xuất mới: dùng lại actions/extract_content.js, nhánh
+            // type:'text'. Nhánh đó chỉ đọc innerText của vùng nội dung chính (main /
+            // article / body), KHÔNG tải ảnh, KHÔNG ghi scraped_data, KHÔNG đụng
+            // history.json — những việc chỉ hợp lý cho luồng scraper, và là lý do
+            // không gọi thẳng extract_content mặc định. Nó cũng tự trả null khi trang
+            // là màn kiểm tra người/bot (Cloudflare, "Just a moment") — tín hiệu thật,
+            // đáng nói với model hơn là một khối trống.
+            //
+            // extract_content.js là ESM (package.json "type":"module") còn file này là
+            // .cjs, nên nạp bằng import() động — y như browser_manager.js ở trên.
+            let body = '';
+            req.on('data', chunk => body += chunk);
+            req.on('end', async () => {
+                let here = '';
+                try { here = page.url(); } catch (e) {}
+                try {
+                    const b = JSON.parse(body || '{}');
+                    let limit = parseInt(b.limit, 10);
+                    if (!Number.isFinite(limit) || limit <= 0) limit = 20000;
+                    limit = Math.min(limit, 200000);
+                    const mod = await import('./actions/extract_content.js');
+                    const out = await mod.extract_content(page, { type: 'text', profileName });
+                    if (!out) {
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        res.end(JSON.stringify({ status: 'empty', url: here,
+                            reason: 'no readable text (the page may be a human check, or still loading)' }));
+                        return;
+                    }
+                    // innerText của trang thật đầy dòng trống (menu, quảng cáo, khung
+                    // nhúng). Gom lại trước khi cắt, kẻo hạn mức ký tự bị tiêu vào
+                    // khoảng trắng thay vì vào nội dung.
+                    const text = String(out.content || '')
+                        .replace(/\r\n?/g, '\n')
+                        .replace(/[ \t\u00a0]+\n/g, '\n')
+                        .replace(/\n{3,}/g, '\n\n')
+                        .trim();
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({
+                        status: 'ok',
+                        url: out.url || here,
+                        title: String(out.title || ''),
+                        length: text.length,
+                        truncated: text.length > limit,
+                        text: text.slice(0, limit)
+                    }));
+                } catch (e) {
+                    res.writeHead(500, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: e.message, url: here }));
+                }
+            });
         } else if (req.url === '/pick/start') {
             page.evaluate(() => window.__scriptStudio.startPicker()).then(() => {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -813,8 +884,13 @@ process.on('uncaughtException', (err) => {
         });
     });
 
-    server.listen(port, () => {
-        log(`Preview server listening on port ${port}`);
+    // CHỈ loopback. Thiếu tham số host, Node bind 0.0.0.0/:: — nghĩa là mọi máy
+    // cùng mạng LAN/VPS đoán trúng cổng là gọi được /read, /screenshot,
+    // /navigate mà không cần một mẩu xác thực nào. Bộ dò cổng trống ở trên
+    // (srv.listen(0, '127.0.0.1')) vốn đã đo trên 127.0.0.1, và mọi phía dùng
+    // thật đều tới đây qua proxy của API trên chính máy này.
+    server.listen(port, '127.0.0.1', () => {
+        log(`Preview server listening on 127.0.0.1:${port}`);
         console.log(JSON.stringify({ type: 'ready', port }));
     });
 

