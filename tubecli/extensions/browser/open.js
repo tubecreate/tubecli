@@ -1046,13 +1046,20 @@ async function main() {
           console.log('Fetching fingerprint via BrowserManager API...');
           try {
               fingerprint = await browserManager.getFingerprint(profileName);
-              if (!fingerprint) throw new Error('API returned empty fingerprint');
           } catch (e) {
-              console.error(`!!! [Fingerprint] Failed to get fingerprint from API: ${e.message}`);
-              console.log('Ensure your internet connection is stable and API key is valid.');
-              // Wait a bit so user can see the error before exit
-              await new Promise(r => setTimeout(r, 5000));
-              process.exit(1);
+              // Lấy được thì tốt, không thì thôi — KHÔNG chết ở đây. Cùng cách xử lý
+              // với preview_server.cjs:906-918, vốn vẫn chạy tốt suốt.
+              console.warn(`[Fingerprint] Could not fetch one: ${e.message}`);
+              fingerprint = null;
+          }
+          if (!fingerprint) {
+              // null là câu trả lời HỢP LỆ, không phải lỗi: getFingerprint() cố ý trả
+              // null khi chạy nhân ShardX (browser_manager.js:783-786) vì ShardX tự cấp
+              // vân tay qua --fingerprint-profile; launch() cũng khai fingerprint=null
+              // làm mặc định. Bản cũ process.exit(1) ở đây, nên MỌI phiên theo lịch chết
+              // trước khi mở trang — mà nhật ký vẫn ghi "browser running" vì tiến trình
+              // đã spawn được. Live view không dính vì nó đi đường preview_server.cjs.
+              console.log('[Fingerprint] None from the API — continuing; the engine supplies its own.');
           }
       }
 

@@ -315,6 +315,7 @@ class BrowserProcessManager:
             agent_id = instance.get("_agent_id")
             started_at = instance.get("started_at")
             log_path = instance.get("log_file")
+            profile = instance.get("profile") or""
 
         if not process:
             return
@@ -358,10 +359,10 @@ class BrowserProcessManager:
         # -> list_running; holding it across a write would put disk latency on the
         # scheduling path.
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
-                             started_at, log_path)
+                             started_at, log_path, profile)
 
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
-                        started_at, log_path):
+                        started_at, log_path, profile=""):
         """Close the run out in the durable log. Never raises into the monitor."""
         if not run_id:
             return   # a manual dashboard launch is not an agent run
@@ -387,8 +388,56 @@ class BrowserProcessManager:
 
             run_log.end(run_id, agent_id or "", outcome, return_code=return_code,
                         instance_id=instance_id, duration_sec=duration, log_tail=tail)
+            # Bảng cạnh nhóm mới là chỗ chủ máy thật sự nhìn. Trước đây nó chỉ có
+            # "browser running" (spawn được) và im lặng mãi mãi sau đó — nên một phiên
+            # chết sau 5 giây trông y hệt một phiên chạy trọn 8 phút. Ghi cả cái kết.
+            if outcome != "completed":
+                self._log_group_failure(agent_id, profile, outcome, return_code, tail)
         except Exception as e:
             logger.warning(f"[Browser] Could not record run end: {e}")
+
+    def _log_group_failure(self, agent_id, profile, outcome, return_code, tail):
+        """Một dòng trên bảng của mọi nhóm agent này thuộc về, nói phiên hỏng thế nào.
+        Best effort tuyệt đối: nhật ký không bao giờ được làm hỏng vòng theo dõi."""
+        try:
+            if not agent_id:
+                return
+            from tubecli.core import group_context, group_log
+            groups = group_context.groups_of_agent(agent_id) or []
+            if not groups:
+                return
+            # Câu cuối cùng đáng đọc trong log của tiến trình: dòng lỗi thật, không
+            # phải đuôi 4000 ký tự. Ưu tiên dòng có dấu hiệu lỗi, không thì dòng cuối.
+            reason = ""
+            for line in reversed((tail or "").splitlines()):
+                line = line.strip()
+                if not line:
+                    continue
+                if not reason:
+                    reason = line
+                low = line.lower()
+                if "!!!" in line or "error" in low or "failed" in low or "cannot" in low:
+                    reason = line
+                    break
+            name = ""
+            try:
+                from tubecli.core.agent import agent_manager
+                a = agent_manager.get(agent_id)
+                name = getattr(a, "name", "") or ""
+            except Exception:
+                pass
+            what = {"timeout_killed": "hết giờ, bị dừng"}.get(outcome, outcome)
+            title = (f"schedule {profile} — phiên dừng: {what}" if profile
+                     else f"schedule — phiên dừng: {what}")
+            if return_code is not None:
+                title += f" (mã {return_code})"
+            for g in groups:
+                gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
+                if gid:
+                    group_log.append(gid, agent_id, name, kind="schedule",
+                                     title=title, detail=reason[:400], ok=False)
+        except Exception as e:
+            logger.warning(f"[Browser] Could not log session failure to group: {e}")
 
     def get_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         with self._instances_lock:
