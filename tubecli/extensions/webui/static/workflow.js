@@ -211,7 +211,7 @@ const WF = (() => {
         const icon = nt.icon || '📦';
         const name = nt.name.startsWith(icon) ? nt.name.replace(icon, '').trim() : nt.name;
         item.innerHTML = `
-          <div class="palette-item-icon" style="background:${color}20; color:${color}">${icon}</div>
+          <div class="palette-item-icon" style="--node-color:${color}">${icon}</div>
           <span class="palette-item-name">${name}</span>
         `;
         item.addEventListener('dragstart', e => {
@@ -481,13 +481,14 @@ const WF = (() => {
   function catColor(type) {
     const nt = state.nodeTypes.find(n => n.type === type);
     const cat = nt ? nt.category : 'General';
+    // Tokens (not hex) so workflow.css can darken every hue for the light theme.
     const colors = {
-      'Input': '#3b82f6', 'Output': '#22c55e', 'Processing': '#f97316',
-      'Logic': '#eab308', 'AI': '#a855f7', 'Automation': '#06b6d4',
-      'Network': '#f97316', 'Auth': '#ef4444', 'Integration': '#10b981',
-      'Browser': '#06b6d4', 'Data': '#3b82f6', 'Custom': '#8b5cf6',
+      'Input': 'var(--cat-input)', 'Output': 'var(--cat-output)', 'Processing': 'var(--cat-processing)',
+      'Logic': 'var(--cat-logic)', 'AI': 'var(--cat-ai)', 'Automation': 'var(--cat-automation)',
+      'Network': 'var(--cat-network)', 'Auth': 'var(--cat-auth)', 'Integration': 'var(--cat-integration)',
+      'Browser': 'var(--cat-browser)', 'Data': 'var(--cat-data)', 'Custom': 'var(--cat-custom)',
     };
-    return colors[cat] || '#6366f1';
+    return colors[cat] || 'var(--cat-fallback)';
   }
 
   // ── Add Node ───────────────────────────────────────────────────
@@ -530,6 +531,8 @@ const WF = (() => {
     el.id = 'node-' + node.id;
     el.style.left = node.x + 'px';
     el.style.top = node.y + 'px';
+    // .node-header / .node-icon tint themselves from this via color-mix() in workflow.css
+    el.style.setProperty('--node-color', color);
 
     const title = node.label || (nt ? nt.name : node.type);
     const icon = nt ? nt.icon : '📦';
@@ -537,8 +540,8 @@ const WF = (() => {
 
     // Header
     let html = `
-      <div class="node-header" style="background: ${color}15">
-        <div class="node-icon" style="background:${color}30; color:${color}">${icon}</div>
+      <div class="node-header">
+        <div class="node-icon">${icon}</div>
         <div class="node-title">${cleanTitle}</div>
         <div class="node-delete" onclick="WF.deleteNode('${node.id}')">✕</div>
       </div>
@@ -742,7 +745,7 @@ const WF = (() => {
     removeTempLine();
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.classList.add('temp-connection');
-    path.setAttribute('stroke', '#6366f1');
+    path.setAttribute('stroke', 'var(--accent)');
     updateTempLinePath(path, x1, y1, x2, y2);
     $svg.appendChild(path);
     state.tempLine = path;

@@ -381,15 +381,15 @@ function createCard(item, installData) {
         } catch(e) {}
         
         if (hasUpdate && category === 'extension') {
-            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
+            quickBtnHtml = `<button id="cardUpdateBtn_${item.public_id}" class="card-price paid" style="cursor:pointer; background: #d97706 linear-gradient(135deg, #f59e0b, #d97706); color: white; border:none;" onclick="event.stopPropagation(); updateLocalItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">Cập nhật</button>`;
         } else {
-            quickBtnHtml = `<button class="card-price free" style="cursor:default; background: rgba(255,255,255,0.05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
+            quickBtnHtml = `<button class="card-price free" style="cursor:default; background: var(--mk-w05); border: 1px solid var(--border); color: var(--text-muted);" onclick="event.stopPropagation();">Đã cài</button>`;
         }
     } else if (isFree) {
         quickBtnHtml = `<button id="cardInstallBtn_${item.public_id}" class="card-price free" style="cursor:pointer; background: var(--accent); color: white; border:none;" onclick="event.stopPropagation(); installItem('${item.public_id}', '${escapeHtml(item.title).replace(/'/g, '\\\'')}', '${escapeHtml(category)}')">${T('card.install') || 'Cài đặt'}</button>`;
     } else {
         // Paid item, not installed → show Quick Pay button
-        quickBtnHtml = `<button id="cardQuickPayBtn_${item.public_id}" class="card-price" style="cursor:pointer; background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border:none; font-size:0.78rem; padding:4px 10px;" onclick="event.stopPropagation(); _paymentChoiceTitle='${escapeHtml(item.title).replace(/'/g, '\\\'')}'; startQuickPay('${item.public_id}', ${price})">⚡ Mua ngay</button>`;
+        quickBtnHtml = `<button id="cardQuickPayBtn_${item.public_id}" class="card-price" style="cursor:pointer; background: #6366f1 linear-gradient(135deg, #6366f1, #8b5cf6); color: white; border:none; font-size:0.78rem; padding:4px 10px;" onclick="event.stopPropagation(); _paymentChoiceTitle='${escapeHtml(item.title).replace(/'/g, '\\\'')}'; startQuickPay('${item.public_id}', ${price})">⚡ Mua ngay</button>`;
     }
 
     card.innerHTML = `
@@ -662,9 +662,9 @@ async function openDetailModal(publicId) {
                             if (!auth) return '';
                             return `
                             <div style="margin:32px 0 0 0;padding:24px;background:var(--bg3);border:1px solid var(--border);border-radius:12px;">
-                                <h4 style="margin:0 0 16px 0;font-size:1.1rem;color:#fff;">💖 Author & Support</h4>
+                                <h4 style="margin:0 0 16px 0;font-size:1.1rem;color:var(--text);">💖 Author & Support</h4>
                                 <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:center;font-size:0.95rem;">
-                                    ${auth.name ? `<div><strong style="color:var(--text2);">Author:</strong> <span style="font-weight:600;color:#fff;">${escapeHtml(auth.name)}</span></div>` : ''}
+                                    ${auth.name ? `<div><strong style="color:var(--text2);">Author:</strong> <span style="font-weight:600;color:var(--text);">${escapeHtml(auth.name)}</span></div>` : ''}
                                     ${auth.contact ? `<div><a href="${escapeHtml(auth.contact)}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:600;">💬 Contact Support</a></div>` : ''}
                                     ${auth.donate_qr ? `<div style="flex-basis:100%;margin-top:12px;">
                                         <strong style="color:var(--text2);display:block;margin-bottom:12px;">Support the Author (Donate):</strong>
@@ -679,7 +679,7 @@ async function openDetailModal(publicId) {
                 <!-- MEDIA TAB -->
                 <div id="tab-media" class="tab-content" style="margin-top: 24px;">
                     ${mediaData.videos && mediaData.videos.length ? `
-                        <h3 style="margin-bottom: 16px; color: #fff;">🎬 Demo Video</h3>
+                        <h3 style="margin-bottom: 16px; color: var(--text);">🎬 Demo Video</h3>
                         <div class="media-gallery">
                             ${mediaData.videos.map(v => {
                                 const isYouTube = v.url.includes('youtube.com') || v.url.includes('youtu.be');
@@ -700,7 +700,7 @@ async function openDetailModal(publicId) {
                     ` : ''}
                     
                     ${mediaData.screenshots && mediaData.screenshots.length ? `
-                        <h3 style="margin-top: 32px; margin-bottom: 16px; color: #fff;">📸 Screenshots</h3>
+                        <h3 style="margin-top: 32px; margin-bottom: 16px; color: var(--text);">📸 Screenshots</h3>
                         <div class="media-gallery">
                             ${mediaData.screenshots.map(s => `
                                 <div class="media-item" onclick="openLightboxImage('${escapeHtml(s.url)}')">
@@ -716,7 +716,7 @@ async function openDetailModal(publicId) {
                     ${reviews.length ? reviews.map(r => `
                         <div class="review-card" style="background:var(--bg3);padding:20px;border-radius:12px;margin-bottom:16px;">
                             <div class="review-header" style="display:flex;justify-content:space-between;margin-bottom:8px;">
-                                <span class="review-author" style="font-weight:600;color:#fff;">${escapeHtml(r.reviewer_name || r.reviewer_id)}</span>
+                                <span class="review-author" style="font-weight:600;color:var(--text);">${escapeHtml(r.reviewer_name || r.reviewer_id)}</span>
                                 <span class="review-date" style="color:var(--text-muted);font-size:0.85rem;">${formatDate(r.created_at)}</span>
                             </div>
                             <div class="review-stars" style="color:var(--accent-orange);margin-bottom:12px;">${renderStars(r.rating)}</div>
@@ -738,7 +738,7 @@ async function openDetailModal(publicId) {
                     installBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> ${T('detail.installed')}`;
                     installBtn.disabled = true;
                     installBtn.style.display = '';
-                    installBtn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                    installBtn.style.background = '#10b981 linear-gradient(135deg, #22c55e, #10b981)';
                     installBtn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
                 }
                 // Hide buy button if item is already installed
@@ -940,14 +940,14 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             btns.forEach((btn) => {
                 if (btn.id.startsWith('card')) {
                     btn.innerHTML = 'Đã cài';
-                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.background = 'var(--mk-w05)';
                     btn.style.border = '1px solid var(--border)';
                     btn.style.color = 'var(--text-muted)';
                     btn.style.boxShadow = 'none';
                     btn.disabled = true;
                 } else {
                     btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg> Open ${itemName}`;
-                    btn.style.background = 'linear-gradient(135deg, #22c55e, #10b981)';
+                    btn.style.background = '#10b981 linear-gradient(135deg, #22c55e, #10b981)';
                     btn.style.boxShadow = '0 2px 12px rgba(34,197,94,0.25)';
                     btn.disabled = false;
                     btn.onclick = () => {
@@ -969,7 +969,7 @@ async function installItem(publicId, itemName, category, forceUpdate = false) {
             btns.forEach((btn) => {
                 if (btn.id.startsWith('card')) {
                     btn.innerHTML = 'Đã cài';
-                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.background = 'var(--mk-w05)';
                     btn.style.border = '1px solid var(--border)';
                     btn.style.color = 'var(--text-muted)';
                     btn.style.boxShadow = 'none';
@@ -1007,7 +1007,7 @@ async function uninstallItem(publicId, itemName, category) {
         `Bạn có chắc muốn gỡ cài đặt "<b>${itemName}</b>"?<br>Hành động này sẽ xóa toàn bộ source files của extension này khỏi máy.`,
         'Xác nhận gỡ cài đặt',
         'Hủy',
-        'linear-gradient(135deg, #ef4444, #dc2626)',
+        '#dc2626 linear-gradient(135deg, #ef4444, #dc2626)',
         '🗑️'
     );
     if (!confirmed) return;
@@ -1086,7 +1086,7 @@ async function updateLocalItem(publicId, itemName, category = "extension") {
                 btns.forEach((btn) => {
                     if (btn.id.startsWith('card')) {
                         btn.innerHTML = 'Đã cập nhật';
-                        btn.style.background = 'rgba(255,255,255,0.05)';
+                        btn.style.background = 'var(--mk-w05)';
                         btn.style.border = '1px solid var(--border)';
                         btn.style.color = 'var(--text-muted)';
                         btn.style.boxShadow = 'none';
@@ -1107,7 +1107,7 @@ async function updateLocalItem(publicId, itemName, category = "extension") {
             btns.forEach((btn) => {
                 if (btn.id.startsWith('card')) {
                     btn.innerHTML = 'Đã cập nhật';
-                    btn.style.background = 'rgba(255,255,255,0.05)';
+                    btn.style.background = 'var(--mk-w05)';
                     btn.style.border = '1px solid var(--border)';
                     btn.style.color = 'var(--text-muted)';
                     btn.style.boxShadow = 'none';
@@ -2189,7 +2189,7 @@ async function pushUpdateToListing(publicId, localName, localVer) {
         `Bạn có chắc muốn đẩy bản cập nhật <b>v${localVer}</b> của extension <b>"${localName}"</b> lên Market?<br>Source files trên máy của bạn sẽ được đóng gói và cập nhật trực tiếp.`,
         'Xác nhận cập nhật',
         'Hủy',
-        'linear-gradient(135deg, #f59e0b, #d97706)',
+        '#d97706 linear-gradient(135deg, #f59e0b, #d97706)',
         '🔄'
     );
     if (!confirmed) return;
@@ -2459,7 +2459,7 @@ function customConfirm(title, message, okText = 'Tiếp tục', cancelText = 'H�
                 okBtn.style.background = okBg;
             } else {
                 // Default fallback
-                okBtn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                okBtn.style.background = '#dc2626 linear-gradient(135deg, #ef4444, #dc2626)';
             }
         }
 
@@ -2496,7 +2496,7 @@ async function confirmDeleteListing(publicId, title) {
         `Bạn có chắc muốn xoá <b>"${title}"</b> khỏi Market?<br>Hành động này không thể hoàn tác.`,
         'Xác nhận xóa',
         'Hủy',
-        'linear-gradient(135deg, #ef4444, #dc2626)',
+        '#dc2626 linear-gradient(135deg, #ef4444, #dc2626)',
         '⚠️'
     );
     if (!confirmed) return;
@@ -2842,7 +2842,7 @@ function renderCreditBadge() {
         <span style="opacity:0.7;font-size:0.75rem;">💎</span>
         <span id="creditBalanceVal" style="font-weight:700;">${fmtUsd(_stripeBalance)}</span>
         <span style="opacity:0.6;font-size:0.75rem;">USD</span>
-        <button onclick="openTopUpModal()" style="margin-left:6px;padding:2px 10px;font-size:0.72rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">+ Nạp</button>
+        <button onclick="openTopUpModal()" style="margin-left:6px;padding:2px 10px;font-size:0.72rem;background:#6366f1 linear-gradient(135deg,#6366f1,#8b5cf6);border:none;border-radius:8px;color:#fff;cursor:pointer;font-weight:600;transition:all 0.2s;" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform=''">+ Nạp</button>
     `;
 }
 
@@ -2890,9 +2890,9 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
         <div class="pmc-item-info">
             <div class="pmc-item-icon">🧩</div>
             <div>
-                <div style="font-weight:700;font-size:1rem;color:#fff">${escapeHtml(title)}</div>
+                <div style="font-weight:700;font-size:1rem;color:var(--text)">${escapeHtml(title)}</div>
                 <div style="font-size:0.8rem;color:var(--text-muted);margin-top:3px">
-                    Giá: <strong style="color:#818cf8">$${priceUsd} USD</strong>
+                    Giá: <strong style="color:var(--mk-indigo-strong)">$${priceUsd} USD</strong>
                 </div>
             </div>
         </div>
@@ -2900,8 +2900,8 @@ function openPaymentChoiceModal(publicId, title, priceCredits) {
         ${balance !== null ? `
         <div class="pmc-balance">
             <span>💎 Số dư của bạn:</span>
-            <strong style="color:${canAfford ? '#4ade80' : '#f87171'}">${fmtUsd(balance)}</strong>
-            ${!canAfford ? `<span style="color:#f87171;font-size:0.74rem;margin-left:6px;">⚠ Thiếu ${fmtUsd(Number(priceCredits) - balance)}</span>` : ''}
+            <strong style="color:${canAfford ? 'var(--mk-green-text)' : 'var(--mk-red-text)'}">${fmtUsd(balance)}</strong>
+            ${!canAfford ? `<span style="color:var(--mk-red-text);font-size:0.74rem;margin-left:6px;">⚠ Thiếu ${fmtUsd(Number(priceCredits) - balance)}</span>` : ''}
         </div>` : ''}
 
         <div class="pmc-options">
@@ -3303,7 +3303,7 @@ async function showPaypalButtons(sessionObj) {
         await _paypalButtonsInstance.render('#paypal-buttons-mount');
     } catch (e) {
         console.error("PayPal buttons render failed:", e);
-        mountEl.innerHTML = '<p style="color:#ef4444;text-align:center;font-weight:600;padding:20px;">Lỗi: Không tải được thành phần thanh toán PayPal. Vui lòng thử lại.</p>';
+        mountEl.innerHTML = '<p style="color:var(--red);text-align:center;font-weight:600;padding:20px;">Lỗi: Không tải được thành phần thanh toán PayPal. Vui lòng thử lại.</p>';
     }
 }
 
@@ -3340,7 +3340,7 @@ async function executePaypalCapture(orderId) {
     // Show full screen loading overlay
     const overlay = document.createElement('div');
     overlay.id = 'paypal-loading-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,10,15,0.95);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-family:sans-serif;backdrop-filter:blur(10px);';
+    overlay.style.cssText = 'position:fixed;inset:0;background:var(--mk-overlay-bg);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text);font-family:sans-serif;backdrop-filter:blur(10px);';
     overlay.innerHTML = `
         <div class="market-spinner" style="width:50px;height:50px;border-width:4px;margin-bottom:20px;"></div>
         <h3 style="margin:0;font-size:1.3rem;font-weight:800;">🔄 Đang xác thực giao dịch PayPal...</h3>
@@ -3505,7 +3505,7 @@ async function startCryptoPaymentFlow() {
     if (mount && mount.style.display === 'block') {
         mount.innerHTML = `
             <div style="padding:40px 20px; text-align:center; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:12px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px;">
-                <span class="market-spinner" style="width:28px; height:28px; border-width:2.5px; border-color:#a78bfa transparent transparent transparent; margin:0;"></span>
+                <span class="market-spinner" style="width:28px; height:28px; border-width:2.5px; border-color:var(--mk-violet-strong) transparent transparent transparent; margin:0;"></span>
                 <span style="font-size:0.85rem; color:var(--text-muted, #8e8ea8); font-weight:600; letter-spacing:0.3px;">${T('topup.changing_network') || 'Đang đổi mạng lưới & tạo ví mới...'}</span>
             </div>
         `;
@@ -3565,13 +3565,13 @@ async function startCryptoPaymentFlow() {
             // MODE 2: Invoice URL returned -> Embed the beautiful NOWPayments widget in an iframe directly inside our modal!
             mount.innerHTML = `
                 <!-- Topbar status -->
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2e2e42; padding-bottom:12px; margin-bottom:16px;">
-                    <span style="font-weight:800; color:#fff; font-size:0.95rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
-                    <a href="${data.invoice_url}" target="_blank" style="font-size:0.82rem; color:#c4b5fd; font-weight:700; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); padding:4px 10px; border-radius:6px; text-decoration:none; display:inline-block; transition:all 0.2s;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px;">
+                    <span style="font-weight:800; color:var(--text); font-size:0.95rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
+                    <a href="${data.invoice_url}" target="_blank" style="font-size:0.82rem; color:var(--mk-violet-text); font-weight:700; background:rgba(99,102,241,0.1); border:1px solid rgba(99,102,241,0.2); padding:4px 10px; border-radius:6px; text-decoration:none; display:inline-block; transition:all 0.2s;">
                         🔗 Mở trong tab mới ↗
                     </a>
                 </div>
-                <div style="width:100%; height:450px; background:#fff; border-radius:12px; overflow:hidden; border:1px solid #2e2e42; box-shadow:0 4px 20px rgba(0,0,0,0.4); position:relative;">
+                <div style="width:100%; height:450px; background:#fff; border-radius:12px; overflow:hidden; border:1px solid var(--border); box-shadow:0 4px 20px var(--mk-k40); position:relative;">
                     <iframe src="${data.invoice_url}" style="width:100%; height:100%; border:none;" allow="clipboard-read; clipboard-write"></iframe>
                 </div>
             `;
@@ -3596,9 +3596,9 @@ async function startCryptoPaymentFlow() {
 
             mount.innerHTML = `
                 <!-- Topbar status -->
-                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #2e2e42; padding-bottom:8px; margin-bottom:10px;">
-                    <span style="font-weight:800; color:#fff; font-size:0.85rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
-                    <span id="crypto-timer" style="font-size:0.78rem; color:#a78bfa; font-weight:700; background:rgba(167,139,250,0.1); padding:3px 6px; border-radius:6px; display:flex; align-items:center; gap:4px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:10px;">
+                    <span style="font-weight:800; color:var(--text); font-size:0.85rem; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px;">🪙 SEND DEPOSIT</span>
+                    <span id="crypto-timer" style="font-size:0.78rem; color:var(--mk-violet-strong); font-weight:700; background:rgba(167,139,250,0.1); padding:3px 6px; border-radius:6px; display:flex; align-items:center; gap:4px;">
                         ⏳ <span id="crypto-countdown-val">59:59</span>
                     </span>
                 </div>
@@ -3607,22 +3607,22 @@ async function startCryptoPaymentFlow() {
                 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; text-align:left;">
                     
                     <!-- Left Column (QR & Wallet Details) -->
-                    <div style="display:flex; flex-direction:column; align-items:center; border-right:1px solid #2e2e42; padding-right:12px;">
+                    <div style="display:flex; flex-direction:column; align-items:center; border-right:1px solid var(--border); padding-right:12px;">
                         
                         <!-- Network selector lookalike -->
-                        <div style="width:100%; padding:4px 8px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:700; font-size:0.78rem; text-align:center; margin-bottom:8px;">
+                        <div style="width:100%; padding:4px 8px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:8px; color:var(--text); font-weight:700; font-size:0.78rem; text-align:center; margin-bottom:8px;">
                             ${networkName}
                         </div>
 
                         <!-- QR Code Frame -->
-                        <div style="margin: 4px 0 6px 0; padding:6px; background:#fff; border-radius:12px; display:flex; justify-content:center; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+                        <div style="margin: 4px 0 6px 0; padding:6px; background:#fff; border-radius:12px; display:flex; justify-content:center; box-shadow: 0 4px 15px var(--mk-k30);">
                             <img id="crypto-qr-img" src="${data.qrCode}" style="width:115px; height:115px; display:block;" />
                         </div>
 
                         <!-- Network badge -->
                         <div style="margin-bottom:6px; text-align:center;">
                             <span style="font-size:0.65rem; color:var(--text-muted, #8e8ea8); font-weight:700; display:block; margin-bottom:2px; text-transform:uppercase; letter-spacing:0.5px;" data-i18n="topup.network_label">${T('topup.network_label') || 'NETWORK'}</span>
-                            <span style="background:rgba(99,102,241,0.2); border:1px solid rgba(99,102,241,0.4); color:#c4b5fd; font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:20px; text-transform:uppercase; display:inline-block; letter-spacing:0.5px;">
+                            <span style="background:rgba(99,102,241,0.2); border:1px solid rgba(99,102,241,0.4); color:var(--mk-violet-text); font-size:0.68rem; font-weight:800; padding:2px 8px; border-radius:20px; text-transform:uppercase; display:inline-block; letter-spacing:0.5px;">
                                 ${data.network ? data.network.replace(' (Tron)', '').replace(' (BNB Chain)', '').replace(' (Ethereum)', '') : 'USDT'}
                             </span>
                         </div>
@@ -3631,8 +3631,8 @@ async function startCryptoPaymentFlow() {
                         <div style="width:100%;">
                             <span style="font-size:0.65rem; color:var(--text-muted, #8e8ea8); font-weight:700; display:block; margin-bottom:2px; text-transform:uppercase; letter-spacing:0.5px;" data-i18n="topup.wallet_label">${T('topup.wallet_label') || 'WALLET ADDRESS'}</span>
                             <div style="display:flex; border:1px solid var(--border, #2e2e42); border-radius:8px; overflow:hidden; background:var(--bg2, #161622);">
-                                <input id="crypto-pay-address" readonly value="${data.address || ''}" style="flex:1; padding:6px; background:transparent; border:none; color:#fff; font-size:0.72rem; font-family:monospace; text-align:center; outline:none;" />
-                                <button onclick="copyCryptoAddress()" style="background:#2a2a3e; border:none; border-left:1px solid var(--border, #2e2e42); color:#c4b5fd; padding:0 8px; cursor:pointer; font-weight:700; font-size:0.7rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='#2a2a3e'">
+                                <input id="crypto-pay-address" readonly value="${data.address || ''}" style="flex:1; padding:6px; background:transparent; border:none; color:var(--text); font-size:0.72rem; font-family:monospace; text-align:center; outline:none;" />
+                                <button onclick="copyCryptoAddress()" style="background:var(--bg-hover); border:none; border-left:1px solid var(--border, #2e2e42); color:var(--mk-violet-text); padding:0 8px; cursor:pointer; font-weight:700; font-size:0.7rem; display:flex; align-items:center; justify-content:center; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='var(--bg-hover)'">
                                     Copy
                                 </button>
                             </div>
@@ -3647,32 +3647,32 @@ async function startCryptoPaymentFlow() {
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:6px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px;">
                             <span style="font-size:0.75rem; font-weight:600; color:var(--text-muted, #8e8ea8);" data-i18n="topup.amount_label">${T('topup.amount_label') || 'Số tiền cần gửi:'}</span>
                             <div style="display:flex; align-items:center; gap:8px;">
-                                <span id="crypto-pay-amount" style="font-size:1rem; font-weight:900; color:#10b981;">
+                                <span id="crypto-pay-amount" style="font-size:1rem; font-weight:900; color:var(--mk-emerald-strong);">
                                     ${data.amount} <span style="font-size:0.8rem; font-weight:700; color:var(--text-muted);">${displayCurrency}</span>
                                 </span>
-                                <button onclick="copyCryptoAmount()" style="background:#2a2a3e; border:1px solid var(--border, #2e2e42); border-radius:6px; color:#c4b5fd; padding:2px 6px; cursor:pointer; font-size:0.65rem; font-weight:700; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='#2a2a3e'">Copy</button>
+                                <button onclick="copyCryptoAmount()" style="background:var(--bg-hover); border:1px solid var(--border, #2e2e42); border-radius:6px; color:var(--mk-violet-text); padding:2px 6px; cursor:pointer; font-size:0.65rem; font-weight:700; transition:all 0.2s;" onmouseover="this.style.background='rgba(99,102,241,0.1)'" onmouseout="this.style.background='var(--bg-hover)'">Copy</button>
                             </div>
                         </div>
 
                         <!-- Instructions Block -->
                         <div style="padding:8px; background:rgba(99,102,241,0.04); border:1px dashed rgba(99,102,241,0.2); border-radius:8px; margin-bottom:8px;">
-                            <div style="font-weight:800; font-size:0.7rem; color:#a5b4fc; text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px; margin-bottom:4px;" data-i18n="topup.instructions_title">
+                            <div style="font-weight:800; font-size:0.7rem; color:var(--mk-indigo-text); text-transform:uppercase; letter-spacing:0.5px; display:flex; align-items:center; gap:6px; margin-bottom:4px;" data-i18n="topup.instructions_title">
                                 <span>📖</span> ${T('topup.instructions_title') || 'Crypto Transfer Instructions'}
                             </div>
                             <ul style="margin:0; padding:0; list-style:none; font-size:0.7rem; color:var(--text-muted, #8e8ea8); line-height:1.3; display:flex; flex-direction:column; gap:2px;">
-                                <li><b style="color:#fff;">${T('sell.step1') || 'Bước 1'}:</b> ${T('topup.step1')}</li>
-                                <li><b style="color:#fff;">${T('sell.step2') || 'Bước 2'}:</b> ${T('topup.step2')} <span style="color:#c4b5fd;font-weight:700;">${data.network || 'TRC20'}</span></li>
-                                <li><b style="color:#fff;">Bước 3:</b> ${T('topup.step3')}</li>
-                                <li><b style="color:#fff;">Bước 4:</b> ${T('topup.step4')}</li>
-                                <li><b style="color:#fff;">Bước 5:</b> ${T('topup.step5')}</li>
-                                <li><b style="color:#fff;">Bước 6:</b> ${T('topup.step6')}</li>
+                                <li><b style="color:var(--text);">${T('sell.step1') || 'Bước 1'}:</b> ${T('topup.step1')}</li>
+                                <li><b style="color:var(--text);">${T('sell.step2') || 'Bước 2'}:</b> ${T('topup.step2')} <span style="color:var(--mk-violet-text);font-weight:700;">${data.network || 'TRC20'}</span></li>
+                                <li><b style="color:var(--text);">Bước 3:</b> ${T('topup.step3')}</li>
+                                <li><b style="color:var(--text);">Bước 4:</b> ${T('topup.step4')}</li>
+                                <li><b style="color:var(--text);">Bước 5:</b> ${T('topup.step5')}</li>
+                                <li><b style="color:var(--text);">Bước 6:</b> ${T('topup.step6')}</li>
                             </ul>
                         </div>
 
                         <!-- Transaction tracking badge -->
                         <div style="padding:6px; background:rgba(16,185,129,0.08); border:1px solid rgba(16,185,129,0.2); border-radius:8px;">
-                            <p style="margin:0; font-size:0.7rem; color:#34d399; font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
-                                <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:#34d399 transparent transparent transparent; margin:0;"></span>
+                            <p style="margin:0; font-size:0.7rem; color:var(--mk-emerald-text); font-weight:700; display:flex; align-items:center; justify-content:center; gap:6px;">
+                                <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:var(--mk-emerald-text) transparent transparent transparent; margin:0;"></span>
                                 <span id="crypto-track-text">${T('topup.tracking') || 'Hệ thống đang tự động theo dõi Blockchain...'}</span>
                             </p>
                         </div>
@@ -3683,7 +3683,7 @@ async function startCryptoPaymentFlow() {
 
                 <!-- Footer Warnings -->
                 <div style="margin-top:8px; padding:6px 10px; background:rgba(245,158,11,0.08); border:1px solid rgba(245,158,11,0.2); border-radius:6px; text-align:left;">
-                    <p style="margin:0; font-size:0.65rem; color:#fbbf24; line-height:1.35; font-weight:500;">
+                    <p style="margin:0; font-size:0.65rem; color:var(--mk-amber-text); line-height:1.35; font-weight:500;">
                         ${T('topup.warning')}
                     </p>
                 </div>

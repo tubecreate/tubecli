@@ -80,7 +80,7 @@ class StoryEditor {
                 <span style="font-size:15px;flex-shrink:0">${actor.emoji || '🤖'}</span>
                 <div style="flex:1;min-width:0;overflow:hidden">
                     <div class="se-actor-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${actor.name}</div>
-                    <div style="font-size:10px;color:var(--muted)">${actor.role || ''} <span style="color:#475569">[${actor.key}]</span></div>
+                    <div style="font-size:10px;color:var(--muted)">${actor.role || ''} <span style="color:var(--subtle)">[${actor.key}]</span></div>
                 </div>
             `;
             container.appendChild(div);

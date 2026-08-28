@@ -160,7 +160,7 @@ function renderCredentials() {
         const hasJson = c.has_json ? '<span class="am-badge am-badge-active" title="Service Account JSON">📄 JSON</span>' : '';
 
         return `<tr>
-            <td><code style="font-size:0.78rem;color:#8b5cf6">${c.id}</code></td>
+            <td><code style="font-size:0.78rem;color:var(--am-violet)">${c.id}</code></td>
             <td>${provBadge}</td>
             <td>${c.name} ${hasJson}</td>
             <td><code style="font-size:0.78rem">${c.client_id || '—'}</code></td>
@@ -212,11 +212,11 @@ function renderTokens() {
         const scopes = (t.scopes || []).join(', ');
         const profile = t.browser_profile 
             ? `<code style="font-size:0.78rem">${t.browser_profile}</code>` 
-            : '<span style="color:#64748b">—</span>';
+            : '<span style="color:var(--text-muted)">—</span>';
 
         return `<tr>
-            <td><code style="font-size:0.78rem;color:#8b5cf6">${t.credential_id}</code>
-                <br><span style="color:#94a3b8;font-size:0.8rem">${t.credential_name}</span></td>
+            <td><code style="font-size:0.78rem;color:var(--am-violet)">${t.credential_id}</code>
+                <br><span style="color:var(--text2);font-size:0.8rem">${t.credential_name}</span></td>
             <td>${provBadge}</td>
             <td>${t.authorized_email || '—'}</td>
             <td>${profile}</td>
@@ -642,9 +642,9 @@ function goToCredStep(step) {
             if (requiredApis.size > 0) {
                 apiContainer.innerHTML = Array.from(requiredApis).map(api => `
                     <div class="am-scope-row" style="align-items:center; margin-bottom:4px;">
-                        <span style="color:#00d4ff; font-size:1rem; line-height:1">🔌</span>
+                        <span style="color:var(--cyan); font-size:1rem; line-height:1">🔌</span>
                         <a href="https://console.cloud.google.com/apis/library/${API_LIB[api] || ''}" target="_blank" rel="noreferrer"
-                           style="color:#e8e8f0; font-weight:600; text-decoration:underline dotted; text-underline-offset:3px">${api} ↗</a>
+                           style="color:var(--text); font-weight:600; text-decoration:underline dotted; text-underline-offset:3px">${api} ↗</a>
                     </div>
                 `).join('');
                 apiContainerWrapper.style.display = 'block';
@@ -900,7 +900,7 @@ function openAuthorizeModal(credId) {
             return `<span class="am-scope-chip-readonly">${label}</span>`;
         }).join('');
     } else {
-        chipsContainer.innerHTML = `<span style="color:#ef4444;font-size:0.85rem">${T('auth.authz.no_scopes')}</span>`;
+        chipsContainer.innerHTML = `<span style="color:var(--am-red);font-size:0.85rem">${T('auth.authz.no_scopes')}</span>`;
     }
 
     // Load browser profiles

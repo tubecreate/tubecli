@@ -7,6 +7,7 @@
     --card-border: #1e2030;
     --hover-bg: #181a28;
     --accent: #f43f5e;
+    --accent-ink: var(--accent);
     --accent2: #a855f7;
     --cyan: #22d3ee;
     --green: #22c55e;
@@ -14,9 +15,84 @@
     --text2: #94a3b8;
     --text3: #64748b;
     --danger: #ef4444;
+    --warn-ink: #f59e0b;
+    --warn-ink-hover: #fbbf24;
+    --sidebar: var(--bg);
+    --overlay-bg: rgba(0,0,0,0.7);
+    --shadow-toast: 0 4px 12px rgba(0,0,0,0.4);
+    --shadow-popup: 0 8px 32px rgba(0,0,0,0.6);
+    --shadow-modal: 0 10px 40px rgba(0,0,0,0.5);
+    --ghost-btn-bg: rgba(255,255,255,0.12);
+    --ghost-btn-border: rgba(255,255,255,0.25);
+    --ghost-btn-fg: #ffffff;
     --radius: 12px;
     --radius-sm: 8px;
     --font: 'Inter', -apple-system, sans-serif;
+}
+
+/* -- Light theme ------------------------------------------------------------
+   Values mirror the dashboard glass palette (webui/static/style.css "Light
+   theme (glass)"): ground #f7f8fa, white panels, slate ink #1e293b, lines
+   rgba(15,23,42,.1). Status inks darken so they pass contrast on white.
+   Activation: the dashboard appends ?theme=light|dark to the iframe URL and
+   the pre-paint script in teams.html / studio.html sets data-theme on <html>.
+   Standalone, prefers-color-scheme decides - guarded so an explicit data-theme
+   always wins. The two blocks are intentionally verbatim copies: CSS cannot
+   share a declaration list between a media query and an attribute selector.
+   Shared by teams.html and studio.html. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f7f8fa;
+    --bg2: #ffffff;
+    --sidebar-bg: #ffffff;
+    --card-bg: #ffffff;
+    --card-border: rgba(15,23,42,0.1);
+    --hover-bg: rgba(15,23,42,0.05);
+    --accent-ink: #be123c;
+    --accent2: #7e22ce;
+    --cyan: #0e7490;
+    --green: #15803d;
+    --text: #1e293b;
+    --text2: #475569;
+    --text3: #64748b;
+    --danger: #dc2626;
+    --warn-ink: #b45309;
+    --warn-ink-hover: #92400e;
+    --overlay-bg: rgba(15,23,42,0.45);
+    --shadow-toast: 0 4px 12px rgba(15,23,42,0.18);
+    --shadow-popup: 0 8px 32px rgba(15,23,42,0.18);
+    --shadow-modal: 0 10px 40px rgba(15,23,42,0.2);
+    --ghost-btn-bg: rgba(15,23,42,0.06);
+    --ghost-btn-border: rgba(15,23,42,0.18);
+    --ghost-btn-fg: #1e293b;
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --bg2: #ffffff;
+        --sidebar-bg: #ffffff;
+        --card-bg: #ffffff;
+        --card-border: rgba(15,23,42,0.1);
+        --hover-bg: rgba(15,23,42,0.05);
+        --accent-ink: #be123c;
+        --accent2: #7e22ce;
+        --cyan: #0e7490;
+        --green: #15803d;
+        --text: #1e293b;
+        --text2: #475569;
+        --text3: #64748b;
+        --danger: #dc2626;
+        --warn-ink: #b45309;
+        --warn-ink-hover: #92400e;
+        --overlay-bg: rgba(15,23,42,0.45);
+        --shadow-toast: 0 4px 12px rgba(15,23,42,0.18);
+        --shadow-popup: 0 8px 32px rgba(15,23,42,0.18);
+        --shadow-modal: 0 10px 40px rgba(15,23,42,0.2);
+        --ghost-btn-bg: rgba(15,23,42,0.06);
+        --ghost-btn-border: rgba(15,23,42,0.18);
+        --ghost-btn-fg: #1e293b;
+    }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -183,6 +259,7 @@ body {
     border-radius: var(--radius-sm);
     border: none;
     background: linear-gradient(135deg, var(--accent), #e11d48);
+    background-color: var(--accent);
     color: white;
     font-weight: 600;
     font-size: 14px;
@@ -238,7 +315,7 @@ body {
     font-size: 11px;
     font-weight: 600;
     background: rgba(244,63,94,0.1);
-    color: var(--accent);
+    color: var(--accent-ink);
     border: 1px solid rgba(244,63,94,0.2);
 }
 .tag-purple {
@@ -442,15 +519,15 @@ body {
     opacity: 1;
 }
 .org-node-actions button {
-    background: rgba(255,255,255,0.12) !important;
-    border: 1px solid rgba(255,255,255,0.25) !important;
+    background: var(--ghost-btn-bg) !important;
+    border: 1px solid var(--ghost-btn-border) !important;
     border-radius: 5px;
     cursor: pointer;
     font-size: 14px;
     padding: 3px 6px !important;
     opacity: 1 !important;
     transition: all 0.15s;
-    color: #ffffff;
+    color: var(--ghost-btn-fg);
 }
 .org-node-actions button:first-child:hover {
     background: rgba(34,211,238,0.25) !important;
@@ -505,7 +582,7 @@ body {
     display: none;
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.7);
+    background: var(--overlay-bg);
     z-index: 1000;
     align-items: center;
     justify-content: center;
@@ -645,7 +722,7 @@ body {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     font-size: 13px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    box-shadow: var(--shadow-toast);
     animation: toastIn 0.3s ease;
 }
 .toast.success { border-left: 3px solid var(--green); }

@@ -524,7 +524,7 @@ async function runScript() {
         showToast(T('script_studio.toast_select_profile'), 'warning');
         // Highlight the profile dropdown briefly
         const sel = document.getElementById('execProfile');
-        sel.style.outline = '2px solid #f59e0b';
+        sel.style.outline = '2px solid var(--warning)';
         sel.focus();
         setTimeout(() => { sel.style.outline = ''; }, 2000);
         return;
@@ -782,9 +782,9 @@ function connectPreviewWS(port) {
     container.innerHTML = `
         <div id="canvasWrapper" style="position:relative; display:inline-block; max-width:100%; max-height:100%; line-height:0;">
             <canvas id="previewCanvas" style="cursor:crosshair;display:block;max-width:100%;max-height:100%;object-fit:contain;border-radius:2px;"></canvas>
-            <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid #58a6ff;background:rgba(88,166,255,0.1);display:none;z-index:10;box-sizing:border-box;"></div>
+            <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid var(--accent);background:rgba(var(--accent-rgb),0.1);display:none;z-index:10;box-sizing:border-box;"></div>
         </div>
-        <div id="inspectInfo" style="position:absolute;bottom:10px;left:10px;background:#1a1a2e;color:#e0e0e0;padding:8px 12px;border-radius:6px;font:12px monospace;z-index:10;pointer-events:none;display:none;box-shadow:var(--shadow)"></div>
+        <div id="inspectInfo" style="position:absolute;bottom:10px;left:10px;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border);padding:8px 12px;border-radius:6px;font:12px monospace;z-index:10;pointer-events:none;display:none;box-shadow:var(--shadow)"></div>
     `;
     previewCanvas = document.getElementById('previewCanvas');
     previewCtx = previewCanvas.getContext('2d', { alpha: false });
@@ -1082,7 +1082,7 @@ function stopScreenshotStream() {
 function showPreviewEnded() {
     const container = document.getElementById('previewContainer');
     if (!container) return;
-    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--muted);font-size:13px;">'
+    container.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--text-muted);font-size:13px;">'
         + '<span class="material-symbols-outlined" style="font-size:34px;opacity:.5">visibility_off</span>'
         + '<span>Preview đã kết thúc</span></div>';
 }
@@ -1621,7 +1621,7 @@ function appendLog(msg, type = '') {
 
     // 'warn' is a new type; colour it inline so it works even where the served
     // stylesheet predates the .log-line.warn rule.
-    const extraStyle = type === 'warn' ? ' style="color:#eab308"' : '';
+    const extraStyle = type === 'warn' ? ' style="color:var(--warning)"' : '';
     log.innerHTML += `<div class="log-line ${type}"${extraStyle}>[${time}] ${esc(displayMsg)}</div>`;
     log.scrollTop = log.scrollHeight;
 }
@@ -1756,10 +1756,10 @@ function showToast(message, type = 'info') {
     if (existing) existing.remove();
 
     const colors = {
-        warning: { bg: 'linear-gradient(135deg, #f59e0b, #d97706)', icon: '⚠️' },
-        error:   { bg: 'linear-gradient(135deg, #ef4444, #dc2626)', icon: '❌' },
-        success: { bg: 'linear-gradient(135deg, #10b981, #059669)', icon: '✅' },
-        info:    { bg: 'linear-gradient(135deg, #3b82f6, #2563eb)', icon: 'ℹ️' },
+        warning: { bg: 'var(--toast-warning)', icon: '⚠️' },
+        error:   { bg: 'var(--toast-error)', icon: '❌' },
+        success: { bg: 'var(--toast-success)', icon: '✅' },
+        info:    { bg: 'var(--toast-info)', icon: 'ℹ️' },
     };
     const c = colors[type] || colors.info;
 
@@ -1770,9 +1770,9 @@ function showToast(message, type = 'info') {
         position: 'fixed', top: '16px', left: '50%', transform: 'translateX(-50%) translateY(-20px)',
         padding: '12px 24px', borderRadius: '12px', background: c.bg,
         color: '#fff', fontWeight: '600', fontSize: '14px', fontFamily: 'Inter, sans-serif',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.3)', zIndex: '99999',
+        boxShadow: 'var(--toast-shadow)', zIndex: '99999',
         opacity: '0', transition: 'all 0.3s ease', cursor: 'pointer',
-        backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.15)',
+        backdropFilter: 'blur(8px)', border: '1px solid var(--toast-ring)',
     });
     toast.onclick = () => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); };
     document.body.appendChild(toast);

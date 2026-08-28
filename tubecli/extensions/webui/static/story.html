@@ -4,6 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title data-i18n="story.title_doc">3D Story Engine — TubeCLI</title>
+<script>
+/*
+ * Pre-paint theme. Runs BEFORE the stylesheet applies so there is no dark
+ * flash when the dashboard embeds this page in light mode.
+ * Contract (same as file_manager.html): the dashboard appends ?theme=light|dark
+ * (the cloud Flow canvas appends ?theme=glass) to the iframe URL; this page
+ * answers by setting data-theme on <html>, which activates the light token
+ * block below. With no theme param: standalone follows prefers-color-scheme,
+ * but an EMBEDDED page (window.self !== top) pins itself dark so a dark
+ * dashboard on a light-OS machine stays coherent.
+ */
+(function () {
+    try {
+        var t = new URLSearchParams(window.location.search).get('theme');
+        if (t === 'glass' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else if (window.self !== window.top) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -15,13 +39,89 @@
     --card:    #161b2e;
     --border:  #1e2640;
     --accent:  #22d3ee;
+    --accent-ink: #000;
     --accent2: #a855f7;
     --green:   #22c55e;
     --yellow:  #f59e0b;
+    --yellow-text: #f59e0b;
     --red:     #f43f5e;
     --text:    #e2e8f0;
     --muted:   #64748b;
+    --subtle:  #475569;
     --radius:  10px;
+    /* Tokens for values that used to be hardcoded literals, so the light
+       theme below can restyle them without duplicating element rules. */
+    --evt-label-ink: rgba(255,255,255,0.85);
+    --scrim:   rgba(0,0,0,0.7);
+    --shadow-modal: 0 20px 60px rgba(0,0,0,0.6);
+    --shadow-toast: 0 4px 20px rgba(0,0,0,0.4);
+    --toast-ok-bg:    #064e3b; --toast-ok-ink:    #6ee7b7; --toast-ok-line:    #065f46;
+    --toast-err-bg:   #450a0a; --toast-err-ink:   #fca5a5; --toast-err-line:   #7f1d1d;
+    --toast-info-bg:  #0c1a2e; --toast-info-ink:  #93c5fd; --toast-info-line:  #1e3a5f;
+    --log-bg:  #05070e;
+    --log-ink: #e2e8f0;
+}
+
+/* ─── Light theme ────────────────────────────────────────
+   Values mirror the dashboard light palette (webui/static/style.css
+   "Light theme (glass)"): ground #f7f8fa, white panels, ink #1e293b, lines
+   rgba(15,23,42,.1). --accent maps to the dashboard primary #5276EB (the
+   dashboard injects the same value when it embeds this page); status inks
+   darken so they pass contrast on white. Activation: the pre-paint script
+   in <head> sets data-theme from ?theme=; standalone, prefers-color-scheme
+   decides, guarded so an explicit data-theme always wins.
+   KEEP THE TWO BLOCKS IDENTICAL - CSS cannot share them. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg:      #f7f8fa;
+    --surface: #ffffff;
+    --card:    #f1f3f7;
+    --border:  rgba(15,23,42,0.1);
+    --accent:  #5276EB;
+    --accent-ink: #ffffff;
+    --accent2: #7c5ce7;
+    --green:   #15803d;
+    --yellow-text: #b45309;
+    --red:     #dc2626;
+    --text:    #1e293b;
+    --muted:   #64748b;
+    --subtle:  #64748b;
+    --evt-label-ink: rgba(30,41,59,0.85);
+    --scrim:   rgba(15,23,42,0.45);
+    --shadow-modal: 0 20px 60px rgba(15,23,42,0.22);
+    --shadow-toast: 0 4px 20px rgba(15,23,42,0.18);
+    --toast-ok-bg:    #dcfce7; --toast-ok-ink:    #166534; --toast-ok-line:    #86efac;
+    --toast-err-bg:   #fee2e2; --toast-err-ink:   #991b1b; --toast-err-line:   #fca5a5;
+    --toast-info-bg:  #dbeafe; --toast-info-ink:  #1e40af; --toast-info-line:  #93c5fd;
+    --log-bg:  #f1f3f7;
+    --log-ink: #1e293b;
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg:      #f7f8fa;
+        --surface: #ffffff;
+        --card:    #f1f3f7;
+        --border:  rgba(15,23,42,0.1);
+        --accent:  #5276EB;
+        --accent-ink: #ffffff;
+        --accent2: #7c5ce7;
+        --green:   #15803d;
+        --yellow-text: #b45309;
+        --red:     #dc2626;
+        --text:    #1e293b;
+        --muted:   #64748b;
+        --subtle:  #64748b;
+        --evt-label-ink: rgba(30,41,59,0.85);
+        --scrim:   rgba(15,23,42,0.45);
+        --shadow-modal: 0 20px 60px rgba(15,23,42,0.22);
+        --shadow-toast: 0 4px 20px rgba(15,23,42,0.18);
+        --toast-ok-bg:    #dcfce7; --toast-ok-ink:    #166534; --toast-ok-line:    #86efac;
+        --toast-err-bg:   #fee2e2; --toast-err-ink:   #991b1b; --toast-err-line:   #fca5a5;
+        --toast-info-bg:  #dbeafe; --toast-info-ink:  #1e40af; --toast-info-line:  #93c5fd;
+        --log-bg:  #f1f3f7;
+        --log-ink: #1e293b;
+    }
 }
 html, body { height: 100%; overflow: hidden; background: var(--bg); font-family: 'Inter', sans-serif; color: var(--text); }
 
@@ -74,7 +174,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .hbtn-play    { background: var(--green);  color: #fff; }
 .hbtn-pause   { background: var(--yellow); color: #000; }
 .hbtn-stop    { background: var(--red);    color: #fff; }
-.hbtn-save    { background: var(--accent); color: #000; }
+.hbtn-save    { background: var(--accent); color: var(--accent-ink); }
 .hbtn-new     { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
 .hbtn-load    { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
 .hbtn-ai      { background: var(--accent2); color: #fff; }
@@ -119,7 +219,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
 /* Waypoints */
 .se-waypoint-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; }
-.se-wp-icon { color: var(--yellow); }
+.se-wp-icon { color: var(--yellow-text); }
 .se-wp-label { flex: 1; }
 .se-wp-pos { font-size: 10px; color: var(--muted); }
 
@@ -247,7 +347,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 .se-event-block:hover { filter: brightness(1.3); }
 .se-event-block:active { cursor: grabbing; }
 .se-evt-icon { font-size: 13px; flex-shrink: 0; }
-.se-evt-label { font-size: 10px; color: rgba(255,255,255,0.85); overflow: hidden; text-overflow: ellipsis; }
+.se-evt-label { font-size: 10px; color: var(--evt-label-ink); overflow: hidden; text-overflow: ellipsis; }
 
 /* Playhead */
 #se-playhead {
@@ -262,7 +362,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 }
 
 /* ─── Buttons ────────────────────────────────────────────── */
-.se-btn-primary { background: var(--accent); color: #000; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; }
+.se-btn-primary { background: var(--accent); color: var(--accent-ink); border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; font-weight: 700; }
 .se-btn-secondary { background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
 .se-btn-secondary:hover, .se-btn-secondary.active { border-color: var(--accent); color: var(--accent); }
 .se-btn-danger { background: var(--red); color: #fff; border: none; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-size: 12px; margin-top: 8px; }
@@ -292,7 +392,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.7);
+    background: var(--scrim);
     z-index: 9000;
     align-items: center;
     justify-content: center;
@@ -307,7 +407,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
     max-height: 85vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    box-shadow: var(--shadow-modal);
 }
 .se-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 700; font-size: 14px; }
 .se-modal-body { padding: 16px; overflow-y: auto; flex: 1; }
@@ -315,10 +415,10 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
 
 /* ─── Toast ──────────────────────────────────────────────── */
 .se-toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
-.se-toast { padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; max-width: 320px; transition: opacity 0.4s; opacity: 1; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
-.se-toast-success { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46; }
-.se-toast-error   { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; }
-.se-toast-info    { background: #0c1a2e; color: #93c5fd; border: 1px solid #1e3a5f; }
+.se-toast { padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; max-width: 320px; transition: opacity 0.4s; opacity: 1; box-shadow: var(--shadow-toast); }
+.se-toast-success { background: var(--toast-ok-bg); color: var(--toast-ok-ink); border: 1px solid var(--toast-ok-line); }
+.se-toast-error   { background: var(--toast-err-bg); color: var(--toast-err-ink); border: 1px solid var(--toast-err-line); }
+.se-toast-info    { background: var(--toast-info-bg); color: var(--toast-info-ink); border: 1px solid var(--toast-info-line); }
 
 /* ─── Load-scripts modal list ────────────────────────────── */
 #load-script-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow-y: auto; }
@@ -420,7 +520,7 @@ html, body { height: 100%; overflow: hidden; background: var(--bg); font-family:
             <div id="se-playhead"></div>
             <div id="se-timeline"></div>
         </div>
-        <div id="panel-logs-content" style="flex:1;overflow-y:auto;background:#05070e;padding:12px;display:none;font-family:'Consolas','Fira Code','Courier New',monospace;font-size:11.5px;line-height:1.6;color:#e2e8f0;border-top:1px solid var(--border);">
+        <div id="panel-logs-content" style="flex:1;overflow-y:auto;background:var(--log-bg);padding:12px;display:none;font-family:'Consolas','Fira Code','Courier New',monospace;font-size:11.5px;line-height:1.6;color:var(--log-ink);border-top:1px solid var(--border);">
             <div id="ws-logs-list" style="display:flex;flex-direction:column;gap:4px;">
                 <div class="ws-log-placeholder" style="color:var(--muted);font-style:italic;">📜 Chưa có sự kiện nào được ghi nhận. Khởi chạy WorldSeed AI Tự hành để theo dõi log trực tiếp tại đây...</div>
             </div>

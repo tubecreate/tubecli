@@ -30,6 +30,7 @@
         fileInput: $('#fileInput'),
         effectsGrid: $('#effectsGrid'),
         tracksContainer: $('#tracksContainer'),
+        timelineScroll: $('#timelineScroll'),
         timeRuler: $('#timeRuler'),
         playhead: $('#playhead'),
         zoomLevel: $('#zoomLevel'),
@@ -239,7 +240,7 @@
 
         const thumbDiv = document.createElement('div');
         thumbDiv.className = 'media-thumb';
-        thumbDiv.style.cssText = 'background:linear-gradient(135deg,#6c5ce7 0%,#2d1b69 100%);display:flex;align-items:center;justify-content:center;font-size:14px;';
+        thumbDiv.style.cssText = 'background:var(--thumb-gradient);display:flex;align-items:center;justify-content:center;font-size:14px;';
         thumbDiv.textContent = '🎬';
 
         const infoDiv = document.createElement('div');
@@ -694,7 +695,7 @@
             // Allow dropping media onto track
             content.addEventListener('dragover', (e) => {
                 e.preventDefault();
-                content.style.background = 'rgba(108, 92, 231, 0.1)';
+                content.style.background = 'var(--track-drop-bg)';
             });
             content.addEventListener('dragleave', () => {
                 content.style.background = '';

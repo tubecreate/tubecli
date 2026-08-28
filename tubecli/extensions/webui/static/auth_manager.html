@@ -4,6 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auth Manager — TubeCLI</title>
+    <script>
+    /*
+     * Pre-paint theme (same contract as file_manager.html). Runs BEFORE any
+     * stylesheet applies so there is no dark flash when the dashboard embeds this
+     * page in light mode. ?theme=glass|light → data-theme="light"; ?theme=dark →
+     * "dark"; no param: standalone follows prefers-color-scheme, an EMBEDDED page
+     * (self !== top) pins itself dark so a dark dashboard stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css?v=6">
     <link rel="stylesheet" href="/static/auth_manager.css?v=11">
@@ -153,7 +174,7 @@
                         <span data-i18n="auth.step2.enable_apis_desc">⚡ Important: Must find and click "Enable" for the following APIs in Google Cloud API Library to avoid 403 Forbidden:</span>
                     </div>
                     <div id="cred-required-apis" class="am-scopes-list"></div>
-                    <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
+                    <hr style="border:none; border-top:1px dotted var(--am-glass-border); margin:16px 0;">
                 </div>
 
                 <!-- 2. Scopes -->
@@ -166,7 +187,7 @@
                 </div>
                 <div id="cred-required-scopes" class="am-scopes-list" style="margin-bottom:16px;"></div>
 
-                <hr style="border:none; border-top:1px dotted rgba(255,255,255,0.1); margin:16px 0;">
+                <hr style="border:none; border-top:1px dotted var(--am-glass-border); margin:16px 0;">
 
                 <!-- 3. Redirect URI -->
                 <div class="am-scopes-box-desc" style="font-weight:600; color:var(--primary); margin-bottom:6px">
@@ -253,7 +274,7 @@
 
         <!-- Scopes (read-only, from credential config) -->
         <div class="form-group" style="margin-top:12px">
-            <label><span data-i18n="auth.authz.lbl_scopes">📦 Scopes to be granted</span> <span style="color:#64748b;font-weight:400;font-size:0.8rem"><span data-i18n="auth.authz.lbl_scopes_hint">(configured when creating credential)</span></span></label>
+            <label><span data-i18n="auth.authz.lbl_scopes">📦 Scopes to be granted</span> <span style="color:var(--text-muted);font-weight:400;font-size:0.8rem"><span data-i18n="auth.authz.lbl_scopes_hint">(configured when creating credential)</span></span></label>
             <div id="auth-scopes-chips" class="am-scopes-chips"></div>
             <small class="am-hint" style="margin-top:6px"><span data-i18n="auth.authz.change_scopes_hint">💡 Want to change scopes? Create a new credential with different permissions.</span></small>
         </div>
@@ -276,7 +297,7 @@
             <small><span data-i18n="auth.authz.redirect_uri_hint">Add this URI to the OAuth config on Google Cloud / Facebook / TikTok</span></small>
         </div>
 
-        <div style="border-top:1px dotted rgba(255,255,255,0.1); margin: 16px 0;"></div>
+        <div style="border-top:1px dotted var(--am-glass-border); margin: 16px 0;"></div>
 
         <!-- Browser Profile -->
         <div class="form-group">
@@ -291,7 +312,7 @@
 
         <div class="modal-actions" style="justify-content: flex-end; gap: 8px;">
             <button class="btn-secondary" onclick="closeModal('modal-authorize')"><span data-i18n="auth.btn_cancel">Cancel</span></button>
-            <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:#1e293b; color:#cbd5e1; white-space: nowrap;" data-i18n-title="auth.authz.btn_copy_title" title="Copy URL to paste into an open browser"><span data-i18n="auth.authz.btn_copy">📋 Copy Link</span></button>
+            <button class="btn-secondary" onclick="startAuthorize('copy')" style="background:var(--am-dim-btn-bg); color:var(--am-dim-btn-fg); white-space: nowrap;" data-i18n-title="auth.authz.btn_copy_title" title="Copy URL to paste into an open browser"><span data-i18n="auth.authz.btn_copy">📋 Copy Link</span></button>
             <button class="btn-primary" onclick="startAuthorize('open')" style="white-space: nowrap;">
                 <span data-i18n="auth.authz.btn_auth">🚀 Authorize</span>
             </button>
@@ -316,14 +337,14 @@
             <div style="font-size:0.78rem; color:var(--text2); margin-bottom:4px;"><span data-i18n="auth.waiting.url_label">Authorization link — click to select &amp; copy, or open directly:</span></div>
             <div style="display:flex; gap:6px; align-items:stretch;">
                 <input id="am-waiting-url-input" readonly onclick="this.select()" spellcheck="false"
-                       style="flex:1; min-width:0; font-family:monospace; font-size:0.76rem; color:var(--cyan); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:9px 10px;">
+                       style="flex:1; min-width:0; font-family:monospace; font-size:0.76rem; color:var(--cyan); background:var(--am-glass-bg); border:1px solid var(--am-glass-border); border-radius:8px; padding:9px 10px;">
                 <a id="am-waiting-url-open" href="#" target="_blank" rel="noreferrer" class="btn-secondary"
                    style="display:flex; align-items:center; padding:0 12px; text-decoration:none;" title="Open in new tab">↗</a>
             </div>
         </div>
 
-        <div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:16px; text-align:left; font-size:0.85rem; margin-bottom:24px;">
-            <strong style="color:#f59e0b; display:block; margin-bottom:8px;"><span data-i18n="auth.waiting.troubleshoot_title">⚠️ Common error troubleshooting (Google):</span></strong>
+        <div style="background:var(--am-glass-bg); border-radius:8px; padding:16px; text-align:left; font-size:0.85rem; margin-bottom:24px;">
+            <strong style="color:var(--am-orange); display:block; margin-bottom:8px;"><span data-i18n="auth.waiting.troubleshoot_title">⚠️ Common error troubleshooting (Google):</span></strong>
             <ul style="margin:0; padding-left:20px; color:var(--text2); line-height:1.5;">
                 <li style="margin-bottom:6px"><span data-i18n="auth.waiting.ts_error_1">Error:</span> <strong>Access blocked: Authorization Error</strong>:<br><span data-i18n="auth.waiting.ts_sol_1">Go to Google Cloud → <em>OAuth consent screen</em> → scroll to <strong>Test users</strong> and ADD the email you are using.</span></li>
                 <li><span data-i18n="auth.waiting.ts_error_2">Red warning</span> <strong>Google hasn’t verified this app</strong>:<br><span data-i18n="auth.waiting.ts_sol_2">Click the small text <strong>"Advanced"</strong> at the bottom, then click <strong>"Go to ... (unsafe)"</strong> to continue.</span></li>
@@ -332,7 +353,7 @@
 
         <div class="modal-actions" style="justify-content:center; gap:8px;">
             <button class="btn-secondary" onclick="cancelPolling()"><span data-i18n="auth.waiting.btn_cancel">Skip / Cancel waiting</span></button>
-            <button id="am-waiting-copy-btn" class="btn-secondary hidden" style="background:#1e293b; color:#cbd5e1; border-color:transparent;" onclick="copyAmText(window._currentAuthUrl)"><span data-i18n="auth.waiting.btn_copy">📋 Copy Link Again</span></button>
+            <button id="am-waiting-copy-btn" class="btn-secondary hidden" style="background:var(--am-dim-btn-bg); color:var(--am-dim-btn-fg); border-color:transparent;" onclick="copyAmText(window._currentAuthUrl)"><span data-i18n="auth.waiting.btn_copy">📋 Copy Link Again</span></button>
         </div>
     </div>
 </div>
@@ -354,15 +375,15 @@
         <!-- Khối rủi ro: chỉ hiện ở tab Tự chứa, trước khi xác nhận -->
         <div id="am-ai-risk" style="display:none; border:1px solid rgba(239,68,68,0.4); border-radius:10px; padding:14px; margin-top:12px; background:rgba(239,68,68,0.05);">
             <p style="color:var(--text2); font-size:0.82rem; line-height:1.55; margin:0 0 6px;"><span data-i18n="auth.ai.optB_pros">✅ Pros: works immediately from any machine or cloud AI (ChatGPT, Claude…) — no server access needed; includes a remote token-refresh recipe.</span></p>
-            <p style="color:#fbbf24; font-size:0.82rem; line-height:1.55; margin:0 0 10px;"><span data-i18n="auth.ai.optB_risks">⚠ Risks: the guide contains a LIVE Google access token — anyone who sees it can use these permissions until you Revoke; it will be stored in the third-party AI's chat history. The refresh recipe has a &lt;TUBECLI_PASSWORD&gt; placeholder — filling it in exposes full control of this server. You accept these risks yourself.</span></p>
-            <button class="btn-secondary" style="border-color:rgba(239,68,68,0.5); color:#f87171;" onclick="aiGuideConfirmFull()"><span data-i18n="auth.ai.optB_confirm">I understand the risks — create full guide</span></button>
+            <p style="color:var(--am-yellow); font-size:0.82rem; line-height:1.55; margin:0 0 10px;"><span data-i18n="auth.ai.optB_risks">⚠ Risks: the guide contains a LIVE Google access token — anyone who sees it can use these permissions until you Revoke; it will be stored in the third-party AI's chat history. The refresh recipe has a &lt;TUBECLI_PASSWORD&gt; placeholder — filling it in exposes full control of this server. You accept these risks yourself.</span></p>
+            <button class="btn-secondary" style="border-color:rgba(239,68,68,0.5); color:var(--am-red-soft);" onclick="aiGuideConfirmFull()"><span data-i18n="auth.ai.optB_confirm">I understand the risks — create full guide</span></button>
         </div>
 
         <!-- Kết quả -->
         <div id="am-ai-result" style="display:none;">
             <p style="color:var(--text2); font-size:0.85rem; margin:10px 0 12px;"><span data-i18n="auth.ai.desc">Paste this into your agent's system prompt (or chat) so the AI knows what it may do with this account.</span></p>
             <textarea id="am-ai-guide-text" readonly onclick="this.select()" spellcheck="false"
-                style="width:100%; min-height:260px; font-family:monospace; font-size:0.8rem; line-height:1.55; color:var(--text); background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.12); border-radius:8px; padding:12px; resize:vertical;"></textarea>
+                style="width:100%; min-height:260px; font-family:monospace; font-size:0.8rem; line-height:1.55; color:var(--text); background:var(--am-glass-bg); border:1px solid var(--am-glass-border); border-radius:8px; padding:12px; resize:vertical;"></textarea>
             <div class="modal-actions" style="justify-content:flex-end; gap:8px; margin-top:12px;">
                 <button class="btn-secondary" onclick="closeModal('modal-ai-guide')"><span data-i18n="auth.btn_cancel">Cancel</span></button>
                 <button class="btn-primary" onclick="copyAmText(document.getElementById('am-ai-guide-text').value)"><span data-i18n="auth.ai.btn_copy">📋 Copy guide</span></button>

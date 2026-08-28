@@ -3,12 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0a0a0f">
+    <meta name="theme-color" content="#f7f8fa" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
     <title>TubeCLI &mdash; Extension Market</title>
     <meta name="description" content="Browse and trade extensions, nodes, skills, and 3D models created by the community">
-    <style>html,body{background:#0a0a0f!important;color:#e8e8f0;margin:0}</style>
+    <script>
+    /*
+     * Pre-paint theme. Must run BEFORE the stylesheets apply so there is no
+     * dark flash when the dashboard embeds this page in light mode.
+     * Contract (same as file_manager.html): the dashboard appends
+     * ?theme=light|dark (the cloud canvas: ?theme=glass) to the iframe URL;
+     * this page answers by setting data-theme on <html>, which activates the
+     * light token blocks in style.css and market.css. With no theme param:
+     * standalone follows prefers-color-scheme, but an EMBEDDED page
+     * (window.self !== top) pins itself dark so a dark host stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
+    <!-- Anti-flash ground painted before the stylesheets arrive; values mirror
+         --bg / --text of style.css in each theme. -->
+    <style>html{margin:0;background:#1a1a1a;color:#ededed}html[data-theme="light"]{background:#f7f8fa;color:#1e293b}@media (prefers-color-scheme: light){html:not([data-theme="dark"]){background:#f7f8fa;color:#1e293b}}</style>
     <link rel="stylesheet" href="/static/style.css?v=6">
-    <link rel="stylesheet" href="/static/market.css?v=16">
+    <link rel="stylesheet" href="/static/market.css?v=17">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="/static/i18n.js?v=11"></script>
 </head>
@@ -70,7 +97,7 @@
                 </div>
                 <button class="vsx-btn-secondary" id="btnMyListings" onclick="requireAuth(() => openMyListingsModal())" style="display:none;">&#x1F4CB; <span data-i18n="market.my_listings">My Listings</span></button>
                 <!-- Credit Balance Badge -->
-                <div id="creditBalanceBadge" style="display:none;align-items:center;gap:4px;padding:4px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:10px;font-size:0.82rem;color:#c4b5fd;"></div>
+                <div id="creditBalanceBadge" style="display:none;align-items:center;gap:4px;padding:4px 10px;background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);border-radius:10px;font-size:0.82rem;color:var(--mk-violet-text);"></div>
                 <button class="vsx-btn-primary" onclick="requireAuth(() => openUploadModal())">&#x1F4E4; <span data-i18n="market.sell_item">Sell Item</span></button>
 
             </div>
@@ -298,10 +325,10 @@
             <button class="modal-close" onclick="closeLoginModal()" style="position:absolute;top:14px;right:14px;">&#x2715;</button>
             <h2 id="authTitle" style="font-size:1.3rem;font-weight:800;margin-bottom:6px;" data-i18n="auth.login">&#x1F511; Login</h2>
             <p id="authSubtitle" style="color:var(--text-muted,#6868a0);margin:0 0 20px;font-size:0.9rem;">&#x0110;&#x0103;ng nh&#x1EAD;p &#x0111;&#x1EC3; b&#xE1;n tr&#xEA;n Market</p>
-            <div id="authErrorMsg" style="display:none;background:rgba(239,68,68,.15);color:#ef4444;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;"></div>
+            <div id="authErrorMsg" style="display:none;background:rgba(239,68,68,.15);color:var(--red);padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:0.85rem;"></div>
 
             <!-- Đăng nhập bằng phiên cloud: khỏi gõ lại mật khẩu, cùng tài khoản với cloud.tubecreate.com -->
-            <button type="button" id="btnCloudSso" onclick="loginWithCloud()" style="width:100%;padding:11px 14px;border-radius:9px;border:1px solid #7c3aed;background:rgba(124,58,237,.14);color:#c4b5fd;font-weight:700;font-size:0.9rem;cursor:pointer;margin-bottom:14px;">&#x2601;&#xFE0F; <span data-i18n="auth.cloud_sso">Sign in with TubeCLI Cloud</span></button>
+            <button type="button" id="btnCloudSso" onclick="loginWithCloud()" style="width:100%;padding:11px 14px;border-radius:9px;border:1px solid #7c3aed;background:rgba(124,58,237,.14);color:var(--mk-violet-text);font-weight:700;font-size:0.9rem;cursor:pointer;margin-bottom:14px;">&#x2601;&#xFE0F; <span data-i18n="auth.cloud_sso">Sign in with TubeCLI Cloud</span></button>
             <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;color:var(--text-muted,#6868a0);font-size:0.78rem;">
                 <span style="flex:1;height:1px;background:var(--border,#2a2a4a);"></span><span data-i18n="auth.or_email">or use email</span><span style="flex:1;height:1px;background:var(--border,#2a2a4a);"></span>
             </div>
@@ -374,7 +401,7 @@
         <p id="confirmMessage" style="font-size:0.95rem; color:var(--text-muted, #6868a0); margin-bottom:28px; line-height:1.5;"></p>
         <div style="display:flex; gap:12px; justify-content:center;">
             <button class="btn-secondary" id="confirmCancelBtn" style="padding:12px 28px; border-radius:12px; font-weight:600;">H&#x1EE7;y</button>
-            <button class="btn-delete-listing" id="confirmOkBtn" style="padding:12px 28px; border:none; background:linear-gradient(135deg, #ef4444, #dc2626); color:white; border-radius:12px; font-weight:700; cursor:pointer;">Ti&#x1EBF;p t&#x1EE5;c</button>
+            <button class="btn-delete-listing" id="confirmOkBtn" style="padding:12px 28px; border:none; background:#dc2626 linear-gradient(135deg, #ef4444, #dc2626); color:white; border-radius:12px; font-weight:700; cursor:pointer;">Ti&#x1EBF;p t&#x1EE5;c</button>
         </div>
     </div>
 </div>
@@ -409,15 +436,15 @@
 
     <!-- PayPal Smart Buttons Container, hidden by default -->
     <div id="paypal-button-container" style="display:none; padding: 12px 32px 16px;">
-        <h4 style="margin: 0 0 6px 0; color: #fff; font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
+        <h4 style="margin: 0 0 6px 0; color: var(--text); font-size: 1.05rem; display:flex; align-items:center; gap:8px; justify-content:center;">
             <span>💳</span> <span data-i18n="topup.paypal_title">Phương thức thanh toán PayPal</span>
         </h4>
-        <div id="selected-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.95rem; text-align: center;"></div>
+        <div id="selected-package-summary" style="margin-bottom: 20px; padding: 10px 14px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: var(--mk-indigo-text); font-size: 0.95rem; text-align: center;"></div>
         
         <!-- PayPal SDK will render buttons here -->
         <div id="paypal-buttons-mount" style="min-height: 100px;"></div>
         
-        <div id="paypal-buttons-error" style="display:none; color:#ef4444; font-size:0.85rem; margin-top:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500; text-align:center;"></div>
+        <div id="paypal-buttons-error" style="display:none; color:var(--red); font-size:0.85rem; margin-top:14px; padding:10px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.2); border-radius:8px; font-weight:500; text-align:center;"></div>
         
         <button type="button" onclick="hidePaypalButtons()" style="width:100%; margin-top:16px; padding:10px; background:transparent; border:1px dashed var(--border, #2e2e42); border-radius:10px; color:var(--text-muted, #8e8ea8); font-weight:600; cursor:pointer; font-size:0.85rem; transition:all 0.2s;" onmouseover="this.style.borderColor='var(--text-muted)'" onmouseout="this.style.borderColor='var(--border)'" data-i18n="topup.back_packages">
             ← Quay lại chọn gói khác
@@ -426,17 +453,17 @@
 
     <!-- ── Payment Choice Selection (PayPal vs Crypto) ── -->
     <div id="topup-method-choice-container" style="display:none; padding: 12px 32px 16px;">
-        <h4 style="margin: 0 0 10px 0; color: #fff; font-size: 0.95rem; text-align:center; font-weight:700;" data-i18n="topup.choose_method">
+        <h4 style="margin: 0 0 10px 0; color: var(--text); font-size: 0.95rem; text-align:center; font-weight:700;" data-i18n="topup.choose_method">
             ✨ Chọn phương thức thanh toán
         </h4>
-        <div id="choice-package-summary" style="margin-bottom: 12px; padding: 6px 12px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: #a5b4fc; font-size: 0.85rem; text-align: center;"></div>
+        <div id="choice-package-summary" style="margin-bottom: 12px; padding: 6px 12px; border-radius: 8px; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.2); font-weight: 700; color: var(--mk-indigo-text); font-size: 0.85rem; text-align: center;"></div>
         
         <div style="display:flex; flex-direction:column; gap:8px;">
             <!-- Option 1: PayPal -->
             <div onclick="selectTopUpMethod('paypal')" style="padding:10px 14px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='var(--accent, #6366f1)'; this.style.background='rgba(99,102,241,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
                 <span style="font-size:1.4rem;">💳</span>
                 <div style="flex:1;">
-                    <div style="font-weight:700; color:#fff; font-size:0.88rem;" data-i18n="topup.paypal_method">Thanh toán PayPal / Thẻ quốc tế</div>
+                    <div style="font-weight:700; color:var(--text); font-size:0.88rem;" data-i18n="topup.paypal_method">Thanh toán PayPal / Thẻ quốc tế</div>
                     <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" data-i18n="topup.paypal_desc">Visa, Mastercard, Discover</div>
                 </div>
                 <span style="background:#003087; color:#fff; font-size:0.65rem; font-weight:700; padding:3px 6px; border-radius:4px; text-transform:uppercase;">PayPal</span>
@@ -446,10 +473,10 @@
             <div onclick="selectTopUpMethod('crypto')" style="padding:10px 14px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:10px; cursor:pointer; display:flex; align-items:center; gap:10px; transition:all 0.2s; box-shadow:0 4px 10px rgba(0,0,0,0.1);" onmouseover="this.style.borderColor='#8b5cf6'; this.style.background='rgba(139,92,246,0.05)'" onmouseout="this.style.borderColor='var(--border)'; this.style.background='var(--bg2)'">
                 <span style="font-size:1.4rem;">🪙</span>
                 <div style="flex:1;">
-                    <div style="font-weight:700; color:#fff; font-size:0.88rem;" data-i18n="topup.crypto_method">Thanh toán Crypto (Tự động)</div>
+                    <div style="font-weight:700; color:var(--text); font-size:0.88rem;" data-i18n="topup.crypto_method">Thanh toán Crypto (Tự động)</div>
                     <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;" data-i18n="topup.crypto_desc">Nạp bằng USDT, BNB, BTC, ETH qua NOWPayments</div>
                 </div>
-                <span style="background:linear-gradient(135deg, #8b5cf6, #a855f7); color:#fff; font-size:0.65rem; font-weight:700; padding:3px 6px; border-radius:4px; text-transform:uppercase;">Crypto</span>
+                <span style="background:#8b5cf6 linear-gradient(135deg, #8b5cf6, #a855f7); color:#fff; font-size:0.65rem; font-weight:700; padding:3px 6px; border-radius:4px; text-transform:uppercase;">Crypto</span>
             </div>
         </div>
 
@@ -460,16 +487,16 @@
 
     <!-- ── Crypto Payment Container ── -->
     <div id="crypto-payment-container" style="display:none; padding: 12px 32px 16px;">
-        <h4 style="margin: 0 0 6px 0; color: #fff; font-size: 0.9rem; display:flex; align-items:center; gap:6px; justify-content:center;">
+        <h4 style="margin: 0 0 6px 0; color: var(--text); font-size: 0.9rem; display:flex; align-items:center; gap:6px; justify-content:center;">
             <span>🪙</span> <span data-i18n="topup.crypto_title">Thanh toán Crypto qua NOWPayments</span>
         </h4>
         
         <!-- Package info & selector flex row -->
         <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
-            <div id="crypto-package-summary" style="flex: 1.2; margin-bottom: 0; padding: 6px 10px; border-radius: 8px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); font-weight: 700; color: #c084fc; font-size: 0.82rem; text-align: center;"></div>
+            <div id="crypto-package-summary" style="flex: 1.2; margin-bottom: 0; padding: 6px 10px; border-radius: 8px; background: rgba(139,92,246,0.1); border: 1px solid rgba(139,92,246,0.2); font-weight: 700; color: var(--mk-purple-text); font-size: 0.82rem; text-align: center;"></div>
             <div style="flex: 1; display: flex; align-items: center; gap: 6px;">
                 <label style="white-space: nowrap; font-weight:600; font-size:0.75rem; color:var(--text-muted); margin:0;" data-i18n="topup.currency_label">Đồng tiền:</label>
-                <select id="crypto-currency-select" onchange="onCryptoCurrencyChange()" style="flex:1; padding:6px 8px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:8px; color:#fff; font-weight:600; font-size:0.8rem; outline:none;">
+                <select id="crypto-currency-select" onchange="onCryptoCurrencyChange()" style="flex:1; padding:6px 8px; background:var(--bg3, #1e1e2f); border:1px solid var(--border, #2e2e42); border-radius:8px; color:var(--text); font-weight:600; font-size:0.8rem; outline:none;">
                     <option value="usdttrc20">USDT (TRC20 - Tron)</option>
                     <option value="usdtbsc">USDT (BEP20 - BSC)</option>
                     <option value="usdterc20">USDT (ERC20 - ETH)</option>
@@ -481,7 +508,7 @@
             </div>
         </div>
 
-        <button type="button" id="crypto-pay-btn" onclick="startCryptoPaymentFlow()" style="width:100%; padding:8px; background:linear-gradient(135deg, #8b5cf6, #a855f7); border:none; border-radius:8px; color:#fff; font-weight:700; cursor:pointer; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 12px rgba(139,92,246,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'" data-i18n="topup.crypto_pay_btn">
+        <button type="button" id="crypto-pay-btn" onclick="startCryptoPaymentFlow()" style="width:100%; padding:8px; background:#8b5cf6 linear-gradient(135deg, #8b5cf6, #a855f7); border:none; border-radius:8px; color:#fff; font-weight:700; cursor:pointer; font-size:0.85rem; display:flex; align-items:center; justify-content:center; gap:8px; transition:all 0.2s; box-shadow: 0 4px 12px rgba(139,92,246,0.3);" onmouseover="this.style.transform='translateY(-1px)'" onmouseout="this.style.transform='none'" data-i18n="topup.crypto_pay_btn">
             ⚡ Bấm để lấy mã QR thanh toán
         </button>
 
@@ -495,20 +522,20 @@
 
             <div style="margin-bottom:12px;">
                 <span style="display:block; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Số tiền cần gửi:</span>
-                <span id="crypto-pay-amount" style="font-size:1.3rem; font-weight:800; color:#10b981;">0.00 USDT</span>
+                <span id="crypto-pay-amount" style="font-size:1.3rem; font-weight:800; color:var(--mk-emerald-strong);">0.00 USDT</span>
             </div>
 
             <div style="margin-bottom:15px; position:relative;">
                 <span style="display:block; font-size:0.75rem; color:var(--text-muted); font-weight:600; text-transform:uppercase; margin-bottom:4px;">Địa chỉ ví nhận:</span>
                 <div style="display:flex; gap:6px;">
-                    <input id="crypto-pay-address" readonly style="flex:1; padding:8px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:6px; color:#fff; font-size:0.8rem; font-family:monospace; text-align:center; outline:none;" />
-                    <button onclick="copyCryptoAddress()" style="padding:6px 12px; background:var(--bg4, #2a2a3e); border:1px solid var(--border, #2e2e42); border-radius:6px; color:#fff; font-size:0.8rem; font-weight:600; cursor:pointer;">Copy</button>
+                    <input id="crypto-pay-address" readonly style="flex:1; padding:8px 10px; background:var(--bg2, #161622); border:1px solid var(--border, #2e2e42); border-radius:6px; color:var(--text); font-size:0.8rem; font-family:monospace; text-align:center; outline:none;" />
+                    <button onclick="copyCryptoAddress()" style="padding:6px 12px; background:var(--bg-hover); border:1px solid var(--border, #2e2e42); border-radius:6px; color:var(--text); font-size:0.8rem; font-weight:600; cursor:pointer;">Copy</button>
                 </div>
             </div>
 
             <div style="padding:10px; background:rgba(16,185,129,0.1); border:1px dashed rgba(16,185,129,0.3); border-radius:8px;">
-                <p style="margin:0; font-size:0.82rem; color:#34d399; font-weight:600; display:flex; align-items:center; justify-content:center; gap:6px;">
-                    <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:#34d399 transparent transparent transparent; margin:0;"></span>
+                <p style="margin:0; font-size:0.82rem; color:var(--mk-emerald-text); font-weight:600; display:flex; align-items:center; justify-content:center; gap:6px;">
+                    <span class="market-spinner" style="width:12px; height:12px; border-width:1.5px; border-color:var(--mk-emerald-text) transparent transparent transparent; margin:0;"></span>
                     Hệ thống đang tự động theo dõi giao dịch trên Blockchain...
                 </p>
             </div>
@@ -533,7 +560,7 @@
      stale buster the browser keeps serving the cached old script. That
      is exactly how the compressed-upload fix sat unused while the
      publish kept failing with 413. -->
-<script src="/static/market.js?v=3.15"></script>
+<script src="/static/market.js?v=3.16"></script>
 
 </body>
 </html>

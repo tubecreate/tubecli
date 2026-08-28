@@ -5,10 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Script Studio — Browser Automation</title>
     <meta name="description" content="Visual browser automation script editor for TubeCLI">
+    <script>
+    /*
+     * Pre-paint theme. Must run BEFORE the stylesheet applies so there is no
+     * dark flash when the dashboard embeds this page in light mode.
+     * Contract (same as file_manager.html): the dashboard appends
+     * ?theme=light|dark (the cloud canvas: ?theme=glass) to the iframe URL;
+     * this page answers by setting data-theme on <html>, which activates the
+     * light token block in styles.css. With no theme param: standalone follows
+     * prefers-color-scheme, but an EMBEDDED page (window.self !== top) pins
+     * itself dark so a dark host on a light-OS machine stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Symbols+Outlined" rel="stylesheet">
-    <link rel="stylesheet" href="/script-studio/styles.css?v=20260505">
+    <link rel="stylesheet" href="/script-studio/styles.css?v=20260828">
 </head>
 <body>
     <div id="app">
@@ -158,7 +182,7 @@
                                 <span style="font-size:0.85rem;font-weight:500" data-i18n="script_studio.mark_as_function">Mark as Function</span>
                             </label>
                             <p style="font-size:0.72rem;color:var(--text-muted);margin-top:6px;margin-left:28px" data-i18n="script_studio.mark_as_function_desc">
-                                Functions can be called from other scripts via the <code style="background:rgba(88,166,255,0.1);padding:1px 4px;border-radius:3px">call_function</code> step. When enabled, this script will appear in the "Insert Call Function" menu.
+                                Functions can be called from other scripts via the <code style="background:rgba(var(--accent-rgb),0.1);padding:1px 4px;border-radius:3px">call_function</code> step. When enabled, this script will appear in the "Insert Call Function" menu.
                             </p>
                         </div>
                         <button class="btn btn-primary" onclick="saveSettings()">

@@ -4,6 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pipeline Monitor — TubeCLI</title>
+    <script>
+    /*
+     * Pre-paint theme. Must run BEFORE any stylesheet applies so there is no dark
+     * flash when the dashboard embeds this page in light mode.
+     * Contract (same as file_manager.html): the dashboard appends ?theme=light|dark
+     * (the cloud Flow canvas appends ?theme=glass) to the iframe URL; this page answers
+     * by setting data-theme on <html>, which activates the light token block below.
+     * With no theme param: standalone follows prefers-color-scheme, but an EMBEDDED
+     * page (window.self !== top) pins itself dark so a dark host on a light-OS
+     * machine stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -13,40 +37,90 @@
             --cyan: #00d4ff; --purple: #a855f7; --green: #22c55e; --orange: #f59e0b;
             --red: #ef4444; --blue: #3b82f6; --pink: #ec4899;
             --radius: 12px;
+            /* Page-owned tokens. The dashboard iframe sync only injects the shared
+               names above (--bg*, --text*, --border, --cyan, --purple, --green,
+               --orange, --red) and never redefines accents for light, so every
+               accent used as TEXT or as a border goes through an ink token that
+               the light blocks below can darken for a white ground. In dark they
+               are plain aliases. */
+            --pm-ink-cyan: var(--cyan); --pm-ink-purple: var(--purple);
+            --pm-ink-green: var(--green); --pm-ink-orange: var(--orange);
+            --pm-ink-red: var(--red); --pm-ink-pink: var(--pink);
+            --pm-green-2: #10b981;
+            --pm-accent-tint: rgba(0,212,255,0.1);
+            --pm-card-glow: 0 4px 24px rgba(0,212,255,0.06);
+            --pm-body-bg: rgba(10,10,15,0.5);
+        }
+        /* ── Light theme ──
+           Values mirror the dashboard glass palette (webui/static/style.css):
+           ground #f7f8fa, white panels, ink #1e293b, lines rgba(15,23,42,.1).
+           Accent inks use the dashboard --primary-hover / --purple so they pass
+           contrast on white; status inks darken. Activated by data-theme="light"
+           (set by the pre-paint script from ?theme=) or, standalone, by the OS
+           scheme — guarded so an explicit data-theme always wins. The two blocks
+           are intentionally verbatim copies: CSS cannot share a declaration list
+           between a media query and an attribute selector. KEEP THEM IDENTICAL. */
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f7f8fa; --bg2: #ffffff; --bg3: rgba(255,255,255,0.9); --bg-hover: rgba(15,23,42,0.05);
+            --border: rgba(15,23,42,0.1); --text: #1e293b; --text2: #475569; --text-muted: #64748b;
+            --green: #15803d; --orange: #b45309; --red: #dc2626; --pink: #db2777;
+            --pm-ink-cyan: #3d5fd4; --pm-ink-purple: #7c5ce7;
+            --pm-ink-green: #166534; --pm-ink-orange: #92400e;
+            --pm-ink-red: #b91c1c; --pm-ink-pink: #db2777;
+            --pm-green-2: #047857;
+            --pm-accent-tint: rgba(82,118,235,0.12);
+            --pm-card-glow: 0 4px 24px rgba(15,23,42,0.08);
+            --pm-body-bg: rgba(15,23,42,0.03);
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                color-scheme: light;
+                --bg: #f7f8fa; --bg2: #ffffff; --bg3: rgba(255,255,255,0.9); --bg-hover: rgba(15,23,42,0.05);
+                --border: rgba(15,23,42,0.1); --text: #1e293b; --text2: #475569; --text-muted: #64748b;
+                --green: #15803d; --orange: #b45309; --red: #dc2626; --pink: #db2777;
+                --pm-ink-cyan: #3d5fd4; --pm-ink-purple: #7c5ce7;
+                --pm-ink-green: #166534; --pm-ink-orange: #92400e;
+                --pm-ink-red: #b91c1c; --pm-ink-pink: #db2777;
+                --pm-green-2: #047857;
+                --pm-accent-tint: rgba(82,118,235,0.12);
+                --pm-card-glow: 0 4px 24px rgba(15,23,42,0.08);
+                --pm-body-bg: rgba(15,23,42,0.03);
+            }
         }
         body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
         /* ── Header ── */
         .header { display: flex; align-items: center; justify-content: space-between; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--bg2); position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px); }
         .header-left { display: flex; align-items: center; gap: 14px; }
-        .header-logo { font-size: 1.3rem; font-weight: 800; background: linear-gradient(135deg, var(--cyan), var(--purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .header-logo { font-size: 1.3rem; font-weight: 800; background: linear-gradient(135deg, var(--pm-ink-cyan), var(--pm-ink-purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
         .header-title { font-size: 1rem; color: var(--text2); font-weight: 500; }
         .header-actions { display: flex; gap: 10px; align-items: center; }
         .btn { padding: 8px 18px; border: 1px solid var(--border); border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit; }
         .btn-primary { background: linear-gradient(135deg, var(--cyan), var(--purple)); color: #000; border: none; }
         .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 20px rgba(0,212,255,0.3); }
         .btn-secondary { background: var(--bg3); color: var(--text); }
-        .btn-secondary:hover { border-color: var(--cyan); }
+        .btn-secondary:hover { border-color: var(--pm-ink-cyan); }
         .btn-back { background: none; color: var(--text2); border: none; font-size: 0.9rem; cursor: pointer; }
-        .btn-back:hover { color: var(--cyan); }
+        .btn-back:hover { color: var(--pm-ink-cyan); }
 
         /* ── Stats Bar ── */
         .stats-bar { display: flex; gap: 16px; padding: 20px 32px; border-bottom: 1px solid var(--border); background: var(--bg2); flex-wrap: wrap; }
         .stat-pill { display: flex; align-items: center; gap: 10px; background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 12px 20px; min-width: 140px; transition: all 0.2s; }
-        .stat-pill:hover { border-color: var(--cyan); transform: translateY(-1px); }
-        .stat-pill .stat-num { font-size: 1.6rem; font-weight: 800; background: linear-gradient(135deg, var(--cyan), var(--purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+        .stat-pill:hover { border-color: var(--pm-ink-cyan); transform: translateY(-1px); }
+        .stat-pill .stat-num { font-size: 1.6rem; font-weight: 800; background: linear-gradient(135deg, var(--pm-ink-cyan), var(--pm-ink-purple)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
         .stat-pill .stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
-        .stat-pill.running .stat-num { background: linear-gradient(135deg, var(--orange), var(--pink)); -webkit-background-clip: text; background-clip: text; }
-        .stat-pill.error .stat-num { background: linear-gradient(135deg, var(--red), var(--pink)); -webkit-background-clip: text; background-clip: text; }
-        .stat-pill.success .stat-num { background: linear-gradient(135deg, var(--green), var(--cyan)); -webkit-background-clip: text; background-clip: text; }
+        .stat-pill.running .stat-num { background: linear-gradient(135deg, var(--pm-ink-orange), var(--pm-ink-pink)); -webkit-background-clip: text; background-clip: text; }
+        .stat-pill.error .stat-num { background: linear-gradient(135deg, var(--pm-ink-red), var(--pm-ink-pink)); -webkit-background-clip: text; background-clip: text; }
+        .stat-pill.success .stat-num { background: linear-gradient(135deg, var(--pm-ink-green), var(--pm-ink-cyan)); -webkit-background-clip: text; background-clip: text; }
 
         /* ── Filters ── */
         .filters { display: flex; gap: 8px; padding: 16px 32px; align-items: center; }
         .filter-btn { padding: 6px 16px; border: 1px solid var(--border); border-radius: 20px; background: none; color: var(--text2); font-size: 0.82rem; font-weight: 500; cursor: pointer; transition: all 0.2s; font-family: inherit; }
-        .filter-btn:hover { border-color: var(--cyan); color: var(--text); }
-        .filter-btn.active { background: rgba(0,212,255,0.1); border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
+        .filter-btn:hover { border-color: var(--pm-ink-cyan); color: var(--text); }
+        .filter-btn.active { background: var(--pm-accent-tint); border-color: var(--pm-ink-cyan); color: var(--pm-ink-cyan); font-weight: 600; }
         .auto-refresh { display: flex; align-items: center; gap: 6px; margin-left: auto; font-size: 0.82rem; color: var(--text-muted); }
-        .auto-refresh input { accent-color: var(--cyan); }
+        .auto-refresh input { accent-color: var(--pm-ink-cyan); }
 
         /* ── Main Content ── */
         .main { padding: 0 32px 32px; }
@@ -54,8 +128,8 @@
         /* ── Pipeline Card ── */
         .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
         .pipeline-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: all 0.25s; cursor: pointer; }
-        .pipeline-card:hover { border-color: var(--cyan); box-shadow: 0 4px 24px rgba(0,212,255,0.06); }
-        .pipeline-card.expanded { border-color: var(--purple); }
+        .pipeline-card:hover { border-color: var(--pm-ink-cyan); box-shadow: var(--pm-card-glow); }
+        .pipeline-card.expanded { border-color: var(--pm-ink-purple); }
 
         .pc-header { display: flex; align-items: center; gap: 14px; padding: 16px 20px; }
         .pc-status-icon { width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; flex-shrink: 0; }
@@ -70,15 +144,15 @@
         .pc-meta span { display: flex; align-items: center; gap: 4px; }
 
         .pc-badge { padding: 4px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; flex-shrink: 0; }
-        .pc-badge.running { background: rgba(245,158,11,0.15); color: var(--orange); }
-        .pc-badge.success { background: rgba(34,197,94,0.15); color: var(--green); }
-        .pc-badge.error { background: rgba(239,68,68,0.15); color: var(--red); }
+        .pc-badge.running { background: rgba(245,158,11,0.15); color: var(--pm-ink-orange); }
+        .pc-badge.success { background: rgba(34,197,94,0.15); color: var(--pm-ink-green); }
+        .pc-badge.error { background: rgba(239,68,68,0.15); color: var(--pm-ink-red); }
 
         .pc-arrow { font-size: 0.8rem; color: var(--text-muted); transition: transform 0.2s; flex-shrink: 0; }
         .pipeline-card.expanded .pc-arrow { transform: rotate(90deg); }
 
         /* ── Steps Timeline ── */
-        .pc-body { display: none; border-top: 1px solid var(--border); padding: 20px; background: rgba(10,10,15,0.5); }
+        .pc-body { display: none; border-top: 1px solid var(--border); padding: 20px; background: var(--pm-body-bg); }
         .pipeline-card.expanded .pc-body { display: block; animation: fadeIn 0.25s; }
 
         .steps-timeline { position: relative; padding-left: 28px; }
@@ -98,11 +172,11 @@
         .step-label { font-size: 0.88rem; font-weight: 600; }
         .step-duration { font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
         .step-message { font-size: 0.8rem; color: var(--text2); margin-top: 4px; font-family: 'JetBrains Mono', monospace; word-break: break-all; }
-        .step-message.error { color: var(--red); }
+        .step-message.error { color: var(--pm-ink-red); }
 
         /* ── Summary ── */
         .pc-summary { margin-top: 16px; padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; font-size: 0.82rem; color: var(--text2); white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; line-height: 1.6; }
-        .pc-summary.error { border-color: rgba(239,68,68,0.3); color: var(--red); }
+        .pc-summary.error { border-color: rgba(239,68,68,0.3); color: var(--pm-ink-red); }
 
         /* ── Empty State ── */
         .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; text-align: center; }
@@ -120,10 +194,10 @@
         }
 
         /* ── Video Preview Button ── */
-        .btn-preview { padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; background: linear-gradient(135deg, var(--green), #10b981); color: #fff; text-decoration: none; flex-shrink: 0; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; }
+        .btn-preview { padding: 6px 14px; border-radius: 8px; font-size: 0.78rem; font-weight: 600; background: linear-gradient(135deg, var(--pm-ink-green), var(--pm-green-2)); color: #fff; text-decoration: none; flex-shrink: 0; transition: all 0.2s; display: inline-flex; align-items: center; gap: 4px; }
         .btn-preview:hover { transform: translateY(-1px); box-shadow: 0 3px 12px rgba(34,197,94,0.3); }
-        .pc-summary a { color: var(--cyan); text-decoration: underline; }
-        .pc-summary a:hover { color: var(--purple); }
+        .pc-summary a { color: var(--pm-ink-cyan); text-decoration: underline; }
+        .pc-summary a:hover { color: var(--pm-ink-purple); }
     </style>
 </head>
 <body>

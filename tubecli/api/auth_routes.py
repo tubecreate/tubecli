@@ -363,21 +363,34 @@ async def login_page():
 _BANNER_JS = """(function(){
   fetch('/api/v1/auth/status').then(function(r){return r.json()}).then(function(s){
     if(!s.must_change_password) return;
+    // The dashboard has a light theme; a fixed dark-amber strip across the
+    // bottom of a white page reads as a rendering fault. Read the same signal
+    // the pages read — an explicit data-theme wins, else the OS preference —
+    // and pick the amber that belongs on that ground.
+    var light=false;
+    try{
+      var pin=document.documentElement.getAttribute('data-theme');
+      light = pin==='light' || (pin!=='dark' && window.matchMedia('(prefers-color-scheme: light)').matches);
+    }catch(e){}
+    var ink   = light ? '#7c4a03' : '#f0c674';
+    var fill  = light ? '#fdf3d7' : '#4a3a18';
+    var line  = light ? '#e0c489' : '#6b5320';
+    var link  = light ? '#8a4b00' : '#ffd88a';
     var b=document.createElement('div');
     b.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:99999;'+
       'display:flex;gap:12px;align-items:center;justify-content:center;flex-wrap:wrap;'+
-      'padding:9px 16px;background:#4a3a18;color:#f0c674;'+
+      'padding:9px 16px;background:'+fill+';color:'+ink+';'+
       'font:13px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;'+
-      'border-top:1px solid #6b5320';
+      'border-top:1px solid '+line;
     var t=document.createElement('span');
     t.textContent='Đang dùng mật khẩu mặc định — ai truy cập được máy này cũng vào được bảng điều khiển.';
     var a=document.createElement('a');
     a.href='/login?next='+encodeURIComponent(location.pathname+location.hash);
     a.textContent='Đổi mật khẩu';
-    a.style.cssText='color:#ffd88a;font-weight:600;text-decoration:underline;cursor:pointer';
+    a.style.cssText='color:'+link+';font-weight:600;text-decoration:underline;cursor:pointer';
     var x=document.createElement('button');
     x.textContent='Ẩn';
-    x.style.cssText='background:transparent;border:1px solid #6b5320;color:#f0c674;'+
+    x.style.cssText='background:transparent;border:1px solid '+line+';color:'+ink+';'+
       'border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer';
     // Hidden for this tab only, deliberately: sessionStorage forgets on close,
     // so dismissing it does not make the warning go away for good.

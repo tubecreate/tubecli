@@ -67,7 +67,7 @@ async function shutdownServer() {
         if (btn) btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;"></span> Shutting down...';
         await fetch(`${API}/api/v1/system/shutdown`, { method: 'POST' });
         setTimeout(() => {
-            document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#000;color:#fff;font-family:sans-serif;font-size:1.5rem;">TubeCLI has been shut down. You can close this window.</div>';
+            document.body.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100vh;background:var(--bg);color:var(--text);font-family:sans-serif;font-size:1.5rem;">TubeCLI has been shut down. You can close this window.</div>';
         }, 1000);
     } catch (e) {
         console.error('Failed to shutdown', e);
@@ -75,10 +75,30 @@ async function shutdownServer() {
     }
 }
 
+// The dashboard's effective theme: an explicit data-theme (set from ?theme=
+// before first paint) wins; otherwise the OS preference decides. Every
+// extension iframe is told this value twice — as a ?theme= URL parameter so a
+// page's pre-paint script can pick the right palette before its stylesheet
+// applies (no dark flash inside a light dashboard), and as data-theme on the
+// iframe's <html> after load so a page's own [data-theme="light"] token block
+// activates even for tokens the dashboard never injects.
+window.currentTheme = function() {
+    const pinned = document.documentElement.dataset.theme;
+    if (pinned === 'light' || pinned === 'dark') return pinned;
+    try { return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) { return 'dark'; }
+};
+// Every extension iframe URL must carry the theme, so the page's pre-paint
+// script picks the right palette BEFORE its stylesheet applies. Stamping
+// data-theme after load (below) is the fallback, not the mechanism: on its own
+// it shows a dark flash inside a light dashboard.
+window.themedSrc = function(url) {
+    return url + (url.includes('?') ? '&' : '?') + 'theme=' + window.currentTheme();
+};
 window.syncThemeToIframe = function(iframe) {
     try {
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         if (!doc) return;
+        try { doc.documentElement.setAttribute('data-theme', window.currentTheme()); } catch (e) {}
         const rootStyles = getComputedStyle(document.documentElement);
         const getVar = (...names) => {
             for (const n of names) {
@@ -147,6 +167,14 @@ window.syncThemeToIframe = function(iframe) {
         styleEl.innerHTML = cssText;
     } catch(e) {}
 };
+// When the OS flips light/dark and the dashboard is not pinned, every loaded
+// extension iframe must follow — otherwise a page keeps the palette it was
+// given at load and sits as a dark rectangle inside a now-light dashboard.
+try {
+    window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+        document.querySelectorAll('iframe.ext-iframe[src]').forEach(f => window.syncThemeToIframe(f));
+    });
+} catch (e) {}
 
 function handleRoute() {
     let hash = window.location.hash.replace('#/', '') || 'dashboard';
@@ -241,7 +269,7 @@ function activateTab(tab, skipCloseDetail) {
                 window.syncThemeToIframe(iframe);
             };
             const rawSrc = iframe.getAttribute('data-src');
-            iframe.src = rawSrc + (rawSrc.includes('?') ? '&' : '?') + 't=' + Date.now();
+            iframe.src = window.themedSrc(rawSrc) + '&t=' + Date.now();
         }
     }
 
@@ -571,7 +599,7 @@ async function loadExtensions() {
                 </div>
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-                ${cachedUpdates.map(u => '<button class="btn-sm btn-primary" onclick="event.stopPropagation();doExtensionUpdate(\''+esc(u.name)+'\',\''+esc(u.public_id)+'\',\''+esc(u.git_url||'')+'\',this)" style="padding:6px 14px;border-radius:8px;font-size:0.8rem">⬆️ '+esc(u.display_name||u.name)+'</button>').join('')}<button class="btn-sm" onclick="event.stopPropagation();dismissAllExtUpdates()" style="padding:5px 10px;border-radius:8px;font-size:0.72rem;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:rgba(239,130,130,0.85)">🚫 Tắt</button>
+                ${cachedUpdates.map(u => '<button class="btn-sm btn-primary" onclick="event.stopPropagation();doExtensionUpdate(\''+esc(u.name)+'\',\''+esc(u.public_id)+'\',\''+esc(u.git_url||'')+'\',this)" style="padding:6px 14px;border-radius:8px;font-size:0.8rem">⬆️ '+esc(u.display_name||u.name)+'</button>').join('')}<button class="btn-sm" onclick="event.stopPropagation();dismissAllExtUpdates()" style="padding:5px 10px;border-radius:8px;font-size:0.72rem;background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.25);color:var(--red)">🚫 Tắt</button>
             </div>
         </div>`;
     }
@@ -588,7 +616,7 @@ async function loadExtensions() {
 
         let footerHtml = `<span class="tag ${tagClass}">${displayType}</span>`;
         if (hasUpdate) {
-            footerHtml += `<span class="tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>`;
+            footerHtml += `<span class="tag" style="background:rgba(245,158,11,0.2);color:var(--orange);border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>`;
         }
         if (isExternal && extension) {
             footerHtml += `
@@ -629,7 +657,7 @@ async function loadExtensions() {
         if (!inRegistry && ext.extension_type === 'external') {
             const isEnabled = ext.enabled;
             const hasUpdate = cachedUpdates && cachedUpdates.find(u => (u.name||'').toLowerCase().replace(/ /g,'_') === (ext.name||'').toLowerCase().replace(/ /g,'_'));
-            const updateTag = hasUpdate ? '<span class="tag" style="background:rgba(245,158,11,0.2);color:#f59e0b;border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>' : '';
+            const updateTag = hasUpdate ? '<span class="tag" style="background:rgba(245,158,11,0.2);color:var(--orange);border:1px solid rgba(245,158,11,0.3)">⬆️ Update</span>' : '';
             
             let updateBtnHtml = '';
             if (hasUpdate) {
@@ -792,7 +820,7 @@ console.log(data);`,
 
     <!-- Dialog: Settings -->
     ${hasDownload?`<dialog id="ytdl-settings-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:500px;width:90%;color:var(--text)">
-        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:var(--shadow-dialog)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                 <h3 style="margin:0;color:var(--text)">⚙️ Cấu hình Download</h3>
                 <button onclick="document.getElementById('ytdl-settings-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
@@ -837,7 +865,7 @@ console.log(data);`,
 
     <!-- Dialog: API Examples -->
     <dialog id="ext-api-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:600px;width:90%;color:var(--text)">
-        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:var(--shadow-dialog)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                 <h3 style="margin:0;color:var(--text)">⚡ API Examples</h3>
                 <button onclick="document.getElementById('ext-api-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
@@ -857,7 +885,7 @@ console.log(data);`,
 
     <!-- Dialog: SKILL.md -->
     ${info.has_skill_md&&info.skill_md_content?`<dialog id="ext-skill-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:800px;width:95%;color:var(--text)">
-        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:var(--shadow-dialog)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                 <h3 style="margin:0;color:var(--text)">📖 SKILL.md</h3>
                 <button onclick="document.getElementById('ext-skill-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
@@ -868,7 +896,7 @@ console.log(data);`,
 
     <!-- Dialog: Info -->
     <dialog id="ext-info-dialog" style="margin:auto;top:50%;left:50%;transform:translate(-50%,-50%);padding:0;border:none;border-radius:12px;background:transparent;max-width:400px;width:90%;color:var(--text)">
-        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:0 10px 30px rgba(0,0,0,0.5)">
+        <div style="background:var(--bg3);border-radius:12px;padding:20px;border:1px solid var(--border);box-shadow:var(--shadow-dialog)">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
                 <h3 style="margin:0;color:var(--text)">ℹ️ Info</h3>
                 <button onclick="document.getElementById('ext-info-dialog').close()" style="background:none;border:none;color:var(--text);font-size:1.2rem;cursor:pointer">✕</button>
@@ -1141,7 +1169,7 @@ function renderFullPageExt(el, name, desc, url) {
                 <div class="iframe-loader-spinner"></div>
                 <div style="color:var(--text-muted); font-size: 0.9rem; font-weight: 500;">${typeof window.T === "function" ? window.T("app.loading_ext") : "Initializing Extension..."}</div>
             </div>
-            <iframe src="${url}" style="flex:1; width:100%; border:none; opacity:0; transition:opacity 0.3s"></iframe>
+            <iframe src="${window.themedSrc(url)}" style="flex:1; width:100%; border:none; opacity:0; transition:opacity 0.3s"></iframe>
         </div>
     `;
     const iframe = el.querySelector('iframe');
@@ -1234,7 +1262,7 @@ async function renderCalendarManagerExt(el) {
 
     // ── Events List ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;border-bottom:1px solid var(--line-faint);padding-bottom:12px">
             <h3 style="color:var(--cyan);margin:0;font-size:1.2rem;display:flex;align-items:center;gap:8px"><span style="font-size:1.4rem">📋</span> ${T('cal.upcoming_events', 'Sự kiện sắp tới')}</h3>
         </div>`;
 
@@ -1253,11 +1281,11 @@ async function renderCalendarManagerExt(el) {
             } catch(e) {}
             const hasRecurrence = ev.recurrence && ev.recurrence.length > 0;
             h += `<div style="display:flex;align-items:center;gap:16px;padding:16px;background:var(--bg2);border-radius:12px;border:1px solid var(--border);transition:transform 0.2s, box-shadow 0.2s" onmouseover="this.style.transform='translateY(-2px)';this.style.boxShadow='0 4px 12px rgba(0,0,0,0.1)'" onmouseout="this.style.transform='none';this.style.boxShadow='none'">
-                <div style="font-size:1.8rem;background:rgba(255,255,255,0.05);padding:10px;border-radius:12px">${hasRecurrence ? '🔄' : '📅'}</div>
+                <div style="font-size:1.8rem;background:var(--surface-ghost);padding:10px;border-radius:12px">${hasRecurrence ? '🔄' : '📅'}</div>
                 <div style="flex:1;min-width:0">
                     <div style="font-weight:600;font-size:1.05rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px">${esc(ev.summary || '(No title)')}</div>
                     <div style="font-size:.85rem;color:var(--text-muted);display:flex;align-items:center;gap:6px">
-                        <span style="display:inline-block;padding:2px 8px;background:rgba(0,0,0,0.2);border-radius:4px">${esc(timeStr)}</span>
+                        <span style="display:inline-block;padding:2px 8px;background:var(--ink-ghost);border-radius:4px">${esc(timeStr)}</span>
                         ${ev.location ? `<span style="opacity:0.5">•</span> <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px" title="${esc(ev.location)}">📍 ${esc(ev.location)}</span>` : ''}
                     </div>
                 </div>
@@ -1301,14 +1329,14 @@ async function renderCalendarManagerExt(el) {
                 onfocus="this.style.borderColor='var(--cyan)';this.style.boxShadow='0 0 0 2px rgba(6,182,212,0.1)'"
                 onblur="this.style.borderColor='rgba(6,182,212,0.3)';this.style.boxShadow='none'"
                 onkeydown="if(event.key==='Enter')calQuickAdd()">
-            <button class="btn-primary" onclick="calQuickAdd()" style="padding:14px;border-radius:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--cyan), #0284c7)"><span>✨</span> ${T('cal.quick_add_btn', 'Thêm thông minh')}</button>
+            <button class="btn-primary" onclick="calQuickAdd()" style="padding:14px;border-radius:10px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;background-image:linear-gradient(135deg, var(--cyan), #0284c7)"><span>✨</span> ${T('cal.quick_add_btn', 'Thêm thông minh')}</button>
         </div>
         <div id="cal-quick-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
     </div>`;
 
     // ── Create Event Form ──
     h += `<div style="background:var(--bg3);border-radius:16px;padding:24px;border:1px solid var(--border);box-shadow:0 4px 12px rgba(0,0,0,0.05)">
-        <h3 style="color:var(--purple);margin-bottom:20px;font-size:1.2rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:12px"><span style="font-size:1.4rem">📝</span> ${T('cal.create_event_title', 'Tạo sự kiện chi tiết')}</h3>
+        <h3 style="color:var(--purple);margin-bottom:20px;font-size:1.2rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--line-faint);padding-bottom:12px"><span style="font-size:1.4rem">📝</span> ${T('cal.create_event_title', 'Tạo sự kiện chi tiết')}</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div style="grid-column:span 2">
                 <label style="display:block;margin-bottom:6px;font-size:.85rem;font-weight:600;color:var(--text-muted)">${T('cal.event_name', 'Tên sự kiện *')}</label>
@@ -1350,7 +1378,7 @@ async function renderCalendarManagerExt(el) {
                     style="width:100%;padding:12px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:.95rem">
             </div>
         </div>
-        <button class="btn-primary" onclick="calCreateEvent()" style="margin-top:24px;width:100%;padding:14px;font-weight:600;font-size:1.05rem;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;background:linear-gradient(135deg, var(--purple), #be185d)"><span>📅</span> ${T('cal.save_event', 'Lưu sự kiện')}</button>
+        <button class="btn-primary" onclick="calCreateEvent()" style="margin-top:24px;width:100%;padding:14px;font-weight:600;font-size:1.05rem;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:8px;background-image:linear-gradient(135deg, var(--purple), #be185d)"><span>📅</span> ${T('cal.save_event', 'Lưu sự kiện')}</button>
         <div id="cal-create-result" style="margin-top:16px;display:none;padding:12px 16px;border-radius:8px;background:var(--bg);font-size:.95rem;font-weight:500;text-align:center"></div>
     </div>`;
 
@@ -1451,11 +1479,11 @@ async function renderAgentsExt(el) {
         return dateB - dateA;
     });
     let h = `<div style="display:flex;gap:10px;margin-bottom:20px">
-        <button class="btn-primary" style="background:linear-gradient(135deg,#a855f7,#ec4899)" onclick="showGenerateAgent()">${T('agents.generate_ai')}</button>
+        <button class="btn-primary" style="background-image:linear-gradient(135deg,#a855f7,#ec4899)" onclick="showGenerateAgent()">${T('agents.generate_ai')}</button>
         <button class="btn-primary" onclick="showCreateAgent()">${T('agents.create')}</button>
     </div>`;
     if (agents.length === 0) h += `<p class="text-muted">${T('agents.no_agents')}</p>`;
-    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (!/^[a-zA-Z_0-9-]+$/.test(a.avatar_icon) ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon.toLowerCase()) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}', this)">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
+    else h += '<div class="cards-grid">' + agents.map(a => `<div class="card" style="display:flex;flex-direction:column;padding:16px;"><div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;"><div class="card-icon" style="margin:0;width:42px;height:42px;border-radius:10px;background:var(--surface-ghost);display:flex;align-items:center;justify-content:center;flex-shrink:0;">${a.avatar_icon && a.avatar_icon !== 'SMART_TOY' && a.avatar_icon !== 'smart_toy' ? (!/^[a-zA-Z_0-9-]+$/.test(a.avatar_icon) ? '<span style="font-size:24px">' + esc(a.avatar_icon) + '</span>' : '<span class="material-symbols-outlined" style="font-size: 28px;">' + esc(a.avatar_icon.toLowerCase()) + '</span>') : '<span class="material-symbols-outlined" style="font-size: 28px;">smart_toy</span>'}</div><div style="flex:1;min-width:0;"><h3 style="margin:0 0 4px 0;font-size:1.05rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.name)}</h3><p class="card-meta" style="margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(a.model||'default')}</p></div></div><p class="card-desc" style="flex:1;margin:0 0 16px 0;line-height:1.4;">${esc(a.description||'')}</p><div class="card-footer" style="padding-top:12px;border-top:1px solid var(--border);"><span class="tag">${(a.allowed_skills||[]).length} ${T('agents.skills_count')}</span><div class="card-actions"><button class="btn-sm btn-primary" onclick="openChatAgent('${a.id}','${esc(a.name)}')">${T('agents.chat')}</button><button class="btn-sm" onclick="openEditAgent('${a.id}', this)">${T('agents.edit')}</button><button class="btn-sm btn-danger" onclick="deleteAgent('${a.id}');renderAgentsExt(getAgentsBody())">${T('agents.delete')}</button></div></div></div>`).join('') + '</div>';
     el.innerHTML = h;
 }
 
@@ -1508,7 +1536,7 @@ async function renderBrowserExt(el) {
     const canOpenWindow = plat.can_open_window !== false;
 
     let h = `<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button>`
-        + (basAvailable ? `<button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:#c4b5fd;" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button>` : '')
+        + (basAvailable ? `<button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:var(--violet-ink);" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button>` : '')
         + `</div>`;
     if (!canOpenWindow) {
         h += `<div class="status-bar" style="background:rgba(6,182,212,0.1);border-color:rgba(6,182,212,0.35)">${T('browser.remote_only', 'No display on this machine, so profiles open in Remote (browser tab) instead of a local window.')}</div>`;
@@ -1540,10 +1568,10 @@ async function showBrowserKeyManager() {
     modal.id = 'modal-key-manager';
     modal.className = 'modal';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width:440px; padding:20px; border-radius:12px; background:var(--bg-content); border:1px solid var(--border); box-shadow:0 8px 32px rgba(0,0,0,0.4)">
+        <div class="modal-content" style="max-width:440px; padding:20px; border-radius:12px; background:var(--bg-content); border:1px solid var(--border); box-shadow:var(--shadow-menu)">
             <div class="modal-header" style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); padding-bottom:12px; margin-bottom:16px">
                 <h3 style="margin:0; font-size:1.1rem; display:flex; align-items:center; gap:8px">
-                    <span style="color:#c4b5fd">🔑</span> Cấu hình BAS Fingerprint Key
+                    <span style="color:var(--violet-ink)">🔑</span> Cấu hình BAS Fingerprint Key
                 </h3>
                 <button class="btn-close" onclick="document.getElementById('modal-key-manager').remove()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:1.2rem; line-height:1">✕</button>
             </div>
@@ -1558,7 +1586,7 @@ async function showBrowserKeyManager() {
                         style="background:none; border:1px solid var(--border); border-radius:6px; padding:7px 10px; cursor:pointer; color:var(--text-muted); font-size:0.85rem; height:34px; width:36px; display:flex; align-items:center; justify-content:center" title="Hiển thị/Ẩn key">👁</button>
                 </div>
                 <div style="font-size:0.75rem; color:var(--text-muted); margin-top:6px; line-height:1.4">
-                    Nhập API Key từ <a href="https://fingerprints.bablosoft.com" target="_blank" style="color:#c4b5fd; text-decoration:underline">fingerprints.bablosoft.com</a> để sử dụng key của riêng bạn. Nếu bỏ trống, hệ thống sẽ tự động dùng key mặc định.
+                    Nhập API Key từ <a href="https://fingerprints.bablosoft.com" target="_blank" style="color:var(--violet-ink); text-decoration:underline">fingerprints.bablosoft.com</a> để sử dụng key của riêng bạn. Nếu bỏ trống, hệ thống sẽ tự động dùng key mặc định.
                 </div>
             </div>
 
@@ -1605,7 +1633,7 @@ async function saveBASKey() {
 
 // ── Workflows Ext ──
 async function renderWorkflowsExt(el) {
-    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="/workflow?v=3" style="width:100%;height:100%;border:none" onload="window.syncThemeToIframe(this)"></iframe></div>`;
+    el.innerHTML = `<div style="height:calc(100vh - 150px);border:1px solid var(--border);border-radius:8px;overflow:hidden"><iframe src="${window.themedSrc('/workflow?v=3')}" style="width:100%;height:100%;border:none" onload="window.syncThemeToIframe(this)"></iframe></div>`;
 }
 
 // ── Skills Ext ──
@@ -1616,21 +1644,21 @@ function categorizeSkill(skill) {
     const nodeTypes = nodes.map(n => n.type);
     
     if (skill.skill_type === 'Markdown' || nodes.length === 0) 
-        return { cat: 'markdown', label: T('skills.cat_markdown'), color: '#ec4899', icon: '📝' };
+        return { cat: 'markdown', label: T('skills.cat_markdown'), color: '#ec4899', ink: 'var(--pink)', icon: '📝' };
         
     if (skill.skill_type === 'Workflow Skill' || nodes.some(n => n.type === 'google_sheets' || n.type === 'google_auth'))
-        return { cat: 'workflow', label: T('skills.cat_workflow'), color: '#a855f7', icon: '🔧' };
+        return { cat: 'workflow', label: T('skills.cat_workflow'), color: '#a855f7', ink: 'var(--cat-workflow)', icon: '🔧' };
         
     if (nodeTypes.includes('browser_action'))
-        return { cat: 'browser', label: T('skills.cat_browser'), color: '#22d3ee', icon: '🌐' };
+        return { cat: 'browser', label: T('skills.cat_browser'), color: '#22d3ee', ink: 'var(--cat-browser)', icon: '🌐' };
         
     if (nodeTypes.includes('api_request'))
-        return { cat: 'api', label: T('skills.cat_api'), color: '#ef4444', icon: '⚡' };
+        return { cat: 'api', label: T('skills.cat_api'), color: '#ef4444', ink: 'var(--red)', icon: '⚡' };
         
     if (nodeTypes.includes('ai_node'))
-        return { cat: 'ai', label: T('skills.cat_ai'), color: '#22c55e', icon: '🧠' };
+        return { cat: 'ai', label: T('skills.cat_ai'), color: '#22c55e', ink: 'var(--green)', icon: '🧠' };
         
-    return { cat: 'general', label: T('skills.cat_general'), color: '#f59e0b', icon: '⚡' };
+    return { cat: 'general', label: T('skills.cat_general'), color: '#f59e0b', ink: 'var(--orange)', icon: '⚡' };
 }
 
 async function renderSkillsExt(el) {
@@ -1650,7 +1678,7 @@ async function renderSkillsExt(el) {
             <span class="material-symbols-outlined" style="position: absolute; left: 12px; color: var(--text-muted); font-size: 20px;">search</span>
             <input type="text" id="skills-search-input" class="input" placeholder="${T('skills.search')}" oninput="filterSkillsList()" style="width:320px; padding:10px 12px 10px 40px; margin:0; border-radius: 20px; background: var(--bg2); border: 1px solid var(--border); box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: all 0.3s; font-size: 0.9rem;" onfocus="this.style.boxShadow='0 0 0 2px var(--accent)';" onblur="this.style.boxShadow='0 2px 5px rgba(0,0,0,0.05)';">
         </div>
-        <button class="btn-primary" onclick="openCreateSkillModal()" style="display:flex; align-items:center; gap:6px; background:linear-gradient(135deg, var(--accent), #7c3aed); font-weight:600; padding:10px 18px; border-radius:8px;">
+        <button class="btn-primary" onclick="openCreateSkillModal()" style="display:flex; align-items:center; gap:6px; background-image:linear-gradient(135deg, var(--accent), #7c3aed); font-weight:600; padding:10px 18px; border-radius:8px;">
             <span class="material-symbols-outlined" style="font-size:20px;">add_circle</span> ${T('skills.btn_create_new').replace('add_circle ', '')}
         </button>
     </div>
@@ -1669,7 +1697,7 @@ async function renderSkillsExt(el) {
         const cat = categorizeSkill(s);
         
         let actionsHtml = `<div style="display: flex; width: 100%; justify-content: space-between; align-items: center; padding-top: 4px;">`;
-        actionsHtml += `<button class="btn-sm" style="background:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent; display: flex; align-items: center; gap: 4px; padding: 6px 14px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 6px rgba(16,185,129,0.2);" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')">${T('skills.btn_run_test')}</button>`;
+        actionsHtml += `<button class="btn-sm" style="background-color:#10b981; background-image:linear-gradient(135deg,#10b981,#22c55e); color:#fff; border-color:transparent; display: flex; align-items: center; gap: 4px; padding: 6px 14px; font-weight: 600; border-radius: 8px; box-shadow: 0 4px 6px rgba(16,185,129,0.2);" onclick="openRunSkillModal('${s.id}', '${esc(s.name)}')">${T('skills.btn_run_test')}</button>`;
 
         actionsHtml += `<div style="display: flex; gap: 6px; align-items: center;">`;
         actionsHtml += `<button class="btn-icon btn-sm" onclick="showSkillMarkdown('${s.id}')" title="${T('skills.title_view_md')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">visibility</span></button>`;
@@ -1684,13 +1712,13 @@ async function renderSkillsExt(el) {
 
         const notRunnable = (s.is_runnable === false);
         const warnBadge = notRunnable
-            ? `<span class="tag" title="Skill này chưa có workflow/logic để thực thi — AI agent sẽ không nhìn thấy nó. Bấm Edit để hoàn thiện." style="background:rgba(245,158,11,0.15); color:#f59e0b; border:1px solid rgba(245,158,11,0.4); font-size:0.72rem; font-weight:600;">⚠ Chưa chạy được</span>`
+            ? `<span class="tag" title="Skill này chưa có workflow/logic để thực thi — AI agent sẽ không nhìn thấy nó. Bấm Edit để hoàn thiện." style="background:rgba(245,158,11,0.15); color:var(--orange); border:1px solid rgba(245,158,11,0.4); font-size:0.72rem; font-weight:600;">⚠ Chưa chạy được</span>`
             : '';
         html += `
         <div class="card skill-item-card" data-name="${esc(s.name.toLowerCase())}" data-desc="${esc((s.description||'').toLowerCase())}" style="display:flex; flex-direction:column;${notRunnable ? ' opacity:0.75; border-color:rgba(245,158,11,0.35);' : ''}">
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">
-                <div class="card-icon" style="margin:0; width:40px; height:40px; border-radius:10px; font-size:1.2rem; background:rgba(0,0,0,0.2); box-shadow:0 4px 10px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;">${cat.icon}</div>
-                <div style="display:flex; gap:6px; align-items:center;">${warnBadge}<span class="tag" style="background:${cat.color}20; color:${cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span></div>
+                <div class="card-icon" style="margin:0; width:40px; height:40px; border-radius:10px; font-size:1.2rem; background:var(--ink-ghost); box-shadow:0 4px 10px rgba(0,0,0,0.1); display:flex; align-items:center; justify-content:center;">${cat.icon}</div>
+                <div style="display:flex; gap:6px; align-items:center;">${warnBadge}<span class="tag" style="background:${cat.color}20; color:${cat.ink || cat.color}; border:1px solid ${cat.color}40; font-size:0.75rem; font-weight:600;">${cat.label}</span></div>
             </div>
             <h3 style="margin-bottom:8px; font-size:1.05rem;">${esc(s.name)}</h3>
             <p class="card-desc" style="flex:1; margin-bottom:16px;">${esc(s.description||'')}</p>
@@ -2246,7 +2274,7 @@ async function renderCloudApiExt(el) {
     // How each capability reads on a card — chat/deploy work, none is honest about it.
     const capBadge = {
         chat:   `<span class="tag" style="background:rgba(34,197,94,.15);color:var(--green)">${T('cloud_api.cap_chat')}</span>`,
-        deploy: `<span class="tag" style="background:rgba(59,130,246,.15);color:#60a5fa">${T('cloud_api.cap_deploy')}</span>`,
+        deploy: `<span class="tag" style="background:rgba(59,130,246,.15);color:var(--blue-ink)">${T('cloud_api.cap_deploy')}</span>`,
         none:   `<span class="tag" style="background:rgba(148,163,184,.15);color:var(--text-muted)">${T('cloud_api.cap_none')}</span>`,
     };
     let h = `<div style="margin-bottom:20px"><button class="btn-primary" onclick="showAddApiKey()">${T('cloud_api.add_key')}</button></div>`;
@@ -2353,7 +2381,7 @@ function onAddKeyProviderChange() {
             hint.style.display = ''; hint.style.background = 'rgba(148,163,184,.12)'; hint.style.color = 'var(--text-muted)';
             hint.textContent = T('cloud_api.cap_none_hint');
         } else if (compound) {
-            hint.style.display = ''; hint.style.background = 'rgba(59,130,246,.12)'; hint.style.color = '#60a5fa';
+            hint.style.display = ''; hint.style.background = 'rgba(59,130,246,.12)'; hint.style.color = 'var(--blue-ink)';
             hint.textContent = T('add_key.cloudflare_hint');
         } else { hint.style.display = 'none'; }
     }
@@ -3034,7 +3062,7 @@ function prefillAddKey(provider) {
 function _showAddKeyResult(msg, kind) {
     const box = document.getElementById('add-key-result');
     if (!box) return;
-    const colors = { ok:['rgba(34,197,94,.14)','var(--green)'], warn:['rgba(234,179,8,.14)','#eab308'], err:['rgba(239,68,68,.14)','var(--red)'] };
+    const colors = { ok:['rgba(34,197,94,.14)','var(--green)'], warn:['rgba(234,179,8,.14)','var(--yellow)'], err:['rgba(239,68,68,.14)','var(--red)'] };
     const [bg, fg] = colors[kind] || colors.warn;
     box.style.display = ''; box.style.background = bg; box.style.color = fg; box.textContent = msg;
 }
@@ -3104,7 +3132,7 @@ async function testApiKey(provider, label = 'default') {
 let currentChatAgentId = null;
 
 async function openChatAgent(id, name) { currentChatAgentId = id; document.getElementById('chat-agent-name').textContent = name; document.getElementById('chat-input').value = ''; document.getElementById('modal-chat').classList.remove('hidden'); const d = await apiGet('/api/v1/agents/'+id); renderChatHistory(d?.history_log||[]); }
-function renderChatHistory(history) { const c = document.getElementById('chat-history'); if(!history.length) { c.innerHTML='<p class="text-muted" style="text-align:center">Say hello!</p>'; return; } c.innerHTML = history.map(m => { const u=m.role==='user'; return `<div style="display:flex;justify-content:${u?'flex-end':'flex-start'};width:100%"><div style="background:${u?'var(--blue)':'var(--bg3)'};color:${u?'#fff':'var(--text)'};padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(m.content)}${m.skill_used?`<div style="font-size:.75rem;color:#10b981;margin-top:4px">⚡ ${esc(m.skill_used)}</div>`:''}</div></div>`; }).join(''); c.scrollTop=c.scrollHeight; }
+function renderChatHistory(history) { const c = document.getElementById('chat-history'); if(!history.length) { c.innerHTML='<p class="text-muted" style="text-align:center">Say hello!</p>'; return; } c.innerHTML = history.map(m => { const u=m.role==='user'; return `<div style="display:flex;justify-content:${u?'flex-end':'flex-start'};width:100%"><div style="background:${u?'var(--blue)':'var(--bg3)'};color:${u?'#fff':'var(--text)'};padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(m.content)}${m.skill_used?`<div style="font-size:.75rem;color:var(--green);margin-top:4px">⚡ ${esc(m.skill_used)}</div>`:''}</div></div>`; }).join(''); c.scrollTop=c.scrollHeight; }
 async function sendChatMessage() { if(!currentChatAgentId) return; const inp=document.getElementById('chat-input'); const msg=inp.value.trim(); if(!msg) return; inp.value=''; const c=document.getElementById('chat-history'); if(c.innerHTML.includes('Say hello')) c.innerHTML=''; c.innerHTML+=`<div style="display:flex;justify-content:flex-end;width:100%;margin-top:12px"><div style="background:var(--blue);color:#fff;padding:10px 14px;border-radius:8px;max-width:80%;white-space:pre-wrap;font-size:.9rem">${esc(msg)}</div></div><div id="chat-typing" style="display:flex;justify-content:flex-start;width:100%;margin-top:12px"><div style="background:var(--bg3);color:var(--text-muted);padding:10px 14px;border-radius:8px;font-size:.9rem">Typing...</div></div>`; c.scrollTop=c.scrollHeight; const r=await apiPost('/api/v1/agents/'+currentChatAgentId+'/chat',{message:msg}); document.getElementById('chat-typing')?.remove(); if(r) renderChatHistory(r.history); }
 
 function showCreateAgent() {
@@ -3363,7 +3391,7 @@ function updateScheduleStatusPanel(d) {
             return keywords.map(kw => {
                 const isUsed = usedList.includes(kw);
                 return isUsed
-                    ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:#22c55e;margin-right:8px">✓</span>`
+                    ? `<span style="text-decoration:line-through;opacity:0.45;margin-right:4px" title="Already used">${kw}</span><span style="font-size:10px;color:var(--green);margin-right:8px">✓</span>`
                     : `<span style="margin-right:8px;color:var(--text)">${kw}</span>`;
             }).join('');
         };
@@ -3401,7 +3429,7 @@ function startEditKeywords() {
         const el = document.getElementById('kw-' + p + '-val');
         if (!el) return;
         const kws = Array.isArray(dk[p]) ? dk[p] : [];
-        el.innerHTML = `<textarea id="kw-edit-${p}" rows="3" style="width:100%;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;padding:6px;resize:vertical" placeholder="${T('agent_modal.kw_edit_hint') || 'One keyword per line'}">${esc(kws.join('\n'))}</textarea>`;
+        el.innerHTML = `<textarea id="kw-edit-${p}" rows="3" style="width:100%;background:var(--ink-ghost-strong);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.8rem;padding:6px;resize:vertical" placeholder="${T('agent_modal.kw_edit_hint') || 'One keyword per line'}">${esc(kws.join('\n'))}</textarea>`;
     });
     _setKwEditMode(true);
 }
@@ -3438,6 +3466,16 @@ async function populateAgentSkills(allowed) {
         'Skill': '#6366f1', 'Tool': '#0ea5e9', 'Automation': '#10b981',
         'Browser': '#f59e0b', 'API': '#8b5cf6', 'AI': '#ec4899',
     };
+    // The same six hues darkened for the light palette. The badge writes the
+    // type in its own hue over a 20% tint of that hue; those hues were picked
+    // against #262626 and on a white card the pair collapses — Automation lands
+    // at 2.1:1, Browser at 1.9 — while this badge is the only place the type is
+    // written. Each value below clears 4.5:1 on its own tint. The stylesheet
+    // picks between the two, so a theme flip under an open page repaints them.
+    const typeColorLight = {
+        'Skill': '#4338ca', 'Tool': '#075985', 'Automation': '#065f46',
+        'Browser': '#92400e', 'API': '#6d28d9', 'AI': '#be185d',
+    };
     // Type → icon
     const typeIcon = {
         'Skill': '⚡', 'Tool': '🔧', 'Automation': '🤖',
@@ -3447,6 +3485,7 @@ async function populateAgentSkills(allowed) {
     c.innerHTML = d.skills.map(s => {
         const isSelected = allowed.includes(s.id);
         const color = typeColor[s.type] || '#6366f1';
+        const colorLt = typeColorLight[s.type] || '#4338ca';
         const icon = typeIcon[s.type] || '⚡';
         return `
         <div class="skill-chip${isSelected ? ' selected' : ''}"
@@ -3458,13 +3497,13 @@ async function populateAgentSkills(allowed) {
                     border-radius:20px;cursor:pointer;font-size:.82rem;font-weight:500;
                     border:1.5px solid ${isSelected ? color : 'var(--border)'};
                     background:${isSelected ? color + '22' : 'var(--bg3)'};
-                    color:${isSelected ? '#fff' : 'var(--text-muted)'};
+                    color:${isSelected ? 'var(--text)' : 'var(--text-muted)'};
                     transition:all .18s ease;user-select:none">
             <span style="font-size:.9rem">${icon}</span>
             <span>${esc(s.name)}</span>
-            <span style="font-size:.7rem;padding:1px 6px;border-radius:10px;
-                         background:${isSelected ? 'rgba(255,255,255,0.15)' : color+'33'};
-                         color:${isSelected ? '#fff' : color}">${esc(s.type)}</span>
+            <span class="skill-chip-type" style="--chip-lt:${colorLt};font-size:.7rem;padding:1px 6px;border-radius:10px;
+                         background:${isSelected ? 'var(--hover-ghost-strong)' : color+'33'};
+                         color:${isSelected ? 'var(--text)' : 'var(--chip-ink,' + color + ')'}">${esc(s.type)}</span>
             <input type="checkbox" class="agent-skill-cb" value="${esc(s.id)}" ${isSelected ? 'checked' : ''}
                    style="position:absolute;opacity:0;pointer-events:none">
         </div>`;
@@ -3483,8 +3522,8 @@ function toggleSkillChip(el) {
         const colorMatch = el.style.border.match(/#[0-9a-f]{6}/i) || ['', '#6366f1'];
         el.style.borderColor = colorMatch[0] || '#6366f1';
         el.style.background = (colorMatch[0] || '#6366f1') + '22';
-        el.style.color = '#fff';
-        if (badge) badge.style.background = 'rgba(255,255,255,0.15)', badge.style.color = '#fff';
+        el.style.color = 'var(--text)';
+        if (badge) badge.style.background = 'var(--hover-ghost-strong)', badge.style.color = 'var(--text)';
     } else {
         el.style.borderColor = 'var(--border)';
         el.style.background = 'var(--bg3)';
@@ -3534,7 +3573,7 @@ async function _agentLoadOllama(sel) {
                 '</optgroup>';
         }
     } catch(e) {}
-    if (!ok) html = '<optgroup label="🖥️ Ollama (Local)"><option disabled style="color:#888">⚠️ Ollama not running</option></optgroup>';
+    if (!ok) html = '<optgroup label="🖥️ Ollama (Local)"><option disabled style="color:var(--text-muted)">⚠️ Ollama not running</option></optgroup>';
     if (og) { const tmp = document.createElement('div'); tmp.innerHTML = `<select>${html}</select>`; og.replaceWith(tmp.querySelector('optgroup')); }
     else sel.insertAdjacentHTML('afterbegin', html);
 }
@@ -3762,7 +3801,7 @@ async function testScraperAI() {
     if (!selectedOpt || !selectedOpt.value) {
         resultDiv.style.display = 'block';
         resultDiv.textContent = `Vui lòng cấu hình model trước khi kiểm tra.`;
-        resultDiv.style.color = '#ef4444';
+        resultDiv.style.color = 'var(--red)';
         resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
         return;
     }
@@ -3782,11 +3821,11 @@ async function testScraperAI() {
             });
             if (resp.ok) {
                 resultDiv.textContent = `✅ Kết nối Ollama thành công!`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 resultDiv.textContent = `❌ Lỗi Ollama: ${resp.status}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else if (optgroup && optgroup.label.includes('☁️')) {
@@ -3802,13 +3841,13 @@ async function testScraperAI() {
             const data = await resp.json();
             if (resp.ok && data.status === 'success') {
                 resultDiv.textContent = `✅ Kết nối tốt! (${data.response?.substring(0, 30) || 'OK'})`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 let errText = data.detail || data.message || 'Unknown error';
                 if (typeof errText === 'string' && errText.length > 100) errText = errText.substring(0, 100) + '...';
                 resultDiv.textContent = `❌ Lỗi: ${errText}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else if (optgroup && optgroup.label.includes('9Router')) {
@@ -3830,11 +3869,11 @@ async function testScraperAI() {
                     reply = data?.choices?.[0]?.message?.content || 'OK';
                 } catch(e) {}
                 resultDiv.textContent = `✅ Kết nối 9Router tốt! (${reply.substring(0, 30)})`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 resultDiv.textContent = `❌ Lỗi 9Router: ${resp.status}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else {
@@ -3847,7 +3886,7 @@ async function testScraperAI() {
             const data = await resp.json();
             if (resp.ok && data.status === 'success') {
                 resultDiv.textContent = `✅ Kết nối thành công!`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 const ollamaResp = await fetch('http://localhost:11434/api/generate', {
@@ -3857,18 +3896,18 @@ async function testScraperAI() {
                 });
                 if (ollamaResp.ok) {
                     resultDiv.textContent = `✅ Kết nối Ollama thành công!`;
-                    resultDiv.style.color = '#10b981';
+                    resultDiv.style.color = 'var(--green)';
                     resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
                 } else {
                     resultDiv.textContent = `❌ Lỗi kết nối: Model không khả dụng hoặc chưa bắt đầu.`;
-                    resultDiv.style.color = '#ef4444';
+                    resultDiv.style.color = 'var(--red)';
                     resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
                 }
             }
         }
     } catch(e) {
         resultDiv.textContent = `❌ Lỗi: ${e.message}`;
-        resultDiv.style.color = '#ef4444';
+        resultDiv.style.color = 'var(--red)';
         resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
     } finally { btn.disabled = false; }
 }
@@ -4180,14 +4219,14 @@ function renderHistoryPage() {
         let statusHtml = '';
         if (item.isScraped) {
             statusHtml = `
-                <span style="color:#10b981; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">
+                <span style="color:var(--green); display:inline-flex; align-items:center; gap:4px; font-size:0.75rem;">
                     <span class="material-symbols-outlined" style="font-size:14px;">image</span> ${item.imageCount || 0}
                 </span>
-                <span style="color:#10b981; display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; margin-left:8px;">
+                <span style="color:var(--green); display:inline-flex; align-items:center; gap:4px; font-size:0.75rem; margin-left:8px;">
                     <span class="material-symbols-outlined" style="font-size:14px;">description</span> ${item.contentLength || 0}
                 </span>
                 <span class="history-item-status-scraped">${T('agent_modal.history_scraped') || 'Scraped'}</span>
-                <button onclick="viewScrapedContent('${esc(profile)}', '${esc(url)}')" class="btn-sm" style="padding:2px 6px; font-size:0.7rem; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); color:#60a5fa; border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:2px; margin-left:8px;" title="Xem nội dung chi tiết">
+                <button onclick="viewScrapedContent('${esc(profile)}', '${esc(url)}')" class="btn-sm" style="padding:2px 6px; font-size:0.7rem; background:rgba(59,130,246,0.1); border:1px solid rgba(59,130,246,0.2); color:var(--blue-ink); border-radius:4px; cursor:pointer; display:inline-flex; align-items:center; gap:2px; margin-left:8px;" title="Xem nội dung chi tiết">
                     <span class="material-symbols-outlined" style="font-size:12px;">visibility</span>
                     <span>Xem & Viết lại</span>
                 </button>
@@ -4286,7 +4325,7 @@ async function loadAgentHistory() {
     const res = await apiGet('/api/v1/agents/' + id + '/history');
     if (document.getElementById('agent-id').value !== requestedHistoryId) return;
     if (res && res.error) {
-        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:#ef4444;">❌ ${T('agent_modal.error_prefix') || 'Error'}: ${esc(res.error)}</p>`;
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:20px 0; color:var(--red);">❌ ${T('agent_modal.error_prefix') || 'Error'}: ${esc(res.error)}</p>`;
         return;
     }
     
@@ -4315,13 +4354,13 @@ const SKIP_REASONS = {
 };
 
 const RUN_OUTCOMES = {
-    completed:     ['Xong',                          '#10b981'],
-    error:         ['Lỗi',                           '#ef4444'],
-    launch_failed: ['Không mở được trình duyệt',     '#ef4444'],
-    failed:        ['Hỏng giữa chừng',               '#ef4444'],
-    timeout_killed:['Hết giờ, đã dừng',              '#f59e0b'],
-    interrupted:   ['Bị ngắt (máy chủ tắt giữa chừng)', '#f59e0b'],
-    never_started: ['Chưa kịp mở trình duyệt',       '#f59e0b'],
+    completed:     ['Xong',                          'var(--green)'],
+    error:         ['Lỗi',                           'var(--red)'],
+    launch_failed: ['Không mở được trình duyệt',     'var(--red)'],
+    failed:        ['Hỏng giữa chừng',               'var(--red)'],
+    timeout_killed:['Hết giờ, đã dừng',              'var(--orange)'],
+    interrupted:   ['Bị ngắt (máy chủ tắt giữa chừng)', 'var(--orange)'],
+    never_started: ['Chưa kịp mở trình duyệt',       'var(--orange)'],
     running:       ['Đang chạy',                     '#06b6d4'],
     starting:      ['Đang khởi động',                '#06b6d4'],
 };
@@ -4357,7 +4396,7 @@ async function loadAgentRuns() {
     const res = await apiGet('/api/v1/agents/' + id + '/runs');
     if (document.getElementById('agent-id').value !== requestedId) return;
     if (!res || res.error) {
-        listDiv.innerHTML = `<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;color:#ef4444;">Không đọc được nhật ký: ${esc((res && res.error) || 'lỗi không rõ')}</p>`;
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center;padding:14px 0;margin:0;color:var(--red);">Không đọc được nhật ký: ${esc((res && res.error) || 'lỗi không rõ')}</p>`;
         return;
     }
 
@@ -4384,20 +4423,20 @@ async function loadAgentRuns() {
             // instead of showing that English to a Vietnamese dashboard; fall
             // back to the raw detail for a reason this build does not know.
             const why = SKIP_REASONS[r.reason] || r.detail || r.reason || '';
-            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:rgba(255,255,255,0.02);border-left:3px solid #6b7280;border-radius:4px;">
+            return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:var(--panel-ghost);border-left:3px solid var(--text-muted);border-radius:4px;">
                 <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;min-width:74px;">${runWhen(r.ts)}</span>
                 <div style="flex:1;min-width:0;">
                     <div style="font-size:0.8rem;color:var(--text-muted);">Không chạy — ${esc(why)}</div>
                     ${r.next_attempt ? `<div style="font-size:0.72rem;color:var(--text-muted);opacity:.75;">Thử lại: ${runWhen(r.next_attempt)}</div>` : ''}
                 </div></div>`;
         }
-        const [label, colour] = RUN_OUTCOMES[r.outcome] || [r.outcome || 'Không rõ', '#6b7280'];
+        const [label, colour] = RUN_OUTCOMES[r.outcome] || [r.outcome || 'Không rõ', 'var(--text-muted)'];
         const bits = [];
         if (r.profile) bits.push(esc(r.profile));
         if (r.duration_sec) bits.push(Math.round(r.duration_sec) + 's');
         if (r.trigger === 'test') bits.push('chạy thử');
         const detail = r.error || r.log_tail;
-        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:rgba(255,255,255,0.02);border-left:3px solid ${colour};border-radius:4px;">
+        return `<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 9px;background:var(--panel-ghost);border-left:3px solid ${colour};border-radius:4px;">
             <span style="font-size:0.72rem;color:var(--text-muted);white-space:nowrap;min-width:74px;">${runWhen(r.ts)}</span>
             <div style="flex:1;min-width:0;">
                 <div style="font-size:0.82rem;color:${colour};font-weight:600;">${esc(label)}</div>
@@ -4784,13 +4823,13 @@ async function showBrowserEnginesModal() {
                 const forced = eu.forced_by_env
                     ? ` · <span style="color:var(--orange)">${esc(T('browser.engine_forced', 'forced by SHARDX_ENGINE_VERSION'))}</span>`
                     : '';
-                return `<div id="engine-update-box" style="background:rgba(255,255,255,0.04);border:1px solid ${tone};border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.6;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                return `<div id="engine-update-box" style="background:var(--panel-ghost-4);border:1px solid ${tone};border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.6;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <span>${head} · ${cur}</span>
                     <span style="color:var(--text-muted);font-size:0.75rem">${src}${forced}</span>
                     <button class="btn-secondary" style="margin-left:auto;padding:2px 10px;font-size:0.78rem" onclick="checkEngineUpdate()">${esc(T('browser.btn_check_update', 'Check for update'))}</button>
                 </div>`;
             })();
-            const legend = `<div style="background:rgba(255,255,255,0.04);border:1px solid var(--border,#333);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.55">
+            const legend = `<div style="background:var(--panel-ghost-4);border:1px solid var(--border,#333);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:0.82rem;line-height:1.55">
                 <b style="color:var(--green)">ShardX</b> — ${esc(T('browser.legend_shardx', 'free and open: fingerprints are stored locally, no key required.'))}<br>
                 <b style="color:var(--orange)">BAS</b> — ${esc(T('browser.legend_bas', 'needs a BAS Fingerprint API key: profiles fetch their fingerprint from a metered API and will not launch without one.'))}
             </div>`;
@@ -5220,7 +5259,7 @@ async function loadOllamaModels() {
     
     if (!ollamaOnline) {
         html += '<optgroup label="🖥️ Ollama (Local)">';
-        html += '<option disabled style="color:#888">⚠️ Ollama not running — start Ollama first</option>';
+        html += '<option disabled style="color:var(--text-muted)">⚠️ Ollama not running — start Ollama first</option>';
         html += '</optgroup>';
     }
     
@@ -5471,7 +5510,7 @@ async function testDefaultAI() {
     if (!optgroup) {
         resultDiv.style.display = 'block';
         resultDiv.textContent = `Không hỗ trợ test cho model này.`;
-        resultDiv.style.color = '#ef4444';
+        resultDiv.style.color = 'var(--red)';
         resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
         return;
     }
@@ -5495,11 +5534,11 @@ async function testDefaultAI() {
             });
             if (resp.ok) {
                 resultDiv.textContent = `✅ Thành công (Ollama: ${model})`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 resultDiv.textContent = `❌ Lỗi Ollama: ${resp.status}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else if (optgroup.label.includes('☁️')) {
@@ -5522,13 +5561,13 @@ async function testDefaultAI() {
             const data = await resp.json();
             if (resp.ok && data.status === 'success') {
                 resultDiv.textContent = `✅ Kết nối tốt! (${data.response?.substring(0, 50) || 'OK'})`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 let errText = data.detail || data.message || 'Unknown error';
                 if (typeof errText === 'string' && errText.length > 100) errText = errText.substring(0, 100) + '...';
                 resultDiv.textContent = `❌ Lỗi: ${errText}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else if (optgroup.label.includes('9Router')) {
@@ -5573,13 +5612,13 @@ async function testDefaultAI() {
                     }
                 }
                 resultDiv.textContent = `✅ 9Router OK! (${reply.substring(0, 60)})`;
-                resultDiv.style.color = '#10b981';
+                resultDiv.style.color = 'var(--green)';
                 resultDiv.style.background = 'rgba(16, 185, 129, 0.1)';
             } else {
                 const errData = await resp.json().catch(() => ({}));
                 const errMsg = errData?.error?.message || `HTTP ${resp.status}`;
                 resultDiv.textContent = `❌ 9Router Error: ${errMsg.substring(0, 80)}`;
-                resultDiv.style.color = '#ef4444';
+                resultDiv.style.color = 'var(--red)';
                 resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
             }
         } else {
@@ -5587,7 +5626,7 @@ async function testDefaultAI() {
         }
     } catch (e) {
         resultDiv.textContent = `❌ Lỗi: ${e.message}`;
-        resultDiv.style.color = '#ef4444';
+        resultDiv.style.color = 'var(--red)';
         resultDiv.style.background = 'rgba(239, 68, 68, 0.1)';
     } finally {
         btn.disabled = false;
@@ -7336,7 +7375,7 @@ async function openGenerateContentSetup() {
     try {
         const res = await apiGet(`/api/v1/agents/${agentId}/history`);
         if (res && res.error) {
-            listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:#ef4444;">❌ Lỗi: ${esc(res.error)}</p>`;
+            listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:var(--red);">❌ Lỗi: ${esc(res.error)}</p>`;
             return;
         }
         
@@ -7375,7 +7414,7 @@ async function openGenerateContentSetup() {
             const url = item.url || '';
             const timeStr = item.scrapedAt ? new Date(item.scrapedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
             return `
-                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:8px; border-radius:6px; background:rgba(255,255,255,0.02); border:1px solid var(--border); margin:0; text-align:left;">
+                <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:8px; border-radius:6px; background:var(--panel-ghost); border:1px solid var(--border); margin:0; text-align:left;">
                     <input type="checkbox" class="setup-article-cb" value="${esc(url)}" checked style="width:16px; height:16px; cursor:pointer; margin-top:2px; flex-shrink:0;">
                     <div style="flex:1; min-width:0; font-size:0.82rem;">
                         <div style="font-weight:600; color:var(--text); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;" title="${esc(title)}">${esc(title)}</div>
@@ -7388,7 +7427,7 @@ async function openGenerateContentSetup() {
         }).join('');
         
     } catch(e) {
-        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:#ef4444;">❌ Lỗi kết nối: ${e.message}</p>`;
+        listDiv.innerHTML = `<p class="text-muted" style="text-align:center; padding:15px 0; color:var(--red);">❌ Lỗi kết nối: ${e.message}</p>`;
     }
 }
 

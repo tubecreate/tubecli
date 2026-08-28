@@ -5,6 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Website Manager — TubeCLI</title>
   <meta name="description" content="Quản lý và deploy websites Cloudflare Workers với giao diện card list trực quan." />
+  <script>
+  /*
+   * Pre-paint theme. Must run BEFORE any stylesheet applies so there is no dark
+   * flash when the dashboard embeds this page in its light (glass) mode.
+   * Contract (same as file_manager.html): the dashboard appends ?theme=light|dark
+   * (the cloud canvas appends ?theme=glass) to the iframe URL; this page answers
+   * by setting data-theme on <html>, which activates the light token block
+   * below. With no theme param: standalone follows prefers-color-scheme, but an
+   * EMBEDDED page (window.self !== top) pins itself dark so a dark host on a
+   * light-OS machine stays coherent.
+   */
+  (function () {
+    try {
+      var t = new URLSearchParams(window.location.search).get('theme');
+      if (t === 'glass' || t === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else if (window.self !== window.top) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+  })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -30,9 +54,108 @@
       --text: #e2e8f0;
       --text2: #94a3b8;
       --text3: #475569;
+      --warn: #e6a014;
       --radius: 14px;
       --radius-sm: 8px;
       --shadow: 0 8px 32px rgba(0,0,0,.5);
+      /* Tokens for values that used to be hardcoded literals, so the light
+         theme below can restyle them without duplicating element rules. */
+      --header-grad-end: #0a1628;
+      --shadow-hover: 0 12px 40px rgba(0,0,0,.4);
+      --shadow-sm: 0 2px 8px rgba(0,0,0,.3);
+      --shadow-modal: 0 24px 80px rgba(0,0,0,.7);
+      --overlay: rgba(0,0,0,.75);
+      --thumb-overlay: rgba(8,12,20,.7);
+      --tab-active-bg: #162134;
+      /* Deploy terminal. The log body is content and stays dark in both themes
+         (like a code editor); only its frame follows the theme. */
+      --term-bg: #030712;
+      --term-fg: #cbd5e1;
+      --term-border: rgba(99,170,255,.15);
+      --term-line: rgba(99,170,255,.1);
+      --term-foot: #030712;
+    }
+
+    /* ── Light theme ──
+       Values mirror the dashboard glass palette (webui/static/style.css):
+       ground #f7f8fa, white panels, slate ink #1e293b, lines rgba(15,23,42,.1).
+       Accents stay; status inks darken so they pass contrast on white.
+       Activated by data-theme="light" on <html> (set from ?theme= by the
+       pre-paint script in <head>, or by the dashboard after the iframe loads).
+       Standalone, prefers-color-scheme decides — guarded so an explicit
+       data-theme always wins. The two blocks are intentionally verbatim copies:
+       CSS cannot share a declaration list between a media query and an
+       attribute selector without a preprocessor. KEEP THEM IDENTICAL. */
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --surface: #ffffff;
+      --surface2: #f1f3f7;
+      --surface3: #e2e6ee;
+      --border: rgba(15,23,42,.1);
+      --border-hover: rgba(15,23,42,.22);
+      --accent-glow: rgba(59,130,246,.22);
+      --green: #15803d;
+      --yellow: #a16207;
+      --red: #dc2626;
+      --orange: #c2410c;
+      --cf-orange: #c2410c;
+      --warn: #a16207;
+      --text: #1e293b;
+      --text2: #475569;
+      --text3: #64748b;
+      --shadow: 0 8px 32px rgba(15,23,42,.18);
+      --header-grad-end: #ffffff;
+      --shadow-hover: 0 12px 40px rgba(15,23,42,.14);
+      --shadow-sm: 0 2px 8px rgba(15,23,42,.12);
+      --shadow-modal: 0 24px 80px rgba(15,23,42,.28);
+      --overlay: rgba(15,23,42,.45);
+      --thumb-overlay: rgba(15,23,42,.18);
+      --tab-active-bg: #ffffff;
+      --term-border: rgba(15,23,42,.14);
+      --term-line: rgba(15,23,42,.1);
+      --term-foot: #ffffff;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --surface: #ffffff;
+        --surface2: #f1f3f7;
+        --surface3: #e2e6ee;
+        --border: rgba(15,23,42,.1);
+        --border-hover: rgba(15,23,42,.22);
+        --accent-glow: rgba(59,130,246,.22);
+        --green: #15803d;
+        --yellow: #a16207;
+        --red: #dc2626;
+        --orange: #c2410c;
+        --cf-orange: #c2410c;
+        --warn: #a16207;
+        --text: #1e293b;
+        --text2: #475569;
+        --text3: #64748b;
+        --shadow: 0 8px 32px rgba(15,23,42,.18);
+        --header-grad-end: #ffffff;
+        --shadow-hover: 0 12px 40px rgba(15,23,42,.14);
+        --shadow-sm: 0 2px 8px rgba(15,23,42,.12);
+        --shadow-modal: 0 24px 80px rgba(15,23,42,.28);
+        --overlay: rgba(15,23,42,.45);
+        --thumb-overlay: rgba(15,23,42,.18);
+        --tab-active-bg: #ffffff;
+        --term-border: rgba(15,23,42,.14);
+        --term-line: rgba(15,23,42,.1);
+        --term-foot: #ffffff;
+      }
+    }
+    /* The dashboard's iframe sync (webui app.js syncThemeToIframe) re-injects
+       --green/--red/--orange on :root with !important using its own light
+       values (#22c55e on white is 2.3:1). A declaration on <body> beats an
+       inherited :root value regardless of !important, so the darkened status
+       inks above survive embedding. Same two-copy rule as the blocks above. */
+    :root[data-theme="light"] body { --green: #15803d; --red: #dc2626; --orange: #c2410c; }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) body { --green: #15803d; --red: #dc2626; --orange: #c2410c; }
     }
 
     body {
@@ -45,7 +168,7 @@
 
     /* ── Header ── */
     .header {
-      background: linear-gradient(135deg, var(--surface) 0%, #0a1628 100%);
+      background: linear-gradient(135deg, var(--surface) 0%, var(--header-grad-end) 100%);
       border-bottom: 1px solid var(--border);
       padding: 18px 28px;
       display: flex;
@@ -75,6 +198,7 @@
     }
     .btn-primary {
       background: linear-gradient(135deg, var(--accent), var(--accent2));
+      background-color: var(--accent);
       color: #fff;
       box-shadow: 0 4px 14px var(--accent-glow);
     }
@@ -85,6 +209,7 @@
     .btn-danger:hover { background: rgba(239,68,68,.25); }
     .btn-cf {
       background: linear-gradient(135deg, #f6821f, #e85d04);
+      background-color: #f6821f;
       color: #fff;
       box-shadow: 0 4px 14px rgba(246,130,31,.35);
     }
@@ -127,7 +252,7 @@
     .cf-bar-icon { font-size: 1.4rem; }
     .cf-bar-info { flex: 1; }
     .cf-bar-info span { font-size: .8rem; color: var(--text2); display: block; }
-    .cf-bar-info strong { font-size: .95rem; color: #f6821f; }
+    .cf-bar-info strong { font-size: .95rem; color: var(--cf-orange); }
     .cf-status { display: flex; align-items: center; gap: 6px; font-size: .8rem; }
     .cf-dot { width: 8px; height: 8px; border-radius: 50%; }
     .cf-dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
@@ -173,7 +298,7 @@
     .site-card:hover {
       border-color: var(--border-hover);
       transform: translateY(-3px);
-      box-shadow: 0 12px 40px rgba(0,0,0,.4);
+      box-shadow: var(--shadow-hover);
     }
 
     /* Status stripe */
@@ -207,7 +332,7 @@
     .site-card:hover .card-thumb img { transform: scale(1.04); }
     .card-thumb-overlay {
       position: absolute; inset: 0;
-      background: linear-gradient(to bottom, transparent 50%, rgba(8,12,20,.7) 100%);
+      background: linear-gradient(to bottom, transparent 50%, var(--thumb-overlay) 100%);
     }
 
     /* Status badge */
@@ -270,7 +395,7 @@
     /* ── Modal Overlay ── */
     .modal-overlay {
       position: fixed; inset: 0; z-index: 100;
-      background: rgba(0,0,0,.75);
+      background: var(--overlay);
       backdrop-filter: blur(6px);
       display: flex; align-items: center; justify-content: center;
       padding: 20px;
@@ -292,7 +417,7 @@
       width: 100%;
       max-height: 90vh;
       overflow-y: auto;
-      box-shadow: 0 24px 80px rgba(0,0,0,.7);
+      box-shadow: var(--shadow-modal);
       transform: scale(.95) translateY(10px);
       transition: transform .22s ease;
     }
@@ -336,7 +461,7 @@
       color: var(--text2); cursor: pointer;
       font-size: .85rem; font-weight: 600; transition: all .15s;
     }
-    .tab-btn.active { background: var(--surface3); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+    .tab-btn.active { background: var(--tab-active-bg); color: var(--text); box-shadow: var(--shadow-sm); }
     .tab-pane { display: none; }
     .tab-pane.active { display: block; }
 
@@ -379,7 +504,7 @@
       padding: 14px 16px;
       margin-bottom: 16px;
     }
-    .cf-profile-select-box .form-label { color: #f6821f; }
+    .cf-profile-select-box .form-label { color: var(--cf-orange); }
     .cf-profile-option {
       display: flex; align-items: center; gap: 10px;
       padding: 8px 0; border-bottom: 1px solid rgba(246,130,31,.12);
@@ -441,22 +566,22 @@
     .theme-tags { display: flex; gap: 4px; flex-wrap: wrap; }
     .theme-tag {
       background: rgba(99,130,255,.12);
-      color: #94a3b8; padding: 1px 6px;
+      color: var(--text2); padding: 1px 6px;
       border-radius: 99px; font-size: .65rem; font-weight: 600;
     }
 
     /* ── Deploy Terminal ── */
     .terminal {
-      background: #030712;
-      border: 1px solid rgba(99,170,255,.15);
+      background: var(--term-bg);
+      border: 1px solid var(--term-border);
       border-radius: var(--radius);
       overflow: hidden;
     }
     .terminal-header {
-      background: #0d1520;
+      background: var(--surface);
       padding: 10px 16px;
       display: flex; align-items: center; gap: 8px;
-      border-bottom: 1px solid rgba(99,170,255,.1);
+      border-bottom: 1px solid var(--term-line);
     }
     .terminal-dot { width: 10px; height: 10px; border-radius: 50%; }
     .terminal-title { font-size: .78rem; color: var(--text2); margin-left: 4px; }
@@ -466,7 +591,8 @@
       line-height: 1.65;
       padding: 14px 16px;
       height: 340px; overflow-y: auto;
-      color: #cbd5e1;
+      background: var(--term-bg);
+      color: var(--term-fg);
       white-space: pre-wrap; word-break: break-all;
     }
     .terminal-body .log-err { color: #f87171; }
@@ -475,7 +601,8 @@
     .terminal-body .log-warn { color: #fbbf24; }
     .deploy-progress {
       padding: 12px 16px;
-      border-top: 1px solid rgba(99,170,255,.1);
+      background: var(--term-foot);
+      border-top: 1px solid var(--term-line);
       display: flex; align-items: center; gap: 12px;
     }
     .progress-bar {
@@ -662,7 +789,7 @@
       <!-- Tab: Deploy -->
       <div class="tab-pane" id="tab-deploy">
         <!-- Error banner for instant user feedback -->
-        <div id="deploy-error-banner" style="display:none; padding:12px 16px; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.35); color:#f87171; border-radius:var(--radius-sm); margin-bottom:16px; font-size:.85rem; font-weight:600;"></div>
+        <div id="deploy-error-banner" style="display:none; padding:12px 16px; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.35); color:var(--red); border-radius:var(--radius-sm); margin-bottom:16px; font-size:.85rem; font-weight:600;"></div>
 
         <!-- Theme picker -->
         <div class="form-group">
@@ -692,13 +819,13 @@
         <div style="background:linear-gradient(135deg,rgba(246,130,31,.08),rgba(246,130,31,.02)); border:1px solid rgba(246,130,31,.22); border-radius:var(--radius); padding:16px; margin-bottom:16px;">
           <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
             <span style="font-size:1.2rem;">⚡</span>
-            <span style="font-size:.9rem; font-weight:700; color:#f6821f;">Cloudflare Credentials</span>
+            <span style="font-size:.9rem; font-weight:700; color:var(--cf-orange);">Cloudflare Credentials</span>
             <span style="margin-left:auto; font-size:.75rem; color:var(--text3);" id="cf-cred-source" data-i18n="cf.source_manual">Nhập thủ công</span>
           </div>
 
           <!-- Saved profiles dropdown -->
           <div class="form-group" id="cf-profiles-section" style="display:none;">
-            <label class="form-label" style="color:#f6821f;" data-i18n="cf.saved_profile">Profile đã lưu</label>
+            <label class="form-label" style="color:var(--cf-orange);" data-i18n="cf.saved_profile">Profile đã lưu</label>
             <select class="form-select" id="d-cf-profile" style="border-color:rgba(246,130,31,.3);">
               <option value="__manual__" data-i18n="cf.manual_entry">➕ Nhập thủ công (thêm mới)</option>
             </select>
@@ -728,7 +855,7 @@
                  now entered in exactly one place: the Cloudflare modal, which
                  has the email field and its own label handling. -->
             <div style="display:flex; gap:8px; align-items:center;">
-              <button type="button" class="btn btn-sm" style="background:rgba(246,130,31,.12); color:#f6821f; border:1px solid rgba(246,130,31,.25);" id="btn-open-cf-from-deploy" data-i18n="cf.save_to_keys">⚡ Lưu vào Cloud Keys</button>
+              <button type="button" class="btn btn-sm" style="background:rgba(246,130,31,.12); color:var(--cf-orange); border:1px solid rgba(246,130,31,.25);" id="btn-open-cf-from-deploy" data-i18n="cf.save_to_keys">⚡ Lưu vào Cloud Keys</button>
               <span style="font-size:.75rem; color:var(--text3);" data-i18n="cf.save_hint">Lưu để dùng lại cho lần sau</span>
             </div>
           </div>
@@ -809,7 +936,7 @@
 
       <!-- Add new -->
       <div style="border:1px solid rgba(246,130,31,.2); border-radius:var(--radius); padding:16px; background:rgba(246,130,31,.04);">
-        <div style="font-size:.85rem; font-weight:700; color:#f6821f; margin-bottom:14px;" data-i18n="cfm.add_update">➕ Thêm / Cập nhật Profile</div>
+        <div style="font-size:.85rem; font-weight:700; color:var(--cf-orange); margin-bottom:14px;" data-i18n="cfm.add_update">➕ Thêm / Cập nhật Profile</div>
         <div class="form-group">
           <label class="form-label" data-i18n="cfm.profile_name">Tên profile</label>
           <input class="form-input" id="cf-new-label" value="default" />

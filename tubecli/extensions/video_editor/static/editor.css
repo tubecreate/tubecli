@@ -1,5 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════
    Video Editor — Premium Dark Theme (CapCut-inspired)
+   Dark is the default token set; the light (glass) set below overrides
+   it when <html data-theme="light"> is set by the pre-paint script in
+   editor.html (?theme=light|glass from the dashboard) or, standalone,
+   by prefers-color-scheme.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
@@ -26,8 +30,10 @@
 
     --accent: #6c5ce7;
     --accent-hover: #7f71f0;
-    --accent-light: rgba(108, 92, 231, 0.15);
-    --accent-glow: rgba(108, 92, 231, 0.3);
+    /* Derived from --accent so they follow the dashboard's injected accent.
+       In dark these resolve to rgba(108,92,231,.15) / rgba(108,92,231,.3). */
+    --accent-light: color-mix(in srgb, var(--accent) 15%, transparent);
+    --accent-glow: color-mix(in srgb, var(--accent) 30%, transparent);
 
     --success: #00d68f;
     --warning: #ffaa00;
@@ -41,6 +47,19 @@
     --track-audio-bg: rgba(0, 214, 143, 0.2);
     --track-text: #ffaa00;
     --track-text-bg: rgba(255, 170, 0, 0.2);
+
+    /* Surfaces that used to be literals, so the light theme can restyle them.
+       The preview stage stays black in both themes: it is content, not chrome. */
+    --stage-bg: #000;
+    --stage-fg: #555570;
+    --thumb-gradient: linear-gradient(135deg, #6c5ce7 0%, #2d1b69 100%);
+    --track-drop-bg: color-mix(in srgb, var(--accent) 10%, transparent);
+    --clip-ring: rgba(255, 255, 255, 0.3);
+    --clip-handle-hover: rgba(255, 255, 255, 0.2);
+    --overlay-bg: rgba(0, 0, 0, 0.6);
+    --shadow-panel: -4px 0 20px rgba(0, 0, 0, 0.3);
+    --shadow-modal: 0 20px 60px rgba(0, 0, 0, 0.5);
+    --shadow-toast: 0 8px 32px rgba(0, 0, 0, 0.4);
 
     /* Spacing */
     --sidebar-width: 260px;
@@ -61,6 +80,82 @@
     --radius-md: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
+}
+
+/* ── Light theme (glass) ─────────────────────────────────
+   Values mirror the dashboard's light palette (webui/static/style.css):
+   ground #f7f8fa, white panels, slate ink #1e293b, lines rgba(15,23,42,.1).
+   --accent stays; status inks and track hues darken so they pass on white.
+   The two blocks are intentionally verbatim copies: CSS cannot share a
+   declaration list between a media query and an attribute selector.
+   KEEP THEM IDENTICAL. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg-primary: #f7f8fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f3f7;
+    --bg-elevated: #ffffff;
+    --bg-hover: rgba(15, 23, 42, 0.05);
+    --bg-active: #e3e7ee;
+    --surface-glass: rgba(15, 23, 42, 0.02);
+    --surface-glass-hover: rgba(15, 23, 42, 0.05);
+    --border-subtle: rgba(15, 23, 42, 0.06);
+    --border-default: rgba(15, 23, 42, 0.1);
+    --border-hover: rgba(15, 23, 42, 0.18);
+    --text-primary: #1e293b;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --text-inverse: #ffffff;
+    --success: #15803d;
+    --warning: #b45309;
+    --error: #dc2626;
+    --info: #0369a1;
+    --track-audio: #059669;
+    --track-audio-bg: rgba(5, 150, 105, 0.18);
+    --track-text: #b45309;
+    --track-text-bg: rgba(180, 83, 9, 0.18);
+    --stage-fg: #94a3b8;
+    --clip-ring: rgba(15, 23, 42, 0.3);
+    --clip-handle-hover: rgba(15, 23, 42, 0.15);
+    --overlay-bg: rgba(15, 23, 42, 0.35);
+    --shadow-panel: -4px 0 20px rgba(15, 23, 42, 0.12);
+    --shadow-modal: 0 20px 60px rgba(15, 23, 42, 0.2);
+    --shadow-toast: 0 8px 32px rgba(15, 23, 42, 0.16);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg-primary: #f7f8fa;
+        --bg-secondary: #ffffff;
+        --bg-tertiary: #f1f3f7;
+        --bg-elevated: #ffffff;
+        --bg-hover: rgba(15, 23, 42, 0.05);
+        --bg-active: #e3e7ee;
+        --surface-glass: rgba(15, 23, 42, 0.02);
+        --surface-glass-hover: rgba(15, 23, 42, 0.05);
+        --border-subtle: rgba(15, 23, 42, 0.06);
+        --border-default: rgba(15, 23, 42, 0.1);
+        --border-hover: rgba(15, 23, 42, 0.18);
+        --text-primary: #1e293b;
+        --text-secondary: #475569;
+        --text-muted: #64748b;
+        --text-inverse: #ffffff;
+        --success: #15803d;
+        --warning: #b45309;
+        --error: #dc2626;
+        --info: #0369a1;
+        --track-audio: #059669;
+        --track-audio-bg: rgba(5, 150, 105, 0.18);
+        --track-text: #b45309;
+        --track-text-bg: rgba(180, 83, 9, 0.18);
+        --stage-fg: #94a3b8;
+        --clip-ring: rgba(15, 23, 42, 0.3);
+        --clip-handle-hover: rgba(15, 23, 42, 0.15);
+        --overlay-bg: rgba(15, 23, 42, 0.35);
+        --shadow-panel: -4px 0 20px rgba(15, 23, 42, 0.12);
+        --shadow-modal: 0 20px 60px rgba(15, 23, 42, 0.2);
+        --shadow-toast: 0 8px 32px rgba(15, 23, 42, 0.16);
+    }
 }
 
 /* ── Reset ──────────────────────────────────────────────── */
@@ -447,7 +542,7 @@ textarea { resize: vertical; }
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #000;
+    background: var(--stage-bg);
     position: relative;
     overflow: hidden;
 }
@@ -465,7 +560,7 @@ textarea { resize: vertical; }
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: var(--text-muted);
+    color: var(--stage-fg);
     gap: 12px;
 }
 .preview-placeholder p { font-size: 14px; }
@@ -543,7 +638,7 @@ textarea { resize: vertical; }
     display: none;
     flex-direction: column;
     z-index: 50;
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-panel);
 }
 .properties-panel.open {
     display: flex;
@@ -766,7 +861,7 @@ textarea { resize: vertical; }
     transition: box-shadow var(--transition-fast);
     min-width: 20px;
 }
-.clip:hover { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3); }
+.clip:hover { box-shadow: 0 0 0 1px var(--clip-ring); }
 .clip.selected { box-shadow: 0 0 0 2px var(--accent); }
 
 .clip.video {
@@ -795,13 +890,13 @@ textarea { resize: vertical; }
 }
 .clip-handle.left { left: 0; }
 .clip-handle.right { right: 0; }
-.clip-handle:hover { background: rgba(255, 255, 255, 0.2); }
+.clip-handle:hover { background: var(--clip-handle-hover); }
 
 /* ── Modals ────────────────────────────────────────────── */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.6);
+    background: var(--overlay-bg);
     backdrop-filter: blur(8px);
     display: none;
     align-items: center;
@@ -818,7 +913,7 @@ textarea { resize: vertical; }
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-modal);
     animation: modalIn 0.25s var(--transition-smooth);
 }
 .modal-lg { width: 560px; }
@@ -926,7 +1021,7 @@ textarea { resize: vertical; }
     border-radius: var(--radius-md);
     background: var(--bg-elevated);
     border: 1px solid var(--border-default);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-toast);
     font-size: 12px;
     color: var(--text-primary);
     animation: toastIn 0.3s ease;

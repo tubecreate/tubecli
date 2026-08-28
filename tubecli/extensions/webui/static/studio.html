@@ -4,11 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="studio.title_doc">3D Studio — TubeCLI</title>
+    <script>
+    /* Pre-paint theme (same contract as file_manager.html): the dashboard
+       appends ?theme=light|dark to the iframe URL; ?theme=glass|light selects
+       the light token block in teams.css before the stylesheet applies so
+       there is no dark flash. No param: standalone follows
+       prefers-color-scheme, an embedded page (self !== top) pins dark. */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/teams.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    <script src="/static/i18n.js"></script>
     <script src="/static/i18n.js"></script>
     <script src="/static/furniture3d.js?v=20260327"></script>
     <style>
@@ -25,7 +43,7 @@
         .studio-sidebar .sidebar-header h2 { margin: 0; font-size: 18px; }
         .asset-tabs { display: flex; border-bottom: 1px solid var(--card-border); }
         .asset-tab { flex: 1; padding: 10px 8px; text-align: center; font-size: 12px; cursor: pointer; border: none; background: none; color: var(--text2); transition: all .2s; }
-        .asset-tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+        .asset-tab.active { color: var(--accent-ink); border-bottom: 2px solid var(--accent); }
         .asset-tab:hover { color: var(--text); }
 
         .asset-list { padding: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -46,33 +64,33 @@
         .placed-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: var(--card-bg); border-radius: 6px; margin-bottom: 4px; font-size: 12px; }
         .placed-item .pi-name { flex: 1; }
         .placed-item button { background: none; border: none; color: var(--text3); cursor: pointer; padding: 2px 4px; }
-        .placed-item button:hover { color: #f43f5e; }
-        .agent-assign-select { padding:2px 4px; font-size:10px; background:#0c0e18; color:#e2e8f0; border:1px solid #1e2030; border-radius:4px; max-width:100px; font-family:var(--font); cursor:pointer; }
-        .agent-assign-select:focus { border-color:#22d3ee; outline:none; }
+        .placed-item button:hover { color: var(--accent-ink); }
+        .agent-assign-select { padding:2px 4px; font-size:10px; background:var(--bg2); color:var(--text); border:1px solid var(--card-border); border-radius:4px; max-width:100px; font-family:var(--font); cursor:pointer; }
+        .agent-assign-select:focus { border-color:var(--cyan); outline:none; }
 
         /* Agent picker popup */
-        .desk-agent-popup { position:fixed; z-index:9999; display:none; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:0; min-width:240px; max-width:320px; box-shadow:0 8px 32px rgba(0,0,0,0.6); overflow:hidden; animation: popIn 0.15s ease; }
+        .desk-agent-popup { position:fixed; z-index:9999; display:none; background:var(--card-bg); border:1px solid var(--card-border); border-radius:10px; padding:0; min-width:240px; max-width:320px; box-shadow:var(--shadow-popup); overflow:hidden; animation: popIn 0.15s ease; }
         .desk-agent-popup.open { display:block; }
         .desk-agent-popup-header { padding:10px 14px; border-bottom:1px solid var(--card-border); font-size:13px; font-weight:700; color:var(--text); display:flex; justify-content:space-between; align-items:center; }
         .desk-agent-popup-header .capacity-badge { font-size:10px; font-weight:500; color:var(--text3); background:rgba(34,211,238,0.15); padding:2px 8px; border-radius:10px; }
         .desk-agent-popup-list { max-height:300px; overflow-y:auto; padding:4px 0; }
         .desk-agent-opt { padding:8px 14px; cursor:pointer; font-size:12px; color:var(--text2); transition:all 0.15s; display:flex; align-items:center; gap:8px; }
         .desk-agent-opt:hover:not(.disabled) { background:rgba(34,211,238,0.1); color:var(--text); }
-        .desk-agent-opt.active { background:rgba(34,211,238,0.15); color:#22d3ee; font-weight:600; }
+        .desk-agent-opt.active { background:rgba(34,211,238,0.15); color:var(--cyan); font-weight:600; }
         .desk-agent-opt.disabled { opacity:0.35; cursor:not-allowed; pointer-events:none; }
         .desk-agent-opt.full-disabled { opacity:0.5; cursor:not-allowed; }
-        .desk-agent-opt .agent-dot { width:8px; height:8px; border-radius:50%; background:#22d3ee; flex-shrink:0; }
-        .desk-agent-opt .agent-dot.taken { background:#f43f5e; }
+        .desk-agent-opt .agent-dot { width:8px; height:8px; border-radius:50%; background:var(--cyan); flex-shrink:0; }
+        .desk-agent-opt .agent-dot.taken { background:var(--accent); }
         .desk-agent-opt label { display:flex; align-items:center; gap:8px; cursor:pointer; flex:1; }
-        .desk-agent-opt label input[type=checkbox] { accent-color:#22d3ee; cursor:pointer; width:14px; height:14px; }
-        .desk-agent-opt .taken-badge { font-size:9px; color:#f43f5e; margin-left:auto; white-space:nowrap; }
-        .desk-agent-opt .release-btn { font-size:9px; color:#f59e0b; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:1px 6px; margin-left:auto; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
-        .desk-agent-opt .release-btn:hover { background:rgba(245,158,11,0.3); color:#fbbf24; }
+        .desk-agent-opt label input[type=checkbox] { accent-color:var(--cyan); cursor:pointer; width:14px; height:14px; }
+        .desk-agent-opt .taken-badge { font-size:9px; color:var(--accent-ink); margin-left:auto; white-space:nowrap; }
+        .desk-agent-opt .release-btn { font-size:9px; color:var(--warn-ink); background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3); border-radius:4px; padding:1px 6px; margin-left:auto; cursor:pointer; white-space:nowrap; transition:all 0.15s; }
+        .desk-agent-opt .release-btn:hover { background:rgba(245,158,11,0.3); color:var(--warn-ink-hover); }
         @keyframes popIn { from { opacity:0; transform:scale(0.9); } to { opacity:1; transform:scale(1); } }
 
         /* Toolbar buttons */
         .tb-btn { padding: 6px 14px; border: 1px solid var(--card-border); border-radius: 8px; background: var(--card-bg); color: var(--text); cursor: pointer; font-size: 13px; transition: all .2s; }
-        .tb-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .tb-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
         .tb-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-label { font-size: 12px; color: var(--text3); margin-right: 4px; }
 
@@ -82,12 +100,12 @@
         /* Red glow pulse for team selector warning */
         @keyframes teamGlow {
             0%, 100% { box-shadow: 0 0 8px 2px rgba(244,63,94,0.0); border-color: var(--card-border); }
-            50% { box-shadow: 0 0 18px 6px rgba(244,63,94,0.7); border-color: #f43f5e; }
+            50% { box-shadow: 0 0 18px 6px rgba(244,63,94,0.7); border-color: var(--accent); }
         }
         .team-select-group.glow-warn {
             animation: teamGlow 0.5s ease-in-out 3;
             border-radius: 10px;
-            border: 2px solid #f43f5e;
+            border: 2px solid var(--accent);
         }
     </style>
 </head>
@@ -105,7 +123,7 @@
             <label data-i18n="studio.team_edit">Team đang chỉnh sửa</label>
             <div style="display:flex; gap:6px; align-items:center;">
                 <select id="team-select" class="input" onchange="onTeamSelect()" style="flex:1;"></select>
-                <button onclick="openQuickTeamModal()" data-i18n-title="studio.btn_new_ai" title="Tạo team mới bằng AI" style="width:34px; height:34px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--accent); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s;" onmouseover="this.style.background='var(--accent)';this.style.color='#fff';" onmouseout="this.style.background='transparent';this.style.color='var(--accent)';">+</button>
+                <button onclick="openQuickTeamModal()" data-i18n-title="studio.btn_new_ai" title="Tạo team mới bằng AI" style="width:34px; height:34px; border-radius:8px; border:1px solid var(--accent); background:transparent; color:var(--accent-ink); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s;" onmouseover="this.style.background='var(--accent)';this.style.color='#fff';" onmouseout="this.style.background='transparent';this.style.color='var(--accent-ink)';">+</button>
             </div>
         </div>
 
@@ -171,8 +189,8 @@
 </div>
 
 <!-- AI Generate Modal -->
-<div class="modal-overlay" id="ai-generate-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10000; align-items:center; justify-content:center;">
-  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:500px; padding:20px; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+<div class="modal-overlay" id="ai-generate-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--overlay-bg); z-index:10000; align-items:center; justify-content:center;">
+  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:500px; padding:20px; box-shadow:var(--shadow-modal);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--card-border); padding-bottom:12px;">
       <h3 style="margin:0; font-size:16px;">✨ Tạo Phòng làm việc bằng AI</h3>
       <button onclick="closeAIGenerateModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
@@ -197,7 +215,7 @@
         <input id="ai-model-input" type="text" value="gemini-2.5-flash" style="width:100%; padding:8px; background:var(--sidebar); border:1px solid var(--card-border); border-radius:8px; color:var(--text); outline:none;">
       </div>
     </div>
-    <div id="ai-gen-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent); font-size:13px;">
+    <div id="ai-gen-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent-ink); font-size:13px;">
       <span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Đang phân tích team và thiết kế 3D...
     </div>
     <style>@keyframes spin { 100% { transform:rotate(360deg); } }</style>
@@ -209,8 +227,8 @@
 </div>
 
 <!-- Quick Team Modal -->
-<div class="modal-overlay" id="quick-team-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10001; align-items:center; justify-content:center;">
-  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:520px; padding:24px; box-shadow:0 10px 40px rgba(0,0,0,0.5);">
+<div class="modal-overlay" id="quick-team-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--overlay-bg); z-index:10001; align-items:center; justify-content:center;">
+  <div class="modal" style="background:var(--card-bg); border:1px solid var(--card-border); border-radius:12px; width:100%; max-width:520px; padding:24px; box-shadow:var(--shadow-modal);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; border-bottom:1px solid var(--card-border); padding-bottom:12px;">
       <h3 style="margin:0; font-size:16px;">⚡ Tạo Team nhanh bằng AI</h3>
       <button onclick="closeQuickTeamModal()" style="background:none; border:none; color:var(--text); cursor:pointer; font-size:16px;">✖</button>
@@ -236,7 +254,7 @@
       </div>
     </div>
 
-    <div id="qt-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent); font-size:13px;">
+    <div id="qt-status" style="display:none; text-align:center; padding:10px 0; color:var(--accent-ink); font-size:13px;">
       <span style="display:inline-block; animation:spin 1s linear infinite;">⏳</span> Đang phân tích và tạo team...
     </div>
     <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:16px;">
@@ -911,7 +929,7 @@ async function showDeskAgentPopup(pa, clientX, clientY) {
     }
 
     if (teamAgents.length === 0) {
-        html += `<div class="desk-agent-opt" style="color:#64748b;cursor:default;">Chưa có agent nào trong team</div>`;
+        html += `<div class="desk-agent-opt" style="color:var(--text3);cursor:default;">Chưa có agent nào trong team</div>`;
     }
     list.innerHTML = html;
 
@@ -1040,14 +1058,14 @@ function updatePlacedList() {
             // Multi-seat: show count badge
             const count = (p.agent_ids || []).length;
             const max = _getMaxSeats(p.asset_id);
-            agentBadge = count > 0 ? `<span style="font-size:9px;color:#22d3ee;background:rgba(34,211,238,0.15);padding:1px 5px;border-radius:8px;">${count}/${max}🤖</span>` : '';
+            agentBadge = count > 0 ? `<span style="font-size:9px;color:var(--cyan);background:rgba(34,211,238,0.15);padding:1px 5px;border-radius:8px;">${count}/${max}🤖</span>` : '';
         } else if (isDesk || p.asset_id === 'workstation') {
             // Single-seat: dropdown + badge
             agentOpts = `<select class="agent-assign-select" onchange="assignAgentToDesk('${p.id}', this.value)" title="Gán agent">
                 <option value="">-- Chưa gán --</option>
                 ${studioAgents.map(ag => `<option value="${ag.id}" ${p.agent_id === ag.id ? 'selected' : ''}>${ag.name}</option>`).join('')}
             </select>`;
-            agentBadge = p.agent_id ? `<span style="font-size:10px;color:#22d3ee;">🤖</span>` : '';
+            agentBadge = p.agent_id ? `<span style="font-size:10px;color:var(--cyan);">🤖</span>` : '';
         }
 
         return `<div class="placed-item">

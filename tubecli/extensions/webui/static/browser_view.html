@@ -3,6 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <title>Live Browser Stream — TubeCLI</title>
+    <script>
+    /*
+     * Pre-paint theme. Runs BEFORE any stylesheet applies so there is no dark
+     * flash when the page is opened in light mode. Contract shared with the
+     * other extension pages (file_manager.html): ?theme=glass|light pins
+     * data-theme="light" on <html>, ?theme=dark pins dark. With no param a
+     * standalone page follows prefers-color-scheme, while an EMBEDDED page
+     * (window.self !== top) pins itself dark so a dark host stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
     <style>
@@ -14,10 +36,109 @@
             --accent: #45a29e;
             --text: #c5c6c7;
             --text-light: #ffffff;
+            --text-muted: #9ca3af;
             --border: #2f3e46;
             --red: #ff4d4d;
             --green: #2ecc71;
             --orange: #e67e22;
+            /* Surfaces and inks that used to be literals, so the light blocks
+               below can restyle them without touching the element rules. */
+            --on-primary: #000;
+            --btn-bg: rgba(255, 255, 255, 0.05);
+            --btn-bg-hover: rgba(255, 255, 255, 0.12);
+            --input-bg: rgba(0, 0, 0, 0.3);
+            --badge-bg: rgba(0, 0, 0, 0.25);
+            --stage-bg: #08080c;
+            --stage-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+            --primary-glow: rgba(102, 252, 241, 0.3);
+            --primary-soft: rgba(102, 252, 241, 0.1);
+            --danger-soft: rgba(255, 77, 77, 0.1);
+            --danger-line: rgba(255, 77, 77, 0.3);
+            --tip-bg: rgba(10, 10, 15, 0.9);
+            --tip-text: #ffffff;
+            --tip-line: rgba(255, 255, 255, 0.1);
+            --shadow-elevated: 0 8px 30px rgba(0, 0, 0, 0.5);
+            --log-bg: rgba(0, 0, 0, 0.8);
+            --log-text: #88c0d0;
+            /* Element-picker highlight sits over the remote page image, not
+               over chrome, so it is the same in both themes. */
+            --inspect-line: #ff3366;
+            --inspect-fill: rgba(255, 51, 102, 0.15);
+        }
+
+        /* ── Light theme ──────────────────────────────────────────────────
+           Values mirror the dashboard glass palette (webui/static/style.css):
+           ground #f7f8fa, white panels, ink #1e293b, lines rgba(15,23,42,.1),
+           accent #5276EB. Status inks darken so they pass contrast on white.
+           Activated by data-theme="light" (set from ?theme= by the pre-paint
+           script in <head>); standalone, prefers-color-scheme decides, guarded
+           so an explicit data-theme always wins. The two blocks are verbatim
+           copies — CSS cannot share a declaration list between them. */
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f7f8fa;
+            --bg-secondary: #ffffff;
+            --primary: #5276EB;
+            --primary-hover: #3d5fd4;
+            --accent: #5276EB;
+            --text: #475569;
+            --text-light: #1e293b;
+            --text-muted: #64748b;
+            --border: rgba(15, 23, 42, 0.1);
+            --red: #dc2626;
+            --green: #15803d;
+            --orange: #b45309;
+            --on-primary: #ffffff;
+            --btn-bg: rgba(15, 23, 42, 0.04);
+            --btn-bg-hover: rgba(15, 23, 42, 0.08);
+            --input-bg: rgba(15, 23, 42, 0.04);
+            --badge-bg: rgba(15, 23, 42, 0.04);
+            --stage-bg: #eef0f4;
+            --stage-shadow: 0 4px 20px rgba(15, 23, 42, 0.25);
+            --primary-glow: rgba(82, 118, 235, 0.3);
+            --primary-soft: rgba(82, 118, 235, 0.15);
+            --danger-soft: rgba(220, 38, 38, 0.08);
+            --danger-line: rgba(220, 38, 38, 0.3);
+            --tip-bg: rgba(255, 255, 255, 0.95);
+            --tip-text: #1e293b;
+            --tip-line: rgba(15, 23, 42, 0.12);
+            --shadow-elevated: 0 8px 30px rgba(15, 23, 42, 0.18);
+            --log-bg: rgba(255, 255, 255, 0.92);
+            --log-text: #475569;
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                color-scheme: light;
+                --bg: #f7f8fa;
+                --bg-secondary: #ffffff;
+                --primary: #5276EB;
+                --primary-hover: #3d5fd4;
+                --accent: #5276EB;
+                --text: #475569;
+                --text-light: #1e293b;
+                --text-muted: #64748b;
+                --border: rgba(15, 23, 42, 0.1);
+                --red: #dc2626;
+                --green: #15803d;
+                --orange: #b45309;
+                --on-primary: #ffffff;
+                --btn-bg: rgba(15, 23, 42, 0.04);
+                --btn-bg-hover: rgba(15, 23, 42, 0.08);
+                --input-bg: rgba(15, 23, 42, 0.04);
+                --badge-bg: rgba(15, 23, 42, 0.04);
+                --stage-bg: #eef0f4;
+                --stage-shadow: 0 4px 20px rgba(15, 23, 42, 0.25);
+                --primary-glow: rgba(82, 118, 235, 0.3);
+                --primary-soft: rgba(82, 118, 235, 0.15);
+                --danger-soft: rgba(220, 38, 38, 0.08);
+                --danger-line: rgba(220, 38, 38, 0.3);
+                --tip-bg: rgba(255, 255, 255, 0.95);
+                --tip-text: #1e293b;
+                --tip-line: rgba(15, 23, 42, 0.12);
+                --shadow-elevated: 0 8px 30px rgba(15, 23, 42, 0.18);
+                --log-bg: rgba(255, 255, 255, 0.92);
+                --log-text: #475569;
+            }
         }
 
         * {
@@ -48,7 +169,7 @@
         }
 
         .btn {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--btn-bg);
             border: 1px solid var(--border);
             color: var(--text-light);
             cursor: pointer;
@@ -63,34 +184,34 @@
         }
 
         .btn:hover {
-            background: rgba(255, 255, 255, 0.12);
+            background: var(--btn-bg-hover);
             border-color: var(--primary);
             color: var(--primary);
         }
 
         .btn-primary {
             background: linear-gradient(135deg, var(--primary), var(--accent));
-            color: #000;
+            color: var(--on-primary);
             font-weight: 600;
             border: none;
         }
 
         .btn-primary:hover {
             background: var(--primary-hover);
-            color: #000;
-            box-shadow: 0 0 10px rgba(102, 252, 241, 0.3);
+            color: var(--on-primary);
+            box-shadow: 0 0 10px var(--primary-glow);
         }
 
         .btn-danger {
-            background: rgba(255, 77, 77, 0.1);
+            background: var(--danger-soft);
             color: var(--red);
-            border-color: rgba(255, 77, 77, 0.3);
+            border-color: var(--danger-line);
         }
 
         .btn-danger:hover {
             background: var(--red);
             color: #fff;
-            box-shadow: 0 0 10px rgba(255, 77, 77, 0.3);
+            box-shadow: 0 0 10px var(--danger-line);
         }
 
         .btn-icon {
@@ -102,7 +223,7 @@
             flex: 1;
             display: flex;
             align-items: center;
-            background: rgba(0, 0, 0, 0.3);
+            background: var(--input-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 4px 12px;
@@ -133,7 +254,7 @@
             display: flex;
             align-items: center;
             gap: 6px;
-            background: rgba(0, 0, 0, 0.25);
+            background: var(--badge-bg);
             padding: 6px 12px;
             border-radius: 20px;
             font-size: 0.8rem;
@@ -163,7 +284,7 @@
         .container {
             flex: 1;
             position: relative;
-            background-color: #08080c;
+            background-color: var(--stage-bg);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -175,7 +296,7 @@
             max-height: 100%;
             object-fit: contain;
             background: #000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+            box-shadow: var(--stage-shadow);
             outline: none;
         }
 
@@ -190,11 +311,11 @@
         #inspectOverlay {
             position: absolute;
             pointer-events: none;
-            border: 2px solid var(--primary);
-            background: rgba(102, 252, 241, 0.15);
+            border: 2px solid var(--inspect-line);
+            background: var(--inspect-fill);
             display: none;
             z-index: 10;
-            box-shadow: 0 0 8px rgba(102, 252, 241, 0.3);
+            box-shadow: 0 0 8px var(--primary-glow);
             border-radius: 2px;
             transition: all 0.05s ease;
         }
@@ -203,16 +324,16 @@
             position: absolute;
             bottom: 20px;
             left: 20px;
-            background: rgba(15, 23, 42, 0.9);
-            border: 1px solid var(--border);
-            color: var(--text-light);
+            background: var(--tip-bg);
+            border: 1px solid var(--tip-line);
+            color: var(--tip-text);
             font-size: 0.85rem;
             padding: 10px 16px;
             border-radius: 8px;
             z-index: 20;
             display: none;
             max-width: 80%;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            box-shadow: var(--shadow-elevated);
             backdrop-filter: blur(10px);
         }
 
@@ -223,12 +344,12 @@
             right: 20px;
             width: 300px;
             max-height: 150px;
-            background: rgba(0, 0, 0, 0.8);
+            background: var(--log-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             font-family: monospace;
             font-size: 11px;
-            color: #88c0d0;
+            color: var(--log-text);
             padding: 8px 12px;
             overflow-y: auto;
             z-index: 20;
@@ -260,7 +381,7 @@
         .spinner {
             width: 50px;
             height: 50px;
-            border: 4px solid rgba(102, 252, 241, 0.1);
+            border: 4px solid var(--primary-soft);
             border-top-color: var(--primary);
             border-radius: 50%;
             animation: spin 1s infinite linear;
@@ -320,16 +441,16 @@
     <!-- Main Live Screen Stream -->
     <div class="container" id="screenContainer">
         <div id="canvasWrapper" style="position:relative; display:inline-block; max-width:100%; max-height:100%; line-height:0;">
-            <canvas id="previewCanvas" style="cursor: default; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8); outline: none; border-radius: 2px;"></canvas>
+            <canvas id="previewCanvas" style="cursor: default; max-width: 100%; max-height: 100%; object-fit: contain; background: #000; box-shadow: var(--stage-shadow); outline: none; border-radius: 2px;"></canvas>
             <!-- Fallback frame, shown when the CDP screencast is unavailable and the
                  page falls back to polling screenshots. The script has always
                  referenced #previewImg, but the element was never in the markup, so
                  startScreenshotStream() threw on null and the fallback could never
                  run — leaving the page stuck on "Initializing browser...". -->
-            <img id="previewImg" alt="" style="display:none; max-width:100%; max-height:100%; object-fit:contain; background:#000; box-shadow:0 4px 20px rgba(0,0,0,0.8); border-radius:2px;" />
-            <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid #ff3366;background:rgba(255,51,102,0.15);display:none;z-index:10;box-sizing:border-box;"></div>
+            <img id="previewImg" alt="" style="display:none; max-width:100%; max-height:100%; object-fit:contain; background:#000; box-shadow:var(--stage-shadow); border-radius:2px;" />
+            <div id="inspectOverlay" style="position:absolute;pointer-events:none;border:2px solid var(--inspect-line);background:var(--inspect-fill);display:none;z-index:10;box-sizing:border-box;"></div>
         </div>
-        <div id="inspectInfo" style="position:absolute;bottom:15px;left:15px;background:rgba(10,10,15,0.9);color:#fff;padding:12px;border-radius:8px;font:13px monospace;z-index:10;pointer-events:none;display:none;border:1px solid rgba(255,255,255,0.1);box-shadow:0 8px 30px rgba(0,0,0,0.5);"></div>
+        <div id="inspectInfo" style="position:absolute;bottom:15px;left:15px;background:var(--tip-bg);color:var(--tip-text);padding:12px;border-radius:8px;font:13px monospace;z-index:10;pointer-events:none;display:none;border:1px solid var(--tip-line);box-shadow:var(--shadow-elevated);"></div>
     </div>
 
     <!-- Floating Logs -->
@@ -761,7 +882,7 @@
                 btn.id = 'previewRetryBtn';
                 btn.textContent = 'Retry';
                 btn.style.cssText = 'margin-top:14px;padding:8px 22px;border-radius:6px;'
-                    + 'border:1px solid rgba(255,255,255,0.2);background:#2563eb;color:#fff;cursor:pointer';
+                    + 'border:1px solid var(--border);background:var(--primary);color:var(--on-primary);cursor:pointer';
                 btn.onclick = () => { btn.remove(); location.reload(); };
                 sub.parentNode.appendChild(btn);
             }

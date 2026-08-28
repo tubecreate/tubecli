@@ -61,26 +61,67 @@
 
         const style = document.createElement('style');
         style.textContent = `
+            /* Footer palette lives in #tcf-scoped custom properties: the dark
+               values are the defaults, and the two light blocks below (one for
+               data-theme="light" set from ?theme=, one for prefers-color-scheme
+               when a page is opened standalone) are verbatim copies of each
+               other — CSS cannot share a declaration list between them. */
             #tcf {
+                --tcf-bg: rgba(15,15,30,0.6);
+                --tcf-line: rgba(100,100,180,0.1);
+                --tcf-fg: rgba(180,180,200,0.45);
+                --tcf-fg-hover: rgba(200,200,220,0.75);
+                --tcf-ver-bg: rgba(99,102,241,0.12);
+                --tcf-ver-fg: rgba(160,155,255,0.8);
+                --tcf-sep: rgba(100,100,150,0.3);
+                --tcf-link: rgba(100,200,255,0.6);
+                --tcf-link-hover: rgba(100,200,255,1);
+                --tcf-donate: rgba(251,191,36,0.85);
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 gap: 8px;
                 padding: 3px 12px;
-                background: rgba(15,15,30,0.6);
-                border-top: 1px solid rgba(100,100,180,0.1);
+                background: var(--tcf-bg);
+                border-top: 1px solid var(--tcf-line);
                 font-family: 'Inter', -apple-system, sans-serif;
                 font-size: 0.68rem;
-                color: rgba(180,180,200,0.45);
+                color: var(--tcf-fg);
                 flex-wrap: wrap;
             }
-            #tcf:hover { color: rgba(200,200,220,0.75); }
+            :root[data-theme="light"] #tcf {
+                --tcf-bg: rgba(255,255,255,0.6);
+                --tcf-line: rgba(15,23,42,0.1);
+                --tcf-fg: #64748b;
+                --tcf-fg-hover: #1e293b;
+                --tcf-ver-bg: rgba(82,118,235,0.12);
+                --tcf-ver-fg: #7c5ce7;
+                --tcf-sep: rgba(15,23,42,0.25);
+                --tcf-link: #2563eb;
+                --tcf-link-hover: #5276EB;
+                --tcf-donate: #a16207;
+            }
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme="dark"]) #tcf {
+                    --tcf-bg: rgba(255,255,255,0.6);
+                    --tcf-line: rgba(15,23,42,0.1);
+                    --tcf-fg: #64748b;
+                    --tcf-fg-hover: #1e293b;
+                    --tcf-ver-bg: rgba(82,118,235,0.12);
+                    --tcf-ver-fg: #7c5ce7;
+                    --tcf-sep: rgba(15,23,42,0.25);
+                    --tcf-link: #2563eb;
+                    --tcf-link-hover: #5276EB;
+                    --tcf-donate: #a16207;
+                }
+            }
+            #tcf:hover { color: var(--tcf-fg-hover); }
             .tcf-i { display:inline-flex; align-items:center; gap:3px; white-space:nowrap; }
-            .tcf-v { background:rgba(99,102,241,0.12); color:rgba(160,155,255,0.8); padding:0 4px; border-radius:3px; font-size:0.6rem; font-weight:600; }
-            .tcf-s { color:rgba(100,100,150,0.3); margin:0 1px; }
-            .tcf-a { color:rgba(100,200,255,0.6); text-decoration:none; }
-            .tcf-a:hover { color:rgba(100,200,255,1); }
-            .tcf-d { color:rgba(251,191,36,0.85); text-decoration:none; background:rgba(245,158,11,0.1); padding:1px 7px; border-radius:4px; border:1px solid rgba(245,158,11,0.2); font-weight:600; }
+            .tcf-v { background:var(--tcf-ver-bg); color:var(--tcf-ver-fg); padding:0 4px; border-radius:3px; font-size:0.6rem; font-weight:600; }
+            .tcf-s { color:var(--tcf-sep); margin:0 1px; }
+            .tcf-a { color:var(--tcf-link); text-decoration:none; }
+            .tcf-a:hover { color:var(--tcf-link-hover); }
+            .tcf-d { color:var(--tcf-donate); text-decoration:none; background:rgba(245,158,11,0.1); padding:1px 7px; border-radius:4px; border:1px solid rgba(245,158,11,0.2); font-weight:600; }
             .tcf-d:hover { background:rgba(245,158,11,0.2); border-color:rgba(245,158,11,0.4); }
         `;
         document.head.appendChild(style);
@@ -135,20 +176,43 @@
 
         const style = document.createElement('style');
         style.textContent = `
+            /* Same two-block light pattern as #tcf: dark defaults on the
+               element, verbatim light copies for data-theme and the OS query. */
             #tcf-update {
+                --tcf-upd-fg: #e8e8f0;
+                --tcf-upd-fg-soft: rgba(200,200,220,0.65);
+                --tcf-upd-fg-dim: rgba(200,200,220,0.5);
+                --tcf-upd-never: rgba(239,130,130,0.85);
+                --tcf-upd-red: #ef4444;
                 display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;
                 padding:10px 20px;
                 background:linear-gradient(135deg,rgba(245,158,11,0.15),rgba(59,130,246,0.08));
                 border-bottom:1px solid rgba(245,158,11,0.3);
-                font-family:'Inter',-apple-system,sans-serif; font-size:0.85rem; color:#e8e8f0;
+                font-family:'Inter',-apple-system,sans-serif; font-size:0.85rem; color:var(--tcf-upd-fg);
                 position:sticky; top:0; z-index:9999;
                 animation: tcfSlideDown 0.3s ease;
+            }
+            :root[data-theme="light"] #tcf-update {
+                --tcf-upd-fg: #1e293b;
+                --tcf-upd-fg-soft: #475569;
+                --tcf-upd-fg-dim: #64748b;
+                --tcf-upd-never: #dc2626;
+                --tcf-upd-red: #dc2626;
+            }
+            @media (prefers-color-scheme: light) {
+                :root:not([data-theme="dark"]) #tcf-update {
+                    --tcf-upd-fg: #1e293b;
+                    --tcf-upd-fg-soft: #475569;
+                    --tcf-upd-fg-dim: #64748b;
+                    --tcf-upd-never: #dc2626;
+                    --tcf-upd-red: #dc2626;
+                }
             }
             @keyframes tcfSlideDown { from{transform:translateY(-100%);opacity:0} to{transform:translateY(0);opacity:1} }
             .tcf-upd-left { display:flex; align-items:center; gap:10px; }
             .tcf-upd-icon { font-size:1.3rem; }
             .tcf-upd-title { font-weight:600; font-size:0.88rem; }
-            .tcf-upd-ver { font-size:0.75rem; color:rgba(200,200,220,0.65); margin-top:1px; }
+            .tcf-upd-ver { font-size:0.75rem; color:var(--tcf-upd-fg-soft); margin-top:1px; }
             .tcf-upd-right { display:flex; align-items:center; gap:8px; }
             .tcf-upd-btn {
                 padding:6px 16px; border:none; border-radius:8px; font-size:0.82rem; font-weight:600;
@@ -159,14 +223,14 @@
             .tcf-upd-btn:disabled { opacity:0.6; cursor:default; transform:none; }
             .tcf-upd-never {
                 padding:6px 12px; border:1px solid rgba(239,68,68,0.3); border-radius:8px; font-size:0.75rem; font-weight:500;
-                background:rgba(239,68,68,0.08); color:rgba(239,130,130,0.85); cursor:pointer; transition:all 0.2s;
+                background:rgba(239,68,68,0.08); color:var(--tcf-upd-never); cursor:pointer; transition:all 0.2s;
             }
-            .tcf-upd-never:hover { background:rgba(239,68,68,0.18); border-color:rgba(239,68,68,0.5); color:#ef4444; }
+            .tcf-upd-never:hover { background:rgba(239,68,68,0.18); border-color:rgba(239,68,68,0.5); color:var(--tcf-upd-red); }
             .tcf-upd-dismiss {
-                background:none; border:none; color:rgba(200,200,220,0.5); font-size:1rem; cursor:pointer;
+                background:none; border:none; color:var(--tcf-upd-fg-dim); font-size:1rem; cursor:pointer;
                 padding:4px 8px; border-radius:4px; transition:all 0.2s;
             }
-            .tcf-upd-dismiss:hover { color:#ef4444; background:rgba(239,68,68,0.1); }
+            .tcf-upd-dismiss:hover { color:var(--tcf-upd-red); background:rgba(239,68,68,0.1); }
         `;
         document.head.appendChild(style);
 

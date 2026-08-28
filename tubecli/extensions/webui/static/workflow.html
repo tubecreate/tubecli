@@ -4,6 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>TubeCLI — Workflow Builder</title>
+  <script>
+  /*
+   * Pre-paint theme (same contract as file_manager.html). Must run BEFORE the
+   * stylesheet applies so there is no dark flash when the dashboard embeds this
+   * page in light mode. The dashboard appends ?theme=light|dark (the cloud canvas
+   * appends ?theme=glass); this page answers by setting data-theme on <html>,
+   * which activates the light token block in workflow.css. With no theme param:
+   * standalone follows prefers-color-scheme, but an EMBEDDED page (self !== top)
+   * pins itself dark so a dark host on a light-OS machine stays coherent.
+   */
+  (function () {
+    try {
+      var t = new URLSearchParams(window.location.search).get('theme');
+      if (t === 'glass' || t === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else if (t === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      } else if (window.self !== window.top) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+  })();
+  </script>
   <link rel="stylesheet" href="/static/workflow.css">
 </head>
 <body>

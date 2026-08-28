@@ -4,6 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Chat — TubeCLI</title>
+<script>
+/*
+ * Pre-paint theme. Must run BEFORE the stylesheet applies so there is no dark
+ * flash when the dashboard embeds this page in light mode.
+ * Contract (same as file_manager.html): the dashboard appends ?theme=light|dark
+ * (the cloud canvas sends ?theme=glass) to the iframe URL; this page answers
+ * by setting data-theme on <html>, which activates the light token block in
+ * chat.css. With no theme param: standalone follows prefers-color-scheme, but
+ * an EMBEDDED page (window.self !== top) pins itself dark so a dark host on a
+ * light-OS machine stays coherent.
+ */
+(function () {
+    try {
+        var t = new URLSearchParams(window.location.search).get('theme');
+        if (t === 'glass' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else if (window.self !== window.top) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
 <link rel="stylesheet" href="/chat/chat.css">

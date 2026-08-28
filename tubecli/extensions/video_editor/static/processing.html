@@ -5,6 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Background Processing</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script>
+    /*
+     * Pre-paint theme. Must run BEFORE the stylesheet applies so there is no dark
+     * flash when the dashboard embeds this page in its light (glass) mode.
+     * Contract (same as file_manager.html / editor.html): the dashboard appends ?theme=light|glass
+     * or ?theme=dark to the iframe URL; this page answers by setting data-theme on
+     * <html>, which activates the matching token block in the inline stylesheet. With no
+     * theme param: standalone follows prefers-color-scheme, but an EMBEDDED page
+     * (window.self !== top) pins itself dark so a dark dashboard stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <style>
         :root {
             --bg: #0a0e17;
@@ -20,6 +43,63 @@
             --orange: #f59e0b;
             --blue: #3b82f6;
             --radius: 12px;
+            /* Surfaces that used to be literals, so the light theme can restyle them. */
+            --row-line: rgba(255,255,255,0.04);
+            --badge-neutral-bg: rgba(255,255,255,0.1);
+            --overlay-bg: rgba(0,0,0,0.7);
+            /* Status text inks. Page-own names on purpose: the dashboard injects
+               --green/--red/--orange into embedded pages with its dark values, and
+               those are too pale for text on white. Fills (bars, buttons) keep --red. */
+            --ink-green: #10b981;
+            --ink-red: #ef4444;
+            --ink-orange: #f59e0b;
+        }
+        /* Light theme (glass): dashboard palette — ground #f7f8fa, white panels,
+           slate ink #1e293b. Status inks darken to pass on white. The two blocks
+           are intentionally verbatim copies — KEEP THEM IDENTICAL. */
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f7f8fa;
+            --bg2: #ffffff;
+            --bg3: #eef1f6;
+            --border: rgba(15,23,42,0.1);
+            --text: #1e293b;
+            --text2: #475569;
+            --accent: #0891b2;
+            --accent2: #7c3aed;
+            --green: #15803d;
+            --red: #dc2626;
+            --orange: #b45309;
+            --blue: #1d4ed8;
+            --row-line: rgba(15,23,42,0.06);
+            --badge-neutral-bg: rgba(15,23,42,0.08);
+            --overlay-bg: rgba(15,23,42,0.35);
+            --ink-green: #15803d;
+            --ink-red: #dc2626;
+            --ink-orange: #b45309;
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                color-scheme: light;
+                --bg: #f7f8fa;
+                --bg2: #ffffff;
+                --bg3: #eef1f6;
+                --border: rgba(15,23,42,0.1);
+                --text: #1e293b;
+                --text2: #475569;
+                --accent: #0891b2;
+                --accent2: #7c3aed;
+                --green: #15803d;
+                --red: #dc2626;
+                --orange: #b45309;
+                --blue: #1d4ed8;
+                --row-line: rgba(15,23,42,0.06);
+                --badge-neutral-bg: rgba(15,23,42,0.08);
+                --overlay-bg: rgba(15,23,42,0.35);
+                --ink-green: #15803d;
+                --ink-red: #dc2626;
+                --ink-orange: #b45309;
+            }
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; padding: 24px; }
@@ -28,7 +108,7 @@
         .header h1 { font-size: 1.5rem; font-weight: 700; display:flex; align-items:center; gap:10px; }
         
         .btn { padding: 10px 20px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-family: inherit; font-size: 0.875rem;}
-        .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+        .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); background-color: var(--accent); color: #fff; }
         .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
         .btn-danger { background: var(--red); color: #fff; }
         .btn-sm { padding: 6px 12px; font-size: 0.75rem; }
@@ -37,27 +117,27 @@
         .table-container { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
         table { width: 100%; border-collapse: collapse; }
         th { background: var(--bg3); padding: 12px 16px; text-align: left; font-size: 0.75rem; color: var(--text2); text-transform: uppercase; }
-        td { padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.04); font-size: 0.85rem; vertical-align: middle; }
+        td { padding: 14px 16px; border-top: 1px solid var(--row-line); font-size: 0.85rem; vertical-align: middle; }
         
         /* Progress */
         .progress-bar { width: 100%; height: 6px; background: var(--bg3); border-radius: 4px; overflow: hidden; margin-top: 6px; }
         .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width 0.3s; }
         
         .status-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; }
-        .status-queued { background: rgba(255,255,255,0.1); color: var(--text2); }
+        .status-queued { background: var(--badge-neutral-bg); color: var(--text2); }
         .status-downloading { background: rgba(59,130,246,0.1); color: var(--blue); }
         .status-detecting { background: rgba(59,130,246,0.1); color: var(--blue); }
-        .status-trimming { background: rgba(245,158,11,0.1); color: var(--orange); }
+        .status-trimming { background: rgba(245,158,11,0.1); color: var(--ink-orange); }
         .status-matting { background: rgba(139,92,246,0.1); color: var(--accent2); }
         .status-compositing { background: rgba(6,182,212,0.1); color: var(--accent); }
-        .status-done { background: rgba(16,185,129,0.1); color: var(--green); }
-        .status-failed { background: rgba(239,68,68,0.1); color: var(--red); }
+        .status-done { background: rgba(16,185,129,0.1); color: var(--ink-green); }
+        .status-failed { background: rgba(239,68,68,0.1); color: var(--ink-red); }
         
         .url-text { max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); }
         .url-text a { color: inherit; text-decoration: none; }
         
         /* Modal */
-        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; }
+        .modal-overlay { display: none; position: fixed; inset: 0; background: var(--overlay-bg); backdrop-filter: blur(4px); z-index: 1000; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
         .modal { background: var(--bg2); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 500px; max-width: 95vw; }
         .modal h2 { font-size: 1.2rem; margin-bottom: 20px; }
@@ -111,7 +191,7 @@
                 <input type="text" id="f-bg-path" value="c:/tubecreate-vue/tubecli/data/extensions_external/video_editor/data/backgrounds/church_bg.jpg">
             </div>
             <div class="form-actions">
-                <button class="btn btn-ghost" style="background:transparent;border:1px solid var(--border);color:white;" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-ghost" style="background:transparent;border:1px solid var(--border);color:var(--text);" onclick="closeModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="submitJob()">Start AI Processing</button>
             </div>
         </div>
@@ -129,9 +209,9 @@
                 let resultText = '';
                 if (isDone) {
                     const filename = j.output_file.split('/').pop().split('\\').pop();
-                    resultText = `<a href="/api/v1/video/files/${filename}" target="_blank" style="color:var(--green);font-size:0.8rem">Download</a>`;
+                    resultText = `<a href="/api/v1/video/files/${filename}" target="_blank" style="color:var(--ink-green);font-size:0.8rem">Download</a>`;
                 } else if (isError) {
-                    resultText = `<span style="color:var(--red);font-size:0.7rem;max-width:150px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${j.error}">${j.error}</span>`;
+                    resultText = `<span style="color:var(--ink-red);font-size:0.7rem;max-width:150px;display:inline-block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${j.error}">${j.error}</span>`;
                 }
 
                 return `<tr>

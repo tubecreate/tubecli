@@ -4,6 +4,27 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TubeCLI — Video Downloader</title>
+<script>
+/*
+ * Pre-paint theme (same contract as file_manager.html): the dashboard appends
+ * ?theme=light|dark to the iframe URL; ?theme=glass|light -> data-theme="light",
+ * ?theme=dark -> "dark". With no param an EMBEDDED page pins itself dark so a
+ * dark dashboard on a light-OS machine stays coherent; standalone follows
+ * prefers-color-scheme via the media-query token block below.
+ */
+(function () {
+    try {
+        var t = new URLSearchParams(window.location.search).get('theme');
+        if (t === 'glass' || t === 'light') {
+            document.documentElement.setAttribute('data-theme', 'light');
+        } else if (t === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else if (window.self !== window.top) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        }
+    } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+})();
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
@@ -20,6 +41,81 @@
     --border: rgba(255,255,255,0.08);
     --card: rgba(255,255,255,0.04);
     --radius: 12px;
+    /* Page-specific tokens for values that used to be literals, so the light
+       theme below can restyle them without duplicating element rules. */
+    --hover-ghost: rgba(255,255,255,0.06);
+    --row-hover: rgba(255,255,255,0.03);
+    --placeholder: rgba(255,255,255,0.25);
+    --spinner-track: rgba(255,255,255,0.15);
+    --accent-border: rgba(99,102,241,0.3);
+    --overlay: rgba(0,0,0,0.85);
+    --shadow-modal: 0 24px 64px rgba(0,0,0,0.5);
+    /* Status inks: the dashboard injects --green/--red/--orange with !important
+       at their dark values even in light mode, so text uses these page-owned
+       aliases instead; light blocks darken them for the white ground. */
+    --ink-ok: var(--green);
+    --ink-err: var(--red);
+    --ink-warn: var(--orange);
+}
+
+/* ── Light theme ──
+   Values mirror the dashboard glass palette (webui/static/style.css): ground
+   #f7f8fa, white panels, slate ink #1e293b, lines rgba(15,23,42,.1). Accents
+   keep their hue; status inks darken so they pass contrast on white.
+   Activated by data-theme="light" (set from ?theme= by the pre-paint script in
+   <head>, or by the dashboard's syncThemeToIframe) or, standalone, by
+   prefers-color-scheme — guarded so an explicit data-theme always wins.
+   The two blocks are intentionally verbatim copies: CSS cannot share a
+   declaration list between a media query and an attribute selector. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #f7f8fa;
+    --bg2: #ffffff;
+    --bg3: #eef1f6;
+    --text: #1e293b;
+    --text2: #475569;
+    --accent2: #3d5fd4;
+    --green: #15803d;
+    --red: #dc2626;
+    --orange: #b45309;
+    --border: rgba(15,23,42,0.1);
+    --card: #ffffff;
+    --hover-ghost: rgba(15,23,42,0.06);
+    --row-hover: rgba(15,23,42,0.04);
+    --placeholder: rgba(30,41,59,0.45);
+    --spinner-track: rgba(15,23,42,0.15);
+    --accent-border: rgba(82,118,235,0.45);
+    --overlay: rgba(15,23,42,0.6);
+    --shadow-modal: 0 24px 64px rgba(15,23,42,0.25);
+    --ink-ok: #15803d;
+    --ink-err: #dc2626;
+    --ink-warn: #b45309;
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --bg: #f7f8fa;
+        --bg2: #ffffff;
+        --bg3: #eef1f6;
+        --text: #1e293b;
+        --text2: #475569;
+        --accent2: #3d5fd4;
+        --green: #15803d;
+        --red: #dc2626;
+        --orange: #b45309;
+        --border: rgba(15,23,42,0.1);
+        --card: #ffffff;
+        --hover-ghost: rgba(15,23,42,0.06);
+        --row-hover: rgba(15,23,42,0.04);
+        --placeholder: rgba(30,41,59,0.45);
+        --spinner-track: rgba(15,23,42,0.15);
+        --accent-border: rgba(82,118,235,0.45);
+        --overlay: rgba(15,23,42,0.6);
+        --shadow-modal: 0 24px 64px rgba(15,23,42,0.25);
+        --ink-ok: #15803d;
+        --ink-err: #dc2626;
+        --ink-warn: #b45309;
+    }
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
@@ -32,13 +128,13 @@ h1 span.icon { font-size:1.8rem; }
 .tabs { display:flex; gap:4px; margin-bottom:24px; background:var(--bg2); border-radius:10px; padding:4px; border:1px solid var(--border); }
 .tabs button { flex:1; padding:10px 16px; border:none; background:transparent; color:var(--text2); font-size:0.85rem; font-weight:600; border-radius:8px; cursor:pointer; transition:all 0.2s; }
 .tabs button.active { background:var(--accent); color:#fff; }
-.tabs button:hover:not(.active) { background:rgba(255,255,255,0.06); color:var(--text); }
+.tabs button:hover:not(.active) { background:var(--hover-ghost); color:var(--text); }
 
 /* Input group */
 .input-group { display:flex; gap:10px; margin-bottom:20px; }
 .input-group input { flex:1; padding:12px 16px; background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); color:var(--text); font-size:0.9rem; outline:none; transition:border 0.2s; }
 .input-group input:focus { border-color:var(--accent); }
-.input-group input::placeholder { color:rgba(255,255,255,0.25); }
+.input-group input::placeholder { color:var(--placeholder); }
 
 /* Buttons */
 .btn { padding:10px 20px; border:none; border-radius:var(--radius); font-weight:600; font-size:0.85rem; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:6px; }
@@ -46,7 +142,7 @@ h1 span.icon { font-size:1.8rem; }
 .btn-primary:hover { background:var(--accent2); transform:translateY(-1px); }
 .btn-primary:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
 .btn-sm { padding:6px 14px; font-size:0.78rem; border-radius:8px; }
-.btn-danger { background:rgba(239,68,68,0.15); color:var(--red); border:1px solid rgba(239,68,68,0.25); }
+.btn-danger { background:rgba(239,68,68,0.15); color:var(--ink-err); border:1px solid rgba(239,68,68,0.25); }
 .btn-danger:hover { background:rgba(239,68,68,0.25); }
 
 /* Options row */
@@ -57,7 +153,7 @@ h1 span.icon { font-size:1.8rem; }
 
 /* Cards */
 .card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); padding:16px; margin-bottom:12px; transition:all 0.2s; }
-.card:hover { border-color:rgba(99,102,241,0.3); }
+.card:hover { border-color:var(--accent-border); }
 
 /* Video info */
 .video-info { display:flex; gap:16px; align-items:flex-start; }
@@ -81,7 +177,7 @@ h1 span.icon { font-size:1.8rem; }
 
 /* Search results */
 .search-result { display:flex; gap:12px; padding:12px; cursor:pointer; }
-.search-result:hover { background:rgba(255,255,255,0.03); border-radius:8px; }
+.search-result:hover { background:var(--row-hover); border-radius:8px; }
 .search-result img { width:120px; height:68px; object-fit:cover; border-radius:6px; flex-shrink:0; background:var(--bg3); }
 .search-result .sr-info { flex:1; min-width:0; }
 .search-result .sr-info h4 { font-size:0.85rem; font-weight:500; margin-bottom:4px; line-height:1.3; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
@@ -89,9 +185,9 @@ h1 span.icon { font-size:1.8rem; }
 
 /* Status badge */
 .status-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:20px; font-size:0.72rem; font-weight:600; }
-.status-ok { background:rgba(34,197,94,0.15); color:var(--green); }
-.status-err { background:rgba(239,68,68,0.15); color:var(--red); }
-.status-warn { background:rgba(245,158,11,0.15); color:var(--orange); }
+.status-ok { background:rgba(34,197,94,0.15); color:var(--ink-ok); }
+.status-err { background:rgba(239,68,68,0.15); color:var(--ink-err); }
+.status-warn { background:rgba(245,158,11,0.15); color:var(--ink-warn); }
 .status-update { background:rgba(99,102,241,0.15); color:var(--accent2); cursor:pointer; transition:all 0.2s; border:1px solid rgba(99,102,241,0.3); }
 .status-update:hover { background:rgba(99,102,241,0.3); transform:translateY(-1px); }
 
@@ -104,22 +200,22 @@ h1 span.icon { font-size:1.8rem; }
 .empty p { font-size:0.9rem; }
 
 /* Spinner */
-.spinner { width:18px; height:18px; border:2px solid rgba(255,255,255,0.15); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; }
+.spinner { width:18px; height:18px; border:2px solid var(--spinner-track); border-top-color:var(--accent); border-radius:50%; animation:spin 0.6s linear infinite; display:inline-block; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* Video Player Modal */
-.player-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); backdrop-filter:blur(8px); z-index:1000; display:none; align-items:center; justify-content:center; animation:fadeIn 0.2s; }
+.player-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:var(--overlay); backdrop-filter:blur(8px); z-index:1000; display:none; align-items:center; justify-content:center; animation:fadeIn 0.2s; }
 .player-overlay.active { display:flex; }
-.player-box { position:relative; width:90%; max-width:800px; max-height:90vh; background:var(--bg2); border-radius:16px; border:1px solid var(--border); overflow:hidden; box-shadow:0 24px 64px rgba(0,0,0,0.5); }
+.player-box { position:relative; width:90%; max-width:800px; max-height:90vh; background:var(--bg2); border-radius:16px; border:1px solid var(--border); overflow:hidden; box-shadow:var(--shadow-modal); }
 .player-header { display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-bottom:1px solid var(--border); }
 .player-header h3 { font-size:0.9rem; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1; margin-right:12px; }
-.player-close { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--text); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; flex-shrink:0; }
-.player-close:hover { background:rgba(239,68,68,0.3); color:var(--red); }
+.player-close { width:32px; height:32px; border-radius:8px; border:none; background:var(--hover-ghost); color:var(--text); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; flex-shrink:0; }
+.player-close:hover { background:rgba(239,68,68,0.3); color:var(--ink-err); }
 .player-body { padding:0; background:#000; }
 .player-body video, .player-body audio { width:100%; max-height:75vh; display:block; outline:none; }
 @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
 
-.btn-play { background:rgba(34,197,94,0.15); color:var(--green); border:1px solid rgba(34,197,94,0.25); }
+.btn-play { background:rgba(34,197,94,0.15); color:var(--ink-ok); border:1px solid rgba(34,197,94,0.25); }
 .btn-play:hover { background:rgba(34,197,94,0.3); transform:translateY(-1px); }
 
 /* Settings */
@@ -130,9 +226,10 @@ h1 span.icon { font-size:1.8rem; }
     color:var(--text); font-size:0.85rem; font-family:inherit; outline:none; transition:border 0.2s; resize:vertical;
 }
 .settings-group textarea:focus, .settings-group input[type=text]:focus { border-color:var(--accent); }
+.settings-group textarea::placeholder, .settings-group input[type=text]::placeholder { color:var(--placeholder); }
 .settings-group .hint { font-size:0.72rem; color:var(--text2); margin-top:4px; line-height:1.4; }
 .settings-group .cookie-status { font-size:0.72rem; margin-top:4px; }
-.cookie-set { color:var(--green); }
+.cookie-set { color:var(--ink-ok); }
 .cookie-unset { color:var(--text2); }
 .settings-actions { display:flex; gap:8px; margin-top:24px; }
 
@@ -266,7 +363,7 @@ h1 span.icon { font-size:1.8rem; }
 
         <div class="settings-actions">
             <button class="btn btn-primary" onclick="saveSettings()">💾 Save Settings</button>
-            <span id="settings-msg" style="font-size:0.8rem;color:var(--green);align-self:center;"></span>
+            <span id="settings-msg" style="font-size:0.8rem;color:var(--ink-ok);align-self:center;"></span>
         </div>
     </div>
 </div>
@@ -463,7 +560,7 @@ function pollTask(taskId) {
                 clearInterval(activePollers[taskId]);
                 delete activePollers[taskId];
                 fill.style.width = '100%';
-                fill.style.background = 'var(--green)';
+                fill.style.background = 'var(--ink-ok)';
                 card.querySelector('.status-badge').className = 'status-badge status-ok';
                 card.querySelector('.status-badge').textContent = '✅ Done';
                 const fname = t.filename || 'Downloaded';
@@ -481,7 +578,7 @@ function pollTask(taskId) {
             } else if (t.status === 'error') {
                 clearInterval(activePollers[taskId]);
                 delete activePollers[taskId];
-                fill.style.background = 'var(--red)';
+                fill.style.background = 'var(--ink-err)';
                 card.querySelector('.status-badge').className = 'status-badge status-err';
                 card.querySelector('.status-badge').textContent = '❌ Error';
                 texts[0].textContent = t.error || 'Unknown error';
@@ -659,15 +756,15 @@ async function saveSettings() {
         });
         const d = await r.json();
         if (d.status === 'success') {
-            msg.style.color = 'var(--green)';
+            msg.style.color = 'var(--ink-ok)';
             msg.textContent = '✅ Đã lưu!';
             loadSettings(); // Refresh status
         } else {
-            msg.style.color = 'var(--red)';
+            msg.style.color = 'var(--ink-err)';
             msg.textContent = '❌ ' + (d.message || 'Error');
         }
     } catch(e) {
-        msg.style.color = 'var(--red)';
+        msg.style.color = 'var(--ink-err)';
         msg.textContent = '❌ ' + e.message;
     }
     setTimeout(() => { msg.textContent = ''; }, 3000);

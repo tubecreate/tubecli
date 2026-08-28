@@ -51,13 +51,31 @@
   --cat-ai:          #a855f7;
   --cat-automation:  #06b6d4;
   --cat-general:     var(--primary, #5276EB);
-  --cat-network:     #06b6d4;
+  --cat-network:     #f97316;
+  --cat-auth:        #ef4444;
+  --cat-integration: #10b981;
+  --cat-browser:     #06b6d4;
+  --cat-data:        #3b82f6;
+  --cat-custom:      #8b5cf6;
+  --cat-fallback:    #6366f1;
 
   /* ── Port type colors ── */
   --port-text: #06b6d4;
   --port-json: #eab308;
   --port-file: #a855f7;
   --port-any:  #9ca3af;
+
+  /* ── Depth / overlay — dark values; the light blocks below re-tint them ── */
+  --wf-shadow-node:  0 4px 20px rgba(0,0,0,0.3);
+  --wf-shadow-panel: -4px 0 20px rgba(0,0,0,0.5);
+  --wf-shadow-float: 0 4px 12px rgba(0,0,0,0.3);
+  --wf-shadow-menu:  0 8px 24px rgba(0,0,0,0.4);
+  --wf-shadow-toast: 0 4px 12px rgba(0,0,0,0.4);
+  --wf-shadow-modal: 0 20px 60px rgba(0,0,0,0.5);
+  --wf-overlay:      rgba(0,0,0,0.6);
+  --wf-grid-dot:     var(--border, #333);
+  --wf-ai-from:      #a855f7;
+  --wf-ai-to:        #6366f1;
 
   /* ── Sizing ── */
   --sidebar-width: 260px;
@@ -68,6 +86,104 @@
   --port-size:     11px;
   --radius:        10px;
   --radius-sm:     6px;
+}
+
+/* ── Light theme ─────────────────────────────────────────────────
+   Same contract as file_manager.css: the dashboard appends ?theme=light|glass
+   to the iframe URL and the pre-paint script in workflow.html sets
+   data-theme="light" on <html>; standalone, prefers-color-scheme decides,
+   guarded so an explicit data-theme always wins. Shared token values mirror
+   webui/static/style.css (ground #f7f8fa, white panels, ink #1e293b, lines
+   rgba(15,23,42,.1)). Status inks and the category/port hues darken one step
+   so they read on white. The two blocks are verbatim copies — CSS cannot share
+   a declaration list between a media query and an attribute selector. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg:          #f7f8fa;
+  --bg2:         #ffffff;
+  --bg3:         rgba(255,255,255,0.9);
+  --bg-hover:    rgba(15,23,42,0.05);
+  --bg-lighter:  #ffffff;
+  --bg-dark:     #eef0f4;
+  --border:      rgba(15,23,42,0.1);
+  --border-subtle: rgba(15,23,42,0.06);
+  --text:        #1e293b;
+  --text2:       #475569;
+  --text-muted:  #64748b;
+  --green:       #15803d;
+  --red:         #dc2626;
+  --orange:      #b45309;
+  --yellow:      #a16207;
+  --cat-input:       #2563eb;
+  --cat-output:      #16a34a;
+  --cat-processing:  #ea580c;
+  --cat-logic:       #ca8a04;
+  --cat-ai:          #9333ea;
+  --cat-automation:  #0891b2;
+  --cat-network:     #ea580c;
+  --cat-auth:        #dc2626;
+  --cat-integration: #059669;
+  --cat-browser:     #0891b2;
+  --cat-data:        #2563eb;
+  --cat-custom:      #7c3aed;
+  --cat-fallback:    #4f46e5;
+  --port-text: #0891b2;
+  --port-json: #ca8a04;
+  --port-file: #9333ea;
+  --port-any:  #64748b;
+  --wf-shadow-node:  0 4px 20px rgba(15,23,42,0.12);
+  --wf-shadow-panel: -4px 0 20px rgba(15,23,42,0.12);
+  --wf-shadow-float: 0 4px 12px rgba(15,23,42,0.15);
+  --wf-shadow-menu:  0 8px 24px rgba(15,23,42,0.16);
+  --wf-shadow-toast: 0 4px 12px rgba(15,23,42,0.18);
+  --wf-shadow-modal: 0 20px 60px rgba(15,23,42,0.2);
+  --wf-overlay:      rgba(15,23,42,0.35);
+  --wf-grid-dot:     #c3c8d3;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --bg:          #f7f8fa;
+    --bg2:         #ffffff;
+    --bg3:         rgba(255,255,255,0.9);
+    --bg-hover:    rgba(15,23,42,0.05);
+    --bg-lighter:  #ffffff;
+    --bg-dark:     #eef0f4;
+    --border:      rgba(15,23,42,0.1);
+    --border-subtle: rgba(15,23,42,0.06);
+    --text:        #1e293b;
+    --text2:       #475569;
+    --text-muted:  #64748b;
+    --green:       #15803d;
+    --red:         #dc2626;
+    --orange:      #b45309;
+    --yellow:      #a16207;
+    --cat-input:       #2563eb;
+    --cat-output:      #16a34a;
+    --cat-processing:  #ea580c;
+    --cat-logic:       #ca8a04;
+    --cat-ai:          #9333ea;
+    --cat-automation:  #0891b2;
+    --cat-network:     #ea580c;
+    --cat-auth:        #dc2626;
+    --cat-integration: #059669;
+    --cat-browser:     #0891b2;
+    --cat-data:        #2563eb;
+    --cat-custom:      #7c3aed;
+    --cat-fallback:    #4f46e5;
+    --port-text: #0891b2;
+    --port-json: #ca8a04;
+    --port-file: #9333ea;
+    --port-any:  #64748b;
+    --wf-shadow-node:  0 4px 20px rgba(15,23,42,0.12);
+    --wf-shadow-panel: -4px 0 20px rgba(15,23,42,0.12);
+    --wf-shadow-float: 0 4px 12px rgba(15,23,42,0.15);
+    --wf-shadow-menu:  0 8px 24px rgba(15,23,42,0.16);
+    --wf-shadow-toast: 0 4px 12px rgba(15,23,42,0.18);
+    --wf-shadow-modal: 0 20px 60px rgba(15,23,42,0.2);
+    --wf-overlay:      rgba(15,23,42,0.35);
+    --wf-grid-dot:     #c3c8d3;
+  }
 }
 
 
@@ -266,6 +382,8 @@ body {
   justify-content: center;
   font-size: 14px;
   flex-shrink: 0;
+  background: color-mix(in srgb, var(--node-color, var(--cat-general)) 12.5%, transparent);
+  color: var(--node-color, var(--cat-general));
 }
 
 .palette-item-name {
@@ -296,7 +414,7 @@ body {
   position: absolute;
   inset: 0;
   background-image:
-    radial-gradient(circle, var(--border) 1px, transparent 1px);
+    radial-gradient(circle, var(--wf-grid-dot) 1px, transparent 1px);
   background-size: 20px 20px;
   pointer-events: none;
   opacity: 0.4;
@@ -345,12 +463,12 @@ body {
 
 .workflow-node:hover {
   border-color: var(--text-muted);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  box-shadow: var(--wf-shadow-node);
 }
 
 .workflow-node.selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(99,102,241,0.3), 0 4px 20px rgba(0,0,0,0.3);
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.3), var(--wf-shadow-node);
 }
 
 .workflow-node.running {
@@ -371,6 +489,7 @@ body {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
+  background: color-mix(in srgb, var(--node-color, var(--cat-fallback)) 8%, transparent);
 }
 
 .node-icon {
@@ -382,6 +501,8 @@ body {
   justify-content: center;
   font-size: 14px;
   flex-shrink: 0;
+  background: color-mix(in srgb, var(--node-color, var(--cat-fallback)) 19%, transparent);
+  color: var(--node-color, var(--cat-fallback));
 }
 
 .node-title {
@@ -483,7 +604,7 @@ body {
   overflow: hidden;
   z-index: 200;
   transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+  box-shadow: var(--wf-shadow-panel);
 }
 
 .property-panel.show-panel { 
@@ -607,7 +728,7 @@ body {
   font-size: 20px;
   cursor: pointer;
   transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  box-shadow: var(--wf-shadow-float);
 }
 
 .run-btn.play { background: var(--green); color: white; }
@@ -711,7 +832,7 @@ body {
   padding: 4px;
   z-index: 1000;
   min-width: 160px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: var(--wf-shadow-menu);
   display: none;
 }
 
@@ -741,7 +862,7 @@ body {
   font-weight: 500;
   z-index: 9999;
   animation: toast-in 0.3s ease, toast-out 0.3s ease 2.7s forwards;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: var(--wf-shadow-toast);
 }
 
 .toast.success { background: var(--green); color: white; }
@@ -755,7 +876,7 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.6);
+  background: var(--wf-overlay);
   backdrop-filter: blur(4px);
   z-index: 500;
   display: none;
@@ -772,7 +893,7 @@ body {
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  box-shadow: var(--wf-shadow-modal);
 }
 
 .modal-header {
@@ -796,7 +917,8 @@ body {
 
 /* ── AI Generate Button ─────────────────────────────────────── */
 .btn-ai {
-  background: linear-gradient(135deg, #a855f7, #6366f1);
+  /* solid colour under the gradient so the button never reads as transparent */
+  background: var(--wf-ai-to) linear-gradient(135deg, var(--wf-ai-from), var(--wf-ai-to));
   color: white;
   border: none;
   font-weight: 600;

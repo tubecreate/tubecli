@@ -274,6 +274,76 @@ const storyBubbles = new StoryBubbles();
     const s = document.createElement('style');
     s.id = 'story-bubble-styles';
     s.textContent = `
+/* Bubble tokens. Dark values are the original literals; the light blocks
+   mirror the dashboard light palette (white glass, ink #1e293b, accent
+   #5276EB, purple #7c5ce7). Terminal bubbles are NOT tokenised: a terminal is
+   content and keeps its dark look in both themes.
+   KEEP THE TWO LIGHT BLOCKS IDENTICAL - CSS cannot share them. */
+:root {
+    --sb-bg: rgba(15,17,30,0.92);
+    --sb-line: rgba(34,211,238,0.4);
+    --sb-ink: #f0f4ff;
+    --sb-name: #22d3ee;
+    --sb-shadow: 0 6px 28px rgba(0,0,0,0.55), 0 0 0 1px rgba(34,211,238,0.1);
+    --sb-emote-shadow: 0 2px 6px rgba(0,0,0,0.6);
+    --sb-th-bg: linear-gradient(135deg, rgba(23, 15, 38, 0.95), rgba(13, 8, 24, 0.98));
+    --sb-th-line: rgba(216, 180, 254, 0.5);
+    --sb-th-ink: #e9d5ff;
+    --sb-th-name: #c084fc;
+    --sb-th-shadow: 0 8px 32px rgba(168, 85, 247, 0.25), 0 0 0 1px rgba(216, 180, 254, 0.15);
+    --sb-th-dot-bg: rgba(13, 8, 24, 0.98);
+    --sb-th-dot-line: rgba(216, 180, 254, 0.4);
+    --sb-th-dot-line2: rgba(216, 180, 254, 0.3);
+    --sb-chat-bg: linear-gradient(135deg, rgba(14, 20, 42, 0.95), rgba(8, 12, 28, 0.98));
+    --sb-chat-tail: rgba(8, 12, 28, 0.98);
+    --sb-chat-line: rgba(56, 189, 248, 0.45);
+    --sb-chat-name: #38bdf8;
+    --sb-chat-shadow: 0 8px 32px rgba(56, 189, 248, 0.2), 0 0 0 1px rgba(56, 189, 248, 0.1);
+}
+:root[data-theme="light"] {
+    --sb-bg: rgba(255,255,255,0.94);
+    --sb-line: rgba(82,118,235,0.45);
+    --sb-ink: #1e293b;
+    --sb-name: #5276EB;
+    --sb-shadow: 0 6px 28px rgba(15,23,42,0.22), 0 0 0 1px rgba(82,118,235,0.12);
+    --sb-emote-shadow: 0 2px 6px rgba(15,23,42,0.35);
+    --sb-th-bg: linear-gradient(135deg, rgba(250,245,255,0.96), rgba(243,232,255,0.98));
+    --sb-th-line: rgba(124,92,231,0.5);
+    --sb-th-ink: #6d28d9;
+    --sb-th-name: #7c5ce7;
+    --sb-th-shadow: 0 8px 32px rgba(124,92,231,0.2), 0 0 0 1px rgba(124,92,231,0.12);
+    --sb-th-dot-bg: rgba(243,232,255,0.98);
+    --sb-th-dot-line: rgba(124,92,231,0.4);
+    --sb-th-dot-line2: rgba(124,92,231,0.3);
+    --sb-chat-bg: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,244,255,0.98));
+    --sb-chat-tail: rgba(239,244,255,0.98);
+    --sb-chat-line: rgba(82,118,235,0.45);
+    --sb-chat-name: #5276EB;
+    --sb-chat-shadow: 0 8px 32px rgba(82,118,235,0.18), 0 0 0 1px rgba(82,118,235,0.1);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --sb-bg: rgba(255,255,255,0.94);
+        --sb-line: rgba(82,118,235,0.45);
+        --sb-ink: #1e293b;
+        --sb-name: #5276EB;
+        --sb-shadow: 0 6px 28px rgba(15,23,42,0.22), 0 0 0 1px rgba(82,118,235,0.12);
+        --sb-emote-shadow: 0 2px 6px rgba(15,23,42,0.35);
+        --sb-th-bg: linear-gradient(135deg, rgba(250,245,255,0.96), rgba(243,232,255,0.98));
+        --sb-th-line: rgba(124,92,231,0.5);
+        --sb-th-ink: #6d28d9;
+        --sb-th-name: #7c5ce7;
+        --sb-th-shadow: 0 8px 32px rgba(124,92,231,0.2), 0 0 0 1px rgba(124,92,231,0.12);
+        --sb-th-dot-bg: rgba(243,232,255,0.98);
+        --sb-th-dot-line: rgba(124,92,231,0.4);
+        --sb-th-dot-line2: rgba(124,92,231,0.3);
+        --sb-chat-bg: linear-gradient(135deg, rgba(255,255,255,0.96), rgba(239,244,255,0.98));
+        --sb-chat-tail: rgba(239,244,255,0.98);
+        --sb-chat-line: rgba(82,118,235,0.45);
+        --sb-chat-name: #5276EB;
+        --sb-chat-shadow: 0 8px 32px rgba(82,118,235,0.18), 0 0 0 1px rgba(82,118,235,0.1);
+    }
+}
 .story-bubble-overlay {
     position: absolute;
     top: 0; left: 0; width: 100%; height: 100%;
@@ -283,16 +353,16 @@ const storyBubbles = new StoryBubbles();
 .story-bubble {
     position: absolute;
     transform: translate(-50%, -100%);
-    background: rgba(15,17,30,0.92);
-    border: 1px solid rgba(34,211,238,0.4);
+    background: var(--sb-bg);
+    border: 1px solid var(--sb-line);
     border-radius: 14px;
     padding: 8px 14px;
     min-width: 120px;
     max-width: 280px;
-    color: #f0f4ff;
+    color: var(--sb-ink);
     font-size: 13px;
     line-height: 1.45;
-    box-shadow: 0 6px 28px rgba(0,0,0,0.55), 0 0 0 1px rgba(34,211,238,0.1);
+    box-shadow: var(--sb-shadow);
     transition: opacity 0.25s ease, transform 0.2s ease-out;
     z-index: 1000;
     text-align: left;
@@ -303,7 +373,7 @@ const storyBubbles = new StoryBubbles();
     display: block;
     font-size: 11px;
     font-weight: 700;
-    color: #22d3ee;
+    color: var(--sb-name);
     margin-bottom: 3px;
     letter-spacing: 0.5px;
     text-transform: uppercase;
@@ -320,7 +390,7 @@ const storyBubbles = new StoryBubbles();
     width: 0; height: 0;
     border-left: 8px solid transparent;
     border-right: 8px solid transparent;
-    border-top: 9px solid rgba(15,17,30,0.92);
+    border-top: 9px solid var(--sb-bg);
 }
 .story-emote {
     position: absolute;
@@ -329,21 +399,21 @@ const storyBubbles = new StoryBubbles();
     pointer-events: none;
     animation: emoteFloat 0.4s ease-out;
     z-index: 1001;
-    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6));
+    filter: drop-shadow(var(--sb-emote-shadow));
     transition: opacity 0.3s;
 }
 
 /* --- Thought Bubble --- */
 .story-bubble.thought-bubble {
-    background: linear-gradient(135deg, rgba(23, 15, 38, 0.95), rgba(13, 8, 24, 0.98));
-    border: 1.5px dashed rgba(216, 180, 254, 0.5);
+    background: var(--sb-th-bg);
+    border: 1.5px dashed var(--sb-th-line);
     border-radius: 20px;
-    box-shadow: 0 8px 32px rgba(168, 85, 247, 0.25), 0 0 0 1px rgba(216, 180, 254, 0.15);
+    box-shadow: var(--sb-th-shadow);
     font-style: italic;
-    color: #e9d5ff;
+    color: var(--sb-th-ink);
 }
 .story-bubble.thought-bubble .bubble-name {
-    color: #c084fc;
+    color: var(--sb-th-name);
 }
 .story-bubble.thought-bubble .bubble-tail {
     display: none;
@@ -354,8 +424,8 @@ const storyBubbles = new StoryBubbles();
     left: 48%;
     width: 8px;
     height: 8px;
-    background: rgba(13, 8, 24, 0.98);
-    border: 1px solid rgba(216, 180, 254, 0.4);
+    background: var(--sb-th-dot-bg);
+    border: 1px solid var(--sb-th-dot-line);
     border-radius: 50%;
 }
 .story-bubble.thought-bubble .thought-tail-circle-2 {
@@ -364,12 +434,14 @@ const storyBubbles = new StoryBubbles();
     left: 45%;
     width: 5px;
     height: 5px;
-    background: rgba(13, 8, 24, 0.98);
-    border: 1px solid rgba(216, 180, 254, 0.3);
+    background: var(--sb-th-dot-bg);
+    border: 1px solid var(--sb-th-dot-line2);
     border-radius: 50%;
 }
 
 /* --- Terminal IDE Bubble --- */
+/* Intentionally theme-invariant: a terminal is content, not chrome, and
+   keeps its dark ground in the light theme too. */
 .story-bubble.terminal-bubble {
     background: rgba(10, 12, 16, 0.96);
     border: 1px solid rgba(52, 211, 153, 0.45);
@@ -505,15 +577,15 @@ const storyBubbles = new StoryBubbles();
 
 /* --- Say/Chat Bubble --- */
 .story-bubble.chat-bubble {
-    background: linear-gradient(135deg, rgba(14, 20, 42, 0.95), rgba(8, 12, 28, 0.98));
-    border: 1px solid rgba(56, 189, 248, 0.45);
-    box-shadow: 0 8px 32px rgba(56, 189, 248, 0.2), 0 0 0 1px rgba(56, 189, 248, 0.1);
+    background: var(--sb-chat-bg);
+    border: 1px solid var(--sb-chat-line);
+    box-shadow: var(--sb-chat-shadow);
 }
 .story-bubble.chat-bubble .bubble-name {
-    color: #38bdf8;
+    color: var(--sb-chat-name);
 }
 .story-bubble.chat-bubble .bubble-tail {
-    border-top-color: rgba(8, 12, 28, 0.98);
+    border-top-color: var(--sb-chat-tail);
 }
 
 @keyframes emoteFloat {

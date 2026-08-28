@@ -1,5 +1,66 @@
 /* ═══ Auth Manager Styles ═══ */
 
+/* Page-specific tokens. The dashboard tokens (--bg, --text, --border, --primary…)
+   come from style.css, which already carries the light theme; the dashboard also
+   re-injects them into this iframe. Status inks and glass highlights are NOT among
+   the injected set, so they live under an --am- prefix with their own light values.
+   Dark values below are the literals this file used before, unchanged. */
+:root {
+    --am-green: #22c55e;
+    --am-orange: #f59e0b;
+    --am-yellow: #fbbf24;
+    --am-red: #ef4444;
+    --am-red-soft: #f87171;
+    --am-none: #6868a0;
+    --am-violet: #8b5cf6;
+    --am-glass-bg: rgba(255, 255, 255, 0.05);
+    --am-glass-border: rgba(255, 255, 255, 0.12);
+    --am-dim-btn-bg: #1e293b;
+    --am-dim-btn-fg: #cbd5e1;
+    --am-row-line: rgba(51, 51, 51, 0.4);
+    --am-shadow-card: 0 8px 24px rgba(0, 0, 0, 0.3);
+    --am-shadow-toast: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+/* Light theme — same activation contract as file_manager.css: the pre-paint script
+   in auth_manager.html sets data-theme from ?theme=, standalone falls back to
+   prefers-color-scheme. Status inks darken to pass contrast on white.
+   KEEP THE TWO BLOCKS IDENTICAL. */
+:root[data-theme="light"] {
+    --am-green: #15803d;
+    --am-orange: #b45309;
+    --am-yellow: #a16207;
+    --am-red: #dc2626;
+    --am-red-soft: #dc2626;
+    --am-none: #64748b;
+    --am-violet: #7c5ce7;
+    --am-glass-bg: rgba(15, 23, 42, 0.04);
+    --am-glass-border: rgba(15, 23, 42, 0.12);
+    --am-dim-btn-bg: #e8ebf1;
+    --am-dim-btn-fg: #334155;
+    --am-row-line: rgba(15, 23, 42, 0.06);
+    --am-shadow-card: 0 8px 24px rgba(15, 23, 42, 0.12);
+    --am-shadow-toast: 0 8px 32px rgba(15, 23, 42, 0.2);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        --am-green: #15803d;
+        --am-orange: #b45309;
+        --am-yellow: #a16207;
+        --am-red: #dc2626;
+        --am-red-soft: #dc2626;
+        --am-none: #64748b;
+        --am-violet: #7c5ce7;
+        --am-glass-bg: rgba(15, 23, 42, 0.04);
+        --am-glass-border: rgba(15, 23, 42, 0.12);
+        --am-dim-btn-bg: #e8ebf1;
+        --am-dim-btn-fg: #334155;
+        --am-row-line: rgba(15, 23, 42, 0.06);
+        --am-shadow-card: 0 8px 24px rgba(15, 23, 42, 0.12);
+        --am-shadow-toast: 0 8px 32px rgba(15, 23, 42, 0.2);
+    }
+}
+
 /* Override shared style.css: #app normally is horizontal flex for sidebar+content.
    Auth Manager is a standalone page, so we override to vertical stacking. */
 #app.am-app {
@@ -129,7 +190,7 @@
 .am-provider-card:hover {
     border-color: var(--accent, #8b5cf6);
     transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+    box-shadow: var(--am-shadow-card);
 }
 .am-provider-card:hover::before {
     opacity: 1;
@@ -217,7 +278,7 @@
 }
 .am-table td {
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(51, 51, 51, 0.4);
+    border-bottom: 1px solid var(--am-row-line);
     color: var(--text, #ededed);
     vertical-align: middle;
 }
@@ -243,10 +304,10 @@
     font-weight: 600;
     white-space: nowrap;
 }
-.am-badge-active { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
-.am-badge-expired { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
-.am-badge-none { background: rgba(104, 104, 160, 0.12); color: #6868a0; }
-.am-badge-revoked { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+.am-badge-active { background: rgba(34, 197, 94, 0.12); color: var(--am-green); }
+.am-badge-expired { background: rgba(245, 158, 11, 0.12); color: var(--am-orange); }
+.am-badge-none { background: rgba(104, 104, 160, 0.12); color: var(--am-none); }
+.am-badge-revoked { background: rgba(239, 68, 68, 0.12); color: var(--am-red); }
 
 .am-badge-google { background: rgba(66, 133, 244, 0.12); color: #4285f4; }
 .am-badge-facebook { background: rgba(24, 119, 242, 0.12); color: #1877f2; }
@@ -273,8 +334,8 @@
     border-color: var(--primary, #5276EB);
 }
 .am-btn-sm.danger:hover {
-    border-color: #ef4444;
-    color: #ef4444;
+    border-color: var(--am-red);
+    color: var(--am-red);
 }
 
 /* Tabs in modals */
@@ -370,7 +431,7 @@
     font-size: 0.78rem;
     word-break: break-all;
     font-family: 'JetBrains Mono', monospace;
-    color: #22c55e;
+    color: var(--am-green);
 }
 .am-redirect-info small {
     color: var(--text-muted, #6b7280);
@@ -387,7 +448,7 @@
 .am-filename {
     margin-left: 10px;
     font-size: 0.85rem;
-    color: #22c55e;
+    color: var(--am-green);
 }
 
 .am-loading {
@@ -409,7 +470,7 @@
     animation: amSlideIn .3s ease, amFadeOut .3s ease 2.7s;
     animation-fill-mode: forwards;
     max-width: 400px;
-    box-shadow: 0 8px 32px rgba(0,0,0,.4);
+    box-shadow: var(--am-shadow-toast);
 }
 .am-toast.success {
     background: linear-gradient(135deg, #10b981, #059669);
@@ -491,7 +552,7 @@
 .am-service-scopes-detail {
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid rgba(42, 42, 74, 0.5);
+    border-top: 1px solid var(--row-line, rgba(42, 42, 74, 0.5));
 }
 
 /* Wizard Scopes Banner */
@@ -626,7 +687,7 @@
 .am-auto-renew-title {
     font-size: 0.9rem;
     font-weight: 700;
-    color: #22c55e;
+    color: var(--am-green);
 }
 .am-auto-renew-desc {
     font-size: 0.78rem;
@@ -637,6 +698,6 @@
     margin-left: auto;
     font-size: 0.8rem;
     font-weight: 600;
-    color: #22c55e;
+    color: var(--am-green);
     flex-shrink: 0;
 }

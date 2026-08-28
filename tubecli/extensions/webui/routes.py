@@ -220,55 +220,37 @@ async def workflow_page():
 @router.get("/teams")
 async def teams_page():
     """Serve the Teams AI dashboard page."""
-    teams_file = os.path.join(STATIC_DIR, "teams.html")
-    if os.path.exists(teams_file):
-        return FileResponse(teams_file)
-    return {"error": "Teams dashboard not found"}
+    return _html_page("teams.html", "Teams dashboard not found")
 
 
 @router.get("/studio")
 async def studio_page():
     """Serve the 3D Studio editor page."""
-    studio_file = os.path.join(STATIC_DIR, "studio.html")
-    if os.path.exists(studio_file):
-        return FileResponse(studio_file)
-    return {"error": "Studio page not found"}
+    return _html_page("studio.html", "Studio page not found")
 
 
 @router.get("/market")
 async def market_page():
     """Serve the Extension Market page."""
-    market_file = os.path.join(STATIC_DIR, "market.html")
-    if os.path.exists(market_file):
-        return FileResponse(market_file)
-    return {"error": "Market page not found"}
+    return _html_page("market.html", "Market page not found")
 
 
 @router.get("/downloader")
 async def downloader_page():
     """Serve the Video Downloader page."""
-    dl_file = os.path.join(STATIC_DIR, "downloader.html")
-    if os.path.exists(dl_file):
-        return FileResponse(dl_file)
-    return {"error": "Downloader page not found"}
+    return _html_page("downloader.html", "Downloader page not found")
 
 
 @router.get("/story")
 async def story_page():
     """Serve the 3D Story Engine page."""
-    story_file = os.path.join(STATIC_DIR, "story.html")
-    if os.path.exists(story_file):
-        return FileResponse(story_file)
-    return {"error": "Story page not found"}
+    return _html_page("story.html", "Story page not found")
 
 
 @router.get("/auth-manager")
 async def auth_manager_page():
     """Serve the Auth Manager page."""
-    am_file = os.path.join(STATIC_DIR, "auth_manager.html")
-    if os.path.exists(am_file):
-        return FileResponse(am_file)
-    return {"error": "Auth Manager page not found"}
+    return _html_page("auth_manager.html", "Auth Manager page not found")
 
 
 @router.get("/browser/view")
@@ -286,10 +268,7 @@ async def browser_view_page():
 @router.get("/tracker")
 async def tracker_page():
     """Serve the Content Tracker management page."""
-    tracker_file = os.path.join(STATIC_DIR, "tracker.html")
-    if os.path.exists(tracker_file):
-        return FileResponse(tracker_file)
-    return {"error": "Tracker page not found"}
+    return _html_page("tracker.html", "Tracker page not found")
 
 
 def _find_file_manager_dir():

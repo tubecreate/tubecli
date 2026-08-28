@@ -39,6 +39,33 @@
     --hover-ghost: rgba(255,255,255,0.08);
     --row-line: rgba(42,42,74,0.5);
     --shadow-menu: 0 8px 32px rgba(0,0,0,0.5);
+    /* Aliases for token names the inline panels and iframe sync already use
+       (--accent, --card-bg, ...) so they resolve instead of falling through. */
+    --accent: var(--primary);
+    --accent-hover: var(--primary-hover);
+    --danger: var(--red);
+    --bg-content: var(--bg2);
+    --card-bg: var(--bg3);
+    --bg-input: var(--bg);
+    --text-primary: var(--text);
+    --text-secondary: var(--text2);
+    --yellow: #eab308;
+    /* Inks that read on dark but must darken on a white ground. */
+    --violet-ink: #c4b5fd;
+    --blue-ink: #60a5fa;
+    --cat-workflow: #a855f7;
+    --cat-browser: #22d3ee;
+    /* Glass highlights and ink scrims that used to be literal rgba() in the
+       inline panel templates (app.js / index.html). */
+    --panel-ghost-3: rgba(255,255,255,0.03);
+    --panel-ghost-4: rgba(255,255,255,0.04);
+    --surface-ghost: rgba(255,255,255,0.05);
+    --hover-ghost-strong: rgba(255,255,255,0.15);
+    --ink-ghost: rgba(0,0,0,0.2);
+    --ink-ghost-strong: rgba(0,0,0,0.3);
+    --overlay-bg: rgba(0,0,0,0.6);
+    --overlay-heavy: rgba(0,0,0,0.85);
+    --shadow-dialog: 0 10px 30px rgba(0,0,0,0.5);
 }
 
 /* ═══ Light theme (glass) ═══
@@ -48,13 +75,15 @@
    data-theme="light" on <html> before first paint.
    Values mirror the cloud glass palette (tubecli-cloud app/globals.css
    .flow-theme-glass): ground #f7f8fa, white panels, ink #1e293b, slate lines
-   rgba(15,23,42,.1). Accent colors (--primary #5276EB, --purple, statuses)
-   are intentionally NOT redefined.
+   rgba(15,23,42,.1). Accent colors (--primary #5276EB, --purple) are NOT
+   redefined; status inks (--green/--orange/--red/--yellow) darken so they
+   pass contrast on white.
    Pattern per capcut_tts/static/capcut.html:15-28 — the media-query block
    keeps prefers-color-scheme working when a page is opened standalone, while
    the [data-theme] attribute set from the URL always wins.
    KEEP THE TWO BLOCKS IDENTICAL. */
 :root[data-theme="light"] {
+    color-scheme: light;
     --bg: #f7f8fa;
     --bg2: #ffffff;
     --bg3: rgba(255,255,255,0.9);
@@ -79,9 +108,28 @@
     --hover-ghost: rgba(15,23,42,0.06);
     --row-line: rgba(15,23,42,0.06);
     --shadow-menu: 0 8px 32px rgba(15,23,42,0.18);
+    --green: #15803d;
+    --orange: #b45309;
+    --red: #dc2626;
+    --pink: #db2777;
+    --yellow: #a16207;
+    --violet-ink: #7c5ce7;
+    --blue-ink: #2563eb;
+    --cat-workflow: #7c3aed;
+    --cat-browser: #0e7490;
+    --panel-ghost-3: rgba(15,23,42,0.03);
+    --panel-ghost-4: rgba(15,23,42,0.04);
+    --surface-ghost: rgba(15,23,42,0.05);
+    --hover-ghost-strong: rgba(15,23,42,0.12);
+    --ink-ghost: rgba(15,23,42,0.06);
+    --ink-ghost-strong: rgba(15,23,42,0.08);
+    --overlay-bg: rgba(15,23,42,0.35);
+    --overlay-heavy: rgba(247,248,250,0.85);
+    --shadow-dialog: 0 10px 30px rgba(15,23,42,0.18);
 }
 @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
+        color-scheme: light;
         --bg: #f7f8fa;
         --bg2: #ffffff;
         --bg3: rgba(255,255,255,0.9);
@@ -105,7 +153,25 @@
         --line-faint: rgba(15,23,42,0.06);
         --hover-ghost: rgba(15,23,42,0.06);
         --row-line: rgba(15,23,42,0.06);
-        --shadow-menu: 0 8px 32px rgba(15,23,42,0.18);
+    --shadow-menu: 0 8px 32px rgba(15,23,42,0.18);
+        --green: #15803d;
+        --orange: #b45309;
+        --red: #dc2626;
+        --pink: #db2777;
+        --yellow: #a16207;
+        --violet-ink: #7c5ce7;
+        --blue-ink: #2563eb;
+        --cat-workflow: #7c3aed;
+        --cat-browser: #0e7490;
+        --panel-ghost-3: rgba(15,23,42,0.03);
+        --panel-ghost-4: rgba(15,23,42,0.04);
+        --surface-ghost: rgba(15,23,42,0.05);
+        --hover-ghost-strong: rgba(15,23,42,0.12);
+        --ink-ghost: rgba(15,23,42,0.06);
+        --ink-ghost-strong: rgba(15,23,42,0.08);
+        --overlay-bg: rgba(15,23,42,0.35);
+        --overlay-heavy: rgba(247,248,250,0.85);
+        --shadow-dialog: 0 10px 30px rgba(15,23,42,0.18);
     }
 }
 body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
@@ -262,7 +328,7 @@ body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--tex
 .pulse-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.5s infinite; }
 
 /* ─── Modal ─── */
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.modal { position: fixed; inset: 0; background: var(--overlay-bg); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal.hidden { display: none; }
 .modal-content { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; width: 420px; max-width: 90vw; }
 .modal-content h2 { margin-bottom: 20px; font-size: 1.2rem; }
@@ -434,19 +500,45 @@ textarea:focus { outline: none; border-color: var(--cyan); }
 .btn-ext-update { padding: 4px 12px; border: none; border-radius: 6px; font-size: 0.75rem; font-weight: 600; background: linear-gradient(135deg, var(--green), #10b981); color: #fff; cursor: pointer; transition: all 0.2s; }
 .btn-ext-update:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(34,197,94,0.3); }
 .btn-disable { padding: 4px 10px; border: 1px solid rgba(245,158,11,0.35); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(245,158,11,0.08); color: #d97706; cursor: pointer; transition: all 0.2s; }
-.btn-disable:hover { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.55); color: #f59e0b; }
+.btn-disable:hover { background: rgba(245,158,11,0.18); border-color: rgba(245,158,11,0.55); color: var(--orange); }
 .btn-enable { padding: 4px 10px; border: 1px solid rgba(34,197,94,0.35); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(34,197,94,0.08); color: #16a34a; cursor: pointer; transition: all 0.2s; }
-.btn-enable:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.55); color: #22c55e; }
+.btn-enable:hover { background: rgba(34,197,94,0.18); border-color: rgba(34,197,94,0.55); color: var(--green); }
 .btn-uninstall { padding: 4px 10px; border: 1px solid rgba(239,68,68,0.25); border-radius: 6px; font-size: 0.78rem; font-weight: 600; background: rgba(239,68,68,0.07); color: #b91c1c; cursor: pointer; transition: all 0.2s; }
-.btn-uninstall:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: #ef4444; }
+.btn-uninstall:hover { background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.45); color: var(--red); }
+/* These three write their label in a fixed hex over a ~8% wash of the same hue.
+   That hue was chosen against the dark ground; on a white card "Disable" lands
+   at 2.98:1 and "Enable" at 3.08 — under the floor for any text size, on the
+   controls that switch an extension off and on. The palette already carries a
+   darkened orange and green for this ground, so light borrows those. Excluding
+   :hover leaves the existing hover rules to win unchanged, and uninstall's
+   #b91c1c already clears 5.9:1 on white, so it keeps the value it had. */
+:root[data-theme="light"] .btn-disable:not(:hover) { color: #b45309; }
+:root[data-theme="light"] .btn-enable:not(:hover) { color: #15803d; }
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .btn-disable:not(:hover) { color: #b45309; }
+    :root:not([data-theme="dark"]) .btn-enable:not(:hover) { color: #15803d; }
+}
+
+/* The skill chips in the agent modal end with a badge naming the skill's type,
+   written in that type's own accent over a 20% tint of it. Those accents were
+   picked to glow on #262626; on the light card the pair collapses — Automation
+   reads at 2.1:1, Browser at 1.9 — and this badge is the only place the type is
+   written. The markup carries the darkened hue in --chip-lt, and light switches
+   to it here rather than inline, so a theme flip under an already-open page
+   repaints the badges. Dark sets nothing, so the markup's own fallback keeps
+   the exact hex it always had. */
+:root[data-theme="light"] .skill-chip-type { --chip-ink: var(--chip-lt); }
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) .skill-chip-type { --chip-ink: var(--chip-lt); }
+}
 
 /* Restart banner */
 .restart-banner { display: flex; align-items: center; gap: 10px; padding: 12px 20px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; margin-bottom: 16px; font-size: 0.88rem; color: var(--orange); font-weight: 600; }
 
 /* ─── Loading Overlay / Download Progress ─── */
-.loading-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.loading-overlay { position: fixed; inset: 0; background: var(--overlay-heavy); backdrop-filter: blur(10px); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .loading-overlay.hidden { display: none; }
-.loading-content { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; width: 450px; max-width: 90vw; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.loading-content { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; width: 450px; max-width: 90vw; box-shadow: var(--shadow-dialog); }
 .spinner { width: 40px; height: 40px; border: 4px solid rgba(0,212,255,0.1); border-top-color: var(--cyan); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 20px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 

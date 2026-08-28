@@ -4,6 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Teams AI — TubeCLI</title>
+    <script>
+    /* Pre-paint theme (same contract as file_manager.html): the dashboard
+       appends ?theme=light|dark to the iframe URL; ?theme=glass|light selects
+       the light token block in teams.css before the stylesheet applies so
+       there is no dark flash. No param: standalone follows
+       prefers-color-scheme, an embedded page (self !== top) pins dark. */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/teams.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>

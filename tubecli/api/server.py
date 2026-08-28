@@ -1195,7 +1195,7 @@ class WorkflowSaveRequest(BaseModel):
 # ── Root ─────────────────────────────────────────────────────────
 
 @app.get("/", include_in_schema=False)
-async def root():
+async def root(request: Request):
     """Send the bare origin to the dashboard.
 
     There was no route here, so http://127.0.0.1:5295 — the address printed by the
@@ -1204,7 +1204,12 @@ async def root():
     successful install, and it reads as a broken program.
     """
     from fastapi.responses import RedirectResponse
-    return RedirectResponse(url="/dashboard")
+    # Carry the query string across. /?theme=glass is how the Flow canvas (and
+    # anything embedding the dashboard) asks for the light palette, and it is
+    # read by an inline script BEFORE first paint — a redirect that drops it
+    # leaves the reader with nothing and the page falls back to the OS setting.
+    query = request.url.query
+    return RedirectResponse(url="/dashboard" + (f"?{query}" if query else ""))
 
 
 # ── Health ───────────────────────────────────────────────────────

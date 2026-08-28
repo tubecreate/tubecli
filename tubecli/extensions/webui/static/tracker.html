@@ -4,6 +4,30 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Content Tracker — TubeCLI</title>
+    <script>
+    /*
+     * Pre-paint theme. Runs BEFORE any stylesheet applies so there is no dark
+     * flash when the dashboard embeds this page in light mode.
+     * Contract (same as file_manager.html): the dashboard appends ?theme=light
+     * (or the cloud canvas ?theme=glass) to the iframe URL; this page answers
+     * by setting data-theme="light" on <html>, which activates the light token
+     * block below. With no theme param: standalone follows prefers-color-scheme,
+     * but an EMBEDDED page (window.self !== top) pins itself dark so a dark
+     * dashboard on a light-OS machine stays coherent.
+     */
+    (function () {
+        try {
+            var t = new URLSearchParams(window.location.search).get('theme');
+            if (t === 'glass' || t === 'light') {
+                document.documentElement.setAttribute('data-theme', 'light');
+            } else if (t === 'dark') {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            } else if (window.self !== window.top) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
+    })();
+    </script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -19,6 +43,108 @@
             --red: #ef4444;
             --orange: #f59e0b;
             --radius: 12px;
+            /* Values that used to be literals, tokenised so the light theme
+               below can restyle them without touching the element rules. */
+            --line-faint: rgba(255,255,255,0.04);
+            --panel-ghost: rgba(0,0,0,0.15);
+            --overlay: rgba(0,0,0,0.7);
+            --toggle-off: var(--bg3);
+            --douyin-bg: rgba(0,0,0,0.3);
+            --douyin-border: #ff0050;
+            --douyin-text: #ff6b8a;
+            --youtube-bg: rgba(255,0,0,0.1);
+            --youtube-border: #c00;
+            --youtube-text: #ff4444;
+            --tiktok-bg: rgba(0,0,0,0.3);
+            --tiktok-border: #69c9d0;
+            --tiktok-text: #69c9d0;
+            --website-bg: rgba(59,130,246,0.1);
+            --website-border: #3b82f6;
+            --website-text: #60a5fa;
+            /* Status inks for text on the page ground. The dashboard injects
+               --green/--orange/--red into embedded pages with !important at
+               their dark-theme values, so text reads its ink from these;
+               in dark they are the same colour. */
+            --green-ink: var(--green);
+            --orange-ink: var(--orange);
+            --red-ink: var(--red);
+        }
+        /* Light theme. Values mirror the dashboard's glass palette
+           (webui/static/style.css): ground #f7f8fa, white panels, ink #1e293b,
+           lines rgba(15,23,42,.1). Status and accent inks darken so they pass
+           contrast on white. Activated by data-theme="light" from the pre-paint
+           script above (URL ?theme=light|glass, or the dashboard's sync), or by
+           prefers-color-scheme when opened standalone — guarded so an explicit
+           data-theme always wins. The two blocks are intentionally verbatim
+           copies: CSS cannot share a declaration list between a media query
+           and an attribute selector. KEEP THEM IDENTICAL. */
+        :root[data-theme="light"] {
+            color-scheme: light;
+            --bg: #f7f8fa;
+            --bg2: #ffffff;
+            --bg3: #eef1f6;
+            --border: rgba(15,23,42,0.1);
+            --text: #1e293b;
+            --text2: #475569;
+            --accent: #0e7490;
+            --accent2: #7c5ce7;
+            --green: #15803d;
+            --red: #dc2626;
+            --orange: #b45309;
+            --line-faint: rgba(15,23,42,0.06);
+            --panel-ghost: rgba(15,23,42,0.03);
+            --overlay: rgba(15,23,42,0.35);
+            --toggle-off: #cbd5e1;
+            --douyin-bg: rgba(255,0,80,0.08);
+            --douyin-border: #ff0050;
+            --douyin-text: #be123c;
+            --youtube-bg: rgba(255,0,0,0.08);
+            --youtube-border: #c00;
+            --youtube-text: #b91c1c;
+            --tiktok-bg: rgba(105,201,208,0.15);
+            --tiktok-border: #69c9d0;
+            --tiktok-text: #0e7490;
+            --website-bg: rgba(59,130,246,0.1);
+            --website-border: #3b82f6;
+            --website-text: #1d4ed8;
+            --green-ink: #15803d;
+            --orange-ink: #b45309;
+            --red-ink: #dc2626;
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]) {
+                color-scheme: light;
+                --bg: #f7f8fa;
+                --bg2: #ffffff;
+                --bg3: #eef1f6;
+                --border: rgba(15,23,42,0.1);
+                --text: #1e293b;
+                --text2: #475569;
+                --accent: #0e7490;
+                --accent2: #7c5ce7;
+                --green: #15803d;
+                --red: #dc2626;
+                --orange: #b45309;
+                --line-faint: rgba(15,23,42,0.06);
+                --panel-ghost: rgba(15,23,42,0.03);
+                --overlay: rgba(15,23,42,0.35);
+                --toggle-off: #cbd5e1;
+                --douyin-bg: rgba(255,0,80,0.08);
+                --douyin-border: #ff0050;
+                --douyin-text: #be123c;
+                --youtube-bg: rgba(255,0,0,0.08);
+                --youtube-border: #c00;
+                --youtube-text: #b91c1c;
+                --tiktok-bg: rgba(105,201,208,0.15);
+                --tiktok-border: #69c9d0;
+                --tiktok-text: #0e7490;
+                --website-bg: rgba(59,130,246,0.1);
+                --website-border: #3b82f6;
+                --website-text: #1d4ed8;
+                --green-ink: #15803d;
+                --orange-ink: #b45309;
+                --red-ink: #dc2626;
+            }
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -50,6 +176,7 @@
         }
         .btn-primary {
             background: linear-gradient(135deg, var(--accent), var(--accent2));
+            background-color: var(--accent);
             color: #fff;
         }
         .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -97,7 +224,7 @@
             justify-content: space-between;
             align-items: center;
             padding: 16px 16px 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
+            border-bottom: 1px solid var(--line-faint);
         }
         .tracker-card-header-left { display: flex; align-items: center; gap: 10px; }
         .tracker-card-body { padding: 12px 16px; }
@@ -106,8 +233,8 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px 16px;
-            background: rgba(0,0,0,0.15);
-            border-top: 1px solid rgba(255,255,255,0.04);
+            background: var(--panel-ghost);
+            border-top: 1px solid var(--line-faint);
         }
 
         .platform-badge {
@@ -118,10 +245,10 @@
             font-weight: 700;
             text-transform: uppercase;
         }
-        .platform-douyin { background: rgba(0,0,0,0.3); border: 1px solid #ff0050; color: #ff6b8a; }
-        .platform-youtube { background: rgba(255,0,0,0.1); border: 1px solid #c00; color: #ff4444; }
-        .platform-tiktok { background: rgba(0,0,0,0.3); border: 1px solid #69c9d0; color: #69c9d0; }
-        .platform-website { background: rgba(59,130,246,0.1); border: 1px solid #3b82f6; color: #60a5fa; }
+        .platform-douyin { background: var(--douyin-bg); border: 1px solid var(--douyin-border); color: var(--douyin-text); }
+        .platform-youtube { background: var(--youtube-bg); border: 1px solid var(--youtube-border); color: var(--youtube-text); }
+        .platform-tiktok { background: var(--tiktok-bg); border: 1px solid var(--tiktok-border); color: var(--tiktok-text); }
+        .platform-website { background: var(--website-bg); border: 1px solid var(--website-border); color: var(--website-text); }
 
         .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
         .status-active { background: var(--green); box-shadow: 0 0 6px var(--green); }
@@ -149,12 +276,12 @@
             border-radius: 4px;
             font-size: 0.65rem;
             font-weight: 600;
-            background: rgba(6,182,212,0.15);
+            background: color-mix(in srgb, var(--accent) 15%, transparent);
             color: var(--accent);
-            border: 1px solid rgba(6,182,212,0.3);
+            border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
         }
-        .pipeline-tag.upload { background: rgba(139,92,246,0.15); color: var(--accent2); border-color: rgba(139,92,246,0.3); }
-        .pipeline-tag.error { background: rgba(239,68,68,0.15); color: var(--red); border-color: rgba(239,68,68,0.3); }
+        .pipeline-tag.upload { background: color-mix(in srgb, var(--accent2) 15%, transparent); color: var(--accent2); border-color: color-mix(in srgb, var(--accent2) 30%, transparent); }
+        .pipeline-tag.error { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red-ink); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
 
         .actions-cell { display: flex; gap: 6px; }
 
@@ -171,7 +298,7 @@
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.7);
+            background: var(--overlay);
             backdrop-filter: blur(4px);
             z-index: 1000;
             justify-content: center;
@@ -260,7 +387,7 @@
         .toggle-slider {
             position: absolute;
             inset: 0;
-            background: var(--bg3);
+            background: var(--toggle-off);
             border-radius: 20px;
             cursor: pointer;
             transition: background 0.2s;
@@ -297,7 +424,7 @@
         }
         .checkbox-pill input { display: none; }
         .checkbox-pill.checked {
-            background: rgba(6,182,212,0.15);
+            background: color-mix(in srgb, var(--accent) 15%, transparent);
             border-color: var(--accent);
             color: var(--accent);
         }
@@ -306,8 +433,8 @@
 
         .processed-badge {
             display: inline-block; padding: 2px 8px; border-radius: 10px;
-            font-size: 0.7rem; font-weight: 700; background: rgba(16,185,129,0.15);
-            color: var(--green); border: 1px solid rgba(16,185,129,0.3);
+            font-size: 0.7rem; font-weight: 700; background: color-mix(in srgb, var(--green) 15%, transparent);
+            color: var(--green-ink); border: 1px solid color-mix(in srgb, var(--green) 30%, transparent);
         }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -322,8 +449,8 @@
 
     <div class="stats-bar" id="stats-bar">
         <div class="stat-card"><div class="stat-value" id="stat-total">0</div><div class="stat-label">Tổng Tracker</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-active" style="color:var(--green)">0</div><div class="stat-label">Đang chạy</div></div>
-        <div class="stat-card"><div class="stat-value" id="stat-paused" style="color:var(--orange)">0</div><div class="stat-label">Tạm dừng</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-active" style="color:var(--green-ink)">0</div><div class="stat-label">Đang chạy</div></div>
+        <div class="stat-card"><div class="stat-value" id="stat-paused" style="color:var(--orange-ink)">0</div><div class="stat-label">Tạm dừng</div></div>
         <div class="stat-card"><div class="stat-value" id="stat-processed" style="color:var(--accent2)">0</div><div class="stat-label">Đã xử lý</div></div>
     </div>
 
@@ -379,7 +506,7 @@
             <div class="tab-panel" id="tab-process">
 
                 <!-- AI Provider Selection -->
-                <div style="background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:10px;padding:14px;margin-bottom:14px">
+                <div style="background:color-mix(in srgb, var(--accent) 6%, transparent);border:1px solid color-mix(in srgb, var(--accent) 20%, transparent);border-radius:10px;padding:14px;margin-bottom:14px">
                     <div style="font-size:0.78rem;font-weight:700;color:var(--accent);margin-bottom:10px">🤖 AI Phân tích nội dung</div>
                     <div class="form-row">
                         <div class="form-group" style="margin-bottom:0">
