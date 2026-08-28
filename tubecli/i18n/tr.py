@@ -225,3 +225,13 @@ MESSAGES = {
     "panel.api_start_tip": "Ayrıntılı hata günlüklerini görmek için: tubecli api start --lang tr (ayrı bir CMD'de) çalıştırmayı deneyin.",
     "panel.api_ready": "API sunucusu hazır!",
 }
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': 'Bu ajanın kendi yapay zekası: {model}',
+    'browser_ai.source.browser_default': 'Varsayılan tarayıcı yapay zekan: {model}',
+    'browser_ai.source.global_default': 'Varsayılan yapay zekan kullanılıyor: {model}',
+    'browser_ai.source.last_resort': 'Henüz yapay zeka seçilmedi — {model} kullanılıyor',
+})

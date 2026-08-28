@@ -192,7 +192,8 @@ If no solution is visible, return null. DO NOT ADD ANY TEXT OUTSIDE THE JSON.`;
  * @param {string} aiModel - Text AI model to use.
  * @returns {Promise<string>} - Generated comment.
  */
-export async function generateContextAwareComment(page, title, userInstruction = "", aiModel = "qwen:latest") {
+// aiModel = "" means "let the server resolve it" — see AIEngine.
+export async function generateContextAwareComment(page, title, userInstruction = "", aiModel = "") {
   try {
     const timestamp = Date.now();
     const screenshotPath = path.join(SCREENSHOT_DIR, `comment_context_${timestamp}.jpg`);

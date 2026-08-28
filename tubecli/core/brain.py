@@ -974,7 +974,12 @@ Rules:
 
     @staticmethod
     def _call_llm(agent: Dict, messages: List[Dict], temperature: float = 0.7) -> str:
-        model = agent.get("model") or agent.get("browser_ai_model") or "qwen:latest"
+        # Same chain as the browser: the agent's own pick, then the default
+        # browser AI, then the user's default AI. It ended in "qwen:latest",
+        # so an agent with no model of its own talked to an Ollama that is
+        # not running instead of the AI the user had already configured.
+        from tubecli.config import resolve_browser_ai_model
+        model = agent.get("model") or resolve_browser_ai_model(agent)
         
         # Load global keys if missing in agent dict
         cloud_keys = dict(agent.get("cloud_api_keys", {}) or {})

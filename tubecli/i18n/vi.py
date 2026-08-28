@@ -282,3 +282,13 @@ MESSAGES.update({
     'brain.llm_err_quota': 'Model đang bị giới hạn tần suất hoặc hết quota — chờ một lúc, hoặc đổi model/key khác.',
     'brain.llm_err_down': 'Nhà cung cấp model đang gặp sự cố — thử lại sau ít phút.',
 })
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': 'AI riêng của agent này: {model}',
+    'browser_ai.source.browser_default': 'AI duyệt web mặc định của bạn: {model}',
+    'browser_ai.source.global_default': 'Đang dùng AI mặc định của bạn: {model}',
+    'browser_ai.source.last_resort': 'Chưa chọn AI nào — tạm dùng {model}',
+})

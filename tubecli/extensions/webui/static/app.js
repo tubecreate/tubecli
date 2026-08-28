@@ -3240,11 +3240,11 @@ function showCreateAgent() {
     apiGet('/api/v1/settings').then(s => {
         const defaultModel = s?.default_model || 'qwen:latest';
         populateAgentModelDropdown('chatbot', defaultModel);
-        populateAgentModelDropdown('browser', defaultModel);
+        populateAgentModelDropdown('browser', '');
         setTimeout(updateScraperSettingsAIInfo, 100);
     }).catch(() => {
         populateAgentModelDropdown('chatbot', 'qwen:latest');
-        populateAgentModelDropdown('browser', 'qwen:latest');
+        populateAgentModelDropdown('browser', '');
         setTimeout(updateScraperSettingsAIInfo, 100);
     });
 }
@@ -3344,7 +3344,7 @@ async function openEditAgent(id, btn) {
         document.getElementById('modal-agent').classList.remove('hidden');
         // Load model dropdowns async (non-blocking, lazy)
         populateAgentModelDropdown('chatbot', d.model || 'qwen:latest');
-        populateAgentModelDropdown('browser', d.browser_ai_model || d.model || 'qwen:latest');
+        populateAgentModelDropdown('browser', d.browser_ai_model || '');
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -3709,8 +3709,19 @@ async function populateAgentModelDropdown(type, selectedModel) {
         _agentRenderCloud(sel, cloudProviders);
     }
 
-    // 4. Pre-select (insert if not found)
+    // 4. The browser picker must be able to show "nothing chosen". An agent
+    //    without its own browser AI inherits the dashboard's Default Browser AI,
+    //    and that state has to stay selectable — otherwise the first time anyone
+    //    opens this dialog the agent is pinned to whatever happened to be in the
+    //    box, and the fallback can never be reached again.
+    if (type === 'browser') {
+        sel.insertAdjacentHTML('afterbegin',
+            `<option value="">↩️ ${esc(T('agent_modal.browser_model_inherit', 'Use the default browser AI'))}</option>`);
+    }
+
+    // 5. Pre-select (insert if not found)
     _agentEnsureOption(sel, selectedModel);
+    if (type === 'browser' && !selectedModel) sel.value = '';
 }
 
 /**

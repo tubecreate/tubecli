@@ -898,16 +898,60 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     )
                     browser_process_manager.terminate(inst["instance_id"])
 
+            # Resolved once for the whole launch so the browser and the run log
+            # agree: the log used to record the agent's raw (usually empty) field
+            # while the browser was handed "qwen:latest".
+            from tubecli.config import resolve_browser_ai
+            browser_ai = resolve_browser_ai(agent)
+
+            # Hỏi TRƯỚC khi spawn: hồ sơ này có cửa nào mở được không. spawn()
+            # báo "running" ngay khi tiến trình node lên, nên một lượt chết sau
+            # một giây vẫn vào sổ như một lần mở thành công — 23/23 lượt hôm nay
+            # là vậy. Cùng một câu từ chối mà /launch và live view đang dùng, chỉ
+            # đọc đĩa nên không làm chậm vòng lịch.
+            refusal = None
+            try:
+                from tubecli.extensions.browser.routes import launch_refusal
+                refusal = launch_refusal(profile_name)
+            except Exception as _pe:
+                print(f"[Scheduler Callback] Preflight skipped: {_pe}")
+            if refusal:
+                reason = f"{refusal['code']}: {refusal['message']}"
+                print(f"[Scheduler Callback] Refusing to spawn '{profile_name}' — {reason}")
+                _group_log_routine(
+                    group_ctxs, agent,
+                    f"schedule {profile_name} — browser refused ({refusal['code']})",
+                    detail=refusal["message"][:400], ok=False)
+                if run_id:
+                    # Hai dòng, không phải một: `launch` giữ lý do thật để
+                    # tools/check_browsing.py và bảng nhóm đọc được, `end` đóng
+                    # lượt lại — không có tiến trình nào thì cũng không có monitor
+                    # nào đóng hộ, và lượt sẽ treo "running" vĩnh viễn.
+                    run_log.launch(
+                        run_id, agent.id,
+                        profile=profile_name,
+                        time_period=time_period,
+                        query=base_query,
+                        prompt=prompt,
+                        session_minutes=session_minutes,
+                        max_duration_sec=max_session_seconds,
+                        ai_model=browser_ai["model"],
+                        spawn_status="refused",
+                        error=reason,
+                    )
+                    run_log.end(run_id, agent.id, "refused", log_tail=reason)
+                return
             print(
                 f"[Scheduler Callback] Spawning browser profile '{profile_name}' "
-                f"for agent '{agent.name}' (max {max_session_seconds}s)..."
+                f"for agent '{agent.name}' (max {max_session_seconds}s) "
+                f"using AI {browser_ai['model']} (from {browser_ai['source']})..."
             )
             result = browser_process_manager.spawn(
                 profile=profile_name,
                 prompt=prompt,
                 headless=False,
                 manual=False,
-                ai_model=getattr(agent, "browser_ai_model", "qwen:latest"),
+                ai_model=browser_ai["model"],
                 context=context,
                 max_duration=max_session_seconds,
                 session_minutes=session_minutes,
@@ -922,6 +966,20 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             )
             if spawn_status == "error":
                 print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
+                # Tiến trình chết trong vòng 1 giây thì spawn() đã kèm log về đây.
+                # Nếu log nói khoá BAS hỏng, ghi lại ngay: đó là thứ duy nhất biến
+                # kiểm kê từ "chưa biết khoá còn sống không" thành "khoá đã chết",
+                # và nhờ đó lượt SAU bị preflight chặn thẳng thay vì lại spawn rồi
+                # lại ghi "running". Lưu ý cửa sổ 1 giây của process_manager.spawn:
+                # lỗi khoá thường nổ ở giây thứ ~10, lúc đó tiến trình đã được coi
+                # là "running" và log không đi qua đây nữa (xem tóm tắt).
+                try:
+                    from tubecli.extensions.browser.routes import note_launch_output
+                    note_launch_output(
+                        str(result.get("error") or "")
+                        + " " + str(result.get("log_output") or ""))
+                except Exception as _ke:
+                    print(f"[Scheduler Callback] Could not record BAS key verdict: {_ke}")
 
             # Kết thúc phần việc chạy được TRONG hàm này: trình duyệt lên hay
             # không. Phiên duyệt web sau đó do process_manager theo dõi và ghi
@@ -944,7 +1002,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     prompt=prompt,
                     session_minutes=session_minutes,
                     max_duration_sec=max_session_seconds,
-                    ai_model=getattr(agent, "browser_ai_model", ""),
+                    ai_model=browser_ai["model"],
                     spawn_status=spawn_status,
                     instance_id=instance_id or None,
                     pid=result.get("pid"),
@@ -1071,7 +1129,8 @@ class AgentCreateRequest(BaseModel):
     avatar_icon: Optional[str] = "SMART_TOY"
     avatar_type: Optional[str] = "bot"
     avatar_color: Optional[str] = "blue"
-    browser_ai_model: Optional[str] = "qwen:latest"
+    # "" = not chosen; resolve_browser_ai() answers instead.
+    browser_ai_model: Optional[str] = ""
     telegram_token: Optional[str] = ""
     telegram_chat_id: Optional[str] = ""
     messenger_token: Optional[str] = ""
@@ -1553,6 +1612,51 @@ async def check_for_updates(force: bool = False):
         return res
 
 
+# ── Browser AI ───────────────────────────────────────────────────
+
+def browser_ai_payload(agent=None) -> dict:
+    """resolve_browser_ai() plus a sentence a UI can print unmodified.
+
+    A UI that only had the agent's raw browser_ai_model showed an empty box
+    whenever the agent had not picked one, which reads as "broken" rather than
+    "inherited". source_label is the same answer in words — "Using your default
+    AI (deepseek-v4-flash)" — and `source` is there for anything that would
+    rather style it itself.
+    """
+    from tubecli.config import resolve_browser_ai, get_language
+    from tubecli.i18n import t, load_language
+
+    info = resolve_browser_ai(agent)
+    key = f"browser_ai.source.{info['source']}"
+    label = t(key, model=info["model"])
+    if label == key:
+        # Catalogue not loaded in this process yet (t() returns the key).
+        load_language(get_language())
+        label = t(key, model=info["model"])
+    info["source_label"] = label
+    return info
+
+
+@app.get("/api/v1/browser-ai/resolve")
+async def resolve_browser_ai_endpoint(agent_id: str = ""):
+    """Which AI will drive the browser, for an agent or for the defaults alone.
+
+    Called by the agent editor and by the Flow canvas to fill in the "inherited"
+    line under an unset browser-AI picker. Without agent_id it answers for the
+    settings alone, which is what the settings page needs to preview its own
+    fallback.
+    """
+    agent = None
+    if agent_id:
+        from tubecli.core.agent import agent_manager
+        agent = agent_manager.get(agent_id)
+        if not agent:
+            raise HTTPException(404, f"Agent {agent_id} not found")
+    payload = browser_ai_payload(agent)
+    payload["agent_id"] = agent_id
+    return payload
+
+
 # ── Agents ───────────────────────────────────────────────────────
 
 @app.get("/api/v1/agents")
@@ -1583,7 +1687,12 @@ async def get_agent(agent_id: str):
     agent = agent_manager.get(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
-    return agent.to_dict()
+    data = agent.to_dict()
+    # browser_ai_model is the agent's raw choice and is empty when it has none.
+    # This is what will actually run, and where it came from, so the editor can
+    # label the empty picker instead of leaving it blank.
+    data["browser_ai_resolved"] = browser_ai_payload(agent)
+    return data
 
 @app.post("/api/v1/agents")
 async def create_agent(req: AgentCreateRequest):
@@ -2228,28 +2337,24 @@ class ChatRequest(BaseModel):
 async def localai_chat_completions(req: Request):
     """
     Proxy endpoint used by browser extension (ai_engine.js).
-    Routes to the correct AI provider based on Global Settings default_model.
+
+    The request names the model when the caller resolved one (open.js is given
+    the agent's resolved browser AI on argv); otherwise resolve_browser_ai()
+    supplies it. The provider is then inferred from the model name.
     """
     import requests as _requests
-    from tubecli.config import get_setting
 
     data = await req.json()
     messages = data.get("messages", [])
 
-    # Read default model: try global_settings.json first, then settings.json
+    # Whose model? The caller's, when it names one. open.js is handed the model
+    # Python already resolved for that agent — and this proxy used to throw it
+    # away and use the global default for everybody, which is why an agent's own
+    # browser AI could never take effect. A caller that names nothing still gets
+    # the chain: default browser AI -> default AI -> last resort.
     import os as _os, json as _json
-    from tubecli.config import DATA_DIR
-    model = ""
-    global_settings_file = _os.path.join(str(DATA_DIR), "global_settings.json")
-    if _os.path.exists(global_settings_file):
-        try:
-            with open(global_settings_file, "r", encoding="utf-8") as f:
-                gs = _json.load(f)
-                model = gs.get("default_model", "")
-        except Exception:
-            pass
-    if not model:
-        model = get_setting("default_model", "qwen:latest")
+    from tubecli.config import DATA_DIR, resolve_browser_ai
+    model = resolve_browser_ai(str(data.get("model") or "").strip())["model"]
     lower_model = model.lower()
 
     # Load cloud API keys
@@ -2472,19 +2577,8 @@ async def localai_generate(req: Request):
     prompt = data.get("prompt", "")
     model = data.get("model", "")
 
-    if not model:
-        import os as _os, json as _json
-        from tubecli.config import DATA_DIR, get_setting
-        global_settings_file = _os.path.join(str(DATA_DIR), "global_settings.json")
-        if _os.path.exists(global_settings_file):
-            try:
-                with open(global_settings_file, "r", encoding="utf-8") as f:
-                    gs = _json.load(f)
-                    model = gs.get("default_model", "")
-            except Exception:
-                pass
-        if not model:
-            model = get_setting("default_model", "qwen:latest")
+    from tubecli.config import resolve_browser_ai
+    model = resolve_browser_ai(model)["model"]
 
     # Reuse the chat/completions logic by constructing a chat request
     from starlette.requests import Request as _Request

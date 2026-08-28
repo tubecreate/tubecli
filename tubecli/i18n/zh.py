@@ -230,3 +230,13 @@ MESSAGES = {
     "wizard.config_save_error": "保存配置时出错：{error}",
     "wizard.auto_set_ai_error": "无法自动更新代理模型：{error}",
 }
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': '该智能体自己的 AI：{model}',
+    'browser_ai.source.browser_default': '你的默认浏览器 AI：{model}',
+    'browser_ai.source.global_default': '正在使用你的默认 AI：{model}',
+    'browser_ai.source.last_resort': '尚未选择 AI —— 暂时使用 {model}',
+})

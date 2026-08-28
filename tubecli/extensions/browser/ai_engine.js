@@ -7,7 +7,9 @@ const LOCAL_AI_URL = `http://localhost:${TUBECLI_PORT}/api/v1/localai/chat/compl
  * AI Engine to map natural language prompts to browser action sequences.
  */
 export class AIEngine {
-  constructor(model = 'deepseek-r1:latest') {
+  // Empty is deliberate: the /localai proxy resolves an unnamed model against
+  // the user's default browser AI. A literal here would silently override it.
+  constructor(model = '') {
     this.model = model;
     this.actions = [
       { name: 'navigate', description: 'Go to a specific URL directly', params: ['url'] },

@@ -84,5 +84,10 @@ async def api_assign_model(req: AssignModelRequest):
     agent = agent_manager.get(req.agent_id)
     if not agent:
         raise HTTPException(404, f"Agent '{req.agent_id}' not found")
-    agent_manager.update(req.agent_id, model=req.model, browser_ai_model=req.model)
+    # Only the CHAT model. This also passed browser_ai_model=req.model, so
+    # assigning a chat model silently pinned the agent's browser AI to the same
+    # value — recording a choice the user never made, which is the exact state
+    # the browser-AI chain exists to undo. An agent that wants its own browser
+    # AI sets it through PUT /api/v1/agents/{id}; leaving it empty inherits.
+    agent_manager.update(req.agent_id, model=req.model)
     return {"status": "assigned", "agent_id": req.agent_id, "model": req.model}

@@ -315,3 +315,13 @@ MESSAGES.update({
     'brain.llm_err_quota': 'The model is rate-limited or out of quota — wait a moment, or switch to another model/key.',
     'brain.llm_err_down': 'The model provider is having an outage — try again in a few minutes.',
 })
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': "This agent's own AI: {model}",
+    'browser_ai.source.browser_default': 'Your default browser AI: {model}',
+    'browser_ai.source.global_default': 'Using your default AI: {model}',
+    'browser_ai.source.last_resort': 'No AI chosen yet — falling back to {model}',
+})

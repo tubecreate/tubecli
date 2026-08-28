@@ -361,11 +361,13 @@ EXTERNAL_PAGES = {
     "playlist_manager":   ["static/index.html"],
     "remix_studio":       ["static/remix.html"],
     "pod_studio":         ["static/studio.html", "static/settings.html"],
-    # graphic_studio's page follows the contract, but nobody can see it: its own
-    # engines/llm_analyzer.py does not parse (escaped triple quotes at line 54),
-    # so routes/graphic_routes.py cannot import and /graphic-studio 404s. The
-    # light blocks are still guarded here, so a fix to the import lands on a page
-    # that is already themed.
+    # graphic_studio's route is fixed and /graphic-studio now answers 200, so the
+    # page below has been checked in a real browser in all three modes. Its tokens
+    # carry a --gs- prefix on purpose: syncThemeToIframe offers its 38 names at
+    # plain :root from a sheet appended AFTER the page's own, so a page that spelt
+    # them --accent / --muted would lose its DARK values to the dashboard's
+    # (#3b82f6 -> #5276EB) while its light block, being more specific, kept its
+    # own. The prefix is what keeps the dark look byte-identical when embedded.
     "graphic_studio":     ["static/index.html"],
 }
 

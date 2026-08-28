@@ -418,7 +418,14 @@
                         </div>
                         <div id="test-default-ai-result" style="display:none; margin-top:8px; padding:8px 12px; border-radius:6px; font-size:0.82rem;"></div>
                         <div id="model-key-warning" style="display:none;margin-top:8px;padding:10px 14px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.82rem;color:var(--orange);"></div>
-                        <div class="field-hint" data-i18n="settings.model_desc">Default model for chat, browser AI, and system tasks</div>
+                        <div class="field-hint" data-i18n="settings.model_desc">Default model for chat and system tasks</div>
+                    </div>
+                    <div class="settings-field" style="margin-top:16px;">
+                        <label data-i18n="settings.browser_ai_model">Default Browser AI</label>
+                        <select id="set-browser-ai-model" onchange="autoSaveSetting('browser_ai_model', this.value, this)" style="width:100%;">
+                            <option value="" selected data-i18n="settings.loading_config">⏳ Đang tải cấu hình...</option>
+                        </select>
+                        <div class="field-hint" data-i18n="settings.browser_ai_model_hint">The AI that drives browser sessions when an agent has not picked its own.</div>
                     </div>
                 </div>
 
@@ -648,6 +655,7 @@
                             <option value="" disabled selected>⏳ Loading...</option>
                         </select>
                         <div id="agent-browser-model-warning" style="display:none;margin-top:6px;padding:8px 12px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.3);border-radius:8px;font-size:.8rem;color:var(--orange)"></div>
+                        <div class="field-hint" data-i18n="agent_modal.browser_model_hint" style="margin-top:6px">Leave this on the default to follow the Default Browser AI in Settings.</div>
                     </div>
 
                     <div class="form-row"><div class="form-group"><label data-i18n="agent_modal.avatar_type">Avatar Type</label><select id="agent-avatar-type"><option value="bot" data-i18n="agent_modal.avatar_type_bot">Bot</option><option value="human" data-i18n="agent_modal.avatar_type_human">Human</option></select></div><div class="form-group"><label data-i18n="agent_modal.avatar_color">Avatar Color</label><select id="agent-avatar-color"><option value="blue" data-i18n="agent_modal.avatar_color_blue">Blue</option><option value="red" data-i18n="agent_modal.avatar_color_red">Red</option><option value="green" data-i18n="agent_modal.avatar_color_green">Green</option></select></div><div class="form-group"><label data-i18n="agent_modal.language_label">🌐 Response Language</label><select id="agent-language"><option value="auto" data-i18n="agent_modal.lang_auto">Auto (follow system)</option><option value="vi">🇻🇳 Tiếng Việt</option><option value="en">🇺🇸 English</option><option value="zh">🇨🇳 中文 (简体)</option><option value="zh-TW">🇹🇼 中文 (繁體)</option><option value="ja">🇯🇵 日本語</option><option value="ko">🇰🇷 한국어</option><option value="es">🇪🇸 Español</option><option value="fr">🇫🇷 Français</option><option value="de">🇩🇪 Deutsch</option><option value="pt">🇧🇷 Português</option><option value="ru">🇷🇺 Русский</option><option value="ar">🇸🇦 العربية</option><option value="th">🇹🇭 ภาษาไทย</option><option value="id">🇮🇩 Bahasa Indonesia</option><option value="tr">🇹🇷 Türkçe</option></select><div class="field-hint" data-i18n="agent_modal.language_hint">Language for keywords, prompts & responses</div></div></div>

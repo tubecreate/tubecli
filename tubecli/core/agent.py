@@ -32,7 +32,11 @@ class Agent:
         avatar_icon: str = "SMART_TOY", 
         avatar_type: str = "bot",
         avatar_color: str = "blue",
-        browser_ai_model: str = "qwen:latest",
+        # Empty means "not chosen". The AI that drives this agent's browser
+        # is then resolve_browser_ai()'s answer — the user's default browser
+        # AI, or their default AI — instead of a model literal the agent was
+        # born holding and nobody ever picked.
+        browser_ai_model: str = "",
         # Tab 3: Telegram
         telegram_token: str = "",
         telegram_chat_id: str = "",
@@ -151,7 +155,9 @@ class Agent:
             "avatar_icon": self.avatar_icon,
             "avatar_type": self.avatar_type,
             "avatar_color": self.avatar_color,
-            "browser_ai_model": getattr(self, "browser_ai_model", "qwen:latest"),
+            # Reported raw, empty when unset. /api/v1/agents/{id} carries the
+            # resolved answer alongside it as "browser_ai_resolved".
+            "browser_ai_model": getattr(self, "browser_ai_model", "") or "",
             "telegram_token": self.telegram_token,
             "telegram_chat_id": self.telegram_chat_id,
             "messenger_token": self.messenger_token,

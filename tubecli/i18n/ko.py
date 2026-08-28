@@ -230,3 +230,13 @@ MESSAGES = {
     "wizard.config_save_error": "구성 저장 오류: {error}",
     "wizard.auto_set_ai_error": "에이전트 모델을 자동으로 업데이트할 수 없습니다: {error}",
 }
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': '이 에이전트 전용 AI: {model}',
+    'browser_ai.source.browser_default': '기본 브라우저 AI: {model}',
+    'browser_ai.source.global_default': '기본 AI 사용 중: {model}',
+    'browser_ai.source.last_resort': '선택된 AI가 없어 임시로 {model} 사용',
+})

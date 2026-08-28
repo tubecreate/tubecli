@@ -53,6 +53,11 @@ def _default_settings():
         port = "5295"
     return {
         "default_model": "qwen:latest",
+        # The AI that drives a browser session when the agent running it has not
+        # picked one. Empty means "not set" — callers fall through to
+        # default_model — so it must never be seeded with a model name here, or
+        # every install would silently claim the user chose it.
+        "browser_ai_model": "",
         "api_port": port,
         "api_base_url": f"http://localhost:{port}",
         "language": "en",
@@ -88,7 +93,16 @@ async def get_global_settings():
 async def save_global_settings(request: Request):
     body = await request.json()
     p = _settings_path()
-    existing = _DEFAULT_SETTINGS.copy()
+    # Only values that were actually chosen reach the disk. This used to start
+    # from _DEFAULT_SETTINGS.copy(), so saving ANY unrelated setting — a theme,
+    # a language, even the Default Browser AI picker itself — wrote
+    # "default_model": "qwen:latest" into global_settings.json. The browser-AI
+    # chain reads that file for step 3, so a fresh install poisoned its own
+    # fallback the first time the user saved anything, and then reported the
+    # dead Ollama model as the user's "default AI" with is_configured true.
+    # Defaults belong in _DEFAULT_SETTINGS and are merged on read, below and in
+    # GET; they are not a record of a decision anybody made.
+    existing = {}
     if os.path.exists(p):
         try:
             with open(p, "r", encoding="utf-8") as f:
@@ -109,7 +123,9 @@ async def save_global_settings(request: Request):
         except Exception:
             pass
 
-    return JSONResponse({"status": "success", "settings": existing})
+    # Callers still see the effective settings (defaults merged in), exactly as
+    # GET returns them — only what gets PERSISTED changed.
+    return JSONResponse({"status": "success", "settings": {**_DEFAULT_SETTINGS, **existing}})
 
 
 # ── Pipeline Monitor API ─────────────────────────────────────────

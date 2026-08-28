@@ -40,19 +40,11 @@ class BrowserNode(BaseNode):
         if not profile_name or profile_name == "default":
             profile_name = get_setting("default_browser_profile", "")
 
-        # 2. AI model: node config → global_settings.json → default
-        ai_model = self.config.get("ai_model", "")
-        if not ai_model:
-            global_settings_file = os.path.join(str(DATA_DIR), "global_settings.json")
-            if os.path.exists(global_settings_file):
-                try:
-                    with open(global_settings_file, "r", encoding="utf-8") as f:
-                        gs = _json.load(f)
-                        ai_model = gs.get("default_model", "")
-                except Exception:
-                    pass
-            if not ai_model:
-                ai_model = "qwen:latest"
+        # 2. AI model: node config → default browser AI → default AI → last
+        # resort. One resolver owns that chain; this node used to re-implement
+        # three of its four steps and end in "qwen:latest".
+        from tubecli.config import resolve_browser_ai_model
+        ai_model = resolve_browser_ai_model(self.config.get("ai_model", ""))
 
         return profile_name, ai_model
 

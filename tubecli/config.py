@@ -71,6 +71,10 @@ TEAM_MEMORY_DIR = MEMORY_DIR / "teams"
 
 # ── Defaults ─────────────────────────────────────────────────────────
 DEFAULT_API_PORT = 5295
+# The Ollama model the Ollama-only paths fall back to (ai_node,
+# model_agent_node, ai_workflow_builder — all three POST straight to
+# OLLAMA_BASE_URL, where a cloud model id would be meaningless). It is NOT
+# the browser AI fallback any more: that is resolve_browser_ai() below.
 DEFAULT_AI_MODEL = "qwen:latest"
 OLLAMA_BASE_URL = "http://localhost:11434"
 GIT_REPO_URL = "https://github.com/tubecreate/tubecli.git"
@@ -78,6 +82,45 @@ GIT_REPO_URL = "https://github.com/tubecreate/tubecli.git"
 # ── Port Settings ────────────────────────────────────────────────────
 PORT_SETTINGS_FILE = DATA_DIR / "api_port.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+
+# The dashboard's settings file. SETTINGS_FILE above is the CLI's; they are two
+# separate stores, and "default_model" lives in this one.
+GLOBAL_SETTINGS_FILE = DATA_DIR / "global_settings.json"
+
+# ── Which AI drives a browser session ────────────────────────────────
+#
+# One chain, four steps, resolved by resolve_browser_ai() and by nothing else:
+#
+#   1. the agent's own browser_ai_model
+#   2. global_settings.json "browser_ai_model"  — the default browser AI
+#   3. global_settings.json "default_model"     — the AI used everywhere else
+#   4. LAST_RESORT_AI_MODEL
+#
+# Missing, None, "" and whitespace all mean NOT SET at every step and fall
+# through to the next one.
+#
+# The chain used to be spelled out at nine call sites, each ending in the
+# literal "qwen:latest". That is an Ollama model, Ollama does not run on a
+# hosted TubeCLI server, and every agent that had never picked a browser AI was
+# pointed at it — so browser automation asked a model that never answers, and
+# the failure read as a broken browser rather than an unset preference.
+
+BROWSER_AI_SETTING = "browser_ai_model"
+GLOBAL_DEFAULT_MODEL_SETTING = "default_model"
+
+# Step 4. Reached only when the user has configured nothing at all.
+# Deliberately a cloud model: it fails with "No API key for Gemini", which names
+# something fixable in Dashboard -> Cloud API Keys, where "qwen:latest" failed
+# with a connection error to an Ollama most installs do not have.
+LAST_RESORT_AI_MODEL = "gemini-2.0-flash"
+
+# Values an agent was BORN with rather than ones a human picked. Agents created
+# before this chain existed stored "qwen:latest" the moment their form was
+# saved, because the editor pre-filled the box with it. Honouring that as a
+# choice would keep every existing agent pinned to the dead model, so at step 1
+# it counts as not set — but only when a later step actually has an answer, so a
+# user who really does run Ollama and set nothing else still gets qwen.
+LEGACY_UNCHOSEN_AI_MODELS = ("qwen:latest",)
 
 # ── Supported Languages ─────────────────────────────────────────
 SUPPORTED_LANGUAGES = ["zh", "zh-TW", "vi", "en", "ja", "ko", "es", "tr", "ru"]
@@ -170,6 +213,119 @@ def set_setting(key: str, value) -> bool:
         return True
     except Exception:
         return False
+
+
+def read_global_settings() -> dict:
+    """All of data/global_settings.json, or {} if it is missing or broken."""
+    try:
+        if GLOBAL_SETTINGS_FILE.exists():
+            with open(GLOBAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+    except Exception:
+        pass
+    return {}
+
+
+def get_global_setting(key: str, default_val=None):
+    """One key out of global_settings.json (the dashboard's settings store).
+
+    get_setting() reads settings.json, which is a different file. A caller after
+    "default_model" or "browser_ai_model" wants this one.
+    """
+    val = read_global_settings().get(key)
+    return default_val if val is None else val
+
+
+def set_global_setting(key: str, value) -> bool:
+    """Write one key into global_settings.json, preserving everything else."""
+    try:
+        GLOBAL_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        settings = read_global_settings()
+        settings[key] = value
+        with open(GLOBAL_SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
+def _agent_browser_ai_model(agent) -> str:
+    """The browser_ai_model an agent has stored, from whatever shape it is in.
+
+    Callers hold an Agent object (the scheduler), a plain dict (the brain), or
+    just the string itself (a node config, an argv value), so all three are
+    accepted here rather than converted at every call site.
+    """
+    if agent is None:
+        return ""
+    if isinstance(agent, str):
+        return agent.strip()
+    if isinstance(agent, dict):
+        return str(agent.get(BROWSER_AI_SETTING) or "").strip()
+    return str(getattr(agent, BROWSER_AI_SETTING, "") or "").strip()
+
+
+def resolve_browser_ai(agent=None) -> dict:
+    """Which AI drives this browser session, and WHY.
+
+    `agent` is an Agent, an agent dict, a bare model string, or None.
+
+    Returns the resolved model plus every step's raw value, so a UI can say
+    "using your default AI" instead of showing an empty box the user reads as
+    broken:
+
+        model            the model to actually use — never empty
+        source           "agent" | "browser_default" | "global_default"
+                         | "last_resort"
+        is_configured    False only when nothing at all was set (source
+                         "last_resort") — the one case worth warning about
+        agent_model      step 1, "" when unset
+        browser_default  step 2, "" when unset
+        global_default   step 3, "" when unset
+        last_resort      step 4, always present
+        ignored_legacy_model
+                         non-empty when the agent held a birth-default value
+                         ("qwen:latest") that was treated as unset, so the UI
+                         can say so instead of silently disagreeing with the
+                         value in the form
+    """
+    settings = read_global_settings()
+    browser_default = str(settings.get(BROWSER_AI_SETTING) or "").strip()
+    global_default = str(settings.get(GLOBAL_DEFAULT_MODEL_SETTING) or "").strip()
+
+    agent_model = _agent_browser_ai_model(agent)
+    ignored_legacy = ""
+    if (agent_model
+            and agent_model.lower() in LEGACY_UNCHOSEN_AI_MODELS
+            and (browser_default or global_default)):
+        ignored_legacy, agent_model = agent_model, ""
+
+    if agent_model:
+        model, source = agent_model, "agent"
+    elif browser_default:
+        model, source = browser_default, "browser_default"
+    elif global_default:
+        model, source = global_default, "global_default"
+    else:
+        model, source = LAST_RESORT_AI_MODEL, "last_resort"
+
+    return {
+        "model": model,
+        "source": source,
+        "is_configured": source != "last_resort",
+        "agent_model": agent_model,
+        "browser_default": browser_default,
+        "global_default": global_default,
+        "last_resort": LAST_RESORT_AI_MODEL,
+        "ignored_legacy_model": ignored_legacy,
+    }
+
+
+def resolve_browser_ai_model(agent=None) -> str:
+    """resolve_browser_ai() for a caller that only needs the model name."""
+    return resolve_browser_ai(agent)["model"]
 
 
 def ensure_data_dirs():

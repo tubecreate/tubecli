@@ -9,7 +9,8 @@ import path from 'path';
  */
 
 export class SessionManager {
-  constructor(minDurationMinutes = 10, userGoal = null, aiModel = 'qwen:latest', agentContext = null, profileName = 'default') {
+  // aiModel = '' means "let the server resolve it" — see AIEngine.
+  constructor(minDurationMinutes = 10, userGoal = null, aiModel = '', agentContext = null, profileName = 'default') {
     this.minDurationMs = minDurationMinutes * 60 * 1000;
     this.sessionId = null;
     this.startTime = null;

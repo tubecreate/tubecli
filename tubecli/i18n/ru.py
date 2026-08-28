@@ -230,3 +230,13 @@ MESSAGES = {
     "wizard.config_save_error": "Ошибка при сохранении конфигурации: {error}",
     "wizard.auto_set_ai_error": "Не удалось автоматически обновить модель агента: {error}",
 }
+
+# Where a browser session's AI came from (config.resolve_browser_ai). Shown
+# next to an agent's browser-AI picker: an empty picker reads as broken, so
+# the UI prints the inherited answer in words instead of leaving a blank.
+MESSAGES.update({
+    'browser_ai.source.agent': 'Собственный ИИ этого агента: {model}',
+    'browser_ai.source.browser_default': 'Ваш ИИ для браузера по умолчанию: {model}',
+    'browser_ai.source.global_default': 'Используется ваш ИИ по умолчанию: {model}',
+    'browser_ai.source.last_resort': 'ИИ ещё не выбран — используется {model}',
+})
