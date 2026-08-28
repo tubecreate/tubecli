@@ -191,14 +191,26 @@ def launch(run_id: str, agent_id: str, **fields: Any) -> None:
 
 def end(run_id: str, agent_id: str, outcome: str, return_code: Optional[int] = None,
         instance_id: Optional[str] = None, duration_sec: Optional[float] = None,
-        log_tail: Optional[str] = None) -> None:
-    """The process finished. outcome: completed | error | timeout_killed | failed."""
+        log_tail: Optional[str] = None,
+        warnings: Optional[List[str]] = None) -> None:
+    """The process finished. outcome: completed | error | timeout_killed | failed.
+
+    `warnings` is for a run that FINISHED yet should not read as clean — today
+    that means ANTIDETECT_OFF, a session the browser opened with no fingerprint
+    applied. Exit code 0 and a full History make it indistinguishable from a good
+    run, which is exactly how the anti-detect could stay silently off for weeks.
+    A warned run keeps its log_tail even when it completed, because the tail is
+    the evidence.
+    """
     event = {"kind": "end", "run_id": run_id, "ts": _now(), "agent_id": agent_id,
              "outcome": outcome, "return_code": return_code,
              "instance_id": instance_id}
     if duration_sec is not None:
         event["duration_sec"] = round(float(duration_sec), 1)
-    if outcome != "completed" and log_tail:
+    warns = [str(w) for w in (warnings or []) if w]
+    if warns:
+        event["warnings"] = warns[:10]
+    if (outcome != "completed" or warns) and log_tail:
         event["log_tail"] = _tail(log_tail)
     _append(event)
 
@@ -287,6 +299,10 @@ def list_for_agent(agent_id: str, days: int = 14, limit: int = 100) -> List[Dict
                 run["return_code"] = ended.get("return_code")
                 run["duration_sec"] = ended.get("duration_sec")
                 run["log_tail"] = ended.get("log_tail")
+                # Lượt chạy xong mà vẫn có cảnh báo (ANTIDETECT_OFF) phải nhìn thấy
+                # được ở tầng đọc, không thì nó lẫn hẳn vào các lượt sạch.
+                if ended.get("warnings"):
+                    run["warnings"] = ended.get("warnings")
             elif launched.get("spawn_status") == "error":
                 run["outcome"] = "launch_failed"
                 run["error"] = launched.get("error")

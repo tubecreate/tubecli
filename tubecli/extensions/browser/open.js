@@ -667,7 +667,12 @@ async function main() {
   const isHeadless = args['headless'] || false; // Run browser in headless mode
   const sessionMode = args['session'] || false; // Enable generative session mode
   const minSessionMinutes = parseInt(args['session-duration']) || 10;
-  const aiModel = args['ai-model'] || 'deepseek-r1:latest'; // NEW: AI model for browser automation
+  // Python resolves which AI drives this session (the agent's own pick, then
+  // the default browser AI, then the user's default AI) and passes the answer
+  // on argv, so there is no chain to repeat here. Empty means Python had
+  // nothing either: send no model and let the /localai proxy decide, rather
+  // than naming a model nobody chose.
+  const aiModel = args['ai-model'] || '';
   const cliTags = args['tags']; // Raw CLI arg for overrides
   const instanceId = args['instance-id'] || null; // Instance ID from BrowserProcessManager
   const proxyArg = args['proxy'] || ''; // CLI override
@@ -1595,9 +1600,9 @@ async function main() {
       // 5. Session Mode - Continue generating actions until minimum duration reached
       if (sessionMode) {
         // 5. Start Session Mode (if enabled)
-        // Parse model from args, default to qwen:latest if not set
-        // FIX: Use args['ai-model'] passing from Python, fallback to args.model or default
-        const sessionAiModel = args['ai-model'] || args.model || 'qwen:latest';
+        // Already resolved on the Python side; empty means "unset there too",
+        // which the /localai proxy resolves again rather than us guessing here.
+        const sessionAiModel = args['ai-model'] || args.model || '';
         const minSessionMinutes = parseInt(args['session-duration']) || 10;
         
         console.log(`\n=== SESSION MODE ENABLED (${minSessionMinutes} min minimum) ===\n`);

@@ -958,8 +958,21 @@ process.on('uncaughtException', (err) => {
                 // khung live view không bao giờ mở. Lấy cổng khác.
                 cdpPort = 0;
                 
-                // Clear fingerprint on fatal fingerprint error or incorrect format
-                if (e.message === 'FINGERPRINT_FATAL_ERROR' || e.message.toLowerCase().includes('fingerprint') || e.message.toLowerCase().includes('incorrect format')) {
+                // Xoa van tay la hanh dong PHA DU LIEU: van tay on dinh chinh la
+                // danh tinh chong phat hien cua profile, mat la mat luon.
+                // Ban cu so khop NGUYEN THAN loi voi chuoi "fingerprint". Moi lan mo
+                // ShardX deu truyen --fingerprint-profile=<duong dan>, con Playwright thi
+                // nhet ca dong lenh vao thong bao loi ("spawn EINVAL" roi "Call log: -
+                // <launching> chrome.exe --fingerprint-profile=..."), nen chi can engine
+                // chet la van tay bi thoi bay oan. Workflow nay day THEM rat nhieu profile
+                // sang ShardX nen cai bay do no thuong xuyen hon.
+                // Chi tin hai bang chung: co do chinh ta gan khi engine that su tu choi van
+                // tay, hoac DONG DAU cua loi (headline, khong kem dong tham so).
+                const fpErrHead = String(e.message || '').split('\n')[0].toLowerCase();
+                if (e.code === 'FINGERPRINT_INVALID'
+                    || e.message === 'FINGERPRINT_FATAL_ERROR'
+                    || fpErrHead.includes('fingerprint')
+                    || fpErrHead.includes('incorrect format')) {
                     log(`Fingerprint error detected. Deleting saved fingerprint for profile ${profileName} and re-fetching...`);
                     try {
                         const fingerprintPath = path.join(storageDir, 'fingerprint_saved.json');

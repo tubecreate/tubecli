@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
@@ -698,3 +699,430 @@ def preflight() -> Optional[str]:
             + f".\nRun: {manual_install_hint(LINUX_APT_PACKAGES.split())}"
         )
     return None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# KIỂM KÊ NHÂN (engine inventory) — MỘT nguồn sự thật cho cả hai họ nhân
+#
+# Vì sao phần BAS lại nằm trong file tên shardx_runtime: câu hỏi "profile mới ghim
+# nhân nào" chỉ trả lời đúng khi NHÌN CẢ HAI HỌ NHÂN CÙNG MỘT LÚC. Trước đây kiến
+# thức về BAS nằm riêng trong profile_manager (bảng quy đổi + quét thư mục) còn
+# kiến thức về ShardX nằm ở đây; mỗi bên chỉ nắm một nửa sự thật mà vẫn tự tin trả
+# lời, nên một máy không dùng nổi BAS vẫn đóng dấu ghim BAS lên mọi profile mới.
+# Gộp về một chỗ để không còn hai nửa sự thật cãi nhau.
+#
+# Ba khái niệm, đừng lẫn:
+#   installed = nhân có mặt trên đĩa máy này.
+#   usable    = có mặt VÀ mở được NGAY BÂY GIỜ. Với BAS khắt khe hơn installed:
+#               engine cài đủ mà khoá bản quyền hết hạn thì mọi lượt mở đều chết —
+#               đúng cảnh máy Windows này, 23/23 lượt duyệt web mở được 0 trang.
+#   pin       = đúng chuỗi ghi vào config.json "browser_version" cho nhân đó.
+#
+# Nền tảng (Windows/Linux/macOS) KHÔNG phải một luật ở tầng trên. Nó chỉ là một
+# đầu vào của cờ `usable` bên nhánh BAS (supports_bas). "Linux không có BAS" tự rơi
+# ra: binding BAS khai os=win32 nên ở đó không bao giờ cài được, và thư mục engine
+# BAS cũng không tồn tại — không cần một luật `if platform == linux` nào cả.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# BAS đánh số engine riêng (30.2.0...), phải quy ra số Chromium thì
+# browser_manager.js mới tìm đúng thư mục engine. Bảng này trước nằm inline trong
+# profile_manager.py; dời về đây để chỉ còn một bản.
+BAS_TO_CHROMIUM = {
+    "30.2.0": "149.0.7827.54",
+    "30.1.0": "148.0.7778.97",
+    "30.0.0": "147.0.7727.56",
+    "29.9.2": "146.0.7680.80",
+    "29.8.1": "145.0.7632.46",
+    "29.7.0": "144.0.7559.60",
+    "29.5.0": "142.0.7444.60",
+}
+
+_BAS_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+# Hạn của phán quyết về khoá BAS, tính bằng giây.
+#
+# "bad" giữ 6 giờ: một khoá vừa báo hết hạn thì vài phút sau vẫn hết hạn, nên hỏi
+# lại liên tục chỉ tổ đẻ thêm profile chết. Nhưng khoá CÓ thể được gia hạn trong
+# ngày, nên khoá cứng cả tuần lại giấu mất việc nó đã sống lại. 6 giờ = tự thử lại
+# vài lần mỗi ngày mà không tốn gì.
+#
+# "ok" giữ 24 giờ: khoá sáng nay mở được thì gần như chắc chắn chiều nay vẫn mở
+# được, và mỗi lượt mở thành công lại làm mới dấu. Nếu khoá hết hạn giữa chừng,
+# lượt mở hỏng đầu tiên gọi mark_bas_key_bad() và hệ thống tự sửa ngay sau MỘT lần
+# hỏng, chứ không phải sau 23 lần.
+BAS_KEY_BAD_TTL = 6 * 3600
+BAS_KEY_OK_TTL = 24 * 3600
+
+
+def bas_engine_dir() -> Path:
+    """Thư mục engine BAS: <extensions/browser>/data/script."""
+    return Path(__file__).resolve().parent / "data" / "script"
+
+
+def installed_bas_versions() -> list:
+    """Số engine BAS đã cài trên máy (mới nhất trước), ví dụ ['30.2.0', '30.1.0']."""
+    root = bas_engine_dir()
+    try:
+        if not root.is_dir():
+            return []
+        names = [p.name for p in root.iterdir()
+                 if p.is_dir() and _BAS_VERSION_RE.match(p.name)]
+    except OSError:
+        return []
+    return sorted(names, key=_version_key, reverse=True)
+
+
+def bas_chromium_for(bas_version: str) -> str:
+    """Số Chromium tương ứng một engine BAS.
+
+    Engine mới hơn bảng tra vẫn là engine CÓ THẬT, nên vẫn ghim được; chỉ là không
+    biết đích danh số Chromium — lấy số cao nhất đã biết thay vì trả None và giả vờ
+    engine không tồn tại. Tính từ chính bảng, không chép cứng lại một con số.
+    """
+    known = BAS_TO_CHROMIUM.get(str(bas_version))
+    if known:
+        return known
+    return max(BAS_TO_CHROMIUM.values(), key=_version_key)
+
+
+def shardx_pin(version: str = "") -> str:
+    """Chuỗi ghim ShardX, ĐÚNG dạng bộ chọn phiên bản sinh ra (routes.py:705).
+
+    Dạng chuỗi mới là thứ quyết định, không phải con số: browser_manager.js:1256
+    định tuyến engine bằng đúng một phép thử `targetChromiumVer.includes('ShardX')`.
+    Một số trần — dù là số Chromium chính xác — rơi thẳng vào nhánh BAS.
+    """
+    return "ShardX " + (str(version).strip() or FALLBACK_VERSION)
+
+
+# ------------------------------------------------------------------ khoá BAS
+
+def _engine_state_file() -> Optional[Path]:
+    """Nơi ghi phán quyết runtime về khoá BAS.
+
+    CỐ Ý không ghi vào data/global_settings.json: file đó là cấu hình do người dùng
+    sửa và bị trang Cài đặt ghi đè NGUYÊN file, nên nhét trạng thái runtime vào đó
+    thì sớm muộn cũng mất — hoặc tệ hơn, làm mất cấu hình của người dùng.
+    """
+    try:
+        from tubecli.config import EXTENSIONS_DATA_DIR
+        return Path(str(EXTENSIONS_DATA_DIR)) / "browser" / "engine_key_state.json"
+    except Exception:
+        return None
+
+
+def _read_engine_state() -> dict:
+    path = _engine_state_file()
+    if not path:
+        return {}
+    try:
+        import json as _json
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_engine_state(state: dict) -> bool:
+    path = _engine_state_file()
+    if not path:
+        return False
+    try:
+        import json as _json
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_json.dumps(state, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _local_bas_key() -> str:
+    """Khoá BAS người dùng tự đặt, hoặc "".
+
+    Đọc đúng hai chỗ mà routes.py:_get_bas_key() (:579) và
+    browser_manager.fetchServiceKey() (:616) đọc, để ba nơi không lệch nhau.
+    """
+    try:
+        import json as _json
+        from tubecli.config import DATA_DIR
+        path = Path(str(DATA_DIR)) / "global_settings.json"
+        if not path.exists():
+            return ""
+        settings = _json.loads(path.read_text(encoding="utf-8"))
+        key = (settings.get("bas_fingerprint_key")
+               or (settings.get("browser_service_keys") or {}).get("bas") or "")
+        return str(key).strip()
+    except Exception:
+        return ""
+
+
+def _bas_key_id(key: str) -> str:
+    """Danh tính của khoá đang dùng — KHÔNG BAO GIỜ lưu chính khoá.
+
+    Phán quyết được gắn với danh tính này, nên khi người dùng dán khoá MỚI thì dấu
+    "hỏng" của khoá cũ hết hiệu lực ngay, không phải chờ hết TTL.
+    """
+    if not key:
+        # Không có khoá riêng: browser_manager tự xin khoá DÙNG CHUNG ở key.php.
+        return "shared"
+    import hashlib
+    return "local:" + hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+
+
+def bas_key_state() -> dict:
+    """Khoá BAS hiện dùng có mở được máy không — TRẢ LỜI KHÔNG TỐN LƯỢT MẠNG.
+
+    Cố ý KHÔNG có đường thăm dò qua mạng. key.php trả về một chuỗi khoá chỉ chứng
+    minh có một chuỗi được phục vụ, không chứng minh chuỗi đó còn hiệu lực: đúng
+    máy Windows này tải khoá dùng chung về trơn tru rồi chết lúc mở với "Key
+    expired". Bằng chứng duy nhất đáng tin là kết quả một lượt mở THẬT, do
+    mark_bas_key_ok()/mark_bas_key_bad() ghi lại.
+
+    Bất đối xứng có chủ ý ở nhánh "chưa biết": khi không có khoá riêng và chưa lượt
+    mở nào xác nhận khoá dùng chung, BAS bị coi là CHƯA dùng được. Đoán sai về phía
+    ShardX tốn 0 đồng (ShardX không cần khoá, đã cài, mở được); đoán sai về phía
+    BAS tốn TOÀN BỘ số trang — 23/23 lượt mở 0 trang. Và đây chỉ chặn BAS làm MẶC
+    ĐỊNH: người dùng vẫn tự chọn BAS được, một lượt mở thành công tự bật lại.
+    """
+    key = _local_bas_key()
+    key_id = _bas_key_id(key)
+    source = "settings" if key else "shared"
+    out = {
+        "key_id": key_id,
+        "source": source,
+        "available": False,
+        "verdict": "unknown",
+        "checked_at": None,
+        "why_not": "",
+        "reason": "",
+    }
+
+    rec = _read_engine_state().get("bas_key") or {}
+    if isinstance(rec, dict) and rec.get("key_id") == key_id:
+        import time
+        verdict = str(rec.get("verdict") or "")
+        try:
+            at = float(rec.get("at") or 0)
+        except (TypeError, ValueError):
+            at = 0.0
+        age = time.time() - at
+        ttl = BAS_KEY_BAD_TTL if verdict == "bad" else BAS_KEY_OK_TTL
+        if verdict in ("ok", "bad") and 0 <= age < ttl:
+            out["verdict"] = verdict
+            out["checked_at"] = at
+            out["reason"] = str(rec.get("reason") or "")
+            out["available"] = verdict == "ok"
+            if verdict == "bad":
+                out["why_not"] = (out["reason"]
+                                  or "khoá BAS vừa báo lỗi ở lần mở gần nhất")
+            return out
+
+    if source == "settings":
+        # Người dùng dán khoá vào Cài đặt là một hành động cố ý; chưa có bằng chứng
+        # nó hỏng thì tin họ. Lượt mở hỏng đầu tiên sẽ hạ nó xuống.
+        out["available"] = True
+        return out
+
+    out["why_not"] = ("chưa cấu hình khoá BAS riêng, và khoá dùng chung chưa lần nào "
+                      "mở được trên máy này")
+    return out
+
+
+def _mark_bas_key(verdict: str, reason: str = "") -> bool:
+    import time
+    state = _read_engine_state()
+    state["bas_key"] = {
+        "key_id": _bas_key_id(_local_bas_key()),
+        "verdict": verdict,
+        "at": time.time(),
+        "reason": str(reason or "")[:300],
+    }
+    return _write_engine_state(state)
+
+
+def mark_bas_key_bad(reason: str = "") -> bool:
+    """Ghi nhận một lượt mở vừa chết vì khoá BAS.
+
+    Gọi từ chỗ xử lý lỗi mở trình duyệt ("Key expired", "FingerprintSwitcher key is
+    missing"...). Trong BAS_KEY_BAD_TTL sau đó, kiểm kê thôi coi BAS là dùng được,
+    nên profile mới không còn bị đóng dấu ghim BAS nữa.
+    """
+    return _mark_bas_key("bad", reason)
+
+
+def mark_bas_key_ok() -> bool:
+    """Ghi nhận một lượt mở BAS THÀNH CÔNG — bằng chứng duy nhất khoá còn sống."""
+    return _mark_bas_key("ok")
+
+
+# -------------------------------------------------------------------- kiểm kê
+
+def _shardx_entries() -> list:
+    """ShardX không có khoá, không bản quyền: cài được là dùng được.
+
+    _launchShardX trong browser_manager.js không hề gọi setServiceKey hay plugin
+    nào, nên không có đường nào để một lượt mở ShardX chết vì khoá.
+    """
+    out = []
+    try:
+        versions = installed_versions() or []
+    except Exception:
+        versions = []
+    for v in versions:
+        out.append({
+            "family": "shardx",
+            "version": v,
+            "engine_version": v,
+            "pin": shardx_pin(v),
+            "installed": True,
+            "usable": True,
+            # Chạy được trên host này về mặt NHÂN (khác `usable`, còn tính cả khoá).
+            "runnable_here": True,
+            "why_not": "",
+        })
+    return out
+
+
+def _bas_entries() -> list:
+    try:
+        versions = installed_bas_versions() or []
+    except Exception:
+        versions = []
+    if not versions:
+        return []
+
+    try:
+        host_runs_bas = bool(supports_bas())
+    except Exception:
+        host_runs_bas = False
+    try:
+        key = bas_key_state()
+    except Exception:
+        # verdict để TRỐNG có chủ ý: xem ghi chú runnable_here bên dưới.
+        key = {"available": False, "why_not": "không đọc được trạng thái khoá BAS"}
+
+    if not host_runs_bas:
+        # Nền tảng chỉ được phép vào ĐÂY, như MỘT đầu vào của `usable` — không phải
+        # một luật định tuyến ở tầng trên.
+        why = "engine BAS chỉ có binary Windows, host này không chạy được"
+    elif not key.get("available"):
+        why = key.get("why_not") or "khoá BAS không dùng được"
+    else:
+        why = ""
+
+    out = []
+    for v in versions:
+        chromium = bas_chromium_for(v)
+        out.append({
+            "family": "bas",
+            "version": chromium,
+            "engine_version": v,
+            "pin": chromium,          # ghim BAS = số Chromium TRẦN, không tiền tố
+            "installed": True,
+            "usable": not why,
+            # Khác `usable` một bậc, và default_engine_pin() cần đúng bậc đó.
+            # `usable` = chắc chắn mở được (nhân chạy được + khoá CÓ bằng chứng
+            # còn sống). `runnable_here` = nhân chạy được trên host này, và ta ĐỌC
+            # ĐƯỢC trạng thái khoá, và không gì trong đó nói khoá đã chết.
+            #
+            # Đúng một ca thêm vào so với `usable`: verdict "unknown" — máy chỉ cài
+            # BAS, dùng khoá DÙNG CHUNG, chưa lượt mở nào ghi lại bằng chứng. Ở đó
+            # BAS là thứ DUY NHẤT mở được, nên bắt profile mới ghim ShardX chưa tải
+            # về là biến mọi hồ sơ mới thành không mở được — cùng con bug, đổi
+            # chiều. Lượt mở hỏng đầu tiên ghi verdict "bad" và ca này tự tắt.
+            #
+            # Cố ý KHÔNG nhận verdict rỗng/thiếu: đó là nhánh đọc trạng thái khoá
+            # BỊ LỖI ở trên. Không đọc được thì không mượn — mượn phải dựa trên
+            # hiểu biết, không dựa trên im lặng.
+            "runnable_here": bool(host_runs_bas
+                                  and str(key.get("verdict") or "") in ("ok", "unknown")),
+            "why_not": why,
+        })
+    return out
+
+
+def _entry_sort_key(entry: dict) -> tuple:
+    # Mới nhất trước; cùng số Chromium thì ShardX đứng trước vì nó không cần khoá.
+    return (_version_key(entry.get("version") or "0"),
+            1 if entry.get("family") == "shardx" else 0)
+
+
+def installed_engines() -> list:
+    """Mọi nhân CÓ MẶT trên máy này, mới nhất trước.
+
+    Mỗi mục: family ('shardx'|'bas'), version (số Chromium — để hai họ so được với
+    nhau), engine_version (số riêng của họ đó), pin (chuỗi ghi vào config.json),
+    installed, usable, runnable_here (nhân chạy được ở đây và chưa có bằng chứng
+    nào nói nó chết — bậc dự phòng của default_engine_pin), why_not.
+
+    Không bao giờ ném lỗi: người gọi thường đang dựng danh sách engine hoặc đang
+    TẠO PROFILE, và một exception ở đây chính là kiểu hỏng âm thầm đang phải sửa.
+    """
+    try:
+        entries = _shardx_entries() + _bas_entries()
+        return sorted(entries, key=_entry_sort_key, reverse=True)
+    except Exception:
+        return []
+
+
+def default_engine_pin() -> str:
+    """Chuỗi ghim cho profile MỚI: nhân MỚI NHẤT thực sự DÙNG ĐƯỢC trên máy này.
+
+    Ba bậc, xuống dần theo mức chắc chắn:
+
+    1. Nhân mới nhất `usable` — chắc chắn mở được. Đây là câu trả lời đúng ở gần
+       như mọi máy.
+    2. Không có nhân nào usable nhưng CÓ nhân đã cài mà host chạy được và chưa có
+       bằng chứng nó chết (`runnable_here`): ghim nhân đó. Bậc này tồn tại vì một
+       lớp máy thật: chỉ cài BAS, dùng khoá DÙNG CHUNG, khoá vẫn tốt nhưng chưa
+       lượt mở nào ghi lại bằng chứng nên verdict mãi "unknown". Bỏ bậc này thì
+       máy đó nhận ghim ShardX CHƯA TẢI VỀ, và mọi profile mới thành không mở
+       được — đúng kiểu hỏng mà lần sửa này đang dẹp, chỉ đổi chiều.
+    3. Không có gì để ghim: ghim ShardX bản đang phát hành. Chưa mở được ngay,
+       nhưng POST /engine/download/{version} tải đúng bản đó là xong — khác hẳn
+       một số Chromium trần, thứ đẩy profile vào nhánh BAS nơi không có đường cứu.
+    """
+    try:
+        entries = installed_engines()
+    except Exception:
+        entries = []
+    for entry in entries:
+        if entry.get("usable") and entry.get("pin"):
+            return str(entry["pin"])
+    for entry in entries:
+        if entry.get("runnable_here") and entry.get("pin"):
+            return str(entry["pin"])
+    try:
+        return shardx_pin(current_version())
+    except Exception:
+        return shardx_pin()
+
+
+def engine_inventory() -> dict:
+    """Kiểm kê ở dạng JSON, để phía JS và API dùng chung đúng một sự thật."""
+    engines = installed_engines()
+    try:
+        key = bas_key_state()
+    except Exception:
+        key = {"available": False, "verdict": "unknown", "why_not": "", "source": "shared"}
+    try:
+        host_runs_bas = bool(supports_bas())
+    except Exception:
+        host_runs_bas = False
+    try:
+        fp_ok = bool(fingerprints_installed())
+    except Exception:
+        fp_ok = False
+    try:
+        latest = current_version()
+    except Exception:
+        latest = FALLBACK_VERSION
+    import time
+    return {
+        "engines": engines,
+        "default_pin": default_engine_pin(),
+        "usable_count": sum(1 for e in engines if e.get("usable")),
+        "bas": {"host_supported": host_runs_bas, "key": key},
+        "shardx": {"latest_known": latest, "fingerprints_installed": fp_ok},
+        "generated_at": time.time(),
+    }

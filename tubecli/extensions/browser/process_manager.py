@@ -43,7 +43,7 @@ class BrowserProcessManager:
         prompt: str = "",
         headless: bool = False,
         manual: bool = True,
-        ai_model: str = "qwen:latest",
+        ai_model: str = "",
         url: str = "",
         context: Optional[Dict[str, Any]] = None,
         max_duration: Optional[int] = None,
@@ -61,6 +61,13 @@ class BrowserProcessManager:
         """
         instance_id = f"browser-{uuid.uuid4().hex[:8]}"
         debug_info = {}
+
+        # Every launcher in the codebase funnels through spawn(), so the chain is
+        # applied once here: whatever the caller passed (an agent's own model, or
+        # nothing at all) becomes a model that is actually configured. Callers
+        # that already resolved get the same answer — step 1 wins unchanged.
+        from tubecli.config import resolve_browser_ai_model
+        ai_model = resolve_browser_ai_model(ai_model)
 
         # Build command — expects browser-launcher in PATH or data dir
         args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes)
@@ -358,11 +365,71 @@ class BrowserProcessManager:
         # takes _instances_lock on every tick through _count_running_agent_browsers
         # -> list_running; holding it across a write would put disk latency on the
         # scheduling path.
+        #
+        # Đọc log MỘT lần ở đây, trước khi đóng sổ: đây là chỗ DUY NHẤT luôn thấy
+        # cả tiến trình kết thúc lẫn toàn bộ log của nó. Hai chỗ gọi cũ đều hụt —
+        # /log/{profile} chỉ chạy khi có người bấm xem, còn nhánh crash trong
+        # spawn() chỉ nhìn được cửa sổ 1 giây, mà lỗi khoá BAS nổ ở giây thứ ~10.
+        warnings = self._note_launch_evidence(log_path)
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
-                             started_at, log_path, profile)
+                             started_at, log_path, profile, warnings)
+
+    # Dấu mốc do browser_manager.js in ra. ĐỔI CHUỖI Ở ĐÂY LÀ PHẢI ĐỔI CẢ BÊN IN.
+    _MARK_BAS_OK = "BAS_LAUNCH_OK"
+    _MARK_ANTIDETECT_OFF = "ANTIDETECT_OFF"
+
+    def _note_launch_evidence(self, log_path):
+        """Đọc log một lượt vừa xong và rút ra hai sự thật nó biết mà không ai hỏi.
+
+        1. Khoá BAS còn sống hay đã chết. `shardx_runtime` không thăm dò qua mạng
+           được (key.php trả khoá về ngon lành rồi engine vẫn chết lúc mở), nên
+           phán quyết chỉ đến từ một lượt mở THẬT. Trước đây chỉ chiều "hỏng" có
+           người ghi; chiều "tốt" thì không, nên máy chỉ cài BAS chạy khoá dùng
+           chung mãi mãi bị coi là không dùng được và mọi profile mới ở đó bị ghim
+           sang một nhân chưa tải về.
+        2. Lượt này có bật chống phát hiện không. ANTIDETECT_OFF nghĩa là trình
+           duyệt đã mở mà KHÔNG áp dấu vân tay nào: mã thoát vẫn 0, History vẫn
+           đầy, không có dòng này thì nó không khác gì một lượt sạch.
+
+        Trả về danh sách cảnh báo để đính vào bản ghi run_log. Không bao giờ ném.
+        """
+        warnings = []
+        if not log_path:
+            return warnings
+        try:
+            if not os.path.exists(log_path):
+                return warnings
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()[-20000:]
+        except Exception:
+            return warnings
+        if not text:
+            return warnings
+
+        try:
+            from .routes import note_launch_output
+            verdict = note_launch_output(text)
+        except Exception as e:
+            verdict = None
+            logger.debug(f"[Browser] Could not read BAS key verdict: {e}")
+        if verdict != "bad" and self._MARK_BAS_OK in text:
+            # Chỉ ghi "tốt" khi log KHÔNG hề nói khoá hỏng: một phiên có thể mở
+            # được lúc đầu rồi khoá hết hạn giữa chừng, và bằng chứng xấu thắng.
+            try:
+                from . import shardx_runtime as sx
+                sx.mark_bas_key_ok()
+            except Exception as e:
+                logger.debug(f"[Browser] Could not record BAS key success: {e}")
+
+        if self._MARK_ANTIDETECT_OFF in text:
+            warnings.append(self._MARK_ANTIDETECT_OFF)
+            logger.warning(
+                "[Browser] Phiên vừa xong mở KHÔNG có dấu vân tay (ANTIDETECT_OFF) — "
+                f"log: {log_path}")
+        return warnings
 
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
-                        started_at, log_path, profile=""):
+                        started_at, log_path, profile="", warnings=None):
         """Close the run out in the durable log. Never raises into the monitor."""
         if not run_id:
             return   # a manual dashboard launch is not an agent run
@@ -377,7 +444,7 @@ class BrowserProcessManager:
                 pass
 
             tail = None
-            if outcome != "completed" and log_path:
+            if (outcome != "completed" or warnings) and log_path:
                 # Only on failure, and only the end of the file — this is what the
                 # owner would otherwise have to SSH in to read. run_log redacts it.
                 try:
@@ -387,12 +454,17 @@ class BrowserProcessManager:
                     tail = None
 
             run_log.end(run_id, agent_id or "", outcome, return_code=return_code,
-                        instance_id=instance_id, duration_sec=duration, log_tail=tail)
+                        instance_id=instance_id, duration_sec=duration, log_tail=tail,
+                        warnings=warnings)
             # Bảng cạnh nhóm mới là chỗ chủ máy thật sự nhìn. Trước đây nó chỉ có
             # "browser running" (spawn được) và im lặng mãi mãi sau đó — nên một phiên
             # chết sau 5 giây trông y hệt một phiên chạy trọn 8 phút. Ghi cả cái kết.
             if outcome != "completed":
                 self._log_group_failure(agent_id, profile, outcome, return_code, tail)
+            elif warnings:
+                # Chạy xong nhưng KHÔNG sạch. Bảng nhóm là chỗ chủ máy thật sự nhìn,
+                # nên một phiên mở trần phải hiện ở đó, không chỉ nằm trong log.
+                self._log_antidetect_warning(agent_id, profile, warnings)
         except Exception as e:
             logger.warning(f"[Browser] Could not record run end: {e}")
 
@@ -403,7 +475,7 @@ class BrowserProcessManager:
             if not agent_id:
                 return
             from tubecli.core import group_context, group_log
-            groups = group_context.groups_of_agent(agent_id) or []
+            groups = group_context.groups_for_agent(agent_id) or []
             if not groups:
                 return
             # Câu cuối cùng đáng đọc trong log của tiến trình: dòng lỗi thật, không
@@ -438,6 +510,40 @@ class BrowserProcessManager:
                                      title=title, detail=reason[:400], ok=False)
         except Exception as e:
             logger.warning(f"[Browser] Could not log session failure to group: {e}")
+
+    def _log_antidetect_warning(self, agent_id, profile, warnings):
+        """Phiên chạy TRỌN nhưng mở trần — vẫn phải hiện trên bảng nhóm.
+
+        Đây là ca nguy hiểm nhất vì nó không giống lỗi: mã thoát 0, History đầy,
+        báo cáo "thành công". Không nói ở đây thì chống phát hiện tắt hàng tuần
+        cũng không ai biết. Best effort tuyệt đối, như _log_group_failure.
+        """
+        try:
+            if not agent_id or self._MARK_ANTIDETECT_OFF not in (warnings or []):
+                return
+            from tubecli.core import group_context, group_log
+            groups = group_context.groups_for_agent(agent_id) or []
+            if not groups:
+                return
+            name = ""
+            try:
+                from tubecli.core.agent import agent_manager
+                a = agent_manager.get(agent_id)
+                name = getattr(a, "name", "") or ""
+            except Exception:
+                pass
+            title = (f"schedule {profile} — mở KHÔNG có dấu vân tay" if profile
+                     else "schedule — mở KHÔNG có dấu vân tay")
+            detail = ("Phiên chạy xong nhưng trình duyệt mở mà không áp dấu vân tay nào, "
+                      "nên lượt này KHÔNG ẩn danh: mọi hồ sơ trên máy trông giống hệt nhau. "
+                      "Xem dòng ANTIDETECT_OFF trong log của phiên.")
+            for g in groups:
+                gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
+                if gid:
+                    group_log.append(gid, agent_id, name, kind="schedule",
+                                     title=title, detail=detail, ok=False)
+        except Exception as e:
+            logger.warning(f"[Browser] Could not log antidetect warning to group: {e}")
 
     def get_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         with self._instances_lock:

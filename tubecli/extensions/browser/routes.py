@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, File, UploadFile, Form
 from pydantic import BaseModel
 from typing import Optional, List, Any, Dict
 import os
+import re
 import sys
 import platform
 import json
@@ -62,7 +63,9 @@ class LaunchRequest(BaseModel):
     url: str = ""
     headless: bool = False
     manual: bool = True
-    ai_model: str = "qwen:latest"
+    # Empty = "caller has no opinion"; spawn() resolves it against the
+    # default browser AI and then the user's default AI.
+    ai_model: str = ""
     context: Optional[dict] = None
 
 class StopRequest(BaseModel):
@@ -315,45 +318,332 @@ def is_profile_running(profile_name: str) -> bool:
         
     return is_running
 
+def shardx_pin(version: str) -> Optional[str]:
+    """Số phiên bản trong một chuỗi ghim ShardX, hay None nếu không phải ghim ShardX.
+
+    Phải tách CHÍNH XÁC như browser_manager.js:1153
+    (bỏ 'ShardX', bỏ tiếp dấu '-' và khoảng trắng đầu), vì UI ghi hai dạng:
+    routes.py:622 phát ra "ShardX <ver>" (dấu cách) cho browser_version và
+    "ShardX-<ver>" (gạch nối) cho bas_version. Lệch một ký tự là preflight đi tìm
+    thư mục engine khác với thư mục launcher thật sự mở.
+    """
+    v = str(version or "")
+    if "ShardX" not in v:
+        return None
+    return v.replace("ShardX", "", 1).lstrip().lstrip("-").strip()
+
+
+# Mỗi mã là MỘT câu người dùng làm được việc với nó. Thứ tự ở check_launch_blockers
+# đi từ "không đời nào chạy được" xuống "thiếu giấy phép".
+LAUNCH_BLOCKER_MESSAGES = {
+    "ENGINE_WINDOWS_ONLY": (
+        "This profile is pinned to a BAS (Security Browser) engine, and BAS ships "
+        "Windows binaries only — it cannot run on this system at all. There is no "
+        "ShardX engine installed here to run it on instead, so nothing can open "
+        "this profile yet. Download a ShardX engine from the Browser page (Engine "
+        "versions) — ShardX has a native build for this platform and needs no key "
+        "— and this profile will run on it."
+    ),
+    "SHARDX_ENGINE_MISSING": (
+        "This profile is pinned to a ShardX engine that is not downloaded on this "
+        "machine. Install it from the Browser page (Engine versions), then launch "
+        "again."
+    ),
+    "BAS_KEY_REQUIRED": (
+        "This profile uses a BAS engine, which needs a BAS Fingerprint "
+        "API key. Enter one in Settings, or create the profile with a "
+        "ShardX engine instead — ShardX is free and needs no key."
+    ),
+    "BAS_KEY_EXPIRED": (
+        "This profile's BAS engine has a fingerprint key that was REJECTED the "
+        "last time a browser actually tried to open (expired or invalid). Enter a "
+        "valid BAS key in Settings, or repin this profile to a ShardX engine — "
+        "ShardX needs no key. A single successful BAS launch clears this by itself."
+    ),
+    "PROXY_SOCKS5_AUTH_UNSUPPORTED": (
+        "This profile uses a SOCKS5 proxy with a username and password, and the "
+        "ShardX engine cannot authenticate to one: Chromium has no SOCKS5 login "
+        "support, so the credentials are dropped and every page fails with "
+        "ERR_PROXY_CONNECTION_FAILED. Use an HTTP/HTTPS proxy from the same "
+        "provider (same credentials usually work), or point this profile at an "
+        "unauthenticated SOCKS5 endpoint."
+    ),
+    "PROXY_FORMAT_UNSUPPORTED": (
+        "This profile's proxy is not in a form any engine can read. Use "
+        "scheme://user:password@host:port (or scheme://host:port with no login) "
+        "and one of http, https, socks5, socks4. The provider style "
+        "scheme://host:port:user:password is NOT understood — rewrite it with the "
+        "'@' form. Left as is, ShardX starts and every page fails with "
+        "ERR_NO_SUPPORTED_PROXIES."
+    ),
+}
+
+
+# Dạng proxy nào thật sự tồn tại trong hồ sơ, đo trên 102 thư mục
+# data/extensions_data/browser/browser_profiles: 76 có config.json, 14 có proxy —
+# 9 dạng "socks5://user:pass@host:port", 3 dạng nhà cung cấp
+# "socks5://host:port:user:pass" (một cái còn gõ nhầm scheme "sock5s"),
+# 1 http có mật khẩu, 1 socks5 trần. Tức 12/14 là SOCKS5 CÓ MẬT KHẨU.
+_PROXY_SCHEMES = ("http", "https", "socks5", "socks4")
+
+# scheme://user:pass@host:port — dạng chuẩn, dạng duy nhất normalizeProxy() để yên
+# mà vẫn đúng.
+_RE_PROXY_AT = re.compile(
+    r"^(?P<scheme>[a-z0-9]+)://(?P<user>[^:/@]+):(?P<password>[^:/@]*)@"
+    r"(?P<host>[^:/@]+):(?P<port>\d+)/?$", re.I)
+# scheme://host:port — không đăng nhập.
+_RE_PROXY_BARE = re.compile(
+    r"^(?P<scheme>[a-z0-9]+)://(?P<host>[^:/@]+):(?P<port>\d+)/?$", re.I)
+# scheme://host:port:user:pass — dạng nhà cung cấp Việt Nam hay phát.
+_RE_PROXY_COLON = re.compile(
+    r"^(?P<scheme>[a-z0-9]+)://(?P<host>[^:/@]+):(?P<port>\d+):"
+    r"(?P<user>[^:/@]+):(?P<password>[^:/@]+)/?$", re.I)
+
+
+def parse_proxy(raw: str) -> Optional[dict]:
+    r"""Đọc chuỗi proxy thành các phần, hoặc None khi không đọc nổi.
+
+    CỐ Ý không dùng lại browser_manager.normalizeProxy(): hàm đó đọc SAI thứ tự.
+    Regex của nó (browser_manager.js:1790) bắt bốn nhóm rồi gán
+    [user, pass, host, port], trong khi chuỗi nhà cung cấp thật sự là
+    [host, port, user, pass]. Nó không gây hại chỉ vì nhóm cuối bị ép phải là
+    chữ số, nên "…:24146:sObgXjw1:rC5CCCO5mIMz" không khớp và đi qua nguyên vẹn —
+    một lỗi được che bởi một lỗi khác. Sửa mỗi phần \d+ mà không đảo thứ tự sẽ
+    biến host thành user và đẩy hồ sơ ra một proxy không tồn tại.
+    """
+    v = str(raw or "").strip()
+    if not v:
+        return None
+    for form, rx in (("creds_at", _RE_PROXY_AT),
+                     ("bare", _RE_PROXY_BARE),
+                     ("colon", _RE_PROXY_COLON)):
+        m = rx.match(v)
+        if not m:
+            continue
+        g = m.groupdict()
+        scheme = g["scheme"].lower()
+        return {
+            "form": form,
+            "scheme": scheme,
+            "scheme_known": scheme in _PROXY_SCHEMES,
+            "host": g["host"],
+            "port": int(g["port"]),
+            "user": g.get("user") or "",
+            "password": g.get("password") or "",
+            "has_credentials": bool(g.get("user")),
+        }
+    return None
+
+
+def proxy_blocker(version: str, raw_proxy: str) -> Optional[str]:
+    """Proxy này có chạy được trên nhân đã ghim không — chỉ xét nhánh ShardX.
+
+    Đo thật bằng chính engine đã cài (149.0.7827.103, chrome.exe --headless
+    --dump-dom https://api.ipify.org):
+
+      • socks5://host:port:user:pass  → ERR_NO_SUPPORTED_PROXIES
+      • sock5s://…  (gõ nhầm scheme)  → ERR_NO_SUPPORTED_PROXIES
+      • socks5://host:port  (đã rụng mật khẩu, proxy đòi đăng nhập)
+                                      → ERR_PROXY_CONNECTION_FAILED
+      • http://host:port    (đã rụng mật khẩu, proxy đòi đăng nhập)
+                                      → ERR_PROXY_CONNECTION_FAILED
+      • không proxy                   → mở được, trả IP thật
+
+    Tin TỐT: KHÔNG có rò IP. Chromium từ chối hẳn chứ không âm thầm đi thẳng, nên
+    nỗi lo "chạy trần mà tưởng có proxy" là không đúng với nhân này. Tin xấu: cả
+    bốn ca hỏng đều mở trình duyệt thành công rồi mọi trang mới lỗi — nên lượt chạy
+    vẫn vào sổ là "running" và báo cáo vẫn nói thành công.
+
+    Vì sao chỉ chặn nhánh ShardX: đây là những gì ĐO ĐƯỢC. Nhánh BAS đưa nguyên
+    chuỗi cho plugin native (browser-with-fingerprints không hề kiểm định dạng —
+    src/plugin/utils.js:51 chỉ xem có phải string không), và BAS tự cắm proxy chứ
+    không qua --proxy-server, nên nó CÓ THỂ đăng nhập SOCKS5. Không kiểm chứng
+    được trên máy này vì khoá BAS đã hết hạn, và đoán bừa rồi chặn nhầm thì tệ hơn
+    là để launcher tự nói.
+
+    Vì sao http/https CÓ mật khẩu KHÔNG bị chặn ở đây: nó sửa được thật, bằng cách
+    chuyển sang tuỳ chọn `proxy` của Playwright (xem bản vá gửi Builder B). Chặn
+    một thứ sắp chạy được chỉ tổ phải gỡ ra ngay sau đó.
+    """
+    if not shardx_pin(version):
+        return None
+    info = parse_proxy(raw_proxy)
+    if raw_proxy and not info:
+        return "PROXY_FORMAT_UNSUPPORTED"
+    if not info:
+        return None
+    if not info["scheme_known"] or info["form"] == "colon":
+        return "PROXY_FORMAT_UNSUPPORTED"
+    if info["has_credentials"] and info["scheme"].startswith("socks"):
+        # Chromium không biết đăng nhập SOCKS5, và Playwright chặn thẳng ở
+        # node_modules/playwright-core/lib/server/browserContext.js:665
+        # ("Browser does not support socks5 proxy authentication"). Không có
+        # đường nào qua nếu không dựng một relay cục bộ.
+        return "PROXY_SOCKS5_AUTH_UNSUPPORTED"
+    return None
+
+
 def check_launch_blockers(profile_name: str) -> Optional[str]:
     """Why this profile cannot start, in words the user can act on.
 
-    A BAS profile with no local fingerprint has to call the licensed
-    fingerprint API. Without a key that call comes back "Query limit reached"
-    and the launcher dies about ten seconds later, leaving nothing on screen —
-    the reason only ever reached a log file. ShardX is free and keeps its
-    fingerprints locally, so it is never blocked here.
+    Ba lý do, chỉ dùng thông tin có sẵn trên đĩa (không gọi mạng — hàm này nằm
+    trên đường mở trình duyệt và trên preview_preflight):
+
+    1. ENGINE_WINDOWS_ONLY — hồ sơ ghim nhân BAS trên máy không chạy được BAS
+       VÀ máy đó cũng không có engine ShardX nào để mượn. BAS là nhị phân PE;
+       ngoài Windows không có cách nào chạy. Hỏi khoá vân tay ở đây là hỏi sai
+       câu: có khoá cũng vẫn không chạy. Nếu CÓ ShardX đã cài thì hàm này KHÔNG
+       từ chối — launcher mượn nhân ShardX và in ENGINE_SUBSTITUTED (xem chỗ gọi
+       supports_bas() bên dưới).
+
+    2. SHARDX_ENGINE_MISSING — ghim ShardX nhưng engine chưa tải. Không chặn thì
+       browser_manager.js:1200 ném lỗi BÊN TRONG try mà catch duy nhất (:1310)
+       chỉ console.warn, nên shardxExePath vẫn null, guard :1321 trượt, và hồ sơ
+       tụt âm thầm sang nhánh BAS — người dùng nhận "BAS engine, Windows only"
+       trong khi sự thật là "engine ShardX chưa tải".
+
+    3. BAS_KEY_REQUIRED — hồ sơ BAS trên Windows, không vân tay cục bộ, không
+       khoá. Cuộc gọi API vân tay trả "Query limit reached" và launcher chết sau
+       chừng mười giây, màn hình trống, lý do chỉ nằm trong log.
+
+    Ngoại lệ has_local_fp ở nhánh 3 CỐ Ý giữ nguyên: _get_bas_key() chỉ đọc
+    data/global_settings.json, còn browser_manager.fetchServiceKey() (:531) khi
+    file đó trống thì còn hỏi khoá dùng chung ở api.tubecreate.com. Python không
+    thấy khoá đó, nên siết nhánh này sẽ chặn nhầm những máy đang chạy được bằng
+    khoá chung. Khoá chung HẾT HẠN chỉ lộ ra lúc launch, và đó là chuyện của
+    run_log/log_tail, không phải của preflight.
     """
     from .profile_manager import PROFILES_DIR, get_profile
+    from . import shardx_runtime as sx
 
     config = get_profile(profile_name) or {}
     version = str(config.get("browser_version") or "")
-    if "ShardX" in version:
-        return None
+
+    shardx_ver = shardx_pin(version)
+    if shardx_ver:
+        try:
+            if not sx.is_installed(shardx_ver):
+                return "SHARDX_ENGINE_MISSING"
+        except Exception:
+            pass          # không chắc thì cho qua; launcher sẽ nói lý do thật
+        # Engine có rồi thì tới lượt proxy: ShardX mở được với proxy hỏng, và
+        # mở được là đủ để lượt chạy vào sổ "running" dù không trang nào tải nổi.
+        return proxy_blocker(version, config.get("proxy") or "")
+
+    # Không có "ShardX" trong chuỗi = ghim BAS, kể cả "" / "default" / số trần.
+    #
+    # Host không chạy được BAS thì CHƯA chắc là từ chối. browser_manager.js có sẵn
+    # nhánh mượn nhân: ghim BAS mà họ BAS không dùng được ở đây, nhưng máy CÓ engine
+    # ShardX, thì nó mở bằng ShardX và in ENGINE_SUBSTITUTED. Preflight chạy TRƯỚC,
+    # nên nếu ở đây cứ chặn thẳng thì nhánh kia thành mã chết và 63 hồ sơ ghim BAS
+    # cũ trên một VPS Linux có ShardX bị từ chối dù mở được. Hai tầng phải nói cùng
+    # một câu: chỉ từ chối khi KHÔNG có nhân nào mở nổi hồ sơ này.
+    try:
+        host_runs_bas = sx.supports_bas()
+    except Exception:
+        host_runs_bas = True      # không chắc thì cho qua; launcher sẽ nói lý do thật
+    if not host_runs_bas:
+        try:
+            borrowed = (sx.installed_versions() or [None])[0]
+        except Exception:
+            borrowed = None
+        if not borrowed:
+            return "ENGINE_WINDOWS_ONLY"
+        # Sẽ chạy bằng ShardX, nên phải xét proxy theo luật của ShardX — đúng nhân
+        # mà nó thật sự dùng, không phải nhân được ghim trên giấy.
+        return proxy_blocker(sx.shardx_pin(borrowed), config.get("proxy") or "")
 
     profile_dir = os.path.join(PROFILES_DIR, profile_name)
     has_local_fp = any(
         os.path.isfile(os.path.join(profile_dir, n))
         for n in ("fingerprint_saved.json", "fingerprint.json", "shardx_fingerprint.json")
     )
+    # Bằng chứng thắng suy đoán. Ngoại lệ has_local_fp bên dưới vẫn giữ (lý do ở
+    # docstring: _get_bas_key() mù với khoá dùng chung), nhưng nó KHÔNG được phép
+    # thắng một lượt mở thật đã chết vì khoá. Đo trên máy này: cả ba hồ sơ chạy
+    # theo lịch hôm nay (truyenhangdoc, chanquasdi, basmoi) đều CÓ
+    # fingerprint_saved.json, đều lọt preflight nhờ đúng ngoại lệ đó, và đều chết
+    # 23/23 lượt vì khoá BAS. Vân tay cục bộ tránh được cuộc gọi LẤY vân tay mới,
+    # nhưng engine vẫn kiểm khoá lúc mở — nên "có vân tay" chưa bao giờ là lý do
+    # để tin rằng khoá còn sống.
+    #
+    # Chỉ chặn khi verdict == "bad", tức một lượt mở THẬT đã hỏng vì khoá trong
+    # BAS_KEY_BAD_TTL gần đây, và đúng key_id đang dùng. Không suy ra từ việc
+    # "không thấy khoá trong global_settings.json" — đó mới là phép siết đã bị
+    # cảnh báo, vì browser_manager.fetchServiceKey() (:740) còn tải khoá dùng
+    # chung ở api.tubecreate.com mà Python không nhìn thấy.
+    try:
+        if (sx.bas_key_state() or {}).get("verdict") == "bad":
+            return "BAS_KEY_EXPIRED"
+    except Exception:
+        pass
+
     if has_local_fp or _get_bas_key():
         return None
     return "BAS_KEY_REQUIRED"
 
 
+# Câu chữ engine BAS ném ra khi khoá vân tay không dùng được. Lấy từ chính các
+# nhánh browser_manager.js:1597 đang bắt, cộng ca "key is missing" mà chưa test nào
+# phủ.
+_BAS_KEY_ERROR_MARKERS = (
+    "key expired",
+    "invalid key",
+    "fingerprintswitcher key is missing",
+    "query limit reached",
+)
+
+
+def note_launch_output(text: str) -> Optional[str]:
+    """Đọc log một lượt mở và ghi lại phán quyết về khoá BAS nếu thấy.
+
+    shardx_runtime.mark_bas_key_bad() là thứ DUY NHẤT biến bas_key_state() từ
+    "unknown" thành "bad", và cho tới giờ KHÔNG AI gọi nó — nên kiểm kê mãi mãi nói
+    "chưa biết" dù máy này đã hỏng 23/23 lượt. Đây là một chỗ gọi, không phải chỗ
+    tốt nhất: /log/{profile} chỉ chạy khi có người mở log. Chỗ đúng là monitor nền
+    trong process_manager.py, nơi luôn thấy tiến trình chết và đọc được log — nằm
+    ngoài phạm vi lần sửa này (xem tóm tắt).
+
+    Trả về mã đã ghi, hay None khi log không nói gì về khoá.
+    """
+    low = str(text or "").lower()
+    if not low:
+        return None
+    try:
+        from . import shardx_runtime as sx
+        if any(m in low for m in _BAS_KEY_ERROR_MARKERS):
+            # Cắt lấy đúng dòng chứa lỗi để reason đọc được, thay vì 5KB log.
+            reason = next((ln.strip() for ln in str(text).splitlines()
+                           if any(m in ln.lower() for m in _BAS_KEY_ERROR_MARKERS)), "")
+            sx.mark_bas_key_bad(reason)
+            return "bad"
+    except Exception:
+        pass
+    return None
+
+
+def launch_refusal(profile_name: str) -> Optional[dict]:
+    """Cùng một lời từ chối cho MỌI đường mở: /launch, live view, và lịch chạy.
+
+    Trước đây chỉ /launch biết diễn giải mã chặn, nên lượt theo lịch cứ spawn rồi
+    ghi "running" cho một tiến trình chết sau một giây.
+    """
+    code = check_launch_blockers(profile_name)
+    if not code:
+        return None
+    return {
+        "code": code,
+        "profile": str(profile_name),
+        "message": LAUNCH_BLOCKER_MESSAGES.get(
+            code, f"This profile cannot launch on this system ({code})."),
+    }
+
+
 @router.post("/launch")
 async def api_launch_browser(req: LaunchRequest):
-    blocker = check_launch_blockers(req.profile)
-    if blocker == "BAS_KEY_REQUIRED":
-        raise HTTPException(400, {
-            "code": "BAS_KEY_REQUIRED",
-            "profile": req.profile,
-            "message": (
-                "This profile uses a BAS engine, which needs a BAS Fingerprint "
-                "API key. Enter one in Settings, or create the profile with a "
-                "ShardX engine instead — ShardX is free and needs no key."
-            ),
-        })
+    refusal = launch_refusal(req.profile)
+    if refusal:
+        raise HTTPException(400, refusal)
 
     async with _launching_lock:
         if _is_launching(req.profile) or is_profile_running(req.profile):
@@ -482,6 +772,22 @@ async def api_browser_log(profile: str):
     else:
         log_content = f"Log file not found: {log_file}"
     
+    # Log đã đọc rồi thì đọc nốt xem nó có nói khoá BAS hỏng không — rẻ, và là
+    # cách duy nhất hiện có để kiểm kê biết khoá đã chết.
+    #
+    # CHỈ đọc log còn MỚI. Route này chạy mỗi lần có người bấm xem log, và nó lấy
+    # instance gần nhất của hồ sơ — không chặn thì một file log từ tuần trước cứ
+    # mỗi lần mở lại đóng dấu "khoá hỏng" một lần nữa, gia hạn lệnh chặn vô hạn
+    # dù khoá đã được thay. Quá BAS_KEY_BAD_TTL thì log đó hết là bằng chứng.
+    try:
+        import time as _t
+        from . import shardx_runtime as _sx
+        if log_file and os.path.exists(log_file):
+            if (_t.time() - os.path.getmtime(log_file)) < _sx.BAS_KEY_BAD_TTL:
+                note_launch_output(log_content)
+    except Exception:
+        pass
+
     return {
         "instance_id": instance.get("instance_id"),
         "status": instance.get("status"),
@@ -746,6 +1052,71 @@ async def api_engine_check_update(force: bool = True):
         return info
 
     return await asyncio.to_thread(_check)
+
+
+@router.get("/engine/inventory")
+async def api_engine_inventory():
+    """Nhân nào CÓ trên máy, nhân nào DÙNG ĐƯỢC, và profile mới sẽ ghim vào đâu.
+
+    Chỉ đọc, không chạm mạng, không sửa gì. Có route này để bảng điều khiển nói
+    được đúng một câu mà trước đây không ai nói: "BAS đã cài nhưng khoá hết hạn —
+    đang dùng ShardX". Trước đó UI chỉ có danh sách phiên bản, nên một nhân đã cài
+    mà không mở nổi trông y hệt một nhân lành, và người dùng cứ tạo tiếp profile
+    ghim vào nó.
+
+    Dùng lại nguyên shardx_runtime.engine_inventory() chứ không tự tính lại: điểm
+    của cả đợt sửa này là chỉ có MỘT chỗ định nghĩa "dùng được". summary chỉ là
+    cùng câu trả lời đó viết bằng tiếng Anh cho UI in thẳng.
+    """
+    from . import shardx_runtime as sx
+
+    def _read():
+        inv = sx.engine_inventory()
+        engines = inv.get("engines") or []
+        usable = [e for e in engines if e.get("usable")]
+        bas_all = [e for e in engines if e.get("family") == "bas"]
+        bas_usable = [e for e in bas_all if e.get("usable")]
+
+        # why_not của shardx_runtime viết bằng tiếng Việt; summary này là chuỗi
+        # tiếng Anh UI in thẳng, nên dựng lại lý do từ các trường có cấu trúc thay
+        # vì nhét why_not vào giữa một câu tiếng Anh. Lý do gốc vẫn còn nguyên
+        # trong từng mục engines[] cho ai muốn đọc.
+        bas_info = inv.get("bas") or {}
+        key_info = bas_info.get("key") or {}
+        if not bas_info.get("host_supported"):
+            bas_reason = "BAS ships Windows binaries only and cannot run on this system"
+        elif key_info.get("verdict") == "bad":
+            bas_reason = "its fingerprint key was rejected at the last launch (expired or invalid)"
+        elif not key_info.get("available"):
+            bas_reason = ("no BAS fingerprint key has proven to work here (none is "
+                          "configured locally, and the shared key has never opened a "
+                          "browser on this machine)")
+        else:
+            bas_reason = "no usable BAS engine"
+
+        if not engines:
+            summary = ("No browser engine is installed on this machine. Download a "
+                       "ShardX engine from the Browser page — it is free and needs no key.")
+        elif not usable:
+            summary = (f"Engines are installed but none can launch right now: {bas_reason}. "
+                       f"New profiles will be pinned to {inv.get('default_pin')}, which you "
+                       f"can install from the Browser page.")
+        elif bas_all and not bas_usable:
+            # Chính là ca trên máy này: BAS có 6 bản, không bản nào mở được.
+            summary = (f"BAS is installed ({len(bas_all)} version(s)) but not usable — "
+                       f"{bas_reason}. ShardX is being used instead; new profiles pin to "
+                       f"{inv.get('default_pin')}.")
+        else:
+            summary = (f"{len(usable)} of {len(engines)} installed engine(s) are usable. "
+                       f"New profiles pin to {inv.get('default_pin')}.")
+
+        inv["summary"] = summary
+        inv["success"] = True
+        return inv
+
+    # engine_inventory() chạm đĩa (quét thư mục engine, đọc engine_state) nên đẩy
+    # sang thread — event loop của FastAPI không nên chờ I/O đồng bộ.
+    return await asyncio.to_thread(_read)
 
 
 @router.post("/engine/download/{version}")

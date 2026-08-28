@@ -86,37 +86,45 @@ def list_profiles() -> List[Dict[str, Any]]:
     return profiles
 
 
+# Bản dự phòng khi CHÍNH câu import shardx_runtime nổ. Phải khớp
+# shardx_runtime.FALLBACK_VERSION; chỉ dùng ở nhánh "không đọc nổi module nào".
+_SHARDX_FALLBACK_VERSION = "149.0.7827.103"
+
+
 def resolve_default_browser_version() -> str:
-    """Resolve 'default' or 'latest' to the actual latest installed browser engine version."""
+    """Nhân mặc định cho profile mới — NHÂN quyết định, không phải nền tảng.
+
+    Cái quyết định một profile chạy đường nào là NHÂN ghim trên chính nó
+    (config.json "browser_version"), vì browser_manager.js định tuyến bằng đúng một
+    phép thử `targetChromiumVer.includes('ShardX')`. Nên câu hỏi ở đây chỉ có một:
+    trên máy này, nhân nào MỚI NHẤT mà THỰC SỰ DÙNG ĐƯỢC — và ghim đích danh nhân
+    đó. Không có "Linux thì ShardX, Windows thì BAS": nền tảng chỉ là một đầu vào
+    của "dùng được", nằm gọn trong shardx_runtime.installed_engines().
+
+    "Dùng được" khắt khe hơn "đã cài". Máy này cài đủ cả hai họ nhân, nhưng khoá
+    bản quyền BAS đã hết hạn nên mọi lượt mở BAS đều chết ở "Key expired" — kiểm kê
+    tính cả khoá, nên BAS ở đây là "đã cài, không dùng được".
+
+    Bản cũ không hỏi câu nào trong số đó: nó quét thư mục engine BAS rồi trả về một
+    số Chromium TRẦN, và hằng số cuối cùng `return "149.0.7827.54"` cũng là số
+    trần. Số trần chính là một cái ghim BAS. Nên máy không dùng nổi BAS vẫn đóng
+    dấu BAS lên MỌI profile mới — lỗi được đẻ ra ở đây, lúc TẠO profile, chứ không
+    phải lúc mở trình duyệt. Hàm này không bao giờ được phép trả về số trần nữa trừ
+    khi chính BAS đang dùng được.
+    """
     try:
-        ext_dir = os.path.dirname(__file__)
-        script_dir = os.path.join(ext_dir, "data", "script")
-        if os.path.isdir(script_dir):
-            dirs = [d for d in os.listdir(script_dir) if os.path.isdir(os.path.join(script_dir, d))]
-            import re
-            ver_dirs = [d for d in dirs if re.match(r'^\d+\.\d+\.\d+$', d)]
-            if ver_dirs:
-                # Sort versions descending
-                try:
-                    ver_dirs.sort(key=lambda s: list(map(int, s.split('.'))), reverse=True)
-                except Exception:
-                    pass
-                
-                latest_bas = ver_dirs[0]
-                # Map BAS version to Chromium version
-                ENGINE_MAP = {
-                    '30.2.0': '149.0.7827.54',
-                    '30.1.0': '148.0.7778.97',
-                    '30.0.0': '147.0.7727.56',
-                    '29.9.2': '146.0.7680.80',
-                    '29.8.1': '145.0.7632.46',
-                    '29.7.0': '144.0.7559.60',
-                    '29.5.0': '142.0.7444.60',
-                }
-                return ENGINE_MAP.get(latest_bas, '149.0.7827.54')
+        # Import muộn: shardx_runtime hỏng thì cũng không được phép làm chết việc
+        # tạo profile, nên nó nằm trong hàm chứ không ở đầu file.
+        from tubecli.extensions.browser import shardx_runtime as sx
+        pin = sx.default_engine_pin()
+        if pin:
+            return str(pin)
     except Exception as e:
-        print(f"[resolve_default_browser_version] Error: {e}")
-    return "149.0.7827.54"
+        print(f"[resolve_default_browser_version] engine inventory unusable: {e}")
+
+    # Không đọc được kiểm kê thì vẫn phải ghim một thứ CỨU ĐƯỢC: ShardX không cần
+    # khoá, có bản cho cả ba OS, và tải được bằng POST /engine/download/{version}.
+    return f"ShardX {_SHARDX_FALLBACK_VERSION}"
 
 
 def create_profile(name: str, proxy: str = "", browser_version: str = "latest", tags: List[str] = None,

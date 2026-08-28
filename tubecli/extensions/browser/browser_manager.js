@@ -27,6 +27,214 @@ import axios from 'axios';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
+// ── Dò engine ShardX ───────────────────────────────────────────────────────
+// Tách khỏi thân launch() vì BA chỗ cần cùng một câu trả lời: hồ sơ ghim ShardX,
+// hồ sơ ghim BAS chạy trên máy không phải Windows, và nhánh khoá BAS hết hạn.
+// Trước đây chỉ có một khối inline dò ĐÚNG một thư mục phiên bản, nên ghim trỏ
+// vào bản chưa tải là hết đường — dù máy đang có engine mới hơn.
+
+function shardxEngineRoot() {
+    const home = process.env.HOME || process.env.USERPROFILE;
+    if (process.platform === 'win32') {
+        const appdata = process.env.APPDATA || (home && path.join(home, 'AppData', 'Roaming'));
+        return appdata ? path.join(appdata, 'shardx-launcher') : null;
+    }
+    if (process.platform === 'darwin') {
+        return home ? path.join(home, 'Library', 'Application Support', 'shardx-launcher') : null;
+    }
+    return home ? path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'shardx-launcher') : null;
+}
+
+// So sánh theo SỐ, mới nhất đứng trước — cùng cách với resolver trong
+// script_runner.js (~:1667). Không so chuỗi: "9" sẽ bị xếp sau "10".
+// Dùng cho CẢ HAI họ engine (ShardX 149.0.7827.103, BAS 30.2.0).
+function engineVerCmp(a, b) {
+    const pa = String(a).split('.').map(Number);
+    const pb = String(b).split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pb[i] || 0) - (pa[i] || 0);
+        if (d) return d;
+    }
+    return 0;
+}
+
+// Bố cục thư mục khác nhau giữa bản do launcher tự cài và bản tải thẳng từ CDN,
+// nên phải thử từng kiểu.
+function shardxBinCandidates(verDir, ver) {
+    if (process.platform === 'win32') {
+        return [
+            path.join(verDir, `ShardX-Windows-${ver}`, 'chrome.exe'),
+            path.join(verDir, 'ShardX-Windows', 'chrome.exe'),
+            path.join(verDir, 'chrome.exe'),
+        ];
+    }
+    if (process.platform === 'darwin') {
+        return [
+            path.join(verDir, `ShardX-Mac-arm64-${ver}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
+            path.join(verDir, 'ShardX-Mac-arm64', 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
+        ];
+    }
+    return [
+        path.join(verDir, `ShardX-Linux-${ver}`, 'chrome'),
+        path.join(verDir, 'ShardX-Linux', 'chrome'),
+        path.join(verDir, 'chrome'),
+    ];
+}
+
+/**
+ * Trả về { exe, version } của một engine ShardX dùng được, hoặc null nếu máy
+ * không có engine nào. Ưu tiên đúng bản được ghim; không có thì lấy bản ĐÃ CÀI
+ * mới nhất. versionNum rỗng/không truyền nghĩa là "bản mới nhất đang có".
+ * Người gọi tự so resolved.version với bản ghim để báo khi phải thay engine.
+ */
+async function resolveShardxExe(versionNum) {
+    const engineRoot = shardxEngineRoot();
+    if (!engineRoot) return null;
+    const enginesDir = path.join(engineRoot, 'runtime', 'engines');
+    if (!await fs.pathExists(enginesDir)) return null;
+
+    const wanted = String(versionNum || '').replace(/ShardX/i, '').replace(/^\s*-\s*/, '').trim();
+
+    let versions = [];
+    try {
+        for (const name of await fs.readdir(enginesDir)) {
+            try {
+                if ((await fs.stat(path.join(enginesDir, name))).isDirectory()) versions.push(name);
+            } catch (e) { /* một mục lỗi thì bỏ qua, các mục khác vẫn dùng được */ }
+        }
+    } catch (e) {
+        return null;
+    }
+
+    const order = [];
+    if (wanted && versions.includes(wanted)) order.push(wanted);
+    for (const v of versions.filter(v => v !== wanted).sort(engineVerCmp)) order.push(v);
+
+    for (const ver of order) {
+        for (const cand of shardxBinCandidates(path.join(enginesDir, ver), ver)) {
+            if (!await fs.pathExists(cand)) continue;
+            // Archive nén trên Windows không mang bit execute của Unix: engine giải
+            // nén xong vẫn spawn hỏng với EACCES.
+            if (process.platform !== 'win32') {
+                try {
+                    await fs.chmod(cand, 0o755);
+                    const dir = path.dirname(cand);
+                    for (const helper of ['chrome_crashpad_handler', 'chrome_sandbox', 'chrome-sandbox']) {
+                        const hp = path.join(dir, helper);
+                        if (await fs.pathExists(hp)) await fs.chmod(hp, 0o755);
+                    }
+                } catch (e) {
+                    console.log(`[ShardX] Could not set exec bits on engine ${ver}: ${e.message}`);
+                }
+            }
+            return { exe: cand, version: ver };
+        }
+    }
+    return null;
+}
+
+// ── Ghim engine trên hồ sơ ─────────────────────────────────────────────────
+// NHÂN quyết định hồ sơ chạy đường nào, KHÔNG phải hệ điều hành: mọi config.json
+// đều đã ghi tên nhân trong `browser_version`. Nền tảng chỉ là MỘT yếu tố của câu
+// hỏi "nhân đó có dùng được trên máy này không".
+//
+// Trước đây quyết định gói gọn trong một phép thử chuỗi con PHÂN BIỆT HOA THƯỜNG
+// (`browser_version.includes('ShardX')`), nên ghim "shardx 149" hay "SHARDX-149"
+// rơi thẳng sang nhánh BAS rồi chết vì khoá — thông báo chẳng liên quan gì tới
+// nguyên nhân thật.
+function parseEnginePin(browserVersion) {
+    const raw = browserVersion == null ? '' : String(browserVersion).trim();
+    const low = raw.toLowerCase();
+    if (!raw || low === 'default' || low === 'latest') {
+        return { family: null, version: null, raw: raw || null };
+    }
+    if (/shardx/i.test(raw)) {
+        const version = raw.replace(/shardx/i, '').replace(/^\s*[-_]\s*/, '').trim();
+        return { family: 'shardx', version: version || null, raw };
+    }
+    return { family: 'bas', version: raw, raw };
+}
+
+// Engine BAS trên đĩa đặt tên theo phiên bản BAS (30.2.0) còn hồ sơ ghim theo
+// phiên bản CHROMIUM (149.0.7827.54), nên cần cả hai chiều. Để ở đây thay vì
+// trong thân launch() để nhánh quyết định engine và nhánh dò engine dùng CHUNG
+// một bảng.
+const BAS_ENGINE_MAP = {
+    '30.2.0': '149.0.7827.54',
+    '30.1.0': '148.0.7778.97',
+    '30.0.0': '147.0.7727.56',
+    '29.9.2': '146.0.7680.80',
+    '29.8.1': '145.0.7632.46',
+    '29.7.0': '144.0.7559.60',
+    '29.5.0': '142.0.7444.60',
+    '28.3.1': '138.0.7333.45',
+    '28.2.0': '137.0.7222.35'
+};
+const BAS_REVERSE_MAP = Object.fromEntries(Object.entries(BAS_ENGINE_MAP).map(([k, v]) => [v, k]));
+
+function basEngineDir() {
+    return path.join(path.dirname(fileURLToPath(import.meta.url)), 'data', 'script');
+}
+
+// Chỉ tính là "đã cài" khi có FastExecuteScript.exe: một lượt tải hỏng để lại
+// thư mục rỗng vẫn trông y như đã cài.
+async function installedBasVersions() {
+    const dir = basEngineDir();
+    if (!await fs.pathExists(dir)) return [];
+    let names = [];
+    try { names = await fs.readdir(dir); } catch (e) { return []; }
+    const out = [];
+    for (const name of names) {
+        if (!/^\d+\.\d+\.\d+$/.test(name)) continue;
+        if (await fs.pathExists(path.join(dir, name, 'FastExecuteScript.exe'))) out.push(name);
+    }
+    return out.sort(engineVerCmp);
+}
+
+// Dò trong HỌ BAS: đúng bản được ghim trước, không có thì bản đã cài mới nhất.
+// Cùng luật với resolveShardxExe ở trên, để hai họ hành xử giống nhau.
+async function resolveBasEngine(wantedVersion) {
+    const versions = await installedBasVersions();
+    if (!versions.length) return null;
+    const wanted = String(wantedVersion || '').trim();
+    const picked = (wanted && versions.includes(wanted)) ? wanted : versions[0];
+    return { version: picked, dir: path.join(basEngineDir(), picked) };
+}
+
+// "Cài rồi" CHƯA CHẮC "dùng được".
+//   - không có binding (gói browser-with-fingerprints khai os=win32) → BAS chết
+//     ngay khi gọi, không cần thử;
+//   - không có engine nào trong data/script → cũng chết.
+// Còn KHOÁ hết hạn thì không thể biết trước khi launch: BAS chỉ nói ra lúc mở.
+// Trường hợp đó xử ở nhánh isKeyError trong vòng retry, không phải ở đây.
+async function basUnusableReason() {
+    if (!plugin) {
+        return {
+            code: 'bas_binding_missing',
+            text: `The BAS engine binding is not installed on ${process.platform} `
+                + `(browser-with-fingerprints ships Windows binaries only)`
+        };
+    }
+    if (!(await installedBasVersions()).length) {
+        return {
+            code: 'bas_engine_missing',
+            text: `No BAS engine is installed under ${basEngineDir()}`
+        };
+    }
+    return null;
+}
+
+// Kết luận "máy này không có engine để chạy hồ sơ đó". Có lớp riêng vì nó phải
+// ĐI XUYÊN qua catch bao quanh khối dò engine — nuốt nó chính là chỗ đẻ ra thông
+// báo sai "BAS engine, Windows only" khi sự thật là chưa tải engine ShardX.
+class EngineUnavailableError extends Error {
+    constructor(message) {
+        super(message);
+        this.name = 'EngineUnavailableError';
+        this.code = 'ENGINE_UNAVAILABLE';
+    }
+}
+
 function extractRawKey(jsonString, key) {
     const searchStr = `"${key}":`;
     const startIdx = jsonString.indexOf(searchStr);
@@ -339,6 +547,53 @@ export function convertBasToShardX(basFp, profileName = "") {
     return shardxFp;
 }
 
+/** Ai đang thật sự giữ hồ sơ này? Trả pid nếu còn tiến trình sống, 0 nếu khoá đã mồ côi.
+ *
+ * SingletonLock của Chromium là symlink trỏ tới "<hostname>-<pid>". Đọc pid rồi
+ * kill(pid, 0) — tín hiệu 0 không giết ai, chỉ hỏi "tiến trình này còn không".
+ * EPERM cũng là còn sống (tiến trình của user khác). Không đọc được coi như mồ côi:
+ * trên Windows khoá là file thường chứ không phải symlink, và Chromium ở đó dùng
+ * mutex có tên nên file sót lại không mang thông tin gì.
+ */
+function singletonHolderPid(profilePath) {
+    try {
+        const target = fs.readlinkSync(path.join(profilePath, 'SingletonLock'));
+        const pid = parseInt(String(target).split('-').pop(), 10);
+        if (!Number.isFinite(pid) || pid <= 0) return 0;
+        try { process.kill(pid, 0); return pid; }
+        catch (e) { return e.code === 'EPERM' ? pid : 0; }
+    } catch (e) { return 0; }
+}
+
+/** Dọn khoá MỒ CÔI trước khi mở. Ném lỗi rõ ràng nếu khoá đang có chủ thật.
+ *
+ * Trước bản này browser_manager không dọn khoá lần nào (preview_server.cjs dọn ở
+ * 2 chỗ, nên live view sống trong khi lượt theo lịch chết hàng loạt trên Linux).
+ */
+function clearStaleSingletonLocks(profilePath) {
+    const holder = singletonHolderPid(profilePath);
+    if (holder) {
+        const err = new Error(
+            `Profile is already open in another process (pid ${holder}). Close the live view `
+            + `or stop that session before launching this profile again.`);
+        err.code = 'PROFILE_IN_USE';
+        throw err;
+    }
+    let cleared = 0;
+    for (const lf of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'LOCK']) {
+        const p = path.join(profilePath, lf);
+        // lstat, KHÔNG existsSync: existsSync đi theo symlink nên một SingletonLock
+        // trỏ tới đích đã biến mất sẽ bị coi là "không tồn tại" và không bao giờ được xoá.
+        try { fs.lstatSync(p); } catch (e) { continue; }
+        try { fs.unlinkSync(p); cleared++; } catch (e) {
+            console.warn(`[Launch] Could not remove stale ${lf}: ${e.message}`);
+        }
+    }
+    if (cleared) {
+        console.log(`[Launch] Cleared ${cleared} stale Chromium lock file(s) left by a previous session.`);
+    }
+}
+
 export class BrowserManager {
     constructor(config = {}) {
         this.baseDir = config.baseDir || './profiles';
@@ -587,7 +842,10 @@ export class BrowserManager {
         if (await fs.pathExists(configPath)) {
              try {
                   const config = await fs.readJson(configPath);
-                  if (config.browser_version && config.browser_version.includes('ShardX')) {
+                  // Cùng một cách đọc ghim với launch(): trước đây chỗ này cũng
+                  // dùng phép thử chuỗi con phân biệt hoa thường, nên ghim "shardx
+                  // 149" nhận nhầm fingerprint kiểu BAS cho một engine ShardX.
+                  if (parseEnginePin(config.browser_version).family === 'shardx') {
                       isShardX = true;
                   }
                   if (config.tags && Array.isArray(config.tags)) {
@@ -1069,6 +1327,10 @@ export class BrowserManager {
     async launch(profileName, options = {}) {
         await this.fetchServiceKey();
         const profilePath = await this.ensureProfile(profileName);
+        // Khoá sót của phiên trước làm Chromium bỏ chạy ("Failed to create a
+        // ProcessSingleton ... Aborting now to avoid profile corruption") và giết
+        // MỌI lượt sau, mỗi lượt ~5 giây. Dọn ở đây — phễu chung của mọi đường gọi.
+        clearStaleSingletonLocks(profilePath);
         let {
             headless = false,
             proxy = null,
@@ -1108,168 +1370,135 @@ export class BrowserManager {
             }
         }
 
-        // Check if bypass marker exists
+        // "Free Mode" (skip_fingerprint.txt) ĐÃ BỎ. Cờ đó đổi "không mở được trang
+        // nào" lấy "mở được trang nhưng TẮT SẠCH antidetect" — mà mọi báo cáo vẫn
+        // ghi thành công, nên chẳng ai biết hồ sơ đang chạy trần. Khoá BAS hết hạn
+        // nay được xử bằng cách đổi sang ShardX (không cần khoá, vẫn có antidetect
+        // riêng) ở nhánh isKeyError trong vòng retry bên dưới.
+        //
+        // File cũ còn sót trên đĩa thì CHỈ báo, không đọc và cũng không xoá: trong
+        // repo này không còn chỗ nào khác đọc nó (đã dò cả cây nguồn), và lượt mở
+        // trình duyệt không phải chỗ để tự ý sửa thư mục hồ sơ của người dùng.
         const skipFingerprintPath = path.join(profilePath, 'skip_fingerprint.txt');
         if (await fs.pathExists(skipFingerprintPath)) {
-            console.warn(`\n[Launch] 🛡️ BYPASS DETECTED: skipping fingerprint application to force Free Mode!\n`);
-            try { plugin?.setServiceKey(''); } catch(ex){}
-            fingerprint = null;
+            console.warn(`[Launch] Hồ sơ còn cờ Free Mode cũ (${skipFingerprintPath}). Cờ này KHÔNG còn tác dụng `
+                + `— antidetect vẫn bật bình thường. Xoá file đi cho sạch.`);
         }
 
         // Apply proxy (already normalized if it came from args, or loaded from config)
         this.applyProxy(proxy);
 
-        // Resolve browser engine version FIRST (needed for fingerprint UA patching)
+        // ── Quyết định engine ───────────────────────────────────────────
+        // Ghim trên hồ sơ QUYẾT ĐỊNH họ engine; máy chỉ trả lời "có dùng được
+        // không". Dò trong họ đó một cách khoan dung (đúng bản ghim → không có thì
+        // bản đã cài mới nhất), và chỉ mượn họ kia khi họ được ghim KHÔNG có đường
+        // sống trên máy này — mượn thì phải nói to.
         let targetChromiumVer = null;
         let targetBasVer = null;
         let shardxExePath = null;
         let isShardXProfile = false;  // track outside try block
+        let enginePin = { family: null, version: null, raw: null };
         try {
                 const conf = await fs.pathExists(configPath) ? await fs.readJson(configPath) : {};
-                targetChromiumVer = conf.browser_version;
-                if (targetChromiumVer) {
-                    if (targetChromiumVer === '149.0.0.0') {
-                        targetChromiumVer = '149.0.7827.54';
-                    }
-                }
-                
+                let rawPin = conf.browser_version;
+                // Ghim cũ thiếu số build: '149.0.0.0' không khớp thư mục engine nào.
+                if (rawPin === '149.0.0.0') rawPin = '149.0.7827.54';
+                enginePin = parseEnginePin(rawPin);
+                targetChromiumVer = enginePin.version;
+
                 let isShardX = false;
-                if (targetChromiumVer && targetChromiumVer.includes('ShardX')) {
+
+                // (1) Ghim ShardX → dò trong họ ShardX, không bao giờ tự rơi sang BAS.
+                if (enginePin.family === 'shardx') {
                     isShardX = true;
                     isShardXProfile = true;
-                    const versionNum = targetChromiumVer.replace('ShardX', '').replace(/^\s*-\s*/, '').trim();
-
-                    // Engine root per OS. Only Windows and macOS were handled, so
-                    // on Linux shardxExePath stayed null and the launch died with
-                    // "not found — install it in ShardBrowser first" even when the
-                    // Linux engine was installed.
-                    const home = process.env.HOME || process.env.USERPROFILE;
-                    let engineRoot = null;
-                    if (process.platform === 'win32') {
-                        const appdata = process.env.APPDATA || (home && path.join(home, 'AppData', 'Roaming'));
-                        if (appdata) engineRoot = path.join(appdata, 'shardx-launcher');
-                    } else if (process.platform === 'darwin') {
-                        if (home) engineRoot = path.join(home, 'Library', 'Application Support', 'shardx-launcher');
-                    } else if (home) {
-                        engineRoot = path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'shardx-launcher');
+                    const resolved = await resolveShardxExe(enginePin.version);
+                    if (!resolved) {
+                        // Bản cũ ném lỗi ở đây rồi bị catch bên dưới nuốt mất:
+                        // isShardXProfile vẫn true nhưng shardxExePath null, guard
+                        // dispatch trượt, hồ sơ rơi xuống nhánh BAS và người dùng đọc
+                        // được "BAS engine, Windows only" — trong khi sự thật là
+                        // engine ShardX chưa tải về.
+                        throw new EngineUnavailableError(
+                            `This profile is pinned to ShardX ${enginePin.version || '(any version)'}, `
+                            + `but no ShardX engine is installed on this ${process.platform} host `
+                            + `(looked under ${shardxEngineRoot() || '(no home directory)'}/runtime/engines). `
+                            + `Download it from the Browser page — POST /engine/download/${enginePin.version || '{version}'}.`);
                     }
-
-                    if (engineRoot) {
-                        const verDir = path.join(engineRoot, 'runtime', 'engines', versionNum);
-                        // Layouts differ between the launcher's own installs and the
-                        // plain CDN archives, so try each.
-                        let candidates = [];
-                        if (process.platform === 'win32') {
-                            candidates = [
-                                path.join(verDir, `ShardX-Windows-${versionNum}`, 'chrome.exe'),
-                                path.join(verDir, 'ShardX-Windows', 'chrome.exe'),
-                                path.join(verDir, 'chrome.exe'),
-                            ];
-                        } else if (process.platform === 'darwin') {
-                            candidates = [
-                                path.join(verDir, `ShardX-Mac-arm64-${versionNum}`, 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
-                                path.join(verDir, 'ShardX-Mac-arm64', 'ShardX.app', 'Contents', 'MacOS', 'ShardX'),
-                            ];
-                        } else {
-                            candidates = [
-                                path.join(verDir, `ShardX-Linux-${versionNum}`, 'chrome'),
-                                path.join(verDir, 'ShardX-Linux', 'chrome'),
-                                path.join(verDir, 'chrome'),
-                            ];
-                        }
-                        for (const c of candidates) {
-                            if (await fs.pathExists(c)) { shardxExePath = c; break; }
-                        }
-                    }
-
-                    if (!shardxExePath) {
-                        throw new Error(`ShardX browser engine (${versionNum}) not found for ${process.platform}. Download it from the Browser page, or install ShardBrowser.`);
-                    }
-
-                    // Archives zipped on Windows carry no Unix exec bit, so the
-                    // engine extracts fine and then fails to spawn with EACCES.
-                    if (process.platform !== 'win32') {
-                        try {
-                            await fs.chmod(shardxExePath, 0o755);
-                            const engineDir = path.dirname(shardxExePath);
-                            for (const helper of ['chrome_crashpad_handler', 'chrome_sandbox', 'chrome-sandbox']) {
-                                const hp = path.join(engineDir, helper);
-                                if (await fs.pathExists(hp)) await fs.chmod(hp, 0o755);
-                            }
-                        } catch (e) {
-                            console.log(`[Launch] Could not set exec bits on ShardX engine: ${e.message}`);
-                        }
-                    }
-                    
-                    targetChromiumVer = versionNum;
+                    shardxExePath = resolved.exe;
+                    targetChromiumVer = resolved.version;
                     targetBasVer = null;
-                    console.log(`[Launch] Resolved ShardX engine version: ${versionNum} at ${shardxExePath}`);
+                    if (enginePin.version && resolved.version !== enginePin.version) {
+                        console.warn(`[Launch] ENGINE_SUBSTITUTED pinned=shardx/${enginePin.version} `
+                            + `used=shardx/${resolved.version} reason=pinned_version_not_installed`);
+                        console.warn(`[Launch] Bản ShardX ${enginePin.version} chưa tải; dùng bản đã cài mới nhất `
+                            + `${resolved.version}. Tải đúng bản ghim ở trang Browser nếu cần khớp tuyệt đối.`);
+                    }
+                    console.log(`[Launch] Resolved ShardX engine ${resolved.version} at ${resolved.exe}`);
                 }
-                
+
+                // (2) Ghim BAS (hoặc chưa ghim) trên máy KHÔNG chạy được BAS. Đây là
+                //     DUY NHẤT chỗ được đổi họ trước khi mở, và nó chỉ mở ra khi họ
+                //     được ghim không có đường sống trên máy này.
                 if (!isShardX) {
-                    const ENGINE_MAP = {
-                        '30.2.0': '149.0.7827.54',
-                        '30.1.0': '148.0.7778.97',
-                        '30.0.0': '147.0.7727.56',
-                        '29.9.2': '146.0.7680.80',
-                        '29.8.1': '145.0.7632.46',
-                        '29.7.0': '144.0.7559.60',
-                        '29.5.0': '142.0.7444.60',
-                        '28.3.1': '138.0.7333.45',
-                        '28.2.0': '137.0.7222.35'
-                    };
-                    
-                    const REVERSE_MAP = Object.fromEntries(Object.entries(ENGINE_MAP).map(([k, v]) => [v, k]));
-                    
-                    // If not set or default, find the latest downloaded engine
-                    if (!targetChromiumVer || targetChromiumVer === 'default' || targetChromiumVer === 'latest') {
-                        const __dirname = path.dirname(fileURLToPath(import.meta.url));
-                        const scriptDir = path.join(__dirname, 'data', 'script');
-                        if (await fs.pathExists(scriptDir)) {
-                            const dirs = await fs.readdir(scriptDir);
-                            const versions = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-                            if (versions.length > 0) {
-                                targetBasVer = versions[0];
-                                targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer; // Fallback to raw if unknown
-                                console.log(`[Launch] Auto-detected installed BAS engine: ${targetBasVer} (Chromium ${targetChromiumVer})`);
-                            }
-                        }
-                    } else {
-                        // Try to resolve targetBasVer from config's chromium version
-                        targetBasVer = REVERSE_MAP[targetChromiumVer];
-                        
-                        // Verify this engine version is actually installed
-                        if (targetBasVer) {
-                            const __dirname = path.dirname(fileURLToPath(import.meta.url));
-                            const requestedEngineDir = path.join(__dirname, 'data', 'script', targetBasVer);
-                            const isInstalled = await fs.pathExists(requestedEngineDir) &&
-                                await fs.pathExists(path.join(requestedEngineDir, 'FastExecuteScript.exe'));
-                            
-                            if (!isInstalled) {
-                                console.warn(`[Launch] ⚠️ Requested engine ${targetBasVer} (Chrome ${targetChromiumVer}) is NOT installed!`);
-                                // Fall back to latest installed engine
-                                const scriptDir = path.join(__dirname, 'data', 'script');
-                                if (await fs.pathExists(scriptDir)) {
-                                    const dirs = await fs.readdir(scriptDir);
-                                    const candidates = dirs.filter(d => /^\d+\.\d+\.\d+$/.test(d))
-                                        .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }));
-                                    let fallbackBas = null;
-                                    for (const d of candidates) {
-                                        const exePath = path.join(scriptDir, d, 'FastExecuteScript.exe');
-                                        if (await fs.pathExists(exePath)) { fallbackBas = d; break; }
-                                    }
-                                    if (fallbackBas) {
-                                        targetBasVer = fallbackBas;
-                                        targetChromiumVer = ENGINE_MAP[targetBasVer] || targetBasVer;
-                                        console.warn(`[Launch] ↩️ Falling back to latest installed engine: ${targetBasVer} (Chrome ${targetChromiumVer})`);
-                                    }
-                                }
-                            } else {
-                                console.log(`[Launch] ✅ Verified engine ${targetBasVer} is installed.`);
-                            }
+                    const basBlocker = await basUnusableReason();
+                    if (basBlocker) {
+                        const alt = await resolveShardxExe(null);
+                        if (alt) {
+                            isShardX = true;
+                            isShardXProfile = true;
+                            shardxExePath = alt.exe;
+                            targetChromiumVer = alt.version;
+                            targetBasVer = null;
+                            console.warn(`[Launch] ENGINE_SUBSTITUTED pinned=bas/${enginePin.version || '(none)'} `
+                                + `used=shardx/${alt.version} reason=${basBlocker.code}`);
+                            console.warn(`[Launch] ${basBlocker.text} — chạy hồ sơ này bằng ShardX ${alt.version} `
+                                + `(không cần khoá, vẫn có antidetect riêng). Sửa ghim của hồ sơ thành `
+                                + `"ShardX ${alt.version}" để khỏi phải đoán lại mỗi lần mở.`);
+                        } else {
+                            throw new EngineUnavailableError(
+                                `${basBlocker.text}, and no ShardX engine is installed either, so no engine on `
+                                + `this host can run profile "${profileName}". Download one from the Browser page `
+                                + `(POST /engine/download/{version}), then pin the profile to "ShardX <version>".`);
                         }
                     }
-    
+                }
+
+                if (!isShardX) {
+                    // Dò trong họ BAS, cùng luật khoan dung như họ ShardX: đúng
+                    // bản ghim → không có thì bản đã cài mới nhất. Ghim lưu theo số
+                    // CHROMIUM còn engine trên đĩa đặt tên theo số BAS, nên phải đổi
+                    // qua bảng trước khi so.
+                    if (targetChromiumVer && !BAS_REVERSE_MAP[targetChromiumVer] && BAS_ENGINE_MAP[targetChromiumVer]) {
+                        // Hồ sơ ghim thẳng số BAS ("30.2.0") chứ không phải số Chromium.
+                        targetBasVer = targetChromiumVer;
+                        targetChromiumVer = BAS_ENGINE_MAP[targetBasVer];
+                    } else {
+                        targetBasVer = BAS_REVERSE_MAP[targetChromiumVer] || null;
+                    }
+                    const pinnedBasVer = targetBasVer;
+                    const pinnedChromium = targetChromiumVer;
+
+                    const basResolved = await resolveBasEngine(pinnedBasVer);
+                    if (basResolved) {
+                        targetBasVer = basResolved.version;
+                        const usedChromium = BAS_ENGINE_MAP[targetBasVer] || targetBasVer;
+                        if (enginePin.family === 'bas' && usedChromium !== pinnedChromium) {
+                            console.warn(`[Launch] ENGINE_SUBSTITUTED pinned=bas/${pinnedBasVer || pinnedChromium} `
+                                + `used=bas/${targetBasVer} reason=pinned_version_not_installed`);
+                            console.warn(`[Launch] Engine BAS cho Chromium ${pinnedChromium} chưa cài; dùng bản đã cài `
+                                + `mới nhất ${targetBasVer} (Chromium ${usedChromium}).`);
+                        } else if (enginePin.family !== 'bas') {
+                            console.log(`[Launch] Hồ sơ chưa ghim engine — dùng bản BAS đã cài mới nhất: `
+                                + `${targetBasVer} (Chromium ${usedChromium}).`);
+                        }
+                        targetChromiumVer = usedChromium;
+                        console.log(`[Launch] Resolved BAS engine ${targetBasVer} (Chromium ${targetChromiumVer}) at ${basResolved.dir}`);
+                    }
+                    // Không còn nhánh "chẳng có engine BAS nào": khối quyết định ở
+                    // trên đã chặn từ trước (mượn ShardX hoặc EngineUnavailableError),
+                    // nên tới được đây nghĩa là chắc chắn có engine.
+
                     if (targetChromiumVer && targetChromiumVer !== 'default' && targetChromiumVer !== 'latest') {
                         console.log(`[Launch] Using browser version: ${targetChromiumVer}`);
                         plugin?.useBrowserVersion(targetChromiumVer);
@@ -1294,6 +1523,12 @@ export class BrowserManager {
                     }
                 }
         } catch (e) {
+            // "Máy này không có engine chạy được hồ sơ đó" là KẾT LUẬN, không phải
+            // sự cố phụ. Nuốt nó xuống rồi đi tiếp bằng họ engine kia chính là chỗ
+            // đẻ ra thông báo sai: hồ sơ ghim ShardX chưa tải engine lại được báo là
+            // "BAS engine, Windows only". Chỉ lỗi BẤT NGỜ (config.json hỏng, đọc đĩa
+            // lỗi) mới được bỏ qua ở đây.
+            if (e instanceof EngineUnavailableError) throw e;
             console.warn('Failed to resolve browser_version path:', e.message);
         }
 
@@ -1304,6 +1539,18 @@ export class BrowserManager {
         // Injected via --fingerprint-profile=<file> CLI flag.
         // No service key, no PHP API needed.
         // ═══════════════════════════════════════════════════════════════
+        // Engine THỰC SỰ dùng, để người gọi (open.js, run_log, preview server) đọc
+        // được bằng máy thay vì đoán từ log. _launchShardX bổ sung nốt cờ antidetect.
+        const usingShardX = !!(isShardXProfile && shardxExePath);
+        this.lastLaunchInfo = {
+            profile: profileName,
+            pin: enginePin.raw || null,
+            engine: usingShardX ? 'shardx' : 'bas',
+            engineVersion: usingShardX ? targetChromiumVer : (targetBasVer || targetChromiumVer || null),
+            substituted: !!(enginePin.family && enginePin.family !== (usingShardX ? 'shardx' : 'bas')),
+            antidetect: null,
+        };
+
         if (isShardXProfile && shardxExePath) {
             return await this._launchShardX({
                 profileName, profilePath, shardxExePath, proxy, fingerprint, headless, args, targetChromiumVer
@@ -1360,6 +1607,20 @@ export class BrowserManager {
             ...args
         ];
 
+        // Đối xứng với ShardX: mở hồ sơ mà KHÔNG có dấu vân tay thì phải nói ra.
+        // Lượt chạy thật trên máy này rơi đúng vào đây — getFingerprint hỏng phía
+        // người gọi ("Query limit reached"), người gọi nuốt lỗi rồi vẫn gọi launch
+        // với fingerprint null, BAS mở bình thường và mọi báo cáo ghi "thành công".
+        const basAntidetectOn = !!fingerprint;
+        this.lastLaunchInfo = Object.assign({}, this.lastLaunchInfo, { antidetect: basAntidetectOn });
+        if (basAntidetectOn) {
+            console.log(`[Launch] ANTIDETECT_ON profile=${profileName} engine=bas`);
+        } else {
+            console.error(`[Launch] ANTIDETECT_OFF profile=${profileName} engine=bas reason=no_fingerprint_applied`);
+            console.error(`[Launch] ⚠️ Hồ sơ "${profileName}" mở bằng BAS mà không có dấu vân tay nào được áp — `
+                + `lượt chạy này KHÔNG ẩn danh.`);
+        }
+
         console.log(`Launching browser [Profile: ${profileName}]...`);
         
         plugin.useProfile(profilePath, { loadProxy: false, loadFingerprint: false });
@@ -1378,6 +1639,17 @@ export class BrowserManager {
                     userDataDir: profilePath,
                     ignoreDefaultArgs: ['--enable-automation'],
                 });
+                // BẰNG CHỨNG DUY NHẤT rằng khoá vân tay BAS còn sống. Không thể
+                // hỏi qua mạng: key.php trả khoá về ngon lành rồi engine vẫn chết
+                // "Key expired" lúc mở. Chỉ một lượt mở THẬT mới trả lời được, và
+                // đây là chỗ nó vừa trả lời xong.
+                // process_manager._note_launch_evidence() đọc dòng này trong log
+                // rồi gọi shardx_runtime.mark_bas_key_ok(). Thiếu nó thì phán quyết
+                // chỉ đi được một chiều: hỏng thì ghi, tốt thì không ai ghi — và
+                // máy CHỈ có BAS chạy khoá dùng chung sẽ vĩnh viễn bị coi là không
+                // dùng được. ĐỔI CHUỖI NÀY LÀ PHẢI ĐỔI CẢ BÊN ĐỌC.
+                console.log(`[Launch] BAS_LAUNCH_OK profile=${profileName} `
+                    + `engine=bas version=${targetBasVer || targetChromiumVer || 'unknown'}`);
                 return context;
             } catch (e) {
                 lastError = e;
@@ -1389,7 +1661,10 @@ export class BrowserManager {
                                      errMsg.includes('incorrect format');
                 const isEngineFlake = errMsg.includes('browserautomationstudio') || 
                                       errMsg.includes('referenceerror: can\'t find variable');
-                const isKeyError    = errMsg.includes('key expired') || errMsg.includes('invalid key');
+                // "FingerprintSwitcher key is missing" là một kiểu hỏng khoá có
+                // thật nhưng không khớp hai chuỗi cũ, nên trước đây rơi xuống nhánh
+                // "lỗi lạ" và ném thẳng ra ngoài, không ai nhận ra là lỗi khoá.
+                const isKeyError    = /key expired|invalid key|key is missing|missing key|service key/.test(errMsg);
                 const isFingerprintError = errMsg.includes('fingerprint') && (errMsg.includes('not found') || errMsg.includes('error'));
 
                 if (isFingerprintError && launchAttempt === 1) {
@@ -1413,12 +1688,49 @@ export class BrowserManager {
 
                 if (isProxyError || isEngineFlake || isKeyError) {
                     if (isKeyError) {
-                         console.warn(`[Launch] 🛡️ Security Browser key is expired! Marking profile for FREE mode bypass...`);
-                         try { 
-                             const fsExtra = await import('fs-extra');
-                             await fsExtra.writeFile(path.join(profilePath, 'skip_fingerprint.txt'), 'true');
-                         } catch(ex){}
-                         throw new Error('Key expired! I have installed a Bypass hook. Please click OPEN BROWSER again to launch in Free Mode (no antidetect).');
+                         // Khoá BAS chỉ lộ ra lúc mở, nên đây là chỗ DUY NHẤT biết nó
+                         // hỏng. ShardX không cần khoá và vẫn tự làm antidetect qua
+                         // --fingerprint-profile, nên mở lại chính hồ sơ này bằng
+                         // ShardX là ĐỔI ENGINE, không phải tắt antidetect — khác hẳn
+                         // "Free Mode" cũ (mở được trang nhưng chạy trần).
+                         const alt = await resolveShardxExe(null);
+                         if (alt) {
+                             console.warn(`[Launch] ENGINE_SUBSTITUTED pinned=bas/${targetBasVer || targetChromiumVer || '(none)'} `
+                                 + `used=shardx/${alt.version} reason=bas_key_rejected`);
+                             console.warn(`[Launch] BAS từ chối khoá (${String(e.message).split('\n')[0]}) — mở lại hồ sơ bằng `
+                                 + `ShardX ${alt.version}. Sửa ghim hồ sơ thành "ShardX ${alt.version}" để mỗi lượt khỏi `
+                                 + `phải hỏng một lần mở trước khi đổi.`);
+                             if (this.lastLaunchInfo) {
+                                 this.lastLaunchInfo.substituted = true;
+                                 this.lastLaunchInfo.substitutionReason = 'bas_key_rejected';
+                             }
+                             try {
+                                 return await this._launchShardX({
+                                     profileName, profilePath, shardxExePath: alt.exe, proxy, fingerprint,
+                                     headless, args, targetChromiumVer: alt.version
+                                 });
+                             } catch (shardxErr) {
+                                 // Kể cả HAI lý do: nói mỗi lý do sau thì người đọc log
+                                 // tưởng ShardX là engine được chọn từ đầu.
+                                 // Chỉ lấy DÒNG ĐẦU của lỗi ShardX: phần sau là nguyên
+                                 // dòng lệnh Chromium, trong đó có --fingerprint-profile,
+                                 // mà preview_server.cjs (~:962) hễ thấy chuỗi
+                                 // "fingerprint" trong thông báo lỗi là xoá luôn dấu vân
+                                 // tay đã lưu của hồ sơ.
+                                 throw new Error(
+                                     `The BAS engine refused its licence (key expired / invalid key): `
+                                     + `${String(e.message).split('\n')[0]}. Falling back to the installed ShardX `
+                                     + `${alt.version} engine failed too: ${String(shardxErr.message).split('\n')[0]}`);
+                             }
+                         }
+                         // Không có ShardX để mượn: nói thẳng, đừng mở bừa. Chuỗi
+                         // "key expired / invalid key" giữ nguyên để classifyFatal
+                         // bên preview_server.cjs (~:145) vẫn xếp đúng engine_expired.
+                         throw new Error(
+                             `The BAS engine refused its licence (key expired / invalid key): `
+                             + `${String(e.message).split('\n')[0]}. This host has no ShardX engine to fall back to — `
+                             + `download one from the Browser page (POST /engine/download/{version}), then pin this `
+                             + `profile to "ShardX <version>".`);
                     }
 
                     if (errMsg.includes('incorrect format')) {
@@ -1617,6 +1929,36 @@ export class BrowserManager {
             }
         }
 
+        // ── 1b. Antidetect có thật sự bật không? ────────────────────────
+        // Lỗ cũ: không tìm được fingerprint thì chỉ console.warn rồi mở bình thường
+        // — trang vẫn mở, History vẫn đầy, mọi báo cáo vẫn "thành công", trong khi
+        // hồ sơ chạy TRẦN và mọi hồ sơ trên máy trông y hệt nhau. Người gọi không
+        // có cách nào biết. Nay trạng thái này có một dòng mốc cố định trong log
+        // (ANTIDETECT_ON / ANTIDETECT_OFF) và một cờ máy đọc được trên manager.
+        // BÊN ĐỌC: process_manager._note_launch_evidence() quét ANTIDETECT_OFF
+        // trong log của tiến trình rồi đính warnings=["ANTIDETECT_OFF"] vào bản ghi
+        // run_log — nên một lượt mở TRẦN không còn vào sổ như một lượt thành công
+        // sạch. `this.lastLaunchInfo` thì vẫn CHƯA có ai đọc: nó để sẵn cho người
+        // gọi trong tiến trình (open.js, preview_server) khi cần, đừng tưởng đã nối.
+        const antidetectOn = !!shardxFpFile;
+        try {
+            this.lastLaunchInfo = Object.assign({}, this.lastLaunchInfo, {
+                profile: profileName,
+                engine: 'shardx',
+                engineVersion: targetChromiumVer || null,
+                antidetect: antidetectOn,
+                fingerprintFile: shardxFpFile || null,
+            });
+        } catch (e) { /* ghi chú chẩn đoán hỏng cũng không được chặn lượt mở */ }
+        if (antidetectOn) {
+            console.log(`[ShardX] ANTIDETECT_ON profile=${profileName} fingerprint=${path.basename(shardxFpFile)}`);
+        } else {
+            console.error(`[ShardX] ANTIDETECT_OFF profile=${profileName} reason=no_fingerprint_available`);
+            console.error(`[ShardX] ⚠️ Hồ sơ "${profileName}" mở KHÔNG có dấu vân tay: engine chạy bằng mặc định của `
+                + `chính nó, nên mọi hồ sơ trên máy này trông giống hệt nhau. Cài thư viện fingerprint `
+                + `(ShardBrowser) rồi mở lại nếu lượt chạy này cần ẩn danh.`);
+        }
+
         // ── 2. Build launch args ────────────────────────────────────────
         const launchArgs = [
             // NOTE: --user-data-dir is passed as the first positional arg to
@@ -1755,20 +2097,59 @@ export class BrowserManager {
             }
         }
 
-        // Proxy
+        // Mật khẩu proxy PHẢI đi bằng tuỳ chọn `proxy` của Playwright, KHÔNG phải
+        // --proxy-server: Chromium không nhận đăng nhập trên dòng lệnh, nên bản cũ
+        // ném phần user:pass đi rồi trình duyệt vẫn mở, chỉ có mọi trang chết
+        // ERR_PROXY_CONNECTION_FAILED — lượt chạy vào sổ "thành công" với 0 trang.
+        //
+        // KHÔNG gọi normalizeProxy() ở đây: regex của nó rã chuỗi theo thứ tự
+        // [protocol, user, pass, host, port] trong khi dạng nhà cung cấp thật sự là
+        // [host, port, user, pass]. Hai lỗi của nó triệt tiêu nhau nên nó bỏ qua cả
+        // 14 proxy đang có; ai chỉ sửa cái \d+ mà không sửa thứ tự sẽ biến
+        // tên host thành username và trỏ hồ sơ vào một proxy không tồn tại.
+        // Cùng luật với routes.parse_proxy() / routes.proxy_blocker().
+        const parseProxyParts = (raw) => {
+            const v = String(raw || '').trim();
+            if (!v) return null;
+            let m = v.match(/^([a-z0-9]+):\/\/([^:\/@]+):([^:\/@]*)@([^:\/@]+):(\d+)\/?$/i);
+            if (m) return { scheme: m[1].toLowerCase(), host: m[4], port: m[5],
+                            user: m[2], password: m[3], hasCredentials: true };
+            m = v.match(/^([a-z0-9]+):\/\/([^:\/@]+):(\d+)\/?$/i);
+            if (m) return { scheme: m[1].toLowerCase(), host: m[2], port: m[3],
+                            user: '', password: '', hasCredentials: false };
+            // scheme://host:port:user:pass — dạng nhà cung cấp, KHÔNG phải user trước.
+            m = v.match(/^([a-z0-9]+):\/\/([^:\/@]+):(\d+):([^:\/@]+):([^:\/@]+)\/?$/i);
+            if (m) return { scheme: m[1].toLowerCase(), host: m[2], port: m[3],
+                            user: m[4], password: m[5], hasCredentials: true,
+                            providerForm: true };
+            return null;
+        };
+        const KNOWN_PROXY_SCHEMES = ['http', 'https', 'socks5', 'socks4'];
+        let proxyOption = null;
         if (proxy) {
-            const normalized = this.normalizeProxy(proxy);
-            if (normalized) {
-                // Convert to format chrome understands: socks5://host:port or http://host:port
-                try {
-                    const u = new URL(normalized);
-                    const proxyServer = `${u.protocol}//${u.host}`;
-                    launchArgs.push(`--proxy-server=${proxyServer}`);
-                    console.log(`[ShardX] Proxy: ${proxyServer}`);
-                } catch {
-                    launchArgs.push(`--proxy-server=${proxy}`);
-                }
+            const px = parseProxyParts(proxy);
+            if (!px || !KNOWN_PROXY_SCHEMES.includes(px.scheme) || px.providerForm) {
+                throw new Error(
+                    `Proxy "${proxy}" is not in a form the engine can read. Use `
+                    + `scheme://user:password@host:port with http, https, socks5 or socks4. `
+                    + `The provider style scheme://host:port:user:password is not supported `
+                    + `— rewrite it with the '@' form. (Chromium answers ERR_NO_SUPPORTED_PROXIES.)`);
             }
+            if (px.hasCredentials && px.scheme.startsWith('socks')) {
+                throw new Error(
+                    `Profile "${profileName}" uses a SOCKS5 proxy with a username and password. `
+                    + `The ShardX engine cannot authenticate to one: Chromium has no SOCKS5 login `
+                    + `support and Playwright refuses it outright. Use an HTTP/HTTPS proxy from the `
+                    + `same provider (the same credentials usually work), or an unauthenticated `
+                    + `SOCKS5 endpoint.`);
+            }
+            proxyOption = { server: `${px.scheme}://${px.host}:${px.port}` };
+            if (px.hasCredentials) {
+                proxyOption.username = px.user;
+                proxyOption.password = px.password;
+            }
+            console.log(`[ShardX] Proxy: ${proxyOption.server}`
+                + (px.hasCredentials ? ' (with credentials)' : ''));
         }
 
         // ── 3. Launch via patchright (stealth Playwright) ───────────────
@@ -1784,6 +2165,7 @@ export class BrowserManager {
                 args: launchArgs,
                 ignoreDefaultArgs: ['--enable-automation', '--enable-blink-features=IdleDetection'],
                 ignoreHTTPSErrors: true,
+                ...(proxyOption ? { proxy: proxyOption } : {}),
             });
 
             // Bơm script ẩn danh để vượt qua các bộ kiểm tra bot cơ bản
