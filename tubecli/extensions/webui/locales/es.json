@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "fuente: manifiesto de ShardX",
   "browser.engine_src_fallback": "manifiesto inaccesible: se muestra la última versión conocida",
   "browser.engine_forced": "forzado por SHARDX_ENGINE_VERSION",
-  "browser.btn_check_update": "Buscar actualización"
+  "browser.btn_check_update": "Buscar actualización",
+  "settings.theme": "Tema",
+  "settings.theme_system": "Seguir el sistema",
+  "settings.theme_light": "Claro",
+  "settings.theme_dark": "Oscuro",
+  "settings.theme_hint": "Se aplica al panel y a todas las páginas de extensión que abre"
 }

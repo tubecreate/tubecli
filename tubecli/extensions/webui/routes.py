@@ -62,6 +62,10 @@ def _default_settings():
         "default_storage_email": "",
         "ext_update_notifications": False,
         "ext_open_mode": "full_page",
+        # "system" | "light" | "dark". The browser's localStorage is what the
+        # pre-paint script reads (it must decide before any network call); this
+        # copy only carries the choice between machines.
+        "theme": "system",
     }
 
 # Keep backward compat for any code referencing _DEFAULT_SETTINGS
@@ -286,7 +290,7 @@ async def file_manager_page():
     if fm_dir:
         html_file = os.path.join(fm_dir, "file_manager.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     return {"error": "File Manager page not found"}
 
 
@@ -294,6 +298,18 @@ async def file_manager_page():
 # /api/v1/capcut-tts/page — no page route is added here. A new extension should
 # ship its own page route so it does not need an edit to this core file (and a
 # server restart perfectly timed with it) just to appear.
+
+
+def _ext_html(path: str):
+    """Serve an extension's HTML page so it can never be served stale.
+
+    These pages carry no asset token of their own, and FileResponse sets only
+    ETag/Last-Modified — which browsers are free to treat as a heuristic
+    freshness hint and skip the revalidation entirely. After an extension update
+    that leaves the old page rendering in an already-open tab, with no way for
+    the user to tell. no-store costs one conditional request per page open.
+    """
+    return FileResponse(path, headers={"Cache-Control": "no-store"})
 
 
 def _serve_from(base_dir: str, filename: str, label: str):
@@ -468,7 +484,7 @@ async def sheets_manager_page():
     if sm_dir:
         html_file = os.path.join(sm_dir, "static", "sheets_manager.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -516,7 +532,7 @@ async def livestream_page():
     if ls_dir:
         html_file = os.path.join(ls_dir, "static", "livestream.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -570,7 +586,7 @@ async def web_crawler_page():
     if wc_dir:
         html_file = os.path.join(wc_dir, "static", "web_crawler.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -619,7 +635,7 @@ async def video_manager_page():
     if vm_dir:
         html_file = os.path.join(vm_dir, "static", "index.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -668,7 +684,7 @@ async def subtitle_extractor_page():
     if se_dir:
         html_file = os.path.join(se_dir, "static", "subtitle.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -717,7 +733,7 @@ async def tts_vibevoice_page():
     if tts_dir:
         html_file = os.path.join(tts_dir, "static", "tts.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -766,7 +782,7 @@ async def ai_arena_page():
     if arena_dir:
         html_file = os.path.join(arena_dir, "static", "arena.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -815,7 +831,7 @@ async def template_designer_page():
     if td_dir:
         html_file = os.path.join(td_dir, "static", "designer.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>
@@ -864,7 +880,7 @@ async def edu_video_studio_page():
     if ev_dir:
         html_file = os.path.join(ev_dir, "static", "edu_studio.html")
         if os.path.exists(html_file):
-            return FileResponse(html_file)
+            return _ext_html(html_file)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
     <!DOCTYPE html>

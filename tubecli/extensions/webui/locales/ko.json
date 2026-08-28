@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "출처: ShardX 매니페스트",
   "browser.engine_src_fallback": "매니페스트에 접근할 수 없음 — 마지막으로 확인된 버전 표시",
   "browser.engine_forced": "SHARDX_ENGINE_VERSION으로 고정됨",
-  "browser.btn_check_update": "업데이트 확인"
+  "browser.btn_check_update": "업데이트 확인",
+  "settings.theme": "테마",
+  "settings.theme_system": "시스템 설정 따르기",
+  "settings.theme_light": "밝게",
+  "settings.theme_dark": "어둡게",
+  "settings.theme_hint": "대시보드와 여기서 여는 모든 확장 페이지에 적용됩니다"
 }

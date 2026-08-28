@@ -491,5 +491,6 @@
   "fm.vol_none": "伺服器未回傳任何磁碟區。",
   "fm.vol_outside": "此磁碟區不在允許的根目錄範圍內，因此無法在這裡開啟。",
   "fm.vol_title": "磁碟區",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "上傳"
 }

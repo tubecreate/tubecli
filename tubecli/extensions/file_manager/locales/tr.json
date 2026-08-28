@@ -491,5 +491,6 @@
   "fm.vol_none": "Sunucu hiçbir birim döndürmedi.",
   "fm.vol_outside": "Bu birim izin verilen köklerin dışında olduğu için burada açılamaz.",
   "fm.vol_title": "Birimler",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "Yükle"
 }

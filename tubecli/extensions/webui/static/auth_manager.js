@@ -186,6 +186,15 @@ async function loadTokens() {
     }
 }
 
+// Any translated or user-supplied text interpolated into an attribute has to
+// come through here. Building the DOM from template strings means a single
+// double quote in a translation is enough to break out of the attribute.
+function escAttr(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderTokens() {
     const tbody = document.getElementById('tokens-tbody');
     if (!tokensData.length) {
@@ -200,7 +209,10 @@ function renderTokens() {
         // → gây hiểu nhầm là quyền đã chết trong khi dùng vẫn chạy.
         let statusBadge;
         if (t.status === 'expired' && t.has_refresh) {
-            statusBadge = `<span class="am-badge am-badge-active" title="${T("auth.badge.auto_refresh_tip")}">🔄 ${T("auth.badge.auto_refresh")}</span>`;
+            // The tooltip text quotes Google's own wording — …consent screen is in
+            // "Testing" mode… — and a raw double quote here closes the attribute
+            // and spills the rest of the sentence into the STATUS cell as markup.
+            statusBadge = `<span class="am-badge am-badge-active" title="${escAttr(T("auth.badge.auto_refresh_tip"))}">🔄 ${T("auth.badge.auto_refresh")}</span>`;
         } else {
             statusBadge = {
                 active: `<span class="am-badge am-badge-active">✅ ${T("auth.badge.active")}</span>`,

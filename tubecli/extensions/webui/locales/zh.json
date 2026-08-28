@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "来源：ShardX 清单",
   "browser.engine_src_fallback": "无法读取清单 — 显示上次已知版本",
   "browser.engine_forced": "由 SHARDX_ENGINE_VERSION 强制指定",
-  "browser.btn_check_update": "检查更新"
+  "browser.btn_check_update": "检查更新",
+  "settings.theme": "主题",
+  "settings.theme_system": "跟随系统",
+  "settings.theme_light": "浅色",
+  "settings.theme_dark": "深色",
+  "settings.theme_hint": "适用于仪表板以及由此打开的所有扩展页面"
 }

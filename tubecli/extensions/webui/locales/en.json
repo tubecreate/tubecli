@@ -704,5 +704,10 @@
   "browser.engine_src_manifest": "source: ShardX manifest",
   "browser.engine_src_fallback": "manifest unreachable — showing last known version",
   "browser.engine_forced": "forced by SHARDX_ENGINE_VERSION",
-  "browser.btn_check_update": "Check for update"
+  "browser.btn_check_update": "Check for update",
+  "settings.theme": "Theme",
+  "settings.theme_system": "Follow system",
+  "settings.theme_light": "Light",
+  "settings.theme_dark": "Dark",
+  "settings.theme_hint": "Applies to the dashboard and to every extension page it opens"
 }

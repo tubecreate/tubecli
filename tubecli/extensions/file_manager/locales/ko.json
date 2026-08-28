@@ -491,5 +491,6 @@
   "fm.vol_none": "서버가 볼륨을 하나도 반환하지 않았습니다.",
   "fm.vol_outside": "이 볼륨은 허용된 루트 밖에 있어 여기서는 열 수 없습니다.",
   "fm.vol_title": "볼륨",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "업로드"
 }

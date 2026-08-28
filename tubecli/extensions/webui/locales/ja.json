@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "ソース: ShardX マニフェスト",
   "browser.engine_src_fallback": "マニフェストに接続できません — 最後に確認したバージョンを表示",
   "browser.engine_forced": "SHARDX_ENGINE_VERSION で固定",
-  "browser.btn_check_update": "更新を確認"
+  "browser.btn_check_update": "更新を確認",
+  "settings.theme": "テーマ",
+  "settings.theme_system": "システムに合わせる",
+  "settings.theme_light": "ライト",
+  "settings.theme_dark": "ダーク",
+  "settings.theme_hint": "ダッシュボードと、そこから開くすべての拡張機能ページに適用されます"
 }

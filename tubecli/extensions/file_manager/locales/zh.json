@@ -491,5 +491,6 @@
   "fm.vol_none": "服务器未返回任何卷。",
   "fm.vol_outside": "此卷不在允许的根目录范围内，因此无法在这里打开。",
   "fm.vol_title": "卷",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "上传"
 }

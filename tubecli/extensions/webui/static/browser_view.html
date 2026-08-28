@@ -50,6 +50,9 @@
             --badge-bg: rgba(0, 0, 0, 0.25);
             --stage-bg: #08080c;
             --stage-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+            /* The Retry button sits ON the preview stage, which is black in
+               both themes, so its hairline stays a white ghost either way. */
+            --stage-btn-line: rgba(255, 255, 255, 0.2);
             --primary-glow: rgba(102, 252, 241, 0.3);
             --primary-soft: rgba(102, 252, 241, 0.1);
             --danger-soft: rgba(255, 77, 77, 0.1);
@@ -882,7 +885,7 @@
                 btn.id = 'previewRetryBtn';
                 btn.textContent = 'Retry';
                 btn.style.cssText = 'margin-top:14px;padding:8px 22px;border-radius:6px;'
-                    + 'border:1px solid var(--border);background:var(--primary);color:var(--on-primary);cursor:pointer';
+                    + 'border:1px solid var(--stage-btn-line);background:var(--primary);color:var(--on-primary);cursor:pointer';
                 btn.onclick = () => { btn.remove(); location.reload(); };
                 sub.parentNode.appendChild(btn);
             }

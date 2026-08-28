@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "источник: манифест ShardX",
   "browser.engine_src_fallback": "манифест недоступен — показана последняя известная версия",
   "browser.engine_forced": "задано через SHARDX_ENGINE_VERSION",
-  "browser.btn_check_update": "Проверить обновление"
+  "browser.btn_check_update": "Проверить обновление",
+  "settings.theme": "Тема",
+  "settings.theme_system": "Как в системе",
+  "settings.theme_light": "Светлая",
+  "settings.theme_dark": "Тёмная",
+  "settings.theme_hint": "Применяется к панели и ко всем страницам расширений, открытым из неё"
 }

@@ -491,5 +491,6 @@
   "fm.vol_none": "El servidor no devolvió ningún volumen.",
   "fm.vol_outside": "Este volumen queda fuera de las raíces permitidas, así que no se puede abrir aquí.",
   "fm.vol_title": "Volúmenes",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "Subir"
 }

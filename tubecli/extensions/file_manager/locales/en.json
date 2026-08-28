@@ -491,5 +491,6 @@
   "fm.vol_none": "The server returned no volumes.",
   "fm.vol_outside": "This volume is outside the allowed roots, so it cannot be opened here.",
   "fm.vol_title": "Volumes",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "Upload"
 }

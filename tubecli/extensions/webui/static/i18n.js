@@ -30,16 +30,29 @@ function T(key, vars) {
 /**
  * Apply translations to all elements with data-i18n attribute.
  */
+// Does this key resolve anywhere? T() answers with the key itself when it does
+// not, which is fine for a log line and wrong for the screen: writing that key
+// over the element replaces authored English with "modal.export.title".
+function _resolves(key) {
+    return Object.prototype.hasOwnProperty.call(_translations, key)
+        || Object.prototype.hasOwnProperty.call(_fallback, key);
+}
+
 function applyI18n() {
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        el.textContent = T(key);
+        // An unresolved key leaves the markup's own text alone. Most elements
+        // here were authored with real English inside them, and that is a far
+        // better fallback than the key — which is what the user used to see.
+        if (_resolves(key)) el.textContent = T(key);
     });
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-        el.placeholder = T(el.getAttribute('data-i18n-placeholder'));
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (_resolves(key)) el.placeholder = T(key);
     });
     document.querySelectorAll('[data-i18n-title]').forEach(el => {
-        el.title = T(el.getAttribute('data-i18n-title'));
+        const key = el.getAttribute('data-i18n-title');
+        if (_resolves(key)) el.title = T(key);
     });
     // Update html lang attribute
     document.documentElement.lang = _lang;

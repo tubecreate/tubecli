@@ -491,5 +491,6 @@
   "fm.vol_none": "Máy chủ không trả về ổ đĩa nào.",
   "fm.vol_outside": "Ổ đĩa này nằm ngoài vùng cho phép nên không mở được từ đây.",
   "fm.vol_title": "Ổ đĩa",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "Tải lên"
 }

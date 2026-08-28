@@ -491,5 +491,6 @@
   "fm.vol_none": "サーバーはボリュームを 1 件も返しませんでした。",
   "fm.vol_outside": "このボリュームは許可されたルートの外にあるため、ここからは開けません。",
   "fm.vol_title": "ボリューム",
-  "fm.vol_usage": "{used} / {total}"
+  "fm.vol_usage": "{used} / {total}",
+  "fm.upload": "アップロード"
 }

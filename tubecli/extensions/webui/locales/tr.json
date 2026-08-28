@@ -538,5 +538,10 @@
   "browser.engine_src_manifest": "kaynak: ShardX manifesti",
   "browser.engine_src_fallback": "manifest okunamadı — bilinen son sürüm gösteriliyor",
   "browser.engine_forced": "SHARDX_ENGINE_VERSION ile zorlandı",
-  "browser.btn_check_update": "Güncelleme denetle"
+  "browser.btn_check_update": "Güncelleme denetle",
+  "settings.theme": "Tema",
+  "settings.theme_system": "Sistemi izle",
+  "settings.theme_light": "Açık",
+  "settings.theme_dark": "Koyu",
+  "settings.theme_hint": "Panele ve buradan açılan tüm uzantı sayfalarına uygulanır"
 }

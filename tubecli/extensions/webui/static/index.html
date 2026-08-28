@@ -12,7 +12,25 @@
          <head> nên chạy trước khung hình đầu tiên. Khi bị nhúng iframe mà
          KHÔNG có theme=glass thì ghim data-theme="dark" để prefers-color-scheme
          của máy người dùng không làm panel sáng lệch tông giữa canvas tối. -->
-    <script>(function(){try{var t=new URLSearchParams(location.search).get('theme');if(t==='glass'||t==='light'){document.documentElement.dataset.theme='light';}else if(t==='dark'||window.self!==window.top){document.documentElement.dataset.theme='dark';}}catch(e){}})();</script>
+    <script>
+    /* Thứ tự quyết định màu, chạy TRƯỚC khung hình đầu tiên nên không nháy:
+         1. ?theme= trên URL — Flow canvas của cloud gắn theme=glass khi canvas
+            ở chế độ sáng; đây là ý muốn của trang chủ nên thắng tất cả.
+         2. Lựa chọn người dùng lưu ở localStorage (Cài đặt > Giao diện):
+            'light' | 'dark' | 'system'.
+         3. Bị nhúng iframe mà không có tham số: ghim tối, để một máy đặt OS sáng
+            không làm panel sáng lệch tông giữa canvas tối.
+         4. Còn lại: theo prefers-color-scheme của hệ điều hành (không đặt
+            data-theme, để media query trong style.css tự lo). */
+    (function(){try{
+        var t = new URLSearchParams(location.search).get('theme');
+        var saved = localStorage.getItem('tubecli_theme');
+        if (t === 'glass' || t === 'light') { document.documentElement.dataset.theme = 'light'; }
+        else if (t === 'dark') { document.documentElement.dataset.theme = 'dark'; }
+        else if (saved === 'light' || saved === 'dark') { document.documentElement.dataset.theme = saved; }
+        else if (saved !== 'system' && window.self !== window.top) { document.documentElement.dataset.theme = 'dark'; }
+    }catch(e){}})();
+    </script>
     <link rel="stylesheet" href="/static/style.css?v=9">
     <!-- Chế độ nhúng (?embed=1): ẩn sidebar khi dashboard được nhúng iframe vào
          Flow Builder của cloud — chỉ hiện panel, hash #/tab vẫn điều hướng như thường. -->
@@ -340,6 +358,15 @@
                     <div class="settings-field">
                         <label data-i18n="settings.api_base">API Base URL</label>
                         <input id="set-api" value="" onchange="autoSaveSetting('api_base_url', this.value, this)">
+                    </div>
+                    <div class="settings-field">
+                        <label data-i18n="settings.theme">Theme</label>
+                        <select id="set-theme" onchange="applyThemeChoice(this.value, this)">
+                            <option value="system" data-i18n="settings.theme_system">Follow system</option>
+                            <option value="light" data-i18n="settings.theme_light">Light</option>
+                            <option value="dark" data-i18n="settings.theme_dark">Dark</option>
+                        </select>
+                        <div class="field-hint" data-i18n="settings.theme_hint">Applies to the dashboard and to every extension page it opens.</div>
                     </div>
                     <div class="settings-field">
                         <label data-i18n="settings.ext_open_mode">Extension Open Mode</label>

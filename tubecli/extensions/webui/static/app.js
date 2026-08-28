@@ -52,7 +52,9 @@ function navigateTo(tab) {
                 url = '/' + tab.replace('ext-', '');
             }
             if (url) {
-                window.open(url, '_blank');
+                // Mở tab mới thì không có iframe nào để đồng bộ về sau, nên theme
+                // phải nằm sẵn trên URL cho script tiền-vẽ của trang đó đọc.
+                window.open(window.themedSrc(url), '_blank');
                 return;
             }
         }
@@ -86,6 +88,24 @@ window.currentTheme = function() {
     const pinned = document.documentElement.dataset.theme;
     if (pinned === 'light' || pinned === 'dark') return pinned;
     try { return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'; } catch (e) { return 'dark'; }
+};
+
+// Cài đặt > Giao diện. 'system' xoá data-theme để media query trong style.css
+// tự quyết; 'light'/'dark' ghim. Áp dụng ngay, không tải lại trang: dashboard
+// đọc token nên đổi là thấy, còn mỗi iframe đã mở được đóng dấu và tiêm lại
+// token — trang nào có bảng màu riêng cũng đổi theo.
+window.applyTheme = function(choice) {
+    if (choice === 'light' || choice === 'dark') document.documentElement.dataset.theme = choice;
+    else delete document.documentElement.dataset.theme;
+    try { localStorage.setItem('tubecli_theme', choice); } catch (e) {}
+    document.querySelectorAll('iframe.ext-iframe[src]').forEach(f => window.syncThemeToIframe(f));
+};
+
+// Người dùng đổi trong Cài đặt: áp dụng ngay rồi mới lưu lên server, để giao
+// diện không phải chờ một vòng mạng.
+window.applyThemeChoice = function(choice, inputEl) {
+    window.applyTheme(choice);
+    autoSaveSetting('theme', choice, inputEl);
 };
 // Every extension iframe URL must carry the theme, so the page's pre-paint
 // script picks the right palette BEFORE its stylesheet applies. Stamping
@@ -154,10 +174,7 @@ window.syncThemeToIframe = function(iframe) {
             if (v) cssText += `${k}: ${v} !important; `;
         }
         cssText += '} ';
-        cssText += 'body { background: var(--bg) !important; color: var(--text) !important; } ';
-        cssText += '.header { background: var(--bg2) !important; border-bottom-color: var(--border) !important; } ';
-        cssText += '.studio-layout, .studio-sidebar, .studio-toolbar { background: var(--bg) !important; } ';
-        
+
         let styleEl = doc.getElementById('tubecli-theme-sync');
         if (!styleEl) {
             styleEl = doc.createElement('style');
@@ -165,6 +182,35 @@ window.syncThemeToIframe = function(iframe) {
             doc.head.appendChild(styleEl);
         }
         styleEl.innerHTML = cssText;
+
+        // Rescue rules, for pages that do not theme themselves.
+        //
+        // These three blanket !important rules used to go into every page. A page
+        // with its own light palette does not want them — .header alone overrides
+        // five pages' own header styling — but an extension that never learned
+        // about themes still renders its dark ground inside a light dashboard
+        // without them. So: apply the tokens first, look at what the page
+        // actually rendered, and only then decide.
+        const wantLight = window.currentTheme() === 'light';
+        let followed = false;
+        try {
+            const bg = doc.defaultView.getComputedStyle(doc.body).backgroundColor;
+            const m = bg && bg.match(/rgba?\(([^)]+)\)/);
+            if (m) {
+                const [r, g, b, a] = m[1].split(',').map(Number);
+                if (a === undefined || a > 0.5) {
+                    const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+                    followed = wantLight ? lum > 0.6 : lum < 0.4;
+                }
+            }
+        } catch (e) { /* cross-origin or a document with no body yet: rescue it */ }
+
+        if (!followed) {
+            styleEl.innerHTML = cssText
+                + 'body { background: var(--bg) !important; color: var(--text) !important; } '
+                + '.header { background: var(--bg2) !important; border-bottom-color: var(--border) !important; } '
+                + '.studio-layout, .studio-sidebar, .studio-toolbar { background: var(--bg) !important; } ';
+        }
     } catch(e) {}
 };
 // When the OS flips light/dark and the dashboard is not pinned, every loaded
@@ -1704,7 +1750,7 @@ async function renderSkillsExt(el) {
         actionsHtml += `<button class="btn-icon btn-sm" onclick="openEditSkillModal('${s.id}')" title="${T('skills.title_edit')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">edit</span></button>`;
         
         if (cat.cat === 'workflow' || cat.cat === 'browser' || cat.cat === 'general' || cat.cat === 'api' || cat.cat === 'ai') {
-            actionsHtml += `<button class="btn-icon btn-sm" onclick="window.open('/workflow?skill_id=${s.id}', '_blank')" title="${T('skills.title_edit_wf')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">account_tree</span></button>`;
+            actionsHtml += `<button class="btn-icon btn-sm" onclick="window.open(window.themedSrc('/workflow?skill_id=${s.id}'), '_blank')" title="${T('skills.title_edit_wf')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px;"><span class="material-symbols-outlined" style="font-size: 18px;">account_tree</span></button>`;
         }
         
         actionsHtml += `<button class="btn-icon btn-sm btn-danger-icon" onclick="deleteSkill('${s.id}')" title="${T('skills.title_delete')}" style="padding:4px; border-radius:6px; min-width:32px; height:32px; color: var(--danger);"><span class="material-symbols-outlined" style="font-size: 18px;">delete</span></button>`;
@@ -5079,7 +5125,9 @@ async function launchProfile(name,btn) {
     alert(msg);
 }
 async function stopProfile(name,btn) { if(btn){btn.disabled=true;btn.textContent='...'} await apiPost('/api/v1/browser/stop',{profile:name}); setTimeout(()=>renderBrowserExt(getBrowserBody()),1000); }
-function openWSProfile(name) { window.open('/browser/view?profile=' + encodeURIComponent(name), '_blank'); }
+// Opened in a window of its own, so nothing syncs it afterwards: the theme has
+// to be on the URL for the page's pre-paint script to read.
+function openWSProfile(name) { window.open(window.themedSrc('/browser/view?profile=' + encodeURIComponent(name)), '_blank'); }
 async function deleteProfile(name) { if(!confirm(T('browser.delete_confirm_prompt', {name: name}))) return; await apiDelete('/api/v1/browser/profiles/'+name); }
 async function viewProfileLog(name) { const r = await apiGet('/api/v1/browser/log/' + encodeURIComponent(name)); if (!r || r.error) { alert('No log available: ' + (r?.error || 'Unknown')); return; } let msg = '📋 Browser Log for: ' + name; msg += '\n\nStatus: ' + (r.status || '-'); msg += '\nCommand: ' + (r.command || '-'); msg += '\nLog file: ' + (r.log_file || '-'); if (r.debug) { const d = r.debug; if (d.node_version) msg += '\nNode: ' + d.node_version; if (d.open_js_exists !== undefined) msg += '\nopen.js: ' + (d.open_js_exists ? '✅' : '❌'); if (d.node_modules_exists !== undefined) msg += '\nnode_modules: ' + (d.node_modules_exists ? '✅' : '❌'); if (d.launcher_dir) msg += '\nLauncher: ' + d.launcher_dir; } msg += '\n\n─── LOG OUTPUT ───\n' + (r.log || '(empty)'); alert(msg); }
 
@@ -5113,6 +5161,23 @@ async function applyGlobalSettings(s) {
         document.getElementById('set-ext-open-mode').value = openMode;
     }
     localStorage.setItem('ext_open_mode', openMode);
+
+    // Giao diện: localStorage là nguồn sự thật vì script tiền-vẽ đọc nó trước
+    // khi có mạng; giá trị trên server chỉ để đồng bộ giữa các máy.
+    const savedTheme = localStorage.getItem('tubecli_theme') || s.theme || 'system';
+    if (document.getElementById('set-theme')) {
+        document.getElementById('set-theme').value = savedTheme;
+    }
+    if (savedTheme !== localStorage.getItem('tubecli_theme')) {
+        try { localStorage.setItem('tubecli_theme', savedTheme); } catch (e) {}
+    }
+    // Reconcile the document with the control, so Settings can never show a
+    // theme the page is not wearing. Skipped when the URL asks for a theme:
+    // ?theme= is the embedding canvas's instruction and outranks the stored
+    // preference (it is also what the pre-paint script honoured first).
+    try {
+        if (!new URLSearchParams(location.search).get('theme')) window.applyTheme(savedTheme);
+    } catch (e) {}
 
     globalExtensionGroups = s.extension_groups || [];
     renderExtensionGroupsSettings();

@@ -704,5 +704,10 @@
   "browser.engine_src_manifest": "nguồn: manifest ShardX",
   "browser.engine_src_fallback": "không đọc được manifest — hiện phiên bản biết lần cuối",
   "browser.engine_forced": "đang ép bằng SHARDX_ENGINE_VERSION",
-  "browser.btn_check_update": "Kiểm tra bản mới"
+  "browser.btn_check_update": "Kiểm tra bản mới",
+  "settings.theme": "Giao diện",
+  "settings.theme_system": "Theo hệ thống",
+  "settings.theme_light": "Sáng",
+  "settings.theme_dark": "Tối",
+  "settings.theme_hint": "Áp dụng cho bảng điều khiển và mọi trang tiện ích mở ra từ đây"
 }

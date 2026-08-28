@@ -48,6 +48,10 @@
       --green: #10b981;
       --yellow: #f59e0b;
       --red: #ef4444;
+      /* Error ink that sits on a red wash rather than on the page ground:
+         lighter than --red in dark, deeper in light. This is the value the
+         deploy banner and the terminal's error rows always had. */
+      --err-on-wash: #f87171;
       --orange: #f97316;
       --purple: #8b5cf6;
       --cf-orange: #f6821f;
@@ -98,6 +102,7 @@
       --green: #15803d;
       --yellow: #a16207;
       --red: #dc2626;
+      --err-on-wash: #b91c1c;
       --orange: #c2410c;
       --cf-orange: #c2410c;
       --warn: #a16207;
@@ -129,6 +134,7 @@
         --green: #15803d;
         --yellow: #a16207;
         --red: #dc2626;
+        --err-on-wash: #b91c1c;
         --orange: #c2410c;
         --cf-orange: #c2410c;
         --warn: #a16207;
@@ -595,7 +601,7 @@
       color: var(--term-fg);
       white-space: pre-wrap; word-break: break-all;
     }
-    .terminal-body .log-err { color: #f87171; }
+    .terminal-body .log-err { color: var(--err-on-wash); }
     .terminal-body .log-ok { color: #4ade80; }
     .terminal-body .log-info { color: #60a5fa; }
     .terminal-body .log-warn { color: #fbbf24; }
@@ -789,7 +795,7 @@
       <!-- Tab: Deploy -->
       <div class="tab-pane" id="tab-deploy">
         <!-- Error banner for instant user feedback -->
-        <div id="deploy-error-banner" style="display:none; padding:12px 16px; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.35); color:var(--red); border-radius:var(--radius-sm); margin-bottom:16px; font-size:.85rem; font-weight:600;"></div>
+        <div id="deploy-error-banner" style="display:none; padding:12px 16px; background:rgba(239,68,68,.15); border:1px solid rgba(239,68,68,.35); color:var(--err-on-wash); border-radius:var(--radius-sm); margin-bottom:16px; font-size:.85rem; font-weight:600;"></div>
 
         <!-- Theme picker -->
         <div class="form-group">
