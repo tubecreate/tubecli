@@ -127,6 +127,15 @@ check("the decision reads what the page actually rendered",
       "getComputedStyle(doc.body).backgroundColor" in app and "0.2126 * r + 0.7152 * g + 0.0722 * b" in app)
 check("tokens are still injected unconditionally",
       "styleEl.innerHTML = cssText;" in app)
+# The palette is OFFERED, not imposed: a page that declares its own light values
+# keeps them (:root[data-theme="light"] outranks the injected :root), while a
+# page with no theme of its own still receives them. Imposing on everyone cost
+# edu_video_studio its gold accent and subtitle_extractor its opaque hover.
+check("the offered palette carries no !important",
+      "offered += `${k}: ${v}; `;" in app and "imposed += `${k}: ${v} !important; `;" in app,
+      "the token loop writes one spelling again")
+check("only a page that did not follow gets the imposed palette",
+      "styleEl.innerHTML = imposed" in app and "let cssText = offered;" in app)
 
 # Every window.open of an extension page carries the theme: a popup has no
 # parent to sync it afterwards, so the URL is the only channel.
@@ -324,6 +333,83 @@ for name, (html_path, css_paths) in PAGES.items():
                 fallback = da[key].startswith("#5276eb")
                 check(f"{name}/{src_name}: light {key} keeps the dark hue, or falls back to the dashboard primary",
                       gap <= 25 or fallback, f"{dark[key]} -> {da[key]} ({gap:.0f} deg apart)")
+
+# ── 3. the external extensions ─────────────────────────────────────────────
+# These live under data/, which is gitignored, so nothing here is under version
+# control — all the more reason for the contract to be asserted.
+EXTERNAL = ROOT / "data" / "extensions_external"
+
+# Themed, and expected to stay that way. A page dropping off this list because
+# its light block was removed is exactly the regression this catches.
+EXTERNAL_PAGES = {
+    "video_manager":      ["static/index.html"],
+    "web_crawler":        ["static/web_crawler.html"],
+    "sheets_manager":     ["static/sheets_manager.html"],
+    "livestream":         ["static/livestream.html"],
+    "subtitle_extractor": ["static/subtitle.html"],
+    "ai_arena":           ["static/arena.html"],
+    "worldseed":          ["static/worldseed.html"],
+    "template_designer":  ["static/designer.html"],
+    "content_studio":     ["static/studio.html", "static/settings.html"],
+    "database_manager":   ["static/database.html"],
+    "edu_video_studio":   ["static/edu_studio.html"],
+    "tts_vibevoice":      ["static/tts.html"],
+    "office_editor":      ["static/office.html"],
+    "news_intel":         ["static/news_intel.html"],
+    "capcut_tts":         ["static/capcut.html"],
+}
+
+for ext_name, rels in EXTERNAL_PAGES.items():
+    base = EXTERNAL / ext_name
+    if not base.is_dir():
+        # installed copies carry a suffix: video_manager__1.2.3
+        cands = sorted(q for q in EXTERNAL.glob(f"{ext_name}__*") if q.is_dir())
+        base = cands[0] if cands else base
+    for rel in rels:
+        page = base / rel
+        html = read(page)
+        if not html:
+            check(f"external {ext_name}/{rel}: page exists", False, str(page))
+            continue
+        head = html.split("</head>", 1)[0]
+        reader = re.search(r"<script[^>]*>(?:(?!</script>).)*get\('theme'\)(?:(?!</script>).)*</script>", head, re.S)
+        check(f"external {ext_name}: a pre-paint script reads ?theme=", reader is not None)
+        if reader:
+            styles = [m.start() for m in re.finditer(r"<link[^>]+rel=\"stylesheet\"[^>]*>|<style", head)
+                      if "fonts.googleapis.com" not in head[m.start():m.end()]]
+            check(f"external {ext_name}: it runs before the page's own styling",
+                  reader.start() < min(styles or [len(head)]))
+        srcs = [(rel, html)]
+        for href in re.findall(r'href="[^"]*?/([a-z_0-9]+\.css)', html):
+            css = base / "static" / href
+            if css.exists():
+                srcs.append((href, read(css)))
+        a = m = None
+        for _, src in srcs:
+            a = a or LIGHT_ATTR.search(src)
+            m = m or LIGHT_MEDIA.search(src)
+        check(f"external {ext_name}: has a :root[data-theme=\"light\"] block", a is not None)
+        check(f"external {ext_name}: has a guarded prefers-color-scheme block", m is not None)
+        if a and m:
+            da, dm = decls(a.group(1)), decls(m.group(1))
+            diff = sorted(set(da.items()) ^ set(dm.items()))
+            check(f"external {ext_name}: the two light blocks are token-identical", not diff, str(diff[:3]))
+
+# What is left. Printed, not failed: these pages have not been themed yet, and a
+# silent list is how that work gets forgotten.
+if EXTERNAL.is_dir():
+    todo = []
+    for d in sorted(q for q in EXTERNAL.iterdir() if q.is_dir() and not q.name.startswith(".")):
+        stem = d.name.split("__")[0]
+        if stem in EXTERNAL_PAGES:
+            continue
+        for page in sorted(d.glob("static/*.html")):
+            src = read(page)
+            if src and "get('theme')" not in src:
+                todo.append(f"{d.name}/{page.name}")
+    if todo:
+        print(f"  (note: {len(todo)} external extension pages have no theme reader yet — "
+              f"{', '.join(todo[:4])}{' …' if len(todo) > 4 else ''})")
 
 print(f"\n{checks - len(failures)}/{checks} PASS")
 for f in failures:

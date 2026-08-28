@@ -169,11 +169,20 @@ window.syncThemeToIframe = function(iframe) {
             '--text-primary':   getVar('--text'),
             '--text-secondary': getVar('--text2'),
         };
-        let cssText = ':root { ';
+        // Two spellings of the same palette. The offered one lets a page that
+        // declares its own light values keep them (:root[data-theme="light"] is
+        // more specific than :root, and this sheet is merely last in the
+        // cascade); the imposed one is for pages with no theme of their own,
+        // which need !important to move at all.
+        let offered = ':root { ', imposed = ':root { ';
         for (const [k, v] of Object.entries(mappedVars)) {
-            if (v) cssText += `${k}: ${v} !important; `;
+            if (!v) continue;
+            offered += `${k}: ${v}; `;
+            imposed += `${k}: ${v} !important; `;
         }
-        cssText += '} ';
+        offered += '} ';
+        imposed += '} ';
+        let cssText = offered;
 
         let styleEl = doc.getElementById('tubecli-theme-sync');
         if (!styleEl) {
@@ -206,7 +215,7 @@ window.syncThemeToIframe = function(iframe) {
         } catch (e) { /* cross-origin or a document with no body yet: rescue it */ }
 
         if (!followed) {
-            styleEl.innerHTML = cssText
+            styleEl.innerHTML = imposed
                 + 'body { background: var(--bg) !important; color: var(--text) !important; } '
                 + '.header { background: var(--bg2) !important; border-bottom-color: var(--border) !important; } '
                 + '.studio-layout, .studio-sidebar, .studio-toolbar { background: var(--bg) !important; } ';
@@ -5189,8 +5198,16 @@ async function applyGlobalSettings(s) {
         modelSel.innerHTML = `<option value="${esc(savedModel)}" selected>⏳ ${esc(savedModel)} (Đang tải...)</option>`;
     }
 
+    const browserAiSel = document.getElementById('set-browser-ai-model');
+    if (browserAiSel) {
+        browserAiSel.innerHTML = `<option value="" selected>⏳ ${esc(T('settings.loading_config', 'Loading...'))}</option>`;
+    }
+
     // These are async but non-critical, run in background
     populateModelDropdown(s.default_model || 'qwen:latest');
+    // '' is passed through rather than defaulted away: it means "not set", and
+    // the picker has to be able to show that state back to the user.
+    populateBrowserAiDropdown(s.browser_ai_model || '', s.default_model || '');
     loadCloudKeysInSettings();
     apiGet('/api/v1/settings/default-profile').then(bp => populateDefaultProfileDropdown(bp?.profile || 'default')).catch(() => {});
     populateDefaultCalendarDropdown(s.default_calendar_email || '').catch(() => {});
@@ -5297,8 +5314,8 @@ async function populateDefaultStorageDropdown(selectedEmail) {
     }
 }
 
-async function loadOllamaModels() {
-    const sel = document.getElementById('set-model');
+async function loadOllamaModels(selId = 'set-model') {
+    const sel = document.getElementById(selId);
     if (!sel) return;
     
     // Check if already loaded
@@ -5338,8 +5355,8 @@ async function loadOllamaModels() {
     }
 }
 
-async function load9RouterModels() {
-    const sel = document.getElementById('set-model');
+async function load9RouterModels(selId = 'set-model') {
+    const sel = document.getElementById(selId);
     if (!sel) return;
     
     let optgroup = sel.querySelector('optgroup[label*="9Router"]');
@@ -5376,8 +5393,8 @@ async function load9RouterModels() {
     }
 }
 
-function renderCloudModelsHTML(cloudProviders) {
-    const sel = document.getElementById('set-model');
+function renderCloudModelsHTML(cloudProviders, selId = 'set-model') {
+    const sel = document.getElementById(selId);
     if (!sel || !cloudProviders) return;
     
     // Avoid double rendering
@@ -5399,8 +5416,8 @@ function renderCloudModelsHTML(cloudProviders) {
     sel.insertAdjacentHTML('beforeend', html);
 }
 
-async function populateModelDropdown(selectedModel) {
-    const sel = document.getElementById('set-model');
+async function populateModelDropdown(selectedModel, selId = 'set-model') {
+    const sel = document.getElementById(selId);
     if (!sel) return;
     
     // Clear dropdown and start loading
@@ -5435,15 +5452,15 @@ async function populateModelDropdown(selectedModel) {
     // 3. Populate only the active/selected provider first to ensure instant rendering (no delays!)
     if (isCloudModel) {
         // Cloud model: Only render cloud models, skip Ollama & 9Router entirely on startup
-        renderCloudModelsHTML(cloudProviders);
+        renderCloudModelsHTML(cloudProviders, selId);
     } else if (is9RouterModel) {
         // 9Router model: Load 9Router only
-        await load9RouterModels();
-        renderCloudModelsHTML(cloudProviders);
+        await load9RouterModels(selId);
+        renderCloudModelsHTML(cloudProviders, selId);
     } else {
         // Ollama model (or others): Load Ollama only
-        await loadOllamaModels();
-        renderCloudModelsHTML(cloudProviders);
+        await loadOllamaModels(selId);
+        renderCloudModelsHTML(cloudProviders, selId);
     }
     
     // 4. Ensure the selectedModel is selected (and insert it if not present)
@@ -5456,6 +5473,39 @@ async function populateModelDropdown(selectedModel) {
             sel.value = selectedModel;
         }
     }
+}
+
+/**
+ * Fill the Default Browser AI picker in Settings.
+ *
+ * This is the model that drives a browser session when the agent running it has
+ * not chosen one of its own. Its empty value is a real answer — "no global pick,
+ * use the general default AI" — and must survive a round trip, which is why the
+ * inherit row carries value="" rather than a model name: writing a name here
+ * would record a choice the user never made, which is how every agent ended up
+ * pointing at qwen:latest on a machine with no Ollama running.
+ *
+ * @param {string} selectedModel - the saved global browser AI, '' when unset
+ * @param {string} fallbackModel - the general default AI it falls back to
+ */
+async function populateBrowserAiDropdown(selectedModel, fallbackModel) {
+    const SEL_ID = 'set-browser-ai-model';
+    const sel = document.getElementById(SEL_ID);
+    if (!sel) return;
+
+    // Which provider group renders first is decided by whatever model actually
+    // drives the browser today — the explicit pick, or the default it inherits —
+    // so the list opens on the right family in both cases.
+    await populateModelDropdown(selectedModel || fallbackModel || '', SEL_ID);
+    // Unlike the general picker this one carries no provider chips, so every
+    // group is loaded up front; both calls no-op if their group is already there.
+    await loadOllamaModels(SEL_ID);
+    await load9RouterModels(SEL_ID);
+
+    const inheritLabel = T('settings.browser_ai_inherit', 'Use the default AI model');
+    const inherit = fallbackModel ? `${inheritLabel} (${fallbackModel})` : inheritLabel;
+    sel.insertAdjacentHTML('afterbegin', `<option value="">↩️ ${esc(inherit)}</option>`);
+    sel.value = selectedModel || '';
 }
 
 // Filter model dropdown by provider chip
@@ -5755,6 +5805,9 @@ async function autoSaveSetting(key, value, inputEl) {
 async function saveGlobalSettings() {
     const payload = {
         default_model: document.getElementById('set-model')?.value || 'qwen:latest',
+        // No 'qwen:latest' fallback here on purpose — an empty value is the
+        // setting's own "inherit the default AI" state, not a missing one.
+        browser_ai_model: document.getElementById('set-browser-ai-model')?.value || '',
         api_port: document.getElementById('set-port')?.value || '5295',
         api_base_url: document.getElementById('set-api')?.value || window.location.origin,
         telegram_bot_token: document.getElementById('set-tg-token')?.value || '',
@@ -5870,6 +5923,7 @@ async function addCloudKeyFromSettings() {
         loadCloudKeysInSettings();
         const currentModel = document.getElementById('set-model')?.value || 'qwen:latest';
         await populateModelDropdown(currentModel);
+        await populateBrowserAiDropdown(document.getElementById('set-browser-ai-model')?.value || '', currentModel);
         const toast = document.createElement('div');
         toast.textContent = `✅ Đã thêm key ${prov}!`;
         toast.style.cssText = 'position:fixed;top:20px;right:20px;background:linear-gradient(135deg,#8b5cf6,#06b6d4);color:#fff;padding:12px 24px;border-radius:10px;z-index:99999;font-weight:700;box-shadow:0 4px 20px rgba(0,0,0,0.3);animation:fadeIn .3s';
@@ -5886,6 +5940,7 @@ async function removeCloudKeyFromSettings(provider, label) {
     loadCloudKeysInSettings();
     const currentModel = document.getElementById('set-model')?.value || 'qwen:latest';
     await populateModelDropdown(currentModel);
+    await populateBrowserAiDropdown(document.getElementById('set-browser-ai-model')?.value || '', currentModel);
 }
 
 // ═══ Version & Update ═══ (defined below at end of file)
