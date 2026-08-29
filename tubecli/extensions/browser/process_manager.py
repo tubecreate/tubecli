@@ -16,6 +16,50 @@ from typing import Dict, Any, Optional, List
 logger = logging.getLogger("BrowserProcessManager")
 
 
+def _process_group_kwargs(windows: Optional[bool] = None) -> Dict[str, Any]:
+    """Cờ Popen để tiến trình con mở một nhóm/session của RIÊNG nó.
+
+    Vì sao cần: cả cây phải giết được bằng MỘT tín hiệu. Trên POSIX,
+    start_new_session cho node một session mới nên pgid == pid — os.killpg dọn
+    luôn chromium và mọi renderer con. Không có nó thì chỉ có node nhận SIGTERM,
+    chromium (con của node) không nhận gì, thành mồ côi và tiếp tục giữ
+    user-data-dir cùng SingletonLock của hồ sơ. Trên Windows, taskkill /T đi
+    theo quan hệ cha-con nên cách giết không đổi; nhóm riêng chỉ để một Ctrl+C
+    ở console máy chủ không giật mất trình duyệt giữa phiên.
+
+    Tham số `windows` chỉ để test kiểm được cả hai nhánh trên một máy.
+    """
+    if windows is None:
+        windows = os.name == "nt"
+    if windows:
+        # getattr: hằng số này chỉ tồn tại trên Windows.
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+class KillResult:
+    """Câu trả lời của một lần giết: nó có chết THẬT không, và nếu không thì ai còn sống.
+
+    Là object chứ không phải bool vì người gọi cần cả hai thứ: quyết định (đóng
+    sổ lượt chạy thế nào) và bằng chứng (PID nào còn sống, để ghi thẳng vào
+    nhật ký nhóm cho chủ máy đọc). bool() vẫn dùng được nên `if killed:` đọc
+    tự nhiên như cũ.
+    """
+
+    __slots__ = ("confirmed", "alive", "detail")
+
+    def __init__(self, confirmed: bool, alive: Optional[List[int]] = None, detail: str = ""):
+        self.confirmed = bool(confirmed)
+        self.alive = list(alive or [])
+        self.detail = detail
+
+    def __bool__(self):
+        return self.confirmed
+
+    def __repr__(self):
+        return f"KillResult(confirmed={self.confirmed}, alive={self.alive}, detail={self.detail!r})"
+
+
 class BrowserProcessManager:
     """Singleton to manage all browser processes."""
 
@@ -172,11 +216,19 @@ class BrowserProcessManager:
             # a server; the preview path (routes.py) already spawned node correctly,
             # which is why Remote worked on the same box.
             args[0] = node_exe
+            # Nhóm/session riêng cho cả cây — xem _process_group_kwargs().
+            # Đã kiểm mọi chỗ đọc tiến trình này trước khi đổi: không nơi nào
+            # dựa vào việc con thừa hưởng tín hiệu hay chung console với máy chủ.
+            # stdout/stderr đã đổ vào file log (ngay trên), shutdown_event
+            # (api/server.py:1086) không đụng tới trình duyệt, `tubecli stop`
+            # (main.py) và force_kill_profile (cuối file này) đều tìm nạn nhân
+            # bằng psutil theo dòng lệnh, không theo nhóm.
             process = subprocess.Popen(
                 args,
                 cwd=launcher_dir,
                 stdout=log_file,
                 stderr=log_file,
+                **_process_group_kwargs(),
             )
 
             debug_info["pid"] = process.pid
@@ -329,6 +381,7 @@ class BrowserProcessManager:
 
         outcome = None
         return_code = None
+        kill_report = None
 
         if timeout_seconds and timeout_seconds > 0:
             import time
@@ -345,12 +398,33 @@ class BrowserProcessManager:
                 print(
                     f"[Browser] Instance {instance_id} exceeded max duration ({timeout_seconds}s). Force killing."
                 )
-                self._kill_tree(process)
+                # KHÔNG đóng sổ theo niềm tin. Bản cũ gọi _kill_tree rồi ghi
+                # ngay "timeout_killed" và return — không một lần process.wait().
+                # Nên một lượt được ghi là ĐÃ DỪNG trong khi chrome của nó vẫn
+                # sống, và lượt hẹn giờ kế tiếp bị chặn vì hồ sơ "đang bị điều
+                # khiển bởi <agent>". _kill_tree bây giờ trả lời có chết thật
+                # không, và chính câu trả lời đó mới được ghi.
+                kill_report = self._kill_tree(process)
+                if kill_report.confirmed:
+                    outcome = "timeout_killed"
+                else:
+                    # Chuỗi MỚI, đặt CẠNH chứ không thay: "timeout_killed" vẫn
+                    # là kết cục của một lượt dừng thành công và mọi nơi đọc nó
+                    # (run_log, tools/check_browsing.py, bảng Hoạt động) không
+                    # đổi. Bảng Hoạt động chưa biết chuỗi này thì hiện nguyên
+                    # văn (app.js:4499 có nhánh dự phòng) — xấu còn hơn nói dối.
+                    outcome = "timeout_kill_failed"
+                return_code = process.poll()
                 with self._instances_lock:
-                    if instance_id in self._instances:
-                        self._instances[instance_id]["status"] = "timeout_killed"
-                        self._instances[instance_id]["ended_at"] = datetime.now().isoformat()
-                outcome = "timeout_killed"
+                    inst = self._instances.get(instance_id)
+                    if inst is not None:
+                        inst["status"] = outcome
+                        inst["ended_at"] = datetime.now().isoformat()
+                        inst["kill_confirmed"] = kill_report.confirmed
+                        if return_code is not None:
+                            inst["return_code"] = return_code
+                        if not kill_report.confirmed:
+                            inst["still_alive"] = kill_report.detail
 
         if outcome is None:
             return_code = process.wait()
@@ -371,12 +445,22 @@ class BrowserProcessManager:
         # /log/{profile} chỉ chạy khi có người bấm xem, còn nhánh crash trong
         # spawn() chỉ nhìn được cửa sổ 1 giây, mà lỗi khoá BAS nổ ở giây thứ ~10.
         warnings = self._note_launch_evidence(log_path)
+        note = ""
+        if kill_report is not None and not kill_report.confirmed:
+            # Dấu này đi vào run_log để "đã dừng nhưng chưa chắc chết" có thể
+            # đếm được về sau, còn `note` là câu người đọc thấy trên bảng nhóm.
+            warnings.append(self._MARK_KILL_UNCONFIRMED)
+            note = f"KHÔNG dừng được tiến trình: {kill_report.detail}"
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
-                             started_at, log_path, profile, warnings)
+                             started_at, log_path, profile, warnings, note)
 
     # Dấu mốc do browser_manager.js in ra. ĐỔI CHUỖI Ở ĐÂY LÀ PHẢI ĐỔI CẢ BÊN IN.
     _MARK_BAS_OK = "BAS_LAUNCH_OK"
     _MARK_ANTIDETECT_OFF = "ANTIDETECT_OFF"
+
+    # Không đến từ log của trình duyệt như hai dấu trên: dấu này do CHÍNH máy chủ
+    # ghi ra khi nó đã bắn tín hiệu mà tiến trình vẫn không chết.
+    _MARK_KILL_UNCONFIRMED = "KILL_UNCONFIRMED"
 
     def _note_launch_evidence(self, log_path):
         """Đọc log một lượt vừa xong và rút ra hai sự thật nó biết mà không ai hỏi.
@@ -429,7 +513,7 @@ class BrowserProcessManager:
         return warnings
 
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
-                        started_at, log_path, profile="", warnings=None):
+                        started_at, log_path, profile="", warnings=None, note=""):
         """Close the run out in the durable log. Never raises into the monitor."""
         if not run_id:
             return   # a manual dashboard launch is not an agent run
@@ -460,7 +544,7 @@ class BrowserProcessManager:
             # "browser running" (spawn được) và im lặng mãi mãi sau đó — nên một phiên
             # chết sau 5 giây trông y hệt một phiên chạy trọn 8 phút. Ghi cả cái kết.
             if outcome != "completed":
-                self._log_group_failure(agent_id, profile, outcome, return_code, tail)
+                self._log_group_failure(agent_id, profile, outcome, return_code, tail, note)
             elif warnings:
                 # Chạy xong nhưng KHÔNG sạch. Bảng nhóm là chỗ chủ máy thật sự nhìn,
                 # nên một phiên mở trần phải hiện ở đó, không chỉ nằm trong log.
@@ -468,7 +552,7 @@ class BrowserProcessManager:
         except Exception as e:
             logger.warning(f"[Browser] Could not record run end: {e}")
 
-    def _log_group_failure(self, agent_id, profile, outcome, return_code, tail):
+    def _log_group_failure(self, agent_id, profile, outcome, return_code, tail, note=""):
         """Một dòng trên bảng của mọi nhóm agent này thuộc về, nói phiên hỏng thế nào.
         Best effort tuyệt đối: nhật ký không bao giờ được làm hỏng vòng theo dõi."""
         try:
@@ -498,7 +582,8 @@ class BrowserProcessManager:
                 name = getattr(a, "name", "") or ""
             except Exception:
                 pass
-            what = {"timeout_killed": "hết giờ, bị dừng"}.get(outcome, outcome)
+            what = {"timeout_killed": "hết giờ, bị dừng",
+                    "timeout_kill_failed": "hết giờ NHƯNG KHÔNG dừng được"}.get(outcome, outcome)
             title = (f"schedule {profile} — phiên dừng: {what}" if profile
                      else f"schedule — phiên dừng: {what}")
             if return_code is not None:
@@ -507,7 +592,9 @@ class BrowserProcessManager:
                 gid = (g or {}).get("group_id") if isinstance(g, dict) else ""
                 if gid:
                     group_log.append(gid, agent_id, name, kind="schedule",
-                                     title=title, detail=reason[:400], ok=False)
+                                     title=title,
+                                     detail=((note + " | ") if note else "") + reason[:400],
+                                     ok=False)
         except Exception as e:
             logger.warning(f"[Browser] Could not log session failure to group: {e}")
 
@@ -545,24 +632,36 @@ class BrowserProcessManager:
         except Exception as e:
             logger.warning(f"[Browser] Could not log antidetect warning to group: {e}")
 
+    @staticmethod
+    def _refresh_exit_status(inst: Dict[str, Any]) -> None:
+        """Bản ghi còn ghi "running" mà tiến trình đã thoát thì cập nhật cho đúng.
+
+        CHỈ khi còn "running". Trước đây mỗi lượt đọc đều ghi đè, nên một kết cục
+        đã được ghi đàng hoàng ("timeout_killed", "terminated", và bây giờ là
+        "timeout_kill_failed") chỉ sống tới lần /status kế tiếp rồi biến thành
+        "error" — chính chỗ hiển thị xoá mất sự thật mà vòng theo dõi vừa ghi.
+        """
+        process = inst.get("_process")
+        if not process or process.poll() is None:
+            return
+        if inst.get("status") != "running":
+            return
+        inst["status"] = "completed" if process.returncode == 0 else "error"
+        inst["return_code"] = process.returncode
+
     def get_status(self, instance_id: str) -> Optional[Dict[str, Any]]:
         with self._instances_lock:
             instance = self._instances.get(instance_id)
             if not instance:
                 return None
-            process = instance.get("_process")
-            if process and process.poll() is not None:
-                instance["status"] = "completed" if process.returncode == 0 else "error"
-                instance["return_code"] = process.returncode
+            self._refresh_exit_status(instance)
             return {k: v for k, v in instance.items() if not k.startswith("_")}
 
     def list_running(self) -> List[Dict[str, Any]]:
         result = []
         with self._instances_lock:
             for inst_id, inst in self._instances.items():
-                process = inst.get("_process")
-                if process and process.poll() is not None:
-                    inst["status"] = "completed" if process.returncode == 0 else "error"
+                self._refresh_exit_status(inst)
                 if inst["status"] == "running":
                     result.append({k: v for k, v in inst.items() if not k.startswith("_")})
         return result
@@ -574,23 +673,255 @@ class BrowserProcessManager:
                 result.append({k: v for k, v in inst.items() if not k.startswith("_")})
         return result
 
-    def _kill_tree(self, process):
-        """Kill process and all its children (worker.exe, chrome.exe, etc.)"""
+    # ── Giết cả cây, rồi CHỨNG MINH nó đã chết ───────────────────────────────
+    # Hai trần thời gian, cả hai đều bắt buộc: vòng theo dõi không được phép treo,
+    # nhưng cũng không được phép kết luận khi chưa hỏi lại.
+    _KILL_GRACE_SEC = 5.0        # cho tự đóng sau tín hiệu lịch sự
+    _KILL_CONFIRM_SEC = 6.0      # chờ tối đa bấy nhiêu rồi mới dám nói "chết rồi"
+
+    def _kill_tree(self, process, grace: Optional[float] = None) -> KillResult:
+        """Giết tiến trình cùng toàn bộ con cháu, rồi TRẢ LỜI nó có chết thật không.
+
+        Vì sao phải hỏi lại: bản cũ chỉ chạy `taskkill`, một lệnh CHỈ CÓ trên
+        Windows. Trên Linux nó ném FileNotFoundError, rơi xuống nhánh dự phòng
+        process.terminate() — tức một SIGTERM gửi cho MỖI tiến trình node.
+        Chromium là con của node nên không nhận được gì: nó thành mồ côi, tiếp
+        tục giữ user-data-dir và SingletonLock của hồ sơ, và lượt hẹn giờ kế
+        tiếp bị từ chối với "Hồ sơ đang bị điều khiển bởi <agent>". Giết mà
+        không kiểm chứng thì không khác gì không giết.
+
+        Không bao giờ ném: người gọi cần một câu trả lời để ghi sổ, không phải
+        một ngoại lệ.
+        """
+        pid = getattr(process, "pid", None)
+        if pid is None:
+            return KillResult(True, detail="không có tiến trình để giết")
+        grace = self._KILL_GRACE_SEC if grace is None else grace
+
+        if process.poll() is not None:
+            # Đã chết sẵn. Vẫn thu xác (wait) để trên POSIX nó không nằm lại
+            # dạng zombie — zombie vẫn nhận tín hiệu 0 và làm mọi phép kiểm
+            # "còn sống không" sau đây trả lời sai.
+            self._wait_dead(process, 1.0)
+            return KillResult(True, detail="tiến trình đã kết thúc từ trước")
+
+        # Chụp ảnh cây TRƯỚC khi bắn: cha chết rồi thì không còn cách nào hỏi nó
+        # đã từng có những đứa con nào, mà chính đứa cháu chromium mới là cái giữ
+        # khoá hồ sơ. Chụp sau khi biết cha còn sống nên không sợ PID đã bị hệ
+        # điều hành cấp lại cho ai khác.
+        snapshot = self._snapshot_tree(pid)
+
+        if os.name == "nt":
+            self._kill_tree_windows(process, pid)
+        else:
+            self._kill_group_posix(pid, grace,
+                                   lambda t: self._wait_dead(process, t))
+
+        # Bắn kiểu gì cũng kết thúc bằng một câu hỏi: nó chết chưa?
+        died = self._wait_dead(process, self._KILL_CONFIRM_SEC)
+        alive, checked = self._still_alive(snapshot)
+
+        if died and not alive:
+            note = "" if checked else " (không có psutil: chỉ kiểm được tiến trình cha)"
+            logger.info(f"[Browser] Đã giết và xác nhận cây tiến trình PID {pid}{note}")
+            return KillResult(True)
+
+        parts = []
+        if not died:
+            parts.append(f"PID {pid} vẫn sống sau khi đã bắn tín hiệu")
+        if alive:
+            parts.append("còn sống: " + ", ".join(str(p) for p in alive))
+        detail = "; ".join(parts) or f"PID {pid} không xác nhận được là đã chết"
+        logger.error(f"[Browser] GIẾT KHÔNG THÀNH — {detail}. "
+                     "Hồ sơ vẫn đang bị chiếm; dùng /stop với force=true để dọn.")
+        return KillResult(False, alive=alive, detail=detail)
+
+    def _kill_tree_windows(self, process, pid):
+        """Windows: taskkill /T /F vẫn là cách đúng — nó đi theo quan hệ cha-con
+        nên dọn được cả chrome.exe lẫn đám renderer. Chỉ khác một điều: bây giờ
+        nó không còn là câu trả lời cuối cùng, _kill_tree vẫn hỏi lại."""
         try:
-            pid = process.pid
-            import subprocess as _sp
-            # Windows: taskkill /T kills entire process tree
-            _sp.run(["taskkill", "/PID", str(pid), "/T", "/F"],
-                    capture_output=True, timeout=10)
-            logger.info(f"[Browser] Killed process tree for PID {pid}")
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           capture_output=True, timeout=10)
         except Exception as e:
-            logger.warning(f"[Browser] taskkill failed, falling back to terminate: {e}")
+            logger.warning(f"[Browser] taskkill hỏng ({e}) — thử kill trực tiếp")
             try:
-                process.terminate()
+                process.kill()
             except Exception:
                 pass
 
+    def _kill_group_posix(self, pid, grace, wait_dead, _ops=None):
+        """POSIX: bắn cả NHÓM — SIGTERM trước, rồi SIGKILL cho cái còn lại.
+
+        Trả về danh sách tín hiệu đã thực sự gửi (test đọc chính nó).
+
+        spawn() mở tiến trình với start_new_session=True nên pgid == pid: node,
+        chromium và mọi renderer nằm chung MỘT nhóm và chết cùng nhau. Nếu nhóm
+        không phải của riêng ta (tiến trình mở từ trước bản vá này) thì chỉ bắn
+        đúng pid — thà sót một cây còn hơn bắn nhầm cả nhóm của máy chủ.
+
+        _ops chỉ để test tiêm hàm giả: logic leo thang phải kiểm được cả trên máy
+        không phải POSIX. Cùng lý do mà hằng số tín hiệu lấy bằng getattr —
+        Windows không có SIGKILL.
+        """
+        import signal as _signal
+        SIGTERM = getattr(_signal, "SIGTERM", 15)
+        SIGKILL = getattr(_signal, "SIGKILL", 9)
+        ops = _ops or {}
+        getpgid = ops.get("getpgid") or getattr(os, "getpgid", None)
+        killpg = ops.get("killpg") or getattr(os, "killpg", None)
+        kill = ops.get("kill") or os.kill
+
+        pgid = None
+        if getpgid:
+            try:
+                pgid = getpgid(pid)
+            except Exception as e:
+                logger.warning(f"[Browser] Không đọc được pgid của {pid}: {e}")
+        own_group = bool(killpg) and pgid is not None and pgid == pid
+        if not own_group:
+            logger.warning(
+                f"[Browser] PID {pid} không có nhóm riêng (pgid={pgid}) — chỉ giết "
+                "được đúng tiến trình đó, con cháu có thể ở lại mồ côi")
+
+        sent = []
+
+        def _send(sig):
+            try:
+                if own_group:
+                    killpg(pgid, sig)
+                else:
+                    kill(pid, sig)
+                sent.append(sig)
+                return True
+            except ProcessLookupError:
+                return False                    # đã chết sẵn: hết việc
+            except Exception as e:
+                logger.warning(f"[Browser] Không gửi được tín hiệu {sig} tới {pid}: {e}")
+                return False
+
+        if not _send(SIGTERM):
+            return sent
+        wait_dead(grace)
+        # KHÔNG tin SIGTERM. node có thể đã thoát trong khi chromium con vẫn sống
+        # — mà chromium mới là cái giữ SingletonLock. Còn thở là SIGKILL.
+        if self._target_alive(pgid if own_group else pid, own_group, ops):
+            _send(SIGKILL)
+        return sent
+
+    def _target_alive(self, target, own_group, ops=None) -> bool:
+        """Tín hiệu 0: nhóm (hoặc tiến trình) đó còn ai không.
+
+        Không chắc thì trả True. Nghi ngờ thì tốn thêm một phát SIGKILL vào chỗ
+        trống, còn đoán bừa là "sạch rồi" thì đúng bằng con bug đang sửa.
+        """
+        ops = ops or {}
+        killpg = ops.get("killpg") or getattr(os, "killpg", None)
+        kill = ops.get("kill") or os.kill
+        try:
+            if own_group and killpg:
+                killpg(target, 0)
+            else:
+                kill(target, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except Exception:
+            return True
+
+    def _wait_dead(self, process, timeout: float) -> bool:
+        """Chờ có trần và THU XÁC — True nếu tiến trình đã thật sự kết thúc.
+
+        Phải là process.wait() chứ không phải poll(): trên POSIX một đứa con
+        chưa được thu vẫn là zombie, vẫn tồn tại dưới mắt tín hiệu 0.
+        """
+        try:
+            process.wait(timeout=max(0.0, timeout))
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+        except Exception:
+            return process.poll() is not None
+
+    def _snapshot_tree(self, pid):
+        """(pid, thời điểm tạo) của tiến trình và mọi con cháu, chụp TRƯỚC khi giết."""
+        snap = []
+        try:
+            import psutil                       # đã là phụ thuộc của repo (pyproject.toml)
+            root = psutil.Process(pid)
+            procs = [root]
+            try:
+                procs += root.children(recursive=True)
+            except Exception:
+                pass
+            for pr in procs:
+                try:
+                    snap.append((pr.pid, pr.create_time()))
+                except Exception:
+                    snap.append((pr.pid, None))
+        except Exception as e:
+            logger.debug(f"[Browser] Không chụp được cây tiến trình {pid}: {e}")
+        return snap
+
+    def _still_alive(self, snapshot, deadline: float = 2.0):
+        """Ai trong ảnh chụp còn sống THẬT, sau khi cho hệ điều hành một nhịp dọn.
+
+        Đối chiếu cả thời điểm tạo để không nhận nhầm một tiến trình mới vừa
+        được cấp đúng số PID đó.
+
+        Trả về (danh sách còn sống, có kiểm chứng được không). Không có psutil
+        thì nói thẳng là KHÔNG BIẾT, chứ danh sách rỗng ở đây sẽ bị đọc thành
+        "sạch rồi" — đúng kiểu báo cáo hão mà cả bản vá này chống lại.
+        """
+        if not snapshot:
+            return [], True
+        try:
+            import psutil
+        except Exception:
+            return [], False
+        import time as _t
+        end = _t.time() + max(0.0, deadline)
+        while True:
+            alive = []
+            for pid, ctime in snapshot:
+                try:
+                    pr = psutil.Process(pid)
+                    if pr.status() == psutil.STATUS_ZOMBIE:
+                        continue                # đã chết, chỉ chưa ai thu
+                    if ctime is not None and abs(pr.create_time() - ctime) > 1.0:
+                        continue                # PID đã được cấp lại cho tiến trình khác
+                    alive.append(pid)
+                except psutil.NoSuchProcess:
+                    continue
+                except psutil.AccessDenied:
+                    alive.append(pid)           # còn tồn tại, chỉ là không đọc được
+                except Exception:
+                    continue
+            if not alive or _t.time() >= end:
+                return alive, True
+            _t.sleep(0.2)
+
+    def _mark_stopped(self, instance_id: str, report: KillResult):
+        """Ghi kết cục của một lần dừng tay. "terminated" giữ nguyên nghĩa cũ —
+        đã dừng THẬT; ca không dừng được có tên riêng để không ai đọc nhầm."""
+        with self._instances_lock:
+            inst = self._instances.get(instance_id)
+            if inst is None:
+                return
+            inst["status"] = "terminated" if report.confirmed else "terminate_failed"
+            inst["ended_at"] = datetime.now().isoformat()
+            inst["kill_confirmed"] = report.confirmed
+            if not report.confirmed:
+                inst["still_alive"] = report.detail
+
     def terminate(self, instance_id: str) -> bool:
+        """Dừng một phiên. True CHỈ KHI tiến trình đã thật sự chết.
+
+        False bây giờ có hai nghĩa — không có gì để dừng, HOẶC dừng không được.
+        Cả hai đều là "chưa dừng", và đó mới là câu người gọi hỏi. Trả True khi
+        chrome vẫn đang giữ hồ sơ là cách cũ để một lượt hẹn giờ kế tiếp đâm vào
+        "Hồ sơ đang bị điều khiển" mà không ai hiểu vì sao.
+        """
         with self._instances_lock:
             instance = self._instances.get(instance_id)
             if not instance:
@@ -598,26 +929,41 @@ class BrowserProcessManager:
             process = instance.get("_process")
             if not process or process.poll() is not None:
                 return False
-            try:
-                self._kill_tree(process)
-                instance["status"] = "terminated"
-                instance["ended_at"] = datetime.now().isoformat()
-                return True
-            except Exception as e:
-                logger.error(f"Error terminating {instance_id}: {e}")
-                return False
+
+        # Giết NGOÀI khoá: _kill_tree chờ tới vài giây, mà bộ lập lịch chạm
+        # _instances_lock mỗi nhịp (_count_running_agent_browsers -> list_running).
+        # Giữ khoá qua một lần chờ là đặt độ trễ hệ điều hành lên đường lập lịch.
+        try:
+            report = self._kill_tree(process)
+        except Exception as e:
+            logger.error(f"Error terminating {instance_id}: {e}")
+            return False
+
+        self._mark_stopped(instance_id, report)
+        if not report.confirmed:
+            logger.error(f"[Browser] Không dừng được {instance_id}: {report.detail}")
+        return report.confirmed
 
     def stop_by_profile(self, profile: str) -> bool:
+        """Dừng phiên đang chạy của một hồ sơ. True CHỈ KHI nó đã thật sự chết."""
+        target_id = None
+        process = None
         with self._instances_lock:
             for inst_id, inst in self._instances.items():
                 if inst["profile"] == profile and inst["status"] == "running":
                     process = inst.get("_process")
-                    if process:
-                        self._kill_tree(process)
-                        inst["status"] = "terminated"
-                        inst["ended_at"] = datetime.now().isoformat()
-                        return True
-        return False
+                    target_id = inst_id
+                    break
+        if not target_id or not process:
+            return False
+
+        report = self._kill_tree(process)       # ngoài khoá — xem terminate()
+        self._mark_stopped(target_id, report)
+        if not report.confirmed:
+            logger.error(
+                f"[Browser] Hồ sơ '{profile}' KHÔNG dừng được: {report.detail} — "
+                "còn tiến trình giữ user-data-dir, gọi /stop với force=true để dọn")
+        return report.confirmed
 
 
 # Global singleton
