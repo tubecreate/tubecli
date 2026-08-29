@@ -3019,3 +3019,153 @@ async def api_preview_drive_attach(port: int, req: DriveAttachRequest, request: 
         raise HTTPException(500, f"Gắn file Drive vào browser lỗi: {e}")
 
 
+# ── Kho proxy ───────────────────────────────────────────────────────────────
+# Vì sao có nhóm route này: hồ sơ chỉ giữ MỘT chuỗi proxy, và bulk_set_proxy đặt
+# CÙNG một proxy cho nhiều hồ sơ. Kho cho phép gán theo nguồn ("một proxy từ Kho
+# VN") và phát đều, thay vì gõ tay từng địa chỉ.
+#
+# Mọi route ghi đều là POST: route GET không mang Origin nên origin_guard cho qua,
+# và một trang bất kỳ có thể gọi được — cùng luật với các extension khác trong repo.
+
+class KhoRequest(BaseModel):
+    name: str = ""
+    new_name: str = ""
+    note: str = ""
+    delete_proxies: bool = False
+
+
+class ProxyImportRequest(BaseModel):
+    kho: str = ""
+    text: str = ""
+    expiry_date: str = ""
+    note: str = ""
+
+
+class ProxyEditRequest(BaseModel):
+    id: str = ""
+    ids: List[str] = []
+    kho: Optional[str] = None
+    expiry_date: Optional[str] = None
+    note: Optional[str] = None
+    proxy_str: Optional[str] = None
+
+
+class ProxyTestRequest(BaseModel):
+    id: str = ""
+    proxy_str: str = ""
+
+
+class ProxyAssignRequest(BaseModel):
+    profiles: List[str] = []
+    kho: str = ""
+    rotate_minutes: int = 0
+
+
+@router.get("/proxy-pool")
+async def api_proxy_pool(kho: str = "", include_expired: bool = True):
+    """Kho và proxy trong kho. Kèm `blocker` cho từng proxy: engine hiện tại có
+    chạy được nó không, và nếu không thì vì sao — biết trước còn hơn mở trình
+    duyệt xong mới thấy mọi trang chết."""
+    from . import proxy_pool as pool
+    return {
+        "success": True,
+        "khos": pool.list_khos(),
+        "proxies": pool.list_proxies(kho or None, include_expired),
+        "relay_note": "PROXY_SOCKS5_AUTH_UNSUPPORTED chỉ chặn khi KHÔNG qua relay",
+    }
+
+
+@router.post("/proxy-pool/kho/create")
+async def api_kho_create(req: KhoRequest):
+    from . import proxy_pool as pool
+    return pool.create_kho(req.name, req.note)
+
+
+@router.post("/proxy-pool/kho/rename")
+async def api_kho_rename(req: KhoRequest):
+    from . import proxy_pool as pool
+    return pool.rename_kho(req.name, req.new_name)
+
+
+@router.post("/proxy-pool/kho/delete")
+async def api_kho_delete(req: KhoRequest):
+    from . import proxy_pool as pool
+    return pool.delete_kho(req.name, req.delete_proxies)
+
+
+@router.post("/proxy-pool/import")
+async def api_proxy_import(req: ProxyImportRequest):
+    """Dán nhiều dòng, mỗi dòng một proxy. Trả về NGUYÊN VĂN các dòng không đọc
+    được: báo "3 dòng lỗi" mà không nói dòng nào thì người dùng phải tự dò."""
+    from . import proxy_pool as pool
+    return pool.add_proxies(req.kho, req.text, req.expiry_date, req.note)
+
+
+@router.post("/proxy-pool/update")
+async def api_proxy_update(req: ProxyEditRequest):
+    from . import proxy_pool as pool
+    fields = {k: v for k, v in
+              (("kho", req.kho), ("expiry_date", req.expiry_date),
+               ("note", req.note), ("proxy_str", req.proxy_str))
+              if v is not None}
+    return pool.update_proxy(req.id, **fields)
+
+
+@router.post("/proxy-pool/delete")
+async def api_proxy_delete(req: ProxyEditRequest):
+    from . import proxy_pool as pool
+    ids = req.ids or ([req.id] if req.id else [])
+    return pool.remove_proxies(ids)
+
+
+@router.post("/proxy-pool/test")
+async def api_proxy_test(req: ProxyTestRequest):
+    """Đi thật qua proxy để lấy IP công khai. Chạy trong luồng riêng: requests là
+    đồng bộ và một proxy chết ngốn trọn 15 giây timeout của event loop."""
+    from . import proxy_pool as pool
+    raw = req.proxy_str
+    if not raw and req.id:
+        for p in pool.list_proxies():
+            if p.get("id") == req.id:
+                raw = p.get("proxy_str", "")
+                break
+    if not raw:
+        raise HTTPException(400, "Thiếu proxy để kiểm tra")
+    result = await asyncio.to_thread(pool.test_proxy, raw)
+    if req.id:
+        pool.record_test(req.id, result)
+    return result
+
+
+@router.post("/proxy-pool/assign")
+async def api_proxy_assign(req: ProxyAssignRequest):
+    """Phát proxy từ kho cho các hồ sơ, chia ĐỀU.
+
+    Ghi thêm proxy_kho và proxy_rotate_minutes lên hồ sơ để lần mở sau còn biết
+    proxy này đến từ kho nào — không có nó thì không xoay vòng được, vì xoay cần
+    biết lấy cái kế tiếp ở đâu."""
+    from . import proxy_pool as pool
+    names = [n for n in (req.profiles or []) if n]
+    if not names:
+        raise HTTPException(400, "Chưa chọn hồ sơ nào")
+    picks = pool.distribute(req.kho or None, len(names))
+    if not any(picks):
+        return {"success": False, "error": f"Kho '{req.kho}' không có proxy dùng được"}
+    assigned = []
+    for name, proxy in zip(names, picks):
+        if not proxy:
+            continue
+        update_profile(name, proxy=proxy, proxy_kho=req.kho,
+                       proxy_rotate_minutes=int(req.rotate_minutes or 0))
+        assigned.append({"profile": name, "proxy": proxy})
+    return {"success": True, "assigned": assigned, "count": len(assigned)}
+
+
+@router.get("/proxy-pool/relays")
+async def api_proxy_relays():
+    """Relay nào đang chạy, đang dùng upstream nào, đã xoay mấy lần.
+
+    Mật khẩu bị che ở tầng dưới (proxy_relay._mask) chứ không ở đây — che tại
+    nơi phát sinh thì mọi đường ra đều an toàn."""
+    from .proxy_relay import manager
+    return {"success": True, "relays": manager.status()}

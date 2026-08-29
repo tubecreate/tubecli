@@ -220,7 +220,10 @@ def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
     config = _load_config(name)
     if "browser_version" in kwargs and kwargs["browser_version"] in ("default", "latest"):
         kwargs["browser_version"] = resolve_default_browser_version()
-    for key in ("tags", "proxy", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
+    # proxy_kho / proxy_rotate_minutes: proxy nay den tu kho nao va co xoay khong.
+    # Thieu hai khoa nay trong danh sach trang thi update_profile nhan roi VUT DI
+    # lang le, va lan mo sau khong biet lay proxy ke tiep o dau de xoay.
+    for key in ("tags", "proxy", "proxy_kho", "proxy_rotate_minutes", "browser_version", "chrome_version", "window_size", "notes", "blacklist", "google_account", "facebook_account", "tiktok_account", "x_account", "discord_account", "telegram_account"):
         if key in kwargs and kwargs[key] is not None:
             config[key] = kwargs[key]
     _save_config(name, config)
