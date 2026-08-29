@@ -1909,6 +1909,215 @@ def _preview_busy_reason(profile, preview_sessions, instances):
     return None
 
 
+# ── XEM GHÉP một phiên đang chạy (không giết ai) ───────────────────────
+# _preview_busy_reason ở trên cố ý CHỈ BÁO. Nhưng "báo" không được là ngõ cụt: lượt
+# chạy theo lịch mở Chromium qua open.js với --remote-debugging-port=0 (open.js:1075),
+# nên CHÍNH Chromium ghi cổng CDP của nó vào <profile>/DevToolsActivePort. Không ai
+# đọc file đó cho phiên theo lịch — nó là thứ duy nhất cho phép NHÌN phiên agent thay
+# vì phải dừng nó. Nối vào KHÔNG giết gì cả, nên ranh giới "không giết phiên của
+# người khác" (docstring _preview_busy_reason) vẫn nguyên vẹn: dừng vẫn là một quyết
+# định TÁCH BIỆT do người bấm.
+
+
+def _profile_storage_dir(profile):
+    from .profile_manager import PROFILES_DIR
+    return os.path.join(PROFILES_DIR, str(profile))
+
+
+def _epoch_of(value):
+    """started_at → epoch giây. Nhận float (bản ghi preview) hoặc ISO (instance)."""
+    try:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        from datetime import datetime
+        return datetime.fromisoformat(str(value)).timestamp()
+    except Exception:
+        return None
+
+
+def _devtools_active_port(profile):
+    """(cổng, mtime) mà Chromium TỰ ghi ở <profile>/DevToolsActivePort.
+
+    Dòng đầu là cổng, dòng sau là đường dẫn WebSocket — đọc đúng dòng đầu, y như
+    boundCdpPort() trong preview_server.cjs. (0, None) khi không có file.
+    """
+    try:
+        path = os.path.join(_profile_storage_dir(profile), "DevToolsActivePort")
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            first = f.readline().strip()
+        return int(first), os.path.getmtime(path)
+    except Exception:
+        return 0, None
+
+
+def _cdp_alive(port, timeout=1.5):
+    """Cổng CDP này có Chromium THẬT đang nghe không.
+
+    ĐÚNG một phép thử, và là phép thử đã có sẵn: cdpAlive() của preview_server.cjs —
+    GET /json/version trên 127.0.0.1, chỉ 200 mới tính là sống. Lý do nằm ngay ở comment
+    của nó (khối dọn file cổng lúc khởi động): cổng ephemeral được hệ điều hành CẤP
+    LẠI, nên một file cổng còn sót trỏ vào browser của NGƯỜI KHÁC. Tin file mà không
+    thử = mời người dùng xem nhầm profile.
+    """
+    try:
+        port = int(port)
+    except Exception:
+        return False
+    if port <= 0:
+        return False
+    try:
+        import http.client
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
+        try:
+            conn.request("GET", "/json/version")
+            return conn.getresponse().status == 200
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    except Exception:
+        return False
+
+
+def _cdp_port_pid(port):
+    """PID đang NGHE ở cổng này, hay None khi không tra được (thiếu psutil/quyền).
+
+    None nghĩa là "không biết", KHÔNG phải "sai" — người gọi phải coi đó là thiếu
+    bằng chứng chứ không phải bằng chứng ngược, kẻo trên máy không tra được cổng thì
+    không bao giờ xem ghép được.
+    """
+    try:
+        import psutil
+        listen = getattr(psutil, "CONN_LISTEN", "LISTEN")
+        for c in psutil.net_connections(kind="inet"):
+            try:
+                if c.status == listen and c.laddr and int(c.laddr.port) == int(port):
+                    return c.pid
+            except Exception:
+                continue
+    except Exception:
+        return None
+    return None
+
+
+def _pid_in_tree(pid, root_pid):
+    """pid có nằm trong cây tiến trình của root_pid không (chính nó hoặc con cháu).
+
+    Bản ghi instance giữ pid của TIẾN TRÌNH NODE (open.js); Chromium là con của nó,
+    nên pid nghe cổng CDP gần như không bao giờ bằng pid trong bản ghi.
+    """
+    try:
+        import psutil
+        if int(pid) == int(root_pid):
+            return True
+        for anc in psutil.Process(int(pid)).parents():
+            if anc.pid == int(root_pid):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def _attach_probe(profile, instances):
+    """Phiên SỐNG của profile này có nối CDP vào được không → (cổng, lý_do).
+
+    lý_do: 'ok' | 'no_session' | 'no_port_file' | 'stale_port_file' | 'port_dead'
+           | 'port_foreign'. Ba bằng chứng, thiếu một là KHÔNG mời:
+      1. còn một instance SỐNG đúng profile này (_process.poll() is None) — file của
+         một lượt đã chết không bao giờ được dùng;
+      2. DevToolsActivePort được ghi SAU khi phiên đó bắt đầu. force_kill_profile dọn
+         file này (_STALE_CDP_FILES trong process_manager.py) nhưng một lần sập cứng
+         thì không ai dọn hộ, và file cũ trỏ vào cổng ephemeral đã được cấp lại;
+      3. cổng trả lời /json/version NGAY BÂY GIỜ, và — nếu tra được — tiến trình nghe
+         cổng đó nằm trong cây tiến trình của chính phiên (chặn nốt ca cổng đã bị cấp
+         lại cho browser của profile KHÁC).
+    """
+    profile = str(profile)
+    inst = None
+    for i in (instances or []):
+        try:
+            if str(i.get("profile")) != profile:
+                continue
+            proc = i.get("_process")
+            if proc is not None and proc.poll() is not None:
+                continue
+            inst = i
+            break
+        except Exception:
+            continue
+    if inst is None:
+        return 0, "no_session"
+
+    port, mtime = _devtools_active_port(profile)
+    if not port:
+        return 0, "no_port_file"
+
+    started = _epoch_of(inst.get("started_at"))
+    # 60s dung sai: bản ghi được tạo ngay trước khi node chạy, và đồng hồ file có thể
+    # lệch chút. Chromium ghi file này SAU đó vài giây nên bình thường mtime > started.
+    if mtime is not None and started is not None and mtime < started - 60:
+        return 0, "stale_port_file"
+
+    if not _cdp_alive(port):
+        return 0, "port_dead"
+
+    owner = _cdp_port_pid(port)
+    if owner is not None and inst.get("pid") and not _pid_in_tree(owner, inst.get("pid")):
+        return 0, "port_foreign"
+    return int(port), "ok"
+
+
+_ATTACH_WHY_VI = {
+    "no_session": "phiên đó vừa kết thúc",
+    "no_port_file": "phiên đó không mở cổng gỡ lỗi nên không xem ghép được",
+    "stale_port_file": "dấu vết cổng còn lại là của lượt chạy trước (không tin được)",
+    "port_dead": "cổng gỡ lỗi của phiên đó không còn trả lời",
+    "port_foreign": "cổng đó giờ thuộc về một tiến trình khác — không dám nối",
+    "probe_failed": "không dò được phiên đó",
+}
+
+
+def _attach_offer(profile, busy, instances, preview_sessions=None):
+    """"Bận" thì XEM phiên đó bằng cách nào — luôn trả dict, không bao giờ ném.
+
+    Hai kiểu nối, cùng một câu trả lời cho người gọi:
+      • by='frame'  → đã có preview_server chạy sẵn cho profile này; cứ mở WebSocket
+        vào đúng cổng đó là hai khung cùng xem (clients là Set, broadcast tới tất cả)
+        — không cần đóng khung kia nữa.
+      • by='agent'/'manual' → chạy MỘT preview_server ở chế độ --attach-cdp qua
+        POST /api/v1/browser/preview/attach. CHỈ XEM (preview_server.cjs từ chối mọi
+        lệnh chuột/phím ở chế độ này).
+    """
+    by = (busy or {}).get("by")
+    if by == "frame":
+        port = _resolve_port_for_profile(profile)
+        if port:
+            return {
+                "available": True, "mode": "preview_session", "control": "full",
+                "preview_port": port, "ws": "/api/v1/browser/preview/ws/%d" % int(port),
+                "message_vi": "Khung kia vẫn đang chiếu — có thể xem chung, không cần đóng nó.",
+            }
+        return {"available": False, "why": "no_session",
+                "message_vi": "Không xem ghép được phiên này (" + _ATTACH_WHY_VI["no_session"] + ")."}
+
+    port, why = _attach_probe(profile, instances)
+    if not port:
+        return {"available": False, "why": why,
+                "message_vi": "Không xem ghép được phiên này ("
+                              + _ATTACH_WHY_VI.get(why, why) + ")."}
+    return {
+        "available": True, "mode": "cdp", "control": "view_only",
+        "cdp_port": int(port),
+        "endpoint": "/api/v1/browser/preview/attach",
+        "method": "POST",
+        "body": {"profile": str(profile)},
+        "message_vi": "Bạn có thể XEM phiên đang chạy ngay tại đây (chỉ xem, không điều khiển).",
+    }
+
+
 def _engine_key_reason(profile):
     """Profile dùng nhân BAS mà chưa có khoá vân tay → không mở được, cần khoá hoặc
     đổi sang ShardX. (Key HẾT HẠN — có key nhưng expired — chỉ lộ lúc launch, do
@@ -1935,6 +2144,18 @@ def preview_preflight(profile, preview_sessions, instances, in_flight_others: in
     try:
         busy = _preview_busy_reason(profile, preview_sessions, instances)
         if busy:
+            # "Bận" không còn là ngõ cụt: kèm luôn CÁCH XEM phiên đó nếu nối được, để
+            # một lần gọi trả đủ hai việc: vì sao không mở được, và bấm gì để xem. Mọi
+            # trường cũ (reason/by/who/mins/profile/message_vi/detail) giữ nguyên —
+            # nodes.js reasonText() và WorkspaceViewer.js đang đọc chúng.
+            try:
+                busy["attach"] = _attach_offer(profile, busy, instances, preview_sessions)
+            except Exception:
+                busy["attach"] = {"available": False, "why": "probe_failed",
+                                  "message_vi": _ATTACH_WHY_VI["probe_failed"]}
+            if busy["attach"].get("available") and busy.get("message_vi"):
+                busy["message_vi"] = (busy["message_vi"] + " "
+                                      + busy["attach"].get("message_vi", "")).strip()
             return busy
     except Exception:
         pass
@@ -1951,6 +2172,142 @@ def preview_preflight(profile, preview_sessions, instances, in_flight_others: in
     except Exception:
         pass
     return None
+
+
+async def _spawn_preview_server(profile, url, extra_args=()):
+    """Chạy preview_server.cjs và CHỜ nó thực sự listen — (proc, port, early_output).
+
+    Tách khỏi launch_preview vì nay có HAI lối vào cần đúng bộ kiểm tra này: mở browser
+    mới, và XEM GHÉP một phiên đang chạy (--attach-cdp). Ném HTTPException với lý do
+    đọc được; không bao giờ trả về một tiến trình đã chết hoặc chưa nghe cổng.
+    """
+    ext_dir = os.path.dirname(os.path.abspath(__file__))
+    preview_path = os.path.join(ext_dir, "preview_server.cjs")
+
+    # Fail with a reason rather than letting Popen raise a bare FileNotFoundError.
+    import shutil as _shutil
+    if not _shutil.which("node"):
+        raise HTTPException(500, "Node.js is required for browser preview but `node` "
+                                 "is not installed. Install Node.js, then try again.")
+
+    # Playwright needs Node 20+. Debian 12 and Ubuntu 22.04 package Node 18, so
+    # this passes a plain presence check and then fails inside the preview
+    # server with "Playwright requires Node.js 20 or higher" — visible only in
+    # its own log, while the page showed a spinner. Say it here instead.
+    try:
+        _nv = subprocess.run(["node", "-v"], capture_output=True, text=True, timeout=10).stdout
+        _major = int(_nv.strip().lstrip("v").split(".")[0])
+    except Exception:
+        _major = 0
+    if 0 < _major < 20:
+        raise HTTPException(
+            500,
+            f"Browser automation needs Node.js 20 or newer; this system has "
+            f"v{_major}. On Debian/Ubuntu the distribution package is Node 18, "
+            f"so install from NodeSource:\n"
+            f"  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -\n"
+            f"  apt-get install -y nodejs",
+        )
+
+    browser_ext_nm = os.path.join(ext_dir, "node_modules")
+    if not os.path.isdir(browser_ext_nm):
+        # Install them rather than handing the user a command. 503 with a
+        # retry-after tells the page this is a wait, not a dead end.
+        started = start_browser_deps_install()
+        if started.get("status") == "error":
+            raise HTTPException(500, started["message"])
+        raise HTTPException(
+            503,
+            "Installing browser automation dependencies (a few minutes — it also "
+            "downloads browser binaries). This page will keep retrying.",
+            headers={"Retry-After": "20", "X-TubeCLI-Installing": "deps"},
+        )
+
+    # Find available port
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    # Build environment and NODE_PATH
+    env = os.environ.copy()
+    existing = env.get("NODE_PATH", "")
+    # os.pathsep, not ";". On Linux a semicolon is an ordinary character, so
+    # "a;b" was read as one directory named "a;b", NODE_PATH resolved to
+    # nothing, and preview_server.cjs died on require('minimist') before it
+    # ever listened — which is why the preview WebSocket had nothing to
+    # connect to and the page sat on "Initializing browser...".
+    env["NODE_PATH"] = browser_ext_nm + (os.pathsep + existing if existing else "")
+
+    from .profile_manager import PROFILES_DIR
+    cmd = ["node", preview_path, "--profile", profile or "default",
+           "--url", url, "--port", str(port),
+           "--profiles-dir", PROFILES_DIR]
+    cmd.extend(str(a) for a in (extra_args or ()))
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        cwd=ext_dir, encoding="utf-8", errors="replace",
+        env=env,
+    )
+    
+    import threading
+    from collections import deque
+    # Keep the first lines around. When node dies on startup its reason is the
+    # only useful thing on screen, and it used to scroll past into the server
+    # log while the API cheerfully reported success.
+    early_output = deque(maxlen=40)
+
+    def log_proc_output(p, name):
+        try:
+            for line in p.stdout:
+                early_output.append(line.rstrip())
+                print(f"[PreviewServer][{name}] {line.rstrip()}", flush=True)
+        except Exception as e:
+            print(f"[PreviewServer][{name}] Error reading stdout: {e}", flush=True)
+        finally:
+            try: p.stdout.close()
+            except: pass
+
+    t = threading.Thread(target=log_proc_output, args=(proc, profile), daemon=True)
+    t.start()
+
+    # Do not claim "launched" until the preview server is actually listening.
+    # Returning immediately meant a node process that died on startup still
+    # produced a success response, and the page then opened a WebSocket to a
+    # port with nothing behind it and waited on "Initializing browser..."
+    # forever with no error anywhere.
+    import socket as _socket
+    deadline = time.time() + 25
+    listening = False
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            await asyncio.sleep(0.2)      # let the reader thread drain
+            detail = "\n".join(list(early_output)[-15:]) or "(no output)"
+            raise HTTPException(
+                500,
+                f"Browser preview failed to start (node exited with code "
+                f"{proc.returncode}).\n{detail}",
+            )
+        with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
+            s.settimeout(0.5)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                listening = True
+                break
+        await asyncio.sleep(0.4)
+
+    if not listening:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        detail = "\n".join(list(early_output)[-15:]) or "(no output)"
+        raise HTTPException(
+            500,
+            f"Browser preview did not start listening on port {port} within 25s.\n{detail}",
+        )
+    return proc, port, early_output
 
 
 @router.post("/preview/launch")
@@ -2009,130 +2366,7 @@ async def launch_preview(request: Request):
         _launching_profiles[profile] = _time.time()
 
     try:
-        ext_dir = os.path.dirname(os.path.abspath(__file__))
-        preview_path = os.path.join(ext_dir, "preview_server.cjs")
-
-        # Fail with a reason rather than letting Popen raise a bare FileNotFoundError.
-        import shutil as _shutil
-        if not _shutil.which("node"):
-            raise HTTPException(500, "Node.js is required for browser preview but `node` "
-                                     "is not installed. Install Node.js, then try again.")
-
-        # Playwright needs Node 20+. Debian 12 and Ubuntu 22.04 package Node 18, so
-        # this passes a plain presence check and then fails inside the preview
-        # server with "Playwright requires Node.js 20 or higher" — visible only in
-        # its own log, while the page showed a spinner. Say it here instead.
-        try:
-            _nv = subprocess.run(["node", "-v"], capture_output=True, text=True, timeout=10).stdout
-            _major = int(_nv.strip().lstrip("v").split(".")[0])
-        except Exception:
-            _major = 0
-        if 0 < _major < 20:
-            raise HTTPException(
-                500,
-                f"Browser automation needs Node.js 20 or newer; this system has "
-                f"v{_major}. On Debian/Ubuntu the distribution package is Node 18, "
-                f"so install from NodeSource:\n"
-                f"  curl -fsSL https://deb.nodesource.com/setup_20.x | bash -\n"
-                f"  apt-get install -y nodejs",
-            )
-
-        browser_ext_nm = os.path.join(ext_dir, "node_modules")
-        if not os.path.isdir(browser_ext_nm):
-            # Install them rather than handing the user a command. 503 with a
-            # retry-after tells the page this is a wait, not a dead end.
-            started = start_browser_deps_install()
-            if started.get("status") == "error":
-                raise HTTPException(500, started["message"])
-            raise HTTPException(
-                503,
-                "Installing browser automation dependencies (a few minutes — it also "
-                "downloads browser binaries). This page will keep retrying.",
-                headers={"Retry-After": "20", "X-TubeCLI-Installing": "deps"},
-            )
-
-        # Find available port
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(("", 0))
-        port = sock.getsockname()[1]
-        sock.close()
-
-        # Build environment and NODE_PATH
-        env = os.environ.copy()
-        existing = env.get("NODE_PATH", "")
-        # os.pathsep, not ";". On Linux a semicolon is an ordinary character, so
-        # "a;b" was read as one directory named "a;b", NODE_PATH resolved to
-        # nothing, and preview_server.cjs died on require('minimist') before it
-        # ever listened — which is why the preview WebSocket had nothing to
-        # connect to and the page sat on "Initializing browser...".
-        env["NODE_PATH"] = browser_ext_nm + (os.pathsep + existing if existing else "")
-
-        from .profile_manager import PROFILES_DIR
-        proc = subprocess.Popen(
-            ["node", preview_path, "--profile", profile or "default",
-             "--url", url, "--port", str(port),
-             "--profiles-dir", PROFILES_DIR],
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            cwd=ext_dir, encoding="utf-8", errors="replace",
-            env=env,
-        )
-        
-        import threading
-        from collections import deque
-        # Keep the first lines around. When node dies on startup its reason is the
-        # only useful thing on screen, and it used to scroll past into the server
-        # log while the API cheerfully reported success.
-        early_output = deque(maxlen=40)
-
-        def log_proc_output(p, name):
-            try:
-                for line in p.stdout:
-                    early_output.append(line.rstrip())
-                    print(f"[PreviewServer][{name}] {line.rstrip()}", flush=True)
-            except Exception as e:
-                print(f"[PreviewServer][{name}] Error reading stdout: {e}", flush=True)
-            finally:
-                try: p.stdout.close()
-                except: pass
-
-        t = threading.Thread(target=log_proc_output, args=(proc, profile), daemon=True)
-        t.start()
-
-        # Do not claim "launched" until the preview server is actually listening.
-        # Returning immediately meant a node process that died on startup still
-        # produced a success response, and the page then opened a WebSocket to a
-        # port with nothing behind it and waited on "Initializing browser..."
-        # forever with no error anywhere.
-        import socket as _socket
-        deadline = time.time() + 25
-        listening = False
-        while time.time() < deadline:
-            if proc.poll() is not None:
-                await asyncio.sleep(0.2)      # let the reader thread drain
-                detail = "\n".join(list(early_output)[-15:]) or "(no output)"
-                raise HTTPException(
-                    500,
-                    f"Browser preview failed to start (node exited with code "
-                    f"{proc.returncode}).\n{detail}",
-                )
-            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-                s.settimeout(0.5)
-                if s.connect_ex(("127.0.0.1", port)) == 0:
-                    listening = True
-                    break
-            await asyncio.sleep(0.4)
-
-        if not listening:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-            detail = "\n".join(list(early_output)[-15:]) or "(no output)"
-            raise HTTPException(
-                500,
-                f"Browser preview did not start listening on port {port} within 25s.\n{detail}",
-            )
+        proc, port, early_output = await _spawn_preview_server(profile, url)
 
         session_id = f"preview_{int(time.time())}"
         # started_at + opened_by: để preflight của LẦN mở sau biết profile này đang

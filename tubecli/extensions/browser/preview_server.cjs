@@ -34,6 +34,43 @@ const startUrl = args.url || 'about:blank';
 const port = parseInt(args.port) || 9222;
 const profilesDir = args['profiles-dir'] || '';
 
+// ── --attach-cdp <cong>: XEM GHEP mot phien DANG CHAY ────────────────────────
+// Luot chay theo lich mo Chromium qua open.js voi --remote-debugging-port=0
+// (open.js:1075), nen chinh Chromium ghi cong CDP cua no vao
+// <profile>/DevToolsActivePort. Che do nay NOI vao cong do thay vi mo mot browser
+// moi: khong co Chromium nao duoc sinh ra, va browser VAN THUOC VE luot chay cua
+// agent. Ba he qua bat buoc, tung cai deu la mot cach giet phien nguoi khac neu
+// quen (xem cac guard `attachMode` ben duoi):
+//   1. KHONG xoa SingletonLock / DevToolsActivePort / preview_cdp.json — chung la
+//      cua mot browser DANG SONG, khong phai rac cua phien cu;
+//   2. KHONG dieu huong, KHONG dong tab trang, KHONG dat lai viewport — moi thu do
+//      lam hong chinh viec agent dang lam (toa do phan tu doi ngay lap tuc);
+//   3. KHONG BAO GIO goi browser.close()/context.close() — voi connectOverCDP,
+//      close() dong browser THAT. Khung xem thoat thi Chromium phai song tiep.
+const attachCdpPort = parseInt(args['attach-cdp'], 10) || 0;
+const attachMode = attachCdpPort > 0;
+
+// Nhung thu KHUNG XEM GHEP khong duoc lam. Day khong phai gioi han ky thuat —
+// page.mouse.click() qua CDP chay duoc — ma la ranh gioi: mot ban phim thu hai go
+// vao phien agent lam hong chinh luot chay ma nguoi dung dang xem. Chi xem.
+const ATTACH_MUTATING_WS = new Set([
+    'mouse', 'keyboard', 'scroll', 'navigate', 'new_tab', 'close_tab', 'switch_tab',
+    'nav', 'file_cancel',
+]);
+const ATTACH_MUTATING_HTTP = new Set([
+    '/click', '/type', '/scroll', '/navigate', '/back', '/forward', '/reload',
+    '/set-input-files', '/upload-files', '/pick/start', '/pick/stop',
+]);
+// Ham THUAN (nhan co attached tuong minh) de test goi duoc ma khong phai chay ca
+// server — cung kieu voi classifyFatal.
+function attachBlocks(kind, attached) {
+    if (!attached) return false;
+    const k = String(kind || '');
+    return ATTACH_MUTATING_WS.has(k) || ATTACH_MUTATING_HTTP.has(k);
+}
+const ATTACH_REFUSAL_VI = 'Khung nay dang XEM GHEP phien cua agent — chi xem, khong dieu khien. '
+    + 'Muon tu thao tac thi dung phien do roi mo lai browser.';
+
 function log(msg) {
     console.log(JSON.stringify({ type: 'log', message: msg, time: new Date().toISOString() }));
     if (typeof broadcast === 'function') {
@@ -199,6 +236,22 @@ function emitFatalAndExit(reason, message, detail, code = 1) {
 // Định nghĩa ở module-scope (dùng serverRef thay vì server) để test trích được
 // nguyên hàm, và để attachPageListeners/context.on trong IIFE gọi qua closure.
 function onBrowserDeath(kind, detail) {
+    if (attachMode) {
+        // Khung XEM GHEP: browser nay KHONG phai cua ta. Mat ket noi nghia la luot
+        // chay cua agent da ket thuc (hoac co nguoi bam dung) — do la ket thuc BINH
+        // THUONG cua thu ta dang xem, khong phai su co cua khung nay, va khong bao
+        // gio duoc phan loai thanh browser_crashed/oom. Chi noi ra roi thoat 0.
+        // KHONG goi close() o bat ky duong nao: voi connectOverCDP, close() dong
+        // browser THAT — dung dieu ma xem ghep the la se khong lam.
+        const bye = 'Phiên của agent đã kết thúc — khung xem đóng theo. '
+                  + 'Mở lại trình duyệt như bình thường nếu bạn muốn tự thao tác.';
+        try { log(`Phiên agent kết thúc (${kind}) — đóng khung xem ghép.`); } catch (e) {}
+        try { broadcast({ type: 'attach_ended', message_vi: bye }); } catch (e) {}
+        if (!everReady) writeLastError('attach_ended', bye, detail || kind);
+        try { if (serverRef) serverRef.close(); } catch (e) {}
+        setTimeout(() => { try { process.exit(0); } catch (e) {} }, 300);
+        return;
+    }
     if (everReady) {
         // Người dùng đã xem được hình rồi mới đóng → đóng bình thường, thoát 0 như cũ.
         try { log(`Browser closed (${kind})`); } catch (e) {}
@@ -254,8 +307,10 @@ process.on('uncaughtException', (err) => {
     }
     storageDirRef = storageDir;   // để handler lỗi module-scope ghi preview_last_error.json
 
-    // Cleanup stale locks
-    if (storageDir && fs.existsSync(storageDir)) {
+    // Cleanup stale locks. attachMode: KHONG dung — day la khoa cua mot Chromium
+    // DANG SONG (phien agent), xoa di la mo duong cho tien trinh thu hai vao cung
+    // user-data-dir, tuc la pha hong dung cai phien ta dinh xem.
+    if (!attachMode && storageDir && fs.existsSync(storageDir)) {
         for (const lf of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'LOCK']) {
             try {
                 const p = path.join(storageDir, lf);
@@ -284,7 +339,10 @@ process.on('uncaughtException', (err) => {
     // thì hệ điều hành cấp lại cho tiến trình sau, nên lần attach sau nối vào
     // browser CỦA PROFILE KHÁC. Khung này đang mở lại chính profile này, nên mọi
     // file cổng còn sót ở đây là rác.
-    if (storageDir) {
+    // attachMode: DevToolsActivePort chinh la thu ta vua doc de tim duong vao, va
+    // no la cua phien dang song — xoa la tu tay cat duong nay cho moi lan sau
+    // (va lam script_runner mat cong CDP).
+    if (storageDir && !attachMode) {
         for (const stale of ['preview_cdp.json', 'DevToolsActivePort']) {
             try {
                 const p = path.join(storageDir, stale);
@@ -343,6 +401,9 @@ process.on('uncaughtException', (err) => {
     };
     const unpublishCdp = () => {
         // File còn lại sau khi phiên chết = lần attach sau nối vào cổng ma. Xoá ngay.
+        // attachMode: file KHONG phai cua ta — phien agent van song sau khi khung xem
+        // thoat, xoa di la lam mo coi mot ban ghi con dung.
+        if (attachMode) return;
         try { if (cdpFile && fs.existsSync(cdpFile)) fs.unlinkSync(cdpFile); } catch (e) {}
     };
     // 'exit' chỉ dọn file. Còn SIGINT/SIGTERM: hễ đăng ký listener là Node BỎ hành
@@ -406,6 +467,12 @@ process.on('uncaughtException', (err) => {
 
     async function handleWSMessage(msg) {
         if (!msg || !msg.type || !page) return;
+        // Khung XEM GHEP: chan o DAY, mot cho, thay vi rai `if` khap 12 nhanh ben
+        // duoi. Tra loi hun (khong im lang) de UI noi duoc vi sao cu bam khong an.
+        if (attachBlocks(msg.type, attachMode)) {
+            broadcast({ type: 'attach_readonly', action: msg.type, message_vi: ATTACH_REFUSAL_VI });
+            return;
+        }
         try {
             if (msg.type === 'mouse') {
                 const { action, x, y } = msg;
@@ -624,6 +691,15 @@ process.on('uncaughtException', (err) => {
         if (!isBrowserReady || !page) {
             res.writeHead(503, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ error: 'Browser is still initializing' }));
+            return;
+        }
+
+        // Cua HTTP (sharee trong nhom, group_actions) di cung mot ranh gioi voi WS:
+        // che do xem ghep KHONG dieu khien duoc. 409 chu khong 403 — day khong phai
+        // van de quyen, ma la "phien nay khong nhan lenh".
+        if (attachBlocks(_path, attachMode)) {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'attach_readonly', message_vi: ATTACH_REFUSAL_VI }));
             return;
         }
 
@@ -895,7 +971,25 @@ process.on('uncaughtException', (err) => {
     });
 
     // Launch Browser background thread / async start
-    if (storageDir) {
+    if (attachMode) {
+        // NOI vao browser dang song. Khong Popen gi ca, khong dung toi user-data-dir.
+        // connectOverCDP tra ve Browser cua chinh Chromium do; contexts()[0] la
+        // persistent context that su cua profile (kem tab agent dang mo).
+        const { chromium } = require('playwright');
+        log(`Noi vao phien dang chay qua CDP 127.0.0.1:${attachCdpPort} (CHI XEM)`);
+        let attached = null;
+        try {
+            attached = await chromium.connectOverCDP(`http://127.0.0.1:${attachCdpPort}`, { timeout: 15000 });
+        } catch (e) {
+            emitFatalAndExit('attach_failed',
+                `Khong noi duoc vao phien dang chay cua ho so «${profileName}». Phien do co the vua `
+              + `ket thuc — dong khung nay roi mo lai browser nhu binh thuong.`,
+                (e && (e.stack || e.message)) || String(e));
+            return;
+        }
+        context = attached.contexts()[0] || await attached.newContext();
+        log(`Da noi: ${context.pages().length} tab dang mo trong phien cua agent`);
+    } else if (storageDir) {
         let attempt = 1;
         const maxAttempts = 3;
         let success = false;
@@ -1049,7 +1143,9 @@ process.on('uncaughtException', (err) => {
     // ── Quản lý nhiều tab ────────────────────────────────────────────
     function attachPageListeners(p) {
         if (p.__ssBound) return; p.__ssBound = true;
-        p.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
+        // attachMode: KHONG dat lai viewport. Trang thuoc ve agent; doi kich thuoc
+        // khung nhin la doi toan bo toa do phan tu ngay giua luc no dang bam.
+        if (!attachMode) p.setViewportSize({ width: 1280, height: 800 }).catch(() => {});
         p.on('filechooser', async (fc) => { activeFileChooser = fc; broadcast({ type: 'file_chooser_open', multiple: fc.isMultiple() }); });
         p.on('crash', () => {
             // Renderer của tab chết. Nếu CHƯA hiện được hình (thường tab chính đang tải)
@@ -1072,7 +1168,9 @@ process.on('uncaughtException', (err) => {
     }
     async function switchToPage(p) {
         if (!p) return; page = p; attachPageListeners(p);
-        try { await p.bringToFront(); } catch (e) {}
+        // attachMode: bringToFront doi TAB DANG HIEN cua browser that — agent dang
+        // thao tac tren tab cua no, keo tieu diem di la lam hong luot chay.
+        if (!attachMode) { try { await p.bringToFront(); } catch (e) {} }
         broadcast({ type: 'url_changed', url: p.url() });
         await triggerImmediateFrame(); broadcastTabs();
     }
@@ -1084,7 +1182,15 @@ process.on('uncaughtException', (err) => {
     // vài hôm sau thành một đống (đã thấy: about:blank ×5, YouTube ×3).
     // Quy tắc: dọn hết tab trắng thừa; đã có tab đúng trang cần mở thì DÙNG LẠI nó;
     // không có gì khôi phục thì mới điều hướng tab trắng còn lại.
-    {
+    if (attachMode) {
+        // KHONG dong tab nao, KHONG dieu huong: cac tab nay la viec cua agent. Chi
+        // CHON tab de chieu — tab that gan nhat, la thu nguoi dung muon nhin.
+        const real = context.pages().filter((p) => p.url() !== 'about:blank');
+        page = real[real.length - 1] || context.pages()[0];
+        if (!page) { emitFatalAndExit('attach_failed',
+            `Phien cua ho so «${profileName}» khong con tab nao de xem.`, 'no pages over CDP'); return; }
+        log(`Xem ghep tab: ${page.url()}`);
+    } else {
         const all = context.pages();
         const real = all.filter((p) => p.url() !== 'about:blank');
         const blanks = all.filter((p) => p.url() === 'about:blank');
@@ -1094,8 +1200,8 @@ process.on('uncaughtException', (err) => {
             try { await blanks[i].close(); } catch (e) {}
         }
         log(`Phiên cũ: ${real.length} tab thật, dọn ${Math.max(0, blanks.length - keep)} tab trắng thừa`);
+        page = context.pages()[0] || await context.newPage();
     }
-    page = context.pages()[0] || await context.newPage();
 
     attachPageListeners(page);
     context.on('page', async (np) => {
@@ -1104,13 +1210,19 @@ process.on('uncaughtException', (err) => {
         await switchToPage(np);
     });
 
-    try {
-        await page.setViewportSize({ width: 1280, height: 800 });
-    } catch (e) {
-        log(`Warning: Failed to set viewport size: ${e.message}`);
+    if (!attachMode) {
+        try {
+            await page.setViewportSize({ width: 1280, height: 800 });
+        } catch (e) {
+            log(`Warning: Failed to set viewport size: ${e.message}`);
+        }
     }
 
-    if (startUrl !== 'about:blank') {
+    if (attachMode) {
+        // Khong dieu huong gi het. startUrl cua yeu cau xem ghep luon la about:blank,
+        // nhung viet ro nhanh nay de mot lan sua sau khong lo goto() vao trang agent.
+        log('Che do xem ghep: khong dieu huong, khong doi tab.');
+    } else if (startUrl !== 'about:blank') {
         // So theo origin+path (bỏ query): trang như YouTube Studio tự đổi query liên tục,
         // so cả chuỗi URL thì không bao giờ trúng và lại mở trùng tab.
         const sameDoc = (a, b) => {
@@ -1164,7 +1276,12 @@ process.on('uncaughtException', (err) => {
         });
     };
     `;
-    await page.evaluate(pickerScript);
+    // Trang trong che do xem ghep thuoc ve agent va co the dang dieu huong: tiem
+    // hong thi chi mat bo chon phan tu, KHONG duoc giet ca khung xem.
+    await page.evaluate(pickerScript).catch((e) => {
+        if (!attachMode) throw e;
+        log('Khong tiem duoc picker vao trang cua agent: ' + e.message);
+    });
 
     // Listeners điều hướng đã gắn qua attachPageListeners; phát tab ban đầu
     broadcastTabs();

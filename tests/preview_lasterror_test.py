@@ -101,8 +101,12 @@ let lastExit = null;
 class ExitSignal extends Error {}
 const fakeProcess = { exit: (c) => { lastExit = c; throw new ExitSignal(); } };
 
-function makeSandbox(initialEver, dir) {
+function makeSandbox(initialEver, dir, attach) {
     const prelude = `
+        // preview_server.cjs:51 khai  const attachMode = attachCdpPort > 0.
+        // onBrowserDeath rẽ nhánh theo nó, nên sandbox PHẢI cấp — thiếu là
+        // ReferenceError, và đó chính là cách test này từng đỏ.
+        const attachMode = !!opts.attach;
         let everReady = opts.ever;
         let __fatalEmitted = false;
         let storageDirRef = opts.dir;
@@ -117,7 +121,7 @@ function makeSandbox(initialEver, dir) {
                  clearLastError, classifyFatal, isReady: () => everReady };
     `;
     const factory = new Function('fs','path','process','opts', prelude + funcs + ret);
-    return factory(fs, path, fakeProcess, { ever: initialEver, dir });
+    return factory(fs, path, fakeProcess, { ever: initialEver, dir, attach: !!attach });
 }
 
 const errFile = path.join(TMP, 'preview_last_error.json');
@@ -171,6 +175,31 @@ function ok(label, cond, extra) { if (!cond) { bad++; console.error('FAIL', labe
     ok('A4 REGRESS launch_failed', cf(new Error('Target page, context or browser has been closed')).reason === 'launch_failed', cf(new Error('Target page, context or browser has been closed')).reason);
     ok('A4 engine_expired', cf(new Error('Key expired!')).reason === 'engine_expired');
     ok('A4 oom', cf(new Error('spawn ENOMEM')).reason === 'oom');
+
+    // ── A5. CHẾ ĐỘ GHÉP: khung xem KHÔNG được giết phiên của agent ──
+    // Hồi quy tốn kém nhất mà tính năng "xem agent làm việc" có thể gây ra: nếu
+    // đóng khung mà browser thật chết theo thì nó thành "âm thầm giết agent".
+    rm();
+    const s4 = makeSandbox(false, TMP, true);   // ghép, chưa kịp thấy hình
+    lastExit = null;
+    try { s4.onBrowserDeath('disconnected', 'cdp gone'); } catch (e) {}
+    // exit(0) nam trong setTimeout(300) — kiem ngay thi lastExit con null.
+    await new Promise(r => setTimeout(r, 500));
+    const ev4 = s4.__ev;
+    ok('A5 ghep: mat ket noi -> thoat 0, khong phai su co', lastExit === 0, 'lastExit=' + lastExit);
+    ok('A5 ghep: KHONG phan loai crash/oom',
+       !ev4.broadcasts.some(b => /fatal|crash|oom/i.test(String(b && b.type))),
+       JSON.stringify(ev4.broadcasts).slice(0, 160));
+    ok('A5 ghep: co bao attach_ended cho khung',
+       ev4.broadcasts.some(b => b && b.type === 'attach_ended'),
+       JSON.stringify(ev4.broadcasts).slice(0, 160));
+
+    // Đường KHÔNG ghép phải giữ nguyên hành vi cũ — vá này không được nới lỏng nó.
+    rm();
+    const s5 = makeSandbox(false, TMP, false);
+    lastExit = null;
+    try { s5.onBrowserDeath('disconnected', 'crashed'); } catch (e) {}
+    ok('A5 thuong: chet truoc khi thay hinh VAN la su co', lastExit !== 0, 'lastExit=' + lastExit);
 
     process.exit(bad ? 1 : 0);
 })();
