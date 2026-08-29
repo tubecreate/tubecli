@@ -199,7 +199,7 @@
   "browser.pp_test_all": "すべてテスト",
   "browser.pp_assign": "プロファイルに割り当て",
   "browser.pp_delete_selected": "Delete selected",
-  "browser.pp_import_placeholder": "One proxy per line. socks5://user:pass@host:port, http://host:port, or the provider form socks5://host:port:user:pass (rewritten on import).",
+  "browser.pp_import_placeholder": "1行に1つ。host:port:user:pass、host:port、user:pass@host:port — 先頭の socks5:// や http:// はあってもなくても構いません。スキームがなければ http と仮定し、テストで自動修正されます。",
   "browser.pp_expiry": "Expires",
   "browser.pp_note": "Note (optional)",
   "browser.pp_do_import": "Import",
@@ -230,5 +230,7 @@
   "browser.pp_assigned": "profiles updated",
   "browser.pp_no_relay": "No relay running",
   "browser.pp_blocker_format": "エンジンが読めない形式",
-  "browser.pp_blocker_socks_auth": "パスワード付き SOCKS5 — リレーが必要"
+  "browser.pp_blocker_socks_auth": "パスワード付き SOCKS5 — リレーが必要",
+  "browser.pp_scheme_guessed": "スキーム推測",
+  "browser.pp_guessed_n": "件はスキーム推測"
 }

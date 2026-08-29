@@ -199,7 +199,7 @@
   "browser.pp_test_all": "Kiểm tra tất cả",
   "browser.pp_assign": "Gán cho hồ sơ",
   "browser.pp_delete_selected": "Xoá mục đã chọn",
-  "browser.pp_import_placeholder": "Mỗi dòng một proxy. socks5://user:pass@host:port, http://host:port, hoặc dạng nhà cung cấp socks5://host:port:user:pass (được tự viết lại khi nhập).",
+  "browser.pp_import_placeholder": "Mỗi dòng một proxy. host:port:user:pass, host:port, user:pass@host:port — có hay không có socks5:// hoặc http:// ở đầu đều được. Không ghi scheme thì mặc định http; bấm Kiểm tra là nó tự sửa lại.",
   "browser.pp_expiry": "Hạn dùng",
   "browser.pp_note": "Ghi chú (không bắt buộc)",
   "browser.pp_do_import": "Nhập",
@@ -230,5 +230,7 @@
   "browser.pp_assigned": "hồ sơ đã cập nhật",
   "browser.pp_no_relay": "Chưa có relay nào chạy",
   "browser.pp_blocker_format": "Định dạng engine không đọc được",
-  "browser.pp_blocker_socks_auth": "SOCKS5 có mật khẩu — cần relay"
+  "browser.pp_blocker_socks_auth": "SOCKS5 có mật khẩu — cần relay",
+  "browser.pp_scheme_guessed": "đoán scheme",
+  "browser.pp_guessed_n": "phải đoán scheme"
 }

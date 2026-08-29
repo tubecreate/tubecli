@@ -1839,7 +1839,11 @@ function ppRow(p) {
     if (blocked) state += `<span class="tag" style="background:${fatal ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.15)'};color:var(--${fatal ? 'red' : 'orange'})">${esc(blocked)}</span> `;
     if (p.last_ok === true) state += `<span class="tag" style="background:rgba(34,197,94,.15);color:var(--green)">${esc(p.last_ip || '')} ${esc(p.last_country || '')}</span>`;
     else if (p.last_ok === false) state += `<span class="tag" style="background:rgba(239,68,68,.15);color:var(--red)">${T('browser.pp_test_failed')}</span>`;
-    if (!state) state = `<span style="color:var(--text-muted)">${T('browser.pp_untested')}</span>`;
+    // Chuoi tran khong ghi scheme thi kho doan http. Phai noi ra: doan sai thi
+    // trinh duyet mo len voi proxy chet ma khong ai biet vi sao. Bam Kiem tra la
+    // sua duoc.
+    if (p.scheme_guessed) state += ` <span class="tag" style="background:rgba(6,182,212,.15);color:var(--cyan)">${T('browser.pp_scheme_guessed')}</span>`;
+    if (!state.trim()) state = `<span style="color:var(--text-muted)">${T('browser.pp_untested')}</span>`;
     return `<tr>
         <td><input type="checkbox" ${_pp.selected.has(p.id) ? 'checked' : ''} onchange="ppSelect('${esc(p.id)}',this.checked)"></td>
         <td style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;word-break:break-all">${esc(p.proxy_str)}</td>
@@ -1907,6 +1911,7 @@ async function ppImport(btn) {
     // người dùng phải tự dò trong 200 dòng vừa dán.
     _pp.msg['pp-import-result'] = `<span style="color:var(--green)">+${r.added || 0}</span>`
         + (r.duplicate ? ` · <span style="color:var(--orange)">${r.duplicate} ${T('browser.pp_duplicate')}${ppDupWhere(r.duplicate_where)}</span>` : '')
+        + (r.guessed ? ` · <span style="color:var(--cyan)">${r.guessed} ${T('browser.pp_guessed_n')}</span>` : '')
         // Danh sách dòng hỏng phải CUỘN trong khung của nó. Dán 200 dòng mà 25
         // dòng không đọc được thì khối đỏ cao hơn màn hình, và vì .modal căn
         // giữa bằng flex và KHÔNG cuộn (style.css:331), phần tràn lên trên

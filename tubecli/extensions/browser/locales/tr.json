@@ -199,7 +199,7 @@
   "browser.pp_test_all": "Tümünü test et",
   "browser.pp_assign": "Profillere ata",
   "browser.pp_delete_selected": "Delete selected",
-  "browser.pp_import_placeholder": "One proxy per line. socks5://user:pass@host:port, http://host:port, or the provider form socks5://host:port:user:pass (rewritten on import).",
+  "browser.pp_import_placeholder": "Her satıra bir proxy. host:port:user:pass, host:port, user:pass@host:port — başında socks5:// veya http:// olsa da olmasa da. Şema yoksa http varsayılır; Test'e basınca kendini düzeltir.",
   "browser.pp_expiry": "Expires",
   "browser.pp_note": "Note (optional)",
   "browser.pp_do_import": "Import",
@@ -230,5 +230,7 @@
   "browser.pp_assigned": "profiles updated",
   "browser.pp_no_relay": "No relay running",
   "browser.pp_blocker_format": "Motorun okuyamadığı biçim",
-  "browser.pp_blocker_socks_auth": "Parolalı SOCKS5 — relay gerekiyor"
+  "browser.pp_blocker_socks_auth": "Parolalı SOCKS5 — relay gerekiyor",
+  "browser.pp_scheme_guessed": "şema tahmini",
+  "browser.pp_guessed_n": "tahmini şema ile"
 }

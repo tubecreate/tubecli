@@ -199,7 +199,7 @@
   "browser.pp_test_all": "全部测试",
   "browser.pp_assign": "分配给配置文件",
   "browser.pp_delete_selected": "Delete selected",
-  "browser.pp_import_placeholder": "One proxy per line. socks5://user:pass@host:port, http://host:port, or the provider form socks5://host:port:user:pass (rewritten on import).",
+  "browser.pp_import_placeholder": "每行一个代理。host:port:user:pass、host:port、user:pass@host:port —— 前面加不加 socks5:// 或 http:// 都可以。不写协议则默认 http；点击测试会自动更正。",
   "browser.pp_expiry": "Expires",
   "browser.pp_note": "Note (optional)",
   "browser.pp_do_import": "Import",
@@ -230,5 +230,7 @@
   "browser.pp_assigned": "profiles updated",
   "browser.pp_no_relay": "No relay running",
   "browser.pp_blocker_format": "引擎无法识别的格式",
-  "browser.pp_blocker_socks_auth": "带密码的 SOCKS5 — 需要中继"
+  "browser.pp_blocker_socks_auth": "带密码的 SOCKS5 — 需要中继",
+  "browser.pp_scheme_guessed": "协议为推测",
+  "browser.pp_guessed_n": "个协议为推测"
 }

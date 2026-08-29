@@ -93,14 +93,35 @@ def _parse(raw: str) -> Optional[dict]:
     return parse_proxy(raw)
 
 
+DEFAULT_SCHEME = "http"
+
+
+def _add_scheme(raw: str) -> tuple:
+    """(chuỗi có scheme, đã phải đoán scheme hay chưa).
+
+    Nhà cung cấp thường phát `ip:port:user:pass` trần. Từ chối nó là từ chối
+    đúng thứ người dùng dán vào. Mặc định http vì đó là dạng duy nhất chạy được
+    mà KHÔNG cần relay — đoán sai thì `test_proxy` sửa lại."""
+    v = (raw or "").strip()
+    if not v or "://" in v:
+        return v, False
+    return f"{DEFAULT_SCHEME}://{v}", True
+
+
+def scheme_was_guessed(raw: str) -> bool:
+    return _add_scheme(raw)[1]
+
+
 def normalise(raw: str) -> Optional[str]:
     """Chuỗi proxy về dạng engine chạy được, hoặc None nếu không đọc nổi.
 
     Dạng nhà cung cấp `scheme://host:port:user:pass` được viết lại thành
     `scheme://user:pass@host:port`. Đây là toàn bộ lý do dạng đó bị từ chối:
     Chromium không hiểu bốn phần ngăn bằng dấu hai chấm, chứ proxy thì vẫn tốt.
+
+    Chuỗi trần không có `://` được gắn scheme mặc định — xem _add_scheme.
     """
-    info = _parse(raw)
+    info = _parse(_add_scheme(raw)[0])
     if not info:
         return None
     if not info["scheme_known"]:
@@ -119,7 +140,7 @@ def key_of(raw: str) -> str:
 
     Cùng một điểm cuối ghi http hay socks5 vẫn là MỘT proxy — nếu không, đếm số
     hồ sơ đang dùng sẽ sai và `distribute()` tưởng còn chỗ trống."""
-    info = _parse(raw)
+    info = _parse(_add_scheme(raw)[0])
     if not info:
         return ""
     return f"{info['host']}:{info['port']}:{info['user']}".lower()
@@ -246,6 +267,7 @@ def list_proxies(kho: Optional[str] = None, include_expired: bool = True) -> Lis
         item["expired"] = expired
         item["profiles"] = used.get(key_of(p.get("proxy_str", "")), 0)
         item["blocker"] = engine_blocker(p.get("proxy_str", ""))
+        item["scheme_guessed"] = bool(p.get("scheme_guessed"))
         out.append(item)
     return out
 
@@ -277,6 +299,7 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
             if not canon:
                 invalid.append(line[:120])
                 continue
+            guessed = scheme_was_guessed(line)
             k = key_of(canon)
             if k in seen:
                 duplicate.append({"proxy": canon, "kho": seen[k]})
@@ -293,6 +316,9 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
                 "last_country": "",
                 "last_checked": "",
                 "last_ok": None,
+                # Người dùng không ghi scheme nên ta đoán http. Bảng phải NÓI RA
+                # điều đó: đoán sai thì trình duyệt mở lên với proxy chết.
+                "scheme_guessed": guessed,
             }
             data["proxies"].append(entry)
             added.append(entry)
@@ -301,12 +327,13 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
     # `duplicate_where`: kho nào đang giữ mỗi proxy bị bỏ qua. Nếu không có nó,
     # người dùng thấy "3 đã có trong kho" ngay trên một cái kho rỗng.
     return {"success": True, "added": len(added), "duplicate": len(duplicate),
-            "duplicate_where": duplicate, "invalid": invalid, "items": added}
+            "duplicate_where": duplicate, "invalid": invalid, "items": added,
+            "guessed": sum(1 for a in added if a.get("scheme_guessed"))}
 
 
 def update_proxy(proxy_id: str, **fields) -> Dict:
     allowed = {"kho", "expiry_date", "note", "proxy_str", "last_ip", "last_country",
-               "last_checked", "last_ok"}
+               "last_checked", "last_ok", "scheme_guessed"}
     with _LOCK:
         data = _load()
         for p in data["proxies"]:
@@ -436,8 +463,12 @@ def test_proxy(raw: str, timeout: int = 15) -> Dict:
     info = _parse(canon)
     auth = f"{info['user']}:{info['password']}@" if info["has_credentials"] else ""
     endpoint = f"{info['host']}:{info['port']}"
-    candidates = [canon] if info["scheme_known"] else [
-        f"http://{auth}{endpoint}", f"socks5://{auth}{endpoint}"]
+    # Luôn thử NỐT scheme còn lại. Chuỗi trần được gắn http lúc nhập chỉ là phỏng
+    # đoán, và một proxy socks5 bị ghi nhầm thành http sẽ mở trình duyệt xong mọi
+    # trang mới chết — kiểm tra là lúc duy nhất biết được sự thật, nên đừng chỉ
+    # xác nhận phỏng đoán của chính mình.
+    other = f"socks5://{auth}{endpoint}" if info["scheme"] == "http" else f"http://{auth}{endpoint}"
+    candidates = [canon, other]
 
     last = "Không rõ"
     for url in candidates:
@@ -449,7 +480,8 @@ def test_proxy(raw: str, timeout: int = 15) -> Dict:
                 d = r.json()
                 return {"ok": True, "ip": d.get("query", "?"),
                         "country": d.get("countryCode", "??"),
-                        "city": d.get("city", ""), "scheme": scheme}
+                        "city": d.get("city", ""), "scheme": scheme,
+                        "working": url}
             last = f"HTTP {r.status_code} qua {scheme}"
         except Exception as e:
             # Lỗi socket hay kèm ký tự điều khiển; cắt cho vừa một dòng giao diện.
@@ -459,9 +491,19 @@ def test_proxy(raw: str, timeout: int = 15) -> Dict:
 
 
 def record_test(proxy_id: str, result: Dict) -> None:
-    """Ghi kết quả đo lên proxy, để lần sau nhìn danh sách là biết cái nào chết."""
-    update_proxy(proxy_id,
-                 last_ip=result.get("ip", "") if result.get("ok") else "",
-                 last_country=result.get("country", "") if result.get("ok") else "",
-                 last_checked=datetime.now().isoformat(timespec="seconds"),
-                 last_ok=bool(result.get("ok")))
+    """Ghi kết quả đo lên proxy, để lần sau nhìn danh sách là biết cái nào chết.
+
+    Nếu scheme đi được KHÁC với scheme đang lưu thì ghi đè luôn: đó chính là giá
+    trị của nút kiểm tra với một chuỗi trần — nó sửa phỏng đoán, chứ không chỉ
+    dán nhãn xanh hay đỏ."""
+    fields = {
+        "last_ip": result.get("ip", "") if result.get("ok") else "",
+        "last_country": result.get("country", "") if result.get("ok") else "",
+        "last_checked": datetime.now().isoformat(timespec="seconds"),
+        "last_ok": bool(result.get("ok")),
+    }
+    working = result.get("working")
+    if result.get("ok") and working:
+        fields["proxy_str"] = working
+        fields["scheme_guessed"] = False
+    update_proxy(proxy_id, **fields)

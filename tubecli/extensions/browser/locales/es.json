@@ -199,7 +199,7 @@
   "browser.pp_test_all": "Probar todo",
   "browser.pp_assign": "Asignar a perfiles",
   "browser.pp_delete_selected": "Delete selected",
-  "browser.pp_import_placeholder": "One proxy per line. socks5://user:pass@host:port, http://host:port, or the provider form socks5://host:port:user:pass (rewritten on import).",
+  "browser.pp_import_placeholder": "Un proxy por línea. host:port:user:pass, host:port, user:pass@host:port — con o sin socks5:// o http:// delante. Sin esquema se asume http; pulse Probar y se corrige solo.",
   "browser.pp_expiry": "Expires",
   "browser.pp_note": "Note (optional)",
   "browser.pp_do_import": "Import",
@@ -230,5 +230,7 @@
   "browser.pp_assigned": "profiles updated",
   "browser.pp_no_relay": "No relay running",
   "browser.pp_blocker_format": "Formato que el motor no puede leer",
-  "browser.pp_blocker_socks_auth": "SOCKS5 con contraseña — requiere el relay"
+  "browser.pp_blocker_socks_auth": "SOCKS5 con contraseña — requiere el relay",
+  "browser.pp_scheme_guessed": "esquema supuesto",
+  "browser.pp_guessed_n": "con esquema supuesto"
 }
