@@ -11,7 +11,12 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from tubecli.config import DATA_DIR, EXTENSIONS_DATA_DIR
 
-PROFILES_DIR = os.path.join(EXTENSIONS_DATA_DIR, "browser", "browser_profiles")
+# TUBECLI_BROWSER_PROFILES_DIR tro thu muc ho so sang cho khac. Co bien nay vi
+# mot luot kiem dinh tu dong da gan proxy gia cho 9 ho so THAT tren may nay:
+# dan kich ban "nho don dep" khong phai la hang rao, chuyen huong duoc moi la.
+# Cung ho voi TUBECLI_PROXY_STORE trong proxy_pool.py.
+PROFILES_DIR = os.environ.get("TUBECLI_BROWSER_PROFILES_DIR") or os.path.join(
+    EXTENSIONS_DATA_DIR, "browser", "browser_profiles")
 
 
 def extract_raw_key(json_str, key):

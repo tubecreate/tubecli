@@ -38,7 +38,11 @@ from typing import Dict, List, Optional
 
 from tubecli.config import EXTENSIONS_DATA_DIR
 
-STORE = os.path.join(EXTENSIONS_DATA_DIR, "browser", "proxy_center.json")
+# TUBECLI_PROXY_STORE trỏ kho sang tệp khác. Có biến này vì một lượt kiểm định
+# tự động đã ghi 419 proxy giả vào kho thật của người dùng và gán chúng cho 9 hồ
+# sơ: dặn kịch bản "nhớ dọn" không phải là hàng rào, chuyển hướng được mới là.
+STORE = os.environ.get("TUBECLI_PROXY_STORE") or os.path.join(
+    EXTENSIONS_DATA_DIR, "browser", "proxy_center.json")
 DEFAULT_KHO = "Kho 1"
 
 # Ghi tệp dưới khoá: hai hồ sơ khởi động cùng lúc đều gọi distribute(), và một
@@ -258,7 +262,11 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
         data = _load()
         if not any(k.get("name") == kho for k in data["khos"]):
             data["khos"].append({"name": kho, "note": ""})
-        seen = {key_of(p.get("proxy_str", "")) for p in data["proxies"]}
+        # So trùng TOÀN CỤC, không theo từng kho: cùng một điểm cuối nằm ở hai
+        # kho sẽ bị đếm hai lần khi phát đều, và hồ sơ tưởng đang dùng hai IP
+        # khác nhau. Nhưng phải nhớ nó đang ở kho NÀO để còn nói ra.
+        seen = {key_of(p.get("proxy_str", "")): (p.get("kho") or DEFAULT_KHO)
+                for p in data["proxies"]}
         for line in (raw_text or "").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
@@ -271,9 +279,9 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
                 continue
             k = key_of(canon)
             if k in seen:
-                duplicate.append(canon)
+                duplicate.append({"proxy": canon, "kho": seen[k]})
                 continue
-            seen.add(k)
+            seen[k] = kho
             entry = {
                 "id": uuid.uuid4().hex[:12],
                 "proxy_str": canon,
@@ -290,8 +298,10 @@ def add_proxies(kho: str, raw_text: str, expiry_date: str = "", note: str = "") 
             added.append(entry)
         if added:
             _save(data)
+    # `duplicate_where`: kho nào đang giữ mỗi proxy bị bỏ qua. Nếu không có nó,
+    # người dùng thấy "3 đã có trong kho" ngay trên một cái kho rỗng.
     return {"success": True, "added": len(added), "duplicate": len(duplicate),
-            "invalid": invalid, "items": added}
+            "duplicate_where": duplicate, "invalid": invalid, "items": added}
 
 
 def update_proxy(proxy_id: str, **fields) -> Dict:

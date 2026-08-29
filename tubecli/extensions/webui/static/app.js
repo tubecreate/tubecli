@@ -1591,6 +1591,7 @@ async function renderBrowserExt(el) {
     const canOpenWindow = plat.can_open_window !== false;
 
     let h = `<div style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap"><button class="btn-primary" onclick="showCreateProfile()">${T('browser.new_profile')}</button><button class="btn-secondary" onclick="showBrowserEnginesModal()">${T('browser.engines', 'Browser Engines')}</button>`
+        + `<button class="btn-secondary" onclick="showProxyPoolModal()" title="${T('browser.proxy_pool_hint')}">${T('browser.proxy_pool')}</button>`
         + (basAvailable ? `<button class="btn-secondary" onclick="showBrowserKeyManager()" style="background:linear-gradient(135deg,rgba(139,92,246,0.15),rgba(139,92,246,0.08));border-color:rgba(139,92,246,0.4);color:var(--violet-ink);" title="Cấu hình BAS Fingerprint API Key">🔑 BAS Key</button>` : '')
         + `</div>`;
     if (!canOpenWindow) {
@@ -1684,6 +1685,333 @@ async function saveBASKey() {
         alert('❌ Lỗi: ' + e.message);
         if (btn) { btn.disabled = false; btn.textContent = '💾 Lưu cài đặt'; }
     }
+}
+
+// ── Kho Proxy ──
+// Hồ sơ trình duyệt chỉ giữ MỘT chuỗi proxy, và bulk_set_proxy đặt cùng một
+// proxy cho nhiều hồ sơ. Hộp thoại này quản lý kho: gán theo nguồn ("một cái từ
+// Kho VN") và phát đều, thay vì gõ tay từng địa chỉ.
+//
+// Màu: chỉ dùng token có mặt ở CẢ khối tối lẫn hai khối sáng của style.css.
+// --bg-content/--bg-input/--text-primary là bí danh trỏ về --bg2/--bg/--text nên
+// an toàn; token nào chỉ định nghĩa trong :root tối thì hộp thoại sẽ vỡ ở theme
+// sáng (xem tests/theme_sync_test.py).
+let _pp = { khos: [], proxies: [], kho: '', selected: new Set(), profiles: [],
+            panels: { 'pp-import': false, 'pp-assign': false },
+            msg: { 'pp-import-result': '', 'pp-assign-result': '' } };
+
+// Qua T() chứ không viết cứng: hộp thoại này chạy trong bảng điều khiển 9 thứ
+// tiếng, và một nhãn tiếng Việt giữa giao diện tiếng Anh là lỗi thấy ngay.
+const PP_BLOCKER_KEY = {
+    PROXY_FORMAT_UNSUPPORTED: 'browser.pp_blocker_format',
+    PROXY_SOCKS5_AUTH_UNSUPPORTED: 'browser.pp_blocker_socks_auth',
+};
+
+async function showProxyPoolModal() {
+    document.getElementById('modal-proxy-pool')?.remove();
+    const modal = document.createElement('div');
+    modal.id = 'modal-proxy-pool';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width:980px;width:94vw;max-height:92vh;display:flex;flex-direction:column;padding:20px;border-radius:12px;background:var(--bg-content);border:1px solid var(--border);box-shadow:var(--shadow-menu)">
+            <div class="modal-header" style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);padding-bottom:12px;margin-bottom:14px;flex-shrink:0">
+                <h3 style="margin:0;font-size:1.1rem">${T('browser.proxy_pool')}</h3>
+                <button class="btn-close" onclick="document.getElementById('modal-proxy-pool').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:1.2rem;line-height:1">✕</button>
+            </div>
+            <!-- .modal chỉ căn giữa (position:fixed;display:flex), KHÔNG cuộn. Mở cả
+                 hai bảng Nhập + Gán trên màn 1366×768 làm hộp thoại cao 955px: tiêu đề,
+                 nút ✕ và ô chọn kho bị cắt lên trên, chân trang bị cắt xuống dưới, và
+                 không cuộn tới được — chỉ còn Esc hoặc F5. Giữ đầu/chân cố định, cho
+                 phần thân cuộn. -->
+            <div id="pp-body" style="overflow:auto;flex:1;min-height:0"><p class="text-muted">${T('common.loading', 'Đang tải...')}</p></div>
+        </div>`;
+    document.body.appendChild(modal);
+    // Esc đóng hộp thoại: các hộp khác trong app.js đều thiếu, và người dùng
+    // quen Esc sẽ bấm Esc.
+    modal._onKey = (e) => { if (e.key === 'Escape') { modal.remove(); document.removeEventListener('keydown', modal._onKey); } };
+    document.addEventListener('keydown', modal._onKey);
+    await loadProxyPool();
+}
+
+async function loadProxyPool() {
+    const d = await apiGet('/api/v1/browser/proxy-pool' + (_pp.kho ? `?kho=${encodeURIComponent(_pp.kho)}` : ''));
+    if (!d || d.error) {
+        const b = document.getElementById('pp-body');
+        if (b) b.innerHTML = `<p style="color:var(--red)">${esc(d?.error || 'Không tải được kho')}</p>`;
+        return;
+    }
+    _pp.khos = d.khos || [];
+    _pp.proxies = d.proxies || [];
+    if (!_pp.kho && _pp.khos.length) _pp.kho = _pp.khos[0].name;
+    renderProxyPool();
+}
+
+function renderProxyPool() {
+    const el = document.getElementById('pp-body');
+    if (!el) return;
+    const rows = _pp.proxies.filter(p => !_pp.kho || p.kho === _pp.kho);
+    const kho = _pp.khos.find(k => k.name === _pp.kho) || { total: 0, live: 0 };
+
+    el.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <!-- loadProxyPool() chứ KHÔNG phải renderProxyPool(): server lọc sẵn theo
+             ?kho=, nên sau lần nhập/xoá/gán đầu tiên _pp.proxies chỉ còn proxy của
+             kho đang mở. Lọc lại danh sách đã hẹp đó theo tên kho MỚI luôn ra rỗng —
+             bảng báo "kho này chưa có proxy" trong khi nhãn ngay cạnh ghi (10/10),
+             và đóng mở lại hộp thoại không cứu được vì _pp.kho vẫn giữ nguyên. -->
+        <select id="pp-kho" onchange="_pp.kho=this.value;_pp.selected.clear();loadProxyPool()"
+            style="padding:7px 10px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)">
+            ${_pp.khos.map(k => `<option value="${esc(k.name)}" ${k.name === _pp.kho ? 'selected' : ''}>${esc(k.name)} (${k.live}/${k.total})</option>`).join('')}
+        </select>
+        <button class="btn-sm" onclick="ppCreateKho()">${T('browser.pp_new_kho')}</button>
+        <button class="btn-sm" onclick="ppRenameKho()">${T('browser.pp_rename_kho')}</button>
+        <button class="btn-sm btn-danger" onclick="ppDeleteKho()">${T('browser.pp_delete_kho')}</button>
+        <span style="flex:1"></span>
+        <button class="btn-sm" onclick="ppTogglePanel('pp-import')">${T('browser.pp_import')}</button>
+        <button class="btn-sm" onclick="ppTestAll(this)">${T('browser.pp_test_all')}</button>
+        <button class="btn-sm" onclick="ppTogglePanel('pp-assign');ppLoadProfiles()">${T('browser.pp_assign')}</button>
+        <button class="btn-sm btn-danger" onclick="ppDeleteSelected()">${T('browser.pp_delete_selected')}</button>
+    </div>
+
+    <div id="pp-import" style="display:${_pp.panels['pp-import'] ? 'block' : 'none'};background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+        <textarea id="pp-import-text" rows="5" placeholder="${esc(T('browser.pp_import_placeholder'))}"
+            style="width:100%;box-sizing:border-box;font-family:'JetBrains Mono',monospace;font-size:0.8rem;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)"></textarea>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+            <label style="font-size:0.8rem;color:var(--text-muted)">${T('browser.pp_expiry')}</label>
+            <input id="pp-import-expiry" type="date" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)">
+            <input id="pp-import-note" placeholder="${esc(T('browser.pp_note'))}" style="flex:1;min-width:140px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)">
+            <button class="btn-primary btn-sm" onclick="ppImport(this)">${T('browser.pp_do_import')}</button>
+        </div>
+        <div id="pp-import-result" style="font-size:0.78rem;margin-top:8px"></div>
+    </div>
+
+    <div id="pp-assign" style="display:${_pp.panels['pp-assign'] ? 'block' : 'none'};background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
+        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:6px">${T('browser.pp_assign_hint')}</div>
+        <select id="pp-assign-profiles" multiple size="6" style="width:100%;box-sizing:border-box;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)"></select>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
+            <label style="font-size:0.8rem;color:var(--text-muted)">${T('browser.pp_rotate_every')}</label>
+            <input id="pp-rotate" type="number" min="0" step="5" value="0" style="width:80px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-input);color:var(--text)">
+            <span style="font-size:0.8rem;color:var(--text-muted)">${T('browser.pp_minutes_zero_off')}</span>
+            <span style="flex:1"></span>
+            <button class="btn-primary btn-sm" onclick="ppAssign(this)">${T('browser.pp_do_assign')}</button>
+        </div>
+        <div id="pp-assign-result" style="font-size:0.78rem;margin-top:8px"></div>
+    </div>
+
+    <div style="border:1px solid var(--border);border-radius:8px">
+    <table class="data-table" style="width:100%;border-collapse:collapse">
+        <thead><tr>
+            <th style="width:34px"><input type="checkbox" onchange="ppSelectAll(this.checked)"></th>
+            <th>${T('browser.pp_col_proxy')}</th>
+            <th style="width:110px">${T('browser.pp_col_expiry')}</th>
+            <th style="width:80px">${T('browser.pp_col_profiles')}</th>
+            <th style="width:230px">${T('browser.pp_col_state')}</th>
+            <th style="width:110px"></th>
+        </tr></thead>
+        <tbody>${rows.length ? rows.map(ppRow).join('') : `<tr><td colspan="6" style="padding:18px;text-align:center;color:var(--text-muted)">${T('browser.pp_empty')}</td></tr>`}</tbody>
+    </table>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:0.78rem;color:var(--text-muted)">
+        <span>${kho.live}/${kho.total} ${T('browser.pp_live_of_total')}</span>
+        <span id="pp-relays"></span>
+    </div>`;
+    // Thông báo phải sống qua lần vẽ lại: loadProxyPool() dựng lại toàn bộ thân
+    // hộp thoại, nên viết kết quả TRƯỚC khi tải lại là viết vào phần tử sắp bị
+    // vứt đi — người dùng không bao giờ đọc được dòng nào hỏng.
+    for (const [id, html] of Object.entries(_pp.msg)) {
+        const box = document.getElementById(id);
+        if (box && html) box.innerHTML = html;
+    }
+    // Bang "Gan cho ho so" dang mo thi phai nap lai danh sach: ve lai dung o
+    // <select> moi va rong, nen sau khi gan xong nguoi dung thay mot o trong va
+    // tuong mat het ho so.
+    if (_pp.panels['pp-assign']) ppLoadProfiles();
+    ppLoadRelays();
+}
+
+function ppRow(p) {
+    const blocked = p.blocker ? (PP_BLOCKER_KEY[p.blocker] ? T(PP_BLOCKER_KEY[p.blocker]) : p.blocker) : '';
+    // SOCKS5 có mật khẩu KHÔNG phải lỗi chết: relay cục bộ chạy được nó, và trên
+    // máy phát triển 11/14 proxy thuộc đúng loại này. Tô đỏ nó là nói dối.
+    const fatal = p.blocker === 'PROXY_FORMAT_UNSUPPORTED';
+    let state = '';
+    if (p.expired) state += `<span class="tag" style="background:rgba(239,68,68,.15);color:var(--red)">${T('browser.pp_expired')}</span> `;
+    if (blocked) state += `<span class="tag" style="background:${fatal ? 'rgba(239,68,68,.15)' : 'rgba(245,158,11,.15)'};color:var(--${fatal ? 'red' : 'orange'})">${esc(blocked)}</span> `;
+    if (p.last_ok === true) state += `<span class="tag" style="background:rgba(34,197,94,.15);color:var(--green)">${esc(p.last_ip || '')} ${esc(p.last_country || '')}</span>`;
+    else if (p.last_ok === false) state += `<span class="tag" style="background:rgba(239,68,68,.15);color:var(--red)">${T('browser.pp_test_failed')}</span>`;
+    if (!state) state = `<span style="color:var(--text-muted)">${T('browser.pp_untested')}</span>`;
+    return `<tr>
+        <td><input type="checkbox" ${_pp.selected.has(p.id) ? 'checked' : ''} onchange="ppSelect('${esc(p.id)}',this.checked)"></td>
+        <td style="font-family:'JetBrains Mono',monospace;font-size:0.78rem;word-break:break-all">${esc(p.proxy_str)}</td>
+        <td style="font-size:0.8rem">${esc(p.expiry_date || '—')}</td>
+        <td style="font-size:0.8rem;text-align:center">${p.profiles}</td>
+        <td>${state}</td>
+        <td><button class="btn-sm" onclick="ppTest('${esc(p.id)}',this)">${T('browser.pp_test')}</button>
+            <button class="btn-sm btn-danger" onclick="ppDelete('${esc(p.id)}')">✕</button></td>
+    </tr>`;
+}
+
+function ppTogglePanel(id) {
+    _pp.panels[id] = !_pp.panels[id];
+    const el = document.getElementById(id);
+    if (el) el.style.display = _pp.panels[id] ? 'block' : 'none';
+}
+
+function ppSelect(id, on) { on ? _pp.selected.add(id) : _pp.selected.delete(id); }
+function ppSelectAll(on) {
+    _pp.proxies.filter(p => !_pp.kho || p.kho === _pp.kho)
+        .forEach(p => on ? _pp.selected.add(p.id) : _pp.selected.delete(p.id));
+    renderProxyPool();
+}
+
+async function ppCreateKho() {
+    const name = prompt(T('browser.pp_new_kho_prompt'));
+    if (!name) return;
+    const r = await apiPost('/api/v1/browser/proxy-pool/kho/create', { name });
+    if (r?.success) { _pp.kho = name; await loadProxyPool(); }
+    else alert(r?.error || 'Lỗi');
+}
+
+async function ppRenameKho() {
+    if (!_pp.kho) return;
+    const name = prompt(T('browser.pp_rename_kho_prompt'), _pp.kho);
+    if (!name || name === _pp.kho) return;
+    const r = await apiPost('/api/v1/browser/proxy-pool/kho/rename', { name: _pp.kho, new_name: name });
+    if (r?.success) { _pp.kho = name; await loadProxyPool(); }
+    else alert(r?.error || 'Lỗi');
+}
+
+async function ppDeleteKho() {
+    if (!_pp.kho) return;
+    // Hỏi RIÊNG chuyện xoá proxy bên trong: mặc định chuyển sang kho khác, vì
+    // xoá nhầm một kho 200 proxy đã mua thì không có nút hoàn tác.
+    if (!confirm(T('browser.pp_delete_kho_confirm', { name: _pp.kho }))) return;
+    const alsoProxies = confirm(T('browser.pp_delete_kho_proxies'));
+    const r = await apiPost('/api/v1/browser/proxy-pool/kho/delete', { name: _pp.kho, delete_proxies: alsoProxies });
+    if (r?.success) { _pp.kho = ''; await loadProxyPool(); }
+    else alert(r?.error || 'Lỗi');
+}
+
+async function ppImport(btn) {
+    const text = document.getElementById('pp-import-text')?.value || '';
+    if (!text.trim()) return;
+    btn.disabled = true;
+    const r = await apiPost('/api/v1/browser/proxy-pool/import', {
+        kho: _pp.kho,
+        text,
+        expiry_date: document.getElementById('pp-import-expiry')?.value || '',
+        note: document.getElementById('pp-import-note')?.value || '',
+    });
+    btn.disabled = false;
+    // Trả lại NGUYÊN VĂN dòng hỏng: báo "3 dòng lỗi" mà không nói dòng nào thì
+    // người dùng phải tự dò trong 200 dòng vừa dán.
+    _pp.msg['pp-import-result'] = `<span style="color:var(--green)">+${r.added || 0}</span>`
+        + (r.duplicate ? ` · <span style="color:var(--orange)">${r.duplicate} ${T('browser.pp_duplicate')}${ppDupWhere(r.duplicate_where)}</span>` : '')
+        // Danh sách dòng hỏng phải CUỘN trong khung của nó. Dán 200 dòng mà 25
+        // dòng không đọc được thì khối đỏ cao hơn màn hình, và vì .modal căn
+        // giữa bằng flex và KHÔNG cuộn (style.css:331), phần tràn lên trên
+        // không cách nào với tới: tiêu đề, nút ✕, ô chọn kho và cả thanh công
+        // cụ biến mất khỏi màn hình. Thông báo còn sống trong _pp.msg nên đóng
+        // rồi mở lại hộp thoại vẫn hỏng y như cũ — chỉ tải lại trang mới thoát.
+        + ((r.invalid || []).length ? `<div style="color:var(--red);margin-top:4px">${T('browser.pp_invalid_lines')} (${r.invalid.length})<div style="max-height:96px;overflow:auto;margin-top:2px">${r.invalid.map(x => esc(x)).join('<br>')}</div></div>` : '');
+    if (r.added) document.getElementById('pp-import-text').value = '';
+    await loadProxyPool();
+}
+
+// Tên các kho đang giữ những proxy bị bỏ qua, không lặp lại.
+function ppDupWhere(where) {
+    const khos = [...new Set((where || []).map(d => d.kho).filter(Boolean))];
+    return khos.length ? ` (${khos.map(k => esc(k)).join(', ')})` : '';
+}
+
+async function ppTest(id, btn) {
+    const old = btn.textContent;
+    btn.disabled = true; btn.textContent = '…';
+    const r = await apiPost('/api/v1/browser/proxy-pool/test', { id });
+    btn.disabled = false; btn.textContent = old;
+    if (!r?.ok) alert((r?.error) || 'Proxy không đi được');
+    await loadProxyPool();
+}
+
+async function ppTestAll(btn) {
+    const rows = _pp.proxies.filter(p => !_pp.kho || p.kho === _pp.kho);
+    if (!rows.length) return;
+    const old = btn.textContent;
+    btn.disabled = true;
+    // Tuần tự chứ không song song: mỗi lượt đo giữ một kết nối ra ngoài trong tối
+    // đa 15 giây, và bắn 200 lượt cùng lúc là tự chặn chính mình.
+    for (let i = 0; i < rows.length; i++) {
+        btn.textContent = `${i + 1}/${rows.length}`;
+        await apiPost('/api/v1/browser/proxy-pool/test', { id: rows[i].id });
+    }
+    btn.disabled = false; btn.textContent = old;
+    await loadProxyPool();
+}
+
+async function ppDelete(id) {
+    if (!confirm(T('browser.pp_delete_confirm'))) return;
+    await apiPost('/api/v1/browser/proxy-pool/delete', { id });
+    _pp.selected.delete(id);
+    await loadProxyPool();
+}
+
+async function ppDeleteSelected() {
+    // Chỉ xoá những dòng ĐANG hiện trên bảng. `_pp.selected` sống sót qua
+    // ppCreateKho/ppDeleteKho — hai nút đó đổi _pp.kho mà KHÔNG xoá lựa chọn,
+    // khác với ô chọn kho (nó có .clear()). Nên chọn 4 proxy ở Kho A rồi bấm
+    // "Kho mới" cho ra một bảng RỖNG mà nút này vẫn hỏi "Xoá 4 proxy?" và xoá
+    // thật 4 proxy ở cái kho người dùng không còn nhìn thấy — không có hoàn tác.
+    const here = new Set(_pp.proxies.filter(p => !_pp.kho || p.kho === _pp.kho).map(p => p.id));
+    const ids = [..._pp.selected].filter(id => here.has(id));
+    if (!ids.length) return alert(T('browser.pp_pick_some'));
+    if (!confirm(T('browser.pp_delete_n_confirm', { n: ids.length }))) return;
+    await apiPost('/api/v1/browser/proxy-pool/delete', { ids });
+    ids.forEach(id => _pp.selected.delete(id));
+    await loadProxyPool();
+}
+
+async function ppLoadProfiles() {
+    const sel = document.getElementById('pp-assign-profiles');
+    if (!sel || sel.dataset.loaded) return;
+    const d = await apiGet('/api/v1/browser/profiles');
+    const list = d?.profiles || d || [];
+    sel.innerHTML = (Array.isArray(list) ? list : []).map(p =>
+        `<option value="${esc(p.name)}">${esc(p.name)}${p.proxy ? ` — ${esc(p.proxy)}` : ''}</option>`).join('');
+    sel.dataset.loaded = '1';
+}
+
+async function ppAssign(btn) {
+    const sel = document.getElementById('pp-assign-profiles');
+    const profiles = [...(sel?.selectedOptions || [])].map(o => o.value);
+    const out = document.getElementById('pp-assign-result');
+    if (!profiles.length) { if (out) out.innerHTML = `<span style="color:var(--orange)">${T('browser.pp_pick_profiles')}</span>`; return; }
+    btn.disabled = true;
+    const r = await apiPost('/api/v1/browser/proxy-pool/assign', {
+        profiles, kho: _pp.kho,
+        rotate_minutes: parseInt(document.getElementById('pp-rotate')?.value || '0', 10) || 0,
+    });
+    btn.disabled = false;
+    _pp.msg['pp-assign-result'] = r?.success
+        ? `<span style="color:var(--green)">${r.count} ${T('browser.pp_assigned')}</span><div style="color:var(--text-muted);margin-top:4px">${(r.assigned || []).map(a => `${esc(a.profile)} → ${esc(a.proxy)}`).join('<br>')}</div>`
+        : `<span style="color:var(--red)">${esc(r?.error || 'Error')}</span>`;
+    if (out) out.innerHTML = _pp.msg['pp-assign-result'];
+    if (r?.success) {
+        if (sel) sel.dataset.loaded = '';
+        await loadProxyPool();
+        // Thẻ hồ sơ hiển thị proxy, nên nền phía sau phải vẽ lại mới đúng.
+        const body = typeof getBrowserBody === 'function' ? getBrowserBody() : null;
+        if (body) renderBrowserExt(body);
+    }
+}
+
+async function ppLoadRelays() {
+    const el = document.getElementById('pp-relays');
+    if (!el) return;
+    const d = await apiGet('/api/v1/browser/proxy-pool/relays');
+    const relays = d?.relays || {};
+    const names = Object.keys(relays);
+    if (!names.length) { el.textContent = T('browser.pp_no_relay'); return; }
+    el.textContent = names.map(n => `${n}: ${relays[n].upstream || '—'}${relays[n].rotating ? ' ⟳' : ''}`).join(' · ');
 }
 
 // ── Workflows Ext ──
