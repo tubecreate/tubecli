@@ -4,6 +4,7 @@ Manages browser process spawning, monitoring, and termination.
 Ported from python-video-studio core/browser_process_manager.py.
 """
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -445,6 +446,7 @@ class BrowserProcessManager:
         # /log/{profile} chỉ chạy khi có người bấm xem, còn nhánh crash trong
         # spawn() chỉ nhìn được cửa sổ 1 giây, mà lỗi khoá BAS nổ ở giây thứ ~10.
         warnings = self._note_launch_evidence(log_path)
+        work = self._read_run_work(log_path)
         note = ""
         if kill_report is not None and not kill_report.confirmed:
             # Dấu này đi vào run_log để "đã dừng nhưng chưa chắc chết" có thể
@@ -452,7 +454,7 @@ class BrowserProcessManager:
             warnings.append(self._MARK_KILL_UNCONFIRMED)
             note = f"KHÔNG dừng được tiến trình: {kill_report.detail}"
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
-                             started_at, log_path, profile, warnings, note)
+                             started_at, log_path, profile, warnings, note, work)
 
     # Dấu mốc do browser_manager.js in ra. ĐỔI CHUỖI Ở ĐÂY LÀ PHẢI ĐỔI CẢ BÊN IN.
     _MARK_BAS_OK = "BAS_LAUNCH_OK"
@@ -461,6 +463,77 @@ class BrowserProcessManager:
     # Không đến từ log của trình duyệt như hai dấu trên: dấu này do CHÍNH máy chủ
     # ghi ra khi nó đã bắn tín hiệu mà tiến trình vẫn không chết.
     _MARK_KILL_UNCONFIRMED = "KILL_UNCONFIRMED"
+
+    # open.js in cho MỖI bước: "[Session] 3/10 min | Step: search (7) | Page: ..."
+    # Số trong ngoặc là thứ tự hành động, nên max của nó = số hành động đã thử.
+    _STEP_RE = re.compile(
+        r"\[Session\]\s*([\d.]+)\s*/\s*([\d.]+)\s*min\s*\|\s*Step:\s*([A-Za-z_]+)"
+        r"(?:\s*\((\d+)\))?")
+    # session.end() in ở cuối một phiên chạy trọn: con số CHÍNH XÁC nhất (đếm
+    # actionHistory), nên khi có thì nó thắng số suy ra từ các dòng Step.
+    _ACTIONS_RE = re.compile(r"^Actions:\s*(\d+)\s*$", re.M)
+
+    def _read_run_work(self, log_path):
+        """Lượt chạy này THỰC SỰ làm được gì, đọc từ log của chính nó.
+
+        Vì sao cần: bản ghi lượt chạy chỉ có outcome, nên một lượt gõ + tìm + bấm
+        + đọc 39 lần rồi hỏng ở bước cuối trông y hệt một lượt chết ngay giây đầu.
+        Người dùng nhìn cột toàn "Lỗi" rồi kết luận sai rằng nó chưa từng chạy.
+
+        Trả None khi log không nói gì — KHÔNG trả 0% cho một lượt không rõ.
+        """
+        if not log_path:
+            return None
+        try:
+            with open(log_path, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except Exception:
+            return None
+
+        steps = []
+        elapsed = target = None
+        highest = 0
+        for m in self._STEP_RE.finditer(text):
+            try:
+                elapsed = float(m.group(1))
+                target = float(m.group(2))
+            except Exception:
+                pass
+            steps.append(m.group(3).lower())
+            if m.group(4):
+                try:
+                    highest = max(highest, int(m.group(4)))
+                except Exception:
+                    pass
+
+        done = None
+        tail = self._ACTIONS_RE.findall(text)
+        if tail:
+            try:
+                done = int(tail[-1])
+            except Exception:
+                done = None
+        if done is None:
+            done = highest or (len(steps) or None)
+        if done is None and not steps:
+            return None
+
+        # Gộp theo tên nhưng GIỮ THỨ TỰ xuất hiện: người đọc cần biết nó đã làm
+        # những việc gì, không cần 113 dòng lặp lại.
+        order, tally = [], {}
+        for name in steps:
+            if name not in tally:
+                order.append(name)
+                tally[name] = 0
+            tally[name] += 1
+
+        work = {"actions": done, "kinds": [{"name": n, "n": tally[n]} for n in order]}
+        if elapsed is not None and target and target > 0:
+            work["elapsed_min"] = round(elapsed, 1)
+            work["target_min"] = round(target, 1)
+            # Chặn 100: chạy quá giờ vẫn là "đi hết phiên", không phải 130%.
+            work["progress_pct"] = min(100, int(round(100.0 * elapsed / target)))
+        return work
 
     def _note_launch_evidence(self, log_path):
         """Đọc log một lượt vừa xong và rút ra hai sự thật nó biết mà không ai hỏi.
@@ -513,7 +586,8 @@ class BrowserProcessManager:
         return warnings
 
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
-                        started_at, log_path, profile="", warnings=None, note=""):
+                        started_at, log_path, profile="", warnings=None, note="",
+                        work=None):
         """Close the run out in the durable log. Never raises into the monitor."""
         if not run_id:
             return   # a manual dashboard launch is not an agent run

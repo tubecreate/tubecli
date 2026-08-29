@@ -192,7 +192,8 @@ def launch(run_id: str, agent_id: str, **fields: Any) -> None:
 def end(run_id: str, agent_id: str, outcome: str, return_code: Optional[int] = None,
         instance_id: Optional[str] = None, duration_sec: Optional[float] = None,
         log_tail: Optional[str] = None,
-        warnings: Optional[List[str]] = None) -> None:
+        warnings: Optional[List[str]] = None,
+        work: Optional[Dict[str, Any]] = None) -> None:
     """The process finished. outcome: completed | error | timeout_killed | failed.
 
     `warnings` is for a run that FINISHED yet should not read as clean — today
@@ -210,6 +211,13 @@ def end(run_id: str, agent_id: str, outcome: str, return_code: Optional[int] = N
     warns = [str(w) for w in (warnings or []) if w]
     if warns:
         event["warnings"] = warns[:10]
+    # Việc lượt này làm được, rút từ log của chính tiến trình. Ghi cho MỌI
+    # outcome, không chỉ lượt hỏng: bảng Hoạt động cần khoe được lượt thành
+    # công đã làm gì, chứ không chỉ giải thích lượt hỏng.
+    if isinstance(work, dict) and work.get("actions"):
+        event["work"] = {k: work[k] for k in
+                         ("actions", "kinds", "elapsed_min", "target_min", "progress_pct")
+                         if k in work}
     if (outcome != "completed" or warns) and log_tail:
         event["log_tail"] = _tail(log_tail)
     _append(event)
@@ -303,6 +311,11 @@ def list_for_agent(agent_id: str, days: int = 14, limit: int = 100) -> List[Dict
                 # được ở tầng đọc, không thì nó lẫn hẳn vào các lượt sạch.
                 if ended.get("warnings"):
                     run["warnings"] = ended.get("warnings")
+                # Việc lượt này làm được. Đi kèm MỌI outcome: bảng Hoạt động cần
+                # khoe lượt thành công đã làm gì, và cho lượt hỏng thấy nó đi được
+                # bao xa trước khi ngã — thiếu nó thì mọi lỗi trông như chết ngay.
+                if ended.get("work"):
+                    run["work"] = ended.get("work")
             elif launched.get("spawn_status") == "error":
                 run["outcome"] = "launch_failed"
                 run["error"] = launched.get("error")
