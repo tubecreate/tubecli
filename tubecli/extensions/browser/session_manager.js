@@ -44,7 +44,8 @@ export class SessionManager {
     this.failedElements = new Set(); // Track elements that failed to be interacted with
     this.aiCallHistory = []; // Track timestamps of AI calls for frequency warning
     this.scrapedUrls = new Set(); // Track URLs already scraped (cross-session)
-    
+    this.scrapedNorms = new Set(); // origin+path đã cào (bỏ query/hash) — khớp lỏng để né link chỉ khác ?utm=…
+
     // Load blacklist from profile config
     this.loadBlacklist().catch(e => console.warn('[SessionManager] Failed to load blacklist:', e.message));
     // Load previously scraped URLs to avoid duplicates across sessions
@@ -313,7 +314,7 @@ export class SessionManager {
         const articles = await fs.readJson(articlesPath);
         if (Array.isArray(articles)) {
           for (const a of articles) {
-            if (a.url) this.scrapedUrls.add(a.url);
+            if (a.url) { this.scrapedUrls.add(a.url); const n = this._normUrl(a.url); if (n) this.scrapedNorms.add(n); }
           }
           console.log(`[SessionManager] Loaded ${this.scrapedUrls.size} previously scraped URLs.`);
         }
@@ -327,7 +328,16 @@ export class SessionManager {
    * Mark a URL as scraped (called after successful extract_content)
    */
   addScrapedUrl(url) {
-    if (url) this.scrapedUrls.add(url);
+    if (!url) return;
+    this.scrapedUrls.add(url);
+    const n = this._normUrl(url);
+    if (n) this.scrapedNorms.add(n);
+  }
+
+  /** origin + pathname, bỏ query/hash/dấu «/» cuối — hai link chỉ khác ?utm=… coi là MỘT. */
+  _normUrl(u) {
+    try { const x = new URL(u); return (x.origin + x.pathname).replace(/\/+$/, '').toLowerCase(); }
+    catch (e) { return ''; }
   }
 
 async loadBlacklist() {
@@ -1032,7 +1042,19 @@ async loadBlacklist() {
                       // console.log(`[Grounding] Skipped blacklisted: ${el.href}`);
                       continue; // SKIP COMPLETELY
                   }
-                  
+
+                  // 1b. ĐÃ THU THẬP trang cụ thể này rồi → BỎ QUA để chọn kết quả KHÁC.
+                  //     Đây là lý do "luôn vào lại trang cũ / thu thập trùng tùm lum":
+                  //     trước đây chỉ chặn theo TÊN MIỀN (frequency ở dưới), không theo
+                  //     URL cụ thể, nên cùng một bài top cứ được chấm điểm cao nhất và
+                  //     chọn lại mỗi lượt. Khớp cả URL thô lẫn dạng chuẩn hoá (bỏ
+                  //     ?utm=…/#…) để link chỉ khác tham số không lọt qua.
+                  if (this.scrapedUrls.has(el.href)
+                      || this.scrapedNorms.has(this._normUrl(el.href))) {
+                      // console.log(`[Grounding] Skipped already-scraped: ${el.href}`);
+                      continue; // SKIP COMPLETELY
+                  }
+
                   // 2. Frequency Check
                   try {
                        const url = new URL(el.href);
