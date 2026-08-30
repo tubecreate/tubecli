@@ -6,6 +6,8 @@ Ported from python-video-studio browser-laucher/web_manager.
 import os
 import json
 import shutil
+import sqlite3
+import threading
 import requests
 from datetime import datetime
 from typing import List, Optional, Dict, Any
@@ -60,6 +62,162 @@ def ensure_profiles_dir():
     os.makedirs(PROFILES_DIR, exist_ok=True)
 
 
+# ===================================================================== logins
+# Gan "the dang nhap" cho profile: doc chinh KHO COOKIE THAT cua profile de biet
+# no dang dang nhap nhung site nao, roi cloud ve logo thuong hieu nho len the.
+#
+# Nguyen tac da DO tren du lieu that (xem tests/profile_logins_test.py):
+#   - "Tham != dang nhap". Chi COOKIE PHIEN DAC TRUNG cua site moi chung minh
+#     dang nhap, khong phai bat ky cookie nao cua domain (vd .facebook.com chi co
+#     "datr" la da tung vao FB chu CHUA dang nhap; phai co "c_user").
+#   - host_key trong SQLite co the co HOAC KHONG co dau '.' dan dau, nen ta khop
+#     theo bien gioi ten mien (bang nhau hoac ket thuc bang "." + domain), tren
+#     ten mien da bo dau cham. Chi so khop TEN cookie + HOST, KHONG doc gia tri
+#     (gia tri bi ma hoa; ta khong bao gio can no).
+#
+# Moi site anh xa toi mot danh sach LUAT. Moi luat la mot bo (domain, cookie)
+# PHAI co DU (AND); nhieu luat la OR. Instagram can ca sessionid VA ds_user_id.
+SITE_LOGIN_MARKERS = {
+    "google":    [[(".google.com", "SID")], [(".google.com", "__Secure-1PSID")]],
+    "youtube":   [[(".youtube.com", "LOGIN_INFO")]],  # phien google phu tro: xu ly rieng ben duoi
+    "facebook":  [[(".facebook.com", "c_user")]],
+    "tiktok":    [[(".tiktok.com", "sessionid")]],
+    "instagram": [[(".instagram.com", "sessionid"), (".instagram.com", "ds_user_id")]],
+    "x":         [[(".x.com", "auth_token")], [(".twitter.com", "auth_token")]],
+}
+
+# Cache theo (path, mtime, size) tung file Cookies. Profile 100+ tren may nay nen
+# doc moi SQLite o MOI lan /profiles la qua cham: profile khong doi -> tra tuc thi,
+# chi profile vua thay cookie moi bi doc lai. Gia tri la (signature, ket_qua) va
+# ta tra ve DUNG object cu khi signature trung (test khang dinh dieu nay).
+_LOGIN_CACHE: Dict[str, Any] = {}
+_LOGIN_CACHE_LOCK = threading.Lock()
+_LOGIN_MARKER_NAMES = None
+
+
+def _needed_cookie_names() -> List[str]:
+    """Tap ten cookie can truy van (de WHERE name IN (...) cho nhanh)."""
+    global _LOGIN_MARKER_NAMES
+    if _LOGIN_MARKER_NAMES is None:
+        s = set()
+        for rules in SITE_LOGIN_MARKERS.values():
+            for rule in rules:
+                for _domain, cname in rule:
+                    s.add(cname)
+        _LOGIN_MARKER_NAMES = sorted(s)
+    return _LOGIN_MARKER_NAMES
+
+
+def _host_matches(host_bare: str, domain: str) -> bool:
+    """Khop host_key (da bo dau cham) voi domain marker theo bien gioi ten mien.
+
+    Dung endswith TRAN se cho "notgoogle.com" trung ".google.com" — sai. Nen phai
+    la bang nhau HOAC ket thuc bang "." + domain."""
+    d = domain.lstrip(".")
+    return host_bare == d or host_bare.endswith("." + d)
+
+
+def _read_cookie_markers(path: str):
+    """Doc DB cookie (CHI DOC) tra ve tap (host_tran, name) cua cac marker quan tam.
+
+    Tra None neu KHONG doc duoc — DB bi khoa vi trinh duyet dang chay, hoac hong —
+    de ben goi biet ma GIU ket qua cu thay vi ket luan "da dang xuat". KHONG bao
+    gio nem loi ra ngoai list_profiles."""
+    names = _needed_cookie_names()
+    placeholders = ",".join("?" * len(names))
+    # mode=ro + immutable: doc duoc ca khi trinh duyet dang giu file va khong bao
+    # gio khoa nguoc; timeout ngan de khong treo list_profiles.
+    uri = f"file:{path}?mode=ro&immutable=1"
+    try:
+        conn = sqlite3.connect(uri, uri=True, timeout=0.2)
+        try:
+            rows = conn.execute(
+                f"SELECT host_key, name FROM cookies WHERE name IN ({placeholders})",
+                names,
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return None
+    out = set()
+    for host, name in rows:
+        if host:
+            out.add((host.lstrip("."), name))
+    return out
+
+
+def _evaluate_logins(pairs) -> List[str]:
+    """Tu tap (host_tran, name) suy ra danh sach site dang nhap (da sap xep)."""
+    def has(domain, cname):
+        for host, name in pairs:
+            if name == cname and _host_matches(host, domain):
+                return True
+        return False
+
+    logged = set()
+    for site, rules in SITE_LOGIN_MARKERS.items():
+        for rule in rules:
+            if all(has(d, n) for d, n in rule):
+                logged.add(site)
+                break
+
+    # Phien google phu tro youtube: chu ho quan tam YOUTUBE cu the, va dang nhap
+    # google (SID/__Secure-1PSID) phu luon quyen YouTube. Neu .youtube.com da co
+    # marker rieng thi youtube da nam trong set — them lai cung khong nhan doi (set).
+    # Ket qua: youtube xuat hien DUNG MOT LAN du di theo duong nao.
+    if "google" in logged:
+        logged.add("youtube")
+    return sorted(logged)
+
+
+def detect_logins(name: str) -> List[str]:
+    """Danh sach site ma profile 'name' dang dang nhap, doc tu kho cookie THAT.
+
+    Doc <profile>/Default/Network/Cookies (va ca profile anh em '_bas' giong het
+    doan dem cookie o get_profile), gop lai. Cache theo (path, mtime, size) tung
+    file: signature trung -> tra ve DUNG object cu, khong truy van lai. DB khoa
+    (trinh duyet dang chay) -> giu ket qua cu (hoac rong), khong nem loi/khong treo."""
+    dbs = []
+    for sub in ("", "_bas"):
+        p = os.path.join(PROFILES_DIR, name + sub, "Default", "Network", "Cookies")
+        if os.path.isfile(p):
+            dbs.append(p)
+
+    # Signature: (path, mtime, size) cho tung file ton tai. File doi -> cache lech.
+    sig_parts = []
+    for p in dbs:
+        try:
+            st = os.stat(p)
+            sig_parts.append((p, st.st_mtime, st.st_size))
+        except OSError:
+            # File bien mat giua os.path.isfile va os.stat: coi nhu khong co.
+            pass
+    sig = tuple(sig_parts)
+
+    with _LOGIN_CACHE_LOCK:
+        prev = _LOGIN_CACHE.get(name)
+        if prev is not None and prev[0] == sig:
+            return prev[1]
+
+    pairs = set()
+    read_ok = True
+    for p, _mt, _sz in sig_parts:
+        r = _read_cookie_markers(p)
+        if r is None:
+            read_ok = False
+        else:
+            pairs |= r
+
+    # DB khoa/hong ma truoc do da co ket qua -> giu cu (dung tut ve rong nham lan).
+    if not read_ok and prev is not None:
+        return prev[1]
+
+    result = _evaluate_logins(pairs)
+    with _LOGIN_CACHE_LOCK:
+        _LOGIN_CACHE[name] = (sig, result)
+    return result
+
+
 def list_profiles() -> List[Dict[str, Any]]:
     """List all browser profiles with metadata."""
     ensure_profiles_dir()
@@ -79,6 +237,8 @@ def list_profiles() -> List[Dict[str, Any]]:
                 "notes": config.get("notes", ""),
                 "has_cookies": os.path.exists(os.path.join(profile_path, "cookies.json")),
                 "has_fingerprint": os.path.exists(os.path.join(profile_path, "fingerprint.json")),
+                # Cac site profile dang dang nhap (do tu kho cookie that) -> logo tren the.
+                "logins": detect_logins(name),
                 "google_account": config.get("google_account", None),
                 "facebook_account": config.get("facebook_account", None),
                 "tiktok_account": config.get("tiktok_account", None),
@@ -214,7 +374,7 @@ def get_profile(name: str) -> Optional[Dict[str, Any]]:
                         # Browser is running, estimate from file size
                         cookie_count = max(1, (db_size - 20480) // 200)
                         break
-    return {"name": name, "has_fingerprint": has_fp, "cookie_count": cookie_count, **config}
+    return {"name": name, "has_fingerprint": has_fp, "cookie_count": cookie_count, "logins": detect_logins(name), **config}
 
 
 def update_profile(name: str, **kwargs) -> Optional[Dict[str, Any]]:
