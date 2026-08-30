@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os, sys
 import mimetypes
+import random  # module-level for the schedule behavior helpers below
 
 _BUILD_ETAG = "306d3aa214be205cb2f9d9e3ee8dae2f"  # release build etag
 
@@ -502,6 +503,162 @@ def _group_log_routine(groups, agent, title: str, detail: str = "", ok: bool = T
         print(f"[Scheduler Callback] Group log skipped: {e}")
 
 
+# ── Per-period BEHAVIOR resolution for scheduled agents ──────────────────
+# The Schedule tab (per agent) writes dailyRoutine[period] = {behaviorKey: true}.
+# The owner asked for EXPLICIT keys, not fuzzy free text, so a period's intent is
+# robust and per-agent. These keys map straight to an internal behavior string —
+# the same strings the prompt templates below already key on. The old fuzzy
+# keyword matching stays as a fallback so pre-existing free-text configs (which
+# had no UI, only whatever a persona generator wrote) still resolve.
+EXPLICIT_BEHAVIOR_MAP = {
+    "browse_topic": "work",       # lướt chủ đề — search + read
+    "news": "morningCheck",       # lướt tin — headlines
+    "watch_video": "watchVideos", # xem video
+    "study": "study",             # học / nghiên cứu
+    "check_email": "checkEmails", # đọc email (chỉ đọc)
+    "reply_email": "replyEmail",  # trả lời email chưa đọc mới nhất
+    "send_report": "sendReport",  # soạn & gửi báo cáo cho đồng nghiệp
+}
+
+
+def resolve_task_behavior(chosen_task: str) -> str:
+    """Map one chosen task label from dailyRoutine[period] to an internal behavior.
+
+    Explicit keys (browse_topic, news, watch_video, study, check_email,
+    reply_email, send_report) win — an exact, case-insensitive match against
+    EXPLICIT_BEHAVIOR_MAP. Anything else falls through to the old fuzzy keyword
+    matching so free-text labels ("check morning email", "read the news") keep
+    working exactly as before.
+    """
+    key = str(chosen_task).strip()
+    if key in EXPLICIT_BEHAVIOR_MAP:
+        return EXPLICIT_BEHAVIOR_MAP[key]
+    if key.lower() in EXPLICIT_BEHAVIOR_MAP:
+        return EXPLICIT_BEHAVIOR_MAP[key.lower()]
+    # --- backward-compatible fuzzy fallback (unchanged behavior) ---
+    task_lower = key.lower()
+    if any(x in task_lower for x in ["email", "mail"]):
+        return "checkEmails"
+    elif any(x in task_lower for x in ["news", "headline", "calendar"]):
+        return "morningCheck"
+    elif any(x in task_lower for x in ["video", "youtube"]):
+        return "watchVideos"
+    elif any(x in task_lower for x in ["study", "learn", "course", "read"]):
+        return "study"
+    elif any(x in task_lower for x in ["analyze", "research", "stock", "chart", "company"]):
+        return "work"
+    else:
+        return "work"
+
+
+# With no enabled task for the period (the common case before the Schedule tab
+# UI existed — dailyRoutine was always empty), behavior stays random so every
+# run isn't identical. Unchanged from the original callback.
+FALLBACK_BEHAVIORS = ["work", "research", "study", "morningCheck"]
+
+
+def select_period_behavior(daily_routine, time_period, rng=None):
+    """Resolve the internal behavior for one period from dailyRoutine.
+
+    dailyRoutine may be {period: {behaviorKey: enabled}} (the shape the Schedule
+    tab writes), {period: [labels]}, or a flat list. Picks one enabled task at
+    random and resolves it via resolve_task_behavior (explicit keys win, then
+    fuzzy). With nothing enabled, returns the old random fallback so pre-UI
+    configs behave exactly as before.
+
+    Returns (behavior, period_tasks, chosen_task) — period_tasks is handed back
+    so the caller can keep recording it in the run context.
+    """
+    _rng = rng or random
+    period_tasks = {}
+    if isinstance(daily_routine, dict):
+        pt = daily_routine.get(time_period, {})
+        if isinstance(pt, dict):
+            period_tasks = pt
+        elif isinstance(pt, list):
+            period_tasks = {str(task): True for task in pt if task}
+    elif isinstance(daily_routine, list):
+        period_tasks = {str(task): True for task in daily_routine if task}
+
+    active_tasks = [task for task, enabled in period_tasks.items() if enabled]
+    if active_tasks:
+        chosen = _rng.choice(active_tasks)
+        return resolve_task_behavior(chosen), period_tasks, chosen
+    return _rng.choice(FALLBACK_BEHAVIORS), period_tasks, None
+
+
+def normalize_report_recipients(routine, persona) -> list:
+    """Read the agent's report recipients — "colleagues in the same system".
+
+    Home of record is routine.reportRecipients (the scheduler reads routine
+    first everywhere else); persona.reportRecipients is a fallback so the UI can
+    save to either. Accepts a list or a comma/semicolon-separated string, trims
+    blanks, and returns a clean list of address strings (possibly empty).
+    """
+    raw = None
+    if isinstance(routine, dict):
+        raw = routine.get("reportRecipients")
+    if not raw and isinstance(persona, dict):
+        raw = persona.get("reportRecipients")
+    if isinstance(raw, str):
+        raw = raw.replace(";", ",").split(",")
+    if not isinstance(raw, list):
+        raw = []
+    return [str(r).strip() for r in raw if str(r).strip()]
+
+
+def build_email_prompt(behavior, time_period, topics, recipients):
+    """Build the single natural-language gmail instruction open.js will execute.
+
+    Returns (prompt, skip_reason):
+      * replyEmail -> open gmail, read the newest UNREAD, compose a short
+        on-topic reply, send. If the inbox has nothing unread the instruction
+        tells the browser to stop rather than invent a message.
+      * sendReport -> compose a NEW email to `recipients` with a subject + a
+        short body summarizing the period's topics/activity, then send. With NO
+        recipients, prompt is None and skip_reason explains the honest skip —
+        we never email nobody.
+    Attachments are out of scope in this version: the summary rides in the body
+    text, and the prompt says so.
+    Any non-email behavior returns (None, None) — the caller keeps its search
+    prompt untouched.
+    """
+    clean_topics = [str(t).strip() for t in (topics or []) if str(t).strip()]
+    topic_summary = ", ".join(clean_topics[:4]) if clean_topics else "its assigned topics"
+
+    if behavior == "replyEmail":
+        prompt = (
+            "Go to gmail.com. Open the newest UNREAD email in the inbox and read it. "
+            "Then click Reply, write a brief, polite, on-topic reply of a few sentences "
+            f"relevant to {topic_summary}, and click Send. "
+            "If there is no unread email, do nothing and stop — do not compose a new message. "
+            "Do not add any attachment; keep the reply as body text."
+        )
+        return prompt, None
+
+    if behavior == "sendReport":
+        clean = [str(r).strip() for r in (recipients or []) if str(r).strip()]
+        if not clean:
+            # Không có người nhận thì KHÔNG gửi cho hư không — bỏ qua lượt này,
+            # ghi một dòng log trung thực thay vì soạn một email không có To.
+            return None, (
+                "send_report scheduled but this agent has no reportRecipients configured "
+                "— skipping this run (never emails nobody)."
+            )
+        to_line = ", ".join(clean)
+        prompt = (
+            "Go to gmail.com and click Compose to start a new email. "
+            f"In the To field enter exactly: {to_line}. "
+            f"Set the Subject to a short line summarizing today's {time_period} work on {topic_summary}. "
+            f"In the body, write a brief report of a few sentences about what was worked on this "
+            f"{time_period}: the topics {topic_summary} and any activity collected today. "
+            "Then click Send. Do not add any attachment — the whole summary goes in the body text."
+        )
+        return prompt, None
+
+    return None, None
+
+
 def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
     """Callback for running an agent's daily behavior routine on schedule.
 
@@ -609,40 +766,13 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     daily_routine = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
     work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
     
-    period_tasks = {}
-    if isinstance(daily_routine, dict):
-        period_tasks = daily_routine.get(time_period, {})
-        if not isinstance(period_tasks, dict):
-            if isinstance(period_tasks, list):
-                period_tasks = {str(task): True for task in period_tasks if task}
-            else:
-                period_tasks = {}
-    elif isinstance(daily_routine, list):
-        period_tasks = {str(task): True for task in daily_routine if task}
-        
-    active_tasks = []
-    if isinstance(period_tasks, dict):
-        active_tasks = [task for task, enabled in period_tasks.items() if enabled]
-    
-    behavior = "browse"
-    if active_tasks:
-        chosen_task = random.choice(active_tasks)
-        print(f"[Scheduler Callback] Selected task '{chosen_task}' from active tasks: {active_tasks}")
-        task_lower = chosen_task.lower()
-        if any(x in task_lower for x in ["email", "mail"]):
-            behavior = "checkEmails"
-        elif any(x in task_lower for x in ["news", "headline", "calendar"]):
-            behavior = "morningCheck"
-        elif any(x in task_lower for x in ["video", "youtube"]):
-            behavior = "watchVideos"
-        elif any(x in task_lower for x in ["study", "learn", "course", "read"]):
-            behavior = "study"
-        elif any(x in task_lower for x in ["analyze", "research", "stock", "chart", "company"]):
-            behavior = "work"
-        else:
-            behavior = "work"
+    # Explicit keys (browse_topic/news/watch_video/study/check_email/
+    # reply_email/send_report) win; free text still fuzzy-maps; empty period ->
+    # old random fallback. One source of truth in select_period_behavior.
+    behavior, period_tasks, chosen_task = select_period_behavior(daily_routine, time_period)
+    if chosen_task is not None:
+        print(f"[Scheduler Callback] Selected task '{chosen_task}' -> behavior '{behavior}'")
     else:
-        behavior = random.choice(["work", "research", "study", "morningCheck"])
         print(f"[Scheduler Callback] No active tasks. Using fallback behavior: {behavior}")
         
     # 4. Generate Diverse Prompt
@@ -832,7 +962,22 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         
     prompt = f"Search for '{base_query}'" + prompt_suffix
     print(f"[Scheduler Callback] Generated prompt: \"{prompt}\"")
-    
+
+    # --- REAL email actions: reply_email / send_report ---
+    # These are not a "Search for X" flow — they are a single gmail
+    # compose/reply instruction for the SAME open.js engine (behaviors are
+    # prompts, no new skill). Overrides the search prompt above. If a
+    # send_report has no recipients, email_skip_reason is set and the run is
+    # skipped below the same way a refused spawn is — we never email nobody.
+    email_skip_reason = None
+    if behavior in ("replyEmail", "sendReport"):
+        recipients = normalize_report_recipients(routine, persona)
+        email_prompt, email_skip_reason = build_email_prompt(
+            behavior, time_period, combined_topics, recipients)
+        if email_prompt:
+            prompt = email_prompt
+            base_query = "gmail"  # run log reads a query; the flow is gmail-driven
+            print(f"[Scheduler Callback] Email behavior '{behavior}' prompt: \"{prompt}\"")
 
     context = {
         "agent_id": agent.id,
@@ -883,6 +1028,30 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     max_session_seconds = session_minutes * 60 + 60
     print(f"[Scheduler Callback] Session timing: read_time={read_time}s, "
           f"session_minutes={session_minutes}min, max_watchdog={max_session_seconds}s")
+
+    # A send_report with no recipients configured: do not spawn a browser to
+    # write an email to nobody. Log it honestly and close the run — same
+    # launch+end shape the refused-spawn path uses so the row never hangs
+    # "running", but with an explicit "skipped" outcome.
+    if email_skip_reason:
+        print(f"[Scheduler Callback] {email_skip_reason}")
+        _group_log_routine(group_ctxs, agent,
+                           f"schedule {profile_name} — {behavior} skipped",
+                           detail=email_skip_reason, ok=False)
+        if run_id:
+            run_log.launch(
+                run_id, agent.id,
+                profile=profile_name,
+                time_period=time_period,
+                behavior=behavior,
+                query=base_query,
+                session_minutes=session_minutes,
+                max_duration_sec=max_session_seconds,
+                spawn_status="skipped",
+                error=email_skip_reason,
+            )
+            run_log.end(run_id, agent.id, "skipped", log_tail=email_skip_reason)
+        return
 
     def _do_launch():
         try:
