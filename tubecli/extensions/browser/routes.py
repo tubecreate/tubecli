@@ -713,7 +713,11 @@ async def api_stop_browser(req: StopRequest):
 @router.get("/status")
 async def api_browser_status():
     from .process_manager import browser_process_manager
-    instances = browser_process_manager.list_all()
+    # list_running (KHÔNG list_all): nó refresh trạng thái thoát rồi lọc đúng
+    # status=="running", nên hồ sơ đã đóng (instance completed/error còn nằm trong
+    # registry vì không prune) thôi bị báo "đang mở" cho frontend. Các consumer
+    # khác vẫn dùng list_all riêng — chỉ /status đổi.
+    instances = browser_process_manager.list_running()
     
     # Add preview processes to the instances list so the frontend knows they are running
     dead_sessions = []
