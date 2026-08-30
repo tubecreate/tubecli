@@ -79,6 +79,16 @@ function log(msg) {
 }
 
 const clients = new Set();
+// XEM THEO TẦM NHÌN: một client báo khung xem của nó ĐANG ngoài màn (cuộn/zoom
+// khỏi tầm) qua {type:'set_visible',visible:false}. Nó vẫn nối (giữ tabs/url/
+// trạng thái) nhưng KHÔNG nhận frame, và khi MỌI client đều ẩn thì vòng chụp
+// dừng hẳn — không ai nhìn thì không tốn CPU/băng thông chụp ảnh 5fps.
+const pausedClients = new Set();
+function activeViewerCount() {
+    let n = 0;
+    for (const ws of clients) if (!pausedClients.has(ws)) n++;
+    return n;
+}
 const wss = new WebSocketServer({ noServer: true });
 
 // ── Trạng thái "đã hiện được hình chưa" + dấu lỗi bền ────────────────────────
@@ -154,6 +164,7 @@ function broadcastFrame(buffer) {
     for (const ws of clients) {
         try {
             if (ws.readyState !== 1) continue;
+            if (pausedClients.has(ws)) continue;   // ngoài tầm nhìn: đừng gửi frame
             if (ws.bufferedAmount > MAX_BUFFERED_BYTES) { skipped++; continue; }
             ws.send(buffer, { binary: true });
             sent++;
@@ -474,7 +485,20 @@ process.on('uncaughtException', (err) => {
             return;
         }
         try {
-            if (msg.type === 'mouse') {
+            if (msg.type === 'set_visible') {
+                // Khung xem này vào/ra tầm nhìn. Ẩn hết -> ngừng chụp; hiện lại ->
+                // chụp tiếp + đẩy ngay một khung để không thấy ảnh đông cứng.
+                if (msg.visible === false) {
+                    pausedClients.add(ws);
+                    if (activeViewerCount() === 0) stopStreaming();
+                } else {
+                    pausedClients.delete(ws);
+                    startStreaming();
+                    await triggerImmediateFrame();
+                }
+                return;
+            }
+            else if (msg.type === 'mouse') {
                 const { action, x, y } = msg;
                 if (action === 'click') {
                     await page.mouse.click(x, y);
@@ -951,11 +975,13 @@ process.on('uncaughtException', (err) => {
 
         ws.on('close', () => {
             clients.delete(ws);
+            pausedClients.delete(ws);
             if (clients.size === 0) stopStreaming();
         });
 
         ws.on('error', () => {
             clients.delete(ws);
+            pausedClients.delete(ws);
             if (clients.size === 0) stopStreaming();
         });
     });
