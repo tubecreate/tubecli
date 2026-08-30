@@ -1117,8 +1117,20 @@ async function main() {
           skipProxyCheck // Pass the flag
       });
 
-      // Ensure a page exists immediately
-      page = context.pages()[0] || await context.newPage();
+      // Ensure a page exists — và DÙNG LẠI tab gần nhất + DỌN tab trắng thừa mà
+      // session-restore mang về. Chromium khôi phục tab phiên trước (đúng ý người
+      // dùng) nhưng mỗi lần mở lại kèm một about:blank; không dọn thì tab trắng
+      // chồng thành một đống qua nhiều lượt. Cùng quy tắc với preview_server: giữ
+      // tab thật, chỉ chừa 1 tab trắng khi KHÔNG còn tab thật (đóng sạch thì context
+      // chết); chọn tab THẬT gần nhất để phiên nối tiếp đúng chỗ vừa dừng.
+      {
+          const all = context.pages().filter(p => !p.isClosed());
+          const real = all.filter(p => (p.url() || '') !== 'about:blank');
+          const blanks = all.filter(p => (p.url() || '') === 'about:blank');
+          const keep = real.length ? 0 : 1;
+          for (let i = 0; i < blanks.length - keep; i++) { try { await blanks[i].close(); } catch (_) {} }
+          page = real[real.length - 1] || context.pages().filter(p => !p.isClosed())[0] || await context.newPage();
+      }
 
       // --- LOCALHOST OAUTH BYPASS (Crucial for proxied profiles) ---
       // Proxies will often fail to resolve localhost and drop with ERR_CONNECTION_RESET
@@ -1429,21 +1441,26 @@ async function main() {
                 }
             } catch (_) { /* fall through and try to navigate */ }
 
-            // Always drive a page we have just created. The tab handed to us
-            // at launch — and any blank tab the engine is still juggling — can
-            // be closed out from under us moments later, which showed up as
-            // "Target page, context or browser has been closed" on every
-            // attempt to navigate.
-            let target = null;
-            try {
-                target = await context.newPage();
-            } catch (e) {
-                const alive = context.pages().filter(p => !p.isClosed());
-                target = alive.length ? alive[alive.length - 1] : page;
+            // DÙNG LẠI một tab đang có thay vì đẻ tab mới mỗi lần mở. Trước đây luôn
+            // context.newPage() (để né race "tab khởi động bị đóng dưới chân"), nhưng
+            // cộng với session-restore của Chromium thì mỗi lần mở là +1 tab → vài hôm
+            // thành một đống. Cùng quy tắc với preview_server: ưu tiên tab TRẮNG (đúng
+            // tab khởi động), không có thì tab gần nhất; chỉ newPage khi context rỗng.
+            const isBlankTab = (p) => { const u = (p && !p.isClosed() && p.url && p.url()) || ''; return u === '' || u === 'about:blank' || u.startsWith('chrome://new'); };
+            const usable = context.pages().filter(p => !p.isClosed());
+            let target = usable.find(isBlankTab) || usable[usable.length - 1] || null;
+            if (!target || target.isClosed()) {
+                // Không có tab dùng được (race đóng mất) → giờ mới tạo mới.
+                try { target = await context.newPage(); }
+                catch (e) { target = (page && !page.isClosed()) ? page : null; }
             }
             if (!target || target.isClosed()) {
                 console.warn('[Manual] No page available to navigate; leaving the browser as it is.');
                 return;
+            }
+            // Dọn các tab TRẮNG thừa (không phải target) để không tích tụ qua mỗi lần mở.
+            for (const p of usable) {
+                if (p !== target && isBlankTab(p)) { try { await p.close(); } catch (_) {} }
             }
 
             console.log(`[Manual] Navigating to provided URL: ${targetUrl}`);
