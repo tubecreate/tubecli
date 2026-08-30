@@ -1312,6 +1312,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                         run_id, agent.id,
                         profile=profile_name,
                         time_period=time_period,
+                        behavior=behavior,
                         query=base_query,
                         prompt=prompt,
                         session_minutes=session_minutes,
@@ -1390,6 +1391,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     run_id, agent.id,
                     profile=profile_name,
                     time_period=time_period,
+                    behavior=behavior,   # checkEmails/replyEmail/sendReport… — bảng đọc để hiện nhãn thay 'gmail'
                     query=base_query,
                     prompt=prompt,
                     session_minutes=session_minutes,
