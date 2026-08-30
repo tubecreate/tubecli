@@ -565,6 +565,39 @@ function singletonHolderPid(profilePath) {
     } catch (e) { return 0; }
 }
 
+/** Chủ khoá còn sống là MỒ CÔI hay PHIÊN HỢP LỆ? (POSIX)
+ *
+ * Chromium giữ SingletonLock là tiến trình browser CHÍNH, con của launcher
+ * (node open.js / preview_server). Nếu cha còn sống và đúng là launcher của ta →
+ * phiên hợp lệ. Nếu cha đã chết / ppid<=1 (đã reparent) / cha không phải launcher
+ * → mồ côi. Không đọc được /proc → THẬN TRỌNG coi là hợp lệ, không giết.
+ */
+function holderIsOrphan(pid) {
+    if (process.platform === 'win32') return false;   // Windows: mutex có tên, không tới đây
+    try {
+        const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+        // Trường sau ')' cuối: state ppid ... (comm có thể chứa dấu ngoặc/space)
+        const after = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/);
+        const ppid = parseInt(after[1], 10);
+        if (!Number.isFinite(ppid) || ppid <= 1) return true;         // reparent → mồ côi
+        try { process.kill(ppid, 0); } catch (e) { if (e.code !== 'EPERM') return true; } // cha chết → mồ côi
+        try {
+            const cmd = fs.readFileSync(`/proc/${ppid}/cmdline`, 'utf8');
+            // cha là launcher của ta còn sống → phiên hợp lệ; ngược lại (reparent
+            // sang thứ khác) → mồ côi.
+            return !/node|open\.js|preview_server/i.test(cmd);
+        } catch (e) { return false; }   // không đọc được cmdline cha → coi là hợp lệ
+    } catch (e) {
+        return false;   // không đọc được /proc/<pid>/stat → coi là hợp lệ, không giết
+    }
+}
+
+/** Giết Chromium mồ côi + cả nhóm tiến trình của nó (POSIX). Best effort. */
+function reapOrphanHolder(pid) {
+    try { process.kill(-pid, 'SIGKILL'); } catch (e) {}   // cả nhóm
+    try { process.kill(pid, 'SIGKILL'); } catch (e) {}    // chính nó
+}
+
 /** Dọn khoá MỒ CÔI trước khi mở. Ném lỗi rõ ràng nếu khoá đang có chủ thật.
  *
  * Trước bản này browser_manager không dọn khoá lần nào (preview_server.cjs dọn ở
@@ -573,11 +606,20 @@ function singletonHolderPid(profilePath) {
 function clearStaleSingletonLocks(profilePath) {
     const holder = singletonHolderPid(profilePath);
     if (holder) {
-        const err = new Error(
-            `Profile is already open in another process (pid ${holder}). Close the live view `
-            + `or stop that session before launching this profile again.`);
-        err.code = 'PROFILE_IN_USE';
-        throw err;
+        // TỰ CHỮA: chủ khoá còn sống có thể là live view thật, HOẶC một Chromium
+        // mồ côi từ lượt trước (launcher chết, khoá còn treo) khiến mọi lượt sau
+        // fail mãi. Chỉ từ chối khi là PHIÊN HỢP LỆ; mồ côi thì giết rồi mở tiếp.
+        if (holderIsOrphan(holder)) {
+            console.warn(`[Launch] Profile held by an ORPHANED browser (pid ${holder}, `
+                + `its launcher is gone) — reaping it and continuing.`);
+            reapOrphanHolder(holder);
+        } else {
+            const err = new Error(
+                `Profile is already open in another process (pid ${holder}). Close the live view `
+                + `or stop that session before launching this profile again.`);
+            err.code = 'PROFILE_IN_USE';
+            throw err;
+        }
     }
     let cleared = 0;
     for (const lf of ['SingletonLock', 'SingletonSocket', 'SingletonCookie', 'LOCK']) {

@@ -25,9 +25,10 @@ function extract(name) {
     if (!m) throw new Error('không trích được hàm ' + name + ' — mã đã đổi?');
     return m[0];
 }
-const mod = new Function('fs', 'path', 'process', 'console',
-    extract('singletonHolderPid') + '\n' + extract('clearStaleSingletonLocks')
-    + '\nreturn { singletonHolderPid, clearStaleSingletonLocks };');
+const FOUR = extract('singletonHolderPid') + '\n' + extract('holderIsOrphan') + '\n'
+    + extract('reapOrphanHolder') + '\n' + extract('clearStaleSingletonLocks')
+    + '\nreturn { singletonHolderPid, holderIsOrphan, reapOrphanHolder, clearStaleSingletonLocks };';
+const mod = new Function('fs', 'path', 'process', 'console', FOUR);
 
 let pass = 0, fail = 0;
 const quiet = { log() {}, warn() {}, error() {} };
@@ -67,6 +68,33 @@ function fakeFs(entries) {
     };
 }
 const withFs = (entries) => mod(fakeFs(entries), path, process, quiet);
+
+// Self-heal cần đọc /proc/<pid>/stat + cmdline và gọi process.kill. Tiêm cả hai.
+function fakeFs2(entries, procMap) {
+    const base = fakeFs(entries);
+    base.readFileSync = (p) => {
+        const key = String(p);
+        if (procMap && key in procMap) return procMap[key];
+        const err = new Error('ENOENT'); err.code = 'ENOENT'; throw err;
+    };
+    return base;
+}
+function fakeProc(platform, aliveSet, killLog) {
+    return {
+        platform,
+        kill(pid, sig) {
+            if (sig === 0) {
+                if (!aliveSet.has(Math.abs(pid))) { const e = new Error('ESRCH'); e.code = 'ESRCH'; throw e; }
+                return true;
+            }
+            killLog.push({ pid, sig });   // SIGKILL: ghi lại, không giết thật
+            return true;
+        },
+    };
+}
+const modWith = (entries, procMap, proc) =>
+    new Function('fs', 'path', 'process', 'console', FOUR)(fakeFs2(entries, procMap), path, proc, quiet);
+
 
 console.log('=== khoá Singleton ===');
 
@@ -161,6 +189,52 @@ check('dùng lstat chứ không existsSync — symlink TREO vẫn bị dọn', (
     assert(!/\bfs\.existsSync\s*\(/.test(body),
         'mã đã quay lại dùng fs.existsSync — symlink treo sẽ không bao giờ được dọn');
     assert(/\bfs\.lstatSync\s*\(/.test(body), 'không còn dùng fs.lstatSync');
+});
+
+// ── SELF-HEAL: mồ côi thì dọn rồi mở, phiên hợp lệ thì vẫn từ chối ──
+check('mồ côi (ppid=1) -> giết + dọn khoá, KHÔNG ném', () => {
+    const entries = { SingletonLock: { type: 'symlink', target: 'host-4242' } };
+    const kills = [];
+    const proc = fakeProc('linux', new Set([4242]), kills);   // holder 4242 còn sống
+    const a = modWith(entries, { '/proc/4242/stat': '4242 (chrome) S 1 4242 4242 0' }, proc);
+    a.clearStaleSingletonLocks('/p');   // ppid=1 -> mồ côi -> reap, không ném
+    assert(kills.some(k => Math.abs(k.pid) === 4242), 'chưa giết holder mồ côi');
+    assert(!entries.SingletonLock, 'chưa dọn khoá sau khi reap');
+});
+
+check('phiên HỢP LỆ (cha là node còn sống) -> từ chối PROFILE_IN_USE', () => {
+    const entries = { SingletonLock: { type: 'symlink', target: 'host-5555' } };
+    const kills = [];
+    const proc = fakeProc('linux', new Set([5555, 900]), kills);   // holder + cha(900) sống
+    const a = modWith(entries, {
+        '/proc/5555/stat': '5555 (chrome) S 900 5555 0',
+        '/proc/900/cmdline': 'node\u0000/x/open.js\u0000tuan5',
+    }, proc);
+    let code = '';
+    try { a.clearStaleSingletonLocks('/p'); } catch (e) { code = e.code; }
+    assert(code === 'PROFILE_IN_USE', 'phải từ chối, nhận: ' + (code || 'không ném'));
+    assert(kills.length === 0, 'KHÔNG được giết phiên hợp lệ');
+    assert(entries.SingletonLock, 'không được dọn khoá phiên hợp lệ');
+});
+
+check('cha đã CHẾT -> mồ côi -> reap', () => {
+    const entries = { SingletonLock: { type: 'symlink', target: 'host-6060' } };
+    const kills = [];
+    const proc = fakeProc('linux', new Set([6060]), kills);   // holder sống, cha 700 KHÔNG
+    const a = modWith(entries, { '/proc/6060/stat': '6060 (chrome) S 700 6060 0' }, proc);
+    a.clearStaleSingletonLocks('/p');
+    assert(kills.some(k => Math.abs(k.pid) === 6060), 'cha chết mà không reap');
+});
+
+check('không đọc được /proc -> THẬN TRỌNG coi là hợp lệ, không giết', () => {
+    const entries = { SingletonLock: { type: 'symlink', target: 'host-7070' } };
+    const kills = [];
+    const proc = fakeProc('linux', new Set([7070]), kills);
+    const a = modWith(entries, {}, proc);   // procMap rỗng -> readFileSync ném
+    let code = '';
+    try { a.clearStaleSingletonLocks('/p'); } catch (e) { code = e.code; }
+    assert(code === 'PROFILE_IN_USE', 'không chắc thì phải từ chối, không giết');
+    assert(kills.length === 0, 'không chắc mà lại giết');
 });
 
 console.log(`\n${pass} pass, ${fail} fail`);
