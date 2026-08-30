@@ -2267,13 +2267,32 @@ def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
 
+    entries = run_log.list_for_agent(agent_id, days=days, limit=limit)
+    # "Đang làm gì lúc này" cho lượt CÒN sống: đọc đuôi log của nó ra hành động +
+    # trang hiện tại, để mặt node/bảng thay chữ trơ "Đang chạy" bằng "Đang đọc ·
+    # Gmail". Chỉ làm cho lượt live ĐẦU TIÊN (mới nhất) — một lần đọc file/poll,
+    # không quét cả lịch sử. Best-effort tuyệt đối: hỏng thì entry thiếu 'live',
+    # bảng vẫn hiện "Đang chạy" như cũ.
+    try:
+        from tubecli.extensions.browser.process_manager import browser_process_manager
+        for e in entries:
+            if e.get("type") != "run" or e.get("outcome") not in ("running", "starting"):
+                continue
+            log_file = (e.get("launch") or {}).get("log_file")
+            live = browser_process_manager.read_live_action(log_file) if log_file else None
+            if live:
+                e["live"] = live
+            break
+    except Exception:
+        pass   # best-effort: thiếu 'live' thì bảng vẫn hiện "Đang chạy" như cũ
+
     return {
         "agent_id": agent_id,
         "scheduled": bool(getattr(agent, "schedule_enabled", False)),
         "next_run": getattr(agent, "schedule_next_run", None),
         "runs_today": getattr(agent, "schedule_runs_today", 0),
         "max_runs": getattr(agent, "schedule_max_runs", 0),
-        "entries": run_log.list_for_agent(agent_id, days=days, limit=limit),
+        "entries": entries,
     }
 
 

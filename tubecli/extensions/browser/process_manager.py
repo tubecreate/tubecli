@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, Optional, List
+from urllib.parse import urlparse
 
 logger = logging.getLogger("BrowserProcessManager")
 
@@ -473,6 +474,38 @@ class BrowserProcessManager:
     # actionHistory), nên khi có thì nó thắng số suy ra từ các dòng Step.
     _ACTIONS_RE = re.compile(r"^Actions:\s*(\d+)\s*$", re.M)
 
+    # ── "Đang làm gì" trực tiếp (read_live_action) ─────────────────────────
+    # Cùng dòng Step nhưng lấy CẢ Page: sau nó — "[Session] 3/22 min | Step:
+    # read_gmail (14) | Page: gmail". [^\n]*? để dấu ngoặc/pipe ở giữa không cản.
+    _STEP_LIVE_RE = re.compile(
+        r"\[Session\][^\n]*?Step:\s*([A-Za-z_]+)(?:\s*\((\d+)\))?"
+        r"(?:[^\n]*?Page:\s*([A-Za-z0-9_\-]+))?")
+    # open.js ghi URL hiện tại: "[TabManager] Now on: https://…" và
+    # "[Manual] Navigated in-page. Now on: https://…".
+    _NOW_ON_RE = re.compile(r"Now on:\s*(https?://\S+)")
+    # 14 verb của ACTION_REGISTRY gộp về 5 nhóm mà client biết dịch. Không khớp
+    # -> 'browsing' (an toàn: "đang lướt" đúng với gần hết hành động web).
+    _ACTION_BUCKET = {
+        "read_gmail": "reading", "extract_content": "reading",
+        "search_extract": "reading", "visual_scan": "reading",
+        "search": "searching",
+        "watch": "watching",
+        "type": "writing", "comment": "writing",
+        "navigate": "browsing", "browse": "browsing", "click": "browsing",
+        "login": "browsing", "save_image": "browsing", "wait": "browsing",
+    }
+    # host -> tên thân thiện. Danh từ riêng nên KHÔNG cần dịch — đây là lý do
+    # `where` được server tính chứ không để client đoán từ URL thô.
+    _FRIENDLY_HOST = {
+        "mail.google.com": "Gmail", "gmail.com": "Gmail",
+        "youtube.com": "YouTube", "m.youtube.com": "YouTube",
+        "google.com": "Google", "news.google.com": "Google News",
+        "facebook.com": "Facebook", "tiktok.com": "TikTok",
+        "twitter.com": "X", "x.com": "X", "instagram.com": "Instagram",
+        "docs.google.com": "Google Docs", "drive.google.com": "Google Drive",
+        "chatgpt.com": "ChatGPT", "chat.openai.com": "ChatGPT",
+    }
+
     def _read_run_work(self, log_path):
         """Lượt chạy này THỰC SỰ làm được gì, đọc từ log của chính nó.
 
@@ -534,6 +567,70 @@ class BrowserProcessManager:
             # Chặn 100: chạy quá giờ vẫn là "đi hết phiên", không phải 130%.
             work["progress_pct"] = min(100, int(round(100.0 * elapsed / target)))
         return work
+
+    def _friendly_where(self, url, page_type):
+        """Nơi agent đang đứng, thân thiện: 'Gmail'/'YouTube'/'abc.com'. None nếu mù."""
+        host = ""
+        if url:
+            try:
+                host = (urlparse(url).hostname or "").lower()
+                host = re.sub(r"^www\.", "", host)
+            except Exception:
+                host = ""
+        if host:
+            return self._FRIENDLY_HOST.get(host, host)
+        # Không có URL trong đuôi log — dùng Page: (gmail / youtube_home / news).
+        if page_type:
+            pt = page_type.lower()
+            for needle, nice in (("gmail", "Gmail"), ("youtube", "YouTube"),
+                                 ("github", "GitHub")):
+                if needle in pt:
+                    return nice
+            return page_type.replace("_", " ")
+        return None
+
+    def read_live_action(self, log_path):
+        """Việc agent ĐANG làm lúc này, rút từ ĐUÔI log của chính lượt chạy.
+
+        Khác _read_run_work (tổng kết cả lượt khi xong): hàm này chỉ cần một sự
+        thật đang-diễn-ra — hành động mới nhất + đang ở trang nào — để mặt node và
+        bảng Hoạt động thay chữ trơ "Đang chạy" bằng "Đang đọc · Gmail". Đọc 32KB
+        cuối thôi (dòng mới nằm ở cuối file) nên rẻ, gọi được mỗi vài giây.
+
+        Trả None khi chưa có gì để khoe. Ngược lại:
+          {bucket, action, where, url, step}
+        bucket là nhóm hành động (client dịch: reading/searching/watching/writing/
+        browsing); where là nơi thân thiện; action giữ verb gốc cho ai cần chi tiết.
+        """
+        if not log_path:
+            return None
+        try:
+            with open(log_path, "rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                # LUÔN quay về đầu cửa sổ đuôi. Quên bước này (chỉ seek khi file to
+                # hơn 32KB) thì với log nhỏ con trỏ nằm ở EOF và read() ra rỗng.
+                fh.seek(max(0, size - 32768))
+                text = fh.read().decode("utf-8", errors="replace")
+        except Exception:
+            return None
+
+        action = page_type = step_n = None
+        for m in self._STEP_LIVE_RE.finditer(text):   # lần lặp CUỐI = mới nhất
+            action, step_n, page_type = m.group(1), m.group(2), m.group(3)
+        url = None
+        for m in self._NOW_ON_RE.finditer(text):
+            url = m.group(1)
+        if not action and not url:
+            return None
+
+        return {
+            "bucket": self._ACTION_BUCKET.get((action or "").lower(), "browsing"),
+            "action": action,
+            "where": self._friendly_where(url, page_type),
+            "url": url,
+            "step": int(step_n) if (step_n and step_n.isdigit()) else None,
+        }
 
     def _note_launch_evidence(self, log_path):
         """Đọc log một lượt vừa xong và rút ra hai sự thật nó biết mà không ai hỏi.
