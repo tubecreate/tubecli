@@ -521,6 +521,173 @@ EXPLICIT_BEHAVIOR_MAP = {
 }
 
 
+# ── Sinh dailyRoutine theo VAI TRÒ khi tạo agent ─────────────────────────
+# WHY: chip 7 hành vi/buổi vẫn giữ NGUYÊN và người dùng vẫn tự bật/tắt được.
+# Cái thêm vào: lúc tạo agent, thay vì để trống giống hệt nhau, ta để LLM
+# CHỌN SẴN tập con phù hợp với persona (giáo viên -> study/browse chứ không
+# "check email mỗi sáng"). Tuyệt đối KHÔNG đẻ key mới: scheduler chỉ hiểu đúng
+# 7 key trong EXPLICIT_BEHAVIOR_MAP; độ cụ thể chủ đề ("giáo án") đến từ
+# interests của agent (thứ đã lái câu tìm kiếm ở chỗ khác), không phải từ đây.
+PERIODS = ("morning", "afternoon", "evening", "night")
+
+# Nghĩa "người thường" của từng key — đưa vào prompt để LLM chọn đúng vai trò.
+# Key PHẢI trùng khít EXPLICIT_BEHAVIOR_MAP (một nguồn sự thật cho 7 key hợp lệ).
+BEHAVIOR_MEANINGS = {
+    "browse_topic": "search the web and read about its topics of interest",
+    "news": "skim the day's headlines / news",
+    "watch_video": "watch videos (e.g. YouTube) related to its interests",
+    "study": "study, take an online course, deep-read to learn",
+    "check_email": "open and read incoming email (read only)",
+    "reply_email": "reply to the newest unread email",
+    "send_report": "compose and send a summary report to colleagues",
+}
+
+
+def _default_daily_routine():
+    """Fallback chung, trung tính khi LLM lỗi/trả rác.
+
+    Là factory (không phải hằng dùng chung) để mỗi caller có bản sao riêng đem
+    lưu — tránh hai agent vô tình dùng chung một dict rồi sửa lẫn nhau.
+    """
+    return {
+        "morning": {"news": True, "check_email": True},
+        "afternoon": {"browse_topic": True, "study": True},
+        "evening": {"watch_video": True},
+        "night": {"study": True},
+    }
+
+
+def _routine_flag_on(v) -> bool:
+    """LLM có thể trả bool thật, số, hoặc CHUỖI 'false'/'true'.
+
+    WHY: chuỗi "false" là truthy trong Python — nếu chỉ `if v:` thì một buổi
+    LLM ghi "false" vẫn bị bật. Ép về bool đúng nghĩa ở đây.
+    """
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "yes", "1", "on", "y")
+    return False
+
+
+def _sanitize_daily_routine(data):
+    """Chỉ giữ đúng 7 key hợp lệ, dạng {period: {validKey: True}}.
+
+    Trả dict khi reply có ÍT NHẤT một hành vi hợp lệ + được bật; trả None khi
+    không có gì dùng được (không phải dict, hoặc mọi buổi rỗng sau khi loại rác)
+    để caller rơi về _default_daily_routine(). Đây là chốt kiểm bắt buộc chủ
+    dự án yêu cầu: một key ảo (hallucinated) KHÔNG BAO GIỜ lọt vào
+    persona.dailyRoutine, vì scheduler sẽ không hiểu nó.
+    """
+    if not isinstance(data, dict):
+        return None
+    out = {}
+    total = 0
+    for period in PERIODS:
+        pt = data.get(period)
+        cleaned = {}
+        if isinstance(pt, dict):
+            for key, enabled in pt.items():
+                # Loại thẳng mọi key ngoài 7 key; chỉ lưu key được bật.
+                if key in BEHAVIOR_MEANINGS and _routine_flag_on(enabled):
+                    cleaned[key] = True
+                    total += 1
+        out[period] = cleaned
+    if total == 0:
+        return None
+    return out
+
+
+def generate_daily_routine(agent):
+    """Suy ra dailyRoutine theo buổi TỪ CHÍNH persona của agent.
+
+    Dùng lại y hệt "đường ống" của check_and_generate_daily_keywords: dựng prompt
+    từ description + interests, gọi AgentBrain._call_llm, extract_json, rồi VALIDATE.
+    LLM chỉ CHỌN SẴN tập con trong 7 hành vi cố định cho mỗi buổi — không đẻ key
+    mới. Luôn trả {period: {validKey: True}}: hoặc là lựa chọn đã làm sạch của
+    LLM, hoặc default chung nếu gọi lỗi/reply rác. KHÔNG BAO GIỜ raise.
+    """
+    import json
+    from tubecli.core.brain import AgentBrain
+    from tubecli.core.ai_generator import extract_json
+
+    persona = agent.persona or {}
+    routine = agent.routine or {}
+    interests = persona.get("interests", []) or routine.get("interests", []) or []
+    work_habits = routine.get("workHabits") or persona.get("workHabits") or {}
+    focus_areas = work_habits.get("focusAreas", []) or []
+    combined = list(dict.fromkeys(str(t) for t in list(interests) + list(focus_areas) if t))
+
+    behavior_lines = "\n".join(f"- {k}: {v}" for k, v in BEHAVIOR_MEANINGS.items())
+    all_keys_example = ", ".join(f'"{k}": false' for k in BEHAVIOR_MEANINGS)
+    prompt = f"""You set the daily routine of the agent '{agent.name}'.
+Description / profession:
+"{agent.description}"
+Interests / focus topics: {json.dumps(combined, ensure_ascii=False)}
+
+There are EXACTLY 7 behaviors it can perform, and ONLY these:
+{behavior_lines}
+
+Decide which behaviors fit THIS agent's role in each period of the day
+(morning, afternoon, evening, night). Reason about the role: a teacher studies
+and browses teaching material and does NOT run an email desk; a sales manager
+checks and replies to email and sends reports; a researcher studies and reads
+news. Enable 1-3 behaviors per period that genuinely fit; set the rest false.
+Do NOT invent any behavior outside the 7 keys above.
+
+Return ONLY raw JSON (no prose), this EXACT structure, with every one of the 7
+keys present as a boolean in each period:
+{{
+  "morning":   {{ {all_keys_example} }},
+  "afternoon": {{ {all_keys_example} }},
+  "evening":   {{ {all_keys_example} }},
+  "night":     {{ {all_keys_example} }}
+}}"""
+    messages = [
+        {"role": "system", "content": "You are a precise JSON generator. Output only valid JSON."},
+        {"role": "user", "content": prompt},
+    ]
+
+    try:
+        raw_response = AgentBrain._call_llm(agent.to_dict(), messages, temperature=0.4)
+        data = json.loads(extract_json(raw_response))
+        sanitized = _sanitize_daily_routine(data)
+        if sanitized is not None:
+            return sanitized
+        print("[RoutineGen] LLM reply carried no valid behaviors; using default routine.")
+    except Exception as e:
+        print(f"[RoutineGen] Routine generation failed: {e}. Using default routine.")
+    return _default_daily_routine()
+
+
+def _seed_agent_routine(agent_id):
+    """Best-effort: sinh + lưu dailyRoutine hợp vai trò vào persona.
+
+    Đồng bộ và bọc kín lỗi — an toàn để gọi từ daemon thread (lúc tạo agent)
+    hoặc gọi trực tiếp (endpoint generate_routine / test). KHÔNG BAO GIỜ raise;
+    trả về routine đã lưu, hoặc None nếu agent biến mất giữa chừng.
+
+    WHY lưu vào persona.dailyRoutine: tab Schedule đọc/ghi ở đúng chỗ này
+    (scheduler đọc routine.dailyRoutine trước rồi mới persona.dailyRoutine), nên
+    ghi vào persona khớp "home of record" của UI và không đụng các key khác.
+    """
+    try:
+        from tubecli.core.agent import agent_manager
+        agent = agent_manager.get(agent_id)
+        if not agent:
+            return None
+        routine_map = generate_daily_routine(agent)
+        persona = dict(agent.persona or {})
+        persona["dailyRoutine"] = routine_map
+        agent_manager.update(agent_id, persona=persona)
+        return routine_map
+    except Exception as e:
+        print(f"[RoutineSeed] Could not seed routine for agent {agent_id}: {e}")
+        return None
+
+
 def resolve_task_behavior(chosen_task: str) -> str:
     """Map one chosen task label from dailyRoutine[period] to an internal behavior.
 
@@ -1866,7 +2033,20 @@ async def get_agent(agent_id: str):
 @app.post("/api/v1/agents")
 async def create_agent(req: AgentCreateRequest):
     from tubecli.core.agent import agent_manager
+    import threading
     agent = agent_manager.create(**req.model_dump(exclude_none=True))
+
+    # WHY chạy nền: sinh dailyRoutine theo vai trò phải KHÔNG làm hỏng/treo phản
+    # hồi tạo agent. Gọi LLM có thể chậm hoặc lỗi, nên đẩy sang daemon thread —
+    # create trả về ngay lập tức. Nếu agent chưa tự đặt dailyRoutine, trong lúc
+    # routine chưa kịp về thì scheduler đã có sẵn fallback ngẫu nhiên che chỗ
+    # trống, nên không có "khoảng chết". _seed_agent_routine tự bọc kín lỗi.
+    persona = agent.persona or {}
+    has_routine = bool((persona.get("dailyRoutine") if isinstance(persona, dict) else None)
+                       or (agent.routine or {}).get("dailyRoutine"))
+    if not has_routine:
+        threading.Thread(target=_seed_agent_routine, args=(agent.id,), daemon=True).start()
+
     return {"status": "created", "agent": agent.to_dict()}
 
 @app.put("/api/v1/agents/{agent_id}")
@@ -1927,6 +2107,28 @@ async def regenerate_agent_keywords(agent_id: str):
 
     threading.Thread(target=_regen, daemon=True).start()
     return {"status": "success", "message": f"Keyword regeneration started for agent '{agent.name}'. Language: {getattr(agent, 'language', 'auto')}"}
+
+
+@app.post("/api/v1/agents/{agent_id}/generate_routine")
+async def generate_agent_routine_endpoint(agent_id: str):
+    """Sinh lại chip hành vi theo buổi (dailyRoutine) từ persona/vai trò hiện tại.
+
+    Nút "Sinh theo vai trò" ở tab Schedule gọi endpoint này. Khác regenerate_keywords
+    (chạy nền, trả 'đã bắt đầu'): người dùng bấm chủ động và cần thấy kết quả ngay
+    để refresh chip, nên ta chạy ĐỒNG BỘ và trả về routine đã lưu. Chip vẫn sửa
+    tay được như cũ sau đó. _seed_agent_routine đã bọc kín lỗi + có fallback nên
+    endpoint không bao giờ vỡ vì LLM.
+    """
+    from tubecli.core.agent import agent_manager
+    agent = agent_manager.get(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent {agent_id} not found")
+
+    routine_map = _seed_agent_routine(agent_id)
+    if routine_map is None:
+        # Chỉ xảy ra nếu agent biến mất giữa chừng — trả default trung thực.
+        routine_map = _default_daily_routine()
+    return {"status": "success", "routine": routine_map, "agent_id": agent_id}
 
 
 class DailyKeywordsUpdateRequest(BaseModel):
