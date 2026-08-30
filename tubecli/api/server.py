@@ -754,6 +754,40 @@ def select_period_behavior(daily_routine, time_period, rng=None):
     return _rng.choice(FALLBACK_BEHAVIORS), period_tasks, None
 
 
+def _extract_account_email(acc) -> str:
+    """Email của một tài khoản profile — google_account là str hoặc dict.
+    str có thể là 'email|password|...' (routes.py tách bằng pipe/tab)."""
+    if isinstance(acc, dict):
+        e = acc.get("email") or ""
+    elif isinstance(acc, str):
+        e = acc.replace("\t", "|").split("|")[0]
+    else:
+        e = ""
+    e = str(e).strip()
+    return e if "@" in e else ""
+
+
+def _system_report_emails(exclude_profile: str = "") -> list:
+    """Email Google đã nhập vào các profile KHÁC trong hệ thống — pool người nhận
+    ngẫu nhiên cho send_report. Loại profile đang chạy để agent không tự gửi cho
+    chính nó. Best effort tuyệt đối: không bao giờ ném vào vòng lập lịch."""
+    uniq, seen = [], set()
+    try:
+        from tubecli.extensions.browser.profile_manager import list_profiles
+        for p in list_profiles():
+            if not isinstance(p, dict):
+                continue
+            if exclude_profile and p.get("name") == exclude_profile:
+                continue
+            e = _extract_account_email(p.get("google_account"))
+            if e and e.lower() not in seen:
+                seen.add(e.lower())
+                uniq.append(e)
+    except Exception:
+        pass
+    return uniq
+
+
 def normalize_report_recipients(routine, persona) -> list:
     """Read the agent's report recipients — "colleagues in the same system".
 
@@ -1139,6 +1173,17 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     email_skip_reason = None
     if behavior in ("replyEmail", "sendReport"):
         recipients = normalize_report_recipients(routine, persona)
+        # Không tự điền người nhận + chủ máy BẬT allowRandomRecipient → gửi ngẫu
+        # nhiên tới một email trong hệ thống (tài khoản Google của profile khác).
+        # Chốt an toàn opt-in: không bật thì vẫn bỏ qua như cũ (never email nobody).
+        allow_random = bool((isinstance(routine, dict) and routine.get("allowRandomRecipient"))
+                            or (isinstance(persona, dict) and persona.get("allowRandomRecipient")))
+        if behavior == "sendReport" and not recipients and allow_random:
+            pool = _system_report_emails(exclude_profile=profile_name)
+            if pool:
+                recipients = [random.choice(pool)]
+                print(f"[Scheduler Callback] send_report: khong dien nguoi nhan, "
+                      f"allow_random BAT -> chon {recipients[0]} tu {len(pool)} email he thong")
         email_prompt, email_skip_reason = build_email_prompt(
             behavior, time_period, combined_topics, recipients)
         if email_prompt:
