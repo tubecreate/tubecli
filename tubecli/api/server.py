@@ -1345,6 +1345,15 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 f"[Scheduler Callback] Spawn result: {spawn_status} "
                 f"(PID: {result.get('pid')}, instance: {instance_id})"
             )
+            # Hồ sơ đang bị MỘT phiên khác/live view giữ (browser_manager ném
+            # PROFILE_IN_USE) KHÔNG phải lỗi thực thi — chỉ là "bận, để lượt sau".
+            # Ghi thành BỎ QUA (xám) thay vì Failed (đỏ), để bảng không đỏ lòm khi
+            # người dùng đang XEM đúng hồ sơ đó, hay hai lượt chồng nhẹ lên nhau.
+            _busy_txt = (str(result.get("error") or "") + " "
+                         + str(result.get("log_output") or "")).lower()
+            profile_busy = spawn_status == "error" and (
+                "already open in another process" in _busy_txt
+                or "profile_in_use" in _busy_txt)
             if spawn_status == "error":
                 print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
                 # Tiến trình chết trong vòng 1 giây thì spawn() đã kèm log về đây.
@@ -1367,14 +1376,16 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             # vào run_log — bảng nhóm chỉ cần biết lượt chạy đã khởi động được.
             _group_log_routine(
                 group_ctxs, agent,
-                f"schedule {profile_name} — browser {spawn_status}",
+                f"schedule {profile_name} — browser {'busy (skip)' if profile_busy else spawn_status}",
                 detail=str(result.get("error") or "")[:400],
-                ok=spawn_status != "error")
+                ok=(spawn_status != "error") or profile_busy)
 
             # Everything above was print-only until now. On success the monitor
             # thread writes the matching `end` row when the process exits; on a
             # failed spawn there will be no monitor, so this row is the whole story.
             if run_id:
+                busy_reason = ("Skipped: the profile is in use — a live view or another "
+                               "session is open on it. Will run at the next scheduled slot.")
                 run_log.launch(
                     run_id, agent.id,
                     profile=profile_name,
@@ -1384,13 +1395,17 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     session_minutes=session_minutes,
                     max_duration_sec=max_session_seconds,
                     ai_model=browser_ai["model"],
-                    spawn_status=spawn_status,
+                    spawn_status=("skipped" if profile_busy else spawn_status),
                     instance_id=instance_id or None,
                     pid=result.get("pid"),
                     log_file=result.get("log_file"),
-                    error=result.get("error"),
+                    error=(busy_reason if profile_busy else result.get("error")),
                     log_tail=result.get("log_output"),
                 )
+                # Không có monitor cho lượt không mở được browser → tự đóng lượt bằng
+                # 'skipped' (xám), nếu không nó treo "running" tới khi quá giờ.
+                if profile_busy:
+                    run_log.end(run_id, agent.id, "skipped", log_tail=busy_reason)
         except Exception as e:
             print(f"[Scheduler Callback] Error launching browser: {e}")
             _group_log_routine(group_ctxs, agent,
