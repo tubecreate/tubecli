@@ -45,6 +45,7 @@ export class SessionManager {
     this.aiCallHistory = []; // Track timestamps of AI calls for frequency warning
     this.scrapedUrls = new Set(); // Track URLs already scraped (cross-session)
     this.scrapedNorms = new Set(); // origin+path đã cào (bỏ query/hash) — khớp lỏng để né link chỉ khác ?utm=…
+    this._trackedUrls = new Set(); // URL đã đếm-miền trong phiên này (mỗi URL đếm 1 lần)
 
     // Load blacklist from profile config
     this.loadBlacklist().catch(e => console.warn('[SessionManager] Failed to load blacklist:', e.message));
@@ -204,7 +205,19 @@ export class SessionManager {
           this.failedElements.clear();
       }
       this.currentContext.domain = urlObj.hostname;
-      
+
+      // ĐẾM lượt vào MIỀN để cap đa dạng thật sự chạy. trackDomainAccess() trước đây
+      // được định nghĩa mà KHÔNG chỗ nào gọi → domainAccessHistory luôn rỗng → cap
+      // trong _resolveActionParams không bao giờ kích hoạt → agent bấm link cùng miền
+      // vô tận (quanh quẩn 1 website). Bỏ qua công cụ tìm kiếm (hạ tầng, agent quay
+      // lại liên tục) và chỉ đếm MỘT lần mỗi URL/phiên để redirect/SPA không phồng số.
+      // Đếm theo hostname ĐẦY ĐỦ để khớp đúng khoá mà cap đọc (url.hostname).
+      const isSearchEngine = /(^|\.)(google|bing|duckduckgo|yahoo)\.[a-z.]+$/i.test(urlObj.hostname);
+      if (!isSearchEngine && !this._trackedUrls.has(url)) {
+        this._trackedUrls.add(url);
+        this.trackDomainAccess(urlObj.hostname);
+      }
+
       // Detect page type based on domain
       if (urlObj.hostname.includes('youtube.com')) {
         this.currentContext.pageType = url.includes('/watch') ? 'youtube_video' : 'youtube_home';
