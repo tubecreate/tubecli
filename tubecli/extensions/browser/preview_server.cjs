@@ -1265,9 +1265,16 @@ process.on('uncaughtException', (err) => {
             await target.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         }
     } else {
-        // Không yêu cầu URL nào → về đúng tab CUỐI của phiên trước, không mở gì thêm.
+        // Không yêu cầu URL nào → DÙNG LẠI tab CUỐI của phiên trước, không mở gì thêm.
         const real = context.pages().filter((p) => p.url() !== 'about:blank');
-        if (real.length) await switchToPage(real[real.length - 1]);
+        if (real.length) {
+            await switchToPage(real[real.length - 1]);
+        } else {
+            // Browser MỚI (chưa có tab thật nào để khôi phục) → mặc định google.com,
+            // thay vì bỏ người dùng ở trang about:blank trắng trơn.
+            try { await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+            catch (e) { log(`Warning: default nav to google failed: ${e.message}`); }
+        }
     }
     log(`Browser ready at: ${await page.url()}`);
 

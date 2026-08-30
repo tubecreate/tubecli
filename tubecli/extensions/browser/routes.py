@@ -2319,9 +2319,11 @@ async def launch_preview(request: Request):
     """Launch a browser for preview/element picking."""
     body = await request.json()
     profile = body.get("profile", "")
-    url = body.get("url", "https://google.com")
-    if not url or url == "about:blank":
-        url = "https://google.com"
+    # KHÔNG ép google.com nữa: mở là DÙNG LẠI tab của phiên trước. Truyền rỗng
+    # xuống preview_server → nó để about:blank rồi tự khôi phục tab cũ; browser
+    # MỚI (chưa có tab thật nào) thì preview_server mặc định google.com. Ép URL ở
+    # đây sẽ luôn đè lên tab người dùng đang làm dở — đúng cái cần bỏ.
+    url = (body.get("url") or "").strip()
 
     # force (mặc định): mở lại luôn được — dọn sạch phiên cũ của CHÍNH profile này
     # rồi chạy. Trước đây gặp phiên cũ là ném 400 "already running", trong khi phiên
