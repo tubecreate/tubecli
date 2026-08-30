@@ -2390,6 +2390,58 @@ async def launch_preview(request: Request):
         async with _launching_lock:
             _launching_profiles.pop(profile, None)
 
+
+@router.post("/preview/attach")
+async def attach_preview(request: Request):
+    """XEM GHÉP (chỉ xem) một phiên ĐANG chạy — không mở browser mới, KHÔNG giết gì.
+
+    _attach_offer đã hứa endpoint này nhưng trước đây chưa ai xây, nên khung canvas
+    dò được cổng CDP của agent mà không có đường bật. Ở đây: dò lại cổng bằng đúng
+    bộ kiểm của _attach_probe (phiên sống + DevToolsActivePort mới + /json/version
+    trả lời + cổng thuộc cây tiến trình phiên), rồi chạy MỘT preview_server chế độ
+    --attach-cdp nối vào cổng đó. Trả {port} để client mở WebSocket xem.
+
+    KHÔNG force-kill, KHÔNG preflight-launch: browser này là của agent, ta chỉ ghé
+    xem. preview_server.cjs ở attachMode từ chối mọi lệnh chuột/phím (chỉ xem)."""
+    body = await request.json()
+    profile = str(body.get("profile", "") or "")
+    if not profile:
+        raise HTTPException(400, "profile required")
+
+    from .process_manager import browser_process_manager as _bpm
+    try:
+        with _bpm._instances_lock:
+            _snap = list(_bpm._instances.values())
+    except Exception:
+        _snap = []
+    cdp_port, why = _attach_probe(profile, _snap)
+    if not cdp_port:
+        return {"ok": False, "why": why,
+                "message_vi": "Không xem ghép được phiên này ("
+                              + _ATTACH_WHY_VI.get(why, why) + ")."}
+
+    # Đã có preview_server attach còn sống cho profile này → DÙNG LẠI, đừng bật trùng
+    # (nhiều người cùng xem một phiên chỉ cần một attach; ws broadcast tới mọi client).
+    for sid, info in list(_preview_processes.items()):
+        if info.get("profile") == profile and info.get("attach"):
+            _p = info.get("proc")
+            if _p is not None and _p.poll() is None:
+                return {"status": "attached", "session_id": sid,
+                        "port": info["port"], "mode": "cdp", "reused": True}
+
+    proc, port, early_output = await _spawn_preview_server(
+        profile, "", extra_args=["--attach-cdp", str(cdp_port)])
+    session_id = f"attach_{int(time.time())}"
+    _preview_processes[session_id] = {
+        "proc": proc, "port": port, "profile": profile,
+        "started_at": time.time(),
+        "opened_by": (body.get("opened_by") or "canvas"),
+        "attach": True, "cdp_port": int(cdp_port),
+        "early_output": early_output,
+    }
+    return {"status": "attached", "session_id": session_id, "port": port, "mode": "cdp"}
+
+
 @router.post("/preview/stop")
 async def stop_preview(request: Request):
     body = await request.json()
