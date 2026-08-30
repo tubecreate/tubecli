@@ -97,6 +97,14 @@ def run():
         check("google SID -> youtube ngam theo", "youtube" in r, repr(r))
         check("google SID -> youtube DUNG MOT LAN", r.count("youtube") == 1, repr(r))
 
+        # 3a-shardx) LAYOUT ShardX 149: cookie o Default/Cookies (KHONG co Network/) —
+        #   do that tren VPS 30/8. detect_logins phai do duoc layout nay chu khong chi
+        #   Default/Network/Cookies, neu khong badge login luon trong.
+        make_cookie_db(os.path.join(root, "sx", "Default", "Cookies"),
+                       [(".google.com", "SID")])
+        r = pm.detect_logins("sx")
+        check("ShardX Default/Cookies -> van tim thay google", "google" in r, repr(r))
+
         # 3b) youtube LOGIN_INFO truc tiep, khong co google -> [youtube] khong [google]
         make_profile(root, "ytonly", [(".youtube.com", "LOGIN_INFO")])
         r = pm.detect_logins("ytonly")

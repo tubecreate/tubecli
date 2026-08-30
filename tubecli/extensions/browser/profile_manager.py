@@ -170,6 +170,30 @@ def _evaluate_logins(pairs) -> List[str]:
     return sorted(logged)
 
 
+def _find_cookie_db(root: str) -> Optional[str]:
+    """Duong dan file Cookies cua mot user-data-dir Chromium. KHONG khoa cung mot
+    layout: Chromium moi de o Default/Network/Cookies, nhung nhan nay (ShardX 149)
+    de o Default/Cookies — do that tren VPS 30/8. Thu cac vi tri quen truoc (uu tien
+    Default/Cookies vi engine dang dung no), roi quet nong (<=3 tang) de bat layout
+    la ma KHONG di sau vao Cache (nhieu nghin file)."""
+    for rel in (("Default", "Cookies"), ("Default", "Network", "Cookies"),
+                ("Network", "Cookies"), ("Cookies",)):
+        p = os.path.join(root, *rel)
+        if os.path.isfile(p):
+            return p
+    try:
+        base = root.rstrip(os.sep).count(os.sep)
+        for cur, dirs, files in os.walk(root):
+            if cur.count(os.sep) - base >= 3:
+                dirs[:] = []          # khong di sau hon 3 tang
+                continue
+            if "Cookies" in files:
+                return os.path.join(cur, "Cookies")
+    except Exception:
+        pass
+    return None
+
+
 def detect_logins(name: str) -> List[str]:
     """Danh sach site ma profile 'name' dang dang nhap, doc tu kho cookie THAT.
 
@@ -179,9 +203,12 @@ def detect_logins(name: str) -> List[str]:
     (trinh duyet dang chay) -> giu ket qua cu (hoac rong), khong nem loi/khong treo."""
     dbs = []
     for sub in ("", "_bas"):
-        p = os.path.join(PROFILES_DIR, name + sub, "Default", "Network", "Cookies")
-        if os.path.isfile(p):
-            dbs.append(p)
+        root = os.path.join(PROFILES_DIR, name + sub)
+        if not os.path.isdir(root):
+            continue
+        found = _find_cookie_db(root)
+        if found:
+            dbs.append(found)
 
     # Signature: (path, mtime, size) cho tung file ton tai. File doi -> cache lech.
     sig_parts = []
