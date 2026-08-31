@@ -62,7 +62,7 @@ async def auth_status(request: Request):
 
 @router.post("/api/v1/auth/login")
 async def login(body: LoginRequest, request: Request, response: Response):
-    key = _client(request) or "unknown"
+    key = auth.throttle_key(_client(request), request.headers)
 
     locked, remaining = auth.throttle_status(key)
     if locked:
@@ -190,7 +190,7 @@ async def change_password(body: PasswordChangeRequest, request: Request):
     install and lock the owner out of their own dashboard.
     """
     auth.ensure_initialised()
-    key = _client(request) or "unknown"
+    key = auth.throttle_key(_client(request), request.headers)
 
     locked, remaining = auth.throttle_status(key)
     if locked:

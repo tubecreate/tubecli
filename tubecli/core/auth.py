@@ -272,6 +272,28 @@ def is_loopback(host: str) -> bool:
     return h in ("127.0.0.1", "::1", "localhost") or h.startswith("127.")
 
 
+def throttle_key(client_host: str, headers) -> str:
+    """Ô khoá đăng nhập tính theo NGƯỜI GÕ, không theo địa chỉ TCP.
+
+    Sau cloudflared, mọi request nội tuyến đều đến từ 127.0.0.1 — lấy địa chỉ
+    đó làm key là cả internet chung MỘT ô khoá: bot quét URL tunnel công khai
+    gõ sai 5 lần là CHÍNH CHỦ dính 429 ("limit tunnel" nhìn từ canvas), và cứ
+    thế bị khoá mãi chừng nào bot còn quét. Với throttle, header chuyển tiếp
+    dùng được an toàn — kẻ giả header chỉ tự XOAY ô khoá của nó (brute-force
+    khó chặn hơn một bậc) chứ không khoá được ai khác; ngược hẳn is_loopback,
+    nơi tin header giả đồng nghĩa tắt luôn xác thực."""
+    try:
+        for h in ("cf-connecting-ip", "x-real-ip", "x-forwarded-for"):
+            v = headers.get(h) if headers is not None else ""
+            if v:
+                first = str(v).split(",")[0].strip().lower()
+                if first:
+                    return first[:64]
+    except Exception:
+        pass
+    return client_host or "unknown"
+
+
 # Headers that only ever appear when something forwarded the request.
 _PROXY_HEADERS = ("x-forwarded-for", "x-real-ip", "forwarded",
                   "x-forwarded-host", "cf-connecting-ip")
