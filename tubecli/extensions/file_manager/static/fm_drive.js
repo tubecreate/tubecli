@@ -529,7 +529,11 @@
                 ref: {
                     v: 1, source: 'drive', path: '', drive_id: fid, cred_id: S.accountId || null,
                     name: nm, ext: (nm.indexOf('.') >= 0 ? nm.split('.').pop() : null),
-                    size: (f && f.size != null ? Number(f.size) : null)
+                    size: (f && f.size != null ? Number(f.size) : null),
+                    // Canvas cần hai thứ này để nhận ra BẢNG TÍNH Google và dựng
+                    // thẳng node Sheet (khỏi dán link): loại file + link mở được.
+                    mime_type: (f && f.mime_type) || null,
+                    url: (f && f.url) || btn.getAttribute('data-url') || null
                 }
             };
         });

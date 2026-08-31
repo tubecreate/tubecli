@@ -257,6 +257,13 @@ class GSheetsAppendRequest(BaseModel):
     rows: List[Any] = []
 
 
+class GSheetsUpdateRequest(BaseModel):
+    cred_id: str
+    tab: str = ""
+    range: str = ""          # "C4" cho một ô, "B2:C3" cho một khối
+    values: List[Any] = []
+
+
 def _gsheets_http_status(err) -> int:
     # Collapse Google's vocabulary into what the node distinguishes: bad request,
     # no access, not found, or "Google is unhappy" (429 / 5xx / unreachable).
@@ -319,6 +326,27 @@ async def api_gsheets_append(sheet_id: str, req: GSheetsAppendRequest):
     except gsheets.GSheetsError as e:
         raise HTTPException(_gsheets_http_status(e), e.message)
     return {"updated_range": res["updated_range"], "updated_rows": res["updated_rows"], "tab": res["tab"]}
+
+
+@router.post("/gsheets/{sheet_id}/update")
+async def api_gsheets_update(sheet_id: str, req: GSheetsUpdateRequest):
+    """Ghi đè một ô/khối ô — mặt HTTP cho gsheets.update, để node Sheet trên
+    canvas sửa ô tại chỗ (agent đã dùng được qua action từ trước).
+
+    `range` là BẮT BUỘC: gsheets.update ghi từ A1 khi range rỗng, một cú lỡ tay
+    như thế sẽ đè lên đầu bảng của người dùng."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        raise HTTPException(400, "cred_id is required")
+    if not (req.range or "").strip():
+        raise HTTPException(400, "range is required (e.g. 'C4')")
+    try:
+        res = await asyncio.to_thread(gsheets.update, req.cred_id, sheet_id,
+                                      req.tab, req.range.strip(), req.values)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+    return {"updated_range": res["updated_range"], "updated_cells": res["updated_cells"], "tab": res["tab"]}
 
 
 # ── Callback HTML Template ───────────────────────────────────────
