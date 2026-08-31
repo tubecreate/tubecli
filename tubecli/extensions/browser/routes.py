@@ -694,19 +694,14 @@ async def api_launch_browser(req: LaunchRequest):
         async with _launching_lock:
             _launching_profiles.pop(req.profile, None)
 
-@router.post("/stop")
-async def api_stop_browser(req: StopRequest):
-    from .process_manager import browser_process_manager, force_kill_profile
+def stop_preview_for_profile(profile: str) -> bool:
+    """Dừng (các) phiên PREVIEW đang giữ một hồ sơ — tách khỏi route /stop để
+    vòng lịch gọi được khi người dùng bấm Run tay: ý định tường minh thì nhường
+    chỗ, dừng live view của chính chủ rồi agent chạy; khung trên canvas tự
+    chuyển sang xem phiên agent qua attach offer."""
     stopped = False
-    
-    # 1. Stop normal browser process
-    if browser_process_manager.stop_by_profile(req.profile):
-        stopped = True
-        
-    # 2. Stop preview browser process
-    dead_sessions = []
     for session_id, info in list(_preview_processes.items()):
-        if info.get("profile") == req.profile:
+        if info.get("profile") == profile:
             proc = info.get("proc")
             if proc:
                 try:
@@ -723,6 +718,21 @@ async def api_stop_browser(req: StopRequest):
                     pass
             _preview_processes.pop(session_id, None)
             stopped = True
+    return stopped
+
+
+@router.post("/stop")
+async def api_stop_browser(req: StopRequest):
+    from .process_manager import browser_process_manager, force_kill_profile
+    stopped = False
+
+    # 1. Stop normal browser process
+    if browser_process_manager.stop_by_profile(req.profile):
+        stopped = True
+
+    # 2. Stop preview browser process
+    if stop_preview_for_profile(req.profile):
+        stopped = True
             
     # Dọn phần hệ điều hành còn giữ: chrome mồ côi từ phiên trước, node preview
     # server không còn trong dict, và khoá Singleton chrome để lại khi bị giết cứng.

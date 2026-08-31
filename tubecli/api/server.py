@@ -1457,9 +1457,21 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 try:
                     from tubecli.extensions.browser.routes import preview_holds_profile
                     if preview_holds_profile(_prof):
-                        profile_busy = True
-                        print(f"[Scheduler Callback] '{_prof}' is held by a live view — busy, trying next candidate")
-                        continue
+                        if trigger != "schedule":
+                            # Bấm Run TAY là ý định tường minh — nhường chỗ:
+                            # dừng live view của chính chủ rồi chạy; khung trên
+                            # canvas tự chuyển sang xem phiên agent (attach
+                            # offer). Lịch tự động thì ngược lại: không bao giờ
+                            # giật khung người dùng đang xem — skip như dưới.
+                            from tubecli.extensions.browser.routes import stop_preview_for_profile
+                            print(f"[Scheduler Callback] Manual run — stopping the live view holding '{_prof}'")
+                            stop_preview_for_profile(_prof)
+                            import time as _time
+                            _time.sleep(1.5)   # chờ khoá Singleton của Chromium nhả
+                        else:
+                            profile_busy = True
+                            print(f"[Scheduler Callback] '{_prof}' is held by a live view — busy, trying next candidate")
+                            continue
                 except Exception as _pv:
                     print(f"[Scheduler Callback] Preview-busy preflight skipped: {_pv}")
 
@@ -2368,7 +2380,9 @@ async def test_agent_routine(agent_id: str):
     if not agent:
         raise HTTPException(404, f"Agent {agent_id} not found")
     try:
-        run_agent_routine(agent_id)
+        # trigger="manual": nút Run now/Chạy lại — vòng launch được phép nhường
+        # chỗ (dừng live view đang giữ hồ sơ) thay vì skip như lịch tự động.
+        run_agent_routine(agent_id, trigger="manual")
         return {"status": "success", "message": f"Triggered behavior routine for agent '{agent.name}'"}
     except Exception as e:
         raise HTTPException(500, f"Failed to run behavior routine: {str(e)}")
