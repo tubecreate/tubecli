@@ -854,6 +854,10 @@ async loadBlacklist() {
       // Track if the session has already performed a search — AI must not search again
       alreadySearched: this.actionHistory.some(a => a.action === 'search' && a.status === 'success'),
       currentActivity: this.agentContext?.current_activity || 'browse',
+      // Chip đăng nhập của HỒ SƠ đang lái (server đọc từ cookie store thật) —
+      // AI phiên chỉ được dùng mạng xã hội có trong danh sách này. undefined =
+      // phiên manual không mang thông tin này, đừng phán "chưa đăng nhập gì".
+      loggedInServices: this.agentContext?.profile_logins,
       remainingMinutes,
       recentHistory: this.actionHistory.slice(-5).map(a => `${a.action} on ${a.url} -> ${a.status}${a.error ? ` (Error: ${a.error})` : ''}`)
     };
@@ -1192,6 +1196,14 @@ SCHEDULE MODE: "${context.currentActivity}" — You are in WORK/RESEARCH mode.
 - PRIORITIZE: click_result, click_link, browse, extract_content over watch.
 - Search for content related to work interests, NOT entertainment.
 ` : ''}
+${Array.isArray(context.loggedInServices) ? (context.loggedInServices.length > 0 ? `
+LOGGED-IN SERVICES for this browser profile: ${context.loggedInServices.join(', ')}.
+- 'google' means the Google account is signed in: gmail, drive, docs and sheets are ALL available.
+- ONLY visit account-based sites covered by this list (google → gmail/drive/docs, youtube, facebook, tiktok, instagram, x).
+- NEVER open a login/signup page for a service not in the list — read public articles instead.
+` : `
+This browser profile has NO logged-in accounts. Stick to public pages (news, articles, docs) — never open gmail/facebook/tiktok or any login page.
+`) : ''}
 
 INSTRUCTIONS:
 1. Generate a JSON Array of abstract actions (The SKELETON).
@@ -1241,7 +1253,15 @@ CRITICAL RULES:
     const currentUrl = this.currentContext.url || '';
     const currentActivity = this.agentContext?.current_activity || 'browse';
     const isWorkMode = ['work', 'research', 'study', 'morningCheck', 'checkEmails'].includes(currentActivity);
-    
+
+    // watchVideos: hành vi là XEM — lạc khỏi YouTube thì quay lại xem tiếp thay
+    // vì browse vu vơ (server đã kiểm chip youtube của hồ sơ trước khi chọn
+    // hành vi này, nên quay lại là về phiên đã đăng nhập).
+    if (currentActivity === 'watchVideos' && !currentUrl.includes('youtube.com') && rand > 0.25) {
+      console.log('[SessionManager] watchVideos: not on YouTube — heading back to keep watching.');
+      return [{ action: 'navigate', params: { url: 'https://www.youtube.com' } }];
+    }
+
     // PRIORITY 0: YouTube handling (schedule-aware)
     if (currentUrl.includes('youtube.com')) {
       // WORK MODE: Minimize YouTube — navigate away to search articles instead

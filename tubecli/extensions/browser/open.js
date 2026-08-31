@@ -763,7 +763,11 @@ async function main() {
         if (prompt.includes(', then ') || prompt.includes(', and then ') || prompt.startsWith('read gmail') || prompt.toLowerCase().startsWith('login ')) {
             console.log('>>> Detected structured prompt. Skipping AI planning for speed.');
             // Simple heuristic parsing
-            actionSequence = prompt.split(/, then |, and then /).map(step => {
+            // ", and " cũng là ranh giới bước: prompt cũ kiểu "click a video
+            // result, and watch it for 120 seconds" từng bị nuốt mất nửa sau
+            // (chỉ click, phần watch bị vứt). Thứ tự regex quan trọng:
+            // ", and then " phải đứng trước ", and " kẻo chỉ ăn mất "and".
+            actionSequence = prompt.split(/, then |, and then |, and /).map(step => {
                 const s = step.trim().toLowerCase();
                 const sRaw = step.trim(); // Keep original case for credentials
                 let action = 'browse';
@@ -840,6 +844,11 @@ async function main() {
                     } else {
                         params = { element: s.replace('click ', '') };
                     }
+                    // "click a video result" phải nhắm VIDEO thật (click.js có
+                    // nhánh type:'video') — không thì trên trang kết quả YouTube
+                    // nó bấm link nội bộ đầu tiên (chip lọc/kênh) và bước watch
+                    // sau đó nổ NO_VIDEO_FOUND.
+                    if (s.includes('video')) params.type = 'video';
                 } else if (s.includes('extract content') || s.includes('extract page content')) {
                     action = 'extract_content';
                     params = { type: 'text' }; // Assumed text dump
@@ -1641,7 +1650,7 @@ async function main() {
         }
 
         const session = new SessionManager(minSessionMinutes, userGoal, aiModel, agentContext, args.profile || 'default');
-        
+
         // Initial Stat Load for AI context
         try {
           const initialStats = await browserManager.getStats(profileName);
@@ -1725,7 +1734,20 @@ async function main() {
         }
         // ═══════════════════════════════════════════════════════
 
-        session.start(page.url(), userGoal, actionSequence);
+        // Chuỗi mở màn ĐÃ chạy trọn ở bước 4 ("ALWAYS runs first") — nạp lại
+        // vào taskQueue là PHÁT LẠI nguyên si navigate+search+click ngay đầu
+        // phiên: chính là cảnh "gõ Google thêm một lần nữa" trong live view.
+        session.start(page.url(), userGoal, []);
+        // Kế thừa lịch sử mở màn SAU start() (start() reset actionHistory):
+        // cú search đầu phải được đếm vào alreadySearched, kẻo AI phiên được
+        // search "miễn phí" lần hai.
+        try {
+          for (const a of (actionSequence || [])) {
+            if (a && a.action === 'search') {
+              session.actionHistory.push({ action: 'search', url: page.url(), status: 'success' });
+            }
+          }
+        } catch (e) {}
         
         // Status reporting loop (every 5 seconds) - lightweight, no screenshots
         const statusInterval = setInterval(async () => {

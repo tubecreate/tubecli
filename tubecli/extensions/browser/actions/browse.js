@@ -7,7 +7,10 @@ import { humanMove } from './mouse_helper.js';
  * @param {number} [params.iterations=5] - Number of browsing cycles.
  */
 export async function browse(page, params = {}) {
-  const iterations = params.iterations || 5;
+  // "browse for N seconds" từ prompt lịch: quy duration ra số vòng (~7s/vòng).
+  // Trước đây duration bị bỏ qua nên bước "đọc 150 giây" thật ra chỉ ~35s.
+  const iterations = params.iterations
+    || (params.duration ? Math.min(40, Math.max(2, Math.round(params.duration / 7))) : 5);
   console.log(`Simulating natural browsing (${iterations} iterations)...`);
 
   for (let i = 0; i < iterations; i++) {

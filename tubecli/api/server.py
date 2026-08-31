@@ -520,6 +520,33 @@ EXPLICIT_BEHAVIOR_MAP = {
     "send_report": "sendReport",  # soạn & gửi báo cáo cho đồng nghiệp
 }
 
+# ── Hành vi phải KHỚP chip đăng nhập của hồ sơ ───────────────────────────
+# profile_manager.detect_logins đọc kho cookie thật của hồ sơ và trả các chip
+# ['google','youtube','facebook','tiktok','instagram','x'] — đúng dữ liệu đang
+# vẽ huy hiệu trên thẻ hồ sơ. Hành vi nào cần dịch vụ nào thì chỉ chạy khi có
+# một hồ sơ ứng viên mang chip đó: không có Google thì không đọc/soạn mail,
+# không có YouTube thì không "xem video" (trước đây vẫn chạy và ra Google
+# search "gmail"). Hành vi lướt/đọc tự do không cần chip nào.
+BEHAVIOR_LOGIN_NEEDS = {
+    "checkEmails": {"google"},
+    "replyEmail": {"google"},
+    "sendReport": {"google"},
+    "watchVideos": {"youtube"},   # detect_logins: có google là tự có youtube
+}
+
+# Trang báo theo ngôn ngữ agent — hành vi "news" vào THẲNG trang báo rồi bấm
+# bài, thay vì Google search "X news today" (nguồn của cảnh "toàn search").
+NEWS_SITES = {
+    "vi": ["vnexpress.net", "tuoitre.vn", "thanhnien.vn"],
+    "en": ["reuters.com", "bbc.com", "apnews.com"],
+    "ja": ["nhk.or.jp/news", "asahi.com"],
+    "ko": ["yna.co.kr", "news.naver.com"],
+    "zh": ["news.sina.com.cn", "news.163.com"],
+    "es": ["elpais.com", "bbc.com/mundo"],
+    "tr": ["hurriyet.com.tr", "ntv.com.tr"],
+    "ru": ["ria.ru", "lenta.ru"],
+}
+
 
 # ── Sinh dailyRoutine theo VAI TRÒ khi tạo agent ─────────────────────────
 # WHY: chip 7 hành vi/buổi vẫn giữ NGUYÊN và người dùng vẫn tự bật/tắt được.
@@ -724,7 +751,7 @@ def resolve_task_behavior(chosen_task: str) -> str:
 FALLBACK_BEHAVIORS = ["work", "research", "study", "morningCheck"]
 
 
-def select_period_behavior(daily_routine, time_period, rng=None):
+def select_period_behavior(daily_routine, time_period, rng=None, runnable=None):
     """Resolve the internal behavior for one period from dailyRoutine.
 
     dailyRoutine may be {period: {behaviorKey: enabled}} (the shape the Schedule
@@ -732,6 +759,12 @@ def select_period_behavior(daily_routine, time_period, rng=None):
     random and resolves it via resolve_task_behavior (explicit keys win, then
     fuzzy). With nothing enabled, returns the old random fallback so pre-UI
     configs behave exactly as before.
+
+    runnable (optional): predicate on the RESOLVED behavior string. Tasks whose
+    behavior it rejects are dropped from the draw — the caller uses this to
+    exclude behaviors no candidate profile is logged in for (no Google chip ->
+    no email behaviors). If everything enabled is rejected, fall through to the
+    login-free fallback pool rather than run an impossible task.
 
     Returns (behavior, period_tasks, chosen_task) — period_tasks is handed back
     so the caller can keep recording it in the run context.
@@ -748,6 +781,12 @@ def select_period_behavior(daily_routine, time_period, rng=None):
         period_tasks = {str(task): True for task in daily_routine if task}
 
     active_tasks = [task for task, enabled in period_tasks.items() if enabled]
+    if active_tasks and callable(runnable):
+        ok_tasks = [t for t in active_tasks if runnable(resolve_task_behavior(t))]
+        dropped = [t for t in active_tasks if t not in ok_tasks]
+        if dropped:
+            print(f"[Scheduler Callback] Tasks dropped (no logged-in profile for them): {dropped}")
+        active_tasks = ok_tasks
     if active_tasks:
         chosen = _rng.choice(active_tasks)
         return resolve_task_behavior(chosen), period_tasks, chosen
@@ -767,17 +806,22 @@ def _extract_account_email(acc) -> str:
     return e if "@" in e else ""
 
 
-def _system_report_emails(exclude_profile: str = "") -> list:
+def _system_report_emails(exclude_profile="") -> list:
     """Email Google đã nhập vào các profile KHÁC trong hệ thống — pool người nhận
-    ngẫu nhiên cho send_report. Loại profile đang chạy để agent không tự gửi cho
-    chính nó. Best effort tuyệt đối: không bao giờ ném vào vòng lập lịch."""
+    ngẫu nhiên cho send_report. Loại MỌI profile có thể chạy lượt này (str hoặc
+    tập tên — vòng thử ứng viên có thể spawn hồ sơ #2/#3) để agent không tự gửi
+    cho chính nó. Best effort tuyệt đối: không bao giờ ném vào vòng lập lịch."""
+    if isinstance(exclude_profile, str):
+        _excl = {exclude_profile} if exclude_profile else set()
+    else:
+        _excl = {str(x) for x in (exclude_profile or [])}
     uniq, seen = [], set()
     try:
         from tubecli.extensions.browser.profile_manager import list_profiles
         for p in list_profiles():
             if not isinstance(p, dict):
                 continue
-            if exclude_profile and p.get("name") == exclude_profile:
+            if p.get("name") in _excl:
                 continue
             e = _extract_account_email(p.get("google_account"))
             if e and e.lower() not in seen:
@@ -904,30 +948,64 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     except Exception as _ge:
         print(f"[Scheduler Callback] Group context skipped: {_ge}")
 
+    # GIỮ CẢ DANH SÁCH ứng viên theo đúng 3 bậc cũ (nhóm > allowed_profiles >
+    # hồ sơ local) thay vì random.choice một phát rồi vứt: hành vi sẽ được lọc
+    # theo chip đăng nhập của các ứng viên, hồ sơ được xếp hạng theo hành vi đã
+    # chọn, và khi hồ sơ đầu bận thì lượt thử hồ sơ kế thay vì bỏ cả lượt.
+    candidate_profiles = []
     if group_profiles:
-        profile_name, _group_label = random.choice(group_profiles)
-        print(f"[Scheduler Callback] Selected profile '{profile_name}' from group "
-              f"'{_group_label}' ({len(group_profiles)} profile(s) shared with this agent)")
+        candidate_profiles = [str(name) for name, _lbl in group_profiles if name]
+        print(f"[Scheduler Callback] {len(candidate_profiles)} candidate profile(s) shared via groups")
     elif agent.allowed_profiles:
-        selected = random.choice(agent.allowed_profiles)
-        if isinstance(selected, dict):
-            profile_name = selected.get("name", "default")
-        else:
-            profile_name = str(selected)
-        print(f"[Scheduler Callback] Selected profile '{profile_name}' from allowed_profiles: {agent.allowed_profiles}")
+        candidate_profiles = [
+            (p.get("name", "default") if isinstance(p, dict) else str(p))
+            for p in agent.allowed_profiles]
+        print(f"[Scheduler Callback] {len(candidate_profiles)} candidate profile(s) from allowed_profiles")
     else:
         try:
             from tubecli.extensions.browser.profile_manager import list_profiles
             profiles = list_profiles()
-            if profiles:
-                selected = random.choice([p for p in profiles if (p.get("name") if isinstance(p, dict) else p) != "default"] or ["default"])
-                if isinstance(selected, dict):
-                    profile_name = selected.get("name", "default")
-                else:
-                    profile_name = str(selected)
-                print(f"[Scheduler Callback] No profile assigned, selected random local profile '{profile_name}'")
+            candidate_profiles = [
+                (p.get("name") if isinstance(p, dict) else str(p))
+                for p in profiles
+                if (p.get("name") if isinstance(p, dict) else str(p)) != "default"]
+            print(f"[Scheduler Callback] No profile assigned — {len(candidate_profiles)} local profile(s) as candidates")
         except Exception as e:
             print(f"[Scheduler Callback] Profile check warning: {e}")
+    candidate_profiles = list(dict.fromkeys([p for p in candidate_profiles if p])) or ["default"]
+    # Nền ngẫu nhiên như cũ; sort ỔN ĐỊNH phía dưới chỉ kéo hồ sơ khớp lên trước
+    # nên trong cùng một hạng các hồ sơ vẫn xoay vòng chứ không mòn một cái.
+    random.shuffle(candidate_profiles)
+
+    # Chip đăng nhập từng ứng viên — list_profiles() đọc kho cookie thật
+    # (mode=ro&immutable=1, cache theo mtime) nên gọi đồng bộ ở đây rẻ và không
+    # đụng khoá SQLite dù trình duyệt đang chạy. Credential auto-login
+    # (google_account/...) cũng tính là "có cửa vào": hồ sơ mới chưa có cookie
+    # nhưng autoLoginIfNeeded tự đăng nhập đầu phiên. logins_known=False
+    # (extension cũ chưa có trường logins / import hỏng — kịch bản hot-patch
+    # server.py lệch extension) thì TẮT gating: chạy như cũ, không âm thầm lọc
+    # sạch mọi hành vi email/video.
+    profile_logins = {}
+    profile_emails = {}
+    logins_known = False
+    try:
+        from tubecli.extensions.browser.profile_manager import list_profiles as _list_profiles
+        _cand = set(candidate_profiles)
+        _rows = [r for r in _list_profiles()
+                 if isinstance(r, dict) and r.get("name") in _cand]
+        for _pr in _rows:
+            chips = set(_pr.get("logins") or [])
+            if _pr.get("google_account"):
+                chips |= {"google", "youtube"}
+            for _fk, _fc in (("facebook_account", "facebook"),
+                             ("tiktok_account", "tiktok"), ("x_account", "x")):
+                if _pr.get(_fk):
+                    chips.add(_fc)
+            profile_logins[_pr["name"]] = chips
+            profile_emails[_pr["name"]] = _extract_account_email(_pr.get("google_account"))
+        logins_known = any("logins" in r for r in _rows)
+    except Exception as _le:
+        print(f"[Scheduler Callback] Login detection unavailable — gating disabled: {_le}")
             
     # 2. Determine Time of Day in Agent's Timezone
     tz_str = getattr(agent, "timezone", None)
@@ -970,12 +1048,53 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # Explicit keys (browse_topic/news/watch_video/study/check_email/
     # reply_email/send_report) win; free text still fuzzy-maps; empty period ->
     # old random fallback. One source of truth in select_period_behavior.
-    behavior, period_tasks, chosen_task = select_period_behavior(daily_routine, time_period)
+    # Chip nào cần dịch vụ mà KHÔNG ứng viên nào đăng nhập thì loại khỏi vòng
+    # bốc — không có Google thì đừng bốc email, không có YouTube thì đừng bốc
+    # xem video (trước đây vẫn bốc rồi chạy thành Google search).
+    def _behavior_runnable(b):
+        if not logins_known:
+            return True   # không có dữ liệu login = không phán, chạy như cũ
+        need = BEHAVIOR_LOGIN_NEEDS.get(b, set())
+        return (not need) or any(
+            need <= profile_logins.get(p, set()) for p in candidate_profiles)
+
+    behavior, period_tasks, chosen_task = select_period_behavior(
+        daily_routine, time_period, runnable=_behavior_runnable)
     if chosen_task is not None:
         print(f"[Scheduler Callback] Selected task '{chosen_task}' -> behavior '{behavior}'")
     else:
         print(f"[Scheduler Callback] No active tasks. Using fallback behavior: {behavior}")
-        
+
+    # 3b. Chọn hồ sơ THEO hành vi: hành vi cần dịch vụ nào thì chỉ hồ sơ mang
+    # chip đó được lái; hành vi tự do thì ưu tiên hồ sơ ĐÃ đăng nhập (có chip
+    # nào đó) trước hồ sơ trắng. candidate_profiles đã shuffle nên trong cùng
+    # một hạng các hồ sơ vẫn xoay vòng.
+    login_need = BEHAVIOR_LOGIN_NEEDS.get(behavior, set()) if logins_known else set()
+    if not logins_known:
+        launch_candidates = list(candidate_profiles)
+    else:
+        ranked = sorted(candidate_profiles, key=lambda p: (
+            0 if (login_need and login_need <= profile_logins.get(p, set())) else 1,
+            0 if profile_logins.get(p) else 1))
+        if login_need:
+            eligible = [p for p in ranked if login_need <= profile_logins.get(p, set())]
+            # _behavior_runnable ở trên bảo đảm thường không rỗng; rỗng chỉ khi
+            # behavior đến từ fuzzy/fallback — khi đó đành chạy như cũ.
+            launch_candidates = eligible or ranked
+        elif random.random() < 0.3:
+            # "Ưu tiên đã đăng nhập" là THIÊN VỊ, không phải loại trừ: 30% lượt
+            # hành vi tự do chạy thuần ngẫu nhiên để hồ sơ trắng vẫn có lượt
+            # ấm máy/tích cookie, hoạt động không dồn hết vào một identity.
+            launch_candidates = list(candidate_profiles)
+        else:
+            launch_candidates = ranked
+    profile_name = launch_candidates[0]
+    print(f"[Scheduler Callback] Profile ranking for '{behavior}'"
+          f" (needs {sorted(login_need) if login_need else 'nothing'}): "
+          + ", ".join(
+              f"{p}[{'+'.join(sorted(profile_logins.get(p, set()))) or 'no logins'}]"
+              for p in launch_candidates[:5]))
+
     # 4. Generate Diverse Prompt
     import hashlib
     interests = persona.get("interests") or routine.get("interests") or []
@@ -1036,7 +1155,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             "best {topic} videos",
         ],
         "watchVideos": [
-            "best {topic} youtube",
+            # Gõ trong ô tìm kiếm CỦA YouTube (prompt vào thẳng youtube.com)
+            # nên không cần đuôi "youtube" nữa.
+            "best {topic}",
             "{topic} video review",
             "{topic} documentary",
         ],
@@ -1090,8 +1211,11 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         base_query = available[0] if available else ""
         print(f"[Scheduler Callback] Selected evolved query for period '{time_period}': '{base_query}'")
 
-        # Mark as used and persist
-        if base_query:
+        # Mark as used and persist — CHỈ cho hành vi thật sự SEARCH từ khoá.
+        # morningCheck/email giờ vào thẳng trang đích, không gõ base_query;
+        # đốt keyword ở đó là mất lượt của các hành vi search thật.
+        if base_query and behavior not in ("morningCheck", "checkEmails",
+                                           "replyEmail", "sendReport"):
             period_used.append(base_query)
             if "used" not in used_meta:
                 used_meta["used"] = {}
@@ -1141,27 +1265,43 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     else:
         read_time = random.randint(90, 180)
         
-    # Suffix templates — single-flow, NO going back to search
-    # (Pattern 4 removed: "go back to search" caused double-search behavior)
+    # Suffix templates — single-flow, NO going back to search.
+    # MỖI BƯỚC MỘT ĐỘNG TỪ, nối bằng ", then ": parser open.js tách bước theo
+    # ", then " — câu ghép kiểu "click X, and read for N seconds" từng làm RƠI
+    # nửa sau của bước (chỉ click, phần đọc bị vứt), vì vậy toàn search-rồi-đứng.
     suffix_options = [
         # Pattern 1: Click result → read page
-        f", then click the most relevant result, and read/scroll through the page for {read_time} seconds. Do NOT search again.",
+        f", then click the most relevant result, then browse for {read_time} seconds. Do NOT search again.",
 
         # Pattern 2: Click result → read → click an internal link on the same site
-        f", then click a result, read it for {read_time // 2} seconds, then click an internal link within the SAME site and read for another {read_time // 2} seconds. Do NOT return to search.",
+        f", then click a result, then browse for {read_time // 2} seconds, then click an internal link within the SAME site, then browse for another {read_time // 2} seconds. Do NOT return to search.",
 
-        # Pattern 3: Click result → watch/scroll media on the page
-        f", then click a result, scroll through or watch any media on the page for {read_time} seconds. Stay on the page. Do NOT search again.",
+        # Pattern 3: Click result → stay and read/watch media on the page
+        f", then click a result, then browse for {read_time} seconds. Stay on the page. Do NOT search again.",
     ]
 
+    # ĐÍCH ĐẾN TRƯỚC: hành vi có "nhà" riêng thì vào thẳng nhà đó thay vì đi
+    # vòng qua Google — search.js tự dùng ô tìm kiếm CỦA site khi đã ở trong
+    # site (YouTube search chứ không phải Google search). Các hành vi này chỉ
+    # được chọn khi hồ sơ có chip đăng nhập tương ứng (BEHAVIOR_LOGIN_NEEDS).
     if behavior in ["watchVideos", "entertainment"]:
-        prompt_suffix = f", then click a video result, and watch it for {random.randint(120, min(read_time, 300))} seconds. Do NOT search again."
+        watch_secs = random.randint(120, max(120, min(read_time, 300)))
+        prompt = (f"Navigate to youtube.com, then search for '{base_query}', "
+                  f"then click a video result, then watch for {watch_secs} seconds. "
+                  f"Do NOT search again.")
     elif behavior == "checkEmails":
-        prompt_suffix = f", then open the first email option, and browse/check emails for {random.randint(60, 120)} seconds. Do NOT search again."
+        prompt = (f"Navigate to mail.google.com, then read gmail unread, "
+                  f"then browse for {random.randint(60, 120)} seconds. Do NOT search.")
+    elif behavior == "morningCheck":
+        _lang = (str(getattr(agent, "language", "") or "").split("-")[0].lower())
+        _sites = NEWS_SITES.get(_lang) or NEWS_SITES["en"]
+        news_site = rng.choice(_sites)
+        prompt = (f"Navigate to {news_site}, then click a result, "
+                  f"then browse for {read_time} seconds, "
+                  f"then click an internal link within the SAME site, "
+                  f"then browse for {read_time // 2} seconds. Do NOT search.")
     else:
-        prompt_suffix = random.choice(suffix_options)
-        
-    prompt = f"Search for '{base_query}'" + prompt_suffix
+        prompt = f"Search for '{base_query}'" + random.choice(suffix_options)
     print(f"[Scheduler Callback] Generated prompt: \"{prompt}\"")
 
     # --- REAL email actions: reply_email / send_report ---
@@ -1179,7 +1319,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         allow_random = bool((isinstance(routine, dict) and routine.get("allowRandomRecipient"))
                             or (isinstance(persona, dict) and persona.get("allowRandomRecipient")))
         if behavior == "sendReport" and not recipients and allow_random:
-            pool = _system_report_emails(exclude_profile=profile_name)
+            # Loại email của MỌI ứng viên có thể spawn — hồ sơ #1 bận thì lượt
+            # chạy trên #2/#3, mà người nhận đã nướng cứng vào prompt từ đây.
+            pool = _system_report_emails(exclude_profile=launch_candidates[:3])
             if pool:
                 recipients = [random.choice(pool)]
                 print(f"[Scheduler Callback] send_report: khong dien nguoi nhan, "
@@ -1269,48 +1411,137 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         try:
             from tubecli.extensions.browser.process_manager import browser_process_manager
 
-            # --- Kill any stale running sessions for this profile ---
-            running = browser_process_manager.list_running()
-            for inst in running:
-                if inst.get("profile") == profile_name:
-                    print(
-                        f"[Scheduler Callback] Killing stale session {inst['instance_id']} "
-                        f"for profile '{profile_name}' before spawning new one."
-                    )
-                    browser_process_manager.terminate(inst["instance_id"])
-
             # Resolved once for the whole launch so the browser and the run log
             # agree: the log used to record the agent's raw (usually empty) field
             # while the browser was handed "qwen:latest".
             from tubecli.config import resolve_browser_ai
             browser_ai = resolve_browser_ai(agent)
 
-            # Hỏi TRƯỚC khi spawn: hồ sơ này có cửa nào mở được không. spawn()
-            # báo "running" ngay khi tiến trình node lên, nên một lượt chết sau
-            # một giây vẫn vào sổ như một lần mở thành công — 23/23 lượt hôm nay
-            # là vậy. Cùng một câu từ chối mà /launch và live view đang dùng, chỉ
-            # đọc đĩa nên không làm chậm vòng lịch.
-            refusal = None
-            try:
-                from tubecli.extensions.browser.routes import launch_refusal
-                refusal = launch_refusal(profile_name)
-            except Exception as _pe:
-                print(f"[Scheduler Callback] Preflight skipped: {_pe}")
-            if refusal:
-                reason = f"{refusal['code']}: {refusal['message']}"
-                print(f"[Scheduler Callback] Refusing to spawn '{profile_name}' — {reason}")
+            # Thử LẦN LƯỢT các hồ sơ đủ điều kiện (tối đa 3): hồ sơ đầu bị
+            # preflight chặn hay đang bận thì sang hồ sơ kế — trước đây bận là
+            # bỏ cả lượt dù agent còn hồ sơ khác dùng được.
+            result = {}
+            spawn_status = "error"
+            profile_busy = False
+            spawned = False
+            refusal_reason = None
+            instance_id = ""
+            used_profile = launch_candidates[0]
+            _tries = launch_candidates[:3]
+            for _attempt, _prof in enumerate(_tries):
+                # Ứng viên #1 giữ nếp cũ: phiên đang đứng tên hồ sơ này là rác
+                # của lượt trước — dọn rồi chiếm. Ứng viên KẾ TIẾP thì ngược
+                # lại: có phiên đang chạy nghĩa là hồ sơ BẬN THẬT (thường là
+                # lượt hợp lệ của agent khác dùng chung hồ sơ) — coi là bận và
+                # thử tiếp, tuyệt đối không giết.
+                running = browser_process_manager.list_running()
+                _live = [inst for inst in running if inst.get("profile") == _prof]
+                if _attempt == 0:
+                    for inst in _live:
+                        print(
+                            f"[Scheduler Callback] Killing stale session {inst['instance_id']} "
+                            f"for profile '{_prof}' before spawning new one."
+                        )
+                        browser_process_manager.terminate(inst["instance_id"])
+                elif _live:
+                    profile_busy = True
+                    print(f"[Scheduler Callback] Candidate '{_prof}' has a live session — busy, trying next")
+                    continue
+
+                # Hỏi TRƯỚC khi spawn: hồ sơ này có cửa nào mở được không. spawn()
+                # báo "running" ngay khi tiến trình node lên, nên một lượt chết sau
+                # một giây vẫn vào sổ như một lần mở thành công. Cùng một câu từ
+                # chối mà /launch và live view đang dùng, chỉ đọc đĩa nên rẻ.
+                refusal = None
+                try:
+                    from tubecli.extensions.browser.routes import launch_refusal
+                    refusal = launch_refusal(_prof)
+                except Exception as _pe:
+                    print(f"[Scheduler Callback] Preflight skipped: {_pe}")
+                if refusal:
+                    refusal_reason = f"{refusal['code']}: {refusal['message']}"
+                    print(f"[Scheduler Callback] Refusing to spawn '{_prof}' — {refusal_reason}"
+                          + (" — trying next candidate" if _attempt + 1 < len(_tries) else ""))
+                    continue
+
+                used_profile = _prof
+                # Phiên biết hồ sơ mình đang lái đã đăng nhập gì — để AI phiên
+                # không mò vào mạng xã hội mà hồ sơ này chưa có tài khoản.
+                context["profile_logins"] = sorted(profile_logins.get(_prof, set()))
+                print(
+                    f"[Scheduler Callback] Spawning browser profile '{_prof}' "
+                    f"for agent '{agent.name}' (max {max_session_seconds}s) "
+                    f"using AI {browser_ai['model']} (from {browser_ai['source']})..."
+                )
+                result = browser_process_manager.spawn(
+                    profile=_prof,
+                    prompt=prompt,
+                    headless=False,
+                    manual=False,
+                    ai_model=browser_ai["model"],
+                    context=context,
+                    max_duration=max_session_seconds,
+                    session_minutes=session_minutes,
+                    run_id=run_id,
+                    agent_id=agent.id,
+                )
+                spawned = True
+                instance_id = result.get("instance_id", "")
+                spawn_status = result.get("status", "unknown")
+                print(
+                    f"[Scheduler Callback] Spawn result: {spawn_status} "
+                    f"(PID: {result.get('pid')}, instance: {instance_id})"
+                )
+                # Hồ sơ đang bị MỘT phiên khác/live view giữ (browser_manager ném
+                # PROFILE_IN_USE) KHÔNG phải lỗi thực thi — chỉ là "bận". Còn ứng
+                # viên thì thử tiếp, hết mới ghi BỎ QUA (xám) thay vì Failed (đỏ).
+                _busy_txt = (str(result.get("error") or "") + " "
+                             + str(result.get("log_output") or "")).lower()
+                profile_busy = spawn_status == "error" and (
+                    "already open in another process" in _busy_txt
+                    or "profile_in_use" in _busy_txt)
+                if profile_busy and _attempt + 1 < len(_tries):
+                    print(f"[Scheduler Callback] Profile '{_prof}' busy — trying next candidate")
+                    continue
+                break
+
+            if not spawned:
+                if profile_busy:
+                    # Mọi ứng viên khả dụng đều đang có phiên sống — BỎ QUA xám
+                    # đúng như đường busy sau spawn, không phải lỗi.
+                    busy_reason = ("Skipped: all candidate profiles are in use. "
+                                   "Will run at the next scheduled slot.")
+                    _group_log_routine(group_ctxs, agent,
+                                       f"schedule {used_profile} — browser busy (skip)",
+                                       detail=busy_reason, ok=True)
+                    if run_id:
+                        run_log.launch(
+                            run_id, agent.id,
+                            profile=used_profile,
+                            time_period=time_period,
+                            behavior=behavior,
+                            query=base_query,
+                            prompt=prompt,
+                            session_minutes=session_minutes,
+                            max_duration_sec=max_session_seconds,
+                            ai_model=browser_ai["model"],
+                            spawn_status="skipped",
+                            error=busy_reason,
+                        )
+                        run_log.end(run_id, agent.id, "skipped", log_tail=busy_reason)
+                    return
+                # Mọi ứng viên đều bị preflight chặn — giữ nguyên đường 'refused'
+                # cũ: `launch` giữ lý do thật, `end` đóng lượt để khỏi treo
+                # "running" vĩnh viễn (không có tiến trình thì không có monitor).
+                reason = refusal_reason or "no launchable profile"
                 _group_log_routine(
                     group_ctxs, agent,
-                    f"schedule {profile_name} — browser refused ({refusal['code']})",
-                    detail=refusal["message"][:400], ok=False)
+                    f"schedule {used_profile} — browser refused",
+                    detail=reason[:400], ok=False)
                 if run_id:
-                    # Hai dòng, không phải một: `launch` giữ lý do thật để
-                    # tools/check_browsing.py và bảng nhóm đọc được, `end` đóng
-                    # lượt lại — không có tiến trình nào thì cũng không có monitor
-                    # nào đóng hộ, và lượt sẽ treo "running" vĩnh viễn.
                     run_log.launch(
                         run_id, agent.id,
-                        profile=profile_name,
+                        profile=used_profile,
                         time_period=time_period,
                         behavior=behavior,
                         query=base_query,
@@ -1323,38 +1554,6 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     )
                     run_log.end(run_id, agent.id, "refused", log_tail=reason)
                 return
-            print(
-                f"[Scheduler Callback] Spawning browser profile '{profile_name}' "
-                f"for agent '{agent.name}' (max {max_session_seconds}s) "
-                f"using AI {browser_ai['model']} (from {browser_ai['source']})..."
-            )
-            result = browser_process_manager.spawn(
-                profile=profile_name,
-                prompt=prompt,
-                headless=False,
-                manual=False,
-                ai_model=browser_ai["model"],
-                context=context,
-                max_duration=max_session_seconds,
-                session_minutes=session_minutes,
-                run_id=run_id,
-                agent_id=agent.id,
-            )
-            instance_id = result.get("instance_id", "")
-            spawn_status = result.get("status", "unknown")
-            print(
-                f"[Scheduler Callback] Spawn result: {spawn_status} "
-                f"(PID: {result.get('pid')}, instance: {instance_id})"
-            )
-            # Hồ sơ đang bị MỘT phiên khác/live view giữ (browser_manager ném
-            # PROFILE_IN_USE) KHÔNG phải lỗi thực thi — chỉ là "bận, để lượt sau".
-            # Ghi thành BỎ QUA (xám) thay vì Failed (đỏ), để bảng không đỏ lòm khi
-            # người dùng đang XEM đúng hồ sơ đó, hay hai lượt chồng nhẹ lên nhau.
-            _busy_txt = (str(result.get("error") or "") + " "
-                         + str(result.get("log_output") or "")).lower()
-            profile_busy = spawn_status == "error" and (
-                "already open in another process" in _busy_txt
-                or "profile_in_use" in _busy_txt)
             if spawn_status == "error":
                 print(f"[Scheduler Callback] Spawn error detail: {result.get('error')}")
                 # Tiến trình chết trong vòng 1 giây thì spawn() đã kèm log về đây.
@@ -1377,7 +1576,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             # vào run_log — bảng nhóm chỉ cần biết lượt chạy đã khởi động được.
             _group_log_routine(
                 group_ctxs, agent,
-                f"schedule {profile_name} — browser {'busy (skip)' if profile_busy else spawn_status}",
+                f"schedule {used_profile} — browser {'busy (skip)' if profile_busy else spawn_status}",
                 detail=str(result.get("error") or "")[:400],
                 ok=(spawn_status != "error") or profile_busy)
 
@@ -1385,11 +1584,11 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             # thread writes the matching `end` row when the process exits; on a
             # failed spawn there will be no monitor, so this row is the whole story.
             if run_id:
-                busy_reason = ("Skipped: the profile is in use — a live view or another "
-                               "session is open on it. Will run at the next scheduled slot.")
+                busy_reason = (f"Skipped: {len(_tries)} candidate profile(s) in use — a live "
+                               "view or another session is open. Will run at the next scheduled slot.")
                 run_log.launch(
                     run_id, agent.id,
-                    profile=profile_name,
+                    profile=used_profile,
                     time_period=time_period,
                     behavior=behavior,   # checkEmails/replyEmail/sendReport… — bảng đọc để hiện nhãn thay 'gmail'
                     query=base_query,
