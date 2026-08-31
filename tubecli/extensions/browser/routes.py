@@ -77,10 +77,23 @@ class StopRequest(BaseModel):
 
 
 @router.get("/profiles")
-async def api_list_profiles():
+async def api_list_profiles(request: Request):
     from .profile_manager import list_profiles
     from . import shardx_runtime as sx
     profiles = await asyncio.to_thread(list_profiles)
+    # SHAREE (cookie guest) chỉ được thấy hồ sơ TRONG NHÓM được chia sẻ, và mỗi
+    # hồ sơ chỉ còn phần vô hại: tên + chip đăng nhập + có-proxy-hay-không.
+    # Bản cũ trả nguyên danh sách CẢ MÁY kèm google_account/notes/chuỗi proxy —
+    # allowlist chỉ chặn điều khiển, còn metadata thì lộ sạch qua endpoint này.
+    gscope = getattr(request.state, "guest_scope", None)
+    if gscope is not None:
+        allowed = set(str(x) for x in (gscope.get("profiles") or []))
+        profiles = [{
+            "name": p.get("name"),
+            "logins": p.get("logins") or [],
+            "proxy": bool(p.get("proxy")),
+        } for p in profiles
+            if isinstance(p, dict) and p.get("name") in allowed]
     # The page needs to know the host to decide what to show. A BAS key is
     # meaningless where BAS cannot run, and launching a window on the machine only
     # makes sense where there is a display — on a headless server or in a container
@@ -711,7 +724,7 @@ async def api_stop_browser(req: StopRequest):
     }
 
 @router.get("/status")
-async def api_browser_status():
+async def api_browser_status(request: Request):
     from .process_manager import browser_process_manager
     # list_running (KHÔNG list_all): nó refresh trạng thái thoát rồi lọc đúng
     # status=="running", nên hồ sơ đã đóng (instance completed/error còn nằm trong
@@ -747,7 +760,23 @@ async def api_browser_status():
                 
     for session_id in dead_sessions:
         _preview_processes.pop(session_id, None)
-        
+
+    # SHAREE chỉ thấy phiên của hồ sơ TRONG scope, và chỉ phần khung xem-chung
+    # cần (nối cổng preview) — không pid, không log_file, không prompt: hoạt
+    # động của các hồ sơ ngoài nhóm không phải việc của khách.
+    gscope = getattr(request.state, "guest_scope", None)
+    if gscope is not None:
+        allowed = set(str(x) for x in (gscope.get("profiles") or []))
+        instances = [{
+            "instance_id": i.get("instance_id"),
+            "profile": i.get("profile"),
+            "status": i.get("status"),
+            "manual": i.get("manual"),
+            "is_preview": i.get("is_preview"),
+            "port": i.get("port"),
+        } for i in instances
+            if isinstance(i, dict) and str(i.get("profile") or "") in allowed]
+
     return {"instances": instances}
 
 @router.get("/log/{profile}")
