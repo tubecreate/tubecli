@@ -220,6 +220,19 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
             except Exception:
                 return False
 
+    # ── G2: sharee CHAT với agent của nhóm (scope.agent_ids) ────────────────
+    # Gate này chỉ MỞ CỬA vào các route chat; kiểm tra chi tiết nằm TRONG
+    # chat/routes.py — nơi có store trong tay: agent ∈ agent_ids, phiên phải
+    # mang đúng nhãn workspace (cô lập — không mở được phiên của chủ/sharee
+    # khác), group_id + auto_route bị ÉP theo scope.
+    if scope.get("agent_ids"):
+        if p == "/api/v1/chat/sessions" and m in ("GET", "POST"):
+            return True
+        if m in ("GET", "PUT", "DELETE") and _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+$", p):
+            return True
+        if m in ("GET", "POST") and _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+/(messages|clear)$", p):
+            return True
+
     return False
 
 

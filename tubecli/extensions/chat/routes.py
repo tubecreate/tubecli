@@ -92,6 +92,30 @@ class SendMessageRequest(BaseModel):
     group_id: Optional[str] = None
 
 
+# ── Sharee (cookie guest, scope gắn agent_ids/group_id/workspace) ────────
+# "Trên bàn có gì thì người nhận thao tác y chang" — nhưng trong ĐÚNG cái bàn
+# đó: agent phải nằm trong nhóm chia sẻ, chat bị ép vào group của nhóm (agent
+# chỉ thấy entity nhóm này), và phiên guest cô lập theo workspace — sharee
+# không mở được phiên của chủ hay của workspace khác. Chủ (không guest_scope)
+# đi qua nguyên trạng.
+
+def _guest_scope(request: Optional[Request]):
+    return getattr(request.state, "guest_scope", None) if request is not None else None
+
+
+def _guest_check_agent(gs, agent_id: str) -> None:
+    allowed = set(str(x) for x in (gs.get("agent_ids") or []))
+    if str(agent_id or "") not in allowed:
+        raise HTTPException(403, "Agent này không nằm trong nhóm được chia sẻ")
+
+
+def _guest_check_session(gs, session: Dict[str, Any]) -> None:
+    # 404 chứ không 403: không xác nhận cho guest biết một session id lạ có
+    # tồn tại hay không.
+    if str(session.get("guest_ws") or "") != str(gs.get("workspace") or "") or not session.get("guest_ws"):
+        raise HTTPException(404, "Session not found")
+
+
 def _require(session_id: str) -> Dict[str, Any]:
     s = conversation_store.get_session(session_id)
     if not s:
@@ -100,14 +124,25 @@ def _require(session_id: str) -> Dict[str, Any]:
 
 
 @router.get("/sessions")
-async def list_sessions(limit: int = 100):
+async def list_sessions(request: Request, limit: int = 100):
     sessions = conversation_store.list_sessions(limit=limit)
+    gs = _guest_scope(request)
+    if gs is not None:
+        ws = str(gs.get("workspace") or "")
+        sessions = [x for x in sessions if str(x.get("guest_ws") or "") == ws and ws]
     return {"sessions": sessions, "count": len(sessions)}
 
 
 @router.post("/sessions")
-async def create_session(req: CreateSessionRequest):
+async def create_session(req: CreateSessionRequest, request: Request):
     from tubecli.extensions.chat.pipeline import resolve_agent
+
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_agent(gs, req.agent_id)
+        # Nhóm do SCOPE quyết, không phải client: agent chỉ được thấy đúng cái
+        # bàn đã chia sẻ, kể cả khi nó tham gia nhiều nhóm khác của chủ.
+        req.group_id = str(gs.get("group_id") or "")
 
     agent = resolve_agent(req.agent_id)
     group_id = (req.group_id or "").strip()
@@ -124,20 +159,30 @@ async def create_session(req: CreateSessionRequest):
         agent_id=(agent or {}).get("id", ""),
         agent_name=(agent or {}).get("name", ""),
         group_id=group_id,
+        guest_ws=str((gs or {}).get("workspace") or "") if gs is not None else "",
     )
     return {"status": "created", "session": session}
 
 
 @router.get("/sessions/{session_id}")
-async def get_session(session_id: str, limit: int = 200):
+async def get_session(session_id: str, request: Request, limit: int = 200):
     session = _require(session_id)
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_session(gs, session)
     return {"session": session, "messages": conversation_store.get_messages(session_id, limit)}
 
 
 @router.put("/sessions/{session_id}")
-async def update_session(session_id: str, req: UpdateSessionRequest):
-    _require(session_id)
+async def update_session(session_id: str, req: UpdateSessionRequest, request: Request):
+    session = _require(session_id)
+    gs = _guest_scope(request)
     updates = req.dict(exclude_none=True)
+    if gs is not None:
+        _guest_check_session(gs, session)
+        # Guest đổi được tiêu đề/ghim của phiên mình; KHÔNG đổi agent/nhóm —
+        # hai thứ đó là ranh giới scope.
+        updates = {k: v for k, v in updates.items() if k in ("title", "pinned")}
     if "agent_id" in updates:
         from tubecli.extensions.chat.pipeline import resolve_agent
 
@@ -147,20 +192,29 @@ async def update_session(session_id: str, req: UpdateSessionRequest):
 
 
 @router.delete("/sessions/{session_id}")
-async def delete_session(session_id: str):
-    _require(session_id)
+async def delete_session(session_id: str, request: Request):
+    session = _require(session_id)
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_session(gs, session)
     return {"status": "deleted", "ok": conversation_store.delete_session(session_id)}
 
 
 @router.post("/sessions/{session_id}/clear")
-async def clear_session(session_id: str):
-    _require(session_id)
+async def clear_session(session_id: str, request: Request):
+    session = _require(session_id)
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_session(gs, session)
     return {"status": "cleared", "ok": conversation_store.clear_messages(session_id)}
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_messages(session_id: str, limit: int = 200):
-    _require(session_id)
+async def get_messages(session_id: str, request: Request, limit: int = 200):
+    session = _require(session_id)
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_session(gs, session)
     return {"messages": conversation_store.get_messages(session_id, limit)}
 
 
@@ -170,6 +224,15 @@ async def send_message(session_id: str, req: SendMessageRequest, request: Reques
     from tubecli.extensions.chat.pipeline import resolve_agent, run_turn
 
     session = _require(session_id)
+    gs = _guest_scope(request)
+    if gs is not None:
+        _guest_check_session(gs, session)
+        _guest_check_agent(gs, req.agent_id or session.get("agent_id", ""))
+        # Chat của sharee luôn chạy trong group của workspace — bỏ qua group_id
+        # client gửi, và tắt auto-route (không cho nhảy sang agent ngoài scope).
+        req.group_id = str(gs.get("group_id") or "")
+        req.auto_route = False
+
     text = (req.message or "").strip()
     if not text:
         raise HTTPException(400, "message is required")

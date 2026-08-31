@@ -95,6 +95,7 @@ class ConversationStore:
     def create_session(
         self, title: str = "", agent_id: str = "", agent_name: str = "",
         model: str = "", provider: str = "", group_id: str = "",
+        guest_ws: str = "",
     ) -> Dict[str, Any]:
         self._ensure_loaded()
         session = {
@@ -111,6 +112,12 @@ class ConversationStore:
             # = none. The message body may carry a newer one (the node can be
             # dragged into another group), which the route then stores here.
             "group_id": group_id or "",
+            # Phiên do SHAREE mở qua workspace chia sẻ: mang mã workspace để
+            # route cô lập — guest chỉ thấy/đụng phiên của đúng workspace mình,
+            # không bao giờ mở được phiên của chủ hay của sharee khác. "" = phiên
+            # của chủ như xưa. KHÔNG nằm trong `editable` của update_session —
+            # nhãn này không ai đổi được qua API.
+            "guest_ws": guest_ws or "",
             "created_at": _now(),
             "updated_at": _now(),
             "message_count": 0,
