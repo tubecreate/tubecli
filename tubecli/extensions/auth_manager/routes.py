@@ -300,8 +300,11 @@ async def api_gsheets_inspect(cred_id: str = "", url: str = ""):
 @router.get("/gsheets/{sheet_id}/values")
 async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
                              range_: str = Query("", alias="range"),
-                             max_rows: int = 200, tail: int = 0):
-    """Rows of a tab (first `max_rows`, or the last `tail` rows when tail > 0)."""
+                             max_rows: int = 200, tail: int = 0,
+                             render: str = "FORMATTED_VALUE"):
+    """Rows of a tab (first `max_rows`, or the last `tail` rows when tail > 0).
+
+    render=FORMULA cho bản thô để SỬA ô — xem docstring gsheets.read."""
     from . import gsheets
     _check_sheet_id(sheet_id)
     if not cred_id:
@@ -309,7 +312,7 @@ async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
     max_rows = max(1, min(int(max_rows or 200), 1000))
     tail = max(0, min(int(tail or 0), 1000))
     try:
-        return await asyncio.to_thread(gsheets.read, cred_id, sheet_id, tab, range_ or None, max_rows, tail)
+        return await asyncio.to_thread(gsheets.read, cred_id, sheet_id, tab, range_ or None, max_rows, tail, render)
     except gsheets.GSheetsError as e:
         raise HTTPException(_gsheets_http_status(e), e.message)
 

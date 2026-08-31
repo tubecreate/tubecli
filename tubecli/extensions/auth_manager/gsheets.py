@@ -242,13 +242,20 @@ def _resolve_tab(cred_id: str, sheet_id: str, tab: str, rng: Optional[str]):
 # ── Values ───────────────────────────────────────────────────────
 
 def read(cred_id: str, sheet_id: str, tab: str = "", rng: Optional[str] = None,
-         max_rows: int = 200, tail: int = 0) -> dict:
+         max_rows: int = 200, tail: int = 0, render: str = "FORMATTED_VALUE") -> dict:
     """{tab, range, values, total_rows, truncated}. `tail=N` keeps the last N
-    rows of the range instead of the first `max_rows`; 0 for either means "all"."""
+    rows of the range instead of the first `max_rows`; 0 for either means "all".
+
+    render="FORMULA" trả về CÔNG THỨC thô ("=SUM(A1:A9)") thay vì kết quả đã
+    tính. Trình sửa ô phải đọc bằng bản này: hiện kết quả rồi ghi đè lại chính
+    kết quả đó là xoá mất công thức của người dùng."""
+    render = str(render or "").upper()
+    if render not in ("FORMATTED_VALUE", "FORMULA", "UNFORMATTED_VALUE"):
+        render = "FORMATTED_VALUE"
     tab, cells = _resolve_tab(cred_id, sheet_id, tab, rng)
     a1 = a1_range(tab, cells)
     data = _request(cred_id, "GET", _values_path(sheet_id, a1),
-                    params={"majorDimension": "ROWS", "valueRenderOption": "FORMATTED_VALUE"})
+                    params={"majorDimension": "ROWS", "valueRenderOption": render})
     values = data.get("values") or []
     total = len(values)
     tail = int(tail or 0)
