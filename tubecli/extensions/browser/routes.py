@@ -304,6 +304,25 @@ def _is_launching(profile_name: str) -> bool:
     return True
 
 
+def preview_holds_profile(profile_name: str) -> bool:
+    """Hồ sơ này có đang bị MỘT PHIÊN PREVIEW (live view trên canvas) giữ không?
+
+    Vòng lịch cần câu hỏi hẹp này — tách khỏi is_profile_running — vì cách xử
+    hai kẻ giữ khác nhau: phiên process-manager của chính agent (lượt trước
+    chạy quá giờ) thì dọn rồi chiếm; còn live view của NGƯỜI DÙNG thì tuyệt đối
+    không giết — coi là bận và thử hồ sơ kế. Trước đây vòng lịch không nhìn
+    thấy _preview_processes nên spawn thẳng vào khoá Chromium: lỗi
+    "already open in another process (pid …)" nổ ở giây ~10, trượt cửa sổ dò
+    1 giây, và lượt vào sổ Failed đỏ thay vì Bỏ qua xám."""
+    for _sid, info in list(_preview_processes.items()):
+        proc = info.get("proc")
+        if proc is not None and proc.poll() is not None:
+            continue   # phiên chết — để chỗ khác dọn, đây chỉ đọc
+        if info.get("profile") == profile_name:
+            return True
+    return False
+
+
 def is_profile_running(profile_name: str) -> bool:
     from .process_manager import browser_process_manager
     # Check normal running profiles. A recorded status of "running" is not

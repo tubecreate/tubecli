@@ -1448,6 +1448,21 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             used_profile = launch_candidates[0]
             _tries = launch_candidates[:3]
             for _attempt, _prof in enumerate(_tries):
+                # LIVE VIEW đang giữ hồ sơ? — hỏi TRƯỚC khi làm bất cứ gì. Kẻ
+                # giữ này không nằm trong list_running() (nó là phiên preview
+                # của canvas) nên vòng cũ không thấy, spawn thẳng vào khoá
+                # Chromium và ăn "already open in another process (pid …)" ở
+                # giây ~10 → lượt vào sổ Failed đỏ. Không bao giờ giết live
+                # view của người dùng: coi là bận, thử ứng viên kế.
+                try:
+                    from tubecli.extensions.browser.routes import preview_holds_profile
+                    if preview_holds_profile(_prof):
+                        profile_busy = True
+                        print(f"[Scheduler Callback] '{_prof}' is held by a live view — busy, trying next candidate")
+                        continue
+                except Exception as _pv:
+                    print(f"[Scheduler Callback] Preview-busy preflight skipped: {_pv}")
+
                 # Ứng viên #1 giữ nếp cũ: phiên đang đứng tên hồ sơ này là rác
                 # của lượt trước — dọn rồi chiếm. Ứng viên KẾ TIẾP thì ngược
                 # lại: có phiên đang chạy nghĩa là hồ sơ BẬN THẬT (thường là
