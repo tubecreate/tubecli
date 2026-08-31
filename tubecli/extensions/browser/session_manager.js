@@ -881,7 +881,11 @@ async loadBlacklist() {
         stream: false,
         temperature: 0.7,
         format: "json"
-      }, { timeout: 60000 });
+        // 25s chứ không phải 60s: model local nghẽn thì MỘT cú planning treo đã
+        // nuốt nửa phiên (log thật: "AI Request Error: timeout of 60000ms" rồi
+        // cả lượt chết vì watchdog). Quá 25s coi như nghẽn — rơi xuống heuristic
+        // _getContentBasedAction vẫn browse tiếp được.
+      }, { timeout: 25000 });
 
       let content = response.data?.choices?.[0]?.message?.content;
       if (!content) return null;

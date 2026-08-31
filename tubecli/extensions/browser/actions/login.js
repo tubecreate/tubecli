@@ -94,7 +94,9 @@ async function fetchTotpCode(twoFactorCodes) {
 async function handleCaptcha(page, isRetry) {
   if (await detectCaptcha(page)) {
     if (isRetry) {
-      await waitForCaptcha(page);
+      // 60s thay cho mặc định 10 phút — phiên lịch headless không có ai giải
+      // tay, chờ lâu chỉ đốt trọn ngân sách watchdog của lượt.
+      await waitForCaptcha(page, 60000);
     } else {
       throw new Error('CAPTCHA_DETECTED');
     }

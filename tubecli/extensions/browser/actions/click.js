@@ -132,6 +132,17 @@ export async function click(page, params = {}) {
     return;
   }
 
+  // ShardX đôi khi để hộp Search CỦA CHÍNH NÓ (div.sx-overlay, aria-modal) đè
+  // lên trang — Playwright bấm gì cũng dính "intercepts pointer events" rồi
+  // retry cho tới chết giờ (log thật 20:23). Escape đóng nó trước khi nhắm bấm.
+  try {
+    if (await page.locator('.sx-overlay').first().isVisible({ timeout: 250 })) {
+      console.log('[CLICK] ShardX search overlay is covering the page — pressing Escape.');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(300);
+    }
+  } catch (e) {}
+
   // Cloudflare / Verification Handling
   if (params.type === 'verify' || params.text?.toLowerCase().includes('check')) {
       console.log('[CLICK] Searching for Verification/Cloudflare buttons...');

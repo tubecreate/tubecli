@@ -1378,8 +1378,14 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # session_minutes = ceil(read_time / 60), capped to 10, floors at 2
     import math
     session_minutes = max(2, min(10, math.ceil(read_time / 60)))
-    # Hard watchdog = session_minutes * 60 + 60s grace
-    max_session_seconds = session_minutes * 60 + 60
+    # NGÂN SÁCH THẬT của một lượt = mở trình duyệt trên VPS (~90s cả vòng
+    # fingerprint/ShardX) + chuỗi mở màn (ăn cỡ read_time — watch/browse theo
+    # đúng số giây ghi trong prompt) + phiên tối thiểu session_minutes + 60s ân
+    # hạn. Watchdog cũ chỉ cấp session_minutes*60+60 — đúng MỘT NỬA nhu cầu —
+    # nên watchVideos/browse dài gần như chắc chắn bị giết giữa chừng và vào sổ
+    # timeout_killed: "chạy cả ngày được 2 lượt thành công". Trần 900s để một
+    # lượt không bao giờ chiếm hồ sơ quá 15 phút.
+    max_session_seconds = min(900, 90 + read_time + session_minutes * 60 + 60)
     print(f"[Scheduler Callback] Session timing: read_time={read_time}s, "
           f"session_minutes={session_minutes}min, max_watchdog={max_session_seconds}s")
 

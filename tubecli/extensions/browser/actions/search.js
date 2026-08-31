@@ -3,7 +3,10 @@ import { waitForCaptcha, detectCaptcha } from './captcha_helper.js';
 async function handleCaptcha(page, isRetry) {
   if (await detectCaptcha(page)) {
     if (isRetry) {
-      await waitForCaptcha(page);
+      // 60s chứ không phải mặc định 10 PHÚT: lượt lịch chạy headless trên VPS
+      // không có ai ngồi giải captcha — chờ 10 phút chỉ để watchdog vào giết
+      // (log thật: hàng chục dòng "Captcha detected" mỗi 3s cho tới hết giờ).
+      await waitForCaptcha(page, 60000);
     } else {
       throw new Error('CAPTCHA_DETECTED');
     }
