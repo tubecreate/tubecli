@@ -1347,6 +1347,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             print(f"[Scheduler Callback] Email behavior '{behavior}' prompt: \"{prompt}\"")
 
     context = {
+        # run_id đi kèm để phiên node ghi NHẬT KÝ DIỄN BIẾN (run_trail) theo
+        # đúng lượt — bảng Hoạt động mở rộng lượt là đọc được từng hành động.
+        "run_id": run_id or "",
         "agent_id": agent.id,
         "agent_name": agent.name,
         "time_period": time_period,
@@ -2548,6 +2551,27 @@ def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
         raise HTTPException(404, f"Agent {agent_id} not found")
 
     entries = run_log.list_for_agent(agent_id, days=days, limit=limit)
+
+    # Đính DIỄN BIẾN phiên (run_trail ghi từ node) vào từng lượt — best effort,
+    # thiếu file là chuyện thường (lượt cũ trước tính năng, lượt chết sớm).
+    try:
+        from tubecli.config import ext_data_path
+        _tr_dir = ext_data_path("browser") / "session_actions"
+        import json as _json
+        for _e in entries:
+            _rid = str(_e.get("run_id") or "")
+            if not _rid:
+                continue
+            _f = _tr_dir / f"{_rid}.json"
+            if _f.exists():
+                try:
+                    _acts = _json.loads(_f.read_text(encoding="utf-8", errors="replace"))
+                    if isinstance(_acts, list):
+                        _e["actions"] = _acts[:120]
+                except Exception:
+                    pass
+    except Exception as _te:
+        print(f"[Runs] trail attach skipped: {_te}")
     # "Đang làm gì lúc này" cho lượt CÒN sống: đọc đuôi log của nó ra hành động +
     # trang hiện tại, để mặt node/bảng thay chữ trơ "Đang chạy" bằng "Đang đọc ·
     # Gmail". Chỉ làm cho lượt live ĐẦU TIÊN (mới nhất) — một lần đọc file/poll,

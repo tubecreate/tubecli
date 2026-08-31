@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { logTrail } from './run_trail.js';
 import { getGpuUsage } from './gpu_monitor.js';
 import fs from 'fs-extra';
 import path from 'path';
@@ -157,6 +158,14 @@ export class SessionManager {
    * Record a completed action to history
    */
   recordAction(action, params = {}, status = 'success', errorMsg = null) {
+    // Nhật ký diễn biến của lượt (bảng Hoạt động mở rộng đọc): chỉ giữ tham số
+    // đọc được — keyword/url/duration — không đổ nguyên object to.
+    try {
+      logTrail({ phase: 'session', action, status,
+        params: { keyword: params.keyword, url: params.url, duration: params.duration, criteria: params.criteria },
+        url: this.currentContext.url,
+        error: errorMsg ? String(errorMsg).slice(0, 160) : undefined });
+    } catch (e) {}
     this.actionHistory.push({
       action,
       params,

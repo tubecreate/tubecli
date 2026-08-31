@@ -28,6 +28,7 @@ import fs from 'fs-extra';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { AIEngine } from './ai_engine.js';
+import { initTrail, logTrail } from './run_trail.js';
 import * as searchAction from './actions/search.js';
 import * as browseAction from './actions/browse.js';
 import * as clickAction from './actions/click.js';
@@ -694,6 +695,11 @@ async function main() {
     try {
         agentContext = await fs.readJson(args['context-file']);
         console.log(`[Session] Agent Context loaded: ${agentContext.agent_name}`);
+        // Nhật ký diễn biến theo run_id — thư mục anh em của browser_profiles
+        // (đường dẫn data duy nhất mà argv cho biết).
+        if (agentContext.run_id && args['profiles-dir']) {
+          initTrail(path.join(path.dirname(String(args['profiles-dir'])), 'session_actions'), agentContext.run_id);
+        }
         
         // --- Normalization: support new JSON structure (personality.interests -> interests) ---
         if (agentContext.personality && agentContext.personality.interests && !agentContext.interests) {
@@ -1579,6 +1585,7 @@ async function main() {
               const result = await actionFn(page, stepParams);
               if (result) {
                 results.push({ action: step.action, result });
+                logTrail({ phase: 'opening', action: step.action, params: step.params, status: 'success', url: (() => { try { return page.url(); } catch (e) { return ''; } })() });
               }
             } catch (actionError) {
               // A step that could not find something OPTIONAL is not a failed
@@ -1590,6 +1597,7 @@ async function main() {
               if (actionError && actionError.softFail) {
                 console.warn(`Skipping optional step '${step.action}': ${actionError.message}`);
                 results.push({ action: step.action, skipped: true, reason: actionError.message });
+                logTrail({ phase: 'opening', action: step.action, params: step.params, status: 'skipped', error: String(actionError.message || '').slice(0, 160) });
                 continue;
               }
 
