@@ -233,6 +233,50 @@ def skip(agent_id: str, agent_name: str, reason: str, detail: str = "",
 
 # ── Reading ──────────────────────────────────────────────────────────
 
+def clear_for_agent(agent_id: str, days: int = RETENTION_DAYS) -> int:
+    """Xoá mọi sự kiện của MỘT agent khỏi sổ (nút «Xoá log» trên modal).
+
+    File ngày là sổ chung của mọi agent nên không được unlink bừa: đọc, giữ
+    dòng của agent khác, ghi tmp rồi replace (nguyên tử) — tất cả dưới _LOCK
+    nên writer đang append xếp hàng sau như mọi lần ghi. Dòng rách giữ nguyên:
+    không đọc được thì không biết của ai mà xoá."""
+    aid = str(agent_id or "")
+    if not aid:
+        return 0
+    removed = 0
+    today = datetime.date.today()
+    with _LOCK:
+        for back in range(max(1, days)):
+            path = _day_file(today - datetime.timedelta(days=back))
+            if not path.exists():
+                continue
+            try:
+                keep, hit = [], 0
+                for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                    ls = line.strip()
+                    if not ls:
+                        continue
+                    try:
+                        if (json.loads(ls).get("agent_id") or "") == aid:
+                            hit += 1
+                            continue
+                    except Exception:
+                        pass
+                    keep.append(ls)
+                if not hit:
+                    continue   # file không dính agent này — đừng ghi lại vô cớ
+                removed += hit
+                if keep:
+                    tmp = path.with_suffix(".tmp")
+                    tmp.write_text("\n".join(keep) + "\n", encoding="utf-8")
+                    tmp.replace(path)
+                else:
+                    path.unlink()
+            except Exception as e:
+                logger.warning("run_log: could not clear %s (%s)", path.name, e)
+    return removed
+
+
 def _read_days(days: int) -> List[Dict[str, Any]]:
     events: List[Dict[str, Any]] = []
     today = datetime.date.today()

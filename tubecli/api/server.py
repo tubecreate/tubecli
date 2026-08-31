@@ -2475,6 +2475,20 @@ async def get_agent_history(agent_id: str):
 # sync endpoint in the threadpool instead of blocking the event loop.
 # It inherits the login gate automatically — /api/v1/agents/* is not in
 # _AUTH_EXEMPT_EXACT or _AUTH_EXEMPT_PREFIX.
+@app.delete("/api/v1/agents/{agent_id}/runs")
+def clear_agent_runs(agent_id: str):
+    """Nút «Xoá log» trên tab Hoạt động: dọn sạch sổ lượt chạy của MỘT agent.
+
+    Chỉ đụng entry mang agent_id này — file ngày là sổ chung của mọi agent."""
+    from tubecli.core.agent import agent_manager
+    from tubecli.core import run_log
+
+    if not agent_manager.get(agent_id):
+        raise HTTPException(404, f"Agent {agent_id} not found")
+    removed = run_log.clear_for_agent(agent_id)
+    return {"success": True, "removed": removed}
+
+
 @app.get("/api/v1/agents/{agent_id}/runs")
 def get_agent_runs(agent_id: str, days: int = 14, limit: int = 100):
     """What this agent's runs actually did — including the ones that never ran."""
