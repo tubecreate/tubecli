@@ -1748,6 +1748,11 @@ async function main() {
             }
           }
         } catch (e) {}
+        // Ghi NGAY trang hiện tại vào lịch sử: chuỗi mở màn (navigate/search/
+        // click/watch) chạy TRƯỚC khi session tồn tại nên cả đoạn đó không ghi
+        // gì — lượt watchVideos đứng ở bước watch dài (hoặc chết giữa chừng)
+        // là lịch sử trắng tinh dù đã xem video thật.
+        try { await session.recordPageVisit(page.url(), await page.title(), page); } catch (e) {}
         
         // Status reporting loop (every 5 seconds) - lightweight, no screenshots
         const statusInterval = setInterval(async () => {
