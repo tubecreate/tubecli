@@ -1747,6 +1747,7 @@ class AgentCreateRequest(BaseModel):
     enable_scraping: Optional[bool] = False
     scraper_text_limit: Optional[int] = 10000
     script_output_format: Optional[str] = "json"
+    routine_in_chat: Optional[bool] = True
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -1803,6 +1804,7 @@ class AgentUpdateRequest(BaseModel):
     enable_scraping: Optional[bool] = None
     scraper_text_limit: Optional[int] = None
     script_output_format: Optional[str] = None
+    routine_in_chat: Optional[bool] = None
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

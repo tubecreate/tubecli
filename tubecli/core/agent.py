@@ -68,6 +68,8 @@ class Agent:
         enable_scraping: bool = False,
         scraper_text_limit: int = 10000,
         script_output_format: str = "json",
+        # Đưa lịch/hành vi + nhật ký lượt chạy vào ngữ cảnh CHAT (mặc định bật)
+        routine_in_chat: bool = True,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -127,6 +129,7 @@ class Agent:
         self.enable_scraping = enable_scraping
         self.scraper_text_limit = scraper_text_limit
         self.script_output_format = script_output_format
+        self.routine_in_chat = True if routine_in_chat is None else bool(routine_in_chat)
 
         # Schedule
         self.schedule_enabled = schedule_enabled
@@ -180,6 +183,7 @@ class Agent:
             "enable_scraping": getattr(self, "enable_scraping", False),
             "scraper_text_limit": getattr(self, "scraper_text_limit", 10000),
             "script_output_format": getattr(self, "script_output_format", "json"),
+            "routine_in_chat": getattr(self, "routine_in_chat", True),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),

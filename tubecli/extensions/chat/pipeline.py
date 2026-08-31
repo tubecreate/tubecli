@@ -159,6 +159,79 @@ async def run_turn(
         )
 
 
+def _routine_activity_block(agent: Dict[str, Any]) -> str:
+    """Khối 'lịch & hoạt động của CHÍNH agent' cho ngữ cảnh chat.
+
+    Người dùng hỏi "hôm nay bạn lập lịch tìm gì / đã chạy gì" mà agent bó tay —
+    vì dailyRoutine, daily_keywords và run_log chưa bao giờ vào chat. Cờ
+    routine_in_chat (mặc định BẬT, tắt trong tab Schedule) chi phối khối này.
+    Trả "" khi tắt hoặc khi chẳng có gì để kể; mọi lỗi đọc đều nuốt — khối phụ
+    trợ không được phép làm hỏng lượt chat.
+    """
+    if agent.get("routine_in_chat") is False:
+        return ""
+    routine = agent.get("routine") or {}
+    persona = agent.get("persona") or {}
+    lines: List[str] = []
+
+    daily = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
+    if isinstance(daily, dict):
+        parts = []
+        for period in ("morning", "afternoon", "evening", "night"):
+            pt = daily.get(period) or {}
+            if isinstance(pt, dict):
+                on = [k for k, v in pt.items() if v]
+            elif isinstance(pt, list):
+                on = [str(x) for x in pt if x]
+            else:
+                on = []
+            if on:
+                parts.append(f"{period}: {', '.join(on)}")
+        if parts:
+            lines.append("Scheduled behaviors by period: " + " | ".join(parts))
+
+    kw = routine.get("daily_keywords") or {}
+    if isinstance(kw, dict):
+        parts = []
+        for period in ("morning", "afternoon", "evening", "night"):
+            ks = kw.get(period) or []
+            if isinstance(ks, list) and ks:
+                parts.append(f"{period}: {', '.join(str(k) for k in ks[:6])}")
+        if parts:
+            lines.append("Today's scheduled search keywords: " + " | ".join(parts))
+    used = (routine.get("used_keywords_today") or {}).get("used") or {}
+    if isinstance(used, dict):
+        u = [f"{p}: {', '.join(str(k) for k in v[:6])}"
+             for p, v in used.items() if isinstance(v, list) and v]
+        if u:
+            lines.append("Keywords already used today: " + " | ".join(u))
+
+    try:
+        from tubecli.core import run_log as _rl
+        runs = _rl.list_for_agent(str(agent.get("id") or ""), days=3, limit=8) or []
+        rl = []
+        for r in runs[:8]:
+            if r.get("type") == "skip":
+                continue
+            la = r.get("launch") or {}
+            rl.append("- {t} [{b}] profile '{p}' query '{q}' -> {o}".format(
+                t=str(r.get("ts") or "?")[:16],
+                b=la.get("behavior") or "?",
+                p=la.get("profile") or "?",
+                q=str(la.get("query") or "")[:60],
+                o=r.get("outcome") or "running/unknown"))
+        if rl:
+            lines.append("Recent scheduled runs (newest first):\n" + "\n".join(rl))
+    except Exception:
+        pass
+
+    if not lines:
+        return ""
+    return ("### AGENT SCHEDULE & ACTIVITY (your own routine data — answer "
+            "questions about what you search, watch or do on schedule "
+            "directly from this):\n" + "\n".join(lines))
+
+
 async def _run_turn(
     message: str,
     agent_dict: Dict[str, Any],
@@ -429,6 +502,16 @@ async def _run_turn(
     if group_block:
         agent_for_call["system_prompt"] = (
             agent_for_call.get("system_prompt", "") + "\n\n" + group_block
+        )
+
+    # ── …and the agent's own schedule/behavior data ──────────────
+    # "Hôm nay bạn lập lịch tìm gì?" từng nhận câu trả lời "mình không có dữ
+    # liệu lịch nào" — dailyRoutine/daily_keywords/run_log chưa bao giờ được
+    # đưa vào chat. Cờ routine_in_chat (tab Schedule) tắt được khối này.
+    routine_block = _routine_activity_block(agent_dict)
+    if routine_block:
+        agent_for_call["system_prompt"] = (
+            agent_for_call.get("system_prompt", "") + "\n\n" + routine_block
         )
 
     # Applied LAST, after any specialist swap: routing replaces the whole agent
