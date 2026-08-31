@@ -264,6 +264,24 @@ class GSheetsUpdateRequest(BaseModel):
     values: List[Any] = []
 
 
+class GSheetsFormatRequest(BaseModel):
+    cred_id: str
+    tab: str = ""
+    range: str = ""
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    fontSize: Optional[int] = None
+    align: Optional[str] = None      # left | center | right
+    bg: Optional[str] = None         # "#fff3cd"
+
+
+class GSheetsMergeRequest(BaseModel):
+    cred_id: str
+    tab: str = ""
+    range: str = ""
+    merge: bool = True
+
+
 def _gsheets_http_status(err) -> int:
     # Collapse Google's vocabulary into what the node distinguishes: bad request,
     # no access, not found, or "Google is unhappy" (429 / 5xx / unreachable).
@@ -350,6 +368,53 @@ async def api_gsheets_update(sheet_id: str, req: GSheetsUpdateRequest):
     except gsheets.GSheetsError as e:
         raise HTTPException(_gsheets_http_status(e), e.message)
     return {"updated_range": res["updated_range"], "updated_cells": res["updated_cells"], "tab": res["tab"]}
+
+
+@router.get("/gsheets/{sheet_id}/grid")
+async def api_gsheets_grid(sheet_id: str, cred_id: str = "", tab: str = "",
+                           max_rows: int = 60, max_cols: int = 26):
+    """Chữ + định dạng + ô gộp, đủ để canvas vẽ lại y như trên Google.
+
+    Nặng hơn /values một chút (includeGridData) nên chỉ node ở cỡ lớn mới gọi."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not cred_id:
+        raise HTTPException(400, "cred_id is required")
+    try:
+        return await asyncio.to_thread(gsheets.grid, cred_id, sheet_id, tab, max_rows, max_cols)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+
+
+@router.post("/gsheets/{sheet_id}/format")
+async def api_gsheets_format(sheet_id: str, req: GSheetsFormatRequest):
+    """Đậm/nghiêng/cỡ chữ/canh lề/màu nền cho một vùng ô."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        raise HTTPException(400, "cred_id is required")
+    fmt = {k: v for k, v in (("bold", req.bold), ("italic", req.italic),
+                             ("fontSize", req.fontSize), ("align", req.align),
+                             ("bg", req.bg)) if v is not None}
+    try:
+        return await asyncio.to_thread(gsheets.format_cells, req.cred_id, sheet_id,
+                                       req.tab, req.range, fmt)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+
+
+@router.post("/gsheets/{sheet_id}/merge")
+async def api_gsheets_merge(sheet_id: str, req: GSheetsMergeRequest):
+    """Gộp / bỏ gộp một vùng ô."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        raise HTTPException(400, "cred_id is required")
+    try:
+        return await asyncio.to_thread(gsheets.merge_cells, req.cred_id, sheet_id,
+                                       req.tab, req.range, req.merge)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
 
 
 # ── Callback HTML Template ───────────────────────────────────────

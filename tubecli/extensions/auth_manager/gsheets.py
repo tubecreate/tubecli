@@ -275,6 +275,184 @@ def read(cred_id: str, sheet_id: str, tab: str = "", rng: Optional[str] = None,
     }
 
 
+# ── Định dạng ô: đọc để VẼ ĐÚNG, ghi để sửa ngay trên canvas ─────────────
+# values API chỉ trả chữ. Ô GỘP vì thế hiện sai (chữ nằm ở ô đầu, các ô còn lại
+# trống trơ), còn đậm/cỡ/màu thì mất sạch — nhìn không ra bảng của mình nữa.
+# spreadsheets.get?includeGridData=true trả cả `merges` lẫn effectiveFormat.
+
+_GRID_FIELDS = ("sheets(properties(sheetId,title),merges,"
+                "data(rowData(values(formattedValue,"
+                "effectiveFormat(textFormat(bold,italic,fontSize,fontFamily,foregroundColor),"
+                "backgroundColor,horizontalAlignment)))))")
+
+_COL_A = ord("A")
+
+
+def colname(i: int) -> str:
+    """0 → A, 25 → Z, 26 → AA."""
+    out = ""
+    i = int(i)
+    while True:
+        out = chr(_COL_A + (i % 26)) + out
+        i = i // 26 - 1
+        if i < 0:
+            return out
+
+
+def col_index(letters: str) -> int:
+    """A → 0, Z → 25, AA → 26."""
+    n = 0
+    for ch in (letters or "").upper():
+        if not ch.isalpha():
+            break
+        n = n * 26 + (ord(ch) - _COL_A + 1)
+    return max(0, n - 1)
+
+
+def grid_range(gid: int, cells: str) -> dict:
+    """B2:C5 → GridRange nửa mở của Google (chỉ số end là loại trừ)."""
+    m = re.findall(r"([A-Za-z]*)(\d*)", (cells or "").replace("$", ""))
+    parts = [(a, b) for a, b in m if a or b][:2]
+    if not parts:
+        return {"sheetId": gid}
+    c0, r0 = parts[0]
+    c1, r1 = parts[1] if len(parts) > 1 else parts[0]
+    out = {"sheetId": gid}
+    if r0:
+        out["startRowIndex"] = int(r0) - 1
+        out["endRowIndex"] = int(r1 or r0)
+    if c0:
+        out["startColumnIndex"] = col_index(c0)
+        out["endColumnIndex"] = col_index(c1 or c0) + 1
+    return out
+
+
+def _gid_of(cred_id: str, sheet_id: str, tab: str):
+    found = tabs(cred_id, sheet_id)
+    if not found:
+        raise GSheetsError(404, "spreadsheet has no tabs")
+    if not tab:
+        return found[0]["title"], found[0]["gid"]
+    for t in found:
+        if t["title"].casefold() == tab.casefold():
+            return t["title"], t["gid"]
+    raise GSheetsError(404, "tab not found: " + str(tab))
+
+
+def _rgb(c):
+    if not isinstance(c, dict):
+        return None
+    if not (c.get("red") or c.get("green") or c.get("blue")):
+        return None   # trắng mặc định của Google — để trống cho theme tự lo
+    return "#%02x%02x%02x" % (round((c.get("red") or 0) * 255),
+                              round((c.get("green") or 0) * 255),
+                              round((c.get("blue") or 0) * 255))
+
+
+def grid(cred_id: str, sheet_id: str, tab: str = "", max_rows: int = 60,
+         max_cols: int = 26) -> dict:
+    """Chữ + định dạng + danh sách ô gộp của một vùng, đủ để vẽ lại y như trên
+    Google: {tab, gid, values, formats, merges, total_rows}."""
+    tab, gid = _gid_of(cred_id, sheet_id, tab)
+    max_rows = max(1, min(int(max_rows or 60), 200))
+    last_col = colname(max(0, min(int(max_cols or 26), 26) - 1))
+    a1 = a1_range(tab, "A1:%s%d" % (last_col, max_rows))
+    data = _request(cred_id, "GET", "/" + sheet_id,
+                    params={"includeGridData": "true", "ranges": a1, "fields": _GRID_FIELDS})
+    sheets = data.get("sheets") or []
+    sh = sheets[0] if sheets else {}
+    rowdata = ((sh.get("data") or [{}])[0]).get("rowData") or []
+    values, formats = [], []
+    for row in rowdata:
+        cells = row.get("values") or []
+        values.append([c.get("formattedValue", "") for c in cells])
+        frow = []
+        for c in cells:
+            ef = c.get("effectiveFormat") or {}
+            tf = ef.get("textFormat") or {}
+            f = {}
+            if tf.get("bold"):
+                f["b"] = 1
+            if tf.get("italic"):
+                f["i"] = 1
+            if tf.get("fontSize"):
+                f["fs"] = tf["fontSize"]
+            if tf.get("fontFamily"):
+                f["ff"] = tf["fontFamily"]
+            fg = _rgb(tf.get("foregroundColor"))
+            if fg:
+                f["fg"] = fg
+            bg = _rgb(ef.get("backgroundColor"))
+            if bg:
+                f["bg"] = bg
+            ha = ef.get("horizontalAlignment")
+            if ha and ha != "LEFT":
+                f["ha"] = ha.lower()
+            frow.append(f or None)
+        formats.append(frow)
+    merges = []
+    for m in (sh.get("merges") or []):
+        r0 = m.get("startRowIndex", 0)
+        c0 = m.get("startColumnIndex", 0)
+        merges.append({"r": r0, "c": c0,
+                       "rs": m.get("endRowIndex", r0 + 1) - r0,
+                       "cs": m.get("endColumnIndex", c0 + 1) - c0})
+    return {"tab": tab, "gid": gid, "values": values, "formats": formats,
+            "merges": merges, "total_rows": len(values)}
+
+
+def format_cells(cred_id: str, sheet_id: str, tab: str, rng: str, fmt: dict) -> dict:
+    """Đậm/nghiêng/cỡ chữ/màu nền/canh lề cho một vùng. Fields mask chỉ liệt kê
+    ĐÚNG thuộc tính người dùng vừa đổi — gửi cả cụm sẽ xoá những gì họ đã chỉnh
+    trước đó trên Google."""
+    tab, gid = _gid_of(cred_id, sheet_id, tab)
+    cells = split_range(rng)[1] or rng
+    if not cells:
+        raise GSheetsError(400, "range is required")
+    text, cell, fields = {}, {}, []
+    if "bold" in fmt:
+        text["bold"] = bool(fmt["bold"])
+        fields.append("userEnteredFormat.textFormat.bold")
+    if "italic" in fmt:
+        text["italic"] = bool(fmt["italic"])
+        fields.append("userEnteredFormat.textFormat.italic")
+    if fmt.get("fontSize"):
+        text["fontSize"] = max(6, min(int(fmt["fontSize"]), 96))
+        fields.append("userEnteredFormat.textFormat.fontSize")
+    if fmt.get("align"):
+        cell["horizontalAlignment"] = str(fmt["align"]).upper()
+        fields.append("userEnteredFormat.horizontalAlignment")
+    if "bg" in fmt:
+        hexv = str(fmt["bg"] or "").lstrip("#")
+        if len(hexv) == 6:
+            cell["backgroundColor"] = {"red": int(hexv[0:2], 16) / 255.0,
+                                       "green": int(hexv[2:4], 16) / 255.0,
+                                       "blue": int(hexv[4:6], 16) / 255.0}
+            fields.append("userEnteredFormat.backgroundColor")
+    if not fields:
+        raise GSheetsError(400, "nothing to format")
+    if text:
+        cell["textFormat"] = text
+    _request(cred_id, "POST", "/" + sheet_id + ":batchUpdate", body={"requests": [{
+        "repeatCell": {"range": grid_range(gid, cells),
+                       "cell": {"userEnteredFormat": cell},
+                       "fields": ",".join(fields)}}]})
+    return {"tab": tab, "range": cells, "applied": fields}
+
+
+def merge_cells(cred_id: str, sheet_id: str, tab: str, rng: str, merge: bool = True) -> dict:
+    """Gộp (hoặc bỏ gộp) một vùng ô."""
+    tab, gid = _gid_of(cred_id, sheet_id, tab)
+    cells = split_range(rng)[1] or rng
+    if not cells or ":" not in cells:
+        raise GSheetsError(400, "range must span more than one cell, e.g. A1:C1")
+    gr = grid_range(gid, cells)
+    req = ({"mergeCells": {"range": gr, "mergeType": "MERGE_ALL"}} if merge
+           else {"unmergeCells": {"range": gr}})
+    _request(cred_id, "POST", "/" + sheet_id + ":batchUpdate", body={"requests": [req]})
+    return {"tab": tab, "range": cells, "merged": bool(merge)}
+
+
 def append(cred_id: str, sheet_id: str, tab: str, rows: Any) -> dict:
     """Append rows after the last filled row of the tab. USER_ENTERED so "=SUM()"
     and "2026-08-22" behave as if typed; INSERT_ROWS so nothing below is overwritten."""
