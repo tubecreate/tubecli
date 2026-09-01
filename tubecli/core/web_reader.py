@@ -155,7 +155,7 @@ def read_and_summarize(url: str, task: str, agent_dict: dict,
         "en": "Answer in English.",
         "ja": "日本語で答えてください。",
         "ko": "한국어로 답하세요.",
-    }.get(user_lang, "Trả lời bằng ngôn ngữ của người dùng.")
+    }.get(user_lang, "Answer in the user's own language.")
 
     # Nội dung trang là DỮ LIỆU, không phải mệnh lệnh.
     #
@@ -177,16 +177,16 @@ def read_and_summarize(url: str, task: str, agent_dict: dict,
         logger.warning(f"[WebReader] external-data wrapper unavailable: {e}")
 
     system = (
-        "Bạn là trợ lý đọc web. Dưới đây là nội dung một trang web mà người dùng "
-        "yêu cầu bạn đọc. Hãy thực hiện đúng yêu cầu của họ dựa TRÊN nội dung này "
-        "— không bịa thêm, không nhắc tới việc tìm kiếm Google. Nếu là trang tin, "
-        "liệt kê các tin/mục chính ngắn gọn, rõ ràng. " + lang_line
+        "You are a web-reading assistant. Below is the content of a page the user "
+        "asked you to read. Do exactly what they asked, based ON this content — "
+        "invent nothing, and never mention searching Google. If it is a news page, "
+        "list the main stories or items briefly and clearly. " + lang_line
         + "\n\n" + note
     )
     prompt = (
-        f"Yêu cầu của người dùng: {task}\n\n"
+        f"User request: {task}\n\n"
         f"URL: {page_url}\n\n"
-        f"=== NỘI DUNG TRANG ===\n{body}"
+        f"=== PAGE CONTENT ===\n{body}"
     )
     try:
         from tubecli.core.brain import AgentBrain

@@ -152,61 +152,62 @@ async def ai_generate_script(req: AIGenerateRequest):
         wp_list.append(f"  - {wp.get('id','?')} ({wp.get('label','')}) tại ({wp.get('x',0)}, {wp.get('z',0)})")
     wp_text = "\n".join(wp_list) if wp_list else "  - board (Whiteboard), sofa (Sofa), door (Cửa)"
 
-    system_prompt = f"""Bạn là một AI đạo diễn chuyên viết kịch bản tương tác 3D cho văn phòng ảo. 
-Nhiệm vụ: Phân tích kỹ ý định người dùng, số lượng nhân vật, và các đối tượng (waypoint) trên map để HÌNH THÀNH môt cốt truyện hợp lý TRƯỚC khi xuất ra timeline.
+    system_prompt = f"""You are an AI director writing interactive 3D scenes for a virtual office.
+Your task: study the user's intent, the number of characters and the objects (waypoints) on the map, and FORM a coherent story BEFORE emitting the timeline.
 
-FORMAT JSON BẮT BUỘC (Phải trả về đúng thứ tự này):
+REQUIRED JSON FORMAT (return the keys in this order):
 {{
-  "title": "Tên kịch bản ngắn gọn",
-  "intent_analysis": "TEXT: Phân tích số lượng nhân vật {len(actor_keys)} người, vai trò của họ, và cách tận dụng linh hoạt các đối tượng trên map thay vì đi theo lối mòn.",
+  "title": "Short scene title",
+  "intent_analysis": "TEXT: analysis of the {len(actor_keys)} characters, their roles, and how to make flexible use of the objects on the map instead of falling into the obvious pattern.",
   "plot_outline": [
-    "Cảnh 1: ...",
-    "Cảnh 2: ...",
-    "Cảnh 3: ..."
+    "Scene 1: ...",
+    "Scene 2: ...",
+    "Scene 3: ..."
   ],
-  "waypoints": [{{"id":"wp_id","label":"Tên vị trí","x":số,"z":số}}],
+  "waypoints": [{{"id":"wp_id","label":"Place name","x":number,"z":number}}],
   "timeline": [
-    {{"time": 0, "actor": "actor_key", "action": "walk_to", "target": "wp_id_hoặc_tọa_độ"}},
-    {{"time": 3, "actor": "actor_key", "action": "chat", "dialog": "Nội dung hội thoại", "duration": 3}},
+    {{"time": 0, "actor": "actor_key", "action": "walk_to", "target": "wp_id_or_coordinates"}},
+    {{"time": 3, "actor": "actor_key", "action": "chat", "dialog": "Line of dialogue", "duration": 3}},
     {{"time": 7, "actor": "actor_key", "action": "animate", "anim": "think"}},
     {{"time": 9, "actor": "actor_key", "action": "emote", "emoji": "💡"}},
     {{"time": 12, "actor": "actor_key", "action": "return_desk"}}
   ]
 }}
 
-CÁC ACTION:
-- walk_to: di chuyển đến waypoint (target: string id) hoặc tọa độ (target: {{"x":số,"z":số}})
-- chat: nói chuyện (dialog: nội dung, duration: 2-5 giây)
-- animate: thực hiện hoạt cảnh (anim: read/write_board/shake_hand/cheer/think)
-- emote: biểu cảm (emoji: 1 emoji)
-- sit: ngồi xuống
-- stand: đứng dậy
-- return_desk: quay về bàn làm việc của chính mình
+ACTIONS:
+- walk_to: move to a waypoint (target: string id) or to coordinates (target: {{"x":number,"z":number}})
+- chat: speak (dialog: the line, duration: 2-5 seconds)
+- animate: play an animation (anim: read/write_board/shake_hand/cheer/think)
+- emote: show a reaction (emoji: exactly 1 emoji)
+- sit: sit down
+- stand: stand up
+- return_desk: go back to one's own desk
 
-NHÂN VẬT: {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
+CHARACTERS: {', '.join(f'{k} ({n})' for k, n in zip(actor_keys, actor_names))}
 
-WAYPOINTS TRÊN MAP (bao gồm bàn làm việc của từng nhân vật):
+WAYPOINTS ON THE MAP (including each character's own desk):
 {wp_text}
 
-LƯU Ý VỀ TƯƠNG TÁC VÀ BÀN LÀM VIỆC:
-- Waypoint "desk_<key>" là bàn làm việc riêng (VD: desk_pa = bàn của Personal Assistant).
-- Để hai người nói chuyện, người A phải walk_to bàn của người B, hoặc cả hai walk_to cùng 1 waypoint (VD: sofa, board). KHÔNG nói chuyện xuyên tường xa cách.
+ABOUT INTERACTION AND DESKS:
+- Waypoint "desk_<key>" is a character's own desk (e.g. desk_pa = the Personal Assistant's desk).
+- For two people to talk, A must walk_to B's desk, or both must walk_to the same waypoint (e.g. sofa, board). They must NOT talk across the room or through walls.
 
-QUY TẮC ĐẠO DIỄN:
-1. SÁNG TẠO ĐỊA ĐIỂM: Khai thác TOÀN BỘ map (đặc biệt là đến bàn nhau để làm việc). Đừng lặp lại mô típ "ra bảng nói chuyện rồi về". 
-2. CHAIN OF THOUGHT: Bắt buộc điền "intent_analysis" và "plot_outline" thật chất lượng. Các hành động trong timeline phải phản ánh DỰA THEO "plot_outline" vừa đề cập.
-3. Tạo ÍT NHẤT 15-30 events, mỗi nhân vật phải năng động di chuyển, đổi vị trí, làm hoạt cảnh hoặc tương tác liên tục.
-4. Hội thoại tự nhiên, có thông tin, KHÁC NHAU mỗi câu. Sử dụng cảm xúc emoji trong emote.
-5. Kết thúc bằng return_desk cho tất cả nhân vật.
+DIRECTING RULES:
+1. USE THE WHOLE SPACE: work the entire map (especially visiting each other's desks). Do not repeat the "walk to the board, talk, walk back" pattern.
+2. CHAIN OF THOUGHT: "intent_analysis" and "plot_outline" are mandatory and must be substantive. The timeline actions must follow the "plot_outline" you just wrote.
+3. Produce AT LEAST 15-30 events; every character must keep moving, changing position, playing animations or interacting.
+4. Dialogue must be natural, informative and DIFFERENT every line. Use emoji reactions in emote.
+5. End with return_desk for every character.
+6. Write "title", "plot_outline" and every "dialog" line in the SAME language as the user's request below.
 
-CHỈ trả về kết quả định dạng JSON thuần hợp lệ, KHÔNG markdown, KHÔNG giải thích."""
+Return ONLY valid raw JSON — NO markdown, NO explanation."""
 
-    user_prompt = f"""Kịch bản: {req.prompt}
+    user_prompt = f"""Scene request: {req.prompt}
 
-Hãy tư duy cặn kẽ (Phân tích Intent -> Lập Outline -> Chuyển thành Timeline). Đảm bảo:
-- Hành động logic, thời lượng tổng khoảng 60-120 giây
-- Kịch bản thú vị, sinh động, tận dụng {len(actor_keys)} nhân vật: {', '.join(actor_keys)}
-- Phải trả về ĐÚNG JSON gốc (bắt buộc)."""
+Think it through properly (analyse the intent -> draft the outline -> turn it into a timeline). Make sure:
+- The actions are logical and the whole thing runs about 60-120 seconds
+- The scene is lively and interesting, and uses all {len(actor_keys)} characters: {', '.join(actor_keys)}
+- You return raw JSON exactly as specified (mandatory)."""
 
     full_prompt = f"{system_prompt}\n\n{user_prompt}"
 

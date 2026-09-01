@@ -3035,22 +3035,22 @@ async def rewrite_scraped_article(agent_id: str, profile: str, url: str):
     }
     lang_name = _LANGUAGE_NAMES.get(agent_language, "Vietnamese")
     
-    system_prompt = f"Bạn là một AI biên tập viên nội dung. Nhiệm vụ của bạn là viết lại một bài viết cào được thành một bài viết mới, chất lượng cao, mạch lạc và hấp dẫn bằng ngôn ngữ {lang_name}."
+    system_prompt = f"You are a content editor. Your job is to rewrite a scraped article into a new, high-quality, coherent and engaging article written in {lang_name}."
     
-    user_prompt = f"""Dưới đây là thông tin bài viết gốc:
-    
-Tiêu đề: {title}
-Nội dung:
+    user_prompt = f"""Here is the source article:
+
+Title: {title}
+Content:
 {content[:5000]}
 
-Yêu cầu:
-1. Hãy viết một bài viết hoàn toàn mới dựa trên nội dung bài viết gốc này.
-2. Bài viết mới phải có tiêu đề hấp dẫn, phần mở đầu lôi cuốn, các phần nội dung rõ ràng (có tiêu đề phụ) và phần kết luận đúc rút thông tin.
-3. Không sao chép nguyên văn, hãy viết lại bằng văn phong của bạn một cách sáng tạo và logic.
-4. Trình bày bài viết bằng định dạng Markdown.
-5. Ngôn ngữ của bài viết: {lang_name}.
+Requirements:
+1. Write a completely new article based on this source.
+2. It must have an engaging title, a strong opening, clearly separated sections with subheadings, and a conclusion that draws the information together.
+3. Do not copy verbatim — rewrite it in your own voice, creatively and logically.
+4. Format the article as Markdown.
+5. Write the article in {lang_name}.
 
-Chỉ trả về nội dung bài viết bằng Markdown (không thêm lời giới thiệu của AI)."""
+Return only the Markdown article — no preamble from you."""
 
     messages = [
         {"role": "system", "content": system_prompt},
@@ -3145,21 +3145,21 @@ async def generate_content_from_today(agent_id: str, req: Optional[GenerateConte
     }
     lang_name = _LANGUAGE_NAMES.get(agent_language, "Vietnamese")
     
-    system_prompt = f"Bạn là một AI biên tập viên nội dung. Nhiệm vụ của bạn là tổng hợp các thông tin và bài viết đã cào được trong ngày để tạo ra một bài viết tổng hợp mới, chất lượng cao, mạch lạc và hấp dẫn bằng ngôn ngữ {lang_name}."
+    system_prompt = f"You are a content editor. Your job is to synthesise the information and articles scraped during the day into a new, high-quality, coherent and engaging round-up article written in {lang_name}."
     
-    user_prompt = f"""Dưới đây là các thông tin thu thập được trong ngày hôm nay:
-    
+    user_prompt = f"""Here is everything collected today:
+
 {context_text}
 
-Yêu cầu:
-1. Hãy viết một bài viết tổng hợp mới dựa trên các thông tin trên.
-2. Bài viết mới phải có tiêu đề hấp dẫn, phần mở đầu lôi cuốn, các phần nội dung rõ ràng (có tiêu đề phụ) và phần kết luận đúc rút thông tin.
-3. Không sao chép nguyên văn, hãy tổng hợp, phân tích, biên tập và liên kết các thông tin lại một cách logic.
-4. Trình bày bài viết bằng định dạng Markdown.
-5. Ngôn ngữ của bài viết: {lang_name}.
-6. Độ dài bài viết: Khoảng {max_length} ký tự.
+Requirements:
+1. Write a new round-up article based on the material above.
+2. It must have an engaging title, a strong opening, clearly separated sections with subheadings, and a conclusion that draws the information together.
+3. Do not copy verbatim — synthesise, analyse, edit and connect the pieces logically.
+4. Format the article as Markdown.
+5. Write the article in {lang_name}.
+6. Length: roughly {max_length} characters.
 
-Chỉ trả về nội dung bài viết bằng Markdown (không thêm lời giới thiệu của AI)."""
+Return only the Markdown article — no preamble from you."""
 
     messages = [
         {"role": "system", "content": system_prompt},

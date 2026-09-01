@@ -2018,24 +2018,24 @@ class TelegramListener:
 
     def _build_extension_capabilities(self) -> str:
         """Build system prompt for extension actions (only for complex intents)."""
-        base_prompt = """### EXTENSION ACTIONS — OUTPUT JSON ĐỂ KÍCH HOẠT HỆ THỐNG:
+        base_prompt = """### EXTENSION ACTIONS — OUTPUT THIS JSON TO TRIGGER THE SYSTEM:
 
-**Tải video TikTok/Douyin:**
+**Download a TikTok/Douyin video:**
 ```json
-{"action": "download_video", "url": "<URL_VIDEO>"}
+{"action": "download_video", "url": "<VIDEO_URL>"}
 ```
 
-**Tạo team AI:**
+**Create an AI team:**
 ```json
-{"action": "create_team", "template": "dev_team", "name": "<Tên team>"}
+{"action": "create_team", "template": "dev_team", "name": "<team name>"}
 ```
 
-**Lập lịch Google Calendar:**
+**Schedule a Google Calendar event:**
 ```json
-{"action": "schedule_event", "summary": "<Tên>", "start": "<ISO datetime>", "end": "<ISO datetime>", "recurrence": "RRULE:FREQ=DAILY"}
+{"action": "schedule_event", "summary": "<name>", "start": "<ISO datetime>", "end": "<ISO datetime>", "recurrence": "RRULE:FREQ=DAILY"}
 ```
 
-**Gọi API nội bộ:**
+**Call an internal API:**
 ```json
 {"action": "run_api", "method": "POST", "endpoint": "/api/v1/...", "body": {...}}
 ```

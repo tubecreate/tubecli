@@ -161,13 +161,17 @@ async def fork_download_and_title(
     async def _generate_title():
         from tubecli.core.brain import AgentBrain
         
-        prompt = f"""Bạn là chuyên gia viết tiêu đề YouTube Shorts viral.
-Yêu cầu người dùng: "{user_text}"
+        # Prompt tiếng Anh, nhưng tiêu đề PHẢI theo ngôn ngữ người dùng vừa
+        # gõ — trước đây điều đó có được là nhờ prompt viết bằng tiếng Việt,
+        # nên khi dịch phải nói thẳng ra kẻo tiêu đề quay sang tiếng Anh hết.
+        prompt = f"""You write viral YouTube Shorts titles.
+User request: "{user_text}"
 
-Nhiệm vụ:
-1. Nếu trong yêu cầu CÓ chỉ định tiêu đề → dùng nội dung đó.
-2. Nếu không, sáng tạo tiêu đề thu hút + Emoji + 3-5 Hashtag.
-3. TRẢ VỀ DUY NHẤT dòng tiêu đề. Không giải thích."""
+Your task:
+1. If the request already names a title, use that.
+2. Otherwise write a catchy title with an emoji and 3-5 hashtags.
+3. Write the title in the SAME language as the user request above.
+4. Return ONLY the title line. No explanation."""
 
         try:
             title = AgentBrain._call_llm(
