@@ -611,6 +611,89 @@ async def read_sheet(path: str = Query(..., description="Đường dẫn .xlsx")
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@_shared.get("/xlsx/grid")
+async def api_xlsx_grid(path: str, sheet: str = "", max_rows: int = 200, max_cols: int = 40):
+    """Lưới xlsx kèm định dạng + ô gộp — để node bảng tính trên canvas dùng
+    CÙNG giao diện với node Google Sheet."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.sheet_grid(path, sheet or None, max_rows, max_cols)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class XlsxCellsRequest(BaseModel):
+    path: str
+    sheet: Optional[str] = ""
+    cells: Dict[str, Any] = {}
+
+
+@_shared.post("/xlsx/cells")
+async def api_xlsx_cells(req: XlsxCellsRequest):
+    """Ghi TỪNG Ô tại chỗ. Khác write-sheet (dựng lại cả workbook, làm mất định
+    dạng/công thức/tab không gửi lên) — đây là đường mà trình sửa ô phải đi."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.update_sheet_cells(req.path, req.sheet or None, req.cells)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class XlsxFormatRequest(BaseModel):
+    path: str
+    sheet: Optional[str] = ""
+    range: str = ""
+    bold: Optional[bool] = None
+    italic: Optional[bool] = None
+    fontSize: Optional[int] = None
+    align: Optional[str] = None
+    bg: Optional[str] = None
+
+
+@_shared.post("/xlsx/format")
+async def api_xlsx_format(req: XlsxFormatRequest):
+    fmt = {k: v for k, v in (("bold", req.bold), ("italic", req.italic),
+                             ("fontSize", req.fontSize), ("align", req.align),
+                             ("bg", req.bg)) if v is not None}
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.format_sheet_cells(req.path, req.sheet or None, req.range, fmt)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class XlsxMergeRequest(BaseModel):
+    path: str
+    sheet: Optional[str] = ""
+    range: str = ""
+    merge: bool = True
+
+
+@_shared.post("/xlsx/merge")
+async def api_xlsx_merge(req: XlsxMergeRequest):
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.merge_sheet_cells(req.path, req.sheet or None, req.range, req.merge)}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @_shared.post("/write-sheet")
 async def write_sheet(req: WriteSheetRequest):
     """Lưu lưới ô trở lại .xlsx (openpyxl). CHỈ CHỦ — guest deny-default mọi thao tác ghi."""

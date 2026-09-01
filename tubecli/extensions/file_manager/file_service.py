@@ -838,6 +838,168 @@ class FileService:
         return {"status": "appended", "path": safe_path, "sheet": title, "rows_added": len(rows),
                 "first_row": first, "last_row": first + len(rows) - 1}
 
+    # ── Lưới ĐẦY ĐỦ cho trình sửa trên canvas ────────────────────────────
+    # Node Sheet của Google trả về values + formulas + formats + merges; muốn
+    # xlsx trên máy chủ dùng CÙNG một giao diện thì nó phải trả đúng bấy nhiêu.
+    # Đọc HAI LẦN: data_only=True cho giá trị đã tính (thứ người dùng nhìn),
+    # data_only=False cho công thức (thứ phải hiện khi mở ô ra sửa) — thiếu vế
+    # sau thì lưu một ô công thức sẽ ghi đè kết quả lên chính công thức đó.
+    def sheet_grid(self, path: str, sheet: Any = None, max_rows: int = 200,
+                   max_cols: int = 40) -> Dict[str, Any]:
+        safe_path, _ext = self._spreadsheet_path(path, exts=(".xlsx", ".xlsm"))
+        max_rows = max(1, min(int(max_rows or 200), self.MAX_SHEET_ROWS))
+        max_cols = max(1, min(int(max_cols or 40), self.MAX_SHEET_COLS))
+        from openpyxl import load_workbook
+
+        def _argb_to_hex(color):
+            """openpyxl trả 'FFRRGGBB' (alpha trước) hoặc theme/indexed — chỉ
+            nhận dạng RGB tường minh, còn lại bỏ qua để khỏi đoán sai màu."""
+            try:
+                if not color or getattr(color, "type", "") != "rgb":
+                    return ""
+                v = str(getattr(color, "rgb", "") or "")
+                if len(v) == 8:
+                    v = v[2:]
+                if len(v) != 6 or v.upper() in ("FFFFFF", "000000") and False:
+                    return ""
+                return "#" + v.lower()
+            except Exception:
+                return ""
+
+        wbv = load_workbook(safe_path, data_only=True)
+        wbf = None
+        try:
+            ws = self._pick_ws(wbv, sheet)
+            names = [w.title for w in wbv.worksheets]
+            values, formats = [], []
+            for i, row in enumerate(ws.iter_rows(max_row=max_rows, max_col=max_cols)):
+                vrow, frow = [], []
+                for c in row:
+                    vrow.append("" if c.value is None else str(c.value))
+                    f = {}
+                    try:
+                        fo = c.font
+                        if fo is not None:
+                            if fo.b:
+                                f["b"] = 1
+                            if fo.i:
+                                f["i"] = 1
+                            if fo.sz and float(fo.sz) != 11.0:
+                                f["fs"] = float(fo.sz)
+                            fg = _argb_to_hex(fo.color)
+                            if fg and fg != "#000000":
+                                f["fg"] = fg
+                        fill = c.fill
+                        if fill is not None and getattr(fill, "patternType", None):
+                            bg = _argb_to_hex(fill.fgColor)
+                            if bg and bg != "#ffffff":
+                                f["bg"] = bg
+                        al = c.alignment
+                        if al is not None and al.horizontal in ("center", "right"):
+                            f["ha"] = al.horizontal
+                    except Exception:
+                        pass
+                    frow.append(f or None)
+                values.append(vrow)
+                formats.append(frow)
+            merges = []
+            try:
+                for rng in ws.merged_cells.ranges:
+                    merges.append({"r": rng.min_row - 1, "c": rng.min_col - 1,
+                                   "rs": rng.max_row - rng.min_row + 1,
+                                   "cs": rng.max_col - rng.min_col + 1})
+            except Exception:
+                pass
+            # Công thức: đọc lại workbook KHÔNG data_only.
+            formulas = None
+            try:
+                wbf = load_workbook(safe_path, data_only=False)
+                wsf = self._pick_ws(wbf, sheet)
+                formulas = []
+                for row in wsf.iter_rows(max_row=max_rows, max_col=max_cols):
+                    formulas.append(["" if c.value is None else str(c.value) for c in row])
+            except Exception:
+                formulas = None
+            return {"path": safe_path, "sheet": ws.title, "sheets": names,
+                    "values": values, "formulas": formulas, "formats": formats,
+                    "merges": merges, "total_rows": ws.max_row or 0}
+        finally:
+            wbv.close()
+            if wbf is not None:
+                try:
+                    wbf.close()
+                except Exception:
+                    pass
+
+    _RANGE_RE = None   # đặt trong hàm để khỏi phụ thuộc thứ tự import
+
+    def _range_bounds(self, rng: str):
+        from openpyxl.utils.cell import range_boundaries
+        cells = str(rng or "").split("!")[-1].strip()
+        if ":" not in cells:
+            cells = cells + ":" + cells
+        return range_boundaries(cells)      # (min_col, min_row, max_col, max_row)
+
+    def format_sheet_cells(self, path: str, sheet: Any = None, rng: str = "",
+                           fmt: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Đậm/nghiêng/cỡ chữ/canh lề/màu nền cho một vùng — sửa TẠI CHỖ, chỉ
+        đụng thuộc tính được yêu cầu (mọi thứ khác của ô giữ nguyên)."""
+        safe_path, ext = self._spreadsheet_path(path, exts=(".xlsx", ".xlsm"))
+        fmt = fmt or {}
+        if not rng:
+            raise ValueError("Cần 'range' (A1 hoặc A1:C3)")
+        from openpyxl import load_workbook
+        from openpyxl.styles import Font, PatternFill, Alignment
+        from copy import copy
+        wb = load_workbook(safe_path, keep_vba=(ext == ".xlsm"))
+        try:
+            ws = self._pick_ws(wb, sheet)
+            c0, r0, c1, r1 = self._range_bounds(rng)
+            for rr in range(r0, r1 + 1):
+                for cc in range(c0, c1 + 1):
+                    cell = ws.cell(row=rr, column=cc)
+                    if any(k in fmt for k in ("bold", "italic", "fontSize")):
+                        f = copy(cell.font) if cell.font else Font()
+                        if "bold" in fmt:
+                            f.b = bool(fmt["bold"])
+                        if "italic" in fmt:
+                            f.i = bool(fmt["italic"])
+                        if fmt.get("fontSize"):
+                            f.sz = max(6, min(int(fmt["fontSize"]), 96))
+                        cell.font = f
+                    if fmt.get("align"):
+                        a = copy(cell.alignment) if cell.alignment else Alignment()
+                        a.horizontal = str(fmt["align"]).lower()
+                        cell.alignment = a
+                    if "bg" in fmt and fmt["bg"]:
+                        hexv = str(fmt["bg"]).lstrip("#")
+                        if len(hexv) == 6:
+                            cell.fill = PatternFill("solid", fgColor="FF" + hexv.upper())
+            wb.save(safe_path)
+            return {"status": "ok", "sheet": ws.title, "range": rng}
+        finally:
+            wb.close()
+
+    def merge_sheet_cells(self, path: str, sheet: Any = None, rng: str = "",
+                          merge: bool = True) -> Dict[str, Any]:
+        """Gộp / bỏ gộp một vùng ô, giữ nguyên phần còn lại của workbook."""
+        safe_path, ext = self._spreadsheet_path(path, exts=(".xlsx", ".xlsm"))
+        cells = str(rng or "").split("!")[-1].strip()
+        if not cells or ":" not in cells:
+            raise ValueError("Gộp ô cần một dải, ví dụ A1:C1")
+        from openpyxl import load_workbook
+        wb = load_workbook(safe_path, keep_vba=(ext == ".xlsm"))
+        try:
+            ws = self._pick_ws(wb, sheet)
+            if merge:
+                ws.merge_cells(cells)
+            else:
+                ws.unmerge_cells(cells)
+            wb.save(safe_path)
+            return {"status": "ok", "sheet": ws.title, "range": cells, "merged": bool(merge)}
+        finally:
+            wb.close()
+
     def update_sheet_cells(self, path: str, sheet: Any = None, cells: Optional[Dict[str, Any]] = None,
                            rows: Any = None, start: str = "A1") -> Dict[str, Any]:
         """Ghi đè từng ô ({"A1": v, "B2": 3}) và/hoặc một khối 'rows' bắt đầu từ ô

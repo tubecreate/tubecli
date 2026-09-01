@@ -227,6 +227,17 @@ class ShareRequest(BaseModel):
     email: Optional[str] = ""
 
 
+class ShareSelfRequest(BaseModel):
+    file_id: str
+    cred_id: Optional[str] = None
+
+
+class UnshareRequest(BaseModel):
+    file_id: str
+    permission_id: str
+    cred_id: Optional[str] = None
+
+
 class TrashRequest(BaseModel):
     file_id: str
     cred_id: Optional[str] = None
@@ -784,6 +795,118 @@ async def drive_share(req: ShareRequest):
         raise
     except Exception as e:
         raise _drive_error(e, "chia sẻ")
+
+
+@router_drive.post("/share-self")
+async def drive_share_self(req: ShareSelfRequest, request: Request):
+    """Cấp quyền Google cho ĐÚNG email người đang đăng nhập bàn làm việc.
+
+    Email lấy từ scope của guest token (cloud đúc bằng tài khoản chủ), KHÔNG
+    lấy từ body: để client tự khai email là mở cửa cho khách cấp quyền vào
+    Drive của chủ cho bất kỳ ai. File cũng phải nằm trong khu vực được chia
+    sẻ — kiểm lại tại đây chứ không tin mỗi lớp gate ở ngoài.
+    """
+    gs = getattr(request.state, "guest_scope", None)
+    if gs is None:
+        # Chủ đã là chủ file, không có gì để tự cấp.
+        raise HTTPException(status_code=400, detail="Route này dành cho người được chia sẻ.")
+    email = str(gs.get("user_email") or "").strip()
+    if not email:
+        raise HTTPException(
+            status_code=403,
+            detail="Phiên chia sẻ này không kèm email đăng nhập nên không cấp quyền Google được.",
+        )
+    access = str(gs.get("access") or "control")
+    if access == "view":
+        raise HTTPException(status_code=403, detail="Quyền chỉ-xem không mở được file trên Google.")
+    role = "writer" if access == "full" else "reader"
+    cid = str(req.cred_id or "")
+    roots = [str(x.get("folder_id")) for x in (gs.get("drive_folders") or [])
+             if isinstance(x, dict) and str(x.get("cred_id") or "") == cid and x.get("folder_id")]
+    if not roots or not is_within(cid, req.file_id, roots):
+        raise HTTPException(status_code=403, detail="File nằm ngoài khu vực được chia sẻ.")
+
+    def work():
+        service, acting_email = _svc(req.cred_id)
+        # Đã có quyền rồi thì đừng cấp lại (Google gửi thêm một email mời nữa).
+        try:
+            for p in (service.permissions().list(
+                    fileId=req.file_id, fields="permissions(id,emailAddress,role)",
+            ).execute().get("permissions") or []):
+                if str(p.get("emailAddress") or "").lower() == email.lower():
+                    meta = service.files().get(fileId=req.file_id, fields="id,name,webViewLink").execute()
+                    return {"status": "ok", "owner_email": acting_email, "shared_with": email,
+                            "role": p.get("role") or role, "already": True,
+                            "file": {"id": meta.get("id"), "name": meta.get("name"),
+                                     "url": meta.get("webViewLink")}}
+        except HTTPException:
+            raise
+        except Exception:
+            pass    # không liệt kê được thì cứ cấp, Google tự khử trùng lặp
+        service.permissions().create(
+            fileId=req.file_id, body={"type": "user", "role": role, "emailAddress": email},
+            sendNotificationEmail=False,
+        ).execute()
+        meta = service.files().get(fileId=req.file_id, fields="id,name,webViewLink").execute()
+        return {"status": "ok", "owner_email": acting_email, "shared_with": email, "role": role,
+                "already": False,
+                "file": {"id": meta.get("id"), "name": meta.get("name"), "url": meta.get("webViewLink")}}
+
+    try:
+        return await run_in_threadpool(work)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _drive_error(e, "cấp quyền theo email đăng nhập")
+
+
+@router_drive.get("/permissions")
+async def drive_permissions(request: Request, file_id: str, cred_id: Optional[str] = None):
+    """Ai đang có quyền trên file này — CHỦ xem, để còn thu hồi.
+
+    Quyền Google sống lâu hơn phiên chia sẻ: bỏ node khỏi bàn hay để token hết
+    hạn KHÔNG gỡ quyền đã cấp. Không có màn hình này thì chủ mất dấu.
+    """
+    if getattr(request.state, "guest_scope", None) is not None:
+        raise HTTPException(status_code=403, detail="Chỉ chủ tài khoản xem được danh sách quyền.")
+
+    def work():
+        service, acting_email = _svc(cred_id)
+        perms = service.permissions().list(
+            fileId=file_id,
+            fields="permissions(id,type,role,emailAddress,displayName,deleted)",
+        ).execute().get("permissions") or []
+        return {"status": "ok", "owner_email": acting_email, "permissions": [
+            {"id": p.get("id"), "type": p.get("type"), "role": p.get("role"),
+             "email": p.get("emailAddress") or "", "name": p.get("displayName") or ""}
+            for p in perms if not p.get("deleted")
+        ]}
+
+    try:
+        return await run_in_threadpool(work)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _drive_error(e, "xem quyền")
+
+
+@router_drive.post("/unshare")
+async def drive_unshare(req: UnshareRequest, request: Request):
+    """Thu hồi một quyền đã cấp. Chủ mới được gọi."""
+    if getattr(request.state, "guest_scope", None) is not None:
+        raise HTTPException(status_code=403, detail="Chỉ chủ tài khoản thu hồi được quyền.")
+
+    def work():
+        service, acting_email = _svc(req.cred_id)
+        service.permissions().delete(fileId=req.file_id, permissionId=req.permission_id).execute()
+        return {"status": "ok", "owner_email": acting_email, "removed": req.permission_id}
+
+    try:
+        return await run_in_threadpool(work)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _drive_error(e, "thu hồi quyền")
 
 
 @router_drive.post("/trash")

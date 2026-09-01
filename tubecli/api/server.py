@@ -189,6 +189,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         "/api/v1/file-manager/read",
         "/api/v1/file-manager/raw",
         "/api/v1/file-manager/read-sheet",
+        "/api/v1/file-manager/xlsx/grid",
     ):
         # getlist (KHÔNG .get): nếu client nhồi ?path=/an-toàn&path=/etc/shadow thì
         # route có thể đọc giá trị route chọn ≠ giá trị ta kiểm — bắt MỌI giá trị hợp lệ.
@@ -202,7 +203,12 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
 
     # Ghi xlsx của nhóm (lưới SheetEditor): chỉ share TOÀN QUYỀN, path phải
     # thuộc folder/file đã chia sẻ — cùng phép realpath/prefix với read.
-    if (folders or files) and access == "full" and m == "POST" and p == "/api/v1/file-manager/write-sheet":
+    if (folders or files) and access == "full" and m == "POST" and p in (
+        "/api/v1/file-manager/write-sheet",
+        "/api/v1/file-manager/xlsx/cells",
+        "/api/v1/file-manager/xlsx/format",
+        "/api/v1/file-manager/xlsx/merge",
+    ):
         try:
             from tubecli.core import auth
             body = await request.json()
@@ -270,6 +276,16 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
                 return _drv.is_within(_cid, str(_q.get("folder_id") or ""), _roots(_cid))
             if m == "GET" and p == "/api/v1/file-manager/drive/fetch":
                 return _drv.is_within(_cid, str(_q.get("file_id") or ""), _roots(_cid))
+            # Xin quyền Google cho CHÍNH email đăng nhập (để mở file bằng
+            # Sheets/Docs thật). Route tự lấy email từ scope, tự kiểm khu vực —
+            # ở đây chỉ cần chắc file thuộc khu vực đã chia sẻ.
+            if m == "POST" and p == "/api/v1/file-manager/drive/share-self":
+                try:
+                    _b = await request.json()
+                except Exception:
+                    return False
+                _bc = str((_b or {}).get("cred_id") or "")
+                return _drv.is_within(_bc, str((_b or {}).get("file_id") or ""), _roots(_bc))
             if m == "POST" and p == "/api/v1/file-manager/drive/upload-content":
                 return _drv.is_within(_cid, str(_q.get("folder_id") or ""), _roots(_cid))
             if m == "POST" and p == "/api/v1/file-manager/drive/mkdir":
