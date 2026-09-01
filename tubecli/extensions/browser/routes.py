@@ -3058,11 +3058,13 @@ async def api_preview_attach_file(req: AttachFileRequest, request: Request):
     gscope = getattr(getattr(request, "state", None), "guest_scope", None)
     if gscope is not None:
         if prof not in set(str(x) for x in (gscope.get("profiles") or [])):
-            raise HTTPException(403, "Profile ngoài phạm vi được chia sẻ")
+            raise HTTPException(403, {"code": "guest_profile_out_of_scope",
+                                      "message": "Profile outside the shared scope."})
         folders = gscope.get("folders") or []
         files = gscope.get("files") or []
         if not (auth.path_in_folders(raw, folders) or auth.path_is_shared_file(raw, files)):
-            raise HTTPException(403, "File ngoài phạm vi được chia sẻ")
+            raise HTTPException(403, {"code": "guest_out_of_scope",
+                                      "message": "File outside the shared scope."})
 
     if not os.path.isfile(safe):
         raise HTTPException(404, "File không tồn tại")
@@ -3105,11 +3107,31 @@ async def api_preview_drive_attach(port: int, req: DriveAttachRequest, request: 
     if gscope is not None:
         prof = _resolve_profile_for_port(port)
         if not prof or prof not in set(str(x) for x in (gscope.get("profiles") or [])):
-            raise HTTPException(403, "Port ngoài phạm vi được chia sẻ")
+            raise HTTPException(403, {"code": "guest_port_out_of_scope",
+                                       "message": "Port outside the shared scope."})
+        # HAI mô hình chia sẻ Drive, chấp nhận cả hai:
+        #  (1) cả TÀI KHOẢN — chủ bật quyền Drive của File Manager cho nhóm;
+        #  (2) một KHU VỰC   — chủ kéo một thư mục Drive ra bàn, người nhận chỉ
+        #      đi lại trong đó (kiểm bằng drive.is_within, leo parents).
+        # Trước đây chỉ có (1); ai được chia sẻ theo (2) thì chọn được file mà
+        # gắn vào ô upload lại bị chặn ngay tại đây.
         fm = gscope.get("file_manager") or {}
-        allowed = set(str(x) for x in (fm.get("drive_cred_ids") or []))
-        if not fm.get("drive") or (req.cred_id is not None and str(req.cred_id) not in allowed):
-            raise HTTPException(403, "Drive account ngoài phạm vi được chia sẻ")
+        cid = "" if req.cred_id is None else str(req.cred_id)
+        by_account = bool(fm.get("drive")) and (
+            req.cred_id is None or cid in set(str(x) for x in (fm.get("drive_cred_ids") or [])))
+        by_area = False
+        if not by_account:
+            roots = [str(x.get("folder_id")) for x in (gscope.get("drive_folders") or [])
+                     if isinstance(x, dict) and str(x.get("cred_id") or "") == cid and x.get("folder_id")]
+            if roots:
+                try:
+                    from tubecli.extensions.file_manager.drive import is_within
+                    by_area = is_within(req.cred_id, str(req.file_id or ""), roots)
+                except Exception:
+                    by_area = False   # không kiểm được thì KHÔNG cho (fail-closed)
+        if not (by_account or by_area):
+            raise HTTPException(403, {"code": "guest_out_of_scope",
+                                       "message": "That file is outside the area shared with you."})
 
     def work():
         svc, _email = _svc(req.cred_id)
