@@ -55,6 +55,7 @@ class Agent:
         history_log: List[Dict] = None,
         # Browser & Network (Tab 6: Browser)
         allowed_profiles: List[str] = None,
+        login_accounts: List[str] = None,
         proxy_config: str = "", 
         proxy_provider: Dict = None,
         # Schedule (Tab 7: Schedule)
@@ -115,6 +116,9 @@ class Agent:
         
         # Browser
         self.allowed_profiles = allowed_profiles or []
+        # Tài khoản Keychain agent dùng để đăng nhập. Mỗi cái sẽ
+        # được đảm bảo có profile (tạo nếu thiếu) trước khi routine chạy.
+        self.login_accounts = login_accounts or []
         self.proxy_config = proxy_config
         self.proxy_provider = proxy_provider or {"mode": "static"}
         
@@ -174,6 +178,7 @@ class Agent:
             "thinking_map": self.thinking_map,
             "history_log": self.history_log,
             "allowed_profiles": getattr(self, "allowed_profiles", []),
+            "login_accounts": getattr(self, "login_accounts", []),
             "proxy_config": getattr(self, "proxy_config", ""),
             "proxy_provider": getattr(self, "proxy_provider", {"mode": "static"}),
             "timezone": getattr(self, "timezone", None),

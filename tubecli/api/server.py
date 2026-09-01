@@ -1098,6 +1098,28 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             print(f"[Scheduler Callback] No profile assigned — {len(candidate_profiles)} local profile(s) as candidates")
         except Exception as e:
             print(f"[Scheduler Callback] Profile check warning: {e}")
+    # Tài khoản Keychain agent được chỉ định để ĐĂNG NHẬP: đảm bảo mỗi cái có
+    # một profile (tự TẠO nếu chưa có nhà) rồi đẩy các profile đó lên đầu danh
+    # sách ứng viên. Đây là chỗ "profile chưa có thì tự tạo" của người dùng —
+    # xảy ra ngay trước khi chọn hồ sơ, không phải để agent LLM tự quyết.
+    login_accounts = getattr(agent, "login_accounts", []) or []
+    if login_accounts:
+        try:
+            from tubecli.extensions.keychain.routes import ensure_profile_for_account
+            forced = []
+            for _aid in login_accounts:
+                try:
+                    _r = ensure_profile_for_account(str(_aid))
+                    if _r.get("profile"):
+                        forced.append(_r["profile"])
+                        if _r.get("created"):
+                            print(f"[Scheduler Callback] Keychain: tạo profile '{_r['profile']}' cho tài khoản {_aid}")
+                except Exception as _e:
+                    print(f"[Scheduler Callback] Keychain ensure_profile {_aid}: {_e}")
+            candidate_profiles = forced + candidate_profiles
+        except Exception as _e:
+            print(f"[Scheduler Callback] Keychain không sẵn sàng: {_e}")
+
     candidate_profiles = list(dict.fromkeys([p for p in candidate_profiles if p])) or ["default"]
     # Nền ngẫu nhiên như cũ; sort ỔN ĐỊNH phía dưới chỉ kéo hồ sơ khớp lên trước
     # nên trong cùng một hạng các hồ sơ vẫn xoay vòng chứ không mòn một cái.
@@ -1900,6 +1922,7 @@ class AgentCreateRequest(BaseModel):
     routine: Optional[Dict] = {}
     thinking_map: Optional[Dict] = {}
     allowed_profiles: Optional[List[str]] = []
+    login_accounts: Optional[List[str]] = []
     proxy_config: Optional[str] = ""
     proxy_provider: Optional[Dict] = {"mode": "static"}
     timezone: Optional[str] = None
@@ -1957,6 +1980,7 @@ class AgentUpdateRequest(BaseModel):
     routine: Optional[Dict] = None
     thinking_map: Optional[Dict] = None
     allowed_profiles: Optional[List[str]] = None
+    login_accounts: Optional[List[str]] = None
     proxy_config: Optional[str] = None
     proxy_provider: Optional[Dict] = None
     timezone: Optional[str] = None
