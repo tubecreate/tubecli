@@ -174,6 +174,33 @@ def _routine_activity_block(agent: Dict[str, Any]) -> str:
     persona = agent.get("persona") or {}
     lines: List[str] = []
 
+    # ── Hẹn giờ kiểu INTERVAL (tab Schedule của modal agent) ─────────────
+    # Có HAI hệ lịch: dailyRoutine/daily_keywords (hành vi trình duyệt theo
+    # buổi) và schedule_* (chạy việc của agent mỗi N phút). Khối này từng chỉ
+    # kể hệ thứ nhất — agent hẹn giờ theo hệ thứ hai bị hỏi "bạn lập lịch gì"
+    # là bó tay ngay trước mặt cái tab Schedule đang bật của chính nó.
+    if agent.get("schedule_enabled"):
+        try:
+            days = agent.get("schedule_active_days") or []
+            parts = ["repeat {}".format(agent.get("schedule_repeat") or "Daily"),
+                     "every {} min".format(int(agent.get("schedule_interval") or 60)),
+                     "window {}-{}".format(agent.get("schedule_start_time") or "08:00",
+                                           agent.get("schedule_end_time") or "22:00")]
+            if days:
+                parts.append("days " + ",".join(str(d) for d in days))
+            parts.append("runs today {}/{}".format(
+                int(agent.get("schedule_runs_today") or 0),
+                int(agent.get("schedule_max_runs") or 0)))
+            if agent.get("schedule_last_run"):
+                parts.append("last run " + str(agent.get("schedule_last_run"))[:16])
+            if agent.get("schedule_next_run"):
+                parts.append("next run " + str(agent.get("schedule_next_run"))[:16])
+            lines.append("Timer schedule: ON — " + "; ".join(parts)
+                         + ". Each tick runs your normal task with your configured "
+                           "skills/keywords.")
+        except Exception:
+            pass
+
     daily = routine.get("dailyRoutine") or persona.get("dailyRoutine") or {}
     if isinstance(daily, dict):
         parts = []
