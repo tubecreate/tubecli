@@ -647,6 +647,25 @@ async def api_xlsx_cells(req: XlsxCellsRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class XlsxAddSheetRequest(BaseModel):
+    path: str
+    title: Optional[str] = ""
+
+
+@_shared.post("/xlsx/sheet")
+async def api_xlsx_add_sheet(req: XlsxAddSheetRequest):
+    """Thêm trang tính mới vào workbook (không đụng các tab đã có)."""
+    svc = _get_service()
+    try:
+        return {"success": True, **svc.add_sheet(req.path, req.title or "")}
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class XlsxFormatRequest(BaseModel):
     path: str
     sheet: Optional[str] = ""

@@ -450,6 +450,39 @@ async def api_gsheets_merge(request: Request, sheet_id: str, req: GSheetsMergeRe
         raise HTTPException(_gsheets_http_status(e), e.message)
 
 
+class GSheetsAddTabRequest(BaseModel):
+    cred_id: Optional[str] = ""
+    title: Optional[str] = ""
+
+
+@router.post("/gsheets/{sheet_id}/add-tab")
+async def api_gsheets_add_tab(request: Request, sheet_id: str, req: GSheetsAddTabRequest):
+    """Thêm trang tính mới. Tên trùng thì Google từ chối, nên tự dò tên trống
+    trước khi gọi — bấm "+" mà phải đi nghĩ tên là hỏng cái nút."""
+    from . import gsheets
+    _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        req.cred_id = _guest_sheet_cred(request, sheet_id)
+    if not req.cred_id:
+        raise HTTPException(400, "cred_id is required")
+
+    def work():
+        have = {str(t.get("title") or "").lower() for t in gsheets.tabs(req.cred_id, sheet_id)}
+        base = (req.title or "").strip() or "Sheet"
+        name, i = base, 1
+        while name.lower() in have:
+            i += 1
+            name = "%s%d" % (base, i)
+        out = gsheets.create_tab(req.cred_id, sheet_id, name)
+        out["tabs"] = [t.get("title") for t in gsheets.tabs(req.cred_id, sheet_id)]
+        return out
+
+    try:
+        return await asyncio.to_thread(work)
+    except gsheets.GSheetsError as e:
+        raise HTTPException(_gsheets_http_status(e), e.message)
+
+
 # ── Callback HTML Template ───────────────────────────────────────
 
 def _callback_html(status: str, message: str, email: str = "", profile: str = "") -> str:

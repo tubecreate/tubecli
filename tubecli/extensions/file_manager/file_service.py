@@ -940,6 +940,31 @@ class FileService:
             cells = cells + ":" + cells
         return range_boundaries(cells)      # (min_col, min_row, max_col, max_row)
 
+    def add_sheet(self, path: str, title: str = "") -> Dict[str, Any]:
+        """Thêm một trang tính vào workbook, giữ nguyên mọi thứ đã có.
+
+        Tên trùng thì tự thêm hậu tố thay vì báo lỗi — người dùng bấm "+" là
+        muốn có thêm một tab, không muốn phải đi nghĩ tên."""
+        safe_path, ext = self._spreadsheet_path(path, exts=(".xlsx", ".xlsm"))
+        from openpyxl import load_workbook
+        wb = load_workbook(safe_path, keep_vba=(ext == ".xlsm"))
+        try:
+            existing = {w.title.lower() for w in wb.worksheets}
+            base = (title or "").strip() or "Sheet"
+            # openpyxl chặn 31 ký tự và các ký tự [ ] : * ? / \
+            base = "".join(ch for ch in base if ch not in "[]:*?/\\")[:31] or "Sheet"
+            name, i = base, 1
+            while name.lower() in existing:
+                i += 1
+                suffix = str(i)
+                name = base[:31 - len(suffix)] + suffix
+            wb.create_sheet(title=name)
+            wb.save(safe_path)
+            return {"status": "ok", "sheet": name,
+                    "sheets": [w.title for w in wb.worksheets]}
+        finally:
+            wb.close()
+
     def format_sheet_cells(self, path: str, sheet: Any = None, rng: str = "",
                            fmt: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Đậm/nghiêng/cỡ chữ/canh lề/màu nền cho một vùng — sửa TẠI CHỖ, chỉ
