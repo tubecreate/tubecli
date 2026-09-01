@@ -2553,14 +2553,20 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
     # FAIL-CLOSED: lỗi → coi như không phải guest. (browser_scripts WS KHÔNG có nhánh
     # này nên guest luôn bị từ chối ở đó — đúng ý G1 chỉ browser.)
     guest_ok = False
+    guest_view_only = False
     try:
         from tubecli.core import auth
         _gscope = auth.guest_scope_for(websocket.cookies.get(auth.GUEST_COOKIE))
         if _gscope:
             _prof = _resolve_profile_for_port(port)
             guest_ok = bool(_prof) and _prof in set(str(x) for x in (_gscope.get("profiles") or []))
+            # Share Chỉ-xem: vẫn stream màn hình, nhưng MỌI input (chuột/phím/
+            # điều hướng/tab) bị chặn ngay tại proxy — whitelist vài loại
+            # telemetry vô hại, loại lạ rơi mặc định (fail-closed).
+            guest_view_only = guest_ok and str(_gscope.get("access") or "control") == "view"
     except Exception:
         guest_ok = False
+        guest_view_only = False
 
     if not guest_ok and not await reject_unless_allowed(websocket):
         return
@@ -2605,8 +2611,17 @@ async def ws_preview_proxy(websocket: WebSocket, port: int):
                     if event.get("type") == "websocket.disconnect":
                         break
                     if event.get("text") is not None:
+                        if guest_view_only:
+                            try:
+                                _mt = (json.loads(event["text"]) or {}).get("type")
+                            except Exception:
+                                _mt = None
+                            if _mt not in ("set_visible", "get_tabs", "get_selection", "ping"):
+                                continue
                         await local_ws.send_str(event["text"])
                     elif event.get("bytes") is not None:
+                        if guest_view_only:
+                            continue   # bytes từ client = upload — Chỉ-xem không gửi gì
                         await local_ws.send_bytes(event["bytes"])
             except (WebSocketDisconnect, Exception):
                 pass

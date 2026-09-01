@@ -130,13 +130,18 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
     p = request.url.path
     m = request.method
     profiles = set(str(x) for x in (scope.get("profiles") or []))
+    # Ba mức quyền của share: view (chỉ nhìn) < control (điều khiển browser,
+    # chat agent — mặc định, đúng hành vi trước giờ) < full (control + ghi/sửa
+    # dữ liệu của nhóm). Nhánh CHỈ-ĐỌC đi qua cho mọi mức; nhánh THAO TÁC đòi
+    # access != "view"; nhánh GHI đòi "full".
+    access = str(scope.get("access") or "control")
 
     if m == "GET" and p in ("/api/v1/browser/status", "/api/v1/browser/profiles"):
         return True
 
-    if m == "POST" and p in ("/api/v1/browser/preview/launch",
-                             "/api/v1/browser/preview/stop",
-                             "/api/v1/browser/stop"):
+    if m == "POST" and access != "view" and p in ("/api/v1/browser/preview/launch",
+                                                  "/api/v1/browser/preview/stop",
+                                                  "/api/v1/browser/stop"):
         try:
             body = await request.json()
         except Exception:
@@ -153,7 +158,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
 
     # Upload file TỪ MÁY SHAREE vào browser trong nhóm (không đọc VPS) — chỉ port∈profiles.
     mo = _re.match(r"^/api/v1/browser/preview/(?:upload|upload-chunk|upload-finalize)/(\d+)$", p)
-    if mo and m == "POST":
+    if mo and m == "POST" and access != "view":
         try:
             from tubecli.extensions.browser.routes import _resolve_profile_for_port
             return (_resolve_profile_for_port(int(mo.group(1))) or "") in profiles
@@ -161,7 +166,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
             return False
 
     # Gắn file VPS (∈ folder/file được chia sẻ) vào browser theo PROFILE — profile∈scope + path∈scope.
-    if m == "POST" and p == "/api/v1/browser/preview/attach-file":
+    if m == "POST" and access != "view" and p == "/api/v1/browser/preview/attach-file":
         try:
             from tubecli.core import auth
             body = await request.json()
@@ -209,7 +214,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
                 return False
             return str(q.get("cred_id") or "") in creds
         mo = _re.match(r"^/api/v1/browser/preview/drive-attach/(\d+)$", p)
-        if mo and m == "POST":
+        if mo and m == "POST" and access != "view":
             try:
                 from tubecli.extensions.browser.routes import _resolve_profile_for_port
                 if (_resolve_profile_for_port(int(mo.group(1))) or "") not in profiles:
@@ -226,12 +231,32 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
     # mang đúng nhãn workspace (cô lập — không mở được phiên của chủ/sharee
     # khác), group_id + auto_route bị ÉP theo scope.
     if scope.get("agent_ids"):
-        if p == "/api/v1/chat/sessions" and m in ("GET", "POST"):
-            return True
-        if m in ("GET", "PUT", "DELETE") and _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+$", p):
-            return True
-        if m in ("GET", "POST") and _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+/(messages|clear)$", p):
-            return True
+        if p == "/api/v1/chat/sessions":
+            return m == "GET" or (m == "POST" and access != "view")
+        if _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+$", p):
+            return m == "GET" or (m in ("PUT", "DELETE") and access != "view")
+        if _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+/messages$", p):
+            return m == "GET" or (m == "POST" and access != "view")
+        if _re.match(r"^/api/v1/chat/sessions/[A-Za-z0-9_-]+/clear$", p):
+            return m == "POST" and access != "view"
+
+    # ── Sheet của nhóm: ĐỌC cho mọi mức; GHI chỉ khi share Toàn quyền VÀ chính
+    # entry sheet trong nhóm cho phép mức đó (append/write/manage — cùng thang
+    # group_context.allows của chủ). Sharee chưa có UI gọi các đường này (thiếu
+    # cred_id — bị lột khỏi data khi chia sẻ); gate dựng sẵn cho lô UI kế.
+    _sheets = {str(x.get("sheet_id")): str(x.get("access") or "append")
+               for x in (scope.get("sheets") or [])
+               if isinstance(x, dict) and x.get("sheet_id")}
+    if _sheets:
+        mo = _re.match(r"^/api/v1/auth-manager/gsheets/([A-Za-z0-9_-]+)/(values|grid)$", p)
+        if mo and m == "GET":
+            return mo.group(1) in _sheets
+        mo = _re.match(r"^/api/v1/auth-manager/gsheets/([A-Za-z0-9_-]+)/(update|append|format|merge)$", p)
+        if mo and m == "POST" and access == "full":
+            from tubecli.core import group_context
+            have = _sheets.get(mo.group(1), "")
+            need = "append" if mo.group(2) == "append" else "write"
+            return bool(have) and group_context.allows(have, need)
 
     return False
 
