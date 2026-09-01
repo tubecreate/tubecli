@@ -413,8 +413,11 @@ async def _require_login(request: Request, call_next):
                 if allowed:
                     request.state.guest_scope = gscope
                     return await call_next(request)
+                # code ổn định để giao diện tự dịch — câu detail chỉ là dự
+                # phòng khi client chưa biết mã này (xem tubecliClient.js).
                 return JSONResponse(status_code=403,
-                                    content={"detail": "Ngoài phạm vi được chia sẻ."},
+                                    content={"detail": "Outside the shared scope.",
+                                             "code": "guest_out_of_scope"},
                                     headers=_cors_error_headers(request))
 
             # A browser asking for a page gets the login screen; anything else
