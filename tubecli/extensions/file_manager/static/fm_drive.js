@@ -670,7 +670,10 @@
             // .fm-drive-item = nút tên trong bảng HOẶC thẻ trong lưới — trước
             // đây chỉ bảng kéo được, lưới thì kéo không ra gì.
             var btn = e.target.closest ? e.target.closest('.fm-drive-item') : null;
-            if (!btn || btn.getAttribute('data-folder') === '1') return;
+            if (!btn) return;
+            // THƯ MỤC cũng kéo được: thả ra canvas thành node "khu vực" mà
+            // người được chia sẻ mở ra làm việc bên trong (duyệt/tải/đưa lên).
+            var isDir = btn.getAttribute('data-folder') === '1';
             var fid = btn.getAttribute('data-id');
             var f = null;
             for (var i = 0; i < S.files.length; i++) { if (String(S.files[i].id) === String(fid)) { f = S.files[i]; break; } }
@@ -679,6 +682,7 @@
                 id: e.pointerId, el: btn, x: e.clientX, y: e.clientY, started: false,
                 ref: {
                     v: 1, source: 'drive', path: '', drive_id: fid, cred_id: S.accountId || null,
+                    is_dir: isDir,
                     name: nm, ext: (nm.indexOf('.') >= 0 ? nm.split('.').pop() : null),
                     size: (f && f.size != null ? Number(f.size) : null),
                     // Canvas cần hai thứ này để nhận ra BẢNG TÍNH Google và dựng

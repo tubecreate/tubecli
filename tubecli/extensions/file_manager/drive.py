@@ -254,6 +254,62 @@ def _is_readonly(scopes: List[str]) -> bool:
     return not can_write
 
 
+# ── "Có nằm trong thư mục được chia sẻ không?" ────────────────────────────
+# Chia sẻ MỘT thư mục Drive qua bàn làm việc: người nhận chỉ được đụng đúng
+# thư mục đó và các thư mục con. Drive không có API "tổ tiên", nên leo ngược
+# theo `parents` từng bậc — có cache vì một lần duyệt hỏi cùng vài id.
+_ANCESTOR_CACHE: Dict[str, List[str]] = {}
+_ANCESTOR_CACHE_MAX = 4000
+
+
+def _parents_of(service, file_id: str) -> List[str]:
+    key = str(file_id)
+    if key in _ANCESTOR_CACHE:
+        return _ANCESTOR_CACHE[key]
+    try:
+        meta = service.files().get(fileId=file_id, fields="parents").execute()
+        parents = list(meta.get("parents") or [])
+    except Exception:
+        parents = []
+    if len(_ANCESTOR_CACHE) > _ANCESTOR_CACHE_MAX:
+        _ANCESTOR_CACHE.clear()
+    _ANCESTOR_CACHE[key] = parents
+    return parents
+
+
+def is_within(cred_id: Optional[str], file_id: str, roots, max_depth: int = 12) -> bool:
+    """file_id có phải chính một root, hay nằm dưới một root nào không?
+
+    FAIL-CLOSED: hỏi Drive không được (token hỏng, mất mạng, quá sâu) thì trả
+    False — thà chặn nhầm còn hơn mở nhầm cho người ngoài.
+    """
+    root_set = set(str(r) for r in (roots or []) if r)
+    fid = str(file_id or "")
+    if not root_set or not fid:
+        return False
+    if fid in root_set:
+        return True
+    try:
+        service, _ = _svc(cred_id)
+    except Exception:
+        return False
+    seen = set()
+    frontier = [fid]
+    for _ in range(max_depth):
+        nxt = []
+        for node in frontier:
+            for par in _parents_of(service, node):
+                if par in root_set:
+                    return True
+                if par not in seen:
+                    seen.add(par)
+                    nxt.append(par)
+        if not nxt:
+            return False
+        frontier = nxt
+    return False
+
+
 @router_drive.get("/accounts")
 async def drive_accounts():
     """Google accounts that authorized a Drive scope, for the account picker."""

@@ -238,6 +238,62 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
             except Exception:
                 return False
 
+    # ── THƯ MỤC DRIVE chia sẻ qua bàn làm việc ──────────────────────────────
+    # Chủ kéo một thư mục Drive ra canvas → nó là "khu vực" của người nhận:
+    # duyệt, tải về máy, tải lên, tạo thư mục con, và gắn file vào browser
+    # (đường đi để đăng YouTube) — TẤT CẢ chỉ trong thư mục đó và các thư mục
+    # con, kiểm bằng drive.is_within (leo `parents`, fail-closed).
+    #
+    # KHÔNG mở /drive/upload và /drive/download: hai route đó đọc/ghi ĐĨA MÁY
+    # CHỦ sau sandbox nghiêm ngặt của AI. Người nhận lấy file bằng /fetch (đi
+    # thẳng về máy họ) và đưa file lên bằng /upload-content (byte từ trình
+    # duyệt) — không route nào chạm tới đường dẫn trên server.
+    dfolders = scope.get("drive_folders") or []
+    if dfolders and access != "view":
+        def _roots(cid):
+            return [str(x.get("folder_id")) for x in dfolders
+                    if isinstance(x, dict) and str(x.get("cred_id") or "") == str(cid or "")
+                    and x.get("folder_id")]
+
+        try:
+            from tubecli.extensions.file_manager import drive as _drv
+        except Exception:
+            _drv = None
+
+        if _drv is not None:
+            _q = request.query_params
+            _cid = str(_q.get("cred_id") or "")
+            if m == "GET" and p == "/api/v1/file-manager/drive/list":
+                # Tìm-toàn-Drive (?q=) bị chặn: nó nhìn ra ngoài khu vực.
+                if _q.get("q"):
+                    return False
+                return _drv.is_within(_cid, str(_q.get("folder_id") or ""), _roots(_cid))
+            if m == "GET" and p == "/api/v1/file-manager/drive/fetch":
+                return _drv.is_within(_cid, str(_q.get("file_id") or ""), _roots(_cid))
+            if m == "POST" and p == "/api/v1/file-manager/drive/upload-content":
+                return _drv.is_within(_cid, str(_q.get("folder_id") or ""), _roots(_cid))
+            if m == "POST" and p == "/api/v1/file-manager/drive/mkdir":
+                try:
+                    _b = await request.json()
+                except Exception:
+                    return False
+                _bc = str((_b or {}).get("cred_id") or "")
+                return _drv.is_within(_bc, str((_b or {}).get("parent_id") or ""), _roots(_bc))
+            # Gắn file Drive vào browser đang chiếu (đường "đăng lên YouTube"):
+            # cổng phải thuộc hồ sơ trong nhóm VÀ file phải nằm trong khu vực.
+            _mo = _re.match(r"^/api/v1/browser/preview/drive-attach/(\d+)$", p)
+            if _mo and m == "POST":
+                try:
+                    from tubecli.extensions.browser.routes import _resolve_profile_for_port
+                    if (_resolve_profile_for_port(int(_mo.group(1))) or "") not in profiles:
+                        return False
+                    _b = await request.json()
+                except Exception:
+                    return False
+                _bc = str((_b or {}).get("cred_id") or "")
+                _fid = str((_b or {}).get("file_id") or (_b or {}).get("drive_id") or "")
+                return bool(_fid) and _drv.is_within(_bc, _fid, _roots(_bc))
+
     # ── G2: sharee CHAT với agent của nhóm (scope.agent_ids) ────────────────
     # Gate này chỉ MỞ CỬA vào các route chat; kiểm tra chi tiết nằm TRONG
     # chat/routes.py — nơi có store trong tay: agent ∈ agent_ids, phiên phải
