@@ -139,6 +139,55 @@ async def assign_to_profile(acc_id: str, req: AssignIn):
     return {"status": "assigned", "profile": req.profile, "field": field}
 
 
+# ── Đảm bảo tài khoản CÓ profile để đăng nhập ───────────────────────────
+# "Một tài khoản = một danh tính = một profile riêng." Đây là chỗ biến điều đó
+# thành thật: tài khoản chưa có profile thì TỰ TẠO một cái (tên theo nhãn), đổ
+# credential vào, và ghi nhớ liên kết. Gọi bao nhiêu lần cũng an toàn — đã có
+# profile còn sống thì trả lại đúng cái đó, không tạo trùng. Đây cũng là action
+# mà agent gọi khi cần "đăng nhập bằng tài khoản X" mà chưa có nhà cho nó.
+def _sanitize_profile_name(raw: str) -> str:
+    safe = "".join(c for c in str(raw or "") if c.isalnum() or c in "_-")
+    return safe[:40] or "acc"
+
+
+def ensure_profile_for_account(acc_id: str) -> Dict[str, Any]:
+    svc = _svc()
+    acc = svc.get(acc_id, reveal=True)      # cần bí mật để đổ vào profile
+    if not acc:
+        raise HTTPException(404, "Không có tài khoản này")
+    field = _PLATFORM_FIELD.get(acc.get("platform"))
+    if not field:
+        raise HTTPException(400, "Nền tảng '%s' không có auto-login nên chưa "
+                                 "cần profile riêng" % acc.get("platform"))
+    from tubecli.extensions.browser.profile_manager import (
+        get_profile, create_profile, update_profile)
+
+    # Đã có profile chính còn tồn tại → dùng lại, không dựng trùng danh tính.
+    cur = acc.get("profile")
+    if cur and get_profile(cur):
+        return {"profile": cur, "created": False}
+
+    base = _sanitize_profile_name(acc.get("label") or acc.get("username")
+                                  or acc.get("platform"))
+    name, i = base, 1
+    while get_profile(name):          # tên trùng → thêm hậu tố
+        i += 1
+        name = ("%s_%d" % (base[:37], i))
+    create_profile(name)
+    update_profile(name, **{field: {
+        "email": acc.get("username") or "", "password": acc.get("secret") or "",
+        "recoveryEmail": acc.get("recovery") or "", "twoFactorCodes": acc.get("totp") or "",
+    }})
+    profiles = list(dict.fromkeys((acc.get("profiles") or []) + [name]))
+    svc.update(acc_id, {"profile": name, "profiles": profiles})
+    return {"profile": name, "created": True}
+
+
+@router.post("/accounts/{acc_id}/ensure-profile")
+async def api_ensure_profile(acc_id: str):
+    return await run_in_threadpool(ensure_profile_for_account, acc_id)
+
+
 # ── Import hàng loạt từ Excel/CSV (tiện ích phụ) ────────────────────────
 # Không phải trọng tâm (két là để quản lý cá nhân), nhưng ai có sẵn file như
 # nuoi_tai_khoan_template thì nạp một phát. Ánh xạ cột → field là XÁC ĐỊNH,

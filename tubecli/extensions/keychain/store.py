@@ -64,7 +64,7 @@ class KeychainStore:
         """Bản AI/giao diện được thấy: có mặt tài khoản, KHÔNG có bí mật."""
         out = {k: item.get(k) for k in
                ("id", "platform", "label", "username", "notes", "status",
-                "profiles", "created_at", "updated_at")}
+                "profile", "profiles", "created_at", "updated_at")}
         # Cờ 'có hay không' thay cho giá trị — đủ để UI vẽ ô đã điền/để trống.
         for f in _SECRET_FIELDS:
             out["has_" + f] = bool(item.get(f))
@@ -114,6 +114,7 @@ class KeychainStore:
             "username": str(data.get("username") or "").strip(),
             "notes": str(data.get("notes") or "").strip(),
             "status": data.get("status") if data.get("status") in STATUSES else "active",
+            "profile": str(data.get("profile") or "").strip(),
             "profiles": [str(p) for p in (data.get("profiles") or []) if p],
             "created_at": _now(), "updated_at": _now(),
         }
@@ -139,6 +140,8 @@ class KeychainStore:
                 item["platform"] = data["platform"]
             if data.get("status") in STATUSES:
                 item["status"] = data["status"]
+            if "profile" in data:
+                item["profile"] = str(data.get("profile") or "").strip()
             if "profiles" in data:
                 item["profiles"] = [str(p) for p in (data.get("profiles") or []) if p]
             self._apply_secrets(item, data)
