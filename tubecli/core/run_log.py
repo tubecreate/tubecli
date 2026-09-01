@@ -216,7 +216,8 @@ def end(run_id: str, agent_id: str, outcome: str, return_code: Optional[int] = N
     # công đã làm gì, chứ không chỉ giải thích lượt hỏng.
     if isinstance(work, dict) and work.get("actions"):
         event["work"] = {k: work[k] for k in
-                         ("actions", "kinds", "elapsed_min", "target_min", "progress_pct")
+                         ("actions", "kinds", "elapsed_min", "target_min",
+                          "progress_pct", "completed_chain", "error")
                          if k in work}
     if (outcome != "completed" or warns) and log_tail:
         event["log_tail"] = _tail(log_tail)

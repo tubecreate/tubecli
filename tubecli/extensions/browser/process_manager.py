@@ -454,6 +454,10 @@ class BrowserProcessManager:
             # đếm được về sau, còn `note` là câu người đọc thấy trên bảng nhóm.
             warnings.append(self._MARK_KILL_UNCONFIRMED)
             note = f"KHÔNG dừng được tiến trình: {kill_report.detail}"
+        # Chấm lại theo việc phiên THỰC SỰ làm, không chỉ theo exit code.
+        outcome, refine_note = self._refine_outcome(outcome, work)
+        if refine_note:
+            note = (note + " · " + refine_note) if note else refine_note
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
                              started_at, log_path, profile, warnings, note, work)
 
@@ -566,7 +570,34 @@ class BrowserProcessManager:
             work["target_min"] = round(target, 1)
             # Chặn 100: chạy quá giờ vẫn là "đi hết phiên", không phải 130%.
             work["progress_pct"] = min(100, int(round(100.0 * elapsed / target)))
+        # Chuỗi hành động CHÍNH đã chạy trọn? open.js in đúng hai dấu này ngay
+        # trước khi xổ kết quả. Có nó nghĩa là việc đã xong — mọi thứ chết sau
+        # đó (watchdog cắt lúc session mode, browser đóng lúc dọn, exit != 0)
+        # là chuyện của phần ĐUÔI, không phủ nhận việc phiên đã làm được.
+        if "__RESULTS_START__" in text or "All actions completed successfully" in text:
+            work["completed_chain"] = True
+        # Phần LỖI, tách riêng: một dòng gọn để bảng/bản tin nói "vấp ở đâu"
+        # mà không cần mở cả log. Ưu tiên lỗi rõ ràng nhất ở gần cuối.
+        err = self._first_error_line(text)
+        if err:
+            work["error"] = err
         return work
+
+    _ERR_RE = re.compile(
+        r"(?:!!!\s*CRITICAL ERROR\s*!!!|Process finished with FAILURE"
+        r"|Propagating error|Unhandled|Error:|TimeoutError|net::ERR_)[^\n]*", re.I)
+
+    def _first_error_line(self, text):
+        """Một dòng lỗi tiêu biểu của phiên (để 'error ghi phần error riêng').
+
+        Quét từ CUỐI lên: lỗi làm phiên dừng nằm ở đuôi, không phải một cảnh
+        báo thoáng qua lúc đầu. Trả None khi phiên không có lỗi nào — một lượt
+        chạy trọn không được gắn dòng lỗi vu vơ."""
+        hits = self._ERR_RE.findall(text or "")
+        if not hits:
+            return None
+        line = " ".join(str(hits[-1]).split())
+        return line[:180]
 
     def _friendly_where(self, url, page_type):
         """Nơi agent đang đứng, thân thiện: 'Gmail'/'YouTube'/'abc.com'. None nếu mù."""
@@ -682,6 +713,26 @@ class BrowserProcessManager:
                 f"log: {log_path}")
         return warnings
 
+    _PROGRESS_MIN_ACTIONS = 2      # dưới mức này coi như "chưa kịp làm gì"
+
+    def _refine_outcome(self, outcome, work):
+        """Trả (outcome đã chỉnh, note thêm). Không bao giờ ném lỗi."""
+        try:
+            if not isinstance(work, dict):
+                return outcome, ""
+            done = work.get("actions") or 0
+            if work.get("completed_chain"):
+                # Việc chính đã chạy trọn. Chỉ nâng các kết cục "hỏng/hết giờ";
+                # refused/skipped là quyết định có chủ đích, không đụng.
+                if outcome in ("error", "timeout_killed", "timeout_kill_failed"):
+                    return "completed", ""
+                return outcome, ""
+            if outcome == "error" and done >= self._PROGRESS_MIN_ACTIONS:
+                return "partial", ""
+        except Exception:
+            pass
+        return outcome, ""
+
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
                         started_at, log_path, profile="", warnings=None, note="",
                         work=None):
@@ -716,7 +767,7 @@ class BrowserProcessManager:
             try:
                 from tubecli.core import run_bulletin
                 run_bulletin.post_end(agent_id or "", run_id, outcome,
-                                      duration_sec=duration, warnings=warnings)
+                                      duration_sec=duration, warnings=warnings, work=work)
             except Exception:
                 pass
             # Bảng cạnh nhóm mới là chỗ chủ máy thật sự nhìn. Trước đây nó chỉ có
@@ -762,7 +813,8 @@ class BrowserProcessManager:
             except Exception:
                 pass
             what = {"timeout_killed": "hết giờ, bị dừng",
-                    "timeout_kill_failed": "hết giờ NHƯNG KHÔNG dừng được"}.get(outcome, outcome)
+                    "timeout_kill_failed": "hết giờ NHƯNG KHÔNG dừng được",
+                    "partial": "làm được một phần rồi vấp"}.get(outcome, outcome)
             title = (f"schedule {profile} — phiên dừng: {what}" if profile
                      else f"schedule — phiên dừng: {what}")
             if return_code is not None:

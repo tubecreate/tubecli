@@ -20,6 +20,7 @@ logger = logging.getLogger("RunBulletin")
 
 _ICON = {
     "completed": "✅",
+    "partial": "◑",          # làm được một phần rồi vấp — không đỏ như hỏng sạch
     "timeout_killed": "⏱",
     "timeout_kill_failed": "⏱",
     "error": "❌",
@@ -72,7 +73,15 @@ def build_text(agent_name: str, outcome: str, launch: Dict[str, Any],
         parts.append(d)
     if len(parts) == 1:          # không có gì để kể ngoài icon → thêm outcome thô
         parts.append(outcome)
-    return " · ".join(parts)
+    line = " · ".join(parts)
+    # Phần lỗi tách riêng, sau dấu — : bản tin vẫn khoe việc đã làm ở đầu dòng,
+    # lý do vấp nằm ở đuôi cho ai cần. Chỉ khi thật sự có lỗi.
+    err = str((launch or {}).get("error") or "").strip()
+    if err and outcome in ("partial", "error", "failed"):
+        if len(err) > 70:
+            err = err[:69] + "…"
+        line += "  — " + err
+    return line
 
 
 def _post_chat(agent, text: str, run_id: str, outcome: str) -> None:
@@ -111,7 +120,8 @@ def _post_telegram(agent, text: str) -> None:
 
 def post_end(agent_id: str, run_id: str, outcome: str,
              duration_sec: Optional[float] = None,
-             warnings: Optional[list] = None) -> None:
+             warnings: Optional[list] = None,
+             work: Optional[Dict[str, Any]] = None) -> None:
     """Gọi ngay sau run_log.end(). Không bao giờ ném lỗi ra ngoài."""
     try:
         if not agent_id or outcome in ("skipped", None, ""):
@@ -125,7 +135,11 @@ def post_end(agent_id: str, run_id: str, outcome: str,
         # thì cũng không muốn chat bị dội tin mỗi lượt chạy.
         if getattr(agent, "routine_in_chat", True) is False:
             return
-        launch = (_run_row(str(agent_id), str(run_id or "")).get("launch") or {})
+        launch = dict(_run_row(str(agent_id), str(run_id or "")).get("launch") or {})
+        # error nằm ở work (log của tiến trình), gộp vào để build_text kể phần
+        # lỗi riêng — không đọc lại run_log lần nữa.
+        if isinstance(work, dict) and work.get("error"):
+            launch["error"] = work["error"]
         text = build_text(str(getattr(agent, "name", "")), str(outcome), launch,
                           duration_sec, bool(warnings))
 
