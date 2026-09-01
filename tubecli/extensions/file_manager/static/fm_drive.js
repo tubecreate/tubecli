@@ -110,6 +110,7 @@
         files: [],
         nextToken: null,
         query: '',
+        filtered: null,       // != null = đang lọc nhanh tại chỗ theo ô tìm chung
         busy: false,
     };
     try { S.accountId = localStorage.getItem('fm_drive_account') || ''; } catch (e) {}
@@ -135,6 +136,18 @@
         return data;
     }
 
+    // Hộp thoại DÙNG CHUNG với phần local (window.prompt/confirm trần trông
+    // như lỗi trình duyệt trong iframe canvas). Rơi về prompt gốc chỉ khi
+    // file_manager.js chưa nạp xong — không bao giờ để thao tác chết câm.
+    function askText(title, initial) {
+        if (window.FM && window.FM.promptDialog) return window.FM.promptDialog(title, initial || '');
+        return Promise.resolve(window.prompt(title, initial || ''));
+    }
+    function askConfirm(title, danger) {
+        if (window.FM && window.FM.confirmDialog) return window.FM.confirmDialog({ title: title, danger: !!danger });
+        return Promise.resolve(window.confirm(title));
+    }
+
     // ── Rendering ─────────────────────────────────────────────────────
 
     function setState(msg) {
@@ -144,16 +157,9 @@
         el.textContent = msg || '';
     }
 
+    // Dropdown tài khoản ĐÃ BỎ: sidebar là nơi chọn duy nhất (bug cũ: đổi qua
+    // dropdown không gọi renderRail nên highlight sidebar đứng ở tài khoản cũ).
     function renderAccounts() {
-        var sel = byId('fm-drive-account');
-        if (sel) {
-            sel.innerHTML = S.accounts.map(function (a) {
-                var label = (a.email || a.name || a.id) + (a.readonly ? ' (' + tr('fm.drive.readonly_badge') + ')' : '');
-                return '<option value="' + esc(a.id) + '"' +
-                    (a.id === S.accountId ? ' selected' : '') + '>' + esc(label) + '</option>';
-            }).join('');
-            sel.hidden = S.accounts.length === 0;
-        }
         var noauth = byId('fm-drive-noauth');
         if (noauth) noauth.hidden = S.accounts.length > 0;
         var card = byId('fm-drive-listcard');
@@ -186,8 +192,7 @@
             try { localStorage.setItem('fm_drive_account', S.accountId); } catch (e) {}
             S.stack = [{ id: 'root', name: tr('fm.drive.root') }];
         }
-        var sel = byId('fm-drive-account');
-        if (sel && sel.value !== S.accountId) sel.value = S.accountId;
+        if (window.FMSearch) { window.FMSearch.clear(); window.FMSearch.refreshScopeLabel(); }
         renderRail();
         if (openTab && window.FMActions && typeof window.FMActions.setView === 'function') {
             window.FMActions.setView('drive');
@@ -232,7 +237,9 @@
     function renderList(append) {
         var body = byId('fm-drive-body');
         if (!body) return;
-        var html = S.files.map(function (f) {
+        // S.filtered != null = đang lọc nhanh tại chỗ (ô tìm hợp nhất gõ chữ).
+        var rows = S.filtered || S.files;
+        var html = rows.map(function (f) {
             var icon = f.is_folder ? '#i-folder' : '#i-file';
             var nameBtn = '<button type="button" class="fm-drive-name-btn" data-fm-action="drive-open"' +
                 ' data-id="' + esc(f.id) + '" data-name="' + esc(f.name) + '"' +
@@ -247,7 +254,7 @@
         }).join('');
         body.innerHTML = html;
         var empty = byId('fm-drive-empty');
-        if (empty) empty.hidden = S.files.length > 0;
+        if (empty) empty.hidden = rows.length > 0;
         var more = byId('fm-drive-more');
         if (more) more.hidden = !S.nextToken;
     }
@@ -264,6 +271,7 @@
     }
 
     async function loadList(opts) {
+        S.filtered = null;   // tải lại danh sách = bỏ lọc nhanh cũ
         opts = opts || {};
         if (S.busy) return;
         S.busy = true;
@@ -349,8 +357,7 @@
         'drive-open': function (el) {
             if (el.getAttribute('data-folder') === '1') {
                 S.query = '';
-                var input = byId('fm-drive-search');
-                if (input) input.value = '';
+                if (window.FMSearch) window.FMSearch.clear();
                 S.stack.push({ id: el.getAttribute('data-id'), name: el.getAttribute('data-name') });
                 return loadList();
             }
@@ -361,6 +368,10 @@
         'drive-crumb': function (el) {
             var idx = parseInt(el.getAttribute('data-idx'), 10);
             if (isNaN(idx) || idx >= S.stack.length - 1) return;
+            // Xoá query TRƯỚC khi load: thiếu dòng này thì loadList vẫn chạy
+            // tìm-toàn-Drive nên bấm breadcrumb trông như nút chết.
+            S.query = '';
+            if (window.FMSearch) window.FMSearch.clear();
             S.stack = S.stack.slice(0, idx + 1);
             return loadList();
         },
@@ -377,7 +388,7 @@
 
         'drive-mkdir': async function () {
             if (needAccount()) return;
-            var name = window.prompt(tr('fm.drive.mkdir_prompt'));
+            var name = await askText(tr('fm.drive.mkdir_prompt'));
             if (!name || !name.trim()) return;
             await driveFetch('POST', '/mkdir', {
                 name: name.trim(), parent_id: currentFolder().id, cred_id: S.accountId || null,
@@ -403,7 +414,7 @@
         },
 
         'drive-share': async function (el) {
-            var email = window.prompt(tr('fm.drive.share_choice'), '');
+            var email = await askText(tr('fm.drive.share_choice'), '');
             if (email === null) return;
             email = email.trim();
             var data = await driveFetch('POST', '/share', {
@@ -430,7 +441,7 @@
         },
 
         'drive-rename': async function (el) {
-            var name = window.prompt(tr('fm.drive.rename_prompt'), el.getAttribute('data-name') || '');
+            var name = await askText(tr('fm.drive.rename_prompt'), el.getAttribute('data-name') || '');
             if (!name || !name.trim()) return;
             var data = await driveFetch('POST', '/rename', {
                 file_id: el.getAttribute('data-id'), new_name: name.trim(), cred_id: S.accountId || null,
@@ -441,7 +452,7 @@
 
         'drive-trash': async function (el) {
             var name = el.getAttribute('data-name') || '';
-            if (!window.confirm(tr('fm.drive.confirm_trash', { name: name }))) return;
+            if (!(await askConfirm(tr('fm.drive.confirm_trash', { name: name }), true))) return;
             await driveFetch('POST', '/trash', {
                 file_id: el.getAttribute('data-id'), cred_id: S.accountId || null,
             });
@@ -472,6 +483,39 @@
     }
     registerWhenReady(0);
 
+        // API công khai cho ô tìm hợp nhất (fm_search.js). Giữ hẹp: chỉ đủ để
+        // tìm, lọc tại chỗ và mở một thư mục — không lộ state ra ngoài.
+        window.FMDrive = {
+            accounts: function () { return S.accounts.slice(); },
+            accountId: function () { return S.accountId; },
+            folderId: function () { var f = currentFolder(); return f && f.id !== 'root' ? f.id : ''; },
+            search: async function (q, credId, folderId) {
+                var qs = '?q=' + encodeURIComponent(q) +
+                    (credId ? '&cred_id=' + encodeURIComponent(credId) : '') +
+                    (folderId ? '&folder_id=' + encodeURIComponent(folderId) : '');
+                var data = await driveFetch('GET', '/list' + qs);
+                return (data && data.files) || [];
+            },
+            // Lọc nhanh danh sách ĐANG hiện (không gọi mạng) — cùng luật với local.
+            filter: function (q) {
+                var qq = String(q || '').toLowerCase();
+                if (!qq) { S.filtered = null; renderList(); return; }
+                S.filtered = S.files.filter(function (f) {
+                    return String(f.name || '').toLowerCase().indexOf(qq) !== -1;
+                });
+                renderList();
+            },
+            openFolder: function (credId, folderId, name) {
+                if (credId && credId !== S.accountId) return selectAccount(credId, true).then(function () {
+                    S.stack.push({ id: folderId, name: name || '' });
+                    return loadList();
+                });
+                S.stack.push({ id: folderId, name: name || '' });
+                if (window.FMActions) window.FMActions.setView('drive');
+                return loadList();
+            },
+        };
+
     document.addEventListener('fm:view-change', function (e) {
         if (e.detail && e.detail.view === 'drive') ensureLoaded(false);
     });
@@ -486,28 +530,11 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         initRail();
-        var sel = byId('fm-drive-account');
-        if (sel) {
-            sel.addEventListener('change', function () {
-                S.accountId = sel.value;
-                try { localStorage.setItem('fm_drive_account', S.accountId); } catch (e) {}
-                S.stack = [{ id: 'root', name: tr('fm.drive.root') }];
-                loadList();
-            });
-        }
         var input = byId('fm-drive-file-input');
         if (input) {
             input.addEventListener('change', function () {
                 uploadFiles(input.files).catch(function (e) { toast(String(e.message || e), 'error'); });
                 input.value = '';
-            });
-        }
-        var search = byId('fm-drive-search');
-        if (search) {
-            search.addEventListener('keydown', function (ev) {
-                if (ev.key !== 'Enter') return;
-                S.query = search.value.trim();
-                loadList();
             });
         }
 

@@ -117,6 +117,28 @@
             'fm.paste_same_dir': 'Nguồn và đích là cùng một thư mục — không có gì để làm.',
             'fm.binary_no_preview': 'File nhị phân — không xem trước được.',
             'fm.search_deep': 'Tìm sâu trong thư mục con (Enter)',
+            'fm.search_placeholder_uni': 'Tìm tệp… (gõ để lọc, Enter để tìm sâu)',
+            'fm.scope_folder': 'Thư mục này',
+            'fm.scope_server': 'Toàn máy chủ',
+            'fm.scope_drive': 'Toàn bộ Drive này',
+            'fm.scope_drive_acc': 'Drive · {email}',
+            'fm.scope_all': 'Mọi nơi',
+            'fm.src_server': 'Máy chủ',
+            'fm.search_running': 'Đang tìm…',
+            'fm.search_empty': 'Không có kết quả nào khớp.',
+            'fm.filter_kind': 'Loại',
+            'fm.filter_time': 'Thời gian',
+            'fm.filter_size': 'Kích thước',
+            'fm.kind_doc': 'Tài liệu',
+            'fm.kind_sheet': 'Bảng tính',
+            'fm.kind_image': 'Ảnh',
+            'fm.kind_video': 'Video',
+            'fm.time_d1': 'Hôm nay',
+            'fm.time_d7': '7 ngày',
+            'fm.time_d30': '30 ngày',
+            'fm.size_sm': '< 1 MB',
+            'fm.size_md': '1–100 MB',
+            'fm.size_lg': '> 100 MB',
             'fm.search_results': 'Kết quả tìm "{q}": {n} mục',
             'fm.search_clear': 'Xóa tìm kiếm',
             'fm.search_capped': 'Máy chủ giới hạn 200 kết quả — có thể còn mục khác.',
@@ -299,6 +321,28 @@
             'fm.paste_same_dir': 'Source and destination are the same folder — nothing to do.',
             'fm.binary_no_preview': 'Binary file — cannot preview.',
             'fm.search_deep': 'Search subfolders too (Enter)',
+            'fm.search_placeholder_uni': 'Search files… (type to filter, Enter to search deeper)',
+            'fm.scope_folder': 'This folder',
+            'fm.scope_server': 'Whole server',
+            'fm.scope_drive': 'This whole Drive',
+            'fm.scope_drive_acc': 'Drive · {email}',
+            'fm.scope_all': 'Everywhere',
+            'fm.src_server': 'Server',
+            'fm.search_running': 'Searching…',
+            'fm.search_empty': 'Nothing matches.',
+            'fm.filter_kind': 'Type',
+            'fm.filter_time': 'Modified',
+            'fm.filter_size': 'Size',
+            'fm.kind_doc': 'Documents',
+            'fm.kind_sheet': 'Spreadsheets',
+            'fm.kind_image': 'Images',
+            'fm.kind_video': 'Video',
+            'fm.time_d1': 'Today',
+            'fm.time_d7': '7 days',
+            'fm.time_d30': '30 days',
+            'fm.size_sm': '< 1 MB',
+            'fm.size_md': '1–100 MB',
+            'fm.size_lg': '> 100 MB',
             'fm.search_results': 'Results for "{q}": {n} items',
             'fm.search_clear': 'Clear search',
             'fm.search_capped': 'The server caps results at 200 — there may be more.',
@@ -1517,14 +1561,9 @@
             document.addEventListener('keydown', this.handleKeyboard.bind(this));
             document.addEventListener('click', this.hideContextMenu.bind(this));
 
-            var search = byId('searchInput');
-            if (search) {
-                search.addEventListener('input', debounce(this.handleSearch.bind(this), 250));
-                search.addEventListener('keydown', (function (e) {
-                    if (e.key === 'Enter') { e.preventDefault(); this.deepSearch(); }
-                }).bind(this));
-                if (!search.title) search.title = T('fm.search_deep');
-            }
+            // Ô tìm do fm_search.js sở hữu (một ô cho cả local lẫn Drive) —
+            // KHÔNG bind ở đây nữa, hai handler cùng một input là nguồn của cảnh
+            // "gõ ở tab Drive mà lọc lưới local đang ẩn".
 
             var hidden = byId('showHidden');
             if (hidden) hidden.addEventListener('change', this.refresh.bind(this));
@@ -1812,6 +1851,10 @@
             this.currentPath = path;
             this.selectedItem = null;
             this.searchResults = null;
+            // Điều hướng = thoát kết quả tìm (trước đây chỉ hàm này reset được,
+            // nên tìm sâu dính mãi khi người dùng xoá chữ trong ô).
+            if (window.FMSearch && window.FMSearch.isActive()) window.FMSearch.clear();
+            if (window.FMSearch) window.FMSearch.refreshScopeLabel();
             this.updateToolbarButtons();
 
             var grid = byId('fileGrid'), empty = byId('emptyState'), loading = byId('loading');
@@ -2328,6 +2371,12 @@
         },
 
         toast: toast,
+        t: T,
+        fmtSize: fmtBytes,
+        // Drive (fm_drive.js) dùng chung hai hộp thoại này thay cho
+        // window.prompt/confirm trần — một app không nên có hai bộ mặt.
+        promptDialog: promptDialog,
+        confirmDialog: confirmDialog,
         debounce: function (fn, ms) { return debounce(fn, ms); }
     };
 

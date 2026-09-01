@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=8">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=9">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -158,11 +158,25 @@
     </div>
 
     <div class="fm-header-right">
-      <div class="fm-search">
+      <div class="fm-search fm-search-uni">
+        <div class="fm-scope">
+          <button type="button" class="fm-scope-btn" id="fm-scope-btn" data-fm-action="search-scope-toggle">
+            <span class="fm-scope-label"></span>
+            <svg class="fm-ico fm-scope-caret" aria-hidden="true"><use href="#i-chevron-down"/></svg>
+          </button>
+          <div class="fm-scope-menu" id="fm-scope-menu" hidden>
+            <button type="button" data-fm-action="search-scope-pick" data-scope="folder" data-i18n="fm.scope_folder"></button>
+            <button type="button" data-fm-action="search-scope-pick" data-scope="server" data-i18n="fm.scope_server"></button>
+            <button type="button" data-fm-action="search-scope-pick" data-scope="drive" data-i18n="fm.scope_drive"></button>
+            <button type="button" data-fm-action="search-scope-pick" data-scope="all" data-i18n="fm.scope_all"></button>
+          </div>
+        </div>
         <svg class="fm-ico" aria-hidden="true"><use href="#i-search"/></svg>
         <input type="search" id="searchInput" autocomplete="off" spellcheck="false"
-               data-i18n-placeholder="fm.browse.search_placeholder"
+               data-i18n-placeholder="fm.search_placeholder_uni"
                data-i18n-aria-label="fm.common.search">
+        <button type="button" class="fm-search-clear" id="fm-search-clear" hidden
+                data-fm-action="search-clear" data-i18n-title="fm.search_clear">✕</button>
       </div>
 
       <div class="fm-segmented" role="group" data-i18n-aria-label="fm.common.type">
@@ -647,13 +661,35 @@
         </div>
       </section>
 
+      <!-- Kết quả tìm hợp nhất: phủ lên mọi view khi đang tìm sâu -->
+      <section class="fm-view fm-view-search" id="fm-view-search" role="region" data-i18n-aria-label="fm.common.search">
+        <div class="fm-search-filters" id="fm-search-filters" hidden>
+          <span class="fm-filter-label" data-i18n="fm.filter_kind"></span>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="kind" data-value="doc" data-i18n="fm.kind_doc"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="kind" data-value="sheet" data-i18n="fm.kind_sheet"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="kind" data-value="image" data-i18n="fm.kind_image"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="kind" data-value="video" data-i18n="fm.kind_video"></button>
+          <span class="fm-filter-sep"></span>
+          <span class="fm-filter-label" data-i18n="fm.filter_time"></span>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="time" data-value="d1" data-i18n="fm.time_d1"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="time" data-value="d7" data-i18n="fm.time_d7"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="time" data-value="d30" data-i18n="fm.time_d30"></button>
+          <span class="fm-filter-sep"></span>
+          <span class="fm-filter-label" data-i18n="fm.filter_size"></span>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="size" data-value="sm" data-i18n="fm.size_sm"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="size" data-value="md" data-i18n="fm.size_md"></button>
+          <button type="button" class="fm-chip" data-fm-action="search-filter" data-filter="size" data-value="lg" data-i18n="fm.size_lg"></button>
+        </div>
+        <div class="fm-view-scroll">
+          <div class="fm-search-results" id="fm-search-results"></div>
+        </div>
+      </section>
+
       <!-- ========== VIEW: GOOGLE DRIVE ========== -->
       <section class="fm-view fm-view-drive" id="fm-view-drive" role="region" data-i18n-aria-label="fm.nav.drive">
 
         <div class="fm-toolbar fm-drive-toolbar">
           <div class="fm-toolbar-group fm-toolbar-end">
-            <select class="fm-input fm-drive-account" id="fm-drive-account"
-                    data-i18n-aria-label="fm.drive.account"></select>
             <button type="button" class="fm-btn fm-btn-primary" data-fm-action="drive-upload">
               <svg class="fm-ico" aria-hidden="true"><use href="#i-upload"/></svg>
               <span class="fm-btn-label" data-i18n="fm.drive.upload"></span>
@@ -674,10 +710,6 @@
           <div class="fm-toolbar-group fm-drive-crumbs-wrap">
             <!-- JS fills breadcrumb buttons: [data-fm-action="drive-crumb"][data-folder-id] -->
             <nav class="fm-drive-crumbs fm-scroll-x" id="fm-drive-crumbs"></nav>
-          </div>
-          <div class="fm-toolbar-group fm-toolbar-end">
-            <input type="search" class="fm-input" id="fm-drive-search"
-                   data-i18n-placeholder="fm.drive.search_placeholder">
           </div>
         </div>
 
@@ -1395,7 +1427,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=15"></script>
+<script src="/file-manager-static/file_manager.js?v=16"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1413,6 +1445,7 @@
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
-<script src="/file-manager-static/fm_drive.js?v=7"></script>
+<script src="/file-manager-static/fm_drive.js?v=8"></script>
+<script src="/file-manager-static/fm_search.js?v=1"></script>
 </body>
 </html>
