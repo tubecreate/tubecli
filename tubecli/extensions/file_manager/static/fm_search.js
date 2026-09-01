@@ -47,16 +47,18 @@
 
     // Loại tệp → nhóm cho chip lọc. Chỉ vài nhóm dân văn phòng thật sự dùng.
     var KIND_EXT = {
-        doc: ['doc', 'docx', 'pdf', 'txt', 'rtf', 'odt', 'md'],
+        doc: ['doc', 'docx', 'pdf', 'txt', 'rtf', 'odt', 'md', 'xls', 'xlsx', 'csv', 'ods', 'ppt', 'pptx', 'zip', 'rar', '7z', 'tar', 'gz'],
         sheet: ['xls', 'xlsx', 'csv', 'ods'],
         image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'heic'],
-        video: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv'],
+        video: ['mp4', 'mov', 'mkv', 'avi', 'webm', 'flv', 'm4v', 'wmv', 'ts', 'mpg', 'mpeg'],
+        audio: ['mp3', 'wav', 'flac', 'aac', 'm4a', 'ogg', 'wma', 'opus'],
     };
     var KIND_MIME = {
         doc: ['document', 'pdf', 'text'],
         sheet: ['spreadsheet', 'csv'],
         image: ['image'],
         video: ['video'],
+        audio: ['audio'],
     };
 
     function extOf(name) {
@@ -374,6 +376,10 @@
             if (menu && !menu.hidden && !e.target.closest('.fm-scope')) menu.hidden = true;
         });
         setScope(defaultScope());
+        syncBrowseChips();
+        paintPlace();
+        // Đổi view (tab hoặc bấm tài khoản Drive ở sidebar) → vẽ lại chỉ báo.
+        document.addEventListener('fm:view-change', function () { setTimeout(paintPlace, 0); });
     }
 
     var ACTIONS = {
@@ -384,6 +390,17 @@
         'search-scope-pick': function (el) { setScope(el.getAttribute('data-scope')); },
         'search-clear': function () { clearSearch(); },
         'search-open': function (el) { openRow(el); },
+        'browse-filter': function (el) {
+            var v = el.getAttribute('data-value');
+            B.kind = B.kind === v ? '' : v;
+            repaintBrowse();
+        },
+        'browse-sort': function (el) {
+            var v = el.getAttribute('data-sort');
+            B.sort = B.sort === v ? '' : v;
+            repaintBrowse();
+        },
+        'browse-reset': function () { B.kind = ''; B.sort = ''; repaintBrowse(); },
         'search-filter': function (el) {
             var group = el.getAttribute('data-filter');   // kind | time | size
             var val = el.getAttribute('data-value');
@@ -405,8 +422,108 @@
     // Điều hướng bất kỳ (bấm breadcrumb, mở thư mục, đổi tài khoản) phải thoát
     // trạng thái tìm — nếu không, danh sách bên dưới đổi mà màn hình vẫn đứng ở
     // kết quả cũ, đúng cái làm breadcrumb trông như nút chết.
+    // ── "Đang ở đâu" ──────────────────────────────────────────────────
+    // Một chỗ duy nhất quyết định: chip nguồn cạnh breadcrumb, mục sidebar
+    // sáng lên, và breadcrumb local ẩn đi khi đang ở Drive (trước đây nó vẫn
+    // chỉ đường dẫn máy chủ trong lúc màn hình hiện nội dung Drive).
+    function paintPlace() {
+        var drive = inDriveView();
+        var chip = byId('fm-place'), label = byId('fm-place-label'), ico = byId('fm-place-ico');
+        if (chip) chip.setAttribute('data-source', drive ? 'drive' : 'local');
+        if (ico) ico.setAttribute('href', drive ? '#i-cloud' : '#i-hard-drive');
+        if (label) {
+            var acc = currentAccount();
+            label.textContent = drive
+                ? (acc ? accountLabel(acc) : T('fm.place_drive'))
+                : T('fm.place_local');
+        }
+        var crumb = byId('breadcrumb');
+        if (crumb) crumb.hidden = drive;
+        // Sidebar: mục "Google Drive" sáng khi đang ở Drive; các mục Truy cập
+        // nhanh chỉ sáng khi đang ở máy chủ.
+        var head = byId('fm-rail-drive-head');
+        if (head) head.classList.toggle('is-active', drive && !currentAccount());
+        if (drive) {
+            Array.prototype.forEach.call(document.querySelectorAll('#quickAccess .fm-rail-item'), function (el) {
+                el.classList.remove('is-active', 'active');
+            });
+        } else {
+            Array.prototype.forEach.call(document.querySelectorAll('.fm-drive-rail-item'), function (el) {
+                el.classList.remove('is-active');
+            });
+        }
+    }
+
+    // ── LỌC + SẮP XẾP KHI DUYỆT ───────────────────────────────────────
+    // Khác hàng chip của màn hình tìm: cái này áp lên danh sách ĐANG DUYỆT,
+    // cho cả tệp máy chủ lẫn Drive, và giữ nguyên khi đi qua lại giữa hai nguồn.
+    var B = { kind: '', sort: '' };
+
+    function kindOfItem(it) {
+        // Chuẩn hoá hai shape khác nhau (local: is_dir/extension; Drive:
+        // is_folder/mime_type) về đúng một hàm phân loại.
+        return kindOf({
+            isDir: !!(it.is_dir || it.is_folder),
+            name: it.name || '',
+            mime: it.mime_type || it.mimeType || '',
+        });
+    }
+    function timeOf(it, field) {
+        var v = field === 'created' ? (it.created || it.modified) : (it.modified || it.created);
+        var t = Date.parse(v || '');
+        return isNaN(t) ? 0 : t;
+    }
+
+    // Áp cho MỘT mảng item (đã chuẩn hoá tên trường ở trên).
+    function applyBrowse(items) {
+        var out = (items || []).slice();
+        if (B.kind) {
+            out = out.filter(function (it) {
+                // Thư mục luôn ở lại: lọc theo loại tệp mà giấu luôn thư mục thì
+                // không đi sâu vào đâu được nữa.
+                return (it.is_dir || it.is_folder) || kindOfItem(it) === B.kind;
+            });
+        }
+        if (B.sort) {
+            var dirFirst = function (a, b) {
+                var da = (a.is_dir || a.is_folder) ? 0 : 1, db = (b.is_dir || b.is_folder) ? 0 : 1;
+                return da - db;
+            };
+            out.sort(function (a, b) {
+                var d = dirFirst(a, b);
+                if (d) return d;
+                if (B.sort === 'size') return (Number(b.size) || 0) - (Number(a.size) || 0);
+                return timeOf(b, B.sort) - timeOf(a, B.sort);   // mới nhất lên đầu
+            });
+        }
+        return out;
+    }
+
+    function syncBrowseChips() {
+        var on = !!(B.kind || B.sort);
+        Array.prototype.forEach.call(document.querySelectorAll('#fm-browse-filters [data-filter="kind"]'), function (el) {
+            el.classList.toggle('is-active', el.getAttribute('data-value') === B.kind);
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('#fm-browse-filters [data-sort]'), function (el) {
+            el.classList.toggle('is-active', el.getAttribute('data-sort') === B.sort);
+        });
+        var reset = byId('fm-browse-reset');
+        if (reset) reset.hidden = !on;
+    }
+
+    // Vẽ lại CẢ HAI nguồn: người dùng đổi chip xong chuyển tab là thấy nhất quán.
+    function repaintBrowse() {
+        syncBrowseChips();
+        try { if (window.FM && window.FM.items) window.FM.renderFiles(window.FM.items); } catch (e) {}
+        try { if (window.FMDrive && window.FMDrive.rerender) window.FMDrive.rerender(); } catch (e) {}
+    }
+
     window.FMSearch = {
         clear: clearSearch,
+        // file_manager.js / fm_drive.js gọi ngay trước khi vẽ danh sách.
+        applyBrowse: applyBrowse,
+        paintPlace: paintPlace,
+        browseState: function () { return { kind: B.kind, sort: B.sort }; },
         isActive: function () { return S.active; },
         scope: function () { return S.scope; },
         refreshScopeLabel: function () { setScope(S.scope); },

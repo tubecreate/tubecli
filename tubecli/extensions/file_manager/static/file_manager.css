@@ -2011,3 +2011,34 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-drive-listcard { min-width: 0; }
 .fm-drive-listcard .fm-table-wrap { border: 0; background: transparent; }
 .fm-drive-listcard .fm-file-grid { padding: 2px 2px 12px; }
+
+
+/* ── Thanh lọc khi duyệt ──────────────────────────────────────────── */
+.fm-browse-filters {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 7px 14px; border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg2, transparent);
+}
+/* Chỉ có nghĩa khi đang DUYỆT tệp (máy chủ / Drive) — phân tích dung lượng,
+   dọn dẹp và màn hình kết quả tìm đều có bộ lọc riêng của chúng. */
+#fm-app[data-view="storage"] .fm-browse-filters,
+#fm-app[data-view="cleanup"] .fm-browse-filters,
+#fm-app[data-searching="1"] .fm-browse-filters { display: none; }
+.fm-chip-quiet { border-style: dashed; color: var(--text-muted); }
+
+
+/* ── "Đang ở đâu": chip nguồn cạnh breadcrumb ─────────────────────── */
+.fm-place {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  padding: 3px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  white-space: nowrap; max-width: 210px;
+}
+.fm-place .fm-ico { width: 14px; height: 14px; flex: none; }
+.fm-place-label { overflow: hidden; text-overflow: ellipsis; }
+/* Hai nguồn hai màu — liếc là biết, không phải đọc chữ */
+.fm-place[data-source="local"] {
+  background: var(--bg3); color: var(--text-muted); border: 1px solid var(--border-subtle);
+}
+.fm-place[data-source="drive"] {
+  background: var(--primary-light); color: var(--primary); border: 1px solid var(--primary);
+}

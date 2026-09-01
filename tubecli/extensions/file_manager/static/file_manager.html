@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=11">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=12">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -154,6 +154,12 @@
     </div>
 
     <div class="fm-header-center">
+      <!-- Chip NGUỒN: câu trả lời cho "tôi đang ở máy chủ hay Drive nào?".
+           Trước đây header luôn chỉ đường dẫn local kể cả khi đang xem Drive. -->
+      <span class="fm-place" id="fm-place" data-source="local">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-hard-drive" id="fm-place-ico"/></svg>
+        <span class="fm-place-label" id="fm-place-label"></span>
+      </span>
       <nav class="fm-breadcrumb fm-scroll-x" id="breadcrumb" data-i18n-aria-label="fm.common.path"></nav>
     </div>
 
@@ -243,6 +249,23 @@
     </button>
   </div>
 
+  <!-- Lọc + sắp xếp khi DUYỆT — dùng chung cho tệp máy chủ và Drive.
+       (Trạng thái tìm có hàng chip riêng bên trong #fm-view-search.) -->
+  <div class="fm-browse-filters" id="fm-browse-filters">
+    <span class="fm-filter-label" data-i18n="fm.filter_kind"></span>
+    <button type="button" class="fm-chip" data-fm-action="browse-filter" data-filter="kind" data-value="video" data-i18n="fm.kind_video"></button>
+    <button type="button" class="fm-chip" data-fm-action="browse-filter" data-filter="kind" data-value="image" data-i18n="fm.kind_image"></button>
+    <button type="button" class="fm-chip" data-fm-action="browse-filter" data-filter="kind" data-value="audio" data-i18n="fm.kind_audio"></button>
+    <button type="button" class="fm-chip" data-fm-action="browse-filter" data-filter="kind" data-value="doc" data-i18n="fm.kind_file"></button>
+    <span class="fm-filter-sep"></span>
+    <span class="fm-filter-label" data-i18n="fm.filter_sort"></span>
+    <button type="button" class="fm-chip" data-fm-action="browse-sort" data-sort="modified" data-i18n="fm.sort_modified"></button>
+    <button type="button" class="fm-chip" data-fm-action="browse-sort" data-sort="created" data-i18n="fm.sort_created"></button>
+    <button type="button" class="fm-chip" data-fm-action="browse-sort" data-sort="size" data-i18n="fm.sort_size"></button>
+    <button type="button" class="fm-chip fm-chip-quiet" id="fm-browse-reset" hidden
+            data-fm-action="browse-reset" data-i18n="fm.filter_reset"></button>
+  </div>
+
   <!-- ══════════════════ BODY ══════════════════ -->
   <div class="fm-body">
 
@@ -260,7 +283,7 @@
            is one "folder" that opens the tab pinned to that account. -->
       <section class="fm-rail-section fm-rail-drive">
         <h2 class="fm-rail-title">
-          <button type="button" class="fm-rail-item fm-rail-drive-head" data-fm-action="view" data-fm-view="drive">
+          <button type="button" class="fm-rail-item fm-rail-drive-head" id="fm-rail-drive-head" data-fm-action="view" data-fm-view="drive">
             <svg class="fm-ico" aria-hidden="true"><use href="#i-cloud"/></svg>
             <span data-i18n="fm.nav.drive"></span>
           </button>
@@ -1428,7 +1451,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=17"></script>
+<script src="/file-manager-static/file_manager.js?v=18"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1446,7 +1469,7 @@
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
-<script src="/file-manager-static/fm_drive.js?v=9"></script>
-<script src="/file-manager-static/fm_search.js?v=1"></script>
+<script src="/file-manager-static/fm_drive.js?v=10"></script>
+<script src="/file-manager-static/fm_search.js?v=2"></script>
 </body>
 </html>

@@ -194,6 +194,7 @@
         }
         if (window.FMSearch) { window.FMSearch.clear(); window.FMSearch.refreshScopeLabel(); }
         renderRail();
+        if (window.FMSearch && window.FMSearch.paintPlace) setTimeout(window.FMSearch.paintPlace, 0);
         if (openTab && window.FMActions && typeof window.FMActions.setView === 'function') {
             window.FMActions.setView('drive');
         }
@@ -263,6 +264,7 @@
         if (!body) return;
         // S.filtered != null = đang lọc nhanh tại chỗ (ô tìm hợp nhất gõ chữ).
         var rows = S.filtered || S.files;
+        if (window.FMSearch && window.FMSearch.applyBrowse) rows = window.FMSearch.applyBrowse(rows);
         var grid = viewMode() === 'grid';
         var gridEl = byId('fm-drive-grid'), tableEl = byId('fm-drive-tablewrap');
         if (gridEl) gridEl.hidden = !grid;

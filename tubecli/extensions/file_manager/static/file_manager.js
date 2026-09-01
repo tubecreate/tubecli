@@ -118,6 +118,15 @@
             'fm.binary_no_preview': 'File nhị phân — không xem trước được.',
             'fm.search_deep': 'Tìm sâu trong thư mục con (Enter)',
             'fm.search_placeholder_uni': 'Tìm tệp… (gõ để lọc, Enter để tìm sâu)',
+            'fm.place_local': 'Máy chủ',
+            'fm.place_drive': 'Google Drive',
+            'fm.kind_audio': 'Âm thanh',
+            'fm.kind_file': 'Tài liệu',
+            'fm.filter_sort': 'Sắp xếp',
+            'fm.sort_modified': 'Mới sửa',
+            'fm.sort_created': 'Mới tải lên',
+            'fm.sort_size': 'Dung lượng',
+            'fm.filter_reset': 'Bỏ lọc',
             'fm.scope_folder': 'Thư mục này',
             'fm.scope_server': 'Toàn máy chủ',
             'fm.scope_drive': 'Toàn bộ Drive này',
@@ -322,6 +331,15 @@
             'fm.binary_no_preview': 'Binary file — cannot preview.',
             'fm.search_deep': 'Search subfolders too (Enter)',
             'fm.search_placeholder_uni': 'Search files… (type to filter, Enter to search deeper)',
+            'fm.place_local': 'Server',
+            'fm.place_drive': 'Google Drive',
+            'fm.kind_audio': 'Audio',
+            'fm.kind_file': 'Documents',
+            'fm.filter_sort': 'Sort',
+            'fm.sort_modified': 'Recently edited',
+            'fm.sort_created': 'Recently added',
+            'fm.sort_size': 'Size',
+            'fm.filter_reset': 'Clear filters',
             'fm.scope_folder': 'This folder',
             'fm.scope_server': 'Whole server',
             'fm.scope_drive': 'This whole Drive',
@@ -2005,6 +2023,9 @@
             });
 
             var listView = this.viewMode === 'list';
+            // Thanh lọc/sắp xếp dùng chung (fm_search.js) — áp SAU khi đã sắp
+            // mặc định, để "không chọn gì" vẫn giữ đúng thứ tự cũ.
+            if (window.FMSearch && window.FMSearch.applyBrowse) sorted = window.FMSearch.applyBrowse(sorted);
             var frag = document.createDocumentFragment();
             sorted.forEach(function (item) {
                 var icon = FM.getFileIcon(item);

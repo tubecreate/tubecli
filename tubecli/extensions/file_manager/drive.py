@@ -176,13 +176,16 @@ def _file_payload(f: Dict[str, Any]) -> Dict[str, Any]:
         "is_folder": f.get("mimeType") == _FOLDER_MIME,
         "size": int(f["size"]) if f.get("size") else None,
         "modified": f.get("modifiedTime"),
+        # Ngày TẢI LÊN — khác ngày sửa: bộ lọc "mới tải lên" của File
+        # Manager xếp theo trường này.
+        "created": f.get("createdTime"),
         "url": f.get("webViewLink"),
         "icon": f.get("iconLink"),
         "parents": f.get("parents") or [],
     }
 
 
-_LIST_FIELDS = "nextPageToken, files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink, parents)"
+_LIST_FIELDS = "nextPageToken, files(id, name, mimeType, size, modifiedTime, createdTime, webViewLink, iconLink, parents)"
 
 
 def _escape_q(value: str) -> str:
