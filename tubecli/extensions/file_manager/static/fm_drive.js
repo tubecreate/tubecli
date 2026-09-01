@@ -234,11 +234,40 @@
         return '<span class="fm-drive-row-actions">' + b.join('') + '</span>';
     }
 
+    // Kiểu xem lấy từ FM (một công tắc trên header cho cả hai nguồn) — trước
+    // đây Drive luôn là bảng nên bấm "lưới" xong sang Drive thấy vẫn danh sách.
+    function viewMode() {
+        return (window.FM && window.FM.viewMode) === 'list' ? 'list' : 'grid';
+    }
+
+    function renderGrid(rows) {
+        var grid = byId('fm-drive-grid');
+        if (!grid) return;
+        grid.innerHTML = rows.map(function (f) {
+            var icon = f.is_folder ? '#i-folder' : '#i-file';
+            var cls = f.is_folder ? 'folder' : 'file';
+            return '<div class="fm-file-card" data-fm-action="drive-open"' +
+                ' data-id="' + esc(f.id) + '" data-name="' + esc(f.name) + '"' +
+                ' data-folder="' + (f.is_folder ? '1' : '0') + '"' +
+                (f.url ? ' data-url="' + esc(f.url) + '"' : '') +
+                ' title="' + esc(f.name) + '">' +
+                '<span class="fm-file-icon ' + cls + '"><svg class="fm-ico" aria-hidden="true"><use href="' + icon + '"/></svg></span>' +
+                '<span class="fm-file-name">' + esc(f.name) + '</span>' +
+                (f.is_folder ? '' : '<span class="fm-file-size">' + esc(fmtBytes(f.size)) + '</span>') +
+                '</div>';
+        }).join('');
+    }
+
     function renderList(append) {
         var body = byId('fm-drive-body');
         if (!body) return;
         // S.filtered != null = đang lọc nhanh tại chỗ (ô tìm hợp nhất gõ chữ).
         var rows = S.filtered || S.files;
+        var grid = viewMode() === 'grid';
+        var gridEl = byId('fm-drive-grid'), tableEl = byId('fm-drive-tablewrap');
+        if (gridEl) gridEl.hidden = !grid;
+        if (tableEl) tableEl.hidden = grid;
+        if (grid) renderGrid(rows);
         var html = rows.map(function (f) {
             var icon = f.is_folder ? '#i-folder' : '#i-file';
             var nameBtn = '<button type="button" class="fm-drive-name-btn" data-fm-action="drive-open"' +
@@ -505,6 +534,7 @@
                 });
                 renderList();
             },
+            rerender: function () { try { renderList(); } catch (e) {} },
             openFolder: function (credId, folderId, name) {
                 if (credId && credId !== S.accountId) return selectAccount(credId, true).then(function () {
                     S.stack.push({ id: folderId, name: name || '' });

@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=9">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=10">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -689,6 +689,11 @@
       <section class="fm-view fm-view-drive" id="fm-view-drive" role="region" data-i18n-aria-label="fm.nav.drive">
 
         <div class="fm-toolbar fm-drive-toolbar">
+          <!-- Breadcrumb ĐỨNG CÙNG HÀNG với nút: hàng "My Drive" riêng trước đây
+               ăn trọn một dòng chỉ để hiện hai chữ. -->
+          <div class="fm-toolbar-group fm-drive-crumbs-wrap">
+            <nav class="fm-drive-crumbs fm-scroll-x" id="fm-drive-crumbs"></nav>
+          </div>
           <div class="fm-toolbar-group fm-toolbar-end">
             <button type="button" class="fm-btn fm-btn-primary" data-fm-action="drive-upload">
               <svg class="fm-ico" aria-hidden="true"><use href="#i-upload"/></svg>
@@ -706,13 +711,6 @@
           </div>
         </div>
 
-        <div class="fm-toolbar fm-drive-subbar">
-          <div class="fm-toolbar-group fm-drive-crumbs-wrap">
-            <!-- JS fills breadcrumb buttons: [data-fm-action="drive-crumb"][data-folder-id] -->
-            <nav class="fm-drive-crumbs fm-scroll-x" id="fm-drive-crumbs"></nav>
-          </div>
-        </div>
-
         <div class="fm-view-scroll">
           <!-- Shown when no Google account has a Drive scope. -->
           <div class="fm-placeholder" id="fm-drive-noauth" hidden>
@@ -727,8 +725,11 @@
 
           <p class="fm-rail-note" id="fm-drive-state" hidden></p>
 
-          <div class="fm-card" id="fm-drive-listcard" hidden>
-            <div class="fm-table-wrap fm-scroll-x">
+          <div class="fm-drive-listcard" id="fm-drive-listcard" hidden>
+            <!-- LƯỚI (dùng chung .fm-file-grid với phần local) — hiện khi người
+                 dùng chọn kiểu lưới trên header; bảng ẩn đi và ngược lại. -->
+            <div class="fm-file-grid" id="fm-drive-grid" hidden></div>
+            <div class="fm-table-wrap fm-scroll-x" id="fm-drive-tablewrap">
               <table class="fm-table">
                 <thead>
                   <tr>
@@ -1427,7 +1428,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=16"></script>
+<script src="/file-manager-static/file_manager.js?v=17"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1445,7 +1446,7 @@
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
-<script src="/file-manager-static/fm_drive.js?v=8"></script>
+<script src="/file-manager-static/fm_drive.js?v=9"></script>
 <script src="/file-manager-static/fm_search.js?v=1"></script>
 </body>
 </html>

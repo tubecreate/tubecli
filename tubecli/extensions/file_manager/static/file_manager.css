@@ -1988,3 +1988,16 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-src-local { background: var(--fm-panel-2, #f3f4f6); color: var(--fm-muted, #6b7280); border: 1px solid var(--fm-line, #e5e7eb); }
 .fm-src-drive { background: rgba(37, 99, 235, .1); color: var(--fm-accent, #2563eb); border: 1px solid rgba(37, 99, 235, .3); }
 .fm-sr-size { flex: none; font-size: 11.5px; color: var(--fm-muted, #6b7280); min-width: 62px; text-align: right; }
+
+
+/* ── Drive gọn lại ────────────────────────────────────────────────── */
+/* Hàng "My Drive" riêng đã bỏ: breadcrumb đứng chung hàng với nút. */
+.fm-drive-toolbar { padding-bottom: 8px; gap: 10px; }
+.fm-drive-toolbar .fm-drive-crumbs-wrap { flex: 1; min-width: 0; }
+.fm-drive-crumbs { display: flex; align-items: center; gap: 2px; }
+
+/* Bỏ viền/nền của .fm-card quanh bảng Drive — bảng đã có đường kẻ riêng, hai
+   lớp khung lồng nhau chỉ ăn chỗ. */
+.fm-drive-listcard { min-width: 0; }
+.fm-drive-listcard .fm-table-wrap { border: 0; background: transparent; }
+.fm-drive-listcard .fm-file-grid { padding: 2px 2px 12px; }

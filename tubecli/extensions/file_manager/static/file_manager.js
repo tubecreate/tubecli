@@ -2337,6 +2337,9 @@
 
         setView(mode) {
             this.viewMode = mode;
+            // Drive vẽ bằng module riêng — báo cho nó đổi theo, nếu không công
+            // tắc lưới/danh sách chỉ tác động một nửa ứng dụng.
+            if (window.FMDrive && window.FMDrive.rerender) window.FMDrive.rerender();
             var g = byId('viewGrid'), l = byId('viewList');
             if (g) g.classList.toggle('active', mode === 'grid');
             if (l) l.classList.toggle('active', mode === 'list');
