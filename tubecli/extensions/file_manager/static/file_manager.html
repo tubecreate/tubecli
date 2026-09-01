@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=12">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=13">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -1064,6 +1064,33 @@
 
 
 <!-- ══════════════════ CONTEXT MENU ══════════════════ -->
+<!-- Menu chuột phải cho Google Drive — cùng lớp .fm-menu với menu của tệp
+     máy chủ để hai bên nhìn như một ứng dụng, khác nhau chỉ ở việc làm được gì
+     trên Drive. -->
+<div class="fm-menu" id="fm-drive-menu" role="menu" hidden>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="dmenu-open">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-external"/></svg>
+    <span data-i18n="fm.drive.open"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="dmenu-download">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-download"/></svg>
+    <span data-i18n="fm.drive.download"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="dmenu-rename">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
+    <span data-i18n="fm.drive.rename"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="dmenu-share">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-share"/></svg>
+    <span data-i18n="fm.drive.share"></span>
+  </button>
+  <div class="fm-menu-sep"></div>
+  <button type="button" class="fm-menu-item is-danger" role="menuitem" data-fm-action="dmenu-trash">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+    <span data-i18n="fm.drive.delete"></span>
+  </button>
+</div>
+
 <div class="fm-menu" id="contextMenu" role="menu" hidden>
   <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="open">
     <svg class="fm-ico" aria-hidden="true"><use href="#i-external"/></svg>
@@ -1469,7 +1496,7 @@
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
-<script src="/file-manager-static/fm_drive.js?v=10"></script>
+<script src="/file-manager-static/fm_drive.js?v=11"></script>
 <script src="/file-manager-static/fm_search.js?v=2"></script>
 </body>
 </html>

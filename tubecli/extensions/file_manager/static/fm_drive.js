@@ -247,7 +247,9 @@
         grid.innerHTML = rows.map(function (f) {
             var icon = f.is_folder ? '#i-folder' : '#i-file';
             var cls = f.is_folder ? 'folder' : 'file';
-            return '<div class="fm-file-card" data-fm-action="drive-open"' +
+            // KHÔNG gắn data-fm-action: một cú bấm chỉ CHỌN. Mở là nháy đúp,
+            // menu là chuột phải — đúng nếp Google Drive/Finder.
+            return '<div class="fm-file-card fm-drive-item"' +
                 ' data-id="' + esc(f.id) + '" data-name="' + esc(f.name) + '"' +
                 ' data-folder="' + (f.is_folder ? '1' : '0') + '"' +
                 (f.url ? ' data-url="' + esc(f.url) + '"' : '') +
@@ -272,7 +274,7 @@
         if (grid) renderGrid(rows);
         var html = rows.map(function (f) {
             var icon = f.is_folder ? '#i-folder' : '#i-file';
-            var nameBtn = '<button type="button" class="fm-drive-name-btn" data-fm-action="drive-open"' +
+            var nameBtn = '<button type="button" class="fm-drive-name-btn fm-drive-item"' +
                 ' data-id="' + esc(f.id) + '" data-name="' + esc(f.name) + '"' +
                 ' data-folder="' + (f.is_folder ? '1' : '0') + '"' +
                 (f.url ? ' data-url="' + esc(f.url) + '"' : '') + '>' +
@@ -407,6 +409,12 @@
             return loadList();
         },
 
+        'dmenu-open': function () { hideDriveMenu(); var el = selectedEl(); if (el) openItem(el); },
+        'dmenu-download': function () { hideDriveMenu(); var el = selectedEl(); if (el) ACTIONS['drive-dl'](el); },
+        'dmenu-rename': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-rename'](el); },
+        'dmenu-share': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-share'](el); },
+        'dmenu-trash': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-trash'](el); },
+
         'drive-more': function () {
             if (S.nextToken) return loadList({ pageToken: S.nextToken });
         },
@@ -502,6 +510,67 @@
         },
     };
 
+    // ── Chọn · mở · menu chuột phải ───────────────────────────────────
+    var selectedId = '';
+
+    function itemOf(el) {
+        var id = el.getAttribute('data-id');
+        for (var i = 0; i < S.files.length; i++) {
+            if (String(S.files[i].id) === String(id)) return S.files[i];
+        }
+        return { id: id, name: el.getAttribute('data-name') || '', url: el.getAttribute('data-url') || '',
+                 is_folder: el.getAttribute('data-folder') === '1' };
+    }
+
+    function markSelected(el) {
+        Array.prototype.forEach.call(document.querySelectorAll('.fm-drive-item.is-selected, #fm-drive-body tr.is-selected'),
+            function (x) { x.classList.remove('is-selected'); });
+        if (!el) { selectedId = ''; return; }
+        selectedId = el.getAttribute('data-id') || '';
+        el.classList.add('is-selected');
+        var tr = el.closest ? el.closest('tr') : null;
+        if (tr) tr.classList.add('is-selected');
+    }
+
+    function openItem(el) {
+        var f = itemOf(el);
+        if (el.getAttribute('data-folder') === '1') {
+            S.query = '';
+            if (window.FMSearch) window.FMSearch.clear();
+            S.stack.push({ id: el.getAttribute('data-id'), name: el.getAttribute('data-name') });
+            return loadList();
+        }
+        var url = f.url || el.getAttribute('data-url');
+        if (url) window.open(url, '_blank', 'noopener');
+    }
+
+    function hideDriveMenu() {
+        var m = byId('fm-drive-menu');
+        if (m) m.hidden = true;
+    }
+
+    function showDriveMenu(e, el) {
+        var m = byId('fm-drive-menu');
+        if (!m) return;
+        markSelected(el);
+        var f = itemOf(el);
+        // Thư mục Drive không tải về được — ẩn mục đó thay vì để bấm rồi lỗi.
+        var dl = m.querySelector('[data-fm-action="dmenu-download"]');
+        if (dl) dl.hidden = !!f.is_folder;
+        m.hidden = false;
+        // Đặt trong khung nhìn: mở sát mép phải/đáy thì lật ngược lại.
+        var r = m.getBoundingClientRect();
+        var x = Math.min(e.clientX, window.innerWidth - r.width - 8);
+        var y = Math.min(e.clientY, window.innerHeight - r.height - 8);
+        m.style.left = Math.max(4, x) + 'px';
+        m.style.top = Math.max(4, y) + 'px';
+    }
+
+    function selectedEl() {
+        return document.querySelector('.fm-drive-item.is-selected') ||
+               (selectedId ? document.querySelector('.fm-drive-item[data-id="' + selectedId + '"]') : null);
+    }
+
     // ── Wiring ────────────────────────────────────────────────────────
 
     function registerWhenReady(tries) {
@@ -562,6 +631,27 @@
 
     document.addEventListener('DOMContentLoaded', function () {
         initRail();
+        // Bấm = chọn; nháy đúp = mở; chuột phải = menu. Đặt ở document để
+        // ăn cả bảng lẫn lưới, kể cả khi hai bên vẽ lại.
+        document.addEventListener('click', function (e) {
+            var el = e.target.closest ? e.target.closest('.fm-drive-item') : null;
+            if (el) { markSelected(el); return; }
+            if (!(e.target.closest && e.target.closest('#fm-drive-menu'))) hideDriveMenu();
+        });
+        document.addEventListener('dblclick', function (e) {
+            var el = e.target.closest ? e.target.closest('.fm-drive-item') : null;
+            if (el) { e.preventDefault(); openItem(el); }
+        });
+        document.addEventListener('contextmenu', function (e) {
+            var el = e.target.closest ? e.target.closest('.fm-drive-item') : null;
+            if (!el) return;
+            e.preventDefault();
+            showDriveMenu(e, el);
+        });
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') hideDriveMenu();
+        });
+
         var input = byId('fm-drive-file-input');
         if (input) {
             input.addEventListener('change', function () {
@@ -577,7 +667,9 @@
         var drvDrag = null;
         document.addEventListener('pointerdown', function (e) {
             if (e.button !== 0) return;
-            var btn = e.target.closest ? e.target.closest('.fm-drive-name-btn') : null;
+            // .fm-drive-item = nút tên trong bảng HOẶC thẻ trong lưới — trước
+            // đây chỉ bảng kéo được, lưới thì kéo không ra gì.
+            var btn = e.target.closest ? e.target.closest('.fm-drive-item') : null;
             if (!btn || btn.getAttribute('data-folder') === '1') return;
             var fid = btn.getAttribute('data-id');
             var f = null;

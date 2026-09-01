@@ -2042,3 +2042,16 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-place[data-source="drive"] {
   background: var(--primary-light); color: var(--primary); border: 1px solid var(--primary);
 }
+
+
+/* ── Drive: chọn / kéo / menu ─────────────────────────────────────── */
+/* Bấm một lần là CHỌN (không mở) — nên phải thấy rõ cái đang chọn. */
+.fm-drive-item.is-selected,
+#fm-drive-grid .fm-file-card.is-selected {
+  background: var(--primary-light); border-color: var(--primary);
+}
+#fm-drive-body tr.is-selected { background: var(--primary-light); }
+#fm-drive-grid .fm-file-card { cursor: default; user-select: none; }
+.fm-menu-sep { height: 1px; margin: 4px 6px; background: var(--border-subtle); }
+.fm-menu-item.is-danger { color: var(--red); }
+.fm-menu-item.is-danger:hover { background: rgba(239, 68, 68, .1); color: var(--red); }
