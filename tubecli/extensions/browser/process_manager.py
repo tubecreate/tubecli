@@ -711,6 +711,14 @@ class BrowserProcessManager:
             run_log.end(run_id, agent_id or "", outcome, return_code=return_code,
                         instance_id=instance_id, duration_sec=duration, log_tail=tail,
                         warnings=warnings)
+            # Bản tin một dòng vào chat (+ Telegram nếu agent có nối). Sau
+            # run_log.end để dòng launch đã đầy đủ; tự nuốt mọi lỗi.
+            try:
+                from tubecli.core import run_bulletin
+                run_bulletin.post_end(agent_id or "", run_id, outcome,
+                                      duration_sec=duration, warnings=warnings)
+            except Exception:
+                pass
             # Bảng cạnh nhóm mới là chỗ chủ máy thật sự nhìn. Trước đây nó chỉ có
             # "browser running" (spawn được) và im lặng mãi mãi sau đó — nên một phiên
             # chết sau 5 giây trông y hệt một phiên chạy trọn 8 phút. Ghi cả cái kết.
