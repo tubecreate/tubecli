@@ -600,7 +600,9 @@ body {
     background: var(--primary-light);
     color: var(--primary);
     font-weight: 600;
-    box-shadow: inset 3px 0 0 var(--primary);
+    /* KHÔNG dùng vạch inset bên trái: cùng với bo góc của item nó vẽ ra một
+       nét cong trông y như dấu ngoặc "(" đứng trước biểu tượng. Nền + chữ màu
+       nhấn đã đủ để biết mục nào đang chọn. */
 }
 .fm-rail-item[aria-disabled="true"], .fm-rail-item:disabled {
     opacity: 0.4; cursor: not-allowed; pointer-events: none;
@@ -1901,7 +1903,15 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
     padding: 2px 0;
 }
 .fm-rail-drive-head:hover { color: var(--accent, #7aa2ff); }
-.fm-drive-rail-item.is-active { background: var(--fm-hover, rgba(255,255,255,.08)); color: var(--text); }
+/* Trước đây mục này tự đè bằng nền rgba(255,255,255,.08) — trên nền SÁNG là
+   gần như vô hình, nên tài khoản đang chọn trông như chưa được đánh dấu. Dùng
+   đúng kiểu chọn chung của thanh bên. */
+.fm-drive-rail-item.is-active {
+    background: var(--primary-light);
+    color: var(--primary);
+    font-weight: 600;
+}
+.fm-drive-rail-item.is-active .fm-ico { color: var(--primary); }
 .fm-drive-rail-item .fm-rail-item-label {
     flex: 1;
     min-width: 0;
