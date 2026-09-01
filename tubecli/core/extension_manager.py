@@ -376,6 +376,7 @@ class ExtensionManager:
         "tubecli.extensions.studio3d",
         "tubecli.extensions.douyin_downloader",
         "tubecli.extensions.auth_manager",
+        "tubecli.extensions.keychain",
         "tubecli.extensions.calendar_manager",
         "tubecli.extensions.file_manager",
         "tubecli.extensions.universal_tracker",
