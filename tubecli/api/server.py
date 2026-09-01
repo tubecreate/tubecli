@@ -188,6 +188,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         "/api/v1/file-manager/list",
         "/api/v1/file-manager/read",
         "/api/v1/file-manager/raw",
+        "/api/v1/file-manager/read-sheet",
     ):
         # getlist (KHÔNG .get): nếu client nhồi ?path=/an-toàn&path=/etc/shadow thì
         # route có thể đọc giá trị route chọn ≠ giá trị ta kiểm — bắt MỌI giá trị hợp lệ.
@@ -198,6 +199,18 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         if p == "/api/v1/file-manager/list":
             return bool(folders) and all(auth.path_in_folders(v, folders) for v in vals)
         return all(auth.path_in_folders(v, folders) or auth.path_is_shared_file(v, files) for v in vals)
+
+    # Ghi xlsx của nhóm (lưới SheetEditor): chỉ share TOÀN QUYỀN, path phải
+    # thuộc folder/file đã chia sẻ — cùng phép realpath/prefix với read.
+    if (folders or files) and access == "full" and m == "POST" and p == "/api/v1/file-manager/write-sheet":
+        try:
+            from tubecli.core import auth
+            body = await request.json()
+        except Exception:
+            return False
+        _wp = (body or {}).get("path")
+        return bool(_wp) and (auth.path_in_folders(_wp, folders)
+                              or auth.path_is_shared_file(_wp, files))
 
     # ── File Manager / Drive (G3): CHỈ khi scope.file_manager.drive bật ──
     # Cho: liệt kê account (lộ email — chấp nhận, siết sau), duyệt Drive (cred_id∈scope,

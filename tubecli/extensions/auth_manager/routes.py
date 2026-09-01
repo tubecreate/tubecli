@@ -300,6 +300,27 @@ def _check_sheet_id(sheet_id: str) -> str:
     return sheet_id
 
 
+
+def _guest_sheet_cred(request: Request, sheet_id: str) -> str:
+    """Sharee KHÔNG BAO GIỜ được cầm cred_id của chủ (flow chia sẻ đã lột nó
+    khỏi node) — nhưng sheet nằm trong nhóm chia sẻ thì manifest nhóm CÓ cred.
+    Tra tại server: đúng nhóm trong scope, đúng sheet_id, trả cred để dùng
+    NGAY TẠI ĐÂY, không trả về client. _guest_allowed đã gate path + mức quyền
+    trước khi tới được hàm này."""
+    gs = getattr(request.state, "guest_scope", None)
+    if not gs:
+        return ""
+    try:
+        from tubecli.core import group_context
+        gid = str(gs.get("group_id") or "")
+        groups = [g for g in group_context.list_all()
+                  if str(g.get("group_id")) == gid] if gid else []
+        entry = group_context.resolve_sheet(groups, sheet_id)
+        return str((entry or {}).get("cred_id") or "")
+    except Exception:
+        return ""
+
+
 @router.get("/gsheets/inspect")
 async def api_gsheets_inspect(cred_id: str = "", url: str = ""):
     """Title + tabs of a spreadsheet given its URL (or bare id) and a credential."""
@@ -316,7 +337,7 @@ async def api_gsheets_inspect(cred_id: str = "", url: str = ""):
 
 
 @router.get("/gsheets/{sheet_id}/values")
-async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
+async def api_gsheets_values(request: Request, sheet_id: str, cred_id: str = "", tab: str = "",
                              range_: str = Query("", alias="range"),
                              max_rows: int = 200, tail: int = 0,
                              render: str = "FORMATTED_VALUE"):
@@ -327,6 +348,8 @@ async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
     _check_sheet_id(sheet_id)
     if not cred_id:
         raise HTTPException(400, "cred_id is required")
+    if not cred_id:
+        cred_id = _guest_sheet_cred(request, sheet_id)
     max_rows = max(1, min(int(max_rows or 200), 1000))
     tail = max(0, min(int(tail or 0), 1000))
     try:
@@ -336,10 +359,12 @@ async def api_gsheets_values(sheet_id: str, cred_id: str = "", tab: str = "",
 
 
 @router.post("/gsheets/{sheet_id}/append")
-async def api_gsheets_append(sheet_id: str, req: GSheetsAppendRequest):
+async def api_gsheets_append(request: Request, sheet_id: str, req: GSheetsAppendRequest):
     """Append rows after the last filled row of a tab."""
     from . import gsheets
     _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        req.cred_id = _guest_sheet_cred(request, sheet_id)
     if not req.cred_id:
         raise HTTPException(400, "cred_id is required")
     try:
@@ -350,7 +375,7 @@ async def api_gsheets_append(sheet_id: str, req: GSheetsAppendRequest):
 
 
 @router.post("/gsheets/{sheet_id}/update")
-async def api_gsheets_update(sheet_id: str, req: GSheetsUpdateRequest):
+async def api_gsheets_update(request: Request, sheet_id: str, req: GSheetsUpdateRequest):
     """Ghi đè một ô/khối ô — mặt HTTP cho gsheets.update, để node Sheet trên
     canvas sửa ô tại chỗ (agent đã dùng được qua action từ trước).
 
@@ -358,6 +383,8 @@ async def api_gsheets_update(sheet_id: str, req: GSheetsUpdateRequest):
     như thế sẽ đè lên đầu bảng của người dùng."""
     from . import gsheets
     _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        req.cred_id = _guest_sheet_cred(request, sheet_id)
     if not req.cred_id:
         raise HTTPException(400, "cred_id is required")
     if not (req.range or "").strip():
@@ -371,13 +398,15 @@ async def api_gsheets_update(sheet_id: str, req: GSheetsUpdateRequest):
 
 
 @router.get("/gsheets/{sheet_id}/grid")
-async def api_gsheets_grid(sheet_id: str, cred_id: str = "", tab: str = "",
+async def api_gsheets_grid(request: Request, sheet_id: str, cred_id: str = "", tab: str = "",
                            max_rows: int = 60, max_cols: int = 26):
     """Chữ + định dạng + ô gộp, đủ để canvas vẽ lại y như trên Google.
 
     Nặng hơn /values một chút (includeGridData) nên chỉ node ở cỡ lớn mới gọi."""
     from . import gsheets
     _check_sheet_id(sheet_id)
+    if not cred_id:
+        cred_id = _guest_sheet_cred(request, sheet_id)
     if not cred_id:
         raise HTTPException(400, "cred_id is required")
     try:
@@ -387,10 +416,12 @@ async def api_gsheets_grid(sheet_id: str, cred_id: str = "", tab: str = "",
 
 
 @router.post("/gsheets/{sheet_id}/format")
-async def api_gsheets_format(sheet_id: str, req: GSheetsFormatRequest):
+async def api_gsheets_format(request: Request, sheet_id: str, req: GSheetsFormatRequest):
     """Đậm/nghiêng/cỡ chữ/canh lề/màu nền cho một vùng ô."""
     from . import gsheets
     _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        req.cred_id = _guest_sheet_cred(request, sheet_id)
     if not req.cred_id:
         raise HTTPException(400, "cred_id is required")
     fmt = {k: v for k, v in (("bold", req.bold), ("italic", req.italic),
@@ -404,10 +435,12 @@ async def api_gsheets_format(sheet_id: str, req: GSheetsFormatRequest):
 
 
 @router.post("/gsheets/{sheet_id}/merge")
-async def api_gsheets_merge(sheet_id: str, req: GSheetsMergeRequest):
+async def api_gsheets_merge(request: Request, sheet_id: str, req: GSheetsMergeRequest):
     """Gộp / bỏ gộp một vùng ô."""
     from . import gsheets
     _check_sheet_id(sheet_id)
+    if not req.cred_id:
+        req.cred_id = _guest_sheet_cred(request, sheet_id)
     if not req.cred_id:
         raise HTTPException(400, "cred_id is required")
     try:
