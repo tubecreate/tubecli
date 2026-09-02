@@ -344,6 +344,50 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
             need = "append" if mo.group(2) == "append" else "write"
             return bool(have) and group_context.allows(have, need)
 
+    # ── Extension nodes chủ đặt trong nhóm ──────────────────────────────────
+    # Chủ chọn "mở cả nhóm, chạy bằng tài khoản chủ": sharee DÙNG được extension
+    # (vd CapCut TTS) — nó chạy bằng credential của chủ trên máy chủ. Nhưng "dùng"
+    # KHÁC "quản lý": mở trọn namespace thì sharee xoá được tài khoản CapCut của
+    # chủ / restart server. Nên chỉ cho: (a) tải TRANG UI, (b) đọc (GET) và HÀNH
+    # ĐỘNG (POST) trong namespace của extension đó, TRỪ nhóm sub-path quản lý
+    # (accounts/region/config/server/…) và mọi DELETE. Ngoài ra CHẶN CỨNG các
+    # namespace nhạy cảm (đĩa chủ/credential/vòng đời) dù có node trỏ vào.
+    ext_routes = [str(r) for r in (scope.get("extension_routes") or []) if r]
+    if ext_routes:
+        _SENSITIVE = ("/api/v1/file-manager", "/api/v1/auth-manager",
+                      "/api/v1/keychain", "/api/v1/terminal", "/api/v1/market",
+                      "/api/v1/extensions", "/api/v1/drive", "/api/v1/system",
+                      "/api/v1/agents", "/api/v1/scripts", "/api/v1/cloud",
+                      "/api/v1/ollama")
+        _MANAGE = {"accounts", "account", "region", "config", "settings", "key",
+                   "keys", "token", "tokens", "credential", "credentials", "auth",
+                   "login", "logout", "server", "admin", "install", "uninstall",
+                   "enable", "disable"}
+        if not any(p == s or p.startswith(s + "/") for s in _SENSITIVE):
+            def _ext_ns(route):
+                r = route.split("?")[0].split("#")[0].rstrip("/")
+                if not r.startswith("/"):
+                    return (None, None)
+                segs = [s for s in r.split("/") if s]
+                if r.startswith("/api/v1/") and len(segs) >= 3:
+                    return (r, "/api/v1/" + segs[2])       # /api/v1/<ns>/... → /api/v1/<ns>
+                if segs:
+                    return (r, "/api/v1/" + segs[0])       # trang root sạch (/capcut-tts) → /api/v1/capcut-tts
+                return (r, None)
+            for r in ext_routes:
+                page_path, api_ns = _ext_ns(r)
+                if page_path and p == page_path and m in ("GET", "HEAD"):
+                    return True                             # trang UI (iframe)
+                if api_ns and (p == api_ns or p.startswith(api_ns + "/")):
+                    sub = p[len(api_ns):].strip("/").split("/")
+                    first = sub[0].lower() if sub and sub[0] else ""
+                    if first in _MANAGE or m == "DELETE":
+                        return False                        # quản lý tài khoản/máy chủ, xoá → CẤM
+                    if m in ("GET", "HEAD"):
+                        return True                         # đọc/dùng (languages/speakers/preview/history/status)
+                    if m in ("POST", "PUT") and access != "view":
+                        return True                         # hành động (synthesize) — cần quyền điều khiển
+
     return False
 
 

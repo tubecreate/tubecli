@@ -346,10 +346,13 @@ async def api_gsheets_values(request: Request, sheet_id: str, cred_id: str = "",
     render=FORMULA cho bản thô để SỬA ô — xem docstring gsheets.read."""
     from . import gsheets
     _check_sheet_id(sheet_id)
-    if not cred_id:
-        raise HTTPException(400, "cred_id is required")
+    # Guest gửi cred_id rỗng → tra tài khoản từ manifest nhóm TRƯỚC (như /grid);
+    # raise 400 chỉ khi vẫn rỗng. Bản cũ raise ngay nên nhánh resolve thành code
+    # chết → sharee đọc /values luôn 400, node Sheet trống hoài.
     if not cred_id:
         cred_id = _guest_sheet_cred(request, sheet_id)
+    if not cred_id:
+        raise HTTPException(400, "cred_id is required")
     max_rows = max(1, min(int(max_rows or 200), 1000))
     tail = max(0, min(int(tail or 0), 1000))
     try:
