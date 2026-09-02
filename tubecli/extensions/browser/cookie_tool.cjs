@@ -47,13 +47,30 @@ function arg(name, def) {
       const file = arg('file', '');
       const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
       const cookies = Array.isArray(raw) ? raw : (raw.cookies || []);
-      // Playwright addCookies đòi url HOẶC (domain+path). File từ nơi khác có thể
-      // thiếu path → vá path='/'; bỏ trường lạ khiến addCookies ném.
+      // Chuẩn hoá về format Playwright. Nguồn phổ biến nhất người dùng dán vào là
+      // Cookie-Editor / EditThisCookie (Chrome), khác Playwright ở HAI chỗ hay
+      // làm import "thành công" mà cookie vô dụng:
+      //   - expirationDate (giây, float) thay cho expires → thiếu là thành cookie
+      //     phiên, đóng browser là mất → đăng nhập không giữ.
+      //   - sameSite kiểu Chrome: no_restriction/lax/unspecified; Playwright chỉ
+      //     nhận Strict/Lax/None → truyền thẳng là addCookies NÉM.
+      const mapSameSite = (v) => {
+        const s = String(v || '').toLowerCase();
+        if (s === 'strict') return 'Strict';
+        if (s === 'lax') return 'Lax';
+        if (s === 'none' || s === 'no_restriction') return 'None';
+        return undefined;   // unspecified/rỗng → Playwright mặc định
+      };
       const clean = cookies.map((c) => {
         const o = { name: c.name, value: c.value, domain: c.domain,
           path: c.path || '/', secure: !!c.secure, httpOnly: !!c.httpOnly };
-        if (c.expires && c.expires > 0) o.expires = c.expires;
-        if (c.sameSite && ['Strict', 'Lax', 'None'].includes(c.sameSite)) o.sameSite = c.sameSite;
+        const exp = (c.expires != null ? c.expires : c.expirationDate);
+        if (exp && exp > 0 && !c.session) o.expires = Math.floor(exp);
+        const ss = mapSameSite(c.sameSite);
+        if (ss) {
+          o.sameSite = ss;
+          if (ss === 'None') o.secure = true;   // SameSite=None BẮT BUỘC secure, không thì Playwright ném
+        }
         return o;
       }).filter((c) => c.name && c.domain);
       await ctx.addCookies(clean);   // MERGE: cookie cùng name+domain bị thay, khác thì giữ
