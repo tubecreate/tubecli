@@ -85,16 +85,24 @@ def build_text(agent_name: str, outcome: str, launch: Dict[str, Any],
 
 
 def _post_chat(agent, text: str, run_id: str, outcome: str) -> None:
+    """Ghi vào MỘT phiên cố định "🔔 <tên agent>" (kind=run_bulletin) của agent.
+
+    Bản cũ ghi vào sessions[0] — "phiên mới nhất" đổi theo từng lượt (mỗi lượt
+    routine chạm phiên riêng của nó, đẩy nó lên đầu) nên bản tin rơi lung tung
+    khắp các phiên; người dùng mở phiên của mình thì chẳng thấy gì. Phiên cố
+    định thì gọn (chat chính không bị dội tin) và tìm là thấy."""
     from tubecli.extensions.chat.store import conversation_store as chat_store
-    sessions = [s for s in (chat_store.list_sessions(limit=200) or [])
+    sessions = [s for s in (chat_store.list_sessions(limit=500) or [])
                 if str(s.get("agent_id") or "") == str(agent.id)
-                and not s.get("guest_ws")]
+                and not s.get("guest_ws")
+                and str(s.get("kind") or "") == "run_bulletin"]
     if sessions:
-        sid = sessions[0]["id"]   # list_sessions đã xếp mới nhất trước
+        sid = sessions[0]["id"]
     else:
         sid = chat_store.create_session(
-            title=str(getattr(agent, "name", "") or "Agent"),
+            title="🔔 " + str(getattr(agent, "name", "") or "Agent"),
             agent_id=str(agent.id), agent_name=str(getattr(agent, "name", "")),
+            kind="run_bulletin",
         )["id"]
     # meta.kind là thứ giao diện dựa vào để vẽ nút "Xem chi tiết" (mở tab
     # Hoạt động đúng lượt) — nội dung text giữ nguyên là một dòng dữ liệu.

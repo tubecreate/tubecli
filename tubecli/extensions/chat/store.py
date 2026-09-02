@@ -95,7 +95,7 @@ class ConversationStore:
     def create_session(
         self, title: str = "", agent_id: str = "", agent_name: str = "",
         model: str = "", provider: str = "", group_id: str = "",
-        guest_ws: str = "",
+        guest_ws: str = "", kind: str = "",
     ) -> Dict[str, Any]:
         self._ensure_loaded()
         session = {
@@ -103,6 +103,12 @@ class ConversationStore:
             "title": (title or "").strip()[:TITLE_MAX] or "Cuộc trò chuyện mới",
             "agent_id": agent_id,
             "agent_name": agent_name,
+            # Loại phiên hệ thống: "run_bulletin" = phiên CỐ ĐỊNH hứng bản tin chạy
+            # nền của agent. run_bulletin._post_chat tìm theo nhãn này thay vì "phiên
+            # mới nhất" — phiên mới nhất đổi theo lượt chạy routine nên bản tin rơi
+            # lung tung, người dùng không thấy. "" = phiên thường. KHÔNG nằm trong
+            # `editable` của update_session — không đổi được qua API.
+            "kind": kind or "",
             # Per-conversation model override; "" = use the agent's own model.
             # `provider` is stored alongside because a model id alone is
             # ambiguous (9router serves OpenRouter-shaped ids like "ag/...").
