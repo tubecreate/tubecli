@@ -175,7 +175,10 @@ def main():
         start = src.index("async def _guest_allowed(")
         end = src.index("def _cors_error_headers(", start)
         body = src[start:end]
-        check("_guest_allowed không mở đường nào dưới /api/v1/auth/", "/api/v1/auth" not in body)
+        # "/api/v1/auth/" CÓ gạch chéo: đường auth thật (revoke/renew/login) mới bị cấm.
+        # "/api/v1/auth-manager/" là extension (gsheets nhóm) — prefix khác, cố ý chia sẻ,
+        # không được tính là mở /auth/. (Kiểm cũ thiếu gạch chéo nên báo nhầm.)
+        check("_guest_allowed không mở đường nào dưới /api/v1/auth/", "/api/v1/auth/" not in body)
         check("_guest_allowed kết thúc bằng return False (deny mặc định)",
               body.rstrip().endswith("return False"), body.rstrip()[-40:])
 

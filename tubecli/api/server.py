@@ -208,6 +208,7 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
         "/api/v1/file-manager/xlsx/cells",
         "/api/v1/file-manager/xlsx/format",
         "/api/v1/file-manager/xlsx/merge",
+        "/api/v1/file-manager/xlsx/sheet",   # thêm trang tính (tab mới) — XlsxAddSheetRequest cũng mang `path`
     ):
         try:
             from tubecli.core import auth
