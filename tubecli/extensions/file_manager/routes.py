@@ -675,13 +675,14 @@ class XlsxFormatRequest(BaseModel):
     fontSize: Optional[int] = None
     align: Optional[str] = None
     bg: Optional[str] = None
+    clear: Optional[bool] = None     # True = xoá sạch định dạng vùng
 
 
 @_shared.post("/xlsx/format")
 async def api_xlsx_format(req: XlsxFormatRequest):
     fmt = {k: v for k, v in (("bold", req.bold), ("italic", req.italic),
                              ("fontSize", req.fontSize), ("align", req.align),
-                             ("bg", req.bg)) if v is not None}
+                             ("bg", req.bg), ("clear", req.clear)) if v is not None}
     svc = _get_service()
     try:
         return {"success": True, **svc.format_sheet_cells(req.path, req.sheet or None, req.range, fmt)}

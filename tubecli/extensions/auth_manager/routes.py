@@ -273,6 +273,7 @@ class GSheetsFormatRequest(BaseModel):
     fontSize: Optional[int] = None
     align: Optional[str] = None      # left | center | right
     bg: Optional[str] = None         # "#fff3cd"
+    clear: Optional[bool] = None     # True = xoá sạch định dạng vùng (bỏ qua các field trên)
 
 
 class GSheetsMergeRequest(BaseModel):
@@ -429,7 +430,7 @@ async def api_gsheets_format(request: Request, sheet_id: str, req: GSheetsFormat
         raise HTTPException(400, "cred_id is required")
     fmt = {k: v for k, v in (("bold", req.bold), ("italic", req.italic),
                              ("fontSize", req.fontSize), ("align", req.align),
-                             ("bg", req.bg)) if v is not None}
+                             ("bg", req.bg), ("clear", req.clear)) if v is not None}
     try:
         return await asyncio.to_thread(gsheets.format_cells, req.cred_id, sheet_id,
                                        req.tab, req.range, fmt)

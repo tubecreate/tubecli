@@ -409,6 +409,15 @@ def format_cells(cred_id: str, sheet_id: str, tab: str, rng: str, fmt: dict) -> 
     cells = split_range(rng)[1] or rng
     if not cells:
         raise GSheetsError(400, "range is required")
+    # Xoá sạch định dạng: userEnteredFormat rỗng + fields cả cụm → Google trả ô về
+    # mặc định (bỏ đậm/nghiêng/cỡ/màu chữ/màu nền/căn lề). Khác bản áp từng field
+    # (mask hẹp) nên xử lý riêng, trước.
+    if fmt.get("clear"):
+        _request(cred_id, "POST", "/" + sheet_id + ":batchUpdate", body={"requests": [{
+            "repeatCell": {"range": grid_range(gid, cells),
+                           "cell": {"userEnteredFormat": {}},
+                           "fields": "userEnteredFormat"}}]})
+        return {"tab": tab, "range": cells, "applied": ["userEnteredFormat(clear)"]}
     text, cell, fields = {}, {}, []
     if "bold" in fmt:
         text["bold"] = bool(fmt["bold"])

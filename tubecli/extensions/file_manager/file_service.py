@@ -983,6 +983,12 @@ class FileService:
             for rr in range(r0, r1 + 1):
                 for cc in range(c0, c1 + 1):
                     cell = ws.cell(row=rr, column=cc)
+                    if fmt.get("clear"):
+                        # Xoá sạch định dạng ô: font/căn lề/nền về mặc định.
+                        cell.font = Font()
+                        cell.alignment = Alignment()
+                        cell.fill = PatternFill()
+                        continue
                     if any(k in fmt for k in ("bold", "italic", "fontSize")):
                         f = copy(cell.font) if cell.font else Font()
                         if "bold" in fmt:
