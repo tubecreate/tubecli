@@ -23,6 +23,7 @@ function requirePlugin() {
 
 import fs from 'fs-extra';
 import path from 'path';
+import os from 'os';
 import axios from 'axios';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -2199,6 +2200,10 @@ export class BrowserManager {
         // We use chromium.launchPersistentContext with the ShardX executable
         try {
             const { chromium } = await import('playwright');
+            // RAM ngay TRƯỚC lúc spawn: các lượt chết kiểu "log đứt sau Spawning"
+            // là SIGKILL không kịp in gì — dòng này + giấy khai tử của watcher (Python)
+            // cho phép đối chiếu "chết vì hết RAM" mà không phải SSH.
+            try { console.log(`[ShardX] RAM free ${(os.freemem() / 1048576) | 0}MB / total ${(os.totalmem() / 1048576) | 0}MB`); } catch (e) {}
             console.log(`[ShardX] Spawning: ${shardxExePath}`);
             const context = await chromium.launchPersistentContext(profilePath, {
                 executablePath: shardxExePath,

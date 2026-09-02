@@ -454,6 +454,13 @@ class BrowserProcessManager:
         # -> list_running; holding it across a write would put disk latency on the
         # scheduling path.
         #
+        # Giấy khai tử vào CUỐI log TRƯỚC khi đọc tail: lượt chết kiểu "log đứt
+        # ngay sau [ShardX] Spawning:" là tiến trình bị SIGKILL (thường OOM killer
+        # lúc Chromium khởi động ngốn RAM) — Node không kịp in gì, cũng không thể
+        # tự log cái chết của mình. Watcher là kẻ duy nhất cầm return_code: ghi
+        # nốt outcome + diễn giải tín hiệu + RAM + dấu OOM kernel, để tab Hoạt
+        # động luôn kể được VÌ SAO chết, không phải SSH đoán mò.
+        self._append_postmortem(log_path, outcome, return_code)
         # Đọc log MỘT lần ở đây, trước khi đóng sổ: đây là chỗ DUY NHẤT luôn thấy
         # cả tiến trình kết thúc lẫn toàn bộ log của nó. Hai chỗ gọi cũ đều hụt —
         # /log/{profile} chỉ chạy khi có người bấm xem, còn nhánh crash trong
@@ -472,6 +479,62 @@ class BrowserProcessManager:
             note = (note + " · " + refine_note) if note else refine_note
         self._record_run_end(run_id, agent_id, instance_id, outcome, return_code,
                              started_at, log_path, profile, warnings, note, work)
+
+    def _append_postmortem(self, log_path, outcome, return_code):
+        """Ghi "giấy khai tử" vào cuối log của lượt: outcome + return_code + diễn
+        giải tín hiệu + RAM còn + (best-effort) dòng OOM gần nhất từ kernel.
+
+        Best-effort tuyệt đối — mọi lỗi tự nuốt. Bảng dịch tín hiệu: Python trả
+        returncode ÂM khi con chết vì signal (-9=SIGKILL), còn 128+n khi shell
+        trung gian dịch lại (137=128+9). SIGKILL gần như luôn là OOM killer trên
+        VPS nhỏ lúc Chromium khởi động; SIGTERM là có ai đó chủ động dừng."""
+        if not log_path:
+            return
+        try:
+            sig = ""
+            try:
+                rc = int(return_code)
+                if rc in (-9, 137):
+                    sig = "SIGKILL — bị giết từ ngoài, thường là OOM killer (hết RAM) lúc Chromium khởi động"
+                elif rc in (-15, 143):
+                    sig = "SIGTERM — bị yêu cầu dừng từ bên ngoài"
+                elif rc in (-11, 139):
+                    sig = "SIGSEGV — crash (segfault)"
+                elif rc in (-6, 134):
+                    sig = "SIGABRT — abort"
+            except Exception:
+                rc = return_code
+            lines = ["", "[watcher] === POST-MORTEM ===",
+                     "[watcher] outcome=%s return_code=%s%s" % (
+                         outcome, return_code, (" (%s)" % sig) if sig else "")]
+            # RAM lúc khám nghiệm — sau cái chết nhưng vẫn nói lên máy có đang
+            # cạn không (Chromium mồ côi/lượt khác còn ăn RAM thì số này thấp).
+            try:
+                mi = {}
+                with open("/proc/meminfo", encoding="ascii", errors="replace") as f:
+                    for ln in f:
+                        k, _, v = ln.partition(":")
+                        mi[k.strip()] = " ".join(v.split())
+                lines.append("[watcher] RAM: MemAvailable=%s / MemTotal=%s · SwapFree=%s" % (
+                    mi.get("MemAvailable", "?"), mi.get("MemTotal", "?"), mi.get("SwapFree", "?")))
+            except Exception:
+                pass
+            if sig.startswith("SIGKILL"):
+                # Bằng chứng OOM từ kernel nếu đọc được (Ubuntu thường cho phép).
+                try:
+                    import subprocess as _sp
+                    r = _sp.run(["dmesg", "-T"], capture_output=True, text=True, timeout=5)
+                    ooms = [l for l in (r.stdout or "").splitlines()
+                            if "out of memory" in l.lower() or "oom-kill" in l.lower()
+                            or "oom_reaper" in l.lower()]
+                    for l in ooms[-3:]:
+                        lines.append("[watcher] kernel: " + l.strip()[:220])
+                except Exception:
+                    pass
+            with open(log_path, "a", encoding="utf-8", errors="replace") as f:
+                f.write("\n".join(lines) + "\n")
+        except Exception:
+            pass
 
     # Dấu mốc do browser_manager.js in ra. ĐỔI CHUỖI Ở ĐÂY LÀ PHẢI ĐỔI CẢ BÊN IN.
     _MARK_BAS_OK = "BAS_LAUNCH_OK"
