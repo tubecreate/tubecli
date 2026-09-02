@@ -249,6 +249,268 @@ async def api_import_cookies(name: str, request: Request):
     except Exception as e:
         raise HTTPException(500, f"Failed to import cookies: {e}")
 
+# ── Cookie theo NHÀ CUNG CẤP — xuất/nhập từ phiên trình duyệt đang chạy ──────
+# open.js không nạp cookies.json khi mở, nên cookie chỉ sống trong SESSION. Ta
+# đọc/ghi cookie THẬT qua CDP (cookie_tool.cjs nối vào phiên live). Nhóm theo
+# nhà cung cấp bằng hậu tố domain — người dùng chọn Google/YouTube/FB/TikTok/X.
+_COOKIE_PROVIDERS = {
+    "google":   [".google.com", "accounts.google.com", "myaccount.google.com", ".gstatic.com"],
+    "youtube":  [".youtube.com", "youtube.com", "studio.youtube.com", ".googlevideo.com", ".ytimg.com"],
+    "facebook": [".facebook.com", "facebook.com", ".fbcdn.net", ".messenger.com"],
+    "tiktok":   [".tiktok.com", "tiktok.com", ".tiktokcdn.com", ".byteoversea.com"],
+    "x":        [".x.com", "x.com", ".twitter.com", "twitter.com", ".twimg.com"],
+}
+
+
+def _provider_of(domain):
+    """Cookie domain -> tên nhà cung cấp (hoặc None). Khớp hậu tố, ưu tiên cụ
+    thể trước: youtube trước google vì .youtube.com không thuộc google."""
+    d = str(domain or "").lower().lstrip(".")
+    for prov in ("youtube", "facebook", "tiktok", "x", "google"):
+        for suf in _COOKIE_PROVIDERS[prov]:
+            base = suf.lstrip(".")
+            if d == base or d.endswith("." + base):
+                return prov
+    return None
+
+
+def _read_live_cookies(name):
+    """Đọc cookie THẬT của phiên đang chạy qua cookie_tool.cjs. Trả (cookies, err).
+
+    err != None nghĩa là không đọc được (thường vì browser chưa mở) — client
+    hiện thông báo 'mở trình duyệt trước', không phải lỗi hệ thống."""
+    import subprocess, json as _json
+    port, _mt = _devtools_active_port(name)
+    if not port or not _cdp_alive(port):
+        return None, "no_session"
+    tool = os.path.join(os.path.dirname(__file__), "cookie_tool.cjs")
+    try:
+        r = subprocess.run(["node", tool, "--cdp", str(port), "--action", "export"],
+                           capture_output=True, text=True, timeout=25)
+    except Exception as e:
+        return None, str(e)
+    out = r.stdout or ""
+    i, j = out.find("__COOKIE_RESULT__"), out.find("__COOKIE_END__")
+    if i < 0 or j < 0:
+        return None, (r.stderr or "parse_failed")[:200]
+    try:
+        return _json.loads(out[i + len("__COOKIE_RESULT__"):j]), None
+    except Exception as e:
+        return None, str(e)
+
+
+@router.get("/profiles/{name}/cookies/providers")
+async def api_cookie_providers(name: str):
+    """Mỗi nhà cung cấp đang có bao nhiêu cookie trong phiên — để vẽ chip có số."""
+    cookies, err = _read_live_cookies(name)
+    if err:
+        return {"session": False, "reason": err, "providers": {}, "total": 0}
+    counts = {p: 0 for p in _COOKIE_PROVIDERS}
+    for c in cookies:
+        p = _provider_of(c.get("domain"))
+        if p:
+            counts[p] += 1
+    return {"session": True, "providers": counts, "total": len(cookies)}
+
+
+class CookieExportRequest(BaseModel):
+    providers: List[str] = []      # rỗng hoặc ['all'] = tất cả
+
+
+@router.post("/profiles/{name}/cookies/export")
+async def api_cookie_export(name: str, req: CookieExportRequest):
+    """Trả về cookie (đã lọc theo nhà cung cấp đã chọn) để client tải file .json."""
+    cookies, err = _read_live_cookies(name)
+    if err:
+        raise HTTPException(409, "Chưa đọc được cookie — hãy mở trình duyệt của hồ sơ này trước.")
+    sel = set(p.lower() for p in (req.providers or []))
+    if not sel or "all" in sel:
+        out = cookies
+    else:
+        out = [c for c in cookies if _provider_of(c.get("domain")) in sel]
+    return {"count": len(out), "cookies": out}
+
+
+class CookieImportRequest(BaseModel):
+    cookies: List[Dict[str, Any]] = []
+    providers: List[str] = []      # nếu có: chỉ nhập cookie của các provider này
+
+
+@router.post("/profiles/{name}/cookies/import")
+async def api_cookie_import(name: str, req: CookieImportRequest):
+    """Nhập cookie vào phiên đang chạy (MERGE — không xoá cookie khác). Cookie có
+    hiệu lực NGAY vì đi thẳng vào session qua CDP."""
+    import subprocess, json as _json, tempfile
+    port, _mt = _devtools_active_port(name)
+    if not port or not _cdp_alive(port):
+        raise HTTPException(409, "Hãy mở trình duyệt của hồ sơ này trước khi nhập cookie.")
+    cks = req.cookies or []
+    sel = set(p.lower() for p in (req.providers or []))
+    if sel and "all" not in sel:
+        cks = [c for c in cks if _provider_of(c.get("domain")) in sel]
+    if not cks:
+        raise HTTPException(400, "Không có cookie nào để nhập.")
+    tool = os.path.join(os.path.dirname(__file__), "cookie_tool.cjs")
+    tf = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    try:
+        _json.dump(cks, tf, ensure_ascii=False)
+        tf.close()
+        r = subprocess.run(["node", tool, "--cdp", str(port), "--action", "import", "--file", tf.name],
+                           capture_output=True, text=True, timeout=25)
+        out = r.stdout or ""
+        i, j = out.find("__COOKIE_RESULT__"), out.find("__COOKIE_END__")
+        if i < 0:
+            raise HTTPException(500, "Nhập cookie lỗi: " + (r.stderr or "")[:200])
+        res = _json.loads(out[i + len("__COOKIE_RESULT__"):j])
+        return {"status": "imported", "count": res.get("imported", len(cks))}
+    finally:
+        try:
+            os.unlink(tf.name)
+        except Exception:
+            pass
+
+
+# ── Tiện ích Chrome (.crx) nạp vào profile ──────────────────────────────────
+# open.js đã có --load-extension (dòng ~1099). Ở đây ta lưu extension đã GIẢI NÉN
+# vào <profile>/_extensions/<id>/ và một _index.json ghi bật/tắt. Extension chỉ
+# nạp lúc MỞ trình duyệt (giới hạn của Chromium — không hot-load), nên bật/tắt là
+# cho lần mở sau. process_manager._build_args đọc danh sách bật rồi truyền path.
+def _ext_dir(profile):
+    return os.path.join(_profile_storage_dir(profile), "_extensions")
+
+
+def _ext_index_path(profile):
+    return os.path.join(_ext_dir(profile), "_index.json")
+
+
+def _ext_load_index(profile):
+    import json as _json
+    try:
+        with open(_ext_index_path(profile), encoding="utf-8") as f:
+            return _json.load(f)
+    except Exception:
+        return {}
+
+
+def _ext_save_index(profile, idx):
+    import json as _json
+    os.makedirs(_ext_dir(profile), exist_ok=True)
+    with open(_ext_index_path(profile), "w", encoding="utf-8") as f:
+        _json.dump(idx, f, ensure_ascii=False, indent=2)
+
+
+def enabled_extension_paths(profile):
+    """Đường dẫn các extension ĐANG BẬT của profile — process_manager gọi để
+    truyền --load-extension. Bỏ qua thư mục đã mất (index lệch)."""
+    idx = _ext_load_index(profile)
+    out = []
+    for eid, meta in idx.items():
+        if not meta.get("enabled", True):
+            continue
+        d = os.path.join(_ext_dir(profile), eid)
+        if os.path.isdir(d) and os.path.exists(os.path.join(d, "manifest.json")):
+            out.append(d)
+    return out
+
+
+def _unpack_crx(data, dest):
+    """.crx (Cr24 header + chữ ký + zip) HOẶC .zip thuần → giải nén vào dest.
+    Tìm magic 'PK' để bỏ phần header của crx rồi coi phần còn lại là zip."""
+    import zipfile, io as _io
+    idx = data.find(b"PK")
+    if idx < 0:
+        raise ValueError("Không phải tệp .crx/.zip hợp lệ")
+    os.makedirs(dest, exist_ok=True)
+    with zipfile.ZipFile(_io.BytesIO(data[idx:])) as z:
+        # chặn zip-slip: không cho tên file thoát khỏi dest
+        for n in z.namelist():
+            p = os.path.realpath(os.path.join(dest, n))
+            if not p.startswith(os.path.realpath(dest) + os.sep) and p != os.path.realpath(dest):
+                raise ValueError("Tệp trong .crx có đường dẫn không an toàn: " + n)
+        z.extractall(dest)
+
+
+def _read_manifest(dest):
+    import json as _json
+    try:
+        with open(os.path.join(dest, "manifest.json"), encoding="utf-8") as f:
+            m = _json.load(f)
+        name = m.get("name") or "Extension"
+        # name có thể là "__MSG_appName__" (i18n) — không dịch được ở đây, để thô.
+        return {"name": str(name)[:80], "version": str(m.get("version") or ""),
+                "description": str(m.get("description") or "")[:160]}
+    except Exception:
+        return {"name": "Extension", "version": "", "description": ""}
+
+
+@router.get("/profiles/{name}/extensions")
+async def api_list_extensions(name: str):
+    idx = _ext_load_index(name)
+    items = []
+    for eid, meta in sorted(idx.items(), key=lambda x: (x[1].get("name") or "").lower()):
+        items.append({"id": eid, "name": meta.get("name") or eid,
+                      "version": meta.get("version") or "", "enabled": bool(meta.get("enabled", True)),
+                      "description": meta.get("description") or ""})
+    return {"extensions": items, "count": len(items),
+            "note": "Tiện ích áp dụng khi MỞ trình duyệt lần tới."}
+
+
+@router.post("/profiles/{name}/extensions")
+async def api_add_extension(name: str, file: UploadFile = File(...)):
+    """Nạp một tệp .crx (hoặc .zip đã giải nén sẵn của extension)."""
+    import uuid as _uuid
+    if not await run_in_threadpool(lambda: os.path.isdir(_profile_storage_dir(name))):
+        raise HTTPException(404, "Không có hồ sơ '%s'" % name)
+    data = await file.read()
+    if len(data) > 60 * 1024 * 1024:
+        raise HTTPException(413, "Tệp extension quá lớn (>60MB).")
+    eid = _uuid.uuid4().hex[:12]
+    dest = os.path.join(_ext_dir(name), eid)
+    try:
+        await run_in_threadpool(_unpack_crx, data, dest)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(500, "Giải nén thất bại: " + str(e))
+    meta = await run_in_threadpool(_read_manifest, dest)
+    if not meta:
+        import shutil
+        await run_in_threadpool(lambda: shutil.rmtree(dest, ignore_errors=True))
+        raise HTTPException(400, "Không đọc được manifest.json — tệp không phải extension hợp lệ.")
+    idx = _ext_load_index(name)
+    idx[eid] = {"name": meta["name"], "version": meta["version"],
+                "description": meta["description"], "enabled": True}
+    _ext_save_index(name, idx)
+    return {"status": "added", "id": eid, **meta, "enabled": True}
+
+
+class ExtToggleRequest(BaseModel):
+    enabled: bool
+
+
+@router.post("/profiles/{name}/extensions/{ext_id}/toggle")
+async def api_toggle_extension(name: str, ext_id: str, req: ExtToggleRequest):
+    idx = _ext_load_index(name)
+    if ext_id not in idx:
+        raise HTTPException(404, "Không có extension này")
+    idx[ext_id]["enabled"] = bool(req.enabled)
+    _ext_save_index(name, idx)
+    return {"status": "ok", "id": ext_id, "enabled": bool(req.enabled)}
+
+
+@router.delete("/profiles/{name}/extensions/{ext_id}")
+async def api_remove_extension(name: str, ext_id: str):
+    import shutil
+    idx = _ext_load_index(name)
+    if ext_id in idx:
+        del idx[ext_id]
+        _ext_save_index(name, idx)
+    d = os.path.join(_ext_dir(name), ext_id)
+    if os.path.isdir(d):
+        await run_in_threadpool(lambda: shutil.rmtree(d, ignore_errors=True))
+    return {"status": "removed", "id": ext_id}
+
+
 @router.delete("/profiles/{name}/cookies")
 async def api_delete_cookies(name: str):
     """Delete cookies.json for a profile."""

@@ -343,6 +343,18 @@ class BrowserProcessManager:
         if headless:
             args.append("--headless")
         args.extend(["--ai-model", ai_model])
+
+        # Tiện ích Chrome (.crx) đang BẬT của profile → --load-extension. open.js
+        # tự thêm cả --disable-extensions-except. Extension chỉ nạp lúc mở nên đây
+        # là điểm duy nhất áp dụng. Lỗi đọc index không được chặn cả phiên.
+        try:
+            from tubecli.extensions.browser.routes import enabled_extension_paths
+            _exts = enabled_extension_paths(profile)
+            if _exts:
+                args.extend(["--load-extension", ",".join(_exts)])
+                logger.info(f"[Browser] Nạp {len(_exts)} tiện ích cho '{profile}'")
+        except Exception as _ee:
+            logger.warning(f"[Browser] Bỏ qua tiện ích: {_ee}")
         
         # Auto-login: load google_account from profile config
         try:
