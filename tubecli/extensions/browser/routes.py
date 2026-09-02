@@ -274,14 +274,32 @@ def _provider_of(domain):
     return None
 
 
+def _live_cdp_port(name):
+    """Cổng CDP của phiên live trên profile này, dùng CHÍNH nguồn mà script runner
+    dùng: preview_cdp.json (đã kiểm profile/pid/alive) trước, DevToolsActivePort
+    thô sau. Trước đây cookie chỉ đọc file thô — mà preview không phải lúc nào
+    cũng ghi nó ở đúng chỗ, nên đọc được cookie thất bại dù browser đang mở."""
+    try:
+        from tubecli.extensions.browser_scripts.group_scripts import cdp_port_of
+        p = cdp_port_of(name)
+        if p:
+            return int(p)
+    except Exception:
+        pass
+    port, _mt = _devtools_active_port(name)
+    if port and _cdp_alive(port):
+        return int(port)
+    return 0
+
+
 def _read_live_cookies(name):
     """Đọc cookie THẬT của phiên đang chạy qua cookie_tool.cjs. Trả (cookies, err).
 
     err != None nghĩa là không đọc được (thường vì browser chưa mở) — client
     hiện thông báo 'mở trình duyệt trước', không phải lỗi hệ thống."""
     import subprocess, json as _json
-    port, _mt = _devtools_active_port(name)
-    if not port or not _cdp_alive(port):
+    port = _live_cdp_port(name)
+    if not port:
         return None, "no_session"
     tool = os.path.join(os.path.dirname(__file__), "cookie_tool.cjs")
     try:
@@ -341,8 +359,8 @@ async def api_cookie_import(name: str, req: CookieImportRequest):
     """Nhập cookie vào phiên đang chạy (MERGE — không xoá cookie khác). Cookie có
     hiệu lực NGAY vì đi thẳng vào session qua CDP."""
     import subprocess, json as _json, tempfile
-    port, _mt = _devtools_active_port(name)
-    if not port or not _cdp_alive(port):
+    port = _live_cdp_port(name)
+    if not port:
         raise HTTPException(409, "Hãy mở trình duyệt của hồ sơ này trước khi nhập cookie.")
     cks = req.cookies or []
     sel = set(p.lower() for p in (req.providers or []))
