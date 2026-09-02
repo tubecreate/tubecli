@@ -68,9 +68,11 @@ def main():
     chk("nghe thử giọng", "/api/v1/capcut-tts/preview/xyz", "GET", ctrl, True)
     chk("tổng hợp TTS", "/api/v1/capcut-tts/synthesize", "POST", ctrl, True)
     chk("trạng thái", "/api/v1/capcut-tts/status", "GET", ctrl, True)
+    # ĐỌC quản lý cho qua: UI cần liệt kê tài khoản để điền dropdown chọn giọng.
+    chk("đọc danh sách tài khoản (điền dropdown)", "/api/v1/capcut-tts/accounts", "GET", ctrl, True)
+    chk("đọc region", "/api/v1/capcut-tts/region", "GET", ctrl, True)
 
-    # ── QUẢN LÝ bị cấm (không để guest đụng tài khoản/máy chủ của chủ) ──
-    chk("liệt kê tài khoản (lộ email)", "/api/v1/capcut-tts/accounts", "GET", ctrl, False)
+    # ── GHI quản lý bị cấm (không để guest đụng tài khoản/máy chủ của chủ) ──
     chk("thêm tài khoản", "/api/v1/capcut-tts/accounts", "POST", ctrl, False)
     chk("XOÁ tài khoản chủ", "/api/v1/capcut-tts/accounts/a@b.com", "DELETE", ctrl, False)
     chk("bật/tắt tài khoản", "/api/v1/capcut-tts/accounts/a@b.com/toggle", "POST", ctrl, False)

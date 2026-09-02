@@ -381,12 +381,18 @@ async def _guest_allowed(request: Request, scope: dict) -> bool:
                 if api_ns and (p == api_ns or p.startswith(api_ns + "/")):
                     sub = p[len(api_ns):].strip("/").split("/")
                     first = sub[0].lower() if sub and sub[0] else ""
-                    if first in _MANAGE or m == "DELETE":
-                        return False                        # quản lý tài khoản/máy chủ, xoá → CẤM
+                    # ĐỌC (GET) cho qua hết — kể cả /accounts, /region: UI cần LIỆT KÊ
+                    # tài khoản để điền dropdown chọn giọng/tổng hợp và hiện cấu hình.
+                    # Chỉ là đọc, không đổi gì (chặn GET /accounts thì dropdown rỗng,
+                    # người nhận không tổng hợp được — chính là lỗi "Outside scope").
                     if m in ("GET", "HEAD"):
-                        return True                         # đọc/dùng (languages/speakers/preview/history/status)
+                        return True
+                    # GHI: mọi DELETE và thao tác QUẢN LÝ (thêm/sửa/bật-tắt tài khoản,
+                    # đổi region, restart server) → CẤM. Chỉ cho hành động DÙNG (synthesize).
+                    if m == "DELETE" or first in _MANAGE:
+                        return False
                     if m in ("POST", "PUT") and access != "view":
-                        return True                         # hành động (synthesize) — cần quyền điều khiển
+                        return True
 
     return False
 
