@@ -4925,9 +4925,53 @@ async def system_check_update():
         raise HTTPException(500, f"Failed to check for updates: {e}")
 
 
+def _under_systemd() -> bool:
+    """Tien trinh nay co dang do systemd trong khong?
+
+    Quan trong vi cach khoi dong lai cua ta la TU THOAT: unit tubecli.service
+    co Restart=always + RestartSec=5 nen systemd dung lai — khong can sudo,
+    khong can systemctl. Nhung neu chay tay (dev, docker, tmux) thi thoat =
+    CHET HAN. Hai bien nay systemd dat cho tien trinh con cua no.
+    """
+    return bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
+
+
+def _schedule_restart(delay: float = 2.0) -> bool:
+    """Hen khoi dong lai SAU KHI response da gui xong. True = se khoi dong lai.
+
+    Fail-safe: chi tu thoat khi biet chac systemd se dung lai. Khong chac thi
+    thu systemctl; van khong duoc thi KHONG thoat va noi that cho nguoi dung —
+    tha bat ho restart tay con hon de may chet im lim.
+    """
+    import threading, subprocess, time as _t
+
+    if _under_systemd():
+        def _bye():
+            _t.sleep(delay)
+            os._exit(0)          # systemd RestartSec=5 dung lai
+        threading.Thread(target=_bye, daemon=True).start()
+        return True
+
+    for cmd in (["systemd-run", "--no-block", "systemctl", "restart", "tubecli"],
+                ["sudo", "systemd-run", "--no-block", "systemctl", "restart", "tubecli"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, timeout=10)
+            if r.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
+
+
 @app.post("/api/v1/system/update")
-async def system_update():
-    """Pull latest code from git and reinstall dependencies."""
+async def system_update(restart: bool = True):
+    """Keo code moi roi (mac dinh) TU KHOI DONG LAI.
+
+    Truoc day route nay dung o "da pull xong, moi ban restart tay" — nen tren
+    cloud van phai dua nguoi dung mot dong lenh SSH. Nay no di not buoc cuoi:
+    pull thanh cong -> hen thoat -> systemd dung lai. Chi restart khi pull
+    THANH CONG; pull hong thi giu nguyen may dang chay.
+    """
     import subprocess, sys
     from tubecli import __version__
     from tubecli.config import BASE_DIR
@@ -4961,12 +5005,18 @@ async def system_update():
         except Exception:
             pass
 
+        # Buoc cuoi: khoi dong lai de code moi co hieu luc. Hen SAU khi
+        # response roi khoi day, neu khong client chi nhan mot cu ngat.
+        will_restart = _schedule_restart() if restart else False
         return {
             "status": "success",
             "old_version": old_version,
             "new_version": new_version,
             "git_output": (pr["output"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else ""))[:500],
-            "message": "Updated successfully! Please restart the API server to apply changes.",
+            "restarting": will_restart,
+            "restart_seconds": 8 if will_restart else 0,
+            "message": ("Updated. The server is restarting..." if will_restart
+                        else "Updated. Restart the server to apply the changes."),
         }
     except Exception as e:
         raise HTTPException(500, f"Update failed: {e}")
