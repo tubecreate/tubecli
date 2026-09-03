@@ -96,6 +96,7 @@ class BrowserProcessManager:
         session_minutes: Optional[int] = None,
         run_id: Optional[str] = None,
         agent_id: Optional[str] = None,
+        scripted_only: bool = False,
     ) -> Dict[str, Any]:
         """
         Spawn a new browser process.
@@ -116,7 +117,7 @@ class BrowserProcessManager:
         ai_model = resolve_browser_ai_model(ai_model)
 
         # Build command — expects browser-launcher in PATH or data dir
-        args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes)
+        args = self._build_args(profile, prompt, headless, manual, ai_model, url, instance_id, context, session_minutes, scripted_only)
         # Redacted at creation. _build_args puts --login-password on the argv for
         # a profile with a saved login, and cmd_str is display-only — it is never
         # what gets executed (args is). Before this, the account password went to
@@ -303,7 +304,7 @@ class BrowserProcessManager:
             debug_info["exception"] = str(e)
             raise
 
-    def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id, context=None, session_minutes=None):
+    def _build_args(self, profile, prompt, headless, manual, ai_model, url, instance_id, context=None, session_minutes=None, scripted_only=False):
         """Build command line arguments for browser launcher."""
         import os
         try:
@@ -333,9 +334,13 @@ class BrowserProcessManager:
                 logger.warning(f"[Browser] Failed to write context file: {e}")
         if prompt:
             args.extend(["--prompt", prompt])
-            # Use dynamic session_minutes, clamped between 2-10 minutes; default 5
-            duration_min = max(2, min(10, int(session_minutes))) if session_minutes else 5
-            args.extend(["--session", "--session-duration", str(duration_min)])
+            # scripted_only: prompt là QUY TRÌNH thuần (vd check-email → read_gmail).
+            # KHÔNG bật --session → open.js chạy đúng chuỗi bước script rồi thoát,
+            # KHÔNG vòng AI lái từng bước (tối ưu quota + không lang thang search).
+            if not scripted_only:
+                # Use dynamic session_minutes, clamped between 2-10 minutes; default 5
+                duration_min = max(2, min(10, int(session_minutes))) if session_minutes else 5
+                args.extend(["--session", "--session-duration", str(duration_min)])
         elif manual:
             args.append("--manual")
         if url:

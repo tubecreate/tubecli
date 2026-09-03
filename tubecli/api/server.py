@@ -1059,28 +1059,14 @@ def build_email_prompt(behavior, time_period, topics, recipients):
         return prompt, None
 
     if behavior == "checkEmails":
-        # KHÔNG phải "search" — đây là ĐỌC HIỂU hộp thư. Nói cho AI Ý NGHĨA của
-        # việc check mail (nắm tình hình, tự phân biệt cái gì đáng đọc) thay vì
-        # một chuỗi bước máy móc — để nó tự quyết, và TUYỆT ĐỐI không gõ gì vào ô
-        # tìm kiếm (bản cũ terse "read gmail unread" bị engine hiểu nhầm thành
-        # search, nhồi từ khoá vào ô tìm Gmail). Nội dung đọc được sẽ vào kho
-        # Data collection (bật enable_scraping cho lượt này) để agent NHỚ về sau.
-        prompt = (
-            "Go to mail.google.com and open the Inbox. Do NOT type anything into the search box "
-            "and do NOT open Gmail search — you are checking the inbox, not searching. "
-            "Scan the most recent emails, paying attention to the UNREAD ones and any that look "
-            f"important for someone whose work is about {topic_summary}: a message from a real "
-            "person, an order or payment, a reply to something, a deadline or request — not "
-            "newsletters, promotions or notifications. Open and actually READ the important ones "
-            "one at a time to understand each: who sent it, what they want, and whether it needs a "
-            "reply or an action later. Read each for a few seconds so its content is captured. "
-            "READ ONLY the email text on the page. Absolutely do NOT click any link inside an email, "
-            "do NOT download or open any attachment or file, and do NOT click action buttons inside "
-            "the message body (unsubscribe, verify, view, open, confirm, pay, etc.) — links and "
-            "attachments in email can be unsafe, so just read the visible text and move on. "
-            "If nothing looks new or important, just read the top few and stop. You are ONLY "
-            "reading to stay informed — do not reply, compose, forward, delete or send anything."
-        )
+        # TỐI ƯU QUOTA: đây là QUY TRÌNH LẶP (mở hộp thư → đọc N mail → trích nội
+        # dung) → chạy bằng SCRIPT read_gmail, KHÔNG cần vòng AI lái từng bước.
+        # Prompt cấu trúc ("... , then read gmail ...") kích đúng fast-path parse
+        # trong open.js → [navigate, read_gmail(unread)] (0 lượt AI planning), rồi
+        # caller ĐẶT scripted_only để KHÔNG bật session-AI (không lang thang đi
+        # search từ khoá vào Gmail như bản trước). read_gmail chỉ trích TEXT +
+        # liệt kê link dạng chữ — không bao giờ bấm link/tải đính kèm.
+        prompt = "navigate to mail.google.com, then read gmail unread"
         return prompt, None
 
     if behavior == "sendReport":
@@ -1744,6 +1730,9 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     session_minutes=session_minutes,
                     run_id=run_id,
                     agent_id=agent.id,
+                    # check-email là quy trình thuần → chạy chỉ bằng script
+                    # read_gmail, tắt vòng session-AI (tối ưu quota).
+                    scripted_only=(behavior == "checkEmails"),
                 )
                 spawned = True
                 instance_id = result.get("instance_id", "")
