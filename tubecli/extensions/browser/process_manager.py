@@ -839,9 +839,12 @@ class BrowserProcessManager:
                 except Exception:
                     tail = None
 
+            # work= là thứ bảng Hoạt động dựa vào để kể "lượt này làm được gì";
+            # run_log.end vẫn nhận từ lâu nhưng chưa bao giờ được truyền (104 dòng
+            # end trên đĩa, 0 dòng có work).
             run_log.end(run_id, agent_id or "", outcome, return_code=return_code,
                         instance_id=instance_id, duration_sec=duration, log_tail=tail,
-                        warnings=warnings)
+                        warnings=warnings, work=work)
             # Bản tin một dòng vào chat (+ Telegram nếu agent có nối). Sau
             # run_log.end để dòng launch đã đầy đủ; tự nuốt mọi lỗi.
             try:

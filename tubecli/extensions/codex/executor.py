@@ -103,6 +103,12 @@ async def _run_registered_pipeline(
             run_download_task, url, payload.get("options") or {}, report, is_cancelled
         )
 
+    if kind == "content_video.digest":
+        from tubecli.extensions.content_video.pipeline import run_digest
+
+        logger.info(f"[Codex] running content_video digest for agent {payload.get('agent_id', '')!r}")
+        return await asyncio.to_thread(run_digest, payload, report, is_cancelled)
+
     logger.warning(f"[Codex] unknown pipeline kind {kind!r}; falling back to the agent")
     return None
 
@@ -112,7 +118,11 @@ def _task_kind(task: Dict[str, Any]):
     try:
         from tubecli.extensions.codex.manager import codex_manager
 
-        for ev in reversed(codex_manager.get_events(task["id"], limit=50)):
+        # Read the whole log, not the last 50 lines: a multi-step pipeline writes
+        # a couple of events per step, so after a few retries the `kind` event
+        # fell out of a 50-line window and the task silently became a chat turn.
+        # The file itself is pruned to 500 lines, so 1000 means "everything".
+        for ev in reversed(codex_manager.get_events(task["id"], limit=1000)):
             data = ev.get("data") or {}
             if data.get("kind"):
                 return data["kind"], data

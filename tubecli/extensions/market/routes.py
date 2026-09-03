@@ -734,10 +734,17 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
     import subprocess
     from tubecli.config import EXTENSIONS_EXTERNAL_DIR, DATA_DIR
 
-    try:
-        item_data = json_lib.loads(req.item_data) if isinstance(req.item_data, str) else req.item_data
-    except json_lib.JSONDecodeError:
-        raise HTTPException(400, "Invalid item_data JSON")
+    # Chợ trả item_data = "" khi chưa có gói trong kho (R2 thiếu object, hoặc item mới
+    # chỉ đăng metadata). Rỗng KHÔNG phải lỗi cú pháp — coi như {} rồi đi tiếp các
+    # đường lui bên dưới (tải từ chợ → git_url → nguồn cục bộ), để người dùng nhận
+    # được câu báo đúng bệnh thay vì "Invalid item_data JSON".
+    if isinstance(req.item_data, str) and not req.item_data.strip():
+        item_data = {}
+    else:
+        try:
+            item_data = json_lib.loads(req.item_data) if isinstance(req.item_data, str) else req.item_data
+        except json_lib.JSONDecodeError:
+            raise HTTPException(400, "Invalid item_data JSON")
 
     category = req.category
     name = req.item_name.replace(" ", "_").lower()
@@ -885,8 +892,9 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 shutil.rmtree(ext_dir, ignore_errors=True)
                 raise HTTPException(
                     500,
-                    "Could not install: extension source files not available. "
-                    "Please re-upload the extension with full file contents from the seller's machine."
+                    f"'{req.item_name}' chưa có gói file trên chợ (chỉ có phần mô tả), "
+                    "và máy này cũng không có bản nguồn để chép. Người bán cần đăng lại "
+                    "extension kèm toàn bộ file, hoặc bổ sung git_url cho sản phẩm."
                 )
 
         # Install pip requirements: from requirements.txt first, then manifest.dependencies
