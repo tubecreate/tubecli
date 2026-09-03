@@ -1074,6 +1074,10 @@ def build_email_prompt(behavior, time_period, topics, recipients):
             "newsletters, promotions or notifications. Open and actually READ the important ones "
             "one at a time to understand each: who sent it, what they want, and whether it needs a "
             "reply or an action later. Read each for a few seconds so its content is captured. "
+            "READ ONLY the email text on the page. Absolutely do NOT click any link inside an email, "
+            "do NOT download or open any attachment or file, and do NOT click action buttons inside "
+            "the message body (unsubscribe, verify, view, open, confirm, pay, etc.) — links and "
+            "attachments in email can be unsafe, so just read the visible text and move on. "
             "If nothing looks new or important, just read the top few and stop. You are ONLY "
             "reading to stay informed — do not reply, compose, forward, delete or send anything."
         )
