@@ -1058,6 +1058,27 @@ def build_email_prompt(behavior, time_period, topics, recipients):
         )
         return prompt, None
 
+    if behavior == "checkEmails":
+        # KHÔNG phải "search" — đây là ĐỌC HIỂU hộp thư. Nói cho AI Ý NGHĨA của
+        # việc check mail (nắm tình hình, tự phân biệt cái gì đáng đọc) thay vì
+        # một chuỗi bước máy móc — để nó tự quyết, và TUYỆT ĐỐI không gõ gì vào ô
+        # tìm kiếm (bản cũ terse "read gmail unread" bị engine hiểu nhầm thành
+        # search, nhồi từ khoá vào ô tìm Gmail). Nội dung đọc được sẽ vào kho
+        # Data collection (bật enable_scraping cho lượt này) để agent NHỚ về sau.
+        prompt = (
+            "Go to mail.google.com and open the Inbox. Do NOT type anything into the search box "
+            "and do NOT open Gmail search — you are checking the inbox, not searching. "
+            "Scan the most recent emails, paying attention to the UNREAD ones and any that look "
+            f"important for someone whose work is about {topic_summary}: a message from a real "
+            "person, an order or payment, a reply to something, a deadline or request — not "
+            "newsletters, promotions or notifications. Open and actually READ the important ones "
+            "one at a time to understand each: who sent it, what they want, and whether it needs a "
+            "reply or an action later. Read each for a few seconds so its content is captured. "
+            "If nothing looks new or important, just read the top few and stop. You are ONLY "
+            "reading to stay informed — do not reply, compose, forward, delete or send anything."
+        )
+        return prompt, None
+
     if behavior == "sendReport":
         clean = [str(r).strip() for r in (recipients or []) if str(r).strip()]
         if not clean:
@@ -1488,9 +1509,6 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         prompt = (f"Navigate to youtube.com, then search for '{base_query}', "
                   f"then click a video result, then watch for {watch_secs} seconds. "
                   f"Do NOT search again.")
-    elif behavior == "checkEmails":
-        prompt = (f"Navigate to mail.google.com, then read gmail unread, "
-                  f"then browse for {random.randint(60, 120)} seconds. Do NOT search.")
     elif behavior == "morningCheck":
         _lang = (str(getattr(agent, "language", "") or "").split("-")[0].lower())
         _sites = NEWS_SITES.get(_lang) or NEWS_SITES["en"]
@@ -1510,7 +1528,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     # send_report has no recipients, email_skip_reason is set and the run is
     # skipped below the same way a refused spawn is — we never email nobody.
     email_skip_reason = None
-    if behavior in ("replyEmail", "sendReport"):
+    if behavior in ("checkEmails", "replyEmail", "sendReport"):
         recipients = normalize_report_recipients(routine, persona)
         # Không tự điền người nhận + chủ máy BẬT allowRandomRecipient → gửi ngẫu
         # nhiên tới một email trong hệ thống (tài khoản Google của profile khác).
@@ -1546,7 +1564,10 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         "proxy_provider": getattr(agent, "proxy_provider", {"mode": "none"}),
         "avatar_type": getattr(agent, "avatar_type", "bot"),
         "avatar_color": getattr(agent, "avatar_color", "blue"),
-        "enable_scraping": getattr(agent, "enable_scraping", False),
+        # Check-email LUÔN lưu nội dung đọc được vào kho Data collection để agent
+        # NHỚ về sau (chính là điều người dùng muốn — đọc mail quan trọng rồi ghi
+        # lại), kể cả khi agent chưa bật thu thập cho việc lướt thường.
+        "enable_scraping": getattr(agent, "enable_scraping", False) or behavior == "checkEmails",
         "scraper_text_limit": getattr(agent, "scraper_text_limit", 10000),
         "language": getattr(agent, "language", "auto") or "auto",
     }
