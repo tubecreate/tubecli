@@ -1730,9 +1730,17 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                     session_minutes=session_minutes,
                     run_id=run_id,
                     agent_id=agent.id,
-                    # check-email là quy trình thuần → chạy chỉ bằng script
-                    # read_gmail, tắt vòng session-AI (tối ưu quota).
-                    scripted_only=(behavior == "checkEmails"),
+                    # scripted_only = chạy CHỈ bằng kịch bản (0 lượt AI), tắt vòng
+                    # session-AI. Quy tắc:
+                    #  - checkEmails: LUÔN script (read_gmail — không cần AI).
+                    #  - replyEmail/sendReport: LUÔN cần AI (soạn text) → không script.
+                    #  - còn lại (lướt/xem): script MẶC ĐỊNH, chỉ dùng AI khi chủ
+                    #    BẬT "hành vi giống người" (humanlike_behavior) — tốn token.
+                    scripted_only=(
+                        behavior == "checkEmails"
+                        or (behavior not in ("replyEmail", "sendReport")
+                            and not bool(getattr(agent, "humanlike_behavior", False)))
+                    ),
                 )
                 spawned = True
                 instance_id = result.get("instance_id", "")
@@ -1998,6 +2006,7 @@ class AgentCreateRequest(BaseModel):
     scraper_text_limit: Optional[int] = 10000
     script_output_format: Optional[str] = "json"
     routine_in_chat: Optional[bool] = True
+    humanlike_behavior: Optional[bool] = False
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -2056,6 +2065,7 @@ class AgentUpdateRequest(BaseModel):
     scraper_text_limit: Optional[int] = None
     script_output_format: Optional[str] = None
     routine_in_chat: Optional[bool] = None
+    humanlike_behavior: Optional[bool] = None
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

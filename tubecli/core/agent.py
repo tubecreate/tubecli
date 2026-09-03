@@ -71,6 +71,12 @@ class Agent:
         script_output_format: str = "json",
         # Đưa lịch/hành vi + nhật ký lượt chạy vào ngữ cảnh CHAT (mặc định bật)
         routine_in_chat: bool = True,
+        # Hành vi GIỐNG NGƯỜI bằng AI: BẬT → agent lướt/xem/đọc do AI quyết từng
+        # bước (tự nhiên hơn nhưng TỐN TOKEN). TẮT (mặc định) → chạy bằng kịch bản
+        # cố định (search→click→browse/watch), tiết kiệm. Email soạn-mới (trả lời/
+        # báo cáo) LUÔN dùng AI; check-mail LUÔN dùng script — cờ này chỉ đổi các
+        # hành vi lướt/xem.
+        humanlike_behavior: bool = False,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -134,6 +140,7 @@ class Agent:
         self.scraper_text_limit = scraper_text_limit
         self.script_output_format = script_output_format
         self.routine_in_chat = True if routine_in_chat is None else bool(routine_in_chat)
+        self.humanlike_behavior = bool(humanlike_behavior)
 
         # Schedule
         self.schedule_enabled = schedule_enabled
@@ -189,6 +196,7 @@ class Agent:
             "scraper_text_limit": getattr(self, "scraper_text_limit", 10000),
             "script_output_format": getattr(self, "script_output_format", "json"),
             "routine_in_chat": getattr(self, "routine_in_chat", True),
+            "humanlike_behavior": getattr(self, "humanlike_behavior", False),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),
