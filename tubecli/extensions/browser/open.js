@@ -1552,6 +1552,55 @@ async function main() {
         return process.exit(0);
       }
 
+      // Thu nội dung trang đang mở, nếu người dùng đã bật "Thu thập dữ liệu".
+      //
+      // Vì sao cần: extract_content chỉ được session_manager (chế độ AI) xếp lịch.
+      // Đường chạy bằng script chỉ gọi nó khi câu lệnh có đúng chữ "extract content",
+      // mà không prompt hành vi nào nói vậy — nên ô tích bật lên rồi vẫn không ai lưu
+      // gì. Chế độ thủ công đã có sẵn logic này (khối [Manual Scraper] phía trên);
+      // đây là đúng khối đó, đặt vào đường script.
+      //
+      // Vẫn qua scanPageContent + extract_content nên mọi rào cản cũ giữ nguyên:
+      // trang không phải bài viết thì bỏ, tên miền trong SKIP_DOMAINS thì bỏ, một URL
+      // chỉ thu một lần.
+      // SessionManager RIÊNG cho đường script. Hai cái `session` sẵn có nằm trong
+      // hai nhánh khác: một trong `if (isManual)` (dòng ~1381), một trong nhánh
+      // chế độ AI (~1706) — ở đây không thấy cái nào. Dựng lười vì constructor
+      // đọc lịch sử hồ sơ từ đĩa: tắt thu thập thì không tốn gì.
+      let scrapeSession = null;
+      const harvestIfContentPage = async (whence) => {
+        if (!agentContext?.enable_scraping) return;
+        try {
+          const url = page.url();
+          if (!url || url === 'about:blank' || url.startsWith('chrome-extension://')) return;
+          if (url.includes('youtube.com') || url.includes('google.com')) return;
+          if (!scrapeSession) {
+            scrapeSession = new SessionManager(minSessionMinutes, prompt || '', aiModel, agentContext, profileName);
+          }
+          if (scrapeSession.scrapedUrls.has(url)) return;
+          const info = await scrapeSession.scanPageContent(page);
+          if (!info?.isContentPage) return;
+          const title = await page.title();
+          console.log(`[Scripted Scraper] Trang nội dung sau '${whence}': "${title}" — đang thu...`);
+          const ok = await extractContentAction.extract_content(page, {
+            profileName,
+            enable_scraping: true,
+            scraper_text_limit: agentContext.scraper_text_limit || 10000,
+            agentId: agentContext.agent_id || null,
+            agentName: agentContext.agent_name || null,
+          });
+          if (ok) {
+            scrapeSession.addScrapedUrl(url);
+            // Ghi lại lượt ghé để history.json đánh dấu isScraped = true.
+            await scrapeSession.recordPageVisit(url, title, page);
+            console.log(`[Scripted Scraper] Đã thu: ${url}`);
+          }
+        } catch (e) {
+          // Thu nội dung là việc PHỤ: hỏng thì ghi log, không được làm hỏng lượt chạy.
+          console.warn(`[Scripted Scraper] Bỏ qua (${whence}): ${e.message}`);
+        }
+      };
+
       // 4. Execute Action Sequence (ALWAYS runs first, even if session mode follows)
       if (actionSequence.length > 0) {
         let initialActionsSucceeded = true;
@@ -1586,6 +1635,11 @@ async function main() {
               if (result) {
                 results.push({ action: step.action, result });
                 logTrail({ phase: 'opening', action: step.action, params: step.params, status: 'success', url: (() => { try { return page.url(); } catch (e) { return ''; } })() });
+              }
+              // Sau các bước KẾT THÚC trên một trang. Không gọi sau extract_content
+              // (vừa thu xong) và không gọi sau search (trang kết quả không phải bài).
+              if (['browse', 'navigate', 'click', 'click_link', 'click_result'].includes(step.action)) {
+                await harvestIfContentPage(step.action);
               }
             } catch (actionError) {
               // A step that could not find something OPTIONAL is not a failed
