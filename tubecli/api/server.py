@@ -1036,6 +1036,9 @@ def build_email_prompt(behavior, time_period, topics, recipients):
       * replyEmail -> open gmail, read the newest UNREAD, compose a short
         on-topic reply, send. If the inbox has nothing unread the instruction
         tells the browser to stop rather than invent a message.
+      * checkEmails -> READ ONLY. A structured one-liner that open.js parses
+        into [navigate, read_gmail(unread)] with no AI planning turn. Never
+        composes, replies, sends, clicks links or downloads attachments.
       * sendReport -> compose a NEW email to `recipients` with a subject + a
         short body summarizing the period's topics/activity, then send. With NO
         recipients, prompt is None and skip_reason explains the honest skip —
