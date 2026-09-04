@@ -697,17 +697,40 @@ class KeyManager:
         }
 
     def get_cloudflare_creds(self, label: str = "default") -> dict:
-        """Return {api_token, account_id, email} for a Cloudflare credential label."""
+        """Return {api_token, account_id, email} for a Cloudflare credential label.
+
+        "default" là nhãn GIỮ CHỖ — nghĩa là "hồ sơ nào đang dùng được" — chứ
+        không phải tên một hồ sơ. Form thêm khoá cho người dùng tự đặt nhãn
+        ("tuan", một địa chỉ email…), rồi list_providers() báo Cloudflare sẵn
+        sàng vì get_active_key() lấy entry đang bật BẤT KỂ nhãn, trong khi hàm
+        này chỉ tìm đúng chữ "default": chat qua Workers AI và engine ảnh của
+        Content Studio cùng trả lời "chưa có credential" trên một máy mà giao
+        diện đang hiện chấm xanh. Nay hai bên cùng một câu trả lời.
+
+        Người gọi chỉ đích danh một nhãn KHÁC "default" mà nhãn đó không có thì
+        vẫn trả rỗng — không lặng lẽ đổi sang tài khoản khác.
+        """
         self._load()
         entries = self._keys.get("cloudflare", {})
-        entry = entries.get(label) if isinstance(entries, dict) else None
-        if entry and entry.get("active"):
+        entries = entries if isinstance(entries, dict) else {}
+
+        def _pack(lbl, e):
             return {
-                "api_token": entry.get("key", ""),
-                "account_id": entry.get("account_id", ""),
-                "email": entry.get("email", ""),
-                "label": label,
+                "api_token": e.get("key", ""),
+                "account_id": e.get("account_id", ""),
+                "email": e.get("email", ""),
+                "label": lbl,
             }
+
+        entry = entries.get(label)
+        if isinstance(entry, dict) and entry.get("active"):
+            return _pack(label, entry)
+        if label == "default":
+            # Cùng thứ tự với get_active_key(): entry đang bật đầu tiên — nhưng
+            # phải đủ cả token lẫn account_id, thiếu một nửa thì không dùng được.
+            for lbl, e in entries.items():
+                if isinstance(e, dict) and e.get("active") and e.get("key") and e.get("account_id"):
+                    return _pack(lbl, e)
         # Fallback to environment variables
         api_token = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get("CLOUDFLARE_API_KEY", "")
         account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")

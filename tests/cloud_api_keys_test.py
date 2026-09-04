@@ -244,6 +244,42 @@ finally:
     AgentBrain._call_cloudflare = staticmethod(orig_cf)
     AgentBrain._call_openai = staticmethod(orig_oai)
 
+
+# ── Cloudflare creds must agree with has_key: any active label, not only "default" ──
+# The dashboard form lets the user NAME the profile ("tuan", an email, …).
+# list_providers() then reported Cloudflare ready (get_active_key takes ANY active
+# entry) while get_cloudflare_creds() looked only for the label "default" — so
+# Workers AI chat and Content Studio's image engine both answered "no credential"
+# on a box whose UI showed a green dot. Seen live 2026-09-04.
+import unittest.mock as _mock
+_fd, _cf_path = tempfile.mkstemp(suffix=".json")
+os.close(_fd)
+with open(_cf_path, "w", encoding="utf-8") as _f:
+    _f.write("{}")
+_cf_env = {k: "" for k in ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_EMAIL")}
+try:
+    with _mock.patch.dict(os.environ, _cf_env):
+        km = ext.KeyManager(data_file=_cf_path)
+        km.add_cloudflare_key("tok-tuan", "acc-tuan", label="tuan")
+        c = km.get_cloudflare_creds()
+        check("creds fall back to the only active profile when 'default' is absent",
+              c["api_token"] == "tok-tuan" and c["account_id"] == "acc-tuan" and c["label"] == "tuan", c)
+        check("  and agree with what has_key saw", km.get_active_key("cloudflare") == "tok-tuan")
+        km.add_cloudflare_key("tok-def", "acc-def", label="default")
+        check("a real 'default' profile still wins", km.get_cloudflare_creds()["label"] == "default")
+        km._keys["cloudflare"]["default"]["active"] = False
+        km._save()
+        check("a disabled 'default' is skipped for an active sibling",
+              km.get_cloudflare_creds()["label"] == "tuan", km.get_cloudflare_creds())
+        check("an explicit missing label does NOT silently swap accounts",
+              km.get_cloudflare_creds("nope")["api_token"] == "", km.get_cloudflare_creds("nope"))
+        km._keys["cloudflare"] = {"half": {"key": "t", "account_id": "", "active": True}}
+        km._save()
+        check("an entry missing account_id is not offered as a fallback",
+              km.get_cloudflare_creds()["api_token"] == "", km.get_cloudflare_creds())
+finally:
+    os.unlink(_cf_path)
+
 print(f"\n{checks - len(failures)}/{checks} PASS")
 for f in failures:
     print("  FAIL " + f)
