@@ -56,6 +56,12 @@ LITERAL_INTENTS = frozenset({
     # (_match_skill_command). Language-independent by construction: it is the
     # owner's own command, in whatever language the owner wrote it.
     "skill_command",
+    # The content_video extension's command phrase ("làm video từ những gì
+    # đã đọc hôm nay"). Not a guess about meaning: it is the phrase the
+    # extension's SKILL.md hands the model, and the handler only queues an
+    # approval-gated codex task. Left to the model on a desk with browser
+    # tools, this turn wandered into a browser session and timed out.
+    "content_video",
 })
 PASSTHROUGH_INTENTS = frozenset({
     # Costs no action and picks no tool — it only buys a cheaper reply.
@@ -261,6 +267,31 @@ VIDEO_WORDS = [
     "视频", "影片", "動画", "영상", "видео", "ролик", "vídeo",
 ]
 
+# "làm video từ những gì đã đọc hôm nay" — the content_video extension's own
+# command phrase (its SKILL.md documents the same one for the model). It takes
+# a make-verb, a video word and a cue that the material is the agent's OWN
+# corpus (or explicitly given links). A bare "làm video" never matches, and a
+# download / subtitle request never does — those keep their own branches.
+CONTENT_VIDEO_VERBS = [
+    "làm", "lam", "tạo", "tao", "dựng", "dung", "sản xuất", "biến", "make", "create",
+    "build", "produce", "generate", "turn", "制作", "作成", "만들어", "сделай", "создай",
+    "yap", "haz", "crea",
+    # "tổng hợp tin tức hôm nay thành video" — compile/summarise INTO a video
+    "tổng hợp", "tong hop", "summarize", "summarise", "compile",
+]
+CONTENT_VIDEO_CORPUS_CUES = [
+    "đã đọc", "da doc", "đã xem", "da xem", "hôm nay", "hom nay", "hôm qua", "hom qua",
+    "những gì", "nhung gi", "tổng hợp", "tong hop", "đã cào", "da cao", "tin tức", "tin tuc",
+    "from what", "i read", "i've read", "we read", "watched", "today", "yesterday",
+    "digest", "round-up", "roundup", "recap", "오늘", "сегодня", "bugün", "hoy",
+]
+CONTENT_VIDEO_SOURCE_CUES = [
+    "link", "links", "bài viết", "bai viet", "bài này", "bai nay", "articles", "article",
+    "nguồn", "nguon", "sources", "source", "trang này", "trang nay", "url",
+]
+CONTENT_VIDEO_YESTERDAY = ["hôm qua", "hom qua", "yesterday", "어제", "вчера", "dün", "ayer"]
+CONTENT_VIDEO_VERTICAL = ["reels", "reel", "shorts", "short", "tiktok", "dọc", "9:16", "vertical"]
+
 UPLOAD_KEYWORDS = [
     "upload", "đăng", "lên kênh", "đăng mmo", "post",
     "上传", "上傳", "アップロード", "投稿", "업로드", "загрузить", "загрузи",
@@ -376,6 +407,13 @@ class IntentRouter:
         """
         text = message.strip()
         text_lower = text.lower()
+
+        # ── 0a. Content video from the agent's own corpus ──────────
+        # Before URL detection on purpose: "làm video từ bài này <url>" must
+        # reach the content_video extension, not the downloader.
+        cv = self._content_video_intent(text, text_lower)
+        if cv is not None:
+            return cv
 
         # ── 0. Live Stream URL Detection ────────────────────────
         # Check for live-specific URLs first (douyin live, m3u8, rtmp)
@@ -793,6 +831,36 @@ class IntentRouter:
                     continue
                 return url
         return None
+
+    def _content_video_intent(self, text: str, text_lower: str) -> Optional[IntentResult]:
+        """"làm video từ những gì đã đọc hôm nay" → content_video, zero tokens.
+
+        Verb + video word + a corpus cue; or verb + video word + a source cue
+        WITH at least one URL. Download/subtitle wording is left to its own
+        branches so "tải video hôm nay" still downloads.
+        """
+        if not self._kw_hit(text_lower, CONTENT_VIDEO_VERBS):
+            return None
+        if not self._kw_hit(text_lower, VIDEO_WORDS):
+            return None
+        if self._kw_hit(text_lower, DOWNLOAD_KEYWORDS) or self._kw_hit(text_lower, SUBTITLE_KEYWORDS):
+            return None
+        urls = [u.rstrip(".,;?!)") for u in re.findall(r"https?://\S+", text)]
+        corpus_cue = self._kw_hit(text_lower, CONTENT_VIDEO_CORPUS_CUES)
+        source_cue = self._kw_hit(text_lower, CONTENT_VIDEO_SOURCE_CUES)
+        if not corpus_cue and not (source_cue and urls):
+            return None
+        data: Dict[str, Any] = {"sources": urls, "original_message": text}
+        if self._kw_hit(text_lower, CONTENT_VIDEO_YESTERDAY):
+            data["day"] = "yesterday"
+        if self._kw_hit(text_lower, CONTENT_VIDEO_VERTICAL):
+            data["aspect_ratio"] = "9:16"
+        return IntentResult(
+            intent_type="content_video",
+            confidence=0.97,
+            extracted_data=data,
+            skip_llm=True,
+        )
 
     def _match_skill_command(self, msg_lower: str, skills: List[Dict]) -> Optional[Dict]:
         """Check for exact skill command match.

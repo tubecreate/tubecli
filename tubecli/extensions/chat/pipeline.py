@@ -419,6 +419,12 @@ async def _run_turn(
                 ui_lang = "vi"
             handled = await intent_handlers.dispatch(intent, agent_dict, ui_lang)
             if handled is not None and handled.strip():
+                # A handler that queued codex work ends with the task marker;
+                # lift it into meta so the chat draws the live card (as the
+                # download fast-path does) instead of showing a raw comment.
+                handled, _task = _extract_task_marker(handled)
+                if _task:
+                    meta["codex_task"] = _task
                 meta["action"] = intent.intent_type
                 url = (intent.extracted_data or {}).get("url")
                 if url:

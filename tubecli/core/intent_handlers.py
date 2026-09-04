@@ -119,3 +119,30 @@ async def _scraped_data(intent, agent_dict, user_lang) -> Optional[str]:
         answer, text, agent_id=agent_id, allowed_profiles=profiles,
         with_content=bool(data.get("with_content")),
     )
+
+
+@register("content_video", badge="🎬 Content Video", skill_used="Content Video")
+async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
+    """"làm video từ những gì đã đọc hôm nay" → xếp MỘT task Codex rồi trả thẻ ngay.
+
+    Việc nặng (kịch bản, Content Studio, ffmpeg) chạy nền trong codex worker;
+    lượt chat này không đợi và không tốn token LLM. Agent lấy từ agent_dict —
+    tức agent đang nói chuyện — nên chỉ đọc được kho của chính nó. Trả None khi
+    extension chưa có để dispatcher rơi về LLM như mọi handler khác.
+    """
+    agent_id = str((agent_dict or {}).get("id") or "")
+    if not agent_id:
+        return None
+    try:
+        from tubecli.extensions.content_video.pipeline import create_digest_task, queued_reply
+    except ImportError:
+        return None
+    data = getattr(intent, "extracted_data", None) or {}
+    options = {k: data[k] for k in ("day", "aspect_ratio") if data.get(k)}
+    # created_by="user": the human typed the command verbatim, so the task
+    # follows the codex auto-approve policy exactly like a skill command.
+    task = await asyncio.to_thread(
+        create_digest_task, agent_id, options, "user", {"agent_id": agent_id},
+        list(data.get("sources") or []),
+    )
+    return queued_reply(task)
