@@ -36,6 +36,10 @@ EXTENSIONS: Dict[str, Dict[str, str]] = {
         "label": "CapCut TTS",
         "does": "text-to-speech with your CapCut account (300+ voices) used for the narration",
     },
+    "video_manager": {
+        "label": "Video Manager",
+        "does": "uploads the finished video to the YouTube channel you authorised in Auth Manager",
+    },
 }
 
 NEEDS_FFMPEG = {"render"}
@@ -63,6 +67,11 @@ JOBS: Dict[str, Dict] = {
             "endpoint": "POST /api/v1/studio/episodes/{id}/batch-tts | POST /api/v1/capcut-tts/synthesize"},
     "render": {"label": "Assemble the video", "requires": ["content_studio"],
                "endpoint": "POST /api/v1/studio/episodes/{id}/export-ffmpeg"},
+    # Đăng gọi THẲNG uploader của video_manager (nạp file theo đường dẫn tuyệt
+    # đối), không qua POST /api/v1/video_manager/upload — hàng đợi của route đó
+    # truyền page_id cho một hàm không có tham số ấy nên upload nào cũng chết.
+    "publish": {"label": "Publish to YouTube", "requires": ["video_manager"],
+                "endpoint": "video_manager/providers/youtube/uploader.upload_video"},
 }
 
 

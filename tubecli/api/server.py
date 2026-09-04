@@ -4,7 +4,7 @@ FastAPI-based REST API for agents, skills, and workflows.
 """
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 import os, sys
 import mimetypes
@@ -1975,7 +1975,49 @@ async def shutdown_server():
 
 # ── Pydantic Models ──────────────────────────────────────────────
 
-class AgentCreateRequest(BaseModel):
+class PublishSettingsBase(BaseModel):
+    """Ràng buộc dùng chung cho nhóm publish_* của agent (tự đăng YouTube).
+
+    Đặt ở tầng request vì đây là chỗ DUY NHẤT còn nói được "sai rồi" với
+    người gọi: xuống dưới, AgentManager.update chỉ còn cách âm thầm ép kiểu
+    (nó cũng làm — tầng chặn thứ hai), còn pipeline thì đã đứng trước
+    YouTube rồi. Cả POST lẫn PUT dùng chung một bộ luật để không có cửa
+    sau: trước đây PUT nhận tuốt (min_pages=-1, max_per_day=2.5,
+    privacy="banana") và dây chuyền tự đăng hỏng âm thầm tới tận lần
+    khởi động sau.
+    """
+
+    @field_validator("publish_method", check_fields=False)
+    @classmethod
+    def _publish_method_known(cls, v):
+        """Đường đăng lạ nghĩa là agent im lặng không đăng gì, mà người dùng
+        thì tưởng đã bật — chặn ngay ở cửa API."""
+        if v is None:
+            return v
+        from tubecli.core.agent import PUBLISH_METHOD_CHOICES
+
+        m = str(v).strip().lower()
+        if m not in PUBLISH_METHOD_CHOICES:
+            raise ValueError("publish_method must be one of " + ", ".join(PUBLISH_METHOD_CHOICES))
+        return m
+
+    @field_validator("publish_privacy", check_fields=False)
+    @classmethod
+    def _publish_privacy_known(cls, v):
+        # None = "không đụng tới" trong PUT một phần — để nguyên cho
+        # model_dump(exclude_none=True) loại bỏ.
+        if v is None:
+            return v
+        from tubecli.core.agent import PUBLISH_PRIVACY_CHOICES
+
+        privacy = str(v).strip().lower()
+        if privacy not in PUBLISH_PRIVACY_CHOICES:
+            raise ValueError("publish_privacy must be one of "
+                             + "|".join(PUBLISH_PRIVACY_CHOICES))
+        return privacy
+
+
+class AgentCreateRequest(PublishSettingsBase):
     name: str
     description: str = ""
     system_prompt: str = "You are a helpful AI assistant."
@@ -2011,6 +2053,20 @@ class AgentCreateRequest(BaseModel):
     script_output_format: Optional[str] = "json"
     routine_in_chat: Optional[bool] = True
     humanlike_behavior: Optional[bool] = False
+    # Tự động đăng video sau lượt thu thập. Mặc định khớp Agent.__init__ để một
+    # POST không nhắc tới nhóm này sinh ra agent y hệt hàm dựng.
+    auto_publish: Optional[bool] = False
+    publish_token_id: Optional[str] = ""
+    publish_channel_id: Optional[str] = ""
+    publish_channel_name: Optional[str] = ""
+    publish_privacy: Optional[str] = "public"
+    publish_method: Optional[str] = "script"
+    publish_monetize: Optional[bool] = False
+    # ge=1: 0 bài mới cũng đủ ⇒ mỗi lượt chạy một video rác. ge=0 ở trần ngày
+    # vì 0 có nghĩa: "tạm khoá", người dùng hạ trần về 0 để dừng mà không
+    # mất cấu hình kênh.
+    publish_min_pages: Optional[int] = Field(3, ge=1)
+    publish_max_per_day: Optional[int] = Field(2, ge=0)
     schedule_enabled: Optional[bool] = False
     schedule_repeat: Optional[str] = "Daily"
     schedule_interval: Optional[int] = 60
@@ -2038,7 +2094,7 @@ class AgentGenerateRequest(BaseModel):
 class ExtensionUpdateRequest(BaseModel):
     port: Optional[int] = None
 
-class AgentUpdateRequest(BaseModel):
+class AgentUpdateRequest(PublishSettingsBase):
     name: Optional[str] = None
     description: Optional[str] = None
     system_prompt: Optional[str] = None
@@ -2071,6 +2127,17 @@ class AgentUpdateRequest(BaseModel):
     script_output_format: Optional[str] = None
     routine_in_chat: Optional[bool] = None
     humanlike_behavior: Optional[bool] = None
+    # None = "không đụng tới": update_agent gọi model_dump(exclude_none=True),
+    # nên một PUT chỉ sửa lịch không được vô tình tắt auto_publish.
+    auto_publish: Optional[bool] = None
+    publish_token_id: Optional[str] = None
+    publish_channel_id: Optional[str] = None
+    publish_channel_name: Optional[str] = None
+    publish_privacy: Optional[str] = None
+    publish_method: Optional[str] = None
+    publish_monetize: Optional[bool] = None
+    publish_min_pages: Optional[int] = Field(None, ge=1)
+    publish_max_per_day: Optional[int] = Field(None, ge=0)
     schedule_enabled: Optional[bool] = None
     schedule_repeat: Optional[str] = None
     schedule_interval: Optional[int] = None

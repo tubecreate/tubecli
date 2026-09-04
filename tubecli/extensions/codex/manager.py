@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     from uuid_extensions import uuid7 as _uuid7
@@ -516,7 +516,17 @@ class CodexManager:
             if not task:
                 raise ValueError(f"Task not found: {task_id}")
             old = task.get("status")
-            if new_status != old and new_status not in TRANSITIONS.get(old, set()):
+            if new_status not in TRANSITIONS.get(old, set()):
+                # A same-status move used to be waved through here (the guard
+                # read `new_status != old and ...`), which made done → done a
+                # silent success — and complete_review fired its on_accept hook
+                # on the way out, queueing a SECOND render task and a second
+                # public YouTube upload of the same script. No state is allowed
+                # to lead to itself in TRANSITIONS, so re-entering a state is an
+                # illegal move like any other; callers that want a double click
+                # to be harmless go through _settle().
+                if new_status == old:
+                    raise ValueError(f"Task #{task.get('seq')} is already {old}")
                 raise ValueError(
                     f"Illegal transition {old} → {new_status} (task #{task.get('seq')})"
                 )
@@ -535,6 +545,31 @@ class CodexManager:
             self._prune_events(task_id)
         return snapshot
 
+    def _settle(
+        self,
+        task_id: str,
+        new_status: str,
+        actor: str,
+        message: str = "",
+        updates: Optional[Dict] = None,
+    ) -> Tuple[Dict[str, Any], bool]:
+        """_transition, but a task ALREADY in `new_status` is not an error.
+
+        Returns (task, changed). changed=False means somebody pressed the same
+        button twice (or two reviewers pressed it at once) and this call must not
+        repeat the side effects — the on_accept hook, the Telegram notification,
+        the retry counter. The whole check-then-move runs under the re-entrant
+        lock, so of two concurrent accepts exactly one gets changed=True.
+        """
+        self._ensure_loaded()
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                raise ValueError(f"Task not found: {task_id}")
+            if task.get("status") == new_status:
+                return dict(task), False
+            return self._transition(task_id, new_status, actor, message, updates), True
+
     def approve(self, task_id: str, actor: str = "user", note: str = "") -> Dict[str, Any]:
         task = self.get_task(task_id)
         if not task:
@@ -543,11 +578,16 @@ class CodexManager:
             raise ValueError("The AI is not allowed to approve its own tasks")
         approval = dict(task.get("approval") or {})
         approval.update({"decided_by": actor, "decided_at": _now(), "note": note})
-        updated = self._transition(
+        updated, changed = self._settle(
             task_id, QUEUED, actor,
             message=f"Approved by {actor}" + (f": {note}" if note else ""),
             updates={"approval": approval, "error": ""},
         )
+        if not changed:
+            # Already queued: a second click must not restamp the approval nor
+            # ping the owner again.
+            logger.info(f"[Codex] approve ignored, task {task_id} is already queued")
+            return updated
         self.append_event(task_id, "approval", f"✅ Approved by {actor}", actor=actor)
         return updated
 
@@ -557,11 +597,14 @@ class CodexManager:
             raise ValueError(f"Task not found: {task_id}")
         approval = dict(task.get("approval") or {})
         approval.update({"decided_by": actor, "decided_at": _now(), "note": note})
-        updated = self._transition(
+        updated, changed = self._settle(
             task_id, REJECTED, actor,
             message=f"Rejected by {actor}" + (f": {note}" if note else ""),
             updates={"approval": approval, "finished_at": _now()},
         )
+        if not changed:
+            logger.info(f"[Codex] reject ignored, task {task_id} is already rejected")
+            return updated
         self.append_event(task_id, "approval", f"🚫 Rejected by {actor}", actor=actor)
         return updated
 
@@ -572,18 +615,22 @@ class CodexManager:
         if task.get("status") == RUNNING:
             # The worker checks this flag between steps.
             self._cancel_requested.add(task_id)
-        return self._transition(
+        updated, _changed = self._settle(
             task_id, CANCELLED, actor,
             message=f"Cancelled by {actor}",
             updates={"finished_at": _now()},
         )
+        return updated
 
     def retry(self, task_id: str, actor: str = "user") -> Dict[str, Any]:
         task = self.get_task(task_id)
         if not task:
             raise ValueError(f"Task not found: {task_id}")
         self._cancel_requested.discard(task_id)
-        return self._transition(
+        # A task already waiting in the queue is retried by leaving it alone: the
+        # old code wiped its steps and bumped retry_count on every extra click,
+        # walking a healthy task towards max_retries for nothing.
+        updated, _changed = self._settle(
             task_id, QUEUED, actor,
             message=f"Retry requested by {actor}",
             updates={
@@ -594,6 +641,7 @@ class CodexManager:
                 "retry_count": int(task.get("retry_count") or 0) + 1,
             },
         )
+        return updated
 
     def complete_review(
         self, task_id: str, accepted: bool, actor: str = "user", feedback: str = ""
@@ -602,11 +650,19 @@ class CodexManager:
         if not task:
             raise ValueError(f"Task not found: {task_id}")
         if accepted:
-            done = self._transition(
+            done, changed = self._settle(
                 task_id, DONE, actor,
                 message=f"Result accepted by {actor}",
                 updates={"finished_at": _now()},
             )
+            if not changed:
+                # THE reason _settle exists. Accepting an already-accepted task
+                # used to re-run the on_accept hook, and for a content video that
+                # hook queues the render stage — a second public upload of the
+                # very same script. An accepted task stays accepted; nothing
+                # downstream runs twice.
+                logger.info(f"[Codex] accept ignored, task {task_id} was already accepted")
+                return done
             self._fire_on_accept(done, actor)
             return done
         # Rework: append the feedback to the goal and re-queue. This text is an
@@ -615,14 +671,21 @@ class CodexManager:
         goal = task.get("goal", "")
         if feedback:
             goal = f"{goal}\n\n[Feedback from {actor}]: {feedback}"
-        self.append_event(
-            task_id, "log", f"🔁 Changes requested by {actor}: {feedback}", actor=actor
-        )
-        return self._transition(
+        updated, changed = self._settle(
             task_id, QUEUED, actor,
             message=f"Changes requested by {actor}",
             updates={"goal": goal, "steps": [], "error": "", "started_at": "", "finished_at": ""},
         )
+        if not changed:
+            # Same double-click story: the task is already back in the queue with
+            # this feedback on its goal, and appending it again would hand the
+            # agent the reviewer's sentence twice.
+            logger.info(f"[Codex] rework ignored, task {task_id} is already queued")
+            return updated
+        self.append_event(
+            task_id, "log", f"🔁 Changes requested by {actor}: {feedback}", actor=actor
+        )
+        return updated
 
     # ── Pipeline hooks ───────────────────────────────────────────
 
@@ -783,11 +846,16 @@ class CodexManager:
     def report_result(self, task_id: str, result: str) -> Dict[str, Any]:
         task = self.get_task(task_id)
         seq = task.get("seq") if task else "?"
-        updated = self._transition(
+        updated, changed = self._settle(
             task_id, REVIEW, "worker",
             message="Execution finished — awaiting review",
             updates={"result": result, "finished_at": _now(), "error": ""},
         )
+        if not changed:
+            # A run reports its result once. A second report would overwrite the
+            # text the reviewer is reading and notify the owner all over again.
+            logger.warning(f"[Codex] second result for {task_id} ignored, already in review")
+            return updated
         self.append_event(task_id, "result", (result or "")[:2000], actor="worker")
         preview = (result or "").strip()
         if len(preview) > 600:
@@ -802,11 +870,14 @@ class CodexManager:
     def report_failure(self, task_id: str, error: str) -> Dict[str, Any]:
         task = self.get_task(task_id)
         seq = task.get("seq") if task else "?"
-        updated = self._transition(
+        updated, changed = self._settle(
             task_id, FAILED, "worker",
             message=f"Execution failed: {error[:200]}",
             updates={"error": error, "finished_at": _now()},
         )
+        if not changed:
+            logger.warning(f"[Codex] second failure for {task_id} ignored, already failed")
+            return updated
         self.append_event(task_id, "error", error[:2000], actor="worker")
         self.notify(
             updated,

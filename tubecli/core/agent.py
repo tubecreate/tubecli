@@ -16,6 +16,78 @@ except ImportError:
 from tubecli.config import AGENTS_FILE, ensure_data_dirs
 
 
+# ── Tự đăng video: ép kiểu một chỗ ───────────────────────────
+#
+# Nhóm publish_* là các số/chuỗi điều khiển một hành động CÔNG KHAI (đăng
+# YouTube không ai duyệt), nên không được tin dữ liệu đầu vào từ BẤT
+# KỲ đâu: agents.json (bản cũ / người dùng sửa tay), body của PUT
+# /api/v1/agents/{id}, hay một lời gọi nội bộ agent_manager.update().
+#
+# Tách ra đây vì có HAI cửa vào: Agent.__init__ (tạo mới / nạp từ đĩa) và
+# AgentManager.update (setattr thẳng, không đi qua __init__). Trước đây chỉ
+# cửa thứ nhất ép kiểu, nên một lần PUT là đủ để cài publish_min_pages=-1 hay
+# publish_privacy="banana" vào bộ nhớ: chuỗi trôi xuống tận YouTube API,
+# còn số âm khiến ngưỡng "đủ bài mới" luôn đúng ⇒ video rác tự đăng.
+
+PUBLISH_PRIVACY_CHOICES = ("public", "unlisted", "private")
+# "script" = đăng qua YouTube Studio bằng script trình duyệt của người dùng
+# (bật được KIẾM TIỀN, hẹn giờ, không tốn quota API); "api" = videos.insert.
+PUBLISH_METHOD_CHOICES = ("script", "api")
+
+# Mặc định khi giá trị không cứu được. Giống hệt chữ ký Agent.__init__.
+PUBLISH_DEFAULTS = {
+    "auto_publish": False,
+    "publish_token_id": "",
+    "publish_channel_id": "",
+    "publish_channel_name": "",
+    "publish_privacy": "public",
+    "publish_method": "script",
+    "publish_monetize": False,
+    "publish_min_pages": 3,
+    "publish_max_per_day": 2,
+}
+
+
+def coerce_publish_value(key: str, value: Any) -> Any:
+    """Ép MỘT trường publish_* về kiểu/miền hợp lệ. Rác ⇒ mặc định, không ném.
+
+    Không ném là cố ý: hàm này còn chạy lúc NẠP agents.json lúc khởi động,
+    một dòng hỏng không được phép làm chết cả server. Tầng API mới là chỗ
+    nói "sai rồi" (422) — xem AgentCreateRequest/AgentUpdateRequest.
+    """
+    if key in ("auto_publish", "publish_monetize"):
+        return bool(value)
+    if key == "publish_method":
+        m = str(value or "").strip().lower()
+        return m if m in PUBLISH_METHOD_CHOICES else PUBLISH_DEFAULTS[key]
+    if key in ("publish_token_id", "publish_channel_id", "publish_channel_name"):
+        return str(value or "")
+    if key == "publish_privacy":
+        privacy = str(value or "").strip().lower()
+        # Một giá trị lạ đi thẳng vào videos.insert sẽ bị YouTube từ chối (mất
+        # cả video vừa dựng), nên quy về mặc định thay vì chờ tới lúc đăng.
+        return privacy if privacy in PUBLISH_PRIVACY_CHOICES else PUBLISH_DEFAULTS[key]
+    if key == "publish_min_pages":
+        try:
+            return max(1, int(value))
+        except (TypeError, ValueError):
+            return PUBLISH_DEFAULTS[key]
+    if key == "publish_max_per_day":
+        try:
+            # 0 = khoá hẳn (người dùng tự hạ trần về 0) nên 0 là giá trị HỢP LỆ;
+            # chỉ chặn số âm và rác.
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return PUBLISH_DEFAULTS[key]
+    return value
+
+
+def coerce_publish_fields(values: Dict[str, Any]) -> Dict[str, Any]:
+    """Bản dùng cho cả một dict: chỉ động đến các khoá publish_* đã biết."""
+    return {k: (coerce_publish_value(k, v) if k in PUBLISH_DEFAULTS else v)
+            for k, v in values.items()}
+
+
 class Agent:
     """An AI agent with identity, skills, and behavioral configuration."""
 
@@ -81,6 +153,36 @@ class Agent:
         # báo cáo) LUÔN dùng AI; check-mail LUÔN dùng script — cờ này chỉ đổi các
         # hành vi lướt/xem.
         humanlike_behavior: bool = False,
+        # ── Tự động đăng video sau mỗi lượt thu thập ───────────────────
+        # BẬT → lượt hẹn giờ nào thu thập được đủ bài mới thì tự viết kịch bản,
+        # dựng mp4 và ĐĂNG THẲNG lên kênh YouTube đã chọn, không chờ ai duyệt.
+        # Mặc định TẮT: đây là hành động công khai ra ngoài, phải do người dùng
+        # bấm bật, không được là mặc định của mọi agent cũ.
+        auto_publish: bool = False,
+        # Token YouTube CỤ THỂ, không phải cred_id. Một credential Google có thể
+        # đang giữ nhiều token (máy này: 9 token YouTube chung 1 credential), nên
+        # tra theo cred_id chỉ trả về "token nào đứng trước trong dict" — tức là
+        # đăng nhầm kênh. Chỉ token_id mới trỏ đúng một tài khoản.
+        publish_token_id: str = "",
+        # Kênh đích. channel_name lưu kèm để pipeline sinh tiêu đề/mô tả/hashtag
+        # "theo tên kênh" mà không phải gọi YouTube API chỉ để hỏi tên (và giao
+        # diện vẫn hiện đúng tên khi token tạm hỏng).
+        publish_channel_id: str = "",
+        publish_channel_name: str = "",
+        # "đăng luôn khỏi duyệt" ⇒ mặc định public. Lưu ý: OAuth client CHƯA được
+        # Google xác minh sẽ bị ép về private bất kể giá trị này.
+        publish_privacy: str = "public",
+        # Đường đăng. Mặc định "script" vì đó là đường người dùng đã chạy thật
+        # và là đường DUY NHẤT bật được kiếm tiền; "api" nhanh hơn nhưng không.
+        publish_method: str = "script",
+        publish_monetize: bool = False,
+        # Số bài MỚI (đã cào được nội dung) tối thiểu để bõ công làm một video.
+        publish_min_pages: int = 3,
+        # Trần video/ngày. YouTube videos.insert tốn 1600 trên hạn mức 10.000/ngày
+        # của MỘT OAuth client — tức khoảng 6 lượt đăng/ngày cho TẤT CẢ tài khoản
+        # dùng chung client đó. Mặc định 2 để vài agent cùng chạy vẫn không cháy
+        # hạn mức, kéo theo khoá cả nút Upload tay của người dùng.
+        publish_max_per_day: int = 2,
         # Schedule Settings
         schedule_enabled: bool = False,
         schedule_repeat: str = "Daily",
@@ -147,6 +249,23 @@ class Agent:
         self.routine_in_chat = True if routine_in_chat is None else bool(routine_in_chat)
         self.humanlike_behavior = bool(humanlike_behavior)
 
+        # Tự động đăng video. Ép kiểu ngay tại đây chứ không tin dữ liệu trong
+        # agents.json: file đó do người dùng / bản cũ ghi, một chuỗi "3" lọt vào
+        # publish_min_pages sẽ làm phép so sánh ngưỡng sai âm thầm. Cùng một
+        # bộ luật với AgentManager.update — xem coerce_publish_value ở trên.
+        for _k, _v in coerce_publish_fields({
+            "auto_publish": auto_publish,
+            "publish_token_id": publish_token_id,
+            "publish_channel_id": publish_channel_id,
+            "publish_channel_name": publish_channel_name,
+            "publish_privacy": publish_privacy,
+            "publish_method": publish_method,
+            "publish_monetize": publish_monetize,
+            "publish_min_pages": publish_min_pages,
+            "publish_max_per_day": publish_max_per_day,
+        }).items():
+            setattr(self, _k, _v)
+
         # Schedule
         self.schedule_enabled = schedule_enabled
         self.schedule_repeat = schedule_repeat
@@ -203,6 +322,15 @@ class Agent:
             "script_output_format": getattr(self, "script_output_format", "json"),
             "routine_in_chat": getattr(self, "routine_in_chat", True),
             "humanlike_behavior": getattr(self, "humanlike_behavior", False),
+            "auto_publish": getattr(self, "auto_publish", False),
+            "publish_token_id": getattr(self, "publish_token_id", "") or "",
+            "publish_channel_id": getattr(self, "publish_channel_id", "") or "",
+            "publish_channel_name": getattr(self, "publish_channel_name", "") or "",
+            "publish_privacy": getattr(self, "publish_privacy", "public") or "public",
+            "publish_method": getattr(self, "publish_method", "script") or "script",
+            "publish_monetize": bool(getattr(self, "publish_monetize", False)),
+            "publish_min_pages": getattr(self, "publish_min_pages", 3),
+            "publish_max_per_day": getattr(self, "publish_max_per_day", 2),
             "schedule_enabled": getattr(self, "schedule_enabled", False),
             "schedule_repeat": getattr(self, "schedule_repeat", "Daily"),
             "schedule_interval": getattr(self, "schedule_interval", 60),
@@ -303,6 +431,12 @@ class AgentManager:
         if agent_id not in self.agents:
             return None
         agent = self.agents[agent_id]
+        # PUT /api/v1/agents/{id} đổ thẳng body vào đây, không đi qua Agent.__init__,
+        # nên mọi phép ép kiểu của hàm dựng bị bỏ qua. Chặn lại ở đây (tầng cuối
+        # trước bộ nhớ) để một client cũ hay một lời gọi API trực tiếp không cài
+        # được publish_max_per_day=2.5 / publish_privacy="banana" vào dây chuyền
+        # tự đăng — hỏng âm thầm tới tận lần khởi động sau.
+        updates = coerce_publish_fields(updates)
         for k, v in updates.items():
             if hasattr(agent, k):
                 if k in ("routine", "persona") and isinstance(v, dict):

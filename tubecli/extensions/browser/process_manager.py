@@ -813,6 +813,34 @@ class BrowserProcessManager:
             pass
         return outcome, ""
 
+    def _run_trigger(self, run_id, agent_id):
+        """Lượt này do ai châm ngòi: "schedule" (hẹn giờ), "manual" (nút Chạy
+        thử / Run now), "codex"… — "" khi không tra được.
+
+        ĐỌC NGƯỢC từ sổ run_log thay vì thêm một tham số chạy dọc
+        spawn() → _instances → _monitor → đây: run_log.start ghi trường
+        `trigger` cho MỌI lượt có run_id (scheduler, nút Chạy thử trong
+        run_agent_routine, pipeline content_video), nên mọi chỗ mở phiên — kể
+        cả chỗ viết sau này — được chặn đúng mà không phải nhớ truyền thêm
+        gì. Thêm tham số thì chỉ cần một launcher quên truyền là video lại tự
+        đăng sau một lượt chạy thử.
+
+        days=2: lượt bắt đầu 23:59 và kết thúc 00:01 có dòng start nằm ở file
+        của ngày hôm trước. Best-effort tuyệt đối: đây là luồng theo dõi tiến
+        trình, không ai bắt lỗi hộ.
+        """
+        if not run_id or not agent_id:
+            return ""
+        try:
+            from tubecli.core import run_log
+
+            for run in run_log.list_for_agent(agent_id, days=2, limit=500):
+                if run.get("run_id") == run_id:
+                    return str(run.get("trigger") or "")
+        except Exception as e:
+            logger.warning(f"[Browser] Could not read run trigger: {e}")
+        return ""
+
     def _record_run_end(self, run_id, agent_id, instance_id, outcome, return_code,
                         started_at, log_path, profile="", warnings=None, note="",
                         work=None):
@@ -864,6 +892,40 @@ class BrowserProcessManager:
                 self._log_antidetect_warning(agent_id, profile, warnings)
         except Exception as e:
             logger.warning(f"[Browser] Could not record run end: {e}")
+
+        # Lượt chạy vừa khép sổ ⇒ hỏi xem có đủ bài mới để TỰ ĐĂNG một video
+        # không. Cả quyết định lẫn hàng đợi nằm trong autopublish; ở đây chỉ gọi
+        # rồi ghi lý do nó trả về.
+        #
+        # try/except RIÊNG, và nằm NGOÀI khối trên: nó không được biến mất chỉ vì
+        # run_log hay bản tin vấp, mà cũng không được ném ngược vào luồng theo dõi
+        # tiến trình — luồng đó không có ai bắt hộ. Import trong hàm như mọi lời
+        # gọi liên-extension khác của file này, để máy chưa cài content_video vẫn
+        # chạy browser bình thường.
+        try:
+            from tubecli.extensions.content_video import autopublish
+
+            # trigger đi kèm vì nút "Chạy thử" cũng đi qua chính lối này: nó mint
+            # một run_id thật, nên cái chặn duy nhất ở đây ("if not run_id") không
+            # thấy gì khác thường và một lần thử nghiệm đẻ ra video CÔNG KHAI
+            # người dùng không hề yêu cầu.
+            trigger = self._run_trigger(run_id, agent_id or "")
+            try:
+                reason = autopublish.maybe_publish_after_run(
+                    agent_id or "", run_id, outcome, trigger=trigger)
+            except TypeError:
+                # Bản content_video cũ (chưa có tham số trigger) — hai extension này
+                # cài rời nhau nên lệch phiên bản là chuyện thật. maybe_publish_after_run
+                # tự nuốt mọi lỗi bên trong, nên TypeError thoát ra được tới đây chỉ
+                # có thể là sai chữ ký. Bên thua thiệt phải là "không đăng".
+                if trigger and trigger != "schedule":
+                    reason = "skip: trigger=%s (autopublish cũ chưa biết lọc)" % trigger
+                else:
+                    reason = autopublish.maybe_publish_after_run(
+                        agent_id or "", run_id, outcome)
+            logger.info("[Browser] auto-publish: %s", reason)
+        except Exception as e:
+            logger.warning(f"[Browser] auto-publish check failed: {e}")
 
     def _log_group_failure(self, agent_id, profile, outcome, return_code, tail, note=""):
         """Một dòng trên bảng của mọi nhóm agent này thuộc về, nói phiên hỏng thế nào.
