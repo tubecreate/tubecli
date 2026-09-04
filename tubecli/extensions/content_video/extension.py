@@ -17,7 +17,7 @@ logger = logging.getLogger("ContentVideo")
 
 # Options a verb may pass straight through to the pipeline.
 _PASSTHROUGH = ("day", "aspect_ratio", "style", "title", "tts_voice", "max_items",
-                "max_videos", "language", "target_words")
+                "max_videos", "language", "target_words", "preset")
 
 
 def _urls(value: Any) -> List[str]:

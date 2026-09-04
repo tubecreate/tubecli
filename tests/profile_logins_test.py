@@ -175,6 +175,12 @@ def run():
                      (".facebook.com", "c_user", "x"))
         conn.commit()
         conn.close()
+        # Cache lech theo (mtime, size): sqlite lon theo TRANG nen them mot dong co
+        # the khong doi kich thuoc, va ghi xong trong cung tick mtime voi lan doc
+        # truoc -> cache tuong file chua doi, test do ngau nhien. Day mtime len de
+        # dieu duoc kiem la "file doi thi doc lai", khong phai do phan giai dong ho.
+        _st = os.stat(dbp)
+        os.utime(dbp, (_st.st_atime, _st.st_mtime + 2))
         r3 = pm.detect_logins("cachep")
         pm._read_cookie_markers = orig_read
         check("cookie doi -> doc lai (cache lech)", counter["n"] >= 1, f"n={counter['n']}")

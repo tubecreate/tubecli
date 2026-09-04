@@ -291,6 +291,22 @@ CONTENT_VIDEO_SOURCE_CUES = [
 ]
 CONTENT_VIDEO_YESTERDAY = ["hôm qua", "hom qua", "yesterday", "어제", "вчера", "dün", "ayer"]
 CONTENT_VIDEO_VERTICAL = ["reels", "reel", "shorts", "short", "tiktok", "dọc", "9:16", "vertical"]
+# "theo mẫu Tin nhanh" / "with the template "News Flash"" → the Content Studio
+# wizard preset the video follows. Matched on the ORIGINAL text so the name
+# keeps its case: preset names are looked up verbatim on the server.
+CONTENT_VIDEO_PRESET_RES = [
+    # Có cả dạng không dấu (dung/bang/voi/mau) như mọi bảng cue khác của content_video.
+    re.compile(r"(?<!\w)(?:theo|dùng|dung|bằng|bang|với|voi)\s+(?:template|mẫu|mau|preset)\s+(.+)", re.I | re.S),
+    re.compile(r"(?<!\w)(?:with|using|from|in)\s+(?:the\s+)?(?:template|preset)\s+(.+)", re.I | re.S),
+]
+_QUOTE_CHARS = "\"'“”‘’«»"
+# Nháy mở nào đóng bằng nháy nấy: "Ben's picks" không được cắt ở dấu nháy đơn.
+_QUOTE_PAIRS = {'"': '"', "'": "'", "“": "”", "‘": "’", "«": "»"}
+# Chữ đuôi của câu chat, không phải một phần của tên mẫu. Tra tên ở Studio là so
+# khớp đúng chữ, nên "Tin nhanh nhé" mà giữ nguyên là cả lượt chạy hỏng.
+_PRESET_TAILS = ("nhé", "nha", "nhá", "đi", "giúp", "giùm", "với", "hộ",
+                 "giúp tôi", "giúp mình", "giùm tôi", "giùm mình", "hộ tôi", "hộ mình",
+                 "cho tôi", "cho mình", "please", "pls", "plz", "thanks", "thank you", "ok")
 
 UPLOAD_KEYWORDS = [
     "upload", "đăng", "lên kênh", "đăng mmo", "post",
@@ -855,12 +871,53 @@ class IntentRouter:
             data["day"] = "yesterday"
         if self._kw_hit(text_lower, CONTENT_VIDEO_VERTICAL):
             data["aspect_ratio"] = "9:16"
+        preset = self._content_video_preset(text)
+        if preset:
+            data["preset"] = preset
         return IntentResult(
             intent_type="content_video",
             confidence=0.97,
             extracted_data=data,
             skip_llm=True,
         )
+
+    @staticmethod
+    def _content_video_preset(text: str) -> str:
+        """The template name in "… theo mẫu <name>" / "… with the template <name>",
+        "" when the sentence names none.
+
+        A quoted name runs to the closing quote (commas inside survive); a bare
+        one runs to the end of the sentence, a comma or a period — the user
+        types the name the way the wizard shows it, nothing more structured.
+        """
+        for rx in CONTENT_VIDEO_PRESET_RES:
+            m = rx.search(text or "")
+            if not m:
+                continue
+            rest = m.group(1).strip()
+            if rest and rest[0] in _QUOTE_PAIRS:
+                close = rest.find(_QUOTE_PAIRS[rest[0]], 1)
+                name = rest[1:close if close != -1 else len(rest)]
+            else:
+                name = re.split(r"[,.\n]", rest, 1)[0]
+                # Bỏ dấu câu cuối và chữ đuôi ("nhé", "please"…), lặp vì có thể chồng nhau.
+                name = name.rstrip(" ?!…")
+                changed = True
+                while changed:
+                    changed = False
+                    low = name.lower()
+                    for tail in _PRESET_TAILS:
+                        if low == tail:
+                            name = ""
+                            changed = False
+                            break
+                        if low.endswith(" " + tail):
+                            name = name[: -len(tail)].rstrip(" ?!…")
+                            changed = True
+            name = name.strip().strip(_QUOTE_CHARS).strip()
+            if name:
+                return name
+        return ""
 
     def _match_skill_command(self, msg_lower: str, skills: List[Dict]) -> Optional[Dict]:
         """Check for exact skill command match.

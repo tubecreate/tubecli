@@ -138,7 +138,7 @@ async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
     except ImportError:
         return None
     data = getattr(intent, "extracted_data", None) or {}
-    options = {k: data[k] for k in ("day", "aspect_ratio") if data.get(k)}
+    options = {k: data[k] for k in ("day", "aspect_ratio", "preset") if data.get(k)}
     # created_by="user": the human typed the command verbatim, so the task
     # follows the codex auto-approve policy exactly like a skill command.
     task = await asyncio.to_thread(

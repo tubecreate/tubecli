@@ -80,6 +80,7 @@ DEFAULTS: Dict[str, Any] = {
     "capcut_speaker": "",                # CapCut speaker id; "" = the account default
     "capcut_email": "",                  # which stored CapCut account; "" = first enabled
     "title": "",
+    "preset": "",              # Content Studio wizard preset name; "" = the agent's content_video_preset
 }
 POLL_SEC = 1.0
 TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800}
@@ -103,6 +104,7 @@ _LANG_FROM_NOTE = {
     "material": " — matched to the material; set the agent's language to override",
     "agent": " — the agent's language setting",
     "option": " — requested for this run",
+    "preset": " — from the template",
     "dashboard": " — the dashboard language (nothing to detect from)",
 }
 _VI_MARKS = set("ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ")
@@ -160,16 +162,21 @@ def detect_language(text: str) -> str:
     return "en"
 
 
-def resolve_language(options: Dict, agent, material: str = "") -> tuple:
-    """(mã ngôn ngữ, nguồn quyết định). Thứ tự: tuỳ chọn của lượt chạy → cài đặt
-    của agent → chính tài liệu nguồn → ngôn ngữ dashboard.
+def resolve_language(options: Dict, agent, material: str = "", preset_lang: str = "") -> tuple:
+    """(mã ngôn ngữ, nguồn quyết định). Thứ tự: tuỳ chọn của lượt chạy → mẫu
+    (preset) của wizard → cài đặt của agent → chính tài liệu nguồn → ngôn ngữ dashboard.
 
     Trước đây "auto" — mặc định của mọi agent — được ánh xạ thẳng thành Vietnamese,
     nên tài liệu tiếng Anh vẫn ra kịch bản tiếng Việt mà không ai chọn như vậy.
+    Mẫu đứng trên agent vì người dùng lưu mẫu cho ĐÚNG loại video này, còn cài
+    đặt agent là mặc định chung cho mọi việc nó làm.
     """
     opt = str(options.get("language") or "").strip()
     if opt and opt != "auto":
         return opt, "option"
+    pl = str(preset_lang or "").strip()
+    if pl and pl != "auto":
+        return pl, "preset"
     ag = str(getattr(agent, "language", "") or "").strip()
     if ag and ag != "auto":
         return ag, "agent"
@@ -283,6 +290,90 @@ def _get(path: str, timeout: int = 60) -> Any:
         return r.json()
     except Exception:
         return {"raw": r.text[:2000]}
+
+
+_HTTP_STATUS_RE = re.compile(r"HTTP (\d{3})")
+
+
+def _http_status(e: BaseException) -> int:
+    """Status code out of the "<path> → HTTP <code>: …" the helpers above raise; 0 if none."""
+    m = _HTTP_STATUS_RE.search(str(e))
+    return int(m.group(1)) if m else 0
+
+
+def _load_preset(name: str) -> Optional[Dict]:
+    """Drama fields for a wizard preset, or None when this Content Studio predates presets.
+
+    The Studio answers 404 both for "no such preset" and for "no such route"
+    (an older pack), and the two need different handling: a typo must stop the
+    run with the names that DO exist, an old pack must only warn. Asking for
+    the preset list tells them apart — it exists exactly when the feature does.
+    """
+    from urllib.parse import quote
+
+    try:
+        data = _get(f"/api/v1/studio/presets/{quote(name, safe='')}/drama-fields", timeout=30)
+    except RuntimeError as e:
+        if _http_status(e) != 404:
+            raise
+    else:
+        fields = data.get("fields") if isinstance(data, dict) else None
+        if not isinstance(fields, dict):
+            raise RuntimeError(f"Content Studio returned no drama fields for template {name!r}: {str(data)[:200]}")
+        return fields
+    try:
+        listing = _get("/api/v1/studio/presets", timeout=30)
+    except Exception as e:
+        logger.info(f"[ContentVideo] Content Studio has no preset routes ({e}); ignoring template {name!r}")
+        return None
+    names = sorted(k for k in ((listing or {}).get("presets") or {}) if isinstance(listing, dict))
+    # Tra khoan dung trước khi bỏ cuộc: khác hoa/thường, hoặc câu chat dính thêm
+    # chữ sau tên ("Tin nhanh hôm nay"). Chỉ nhận khi CÓ ĐÚNG MỘT tên khớp — hai
+    # tên cùng khớp là mập mờ, thà hỏi lại còn hơn vẽ theo mẫu sai.
+    canon = _canonical_preset_name(name, names)
+    if canon and canon != name:
+        logger.info(f"[ContentVideo] template {name!r} resolved to saved preset {canon!r}")
+        fields = _load_preset(canon)
+        if isinstance(fields, dict):
+            fields["_name"] = canon
+        return fields
+    raise RuntimeError(
+        f"Template {name!r} not found. Saved templates: {', '.join(names) if names else 'none'} — "
+        "save one in Content Studio's wizard (Preset → Save).")
+
+
+def _canonical_preset_name(wanted: str, names: List[str]) -> Optional[str]:
+    """Tên đã lưu ứng với thứ người dùng gõ, hay None khi không có / mập mờ."""
+    want = " ".join(str(wanted or "").lower().split())
+    if not want:
+        return None
+    exact = [n for n in names if " ".join(n.lower().split()) == want]
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None
+    prefix = [n for n in names if want.startswith(" ".join(n.lower().split()) + " ")]
+    if len(prefix) == 1:
+        return prefix[0]
+    if prefix:
+        longest = max(prefix, key=len)
+        return longest if sum(1 for n in prefix if len(n) == len(longest)) == 1 else None
+    return None
+
+
+def _resolve_aspect(options: Dict, preset: Optional[Dict]) -> str:
+    """Aspect ratio for both the drama and gen-images, so they never disagree.
+
+    The template's ratio wins over the pipeline default; a ratio the run asked
+    for wins over the template. A run only ever sets it on purpose (the
+    "reels/shorts" cue, a verb argument), so "differs from the default" is what
+    "asked for" means — aspect_ratio_explicit lets a caller force the default.
+    """
+    opt = str(options.get("aspect_ratio") or "").strip()
+    if opt and (opt != DEFAULTS["aspect_ratio"] or options.get("aspect_ratio_explicit")):
+        return opt
+    got = str((((preset or {}).get("fields") or {}).get("metadata") or {}).get("aspect_ratio") or "").strip()
+    return got or opt or DEFAULTS["aspect_ratio"]
 
 
 def _cancel_exc() -> Exception:
@@ -578,7 +669,8 @@ def _step_script(state: Dict, options: Dict) -> None:
         blocks.append(block)
         used += len(block)
 
-    lang_code, lang_from = resolve_language(options, agent, "\n".join(blocks))
+    preset_lang = str(((state.get("preset") or {}).get("fields") or {}).get("language") or "")
+    lang_code, lang_from = resolve_language(options, agent, "\n".join(blocks), preset_lang)
     state["language"], state["language_from"] = lang_code, lang_from
     lang = language_name(lang_code)
     # Nhận từ tài liệu thì nói rõ với model: đây là ngôn ngữ CỦA tài liệu, đừng dịch.
@@ -639,9 +731,13 @@ def _step_script(state: Dict, options: Dict) -> None:
     state["title"] = title[:120]
     # Checkpoint the script: a revision round reads it back, and a restart
     # between plan and render must not lose an accepted text.
+    # The render task is built from this checkpoint: the template name rides
+    # along so the video keeps the vibe the script was planned with, even when
+    # the chat options are gone or the agent's setting changed meanwhile.
     _write_checkpoint(state["task_id"], {"script": text, "title": state["title"],
                                          "high_water": state.get("high_water", ""),
-                                         "language": state.get("language", "")})
+                                         "language": state.get("language", ""),
+                                         "preset": state.get("preset_name", "")})
     n = _publish_plan(state["task_id"], str(agent.name), state["title"], text)
     state["scene_count"] = n
     state["_say"]("script", "running", f"{len(text.split())} words · {n} scenes")
@@ -691,15 +787,29 @@ def _step_studio(state: Dict, options: Dict) -> None:
     title = state.get("title") or ck.get("title") or f"{agent.name} · {time.strftime('%Y-%m-%d')}"
     if not ep_id:
         lang_code = str(state.get("language") or "vi")
-        meta = {"aspect_ratio": options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
-                "tts_voice": _edge_voice(lang_code, str(options.get("tts_voice") or "")),
-                "tts_engine": "edge", "source": ACTOR, "agent_id": str(agent.id)}
-        drama = _post("/api/v1/studio/dramas", {
+        agent_meta = {"aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
+                      "tts_voice": _edge_voice(lang_code, str(options.get("tts_voice") or "")),
+                      "tts_engine": "edge", "source": ACTOR, "agent_id": str(agent.id)}
+        body = {
             "title": title, "style": options.get("style") or DEFAULTS["style"],
             "language": lang_code,
             "description": f"Generated by {agent.name} from what it read and watched.",
-            "metadata": meta,
-        }, timeout=60)
+            "metadata": agent_meta,
+        }
+        preset = state.get("preset")
+        if preset:
+            # The Studio reads the vibe off the drama itself (style string,
+            # metadata.content_format / video_length / text_in_video …), so the
+            # drama gets exactly what the wizard would have posted for this
+            # preset. Pipeline-owned keys stay on top: the resolved aspect
+            # ratio, the voice and the provenance are this run's, not the template's.
+            fields = preset.get("fields") or {}
+            if fields.get("style"):
+                body["style"] = str(fields["style"])
+            if int(fields.get("total_episodes") or 0) > 0:
+                body["total_episodes"] = int(fields["total_episodes"])
+            body["metadata"] = {**(fields.get("metadata") or {}), **agent_meta, "preset": preset["name"]}
+        drama = _post("/api/v1/studio/dramas", body, timeout=60)
         drama_id = drama.get("id")
         if drama_id is None:
             raise RuntimeError(f"Content Studio did not return a drama id: {str(drama)[:200]}")
@@ -712,7 +822,8 @@ def _step_studio(state: Dict, options: Dict) -> None:
         ep_id = ep.get("id")
         if ep_id is None:
             raise RuntimeError(f"Content Studio did not return an episode id: {str(ep)[:200]}")
-        _write_checkpoint(state["task_id"], {"drama_id": drama_id, "episode_id": ep_id, "title": title})
+        _write_checkpoint(state["task_id"], {"drama_id": drama_id, "episode_id": ep_id, "title": title,
+                                             "preset": state.get("preset_name", "")})
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
 
     shots = _storyboards(ep_id)
@@ -729,7 +840,9 @@ def _step_images(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", {
         "engine": "api", "overwrite": False,
-        "aspect_ratio": options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
+        # Same value the drama was created with (_resolve_aspect), so shots
+        # match the frame the template asked for.
+        "aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
     }, timeout=60)
     if not res.get("task_id"):
         raise RuntimeError(f"gen-images did not start: {str(res)[:200]}")
@@ -950,6 +1063,8 @@ def describe_plan(options: Dict[str, Any]) -> str:
     rows = plan(options)
     lines = ["**Content video plan** — stage 1 writes the script for your review; "
              "stage 2 renders it after you accept.", ""]
+    if options.get("preset"):
+        lines.append(f"- Template: {options['preset']}")
     for r in rows:
         if r["will_run"]:
             mark, note = "✅", ""
@@ -1039,6 +1154,49 @@ def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dic
         "checkpoint": _read_checkpoint(task_id), "corpus": [], "videos": [],
         "warnings": [], "_say": say, "_cancelled": cancelled, "_needs": needs,
     }
+    # Which wizard preset this run follows: the run's option → the render
+    # payload (create_render_task copies it from the plan) → the checkpoint →
+    # the agent's setting. The checkpoint outranks the agent so a render keeps
+    # the template its script was planned with. Both stages resolve it here
+    # because the plan needs its language and the render needs its vibe.
+    preset_name = str(options.get("preset") or payload.get("preset")
+                      or (state["checkpoint"] or {}).get("preset")
+                      or getattr(agent, "content_video_preset", "") or "").strip()
+    state["preset_name"] = preset_name
+    state["preset"] = None
+    if preset_name:
+        requested = bool(str(options.get("preset") or "").strip())
+        try:
+            fields = _load_preset(preset_name)
+        except RuntimeError as e:
+            # Tên do CHÍNH lượt này yêu cầu mà không có → dừng và kể tên nào có.
+            # Tên chỉ đến từ checkpoint hay cài đặt agent (mẫu bị xoá sau khi
+            # duyệt) → kịch bản đã viết xong rồi: dựng với mặc định và nói ra,
+            # không đổ cả lượt dựng vì một thứ người dùng không hề gõ lúc này.
+            if requested or "not found" not in str(e):
+                raise
+            state["warnings"].append(
+                f"Template '{preset_name}' no longer exists — rendered with Studio defaults.")
+            fields = None
+            preset_name = ""
+            state["preset_name"] = ""
+        if fields is None and preset_name:
+            # Cả hai route đều 404: Studio chưa cài/đang tắt KHÁC Studio cũ chưa có
+            # route — hai câu chỉ đường khác nhau, đừng bảo người ta đi cập nhật
+            # một thứ chưa cài.
+            if not installed_extensions().get("content_studio"):
+                state["warnings"].append(
+                    f"Template '{preset_name}' ignored: Content Studio is not installed or is disabled.")
+            else:
+                state["warnings"].append(
+                    f"Template '{preset_name}' ignored: Content Studio is too old for templates — "
+                    "update it from the Market.")
+        elif fields is not None:
+            # _load_preset có thể đã tra khoan dung ra một tên đã lưu khác chữ.
+            canon = str(fields.pop("_name", "") or preset_name)
+            state["preset_name"] = canon
+            state["preset"] = {"name": canon, "fields": fields}
+    state["aspect_ratio"] = _resolve_aspect(options, state["preset"])
     return {"options": options, "state": state, "say": say, "cancelled": cancelled}
 
 
@@ -1080,8 +1238,12 @@ def run_render(payload: Dict[str, Any],
         raise RuntimeError("No script to render — accept a plan first.")
     lang = str(payload.get("language") or (state.get("checkpoint") or {}).get("language") or "").strip()
     if not lang:
+        # Same order as resolve_language, minus the agent: the script is
+        # already written, so its own language is the better fallback.
         opt = str(options.get("language") or "").strip()
-        lang = opt if opt and opt != "auto" else (detect_language(state["script"]) or "vi")
+        preset_lang = str(((state.get("preset") or {}).get("fields") or {}).get("language") or "").strip()
+        lang = (next((c for c in (opt, preset_lang) if c and c != "auto"), "")
+                or detect_language(state["script"]) or "vi")
     state["language"] = lang
     notes: List[str] = []
     skipped_jobs: List[str] = []
@@ -1154,9 +1316,12 @@ def _plan_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: Lis
         f"{c['crawl']} crawled pages" + (f" · {c['visited']} title-only" if c['visited'] else ""),
         f"- **Language**: {language_name(state.get('language') or '')}"
         + _LANG_FROM_NOTE.get(str(state.get("language_from") or ""), ""),
-        "- **Read it** under *Plan* on this task. **Accept** → the video is rendered "
-        "(images · voice · ffmpeg). **Request changes** with a note → the script is revised.",
     ]
+    if state.get("preset"):
+        lines.append(f"- **Template**: {state['preset']['name']}")
+    lines.append(
+        "- **Read it** under *Plan* on this task. **Accept** → the video is rendered "
+        "(images · voice · ffmpeg). **Request changes** with a note → the script is revised.")
     if state.get("feedback"):
         lines.append(f"- **Revision {len(state['feedback'])}**: applied “{state['feedback'][-1][:120]}”")
     for w in state.get("warnings") or []:
@@ -1187,6 +1352,8 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
                      + (f" · {state['tts_voice_used']}" if state.get("tts_voice_used") else ""))
     if state.get("language"):
         lines.append(f"- **Language**: {language_name(state['language'])}")
+    if state.get("preset"):
+        lines.append(f"- **Template**: {state['preset']['name']}")
     for w in state.get("warnings") or []:
         lines.append(f"- ⚠️ {w}")
     if state.get("image_errors"):
@@ -1290,7 +1457,8 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
         task["id"], "log", f"Render queued from accepted plan #{plan_task.get('seq')}", actor=ACTOR,
         data={"kind": KIND_RENDER, "task_id": task["id"], "agent_id": agent_id,
               "plan_task_id": task_id, "script": script, "title": title, "options": options,
-              "language": str(ck.get("language") or "")},
+              "language": str(ck.get("language") or ""),
+              "preset": str(ck.get("preset") or "")},
     )
     codex_manager.append_event(task_id, "log", f"→ render queued as #{task['seq']}", actor=ACTOR)
     return task

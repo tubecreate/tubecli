@@ -2003,6 +2003,7 @@ class AgentCreateRequest(BaseModel):
     proxy_provider: Optional[Dict] = {"mode": "static"}
     timezone: Optional[str] = None
     language: Optional[str] = "auto"
+    content_video_preset: Optional[str] = ""
     auth: Optional[Dict] = {}
     cloud_api_keys: Optional[Dict] = {}
     enable_scraping: Optional[bool] = False
@@ -2062,6 +2063,7 @@ class AgentUpdateRequest(BaseModel):
     proxy_provider: Optional[Dict] = None
     timezone: Optional[str] = None
     language: Optional[str] = None
+    content_video_preset: Optional[str] = None
     auth: Optional[Dict] = None
     cloud_api_keys: Optional[Dict] = None
     enable_scraping: Optional[bool] = None

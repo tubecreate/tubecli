@@ -62,6 +62,10 @@ class Agent:
         timezone: str = None,
         # Language for keywords / prompts / responses
         language: str = "auto",
+        # The Content Studio wizard preset (template) this agent's videos
+        # follow; "" = the Studio's defaults. Saved from the wizard's
+        # Preset → Save, so there is one template system, not two.
+        content_video_preset: str = "",
         # Auth & Clouds (Misc)
         auth: Dict = None, 
         cloud_api_keys: Dict = None,
@@ -130,6 +134,7 @@ class Agent:
         
         self.timezone = timezone
         self.language = language or "auto"
+        self.content_video_preset = str(content_video_preset or "")
         self.auth = auth or {"google": [], "facebook": [], "tiktok": [], "x": [], "discord": [], "telegram": []}
         self.cloud_api_keys = cloud_api_keys or {
             "gemini": "", "claude": "", "openai": "", "deepseek": ""
@@ -190,6 +195,7 @@ class Agent:
             "proxy_provider": getattr(self, "proxy_provider", {"mode": "static"}),
             "timezone": getattr(self, "timezone", None),
             "language": getattr(self, "language", "auto"),
+            "content_video_preset": getattr(self, "content_video_preset", "") or "",
             "auth": getattr(self, "auth", {}),
             "cloud_api_keys": getattr(self, "cloud_api_keys", {}),
             "enable_scraping": getattr(self, "enable_scraping", False),
