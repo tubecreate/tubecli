@@ -48,6 +48,16 @@ class ContentVideoExtension(Extension):
         except Exception as e:
             logger.warning(f"[ContentVideo] could not make ffmpeg discoverable: {e}")
 
+        # Stage 2 starts when the reviewer ACCEPTS the script: codex calls this
+        # hook. Registering is idempotent, so on_enable re-firing is harmless.
+        try:
+            from tubecli.extensions.codex.manager import codex_manager
+            from tubecli.extensions.content_video.pipeline import KIND_PLAN, create_render_task
+
+            codex_manager.on_accept(KIND_PLAN, create_render_task)
+        except Exception as e:
+            logger.warning(f"[ContentVideo] could not register the accept hook: {e}")
+
     def get_routes(self):
         from tubecli.extensions.content_video.routes import router
 

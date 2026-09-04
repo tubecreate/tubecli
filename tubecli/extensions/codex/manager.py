@@ -18,7 +18,7 @@ import json
 import logging
 import os
 import threading
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 try:
     from uuid_extensions import uuid7 as _uuid7
@@ -184,6 +184,10 @@ class CodexManager:
         self._cancel_requested: set = set()
         # Off in tests, so a harness cannot push into the user's real chat.
         self.notifications_enabled = True
+        # kind → fn(task, actor), run right after a reviewer ACCEPTS a task of
+        # that kind. A multi-stage pipeline queues its next stage here (content
+        # video: script accepted → render) without codex knowing the stages.
+        self._on_accept: Dict[str, Callable[..., Any]] = {}
 
     # ── Persistence ──────────────────────────────────────────────
 
@@ -598,11 +602,13 @@ class CodexManager:
         if not task:
             raise ValueError(f"Task not found: {task_id}")
         if accepted:
-            return self._transition(
+            done = self._transition(
                 task_id, DONE, actor,
                 message=f"Result accepted by {actor}",
                 updates={"finished_at": _now()},
             )
+            self._fire_on_accept(done, actor)
+            return done
         # Rework: append the feedback to the goal and re-queue. This text is an
         # instruction to the agent, so it stays English like the event messages
         # around it — the reviewer's own words are carried through verbatim.
@@ -617,6 +623,56 @@ class CodexManager:
             message=f"Changes requested by {actor}",
             updates={"goal": goal, "steps": [], "error": "", "started_at": "", "finished_at": ""},
         )
+
+    # ── Pipeline hooks ───────────────────────────────────────────
+
+    def on_accept(self, kind: str, fn: Callable[..., Any]) -> None:
+        """Register fn(task, actor) to run when a task of `kind` is accepted.
+        Idempotent — the last registration for a kind wins."""
+        self._on_accept[str(kind)] = fn
+
+    def kind_of(self, task_id: str) -> Optional[str]:
+        """The `kind` an extension stamped on the task's event log, if any."""
+        for ev in reversed(self.get_events(task_id, limit=1000)):
+            data = ev.get("data") or {}
+            if data.get("kind"):
+                return str(data["kind"])
+        return None
+
+    def _fire_on_accept(self, task: Dict[str, Any], actor: str) -> None:
+        """Never raises into the reviewer's click: a broken continuation is
+        logged on the task, the acceptance itself stands."""
+        task_id = str((task or {}).get("id") or "")
+        try:
+            kind = self.kind_of(task_id)
+            fn = self._on_accept.get(kind or "")
+            if not fn:
+                return
+            fn(task, actor)
+        except Exception as e:
+            logger.error(f"[Codex] on_accept hook failed for {task_id}: {e}", exc_info=True)
+            try:
+                self.append_event(task_id, "log", f"⚠️ Next stage could not be queued: {e}", actor="codex")
+            except Exception:
+                pass
+
+    def set_plan(self, task_id: str, plan: List[Dict[str, Any]],
+                 actor: str = "pipeline") -> Optional[Dict[str, Any]]:
+        """Replace task.plan from a pipeline, in ANY state — a running stage
+        fills it with what the reviewer should read (update_task refuses
+        started tasks on purpose; this is the one field a run may write)."""
+        self._ensure_loaded()
+        items = [dict(p) for p in (plan or []) if isinstance(p, dict)]
+        with self._lock:
+            stored = self._tasks.get(task_id)
+            if stored is None:
+                return None
+            stored["plan"] = items
+            stored["updated_at"] = _now()
+            self._save()
+            snapshot = dict(stored)
+        self.append_event(task_id, "plan", f"{actor} put a {len(items)}-item plan on the task", actor=actor)
+        return snapshot
 
     def update_task(self, task_id: str, **updates) -> Optional[Dict[str, Any]]:
         """Edit metadata of a task that has not started yet."""

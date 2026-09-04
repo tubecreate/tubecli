@@ -103,11 +103,13 @@ async def _run_registered_pipeline(
             run_download_task, url, payload.get("options") or {}, report, is_cancelled
         )
 
-    if kind == "content_video.digest":
-        from tubecli.extensions.content_video.pipeline import run_digest
+    if kind.startswith("content_video."):
+        # .plan (script for review) and .render (accepted script → mp4);
+        # the pipeline module owns the mapping so codex never learns the stages.
+        from tubecli.extensions.content_video.pipeline import run_kind
 
-        logger.info(f"[Codex] running content_video digest for agent {payload.get('agent_id', '')!r}")
-        return await asyncio.to_thread(run_digest, payload, report, is_cancelled)
+        logger.info(f"[Codex] running {kind} for agent {payload.get('agent_id', '')!r}")
+        return await asyncio.to_thread(run_kind, kind, payload, report, is_cancelled)
 
     logger.warning(f"[Codex] unknown pipeline kind {kind!r}; falling back to the agent")
     return None
