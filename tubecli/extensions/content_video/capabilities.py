@@ -32,6 +32,10 @@ EXTENSIONS: Dict[str, Dict[str, str]] = {
         "label": "TTS VibeVoice",
         "does": "text-to-speech (edge-tts, no key needed) used for the narration",
     },
+    "capcut_tts": {
+        "label": "CapCut TTS",
+        "does": "text-to-speech with your CapCut account (300+ voices) used for the narration",
+    },
 }
 
 NEEDS_FFMPEG = {"render"}
@@ -52,8 +56,11 @@ JOBS: Dict[str, Dict] = {
                "endpoint": "POST /api/v1/studio/episodes/{id}/storyboard"},
     "images": {"label": "Generate shot images", "requires": ["content_studio"],
                "endpoint": "POST /api/v1/studio/episodes/{id}/gen-images"},
-    "tts": {"label": "Voice the narration", "requires": ["content_studio", "tts_vibevoice"],
-            "endpoint": "POST /api/v1/studio/episodes/{id}/batch-tts"},
+    # Either TTS extension will do: edge (via the Studio's batch-tts) or CapCut
+    # (per shot, written straight onto the shots). `any_of` = at least one.
+    "tts": {"label": "Voice the narration", "requires": ["content_studio"],
+            "any_of": ["tts_vibevoice", "capcut_tts"],
+            "endpoint": "POST /api/v1/studio/episodes/{id}/batch-tts | POST /api/v1/capcut-tts/synthesize"},
     "render": {"label": "Assemble the video", "requires": ["content_studio"],
                "endpoint": "POST /api/v1/studio/episodes/{id}/export-ffmpeg"},
 }
@@ -76,6 +83,13 @@ def check_job(job_id: str) -> Dict:
         else:
             present.append(ext)
 
+    # "one of these": satisfied by any installed AND enabled member; when none
+    # is, every member is reported as missing so the guidance lists the choices.
+    any_of = list(job.get("any_of") or [])
+    if any_of and not any(state.get(e) for e in any_of):
+        for e in any_of:
+            (disabled if e in state else missing).append(e)
+
     tools = []
     if job_id in NEEDS_FFMPEG and not ffmpeg_ready():
         tools.append("ffmpeg")
@@ -85,6 +99,7 @@ def check_job(job_id: str) -> Dict:
         "label": job["label"],
         "endpoint": job.get("endpoint", ""),
         "requires": job["requires"],
+        "any_of": any_of,
         "present": present,
         "missing": missing,
         "disabled": disabled,
@@ -146,7 +161,12 @@ def guidance_for(job_ids: List[str]) -> Optional[str]:
     if wanted:
         lines += ["You asked for: " + "; ".join(wanted), ""]
     if missing:
-        lines.append(f"Install these from the Market ({MARKET_URL}):")
+        # Alternatives are a choice, not a shopping list: say so.
+        alts = [e for jid in job_ids for e in (JOBS.get(jid) or {}).get("any_of") or []]
+        if alts and all(e in alts for e in missing) and len(missing) > 1:
+            lines.append(f"Install ONE of these from the Market ({MARKET_URL}):")
+        else:
+            lines.append(f"Install these from the Market ({MARKET_URL}):")
         lines += [f"  {i}. {_describe(e)}" for i, e in enumerate(missing, 1)]
         lines.append("")
     if disabled:

@@ -140,19 +140,56 @@ python_packages() {
     fi
 }
 
+# ffmpeg is what every video feature shells out to (Content Studio's export,
+# subtitle burn-in, TTS stitching, yt-dlp's merge step). It was never part of
+# the install, so a fresh server had the whole video chain and no way to run
+# it — the user found out at the last step of a nine-step job. Best-effort on
+# purpose: a distro without the package (RHEL family needs RPM Fusion) must not
+# fail the TubeCLI install; the video features tell the user what is missing.
+install_ffmpeg_best_effort() {
+    if command_exists ffmpeg; then
+        return 0
+    fi
+    echo -e "${YELLOW}[*] Installing ffmpeg (video features need it)...${NC}"
+    local rc=0
+    if command_exists apt-get; then
+        $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y -q ffmpeg || rc=$?
+    elif command_exists dnf; then
+        $SUDO dnf install -y -q ffmpeg || $SUDO dnf install -y -q ffmpeg-free || rc=$?
+    elif command_exists yum; then
+        $SUDO yum install -y -q ffmpeg || rc=$?
+    elif command_exists pacman; then
+        $SUDO pacman -Sy --noconfirm ffmpeg || rc=$?
+    elif command_exists zypper; then
+        $SUDO zypper --non-interactive install ffmpeg || rc=$?
+    elif command_exists apk; then
+        $SUDO apk add --quiet ffmpeg || rc=$?
+    else
+        rc=1
+    fi
+    if [ "$rc" -ne 0 ] || ! command_exists ffmpeg; then
+        echo -e "${YELLOW}[!] ffmpeg could not be installed automatically. Video features (export, subtitles, TTS) need it:${NC}"
+        echo -e "${YELLOW}    install it later (e.g. apt install ffmpeg) or set \"ffmpeg_path\" in data/global_settings.json.${NC}"
+    fi
+    return 0
+}
+
 install_deps_linux() {
     # Previously every branch ended in an unconditional `return 0` with output sent
     # to /dev/null, so a package manager that failed — no network, no sudo, locked
     # dpkg — was reported as success and the script carried on. Let the real status
     # through, and stop hiding the errors that explain it.
     # shellcheck disable=SC2046
-    install_system_packages git $(python_packages)
+    install_system_packages git $(python_packages) || return $?
+    install_ffmpeg_best_effort
 }
 
 install_deps_macos() {
     if command_exists brew; then
         echo -e "${YELLOW}[*] Installing dependencies via Homebrew...${NC}"
         brew install git python >/dev/null 2>&1
+        # Same reason as on Linux: the video chain shells out to ffmpeg.
+        command -v ffmpeg >/dev/null 2>&1 || brew install ffmpeg >/dev/null 2>&1 || echo -e "${YELLOW}[!] ffmpeg not installed — video features need it (brew install ffmpeg).${NC}"
         return 0
     else
         echo -e "${RED}[!] Homebrew is not installed. Please install Homebrew first:${NC}"

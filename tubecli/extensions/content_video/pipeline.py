@@ -38,7 +38,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from tubecli.extensions.content_video.capabilities import (
-    check_job, guidance_for, studio_capabilities,
+    check_job, guidance_for, installed_extensions, studio_capabilities,
 )
 
 logger = logging.getLogger("ContentVideo")
@@ -75,7 +75,10 @@ DEFAULTS: Dict[str, Any] = {
     "aspect_ratio": "16:9",
     "style": "news",
     "language": "",            # "" = the agent's own language setting
-    "tts_voice": "vi-VN-HoaiMyNeural",
+    "tts_voice": "vi-VN-HoaiMyNeural",   # edge voice id
+    "tts_engine": "auto",                # auto | edge | capcut
+    "capcut_speaker": "",                # CapCut speaker id; "" = the account default
+    "capcut_email": "",                  # which stored CapCut account; "" = first enabled
     "title": "",
 }
 POLL_SEC = 1.0
@@ -109,6 +112,28 @@ def _post(path: str, payload: Dict, timeout: int = 300) -> Dict:
         return r.json()
     except Exception:
         return {"raw": r.text[:2000]}
+
+
+def _put(path: str, payload: Dict, timeout: int = 60) -> Dict:
+    import requests
+
+    r = requests.put(_base_url() + path, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
+    try:
+        return r.json()
+    except Exception:
+        return {"raw": r.text[:2000]}
+
+
+def _post_bytes(path: str, payload: Dict, timeout: int = 180) -> bytes:
+    """POST expecting a binary body (CapCut returns the mp3 itself)."""
+    import requests
+
+    r = requests.post(_base_url() + path, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
+    return r.content
 
 
 def _get(path: str, timeout: int = 60) -> Any:
@@ -576,7 +601,108 @@ def _step_images(state: Dict, options: Dict) -> None:
         state["_say"]("images", "running", f"{len(errors)} shot(s) without image")
 
 
-def _step_tts(state: Dict, options: Dict) -> None:
+_CUE_RE = re.compile(r"\[.*?\]")   # stage directions in brackets are not spoken
+
+
+def _capcut_account(preferred: str = "") -> str:
+    """Email of the CapCut account to voice with, or "" when none is enabled."""
+    try:
+        data = _get("/api/v1/capcut-tts/accounts", timeout=20)
+    except Exception as e:
+        logger.debug(f"[ContentVideo] capcut accounts unavailable: {e}")
+        return ""
+    accounts = [a for a in (data.get("accounts") or []) if isinstance(a, dict)]
+    enabled = [a for a in accounts if a.get("enabled", True) and a.get("email")]
+    if preferred and any(a.get("email") == preferred for a in enabled):
+        return preferred
+    return str(enabled[0]["email"]) if enabled else ""
+
+
+def _tts_engine(state: Dict, options: Dict) -> str:
+    """Which voice engine this run uses: "edge" (tts_vibevoice, through the
+    Studio's batch-tts) or "capcut" (capcut_tts, per shot). "auto" prefers
+    CapCut when it has an enabled account — the user picked those voices on
+    purpose — and otherwise edge. Returns "" when nothing usable is there."""
+    want = str(options.get("tts_engine") or "auto").lower()
+    have = installed_extensions()
+    edge_ok = bool(have.get("tts_vibevoice"))
+    capcut_ok = bool(have.get("capcut_tts"))
+    if want == "capcut":
+        if not capcut_ok:
+            raise RuntimeError("tts_engine=capcut but the CapCut TTS extension is not installed/enabled.")
+        state["capcut_email"] = _capcut_account(str(options.get("capcut_email") or ""))
+        if not state["capcut_email"]:
+            raise RuntimeError("CapCut TTS has no enabled account — add one on its page, or use tts_engine=edge.")
+        return "capcut"
+    if want in ("edge", "vibevoice"):
+        if not edge_ok:
+            raise RuntimeError("tts_engine=edge but the TTS VibeVoice extension is not installed/enabled.")
+        return "edge"
+    # auto
+    if capcut_ok:
+        email = _capcut_account(str(options.get("capcut_email") or ""))
+        if email:
+            state["capcut_email"] = email
+            return "capcut"
+    if edge_ok:
+        return "edge"
+    return ""
+
+
+def _shot_narration(shot: Dict) -> str:
+    text = (shot.get("narration_text") or shot.get("dialogue") or shot.get("description")
+            or shot.get("action") or "")
+    return _CUE_RE.sub("", str(text)).strip()
+
+
+def _tts_capcut(state: Dict, options: Dict) -> None:
+    """Voice every shot that has none yet with CapCut, and write the absolute
+    mp3 path onto the shot — build_ffmpeg_video accepts absolute paths as-is."""
+    from tubecli.config import DATA_DIR
+
+    ep_id = state["episode_id"]
+    shots = _storyboards(ep_id)
+    todo = [s for s in shots if not str(s.get("tts_audio_url") or "").strip()]
+    out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}")
+    os.makedirs(out_dir, exist_ok=True)
+    email = state.get("capcut_email") or ""
+    ok = failed = skipped = 0
+    total = len(todo)
+    last_pct = -1
+    for i, shot in enumerate(todo, 1):
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        text = _shot_narration(shot)
+        if len(text) < 3:
+            skipped += 1
+            continue
+        try:
+            body = {"email": email, "text": text, "speed": 10, "volume": 10}
+            if options.get("capcut_speaker"):
+                body["speaker"] = str(options["capcut_speaker"])
+            audio = _post_bytes("/api/v1/capcut-tts/synthesize", body, timeout=180)
+            if not audio or len(audio) < 1000:
+                raise RuntimeError("CapCut returned no audio")
+            num = shot.get("storyboard_number") or shot.get("id") or i
+            path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
+            with open(path, "wb") as f:
+                f.write(audio)
+            _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
+            ok += 1
+        except Exception as e:
+            failed += 1
+            logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
+        pct = int(min(99, i * 100 / max(1, total)))
+        if pct != last_pct:
+            state["_say"]("tts", "running", f"{i}/{total} · CapCut", pct)
+            last_pct = pct
+    state["tts_summary"] = f"{ok} voiced (CapCut)" + (f", {failed} failed" if failed else "") + \
+        (f", {skipped} silent" if skipped else "")
+    if ok == 0 and failed:
+        raise RuntimeError(f"CapCut TTS failed for every shot ({failed}).")
+
+
+def _tts_edge(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
         "voice_id": options.get("tts_voice") or DEFAULTS["tts_voice"], "engine": "edge",
@@ -586,9 +712,21 @@ def _step_tts(state: Dict, options: Dict) -> None:
     data = _poll_studio(f"/api/v1/studio/batch-tts/{res['task_id']}",
                         TIMEOUTS["tts"], state, "tts", done_statuses=("done", "completed"))
     ok, failed = int(data.get("success") or 0), int(data.get("failed") or 0)
-    state["tts_summary"] = f"{ok} voiced" + (f", {failed} failed" if failed else "")
+    state["tts_summary"] = f"{ok} voiced (edge)" + (f", {failed} failed" if failed else "")
     if ok == 0 and failed:
         raise RuntimeError(f"TTS failed for every shot ({failed}).")
+
+
+def _step_tts(state: Dict, options: Dict) -> None:
+    engine = _tts_engine(state, options)
+    if not engine:
+        raise RuntimeError("No TTS extension is usable (install TTS VibeVoice or CapCut TTS).")
+    state["tts_engine"] = engine
+    state["_say"]("tts", "running", f"engine: {engine}")
+    if engine == "capcut":
+        _tts_capcut(state, options)
+    else:
+        _tts_edge(state, options)
 
 
 def _step_render(state: Dict, options: Dict) -> None:
