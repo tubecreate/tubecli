@@ -2958,6 +2958,358 @@ async def stop_preview(request: Request):
         return {"status": "stopped"}
     return {"status": "not_found"}
 
+# ── GIẢI PHÓNG RAM: dọn trình duyệt không còn ai dùng ────────────────────────
+# Máy cấu hình thấp hay rơi vào cảnh này: khung live view báo "quá lâu không nhận
+# được hình", người dùng nhìn đồng hồ RAM thấy đầy mà không biết ai đang giữ. Thủ
+# phạm quen mặt, không cái nào có người thật đứng sau:
+#   - Chromium của lượt agent ĐÃ XONG nhưng launcher chết trước khi kịp dọn;
+#   - node preview + Chromium từ TRƯỚC lần restart TubeCLI (sổ trong RAM rỗng lại,
+#     nên /stop không nhìn thấy chúng nữa);
+#   - live view mà tab canvas đã đóng nhưng pagehide không kịp gọi /preview/stop;
+#   - phiên của chính khung vừa hết giờ chờ hình (treo, không hình).
+#
+# Ranh giới KHÔNG được vượt: phiên agent ĐANG chạy và live view ĐANG có người xem
+# là của người khác — chỉ LIỆT KÊ, không giết. Dừng chúng vẫn là quyết định của
+# người, qua nút dừng từng phiên như trước. "Không biết có ai xem không" (bản
+# preview_server cũ chưa báo viewers) cũng xếp vào cột GIỮ.
+
+ABANDONED_VIEW_MIN = 10     # live view không ai xem quá bấy nhiêu phút → bỏ hoang
+_RECLAIM_REASON_VI = {
+    "own_stalled":    "khung này vừa chờ hình quá lâu",
+    "finished_run":   "lượt agent đã xong mà trình duyệt chưa đóng",
+    "dead_preview":   "máy chủ xem trực tiếp đã chết, trình duyệt còn lại",
+    "abandoned_view": "live view không còn ai xem",
+    "orphan":         "không thuộc phiên nào (còn lại từ trước lần khởi động lại)",
+}
+
+
+def _profile_of_cmdline(cmdline, profiles_dir) -> Optional[str]:
+    """Tên hồ sơ mà dòng lệnh này đang mở, hay None.
+
+    Hai hình dạng. Chromium/open.js mang ĐƯỜNG DẪN hồ sơ
+    (--user-data-dir=…/browser_profiles/tuan3); preview_server.cjs chỉ mang TÊN
+    (--profile tuan3 --profiles-dir …). Biên thư mục như _owns_profile bên
+    process_manager: "…/tuan5" không được khớp "…/tuan50", kẻo dọn hồ sơ này giết
+    nhầm hồ sơ kia.
+    """
+    if not cmdline:
+        return None
+    args = [str(a) for a in cmdline]
+    base = os.path.normcase(os.path.abspath(str(profiles_dir)))
+    for a in args:
+        n = os.path.normcase(a)
+        idx = n.find(base)
+        if idx == -1:
+            continue
+        rest = a[idx + len(base):]
+        if not rest or rest[0] not in ("/", "\\"):
+            continue
+        name = re.split(r"[\\/\"']", rest[1:], 1)[0].strip()
+        if name:
+            return name
+    if any(a.endswith("preview_server.cjs") for a in args):
+        for i, a in enumerate(args[:-1]):
+            if a == "--profile" and args[i + 1] and not args[i + 1].startswith("--"):
+                return args[i + 1]
+    return None
+
+
+def _browser_groups(profiles_dir) -> Dict[str, dict]:
+    """Sự thật từ hệ điều hành: hồ sơ → {pids, rss_mb, names} cho MỌI tiến trình đang
+    mở một hồ sơ trong profiles_dir, kể cả mồ côi không nằm trong sổ nào. rss cộng
+    dồn nên hơi cao (trang dùng chung đếm nhiều lần) — là ước lượng, nói "~"."""
+    groups: Dict[str, dict] = {}
+    try:
+        import psutil
+    except Exception:
+        return groups
+    me = os.getpid()
+    protected = {me}
+    try:
+        protected |= {p.pid for p in psutil.Process(me).parents()}
+    except Exception:
+        pass
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            if proc.pid in protected:
+                continue
+            prof = _profile_of_cmdline(proc.info.get("cmdline"), profiles_dir)
+            if not prof:
+                continue
+            rss = 0
+            try:
+                rss = int(proc.memory_info().rss // (1024 * 1024))
+            except Exception:
+                pass
+            g = groups.setdefault(prof, {"pids": [], "rss_mb": 0, "names": set()})
+            g["pids"].append(proc.pid)
+            g["rss_mb"] += rss
+            g["names"].add(str(proc.info.get("name") or ""))
+        except Exception:
+            continue
+    for g in groups.values():
+        g["names"] = sorted(n for n in g["names"] if n)
+    return groups
+
+
+def _preview_viewers(port, timeout=1.0) -> Optional[dict]:
+    """{viewers, idle_since} từ /status của preview_server, hay None. None nghĩa là
+    KHÔNG BIẾT (bản cũ chưa có trường này, hoặc không trả lời) — không biết thì giữ."""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(f"http://127.0.0.1:{int(port)}/status", timeout=timeout) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+        if not isinstance(d, dict) or "viewers" not in d:
+            return None
+        return {"viewers": int(d.get("viewers") or 0), "idle_since": d.get("idle_since")}
+    except Exception:
+        return None
+
+
+def plan_memory_reclaim(own_profile, preview_sessions, instances, groups,
+                        viewers_probe=None, launching=None, now=None) -> dict:
+    """Chia mọi trình duyệt trên máy thành hai cột: DỌN ĐƯỢC và PHẢI GIỮ.
+
+    Thuần: mọi thứ đi qua tham số để kiểm được mà không cần tiến trình thật.
+    `own_profile` là hồ sơ của KHUNG ĐANG GỌI — phiên của chính nó vừa hết giờ chờ
+    hình nên được dọn; phiên của khung khác thì không.
+    """
+    now = time.time() if now is None else now
+    own = str(own_profile or "")
+    protected: Dict[str, dict] = {}
+    reclaim: Dict[str, dict] = {}
+    finished: Dict[str, str] = {}
+    dead_preview = set()
+
+    # 1) Sổ agent: chạy thật → giữ; đã xong / launcher chết → gợi ý lý do.
+    for inst in (instances or []):
+        try:
+            prof = str(inst.get("profile") or "")
+            if not prof:
+                continue
+            proc = inst.get("_process")
+            alive = proc is not None and proc.poll() is None and inst.get("status") == "running"
+            if alive:
+                protected.setdefault(prof, {
+                    "profile": prof, "why": "agent_running",
+                    "who": inst.get("_agent_id"),
+                    "mins": _minutes_since(inst.get("started_at")),
+                })
+            else:
+                finished.setdefault(prof, str(inst.get("status") or "done"))
+        except Exception:
+            continue
+
+    # 2) Sổ live view.
+    for _sid, info in list((preview_sessions or {}).items()):
+        try:
+            prof = str(info.get("profile") or "")
+            if not prof or prof in protected:
+                continue
+            proc = info.get("proc")
+            if proc is not None and proc.poll() is not None:
+                dead_preview.add(prof)
+                continue
+            mins = _minutes_since(info.get("started_at"))
+            if prof == own:
+                reclaim[prof] = {"reason": "own_stalled", "mins": mins}
+                continue
+            probe = None
+            if viewers_probe and info.get("port"):
+                probe = viewers_probe(info.get("port"))
+            idle_min = None
+            if probe and probe.get("viewers") == 0 and probe.get("idle_since"):
+                try:
+                    idle_min = int((now - float(probe["idle_since"]) / 1000.0) / 60)
+                except Exception:
+                    idle_min = None
+            if idle_min is not None and idle_min >= ABANDONED_VIEW_MIN:
+                reclaim[prof] = {"reason": "abandoned_view", "mins": mins, "idle_mins": idle_min}
+            else:
+                protected[prof] = {
+                    "profile": prof, "why": "live_view", "mins": mins,
+                    "opened_by": info.get("opened_by"),
+                    "viewers": (probe or {}).get("viewers"),
+                }
+        except Exception:
+            continue
+
+    # 3) Đang mở dở → giữ: đừng giết cái vừa được bấm Mở ở khung khác.
+    for prof in (launching or []):
+        prof = str(prof)
+        if prof and prof not in protected:
+            protected[prof] = {"profile": prof, "why": "launching"}
+            reclaim.pop(prof, None)
+
+    # 4) Sự thật từ hệ điều hành: tiến trình nào không thuộc cột GIỮ là dọn được.
+    out = []
+    for prof, g in (groups or {}).items():
+        if prof in protected:
+            protected[prof]["pids"] = list(g.get("pids") or [])
+            protected[prof]["rss_mb"] = int(g.get("rss_mb") or 0)
+            continue
+        item = dict(reclaim.get(prof) or {})
+        if not item.get("reason"):
+            item["reason"] = ("finished_run" if prof in finished
+                              else "dead_preview" if prof in dead_preview
+                              else "orphan")
+        item.update({"profile": prof, "pids": list(g.get("pids") or []),
+                     "rss_mb": int(g.get("rss_mb") or 0),
+                     "names": list(g.get("names") or [])})
+        item["why_vi"] = _RECLAIM_REASON_VI.get(item["reason"], item["reason"])
+        out.append(item)
+    # Trong sổ nhưng hệ điều hành không còn tiến trình nào: chỉ còn rác sổ — vẫn
+    # đưa vào để dọn sổ (0 MB), xếp cuối.
+    for prof, item in reclaim.items():
+        if not any(o["profile"] == prof for o in out):
+            out.append({**item, "profile": prof, "pids": [], "rss_mb": 0, "names": [],
+                        "why_vi": _RECLAIM_REASON_VI.get(item.get("reason"), "")})
+    out.sort(key=lambda x: (-int(x.get("rss_mb") or 0), x["profile"]))
+    return {"reclaim": out,
+            "protected": sorted(protected.values(), key=lambda x: x["profile"])}
+
+
+def _kill_pids(pids, wait=3.0) -> dict:
+    """Giết một danh sách pid: con trước, cha sau (giết cha trước thì Chromium con
+    thành mồ côi và vẫn giữ khoá); xin trước, ép sau. Không bao giờ giết TubeCLI."""
+    rep = {"killed": [], "errors": []}
+    try:
+        import psutil
+    except Exception as e:
+        rep["errors"].append(f"psutil không dùng được: {e}")
+        return rep
+    me = os.getpid()
+    protected = {me}
+    try:
+        protected |= {p.pid for p in psutil.Process(me).parents()}
+    except Exception:
+        pass
+    procs = []
+    for pid in (pids or []):
+        try:
+            procs.append(psutil.Process(int(pid)))
+        except Exception:
+            continue
+    ordered, seen = [], set()
+    for p in procs:
+        try:
+            kids = p.children(recursive=True)
+        except Exception:
+            kids = []
+        for q in kids + [p]:
+            if q.pid not in seen and q.pid not in protected:
+                seen.add(q.pid)
+                ordered.append(q)
+    for q in ordered:
+        try:
+            rep["killed"].append(q.pid)
+            q.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        except Exception as e:
+            rep["errors"].append(str(e))
+    try:
+        _gone, alive = psutil.wait_procs(ordered, timeout=wait)
+        for q in alive:
+            try:
+                q.kill()
+            except Exception:
+                pass
+        if alive:
+            psutil.wait_procs(alive, timeout=1.5)
+    except Exception:
+        pass
+    return rep
+
+
+def reclaim_browser_memory(own_profile=None, dry_run=False) -> dict:
+    """Dọn mọi trình duyệt không còn ai dùng, đo RAM trước/sau, kể lại đã làm gì."""
+    from .profile_manager import PROFILES_DIR
+    from .process_manager import browser_process_manager as _bpm, force_kill_profile
+    ram_before = _available_ram_mb()
+    try:
+        with _bpm._instances_lock:
+            snapshot = list(_bpm._instances.values())
+    except Exception:
+        snapshot = []
+    groups = _browser_groups(PROFILES_DIR)
+    plan = plan_memory_reclaim(
+        own_profile, _preview_processes, snapshot, groups,
+        viewers_probe=_preview_viewers,
+        launching=[p for p in list(_launching_profiles) if _is_launching(p)],
+    )
+    reclaimable_mb = sum(int(x.get("rss_mb") or 0) for x in plan["reclaim"])
+    base = {"ok": True, "dry_run": bool(dry_run), "ram_before": ram_before,
+            "reclaim": plan["reclaim"], "protected": plan["protected"],
+            "reclaimable_mb": reclaimable_mb}
+    if dry_run:
+        return base
+
+    done = []
+    for item in plan["reclaim"]:
+        prof = item["profile"]
+        entry = {"profile": prof, "reason": item["reason"], "why_vi": item.get("why_vi"),
+                 "rss_mb": item.get("rss_mb"), "killed": [], "locks_removed": 0, "errors": []}
+        try:
+            stop_preview_for_profile(prof)      # node preview trong sổ + gỡ khỏi sổ
+        except Exception as e:
+            entry["errors"].append(f"stop_preview: {e}")
+        try:
+            _bpm.stop_by_profile(prof)          # bản ghi agent có launcher chết → đóng sổ
+        except Exception:
+            pass
+        rep = _kill_pids(item.get("pids") or [])
+        entry["killed"] = list(rep["killed"])
+        entry["errors"].extend(rep["errors"])
+        try:
+            fk = force_kill_profile(prof)       # phần còn sót + gỡ khoá Singleton
+            for k in fk.get("killed", []):
+                if k.get("pid") not in entry["killed"]:
+                    entry["killed"].append(k.get("pid"))
+            entry["locks_removed"] = len(fk.get("locks_removed", []))
+            entry["errors"].extend(fk.get("errors", []))
+        except Exception as e:
+            entry["errors"].append(f"force_kill: {e}")
+        done.append(entry)
+
+    time.sleep(0.8)                              # nhân trả RAM không tức thì
+    ram_after = _available_ram_mb()
+    freed = None
+    if ram_after is not None and ram_before is not None:
+        freed = max(0, int(ram_after) - int(ram_before))
+    n = len(done)
+    if n == 0:
+        k = len(plan["protected"])
+        msg = "Không có trình duyệt bỏ hoang nào để dọn."
+        if k:
+            msg += f" {k} phiên đang có người dùng — dừng bớt một phiên để lấy lại RAM."
+    else:
+        msg = f"Đã đóng {n} trình duyệt không còn ai dùng"
+        msg += f", trả lại {freed} MB." if freed is not None else "."
+    preview_logger.info("free-memory own=%s dọn=%s giữ=%s ram %s→%s",
+                        own_profile, [d["profile"] for d in done],
+                        [p["profile"] for p in plan["protected"]], ram_before, ram_after)
+    return {**base, "done": done, "ram_after": ram_after, "freed_mb": freed, "message_vi": msg}
+
+
+class FreeMemoryRequest(BaseModel):
+    profile: Optional[str] = None
+    dry_run: bool = False
+
+
+@router.post("/free-memory")
+async def api_free_memory(req: FreeMemoryRequest, request: Request):
+    """Dọn trình duyệt không còn ai dùng rồi báo RAM lấy lại được. dry_run=true chỉ
+    liệt kê (cloud dùng để ghi số lên nút). `profile` = hồ sơ của KHUNG ĐANG GỌI —
+    vừa hết giờ chờ hình — phiên của chính nó được dọn, của khung khác thì không.
+
+    Owner-only: giết tiến trình trên máy chủ không phải việc của khách.
+    """
+    if getattr(getattr(request, "state", None), "guest_scope", None) is not None:
+        raise HTTPException(403, "Chỉ chủ máy mới được dọn trình duyệt trên máy chủ")
+    return await asyncio.to_thread(reclaim_browser_memory, req.profile, req.dry_run)
+
+
 from fastapi import WebSocket, WebSocketDisconnect
 
 @router.websocket("/preview/ws/{port}")

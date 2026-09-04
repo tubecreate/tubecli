@@ -79,6 +79,12 @@ function log(msg) {
 }
 
 const clients = new Set();
+// Mốc lúc người xem CUỐI CÙNG rời đi (ms), null khi đang có người xem. /status phát
+// ra để routes.py (free-memory) nhận ra live view BỎ HOANG — tab canvas đã đóng mà
+// pagehide không kịp gọi /preview/stop — và phân biệt nó với live view đang có
+// người nhìn. Lúc mới chạy chưa ai nối: tính từ lúc chạy, vì một phiên không ai
+// nối tới cũng là bỏ hoang như nhau.
+let lastViewerLeftAt = Date.now();
 // XEM THEO TẦM NHÌN: một client báo khung xem của nó ĐANG ngoài màn (cuộn/zoom
 // khỏi tầm) qua {type:'set_visible',visible:false}. Nó vẫn nối (giữ tabs/url/
 // trạng thái) nhưng KHÔNG nhận frame, và khi MỌI client đều ẩn thì vòng chụp
@@ -707,7 +713,9 @@ process.on('uncaughtException', (err) => {
             let activeUrl = '';
             try { activeUrl = page ? page.url() : ''; } catch (e) {}
             res.end(JSON.stringify({ status: isBrowserReady ? 'running' : 'initializing',
-                profile: profileName, active_tab: activeTab, active_url: activeUrl }));
+                profile: profileName, active_tab: activeTab, active_url: activeUrl,
+                // viewers/idle_since: cho free-memory (routes.py) biết phiên này còn ai xem không.
+                viewers: clients.size, idle_since: clients.size === 0 ? lastViewerLeftAt : null }));
             return;
         }
 
@@ -953,6 +961,7 @@ process.on('uncaughtException', (err) => {
 
     wss.on('connection', (ws) => {
         clients.add(ws);
+        lastViewerLeftAt = null;
         startStreaming();
 
         // Send initial state if ready
@@ -976,13 +985,13 @@ process.on('uncaughtException', (err) => {
         ws.on('close', () => {
             clients.delete(ws);
             pausedClients.delete(ws);
-            if (clients.size === 0) stopStreaming();
+            if (clients.size === 0) { lastViewerLeftAt = Date.now(); stopStreaming(); }
         });
 
         ws.on('error', () => {
             clients.delete(ws);
             pausedClients.delete(ws);
-            if (clients.size === 0) stopStreaming();
+            if (clients.size === 0) { lastViewerLeftAt = Date.now(); stopStreaming(); }
         });
     });
 
