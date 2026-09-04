@@ -12,6 +12,7 @@ gets to spend an agent's corpus and keys.
 """
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
@@ -32,10 +33,17 @@ class PlanRequest(BaseModel):
 
 
 class RunRequest(BaseModel):
-    agent_id: str
+    # Rỗng khi lời gọi tới từ SKILL: brain gắn agent_id vào payload nhờ cờ
+    # `with_agent` trong workflow_data, nên ở đây chỉ cần cho phép rỗng rồi báo
+    # lỗi tử tế, thay vì để Pydantic ném 422 với mảng validation.
+    agent_id: str = ""
+    # Kỹ năng extension_action chỉ gửi được MỘT chuỗi. Nhận nó ở đây và tự rút
+    # link ra làm nguồn — cùng cách video_studio làm cho các job một-chuỗi.
+    input: str = ""
+    agent_name: str = ""
     sources: List[str] = []
     options: Dict[str, Any] = {}
-    created_by: str = "user"
+    created_by: str = ""
     origin: Optional[Dict[str, Any]] = None
 
 
@@ -55,21 +63,45 @@ async def plan_route(req: PlanRequest, request: Request):
     return {"steps": plan(req.options), "text": describe_plan(req.options)}
 
 
+_URL_RE = re.compile(r"https?://\S+")
+
+
 @router.post("/run")
 async def run_route(req: RunRequest, request: Request):
-    """Queue the pipeline as a codex task for one agent."""
+    """Queue the pipeline as a codex task for one agent.
+
+    Two callers, one endpoint: the canvas (structured body) and the agent's
+    "🎬 Content Video" skill (one string + the agent the brain attached).
+    """
     _deny_guests(request)
-    if not (req.agent_id or "").strip():
-        raise HTTPException(400, "agent_id is required")
+    agent_id = (req.agent_id or "").strip()
+    if not agent_id:
+        # Câu trả lời phải là câu NGƯỜI đọc được: brain chuyển nguyên trường
+        # `report` vào chat, còn 400 thì chỉ thành một dòng lỗi kỹ thuật.
+        return {"status": "need_agent",
+                "report": ("Kỹ năng này làm video từ kho đã đọc/đã xem của CHÍNH agent, nên "
+                           "phải chạy từ khung chat của một agent. Mở agent rồi nhắc lại giúp tôi.")}
     try:
         from tubecli.extensions.content_video.pipeline import create_digest_task, queued_reply
     except ImportError:
         raise HTTPException(400, "The codex extension is required to run pipelines.")
+
+    # Link nằm lẫn trong câu người dùng gõ → thành nguồn cào thêm.
+    sources = list(req.sources or [])
+    for u in _URL_RE.findall(req.input or ""):
+        u = u.rstrip(".,;?!)")
+        if u not in sources:
+            sources.append(u)
+
     origin = dict(req.origin or {})
-    origin.setdefault("agent_id", req.agent_id)
+    origin.setdefault("agent_id", agent_id)
+    # Lời gọi đi qua skill là MODEL tự quyết → created_by="brain", tức chịu đúng
+    # luật duyệt của codex ("AI đề xuất, người duyệt"). Canvas gửi created_by
+    # tường minh thì giữ nguyên.
+    created_by = (req.created_by or "").strip() or ("brain" if req.input else "user")
     try:
         task = await asyncio.to_thread(
-            create_digest_task, req.agent_id, req.options, req.created_by, origin, req.sources)
+            create_digest_task, agent_id, req.options, created_by, origin, sources)
     except Exception as e:
         logger.error(f"[ContentVideo] queueing failed: {e}", exc_info=True)
         raise HTTPException(500, str(e))

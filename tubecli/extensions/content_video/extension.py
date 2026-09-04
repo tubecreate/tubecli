@@ -58,6 +58,18 @@ class ContentVideoExtension(Extension):
         except Exception as e:
             logger.warning(f"[ContentVideo] could not register the accept hook: {e}")
 
+        # Một chip trong tab Kỹ năng của agent. Verb thì vô hình — nó nổ khi model
+        # quyết định, nên chủ máy không nhìn thấy agent có khả năng này và cũng
+        # không tắt được. Skill là một dòng trong kho: hiện thành chip, chủ tự tick
+        # cho từng agent, và `commands` sửa được ngay trên giao diện.
+        try:
+            from tubecli.extensions.content_video.skills import register_skills
+
+            stats = register_skills()
+            logger.info(f"[ContentVideo] skills {stats}")
+        except Exception as e:
+            logger.warning(f"[ContentVideo] could not register skills: {e}")
+
     def get_routes(self):
         from tubecli.extensions.content_video.routes import router
 

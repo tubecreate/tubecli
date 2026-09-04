@@ -698,6 +698,13 @@ class AgentBrain:
                     if m:
                         user_input = m.group(0).rstrip(".,;?!)")
                 payload.setdefault(input_key, user_input)
+                # Kỹ năng nào khai `with_agent` thì nhận luôn danh tính agent đang
+                # hỏi. Không có nó, mọi extension_action đều là một chuỗi trần —
+                # đủ cho "tải video <url>", nhưng KHÔNG đủ cho việc chỉ agent đó mới
+                # được làm: đọc kho đã cào của chính nó, tiêu khoá của chính nó.
+                if wf_data.get("with_agent"):
+                    payload.setdefault("agent_id", agent.get("id", ""))
+                    payload.setdefault("agent_name", agent.get("name", ""))
                 print(f"[Brain] Running extension action '{skill.get('name')}' → {method} {endpoint}")
 
                 def _do_request():

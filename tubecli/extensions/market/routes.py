@@ -955,9 +955,25 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                 if name in ext_name.lower().replace(" ", "_") or install_id in ext_name:
                     ext_obj = ext
                     break
-        if ext_obj and not ext_obj.enabled:
-            extension_manager.enable(ext_obj.name)
-            print(f"[Market] Auto-enabled extension: {ext_obj.name}")
+        setup_error = None
+        if ext_obj:
+            # enable() runs on_enable() only for something not already enabled, and
+            # register() runs it only when the saved config already said enabled —
+            # so a re-install of an extension whose flag was already on ran NO setup
+            # at all. That hook is where extensions register their chat skills
+            # (content_studio._register_skill), so the agent's skill list silently
+            # stayed behind while the panel worked fine. on_enable is contractually
+            # idempotent; run it every install and let the user see any failure.
+            if not ext_obj.enabled:
+                extension_manager.enable(ext_obj.name)
+                print(f"[Market] Auto-enabled extension: {ext_obj.name}")
+            else:
+                try:
+                    ext_obj.on_enable()
+                    print(f"[Market] Re-ran setup for already-enabled {ext_obj.name}")
+                except Exception as e:
+                    setup_error = f"{type(e).__name__}: {e}"
+                    print(f"[Market] on_enable failed for {ext_obj.name}: {e}")
 
         # Hot-mount routes and nodes into running server (no restart needed)
         if ext_obj:
@@ -1030,6 +1046,14 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
                     "route_error": hot_mount_error,
                     "message": (f"Extension '{req.item_name}' đã cài nhưng KHÔNG nạp được mã: {hot_mount_error}. "
                                 f"Thường do thiếu thư viện Python — cài theo thông báo rồi restart TubeCLI.")}
+        if setup_error:
+            # Cài xong, mã chạy được, nhưng bước thiết lập của chính extension hỏng —
+            # đây chính là ca "đã cài mà agent không thấy skill mới".
+            return {"status": "success", "type": "extension", "restart_required": True,
+                    "setup_error": setup_error,
+                    "message": (f"Extension '{req.item_name}' đã cài nhưng bước thiết lập của nó lỗi: "
+                                f"{setup_error}. Kỹ năng/nút bấm của extension có thể chưa xuất hiện — "
+                                f"restart TubeCLI rồi kiểm tra lại.")}
         return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled. Refresh page to use.", "type": "extension", "restart_required": False}
 
     elif category == "skill":
