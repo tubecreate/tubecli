@@ -259,6 +259,66 @@ def _routine_activity_block(agent: Dict[str, Any]) -> str:
             "directly from this):\n" + "\n".join(lines))
 
 
+# "bạn làm đi", "ok làm luôn", "go ahead" — a whole message that only says yes.
+_GO_AHEAD_WORDS = (
+    r"(?:làm|lam|thực hiện|thuc hien|chạy|chay|tiến hành|tien hanh|bắt đầu|bat dau|triển khai|trien khai"
+    r"|go ahead|do it|just do it|proceed|run it|go|yes|yep|yeah|ok(?:ay|e|ê)?|đồng ý|dong y|xác nhận|xac nhan|được|duoc)"
+)
+_GO_AHEAD_TAIL = (
+    r"(?:đi|di|luôn|luon|nhé|nhe|nha|thôi|thoi|nào|nao|bạn|ban|ngay|now|please|pls|it)"
+)
+# One or more yes-words ("ok làm luôn"), optional lead-in ("bạn", "cứ"), optional
+# particles, nothing else. "ok nhưng đổi…" and "làm cái khác" do not match.
+_GO_AHEAD_RE = re.compile(
+    r"^\s*(?:(?:bạn|ban|cứ|cu|thì|thi)\s+)*"
+    + _GO_AHEAD_WORDS
+    + r"(?:\s+(?:" + _GO_AHEAD_WORDS + r"|" + _GO_AHEAD_TAIL + r"))*"
+    r"\s*[.!~]*\s*$",
+    re.IGNORECASE,
+)
+
+
+def _is_go_ahead(message: str) -> bool:
+    return bool(_GO_AHEAD_RE.match(message or ""))
+
+
+def _go_ahead_intent(message: str, history: List[Dict[str, str]],
+                     agent_dict: Dict[str, Any], skills: List[Dict]):
+    """A bare go-ahead re-fires the previous user message — IF that message is
+    one the router runs without the model (a registry-handled intent).
+
+    "làm video từ những gì đã đọc hôm nay" → the model wrote a script and asked
+    which direction → "bạn làm đi" → the model asked again. The user has
+    decided; the command they decided on is one line up, and it queues a codex
+    task in zero tokens. Skill commands are NOT re-fired: their runner takes the
+    current message as the skill input, and "ok" is not an input.
+    Returns the intent to run, or None to leave the turn alone.
+    """
+    if not _is_go_ahead(message):
+        return None
+    cur = (message or "").strip()
+    prev = ""
+    for msg in reversed(history or []):
+        if (msg or {}).get("role") != "user":
+            continue
+        text = str((msg or {}).get("content") or "").strip()
+        if text and text != cur:
+            prev = text
+            break
+    if not prev or _is_go_ahead(prev):
+        return None
+    try:
+        from tubecli.core import intent_handlers
+        from tubecli.core.intent_router import intent_router
+
+        it = intent_router.classify(prev, agent_dict, skills)
+    except Exception:
+        return None
+    if it is not None and getattr(it, "skip_llm", False) and intent_handlers.has_handler(it.intent_type):
+        return it
+    return None
+
+
 async def _run_turn(
     message: str,
     agent_dict: Dict[str, Any],
@@ -334,6 +394,14 @@ async def _run_turn(
 
         intent = intent_router.classify(message, agent_dict, available)
         meta["intent"] = intent.intent_type
+
+        # "bạn làm đi" → run the command one line up, not a fresh model turn.
+        refire = _go_ahead_intent(message, history, agent_dict, available)
+        if refire is not None:
+            logger.info(f"[Chat] go-ahead → re-firing '{refire.intent_type}' from the previous message")
+            intent = refire
+            meta["intent"] = intent.intent_type
+            meta["go_ahead"] = True
 
         # THE DESK OVERRULES THE KEYWORD ROUTER.
         # classify() is 165 hard-coded Vietnamese words: on eight of the nine

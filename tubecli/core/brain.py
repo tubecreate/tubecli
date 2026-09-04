@@ -251,7 +251,12 @@ class AgentBrain:
             "6c. Use file paths EXACTLY as they appear earlier in the conversation. Never invent or shorten a filename, and never guess one — if the path is not in the conversation, ask for it.\n"
             "7. **CRITICAL**: For greetings (hi, hello, xin chào, etc.), casual chat, or questions WITHOUT a clear actionable intent → reply conversationally in plain text. Do NOT output any JSON action block. Only output JSON when the user EXPLICITLY requests an action.\n"
             "8. **CRITICAL**: When you DO act, the action object must be in a ```json fence (or be your entire reply). "
-            "An action object glued into a sentence does NOT run — the user will just see the JSON and nothing will happen.\n\n"
+            "An action object glued into a sentence does NOT run — the user will just see the JSON and nothing will happen.\n"
+            "9. **CRITICAL**: When the user answers a proposal of yours with a bare go-ahead ('làm đi', 'bạn làm đi', "
+            "'làm luôn', 'ok', 'đồng ý', 'go ahead', 'do it', 'yes'), they have ALREADY decided. Do NOT ask again, do NOT "
+            "list the options again, do NOT restate the plan: pick your recommended option (or the first one) and ACT in "
+            "this reply — emit the action JSON, or if the job needs no action, deliver the finished result. Asking a "
+            "second question after a go-ahead is a failure.\n\n"
             "### YOUR PERSONA:\n"
         )
         # SECTION ORDER (deliberate): persona → skills → memory → external-data
