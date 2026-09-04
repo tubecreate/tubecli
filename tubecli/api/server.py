@@ -4480,8 +4480,17 @@ WEBUI_SERVED_PAGES = {
     "codex":              {"page_url": "/codex",              "icon": "terminal",          "display_name": "Codex"},
     # Panel trong dashboard SPA — page_url là deep-link #/tab (handleRoute của webui);
     # ?embed=1 ẩn sidebar khi bị nhúng iframe (index.html embed-mode)
-    "cloud_api":          {"page_url": "/dashboard?embed=1#/api-manager",           "icon": "api",            "display_name": "Cloud API"},
-    "ollama_manager":     {"page_url": "/dashboard?embed=1#/api-manager",           "icon": "smart_toy",      "display_name": "Ollama"},
+    # HAI trang khác nhau: #/api-manager là "API Manager" (agent nào dùng model
+    # nào), còn #/ext-cloud-keys là "Cloud API Keys" — nơi thêm/xoá KHOÁ từng nhà
+    # cung cấp (app.js: tab ext-cloud-keys → renderCloudApiExt → /api/v1/cloud-api/keys,
+    # và chính app.js:1148 map cloud_api → ext-cloud-keys). Mục này TRƯỚC ĐÂY trỏ vào
+    # trang model, nên trang khoá không có đường vào nào từ ngoài — mà hết hạn khoá
+    # là mọi tính năng AI đứng.
+    "cloud_api":          {"page_url": "/dashboard?embed=1#/ext-cloud-keys",        "icon": "key",            "display_name": "Cloud API Keys"},
+    # Khoá phải là extension.name THẬT ("ollama", xem ollama_manager/extension.py),
+    # không phải tên thư mục — khớp bằng d.get("name") nên "ollama_manager" chưa bao
+    # giờ khớp gì cả, và mục này im lặng không có tác dụng.
+    "ollama":             {"page_url": "/dashboard?embed=1#/api-manager",           "icon": "smart_toy",      "display_name": "Ollama"},
     "browser":            {"page_url": "/dashboard?embed=1#/ext-browser",           "icon": "public",         "display_name": "Browser Engine"},
     "douyin_downloader":  {"page_url": "/dashboard?embed=1#/ext-douyin-downloader", "icon": "music_video",    "display_name": "Douyin Downloader"},
     "calendar_manager":   {"page_url": "/dashboard?embed=1#/ext-calendar",          "icon": "calendar_month", "display_name": "Calendar"},
