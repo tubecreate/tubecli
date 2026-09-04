@@ -74,8 +74,8 @@ DEFAULTS: Dict[str, Any] = {
     "target_words": 260,       # ≈ 90 s of narration
     "aspect_ratio": "16:9",
     "style": "news",
-    "language": "",            # "" = the agent's own language setting
-    "tts_voice": "vi-VN-HoaiMyNeural",   # edge voice id
+    "language": "",            # "" = the agent's setting; "auto" there = the material's language
+    "tts_voice": "",           # edge voice id; "" = the voice for the script's language (_EDGE_VOICES)
     "tts_engine": "auto",                # auto | edge | capcut
     "capcut_speaker": "",                # CapCut speaker id; "" = the account default
     "capcut_email": "",                  # which stored CapCut account; "" = first enabled
@@ -85,11 +85,148 @@ POLL_SEC = 1.0
 TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800}
 
 _LANGUAGE_NAMES = {
-    "auto": "Vietnamese", "vi": "Vietnamese", "en": "English", "zh": "Chinese (Simplified)",
+    "vi": "Vietnamese", "en": "English", "zh": "Chinese (Simplified)",
     "zh-TW": "Chinese (Traditional)", "ja": "Japanese", "ko": "Korean", "es": "Spanish",
     "tr": "Turkish", "ru": "Russian", "fr": "French", "de": "German", "pt": "Portuguese",
     "ar": "Arabic", "th": "Thai", "id": "Indonesian",
 }
+# Giọng edge-tts theo ngôn ngữ kịch bản. Trước đây tts_voice ghi cứng vi-VN cho MỌI
+# ngôn ngữ, nên một kịch bản tiếng Anh bị đọc bằng giọng Việt.
+_EDGE_VOICES = {
+    "vi": "vi-VN-HoaiMyNeural", "en": "en-US-AriaNeural", "zh": "zh-CN-XiaoxiaoNeural",
+    "zh-TW": "zh-TW-HsiaoChenNeural", "ja": "ja-JP-NanamiNeural", "ko": "ko-KR-SunHiNeural",
+    "es": "es-ES-ElviraNeural", "tr": "tr-TR-EmelNeural", "ru": "ru-RU-SvetlanaNeural",
+    "fr": "fr-FR-DeniseNeural", "de": "de-DE-KatjaNeural", "pt": "pt-BR-FranciscaNeural",
+    "ar": "ar-EG-SalmaNeural", "th": "th-TH-PremwadeeNeural", "id": "id-ID-GadisNeural",
+}
+_LANG_FROM_NOTE = {
+    "material": " — matched to the material; set the agent's language to override",
+    "agent": " — the agent's language setting",
+    "option": " — requested for this run",
+    "dashboard": " — the dashboard language (nothing to detect from)",
+}
+_VI_MARKS = set("ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ")
+_VI_WORDS = ("và", "của", "không", "những", "được", "cho", "là", "có", "này", "với", "người", "trong")
+
+
+def detect_language(text: str) -> str:
+    """Ngôn ngữ của một đoạn văn, theo bảng chữ — không gọi model.
+
+    Đủ để phân biệt các ngôn ngữ TubeCLI hỗ trợ: kana → ja, hangul → ko, chữ Hán
+    → zh, Cyrillic → ru, Thái, Ả Rập; chữ Latinh có dấu Việt hoặc nhiều từ nối
+    tiếng Việt → vi; còn lại → en. Trả "" khi không có gì để đoán.
+    """
+    t = (text or "")[:8000]
+    if not t.strip():
+        return ""
+    c = {"cjk": 0, "kana": 0, "hangul": 0, "cyr": 0, "thai": 0, "arab": 0, "latin": 0, "vi": 0}
+    for ch in t:
+        o = ord(ch)
+        if 0x3040 <= o <= 0x30FF:
+            c["kana"] += 1
+        elif 0xAC00 <= o <= 0xD7AF:
+            c["hangul"] += 1
+        elif 0x4E00 <= o <= 0x9FFF:
+            c["cjk"] += 1
+        elif 0x0400 <= o <= 0x04FF:
+            c["cyr"] += 1
+        elif 0x0E00 <= o <= 0x0E7F:
+            c["thai"] += 1
+        elif 0x0600 <= o <= 0x06FF:
+            c["arab"] += 1
+        elif ch.isalpha():
+            c["latin"] += 1
+            if ch.lower() in _VI_MARKS:
+                c["vi"] += 1
+    letters = c["cjk"] + c["kana"] + c["hangul"] + c["cyr"] + c["thai"] + c["arab"] + c["latin"]
+    if letters == 0:
+        return ""
+    if c["kana"] > letters * 0.05:
+        return "ja"
+    if c["hangul"] > letters * 0.2:
+        return "ko"
+    if c["cjk"] > letters * 0.2:
+        return "zh"
+    if c["cyr"] > letters * 0.3:
+        return "ru"
+    if c["thai"] > letters * 0.3:
+        return "th"
+    if c["arab"] > letters * 0.3:
+        return "ar"
+    low = " " + " ".join(t.lower().split()) + " "
+    vi_words = sum(low.count(f" {w} ") for w in _VI_WORDS)
+    if c["vi"] > letters * 0.02 or vi_words >= 4:
+        return "vi"
+    return "en"
+
+
+def resolve_language(options: Dict, agent, material: str = "") -> tuple:
+    """(mã ngôn ngữ, nguồn quyết định). Thứ tự: tuỳ chọn của lượt chạy → cài đặt
+    của agent → chính tài liệu nguồn → ngôn ngữ dashboard.
+
+    Trước đây "auto" — mặc định của mọi agent — được ánh xạ thẳng thành Vietnamese,
+    nên tài liệu tiếng Anh vẫn ra kịch bản tiếng Việt mà không ai chọn như vậy.
+    """
+    opt = str(options.get("language") or "").strip()
+    if opt and opt != "auto":
+        return opt, "option"
+    ag = str(getattr(agent, "language", "") or "").strip()
+    if ag and ag != "auto":
+        return ag, "agent"
+    got = detect_language(material)
+    if got:
+        return got, "material"
+    try:
+        from tubecli.config import get_language
+        return (get_language() or "vi"), "dashboard"
+    except Exception:
+        return "vi", "dashboard"
+
+
+def language_name(code: str) -> str:
+    code = str(code or "")
+    return _LANGUAGE_NAMES.get(code) or _LANGUAGE_NAMES.get(code.split("-")[0]) or code
+
+
+def _edge_voice(lang: str, explicit: str = "") -> str:
+    """Giọng edge cho ngôn ngữ; giọng chỉ định rõ thì giữ nguyên."""
+    if explicit:
+        return explicit
+    lang = str(lang or "")
+    return _EDGE_VOICES.get(lang) or _EDGE_VOICES.get(lang.split("-")[0]) or _EDGE_VOICES["en"]
+
+
+def _voice_matches(voice: str, lang: str) -> bool:
+    """vi-VN-… đọc tiếng Việt: so tiền tố mã ngôn ngữ của giọng."""
+    v = str(voice or "").lower()
+    l = str(lang or "").lower().split("-")[0]
+    return bool(v) and bool(l) and v.startswith(l + "-")
+
+
+def _capcut_speaker_for(email: str, lang: str) -> Optional[Dict]:
+    """Một giọng CapCut ĐỌC ĐƯỢC ngôn ngữ này ({id, name}), hay None.
+
+    Không truyền speaker thì CapCut dùng giọng mặc định của tài khoản — giọng tiếng
+    Anh đọc kịch bản tiếng Việt là đúng lỗi đã gặp. Bản danh sách bị vùng giới hạn
+    theo tài khoản, nên hỏi kèm email.
+    """
+    from urllib.parse import quote
+    code = str(lang or "").split("-")[0].lower()
+    if not email or not code:
+        return None
+    try:
+        data = _get(f"/api/v1/capcut-tts/speakers?email={quote(email)}&language={code}", timeout=30)
+    except Exception as e:
+        logger.warning(f"[ContentVideo] capcut speakers unavailable: {e}")
+        return None
+    items = data if isinstance(data, list) else (
+        (data or {}).get("speakers") or (data or {}).get("items") or (data or {}).get("data") or [])
+    for sp in items:
+        if isinstance(sp, dict) and sp.get("id"):
+            sl = str(sp.get("language") or "").lower()
+            if not sl or sl.startswith(code):
+                return {"id": str(sp["id"]), "name": str(sp.get("name") or "")}
+    return None
 _FEEDBACK_RE = re.compile(r"^\[Feedback from [^\]]*\]:\s*(.+)$", re.M)
 _SCENE_RE = re.compile(r"\[SHOW:\s*(.*?)\]\s*", re.I | re.S)
 
@@ -441,13 +578,18 @@ def _step_script(state: Dict, options: Dict) -> None:
         blocks.append(block)
         used += len(block)
 
-    lang_code = options.get("language") or getattr(agent, "language", "auto") or "auto"
-    lang = _LANGUAGE_NAMES.get(lang_code, "Vietnamese")
+    lang_code, lang_from = resolve_language(options, agent, "\n".join(blocks))
+    state["language"], state["language_from"] = lang_code, lang_from
+    lang = language_name(lang_code)
+    # Nhận từ tài liệu thì nói rõ với model: đây là ngôn ngữ CỦA tài liệu, đừng dịch.
+    write_in = f"Write in {lang}." + (
+        " That is the language of the material; do not translate it into another language."
+        if lang_from == "material" else "")
     words = int(options.get("target_words") or DEFAULTS["target_words"])
     style = options.get("style") or DEFAULTS["style"]
     system_prompt = (
         f"You are the scriptwriter for \"{agent.name}\", a short-video channel. You turn what the "
-        f"channel's agent read and watched into a narrated video script. Write in {lang}."
+        f"channel's agent read and watched into a narrated video script. {write_in}"
     )
     fmt = (
         "Format, exactly:\n"
@@ -498,7 +640,8 @@ def _step_script(state: Dict, options: Dict) -> None:
     # Checkpoint the script: a revision round reads it back, and a restart
     # between plan and render must not lose an accepted text.
     _write_checkpoint(state["task_id"], {"script": text, "title": state["title"],
-                                         "high_water": state.get("high_water", "")})
+                                         "high_water": state.get("high_water", ""),
+                                         "language": state.get("language", "")})
     n = _publish_plan(state["task_id"], str(agent.name), state["title"], text)
     state["scene_count"] = n
     state["_say"]("script", "running", f"{len(text.split())} words · {n} scenes")
@@ -547,13 +690,13 @@ def _step_studio(state: Dict, options: Dict) -> None:
     drama_id, ep_id = ck.get("drama_id"), ck.get("episode_id")
     title = state.get("title") or ck.get("title") or f"{agent.name} · {time.strftime('%Y-%m-%d')}"
     if not ep_id:
-        lang_code = options.get("language") or getattr(agent, "language", "") or ""
+        lang_code = str(state.get("language") or "vi")
         meta = {"aspect_ratio": options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
-                "tts_voice": options.get("tts_voice") or DEFAULTS["tts_voice"],
+                "tts_voice": _edge_voice(lang_code, str(options.get("tts_voice") or "")),
                 "tts_engine": "edge", "source": ACTOR, "agent_id": str(agent.id)}
         drama = _post("/api/v1/studio/dramas", {
             "title": title, "style": options.get("style") or DEFAULTS["style"],
-            "language": lang_code if lang_code not in ("", "auto") else "vi",
+            "language": lang_code,
             "description": f"Generated by {agent.name} from what it read and watched.",
             "metadata": meta,
         }, timeout=60)
@@ -678,8 +821,9 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             continue
         try:
             body = {"email": email, "text": text, "speed": 10, "volume": 10}
-            if options.get("capcut_speaker"):
-                body["speaker"] = str(options["capcut_speaker"])
+            speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
+            if speaker:
+                body["speaker"] = str(speaker)
             audio = _post_bytes("/api/v1/capcut-tts/synthesize", body, timeout=180)
             if not audio or len(audio) < 1000:
                 raise RuntimeError("CapCut returned no audio")
@@ -704,8 +848,17 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
 
 def _tts_edge(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
+    lang = str(state.get("language") or "vi")
+    explicit = str(options.get("tts_voice") or "")
+    voice = _edge_voice(lang, explicit)
+    if explicit and not _voice_matches(explicit, lang):
+        # Giữ lựa chọn của người dùng, nhưng nói ra: giọng này không đọc ngôn ngữ kịch bản.
+        state.setdefault("warnings", []).append(
+            f"Voice {explicit} does not match the script language ({language_name(lang)}) — "
+            f"leave tts_voice empty to get {_edge_voice(lang)}.")
+    state["tts_voice_used"] = f"{voice} · {language_name(lang)}"
     res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
-        "voice_id": options.get("tts_voice") or DEFAULTS["tts_voice"], "engine": "edge",
+        "voice_id": voice, "engine": "edge",
     }, timeout=60)
     if not res.get("task_id"):
         raise RuntimeError(f"batch-tts did not start: {str(res)[:200]}")
@@ -721,6 +874,28 @@ def _step_tts(state: Dict, options: Dict) -> None:
     engine = _tts_engine(state, options)
     if not engine:
         raise RuntimeError("No TTS extension is usable (install TTS VibeVoice or CapCut TTS).")
+    lang = str(state.get("language") or "vi")
+    if engine == "capcut":
+        if options.get("capcut_speaker"):
+            state["tts_voice_used"] = f"CapCut · {options['capcut_speaker']} (chosen)"
+        else:
+            # Giọng mặc định của tài khoản có thể là ngôn ngữ khác hẳn kịch bản —
+            # đúng ca "video nói không đúng ngôn ngữ". Chọn giọng theo kịch bản;
+            # tài khoản không có giọng nào cho ngôn ngữ đó thì edge còn hơn đọc sai.
+            spk = _capcut_speaker_for(str(state.get("capcut_email") or ""), lang)
+            if spk:
+                state["capcut_speaker"] = spk["id"]
+                state["tts_voice_used"] = f"CapCut · {spk.get('name') or spk['id']} · {language_name(lang)}"
+            else:
+                want = str(options.get("tts_engine") or "auto").lower()
+                if want != "capcut" and installed_extensions().get("tts_vibevoice"):
+                    state.setdefault("warnings", []).append(
+                        f"The CapCut account has no {language_name(lang)} voice — used edge-tts instead.")
+                    engine = "edge"
+                else:
+                    raise RuntimeError(
+                        f"CapCut account {state.get('capcut_email') or ''} has no voice for "
+                        f"{language_name(lang)}. Pick capcut_speaker, add a matching voice, or use tts_engine=edge.")
     state["tts_engine"] = engine
     state["_say"]("tts", "running", f"engine: {engine}")
     if engine == "capcut":
@@ -903,6 +1078,11 @@ def run_render(payload: Dict[str, Any],
     state["title"] = str(payload.get("title") or (state.get("checkpoint") or {}).get("title") or "")
     if not state["script"].strip():
         raise RuntimeError("No script to render — accept a plan first.")
+    lang = str(payload.get("language") or (state.get("checkpoint") or {}).get("language") or "").strip()
+    if not lang:
+        opt = str(options.get("language") or "").strip()
+        lang = opt if opt and opt != "auto" else (detect_language(state["script"]) or "vi")
+    state["language"] = lang
     notes: List[str] = []
     skipped_jobs: List[str] = []
     started = time.time()
@@ -972,6 +1152,8 @@ def _plan_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: Lis
         f"- **Scenes**: {state.get('scene_count', 0)} · ~{words} words",
         f"- **Based on**: {c['read']} articles read · {c['transcript']} transcripts · "
         f"{c['crawl']} crawled pages" + (f" · {c['visited']} title-only" if c['visited'] else ""),
+        f"- **Language**: {language_name(state.get('language') or '')}"
+        + _LANG_FROM_NOTE.get(str(state.get("language_from") or ""), ""),
         "- **Read it** under *Plan* on this task. **Accept** → the video is rendered "
         "(images · voice · ffmpeg). **Request changes** with a note → the script is revised.",
     ]
@@ -1001,7 +1183,12 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if state.get("drama_id") is not None:
         lines.append(f"- **Content Studio**: drama {state['drama_id']} · episode {state.get('episode_id')}")
     if state.get("tts_summary"):
-        lines.append(f"- **Voice**: {state['tts_summary']}")
+        lines.append(f"- **Voice**: {state['tts_summary']}"
+                     + (f" · {state['tts_voice_used']}" if state.get("tts_voice_used") else ""))
+    if state.get("language"):
+        lines.append(f"- **Language**: {language_name(state['language'])}")
+    for w in state.get("warnings") or []:
+        lines.append(f"- ⚠️ {w}")
     if state.get("image_errors"):
         lines.append(f"- **Images**: {state['image_errors']} shot(s) came out without an image")
     lines.append("- **Accept** when the video is good; **Request changes** re-renders this script.")
@@ -1102,7 +1289,8 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
     codex_manager.append_event(
         task["id"], "log", f"Render queued from accepted plan #{plan_task.get('seq')}", actor=ACTOR,
         data={"kind": KIND_RENDER, "task_id": task["id"], "agent_id": agent_id,
-              "plan_task_id": task_id, "script": script, "title": title, "options": options},
+              "plan_task_id": task_id, "script": script, "title": title, "options": options,
+              "language": str(ck.get("language") or "")},
     )
     codex_manager.append_event(task_id, "log", f"→ render queued as #{task['seq']}", actor=ACTOR)
     return task
