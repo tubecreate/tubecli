@@ -136,7 +136,11 @@ try:
     os.environ["TUBECLI_PREVIEW_SESSION_MB"] = "700"
     check("env override ngưỡng session", R._preview_session_mb() == 700, R._preview_session_mb())
     os.environ["TUBECLI_PREVIEW_SESSION_MB"] = "rác"
-    check("env rác → fallback mặc định 450", R._preview_session_mb() == 450, R._preview_session_mb())
+    # So với chính hằng số, KHÔNG chép cứng con số: mức mặc định là quyết định
+    # về sản phẩm (đã đổi 450→800 khi phiên hay bị OOM), còn phép kiểm ở đây là
+    # "env rác thì rơi về mặc định". Chép cứng thì mỗi lần chỉnh mức lại đỏ oan.
+    check(f"env rác → fallback mặc định {R.PREVIEW_SESSION_MB_DEFAULT}",
+          R._preview_session_mb() == R.PREVIEW_SESSION_MB_DEFAULT, R._preview_session_mb())
 finally:
     if _old is None:
         os.environ.pop("TUBECLI_PREVIEW_SESSION_MB", None)

@@ -93,11 +93,20 @@ check("morning check_email resolves to checkEmails",
 check("chosen task is reported back", chosen == "check_email", chosen)
 check("period_tasks handed back for the run context",
       period_tasks == {"check_email": True}, period_tasks)
-# check_email is READ-ONLY: it is NOT an email compose/reply flow, so
-# build_email_prompt leaves it alone (the existing gmail-read search prompt runs).
+# check_email vẫn phải là ĐỌC-THÔI. Trước đây build_email_prompt trả (None, None)
+# và để caller tự lo; nay nó trả một câu lệnh script để đỡ tốn quota AI. Điều
+# PHẢI giữ không phải con số None, mà là: không soạn, không trả lời, không gửi.
 read_prompt, read_skip = build_email_prompt("checkEmails", "morning", ["AI"], [])
-check("check_email is not a compose flow (read-only path kept)",
-      read_prompt is None and read_skip is None, (read_prompt, read_skip))
+check("check_email vẫn ra câu lệnh, không bị bỏ qua",
+      isinstance(read_prompt, str) and read_prompt and read_skip is None, (read_prompt, read_skip))
+_low = (read_prompt or "").lower()
+check("check_email KHÔNG phải luồng soạn/gửi thư",
+      not any(w in _low for w in ("compose", "reply", "send", "click send", "write")), read_prompt)
+# Câu lệnh phải đúng dạng "..., then ..." để open.js bắt được fast-path
+# [navigate, read_gmail] — sai dạng là rơi về vòng AI lái từng bước, tốn quota
+# đúng bằng thứ nhánh này sinh ra để tránh.
+check("đúng dạng script fast-path (navigate + read gmail)",
+      "navigate" in _low and "then" in _low and "read gmail" in _low, read_prompt)
 
 # Disabled task in the period -> falls back to random (not the disabled task).
 b2, _, chosen2 = select_period_behavior({"morning": {"check_email": False}}, "morning")

@@ -69,33 +69,61 @@ check('khong tim thay thi nem softFail', clickSrc.includes('err.softFail = true'
 // walked straight into it.
 check('  loai link trong nav/header/footer bang to tien',
   /:not\(nav \*\)/.test(clickSrc) && /:not\(\[aria-hidden="true"\] \*\)/.test(clickSrc));
-// Executed, not pattern-matched. A presence check passed after the call was
-// replaced by a hardcoded box, because boundingBox() also appears in the Google
-// branch further down — the same "text, not behaviour" trap as before.
+// Chạy thật, không dò chuỗi. Trước đây khối này cắt thân hàm `usable` ra bằng
+// regex rồi eval — click.js viết lại, hàm đổi tên thành clickableSpot và được
+// EXPORT, regex hết khớp, test đỏ suốt mà chẳng ai biết lỗi ở test hay ở code.
+// Nay gọi thẳng hàm đã export, giả lập trang bằng window/document tối thiểu.
 {
-  const body = (clickSrc.match(/const usable = async \(loc\) => \{[\s\S]*?\n    \};/) || [''])[0];
-  check('  trich duoc ham loc link', !!body);
+  const { clickableSpot } = await import('../tubecli/extensions/browser/actions/click.js');
 
-  const makeLoc = (box) => ({
-    isVisible: async () => true,
+  // Trang giả: fn chạy trong page thật nên cần el + window + document.
+  const inPage = (rect, { vw = 1280, vh = 800, hitSelf = true } = {}) => async (fn) => {
+    if (rect === null) return null;                 // boundingBox không đo được
+    const el = { getBoundingClientRect: () => rect, contains: (h) => h === el, closest: () => null };
+    const other = { tagName: 'DIV', id: 'onetrust-banner', className: 'ot-sdk', closest: () => null };
+    const w = global.window, d = global.document;
+    global.window = { innerWidth: vw, innerHeight: vh };
+    global.document = { elementFromPoint: () => (hitSelf ? el : other) };
+    try { return fn(el); } finally { global.window = w; global.document = d; }
+  };
+  const loc = (rect, opts) => ({
+    isVisible: async () => (opts?.visible ?? true),
     scrollIntoViewIfNeeded: async () => {},
-    boundingBox: async () => box,
+    evaluate: inPage(rect, opts),
   });
-  const page = { viewportSize: () => ({ width: 1280, height: 800 }) };
-  const usable = new Function('page', body + '\nreturn usable;')(page);
+  const R = (left, top, width, height) =>
+    ({ left, top, width, height, right: left + width, bottom: top + height });
 
+  // Luật MỚI: đủ phần GIAO với viewport là bấm được. Luật cũ đòi nằm TRỌN VẸN
+  // trong viewport nên vứt sạch thẻ bài / ô video to hơn màn hình — mà lưới
+  // video làm bằng đúng thứ đó.
   const cases = [
-    ['trong khung nhin', { x: 100, y: 300, width: 200, height: 20 }, true],
-    ['dropdown ngoai man hinh', { x: 100, y: -2000, width: 180, height: 18 }, false],
-    ['duoi day trang', { x: 100, y: 900, width: 180, height: 18 }, false],
-    ['tran ra ben phai', { x: 1200, y: 300, width: 300, height: 18 }, false],
-    ['diem an 1x1', { x: 10, y: 10, width: 1, height: 1 }, false],
-    ['khong co box', null, false],
+    ['trong khung nhin',            R(100, 300, 200, 20),   true],
+    ['the bai CAO HON viewport',    R(0, -200, 1280, 1400), true],
+    ['tran ra ben phai van bam duoc', R(1200, 300, 300, 18), true],
+    ['dropdown ngoai man hinh',     R(100, -2000, 180, 18), false],
+    ['duoi day trang',              R(100, 900, 180, 18),   false],
+    ['diem an 1x1',                 R(10, 10, 1, 1),        false],
+    ['khong do duoc hinh hoc',      null,                   false],
   ];
-  for (const [name, box, want] of cases) {
-    const got = await usable(makeLoc(box));
-    check(`  ${name}`, got === want, String(got));
+  for (const [name, rect, want] of cases) {
+    const got = await clickableSpot(null, loc(rect));
+    check(`  ${name}`, (got !== null) === want, JSON.stringify(got));
   }
+  check('  an thi bo, khong can do',
+    (await clickableSpot(null, loc(R(100, 300, 200, 20), { visible: false }))) === null);
+
+  // Bị banner cookie đè: KHÔNG vứt, chỉ hạ hạng. Trên trang OneTrust phủ kín mà
+  // vứt luôn thì không còn ứng viên nào để bấm.
+  const covered = await clickableSpot(null, loc(R(100, 300, 200, 20), { hitSelf: false }));
+  check('  bi che thi xep hang nhi, khong vut',
+    covered !== null && covered.covered === true && /onetrust/.test(covered.by || ''), JSON.stringify(covered));
+
+  // tally đếm lý do loại, để log nói được vì sao không tìm ra link nào.
+  const tally = {};
+  await clickableSpot(null, loc(R(100, -2000, 180, 18)), tally);
+  await clickableSpot(null, loc(R(100, 300, 200, 20), { visible: false }), tally);
+  check('  dem duoc ly do loai', tally.ngoaiManHinh === 1 && tally.khongHien === 1, JSON.stringify(tally));
 }
 check('  khong con doan doan vi tri "bo 2 link dau"',
   !/Math\.min\(2, Math\.max\(0, n - 1\)\)/.test(clickSrc));
