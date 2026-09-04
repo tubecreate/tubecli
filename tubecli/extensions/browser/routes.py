@@ -2008,6 +2008,112 @@ def _resolve_port_for_profile(profile):
     return port
 
 
+# Cái chết của một preview, ghi lại NGAY LÚC nó xảy ra. Khoá theo profile; chỉ giữ
+# bản ghi mới nhất vì đó là bản duy nhất liên quan tới lần mở vừa hỏng.
+_preview_deaths: Dict[str, dict] = {}
+
+
+def _oom_kill_counter() -> Optional[int]:
+    """Số lần nhân hệ điều hành đã giết một tiến trình vì hết RAM, hoặc None.
+
+    /proc/vmstat là bộ đếm TOÀN MÁY, đọc được không cần quyền root và có từ nhân
+    4.13 — khác dmesg (thường bị kernel.dmesg_restrict chặn) và khác cgroup
+    memory.events (chỉ đếm khi có giới hạn cgroup, mà VPS thường không đặt). Lấy
+    hiệu số trước/sau một lần mở là bằng chứng chắc chắn: có ai đó vừa bị giết vì
+    hết RAM trong đúng khoảng thời gian ấy.
+    """
+    try:
+        with open("/proc/vmstat", "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("oom_kill "):
+                    return int(line.split()[1])
+    except Exception:
+        pass
+    # cgroup v2: máy có đặt giới hạn RAM cho service thì bộ đếm nằm ở đây.
+    for path in ("/sys/fs/cgroup/memory.events", "/sys/fs/cgroup/memory.events.local"):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("oom_kill "):
+                        return int(line.split()[1])
+        except Exception:
+            continue
+    return None
+
+
+def _watch_preview_death(proc, profile, ram_start, oom_start):
+    """Theo tiến trình preview tới lúc chết rồi ghi lại VÌ SAO.
+
+    Hai thứ chỉ đo được khi tiến trình còn sống hoặc vừa chết: ĐÁY RAM trong lúc nó
+    chạy, và mã thoát thật. Đọc RAM sau khi mọi thứ đã chết thì luôn thấy dư dả —
+    đó chính là chỗ làm người dùng tưởng không phải lỗi RAM.
+    """
+    ram_low = ram_start
+    try:
+        while proc.poll() is None:
+            cur = _available_ram_mb()
+            if cur is not None and (ram_low is None or cur < ram_low):
+                ram_low = cur
+            time.sleep(2)
+        code = proc.returncode
+        oom_end = _oom_kill_counter()
+        oom_delta = (oom_end - oom_start) if (oom_end is not None and oom_start is not None) else None
+        _preview_deaths[str(profile)] = {
+            "at": time.time(), "code": code,
+            "ram_start": ram_start, "ram_low": ram_low,
+            "oom_delta": oom_delta,
+            # SIGKILL mà KHÔNG phải do ta gửi: gần như luôn là nhân hệ điều hành thu
+            # hồi vì hết RAM. Người dùng bấm dừng thì đi đường terminate() (SIGTERM).
+            "sigkilled": code == -9,
+        }
+        preview_logger.info(
+            "preview %s chết: code=%s ram_start=%s ram_low=%s oom_delta=%s",
+            profile, code, ram_start, ram_low, oom_delta)
+    except Exception as e:
+        preview_logger.debug("watch_preview_death %s: %s", profile, e)
+
+
+def _oom_death_reason(profile, max_age_sec: int = 180) -> Optional[dict]:
+    """Lần mở vừa rồi có bị giết vì hết RAM không — dict lý do, hay None.
+
+    Bằng chứng, theo thứ tự chắc chắn giảm dần: bộ đếm oom_kill của nhân tăng trong
+    đúng khoảng phiên chạy; hoặc tiến trình nhận SIGKILL mà ta không gửi.
+    """
+    note = _preview_deaths.get(str(profile or ""))
+    if not note:
+        return None
+    if (time.time() - float(note.get("at") or 0)) > max_age_sec:
+        return None
+    oom_delta = note.get("oom_delta")
+    if not (note.get("sigkilled") or (oom_delta is not None and oom_delta > 0)):
+        return None
+    low = note.get("ram_low")
+    started = note.get("ram_start")
+    now = _available_ram_mb()
+    bits = []
+    if started is not None:
+        bits.append(f"lúc mở còn {int(started)} MB")
+    if low is not None:
+        bits.append(f"lúc chạy tụt xuống {int(low)} MB")
+    when = " (" + ", ".join(bits) + ")" if bits else ""
+    msg = (
+        f"Hệ điều hành đã tắt trình duyệt vì máy hết RAM{when}. "
+        + (f"Bây giờ đồng hồ RAM báo còn {int(now)} MB trống chính là vì trình duyệt "
+           "đã bị tắt và trả lại phần nó đang dùng — không phải vì máy đủ RAM. "
+           if now is not None else
+           "RAM báo trống ở thời điểm này là RAM vừa được trả lại sau khi trình duyệt bị tắt. ")
+        + "Mở ít trình duyệt cùng lúc hơn, hoặc nâng RAM cho máy chủ."
+    )
+    return {
+        "reason": "oom",
+        "message_vi": msg,
+        "free": int(low) if low is not None else (int(started) if started is not None else None),
+        "detail": (f"exit_code={note.get('code')} ram_start={started}MB ram_low={low}MB "
+                   f"oom_kill_delta={oom_delta} ram_now={now}MB"),
+        "at": note.get("at"),
+    }
+
+
 def _preview_tail_for_profile(profile, n=15):
     """Vài dòng stdout CUỐI của tiến trình node preview cho PROFILE này (nếu còn sổ).
 
@@ -2119,7 +2225,12 @@ preview_logger = logging.getLogger("Browser.Preview")
 # build là Windows, không chạy được nhân ShardX Linux) — đây là ước lượng kiến
 # trúc, PHẢI đo lại trên VPS: `ps -o rss --ppid <node_pid>` cộng lại + RSS node
 # cha, rồi đặt env TUBECLI_PREVIEW_SESSION_MB=<số đo được>.
-PREVIEW_SESSION_MB_DEFAULT = 450
+# Một phiên Chromium THẬT (zygote + gpu + renderer cho một tab có nội dung) tốn
+# 600–900 MB, không phải 450. Con số cũ quá lạc quan nên bộ chặn cho qua cả trình
+# duyệt thứ ba rồi cả ba cùng bị nhân hệ điều hành giết — người dùng chỉ thấy
+# "không nối được cổng". Thà từ chối sớm kèm câu nói rõ còn bao nhiêu RAM.
+# Đổi bằng biến môi trường TUBECLI_PREVIEW_SESSION_MB khi máy có RAM rộng.
+PREVIEW_SESSION_MB_DEFAULT = 800
 
 
 def _preview_session_mb() -> int:
@@ -2565,6 +2676,12 @@ async def _spawn_preview_server(profile, url, extra_args=()):
             headers={"Retry-After": "20", "X-TubeCLI-Installing": "deps"},
         )
 
+    # Bằng chứng cho lần chết sắp tới, lấy TRƯỚC khi mở: RAM còn bao nhiêu và nhân
+    # đã giết ai vì hết RAM bao nhiêu lần. Sau khi trình duyệt bị giết thì cả hai con
+    # số đều đã "lành lại", không còn nói lên điều gì.
+    _ram_start = _available_ram_mb()
+    _oom_start = _oom_kill_counter()
+
     # Find available port
     import socket
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -2614,6 +2731,9 @@ async def _spawn_preview_server(profile, url, extra_args=()):
 
     t = threading.Thread(target=log_proc_output, args=(proc, profile), daemon=True)
     t.start()
+    threading.Thread(target=_watch_preview_death,
+                     args=(proc, profile, _ram_start, _oom_start),
+                     daemon=True, name=f"preview-death-{profile}").start()
 
     # Do not claim "launched" until the preview server is actually listening.
     # Returning immediately meant a node process that died on startup still
@@ -2627,6 +2747,15 @@ async def _spawn_preview_server(profile, url, extra_args=()):
         if proc.poll() is not None:
             await asyncio.sleep(0.2)      # let the reader thread drain
             detail = "\n".join(list(early_output)[-15:]) or "(no output)"
+            # Chết vì hết RAM thì nói ĐÚNG là hết RAM: "node exited with code -9"
+            # không giúp được ai, mà đó lại là ca hay gặp nhất trên máy nhỏ.
+            _oom = _oom_death_reason(profile, max_age_sec=60)
+            if _oom is None and proc.returncode == -9:
+                _oom = {"message_vi": "Hệ điều hành đã tắt trình duyệt ngay khi mở vì máy "
+                                      "hết RAM. Đóng bớt trình duyệt đang mở hoặc nâng RAM.",
+                        "detail": f"exit_code={proc.returncode}"}
+            if _oom:
+                raise HTTPException(500, _oom["message_vi"] + "\n" + _oom.get("detail", ""))
             raise HTTPException(
                 500,
                 f"Browser preview failed to start (node exited with code "
@@ -2667,6 +2796,20 @@ async def launch_preview(request: Request):
     # rồi chạy. Trước đây gặp phiên cũ là ném 400 "already running", trong khi phiên
     # đó thường đã chết từ lần restart trước và chỉ còn lại khoá.
     force = bool(body.get("force", True))
+
+    # Hồ sơ rỗng hay không có thật: TỪ CHỐI. _spawn_preview_server dùng
+    # `profile or "default"`, nên một tên rỗng lặng lẽ đẻ ra hồ sơ "default" —
+    # trình duyệt vô danh, không vân tay, không proxy, và bỏ qua đúng bước tạo hồ
+    # sơ (bước kéo nhân trình duyệt về). Trả 200 + ok:false để cloud hiện câu này
+    # ngay, giống mọi lý do preflight khác.
+    from .profile_manager import PROFILES_DIR as _PD
+    if not profile or not os.path.isdir(os.path.join(_PD, str(profile))):
+        return {
+            "ok": False, "reason": "no_profile", "profile": profile,
+            "message_vi": ("Chưa có hồ sơ trình duyệt nào để mở. Tạo một hồ sơ trước — "
+                           "bước tạo hồ sơ cũng là bước tải nhân trình duyệt về máy chủ."),
+        }
+
     async with _launching_lock:
         # PREFLIGHT — chạy TRƯỚC force-kill: nếu profile đang có phiên SỐNG (agent
         # hoặc khung khác trên canvas) thì BÁO chứ không giết; nếu RAM/engine chặn
@@ -3011,6 +3154,16 @@ async def api_preview_last_error(profile: str = "", request: Request = None):
     prof = str(profile or "").strip()
     if not prof:
         return {}
+
+    # Bị giết bằng SIGKILL thì preview_server.cjs KHÔNG kịp ghi file lý do — đó
+    # chính là ca "hết RAM", và cũng chính là ca người dùng chỉ nhận được chuỗi lỗi
+    # thô của thư viện HTTP. Hỏi sổ tử trước: nó do Python ghi nên luôn còn.
+    _oom = _oom_death_reason(prof)
+    if _oom:
+        tail = _preview_tail_for_profile(prof)
+        if tail:
+            _oom["detail"] = (_oom.get("detail", "") + "\n\n--- nhật ký preview (mới nhất) ---\n" + tail).strip()
+        return _oom
 
     from .profile_manager import PROFILES_DIR
     err_path = os.path.join(PROFILES_DIR, prof, "preview_last_error.json")
