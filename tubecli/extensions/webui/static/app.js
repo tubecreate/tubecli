@@ -7050,6 +7050,30 @@ function dismissAllExtUpdates() {
     loadExtensions();
 }
 
+// ═══ Chờ máy chủ khởi động lại ═══
+// Cập nhật một extension đang chạy thì PHẢI khởi động lại: route bản cũ đã nằm
+// trước trong bảng định tuyến nên luôn thắng route vừa nạp. Trước đây người dùng
+// phải tự SSH gõ `systemctl restart tubecli`; giờ máy chủ tự thoát (systemd dựng
+// lại) còn trang thì đứng đây đợi rồi tự tải lại.
+async function awaitServerRestart(label, onStatus) {
+    const say = onStatus || function (t) { showToast(t, 'info'); };
+    say((label || 'Đang khởi động lại máy chủ') + '…');
+    // Chờ một nhịp cho tiến trình cũ thoát hẳn, không thì lần hỏi đầu tiên trúng
+    // ngay máy CŨ và ta tưởng đã xong.
+    await new Promise(function (r) { setTimeout(r, 3000); });
+    for (let i = 1; i <= 40; i++) {
+        try {
+            const r = await fetch('/api/v1/health', { cache: 'no-store',
+                                                      signal: AbortSignal.timeout(2000) });
+            if (r.ok) { say('Máy chủ đã lên, đang tải lại trang…'); return true; }
+        } catch (e) { /* chưa lên, đợi tiếp */ }
+        say((label || 'Đang khởi động lại máy chủ') + '… (' + i + 's)');
+        await new Promise(function (r) { setTimeout(r, 1000); });
+    }
+    say('Máy chủ chưa lên lại sau 40 giây — tải lại trang thủ công giúp tôi.');
+    return false;
+}
+
 async function doExtensionUpdate(name, publicId, gitUrl, btn) {
     if (!confirm('Bạn có chắc chắn muốn cập nhật extension "' + name + '" lên phiên bản mới nhất không?')) {
         return;
@@ -7077,6 +7101,16 @@ async function doExtensionUpdate(name, publicId, gitUrl, btn) {
             if (btn) { btn.textContent = '✅ Done!'; btn.style.background = 'var(--green)'; }
             _extUpdateCache = null;
             _extUpdateCacheTime = 0;
+            if (result.restarting) {
+                if (btn) btn.textContent = '🔄 Đang khởi động lại…';
+                const ok = await awaitServerRestart('Đang khởi động lại máy chủ', function (t) {
+                    if (btn) btn.textContent = t;
+                });
+                if (ok) { location.reload(); return; }
+            } else if (result.restart_required) {
+                alert('Đã cập nhật, nhưng máy chủ không tự khởi động lại được. '
+                      + 'Chạy: systemctl restart tubecli');
+            }
             setTimeout(function() {
                 checkExtensionUpdates(true);
                 loadExtensions();

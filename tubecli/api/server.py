@@ -5120,6 +5120,23 @@ def _schedule_restart(delay: float = 2.0) -> bool:
     return False
 
 
+@app.post("/api/v1/system/restart")
+async def system_restart():
+    """Khoi dong lai may chu theo yeu cau.
+
+    De co nut bam thay cho mot dong SSH. Van di qua `_schedule_restart` nen
+    fail-safe giu nguyen: khong chac co ai dung day thi KHONG tu thoat.
+    """
+    ok = _schedule_restart(delay=1.0)
+    return {"status": "success" if ok else "error",
+            "restarting": ok,
+            "restart_seconds": 8 if ok else 0,
+            "message": ("The server is restarting — it comes back in a few seconds."
+                        if ok else
+                        "This process is not supervised, so it will not restart itself. "
+                        "Run 'systemctl restart tubecli' instead.")}
+
+
 @app.post("/api/v1/system/update")
 async def system_update(restart: bool = True):
     """Keo code moi roi (mac dinh) TU KHOI DONG LAI.

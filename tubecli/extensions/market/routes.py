@@ -640,6 +640,8 @@ class MarketInstallRequest(BaseModel):
     item_name: str   # extension name
     category: str    # extension, node, skill, model3d
     force_update: bool = False
+    # Tắt được, cho ca người dùng muốn tự chọn lúc khởi động lại.
+    auto_restart: bool = True
 
 @router.post("/items/{item_name}/update-local")
 async def update_local_extension(item_name: str):
@@ -676,6 +678,13 @@ async def update_local_extension(item_name: str):
     result = extension_manager.update_extension(ext.name)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Update failed"))
+    # Cập nhật một extension ĐANG CHẠY thì bắt buộc khởi động lại: route bản cũ
+    # đã nằm trước trong bảng định tuyến và luôn thắng route vừa nạp.
+    result.update(_maybe_restart_after_install(True, False, True))
+    if result.get("restarting"):
+        result["message"] = (result.get("message") or "Updated.") +             " The server is restarting — the page will come back on its own."
+    elif result.get("restart_required"):
+        result["message"] = (result.get("message") or "Updated.") +             " Run 'systemctl restart tubecli' so the new build takes effect."
     return result
 
 @router.post("/items/install-git")
@@ -719,6 +728,32 @@ async def install_git_extension(req: GitInstallRequest):
                 pass
 
     return result
+
+
+
+def _maybe_restart_after_install(was_installed: bool, force: bool,
+                                 auto: bool = True) -> dict:
+    """Có cần khởi động lại không, và đã hẹn được chưa.
+
+    Chỉ hẹn khi THỰC SỰ cần: cập nhật đè lên bản đang chạy, hoặc nạp nóng hỏng.
+    Cài mới mà nạp nóng trót lọt thì đừng đá người dùng ra khỏi phiên làm việc
+    vì một lý do không có thật.
+
+    Không hẹn được (chạy tay, không có systemd) thì nói thật để người dùng tự
+    khởi động lại — im lặng rồi để họ dùng bản cũ mới là tệ nhất.
+    """
+    need = bool(was_installed or force)
+    if not need:
+        return {"restart_required": False, "restarting": False, "restart_seconds": 0}
+    if not auto:
+        return {"restart_required": True, "restarting": False, "restart_seconds": 0}
+    try:
+        from tubecli.api.server import _schedule_restart
+        ok = _schedule_restart(delay=1.5)
+    except Exception:
+        ok = False
+    return {"restart_required": True, "restarting": bool(ok),
+            "restart_seconds": 8 if ok else 0}
 
 
 @router.post("/items/{public_id}/install")
@@ -767,6 +802,11 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         ext_dir = str(EXTENSIONS_EXTERNAL_DIR / install_id)
         import os
         import shutil
+        # CÓ SẴN hay chưa phải xem TRƯỚC khi tạo thư mục: đây là dấu hiệu duy
+        # nhất phân biệt "cài mới" với "cập nhật", mà hai ca ấy khác nhau ở chỗ
+        # sống còn — cập nhật thì route bản cũ đã nằm sẵn trong bảng định tuyến
+        # và luôn thắng route vừa nạp, nên bắt buộc phải khởi động lại.
+        was_installed = os.path.isdir(ext_dir) and bool(os.listdir(ext_dir))
         os.makedirs(ext_dir, exist_ok=True)
 
         # ── Step 1: Try to get files from item_data ──
@@ -1042,19 +1082,30 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             # Files are on disk and the extension is enabled, but its code did
             # not load — say so, instead of "Refresh page to use" followed by a
             # 404 on every URL.
-            return {"status": "success", "type": "extension", "restart_required": True,
+            return {"status": "success", "type": "extension",
+                    **_maybe_restart_after_install(was_installed, True, req.auto_restart),
                     "route_error": hot_mount_error,
                     "message": (f"Extension '{req.item_name}' đã cài nhưng KHÔNG nạp được mã: {hot_mount_error}. "
                                 f"Thường do thiếu thư viện Python — cài theo thông báo rồi restart TubeCLI.")}
         if setup_error:
             # Cài xong, mã chạy được, nhưng bước thiết lập của chính extension hỏng —
             # đây chính là ca "đã cài mà agent không thấy skill mới".
-            return {"status": "success", "type": "extension", "restart_required": True,
+            return {"status": "success", "type": "extension",
+                    **_maybe_restart_after_install(was_installed, True, req.auto_restart),
                     "setup_error": setup_error,
                     "message": (f"Extension '{req.item_name}' đã cài nhưng bước thiết lập của nó lỗi: "
                                 f"{setup_error}. Kỹ năng/nút bấm của extension có thể chưa xuất hiện — "
                                 f"restart TubeCLI rồi kiểm tra lại.")}
-        return {"status": "success", "message": f"Extension '{req.item_name}' installed and enabled. Refresh page to use.", "type": "extension", "restart_required": False}
+        info = _maybe_restart_after_install(was_installed, False, req.auto_restart)
+        if info["restarting"]:
+            msg = (f"Extension '{req.item_name}' updated. The server is restarting — "
+                   f"the page will come back on its own.")
+        elif info["restart_required"]:
+            msg = (f"Extension '{req.item_name}' updated, but the server could not restart "
+                   f"itself. Run 'systemctl restart tubecli' so the new build takes effect.")
+        else:
+            msg = f"Extension '{req.item_name}' installed and enabled. Refresh page to use."
+        return {"status": "success", "message": msg, "type": "extension", **info}
 
     elif category == "skill":
         # Save as skill JSON
