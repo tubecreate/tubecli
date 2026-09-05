@@ -4536,7 +4536,7 @@ WEBUI_SERVED_PAGES = {
     "market":             {"page_url": "/market",             "icon": "storefront",        "display_name": "Marketplace"},
     "video_downloader":   {"page_url": "/downloader",         "icon": "download",          "display_name": "Video Downloader"},
     "file_manager":       {"page_url": "/file-manager",       "icon": "folder",            "display_name": "File Manager"},
-    "media_library":      {"page_url": "/media-library",      "icon": "perm_media",        "display_name": "Kho nguyên liệu"},
+    "media_library":      {"page_url": "/media-library",      "icon": "perm_media",        "display_name": "Media Library"},
     "universal_tracker":  {"page_url": "/tracker",            "icon": "monitoring",        "display_name": "Universal Tracker"},
     "auth_manager":       {"page_url": "/auth-manager",       "icon": "lock",              "display_name": "Auth Manager"},
     "video_editor":       {"page_url": "/video-editor",       "icon": "movie",             "display_name": "Video Editor"},

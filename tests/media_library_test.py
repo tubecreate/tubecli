@@ -1,9 +1,11 @@
-"""Test Kho nguyên liệu: bộ sưu tập, tệp, ba kiểu bốc, và API.
+"""Test Media Library: bộ sưu tập, tệp, ba kiểu bốc, API, và bộ từ điển i18n.
 
 Chạy: python tests/media_library_test.py
 """
 import io
+import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -41,7 +43,14 @@ def png(w=40, h=30):
 group("A. safe_id")
 check(library.safe_id("Kho ảnh nền đỏ") == "kho_anh_nen_do", "bo dau tieng Viet")
 check(library.safe_id("Đồ hoạ 2!") == "do_hoa_2", "xu ly d gach ngang")
-check(library.safe_id("") == "kho", "rong co duong lui")
+check(library.safe_id("") == "collection", "rong co duong lui")
+# Tên phi Latinh rụng hết khi lọc ASCII: đường lui phải là từ tiếng Anh, không
+# phải "kho" — sản phẩm tên tiếng Anh mà mã kho ra tiếng Việt là lọt ngôn ngữ.
+check(library.safe_id("キャラクター画像") == "collection", "ten Nhat -> duong lui tieng Anh")
+check(library.safe_id("Медиа") == "collection", "ten Nga -> duong lui tieng Anh")
+_jp = library.create("キャラクター画像")
+check(_jp["id"].startswith("collection"), f"tao kho ten Nhat: id tieng Anh, khong phai kho_N: {_jp['id']}")
+library.delete(_jp["id"])
 check(library.kind_of("a.PNG") == "image", "nhan dang anh")
 check(library.kind_of("b.gif") == "gif", "nhan dang gif")
 check(library.kind_of("c.mp4") == "video", "nhan dang video")
@@ -202,6 +211,91 @@ try:
           "chan thoat khoi thu muc static")
 except ImportError as ex:
     print(f"  (bo qua: {ex})")
+
+# ── G. i18n ────────────────────────────────────────────────────────────
+# Trang tự dịch bằng /api/v1/i18n/{lang}, mà endpoint đó chỉ TRỘN khoá TOP-LEVEL
+# của mọi extension lại một chỗ. Nên ba thứ phải đúng, không thì hỏng im lặng:
+# từ điển phải phẳng, khoá phải mang tiền tố riêng, và bản dịch nào cũng phải
+# đủ khoá như en.json.
+group("G. i18n")
+
+EXT_DIR = os.path.join(ROOT, "tubecli", "extensions", "media_library")
+LOC_DIR = os.path.join(EXT_DIR, "locales")
+LANGS = ["en", "vi", "zh", "zh-TW", "ja", "ko", "es", "tr", "ru"]
+
+locales = {}
+for lang in LANGS:
+    path = os.path.join(LOC_DIR, f"{lang}.json")
+    data = None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as ex:
+        print(f"  doc {lang}.json hong: {ex}")
+    locales[lang] = data
+    check(isinstance(data, dict) and bool(data), f"{lang}.json co that va la JSON dict")
+
+en = locales.get("en") or {}
+check(len(en) > 100, f"en.json day du: {len(en)} khoa")
+
+# Thêm một ngôn ngữ mà quên khai vào LANGS thì lộ ra ở đây.
+extra_files = sorted(x for x in os.listdir(LOC_DIR)
+                     if x.endswith(".json") and x[:-5] not in LANGS)
+check(not extra_files, f"khong co tep locale la: {extra_files}")
+
+for lang in LANGS:
+    d = locales.get(lang)
+    if not isinstance(d, dict):
+        continue
+
+    # Lồng object vào là T('media.x.y') tra không ra: endpoint gộp chỉ lấy khoá
+    # ngoài cùng, phần bên trong không bao giờ tới được trang.
+    nested = [k for k, v in d.items() if not isinstance(v, str)]
+    check(not nested, f"{lang}.json phang, moi gia tri la chuoi: {nested[:5]}")
+
+    # Bảng điều khiển vẽ thẻ extension bằng T(ext.name) — khoá này PHẢI là chuỗi.
+    check(isinstance(d.get("media_library"), str),
+          f"{lang}.json co khoa 'media_library' kieu chuoi")
+
+    missing = [k for k in en if k not in d]
+    surplus = [k for k in d if k not in en]
+    check(not missing, f"{lang}.json khong thieu khoa ({len(missing)}): {missing[:5]}")
+    check(not surplus, f"{lang}.json khong thua khoa ({len(surplus)}): {surplus[:5]}")
+
+    # Dịch mà đánh rơi {name} là câu mất luôn tên tệp, mà không ai thấy lỗi.
+    bad_ph = []
+    for k, v in d.items():
+        if k in en and isinstance(v, str):
+            if (sorted(set(re.findall(r"\{(\w+)\}", v)))
+                    != sorted(set(re.findall(r"\{(\w+)\}", en[k])))):
+                bad_ph.append(k)
+    check(not bad_ph, f"{lang}.json giu du cho trong: {bad_ph[:5]}")
+
+# Tiền tố riêng: từ điển gộp chung một rổ với mọi extension khác.
+odd = sorted(k for k in en if k != "media_library" and not k.startswith("media."))
+check(not odd, f"moi khoa giao dien mang tien to 'media.': {odd[:5]}")
+
+# Khoá trang dùng mà en.json không có = màn hình hiện thẳng tên khoá ra.
+with open(os.path.join(EXT_DIR, "static", "index.html"), encoding="utf-8") as fh:
+    _html = fh.read()
+html_keys = set(re.findall(r'data-i18n(?:-placeholder|-title|-aria-label)?="([^"]+)"', _html))
+check(len(html_keys) >= 30, f"index.html gan du data-i18n: {len(html_keys)}")
+check(all(k in en for k in html_keys),
+      f"khoa data-i18n deu co trong en.json: {sorted(k for k in html_keys if k not in en)[:5]}")
+
+with open(os.path.join(EXT_DIR, "static", "app.js"), encoding="utf-8") as fh:
+    _appjs = fh.read()
+js_keys = set(re.findall(r"\bT\(\s*'([^']+)'", _appjs))
+check(len(js_keys) >= 100, f"app.js goi T() du cho: {len(js_keys)}")
+check(all(k in en for k in js_keys),
+      f"khoa T() deu co trong en.json: {sorted(k for k in js_keys if k not in en)[:5]}")
+
+# Tên hiển thị đã sang tiếng Anh, tên máy vẫn là media_library.
+check(en.get("media_library") == "Media Library", "en.json goi ten 'Media Library'")
+from tubecli.extensions.media_library.extension import extension_instance as _ext  # noqa: E402
+check(_ext.name == "media_library", "ten may khong doi")
+check(getattr(_ext, "display_name", "") == "Media Library",
+      f"display_name la tieng Anh: {getattr(_ext, 'display_name', '')!r}")
 
 shutil.rmtree(_TMP, ignore_errors=True)
 print(f"\n{COUNT[0] - len(FAILS)}/{COUNT[0]} passed")

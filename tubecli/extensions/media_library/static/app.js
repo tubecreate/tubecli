@@ -17,7 +17,7 @@
  *  - Ảnh và video lấy THẲNG từ API bằng thuộc tính src, không tải qua fetch.
  *    Nhờ vậy trang này không tạo objectURL nào — không có gì phải thu hồi, và
  *    một kho 300 tấm cũng không nuốt hết bộ nhớ như khi giữ 300 blob.
- *  - Hỏng thì phải THẤY: mọi lượt gọi hỏng đều đổ một câu tiếng Việt ra dòng
+ *  - Hỏng thì phải THẤY: mọi lượt gọi hỏng đều đổ một câu ĐÃ DỊCH ra dòng
  *    trạng thái ở chân trang. Riêng tải lên thì lỗi từng tệp một, tệp sau vẫn
  *    chạy tiếp — bỏ dở cả lượt vì một tấm sai định dạng là thói xấu.
  *  - Tệp trong kho DÙNG LẠI mãi mãi: cùng một tấm nền được lấy đi lấy lại, mỗi
@@ -32,8 +32,11 @@
 
 const API = '/api/v1/media';
 
-const KIND_VI = { image: 'ảnh', gif: 'GIF', video: 'video' };
-const KIND_TAG = { image: 'ẢNH', gif: 'GIF', video: 'VIDEO' };
+/* Loại tệp máy chủ trả về → khoá i18n. Ba bản đồ vì ba chỗ đọc khác nhau:
+   câu văn xuôi, nhãn chip trên ô, và câu đếm «12 ảnh». */
+const KIND_KEY = { image: 'media.kind.image', gif: 'media.kind.gif', video: 'media.kind.video' };
+const KIND_TAG_KEY = { image: 'media.kindtag.image', gif: 'media.kindtag.gif', video: 'media.kindtag.video' };
+const KIND_COUNT_KEY = { image: 'media.count.image', gif: 'media.count.gif', video: 'media.count.video' };
 const KIND_ORDER = ['image', 'gif', 'video'];
 
 /* Ô nhỏ hơn ngưỡng này thì tên tệp hiện thường trực: ở cỡ 100px, chữ là thứ
@@ -41,13 +44,13 @@ const KIND_ORDER = ['image', 'gif', 'video'];
 const NAME_ALWAYS_BELOW = 142;
 const GRID_GAP = 4;
 
-const MODE_HINT = {
-  random: 'Ngẫu nhiên: mỗi lần gọi lấy một tệp bất kỳ, có thể trùng tệp lần trước.',
-  cycle: 'Xoay vòng: đi lần lượt theo thứ tự trong lưới cho khỏi lấy trùng một tấm hai lần liền — ô viền nét đứt là tấm lần tới.',
-  ai: 'AI chọn: bấm vào một ô để chỉ đích danh tệp, rồi bấm «Bốc thử».'
+const MODE_HINT_KEY = {
+  random: 'media.hint.random',
+  cycle: 'media.hint.cycle',
+  ai: 'media.hint.ai'
 };
 
-const MODE_NAME = { random: 'Ngẫu nhiên', cycle: 'Xoay vòng', ai: 'AI chọn' };
+const MODE_NAME_KEY = { random: 'media.mode.random', cycle: 'media.mode.cycle', ai: 'media.mode.ai' };
 
 /* Biểu tượng: chuỗi SVG hằng, KHÔNG bao giờ ghép dữ liệu người dùng vào đây —
    mọi thứ đến từ máy chủ đều đi qua textContent. */
@@ -61,6 +64,123 @@ const ICO = {
   play: '<svg viewBox="0 0 16 16" width="11" height="11" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>',
   next: '<svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>'
 };
+
+/* ── i18n ────────────────────────────────────────────────────────────────
+   Cùng một giao kèo T() / applyI18n() / data-i18n với bảng điều khiển và File
+   Manager. Từ điển gộp ở /api/v1/i18n/<lang> trộn các khoá TOP-LEVEL của mọi
+   extension lại, nên khoá của trang này đều phẳng và mang tiền tố «media.» —
+   lồng object vào là tra không ra.
+
+   Tải kèm bản tiếng Anh làm lưới đỡ TỪNG KHOÁ: một khoá thiếu ở bản dịch thì
+   rơi về tiếng Anh chứ không hiện tên khoá trần ra màn hình. */
+
+let _lang = 'en';
+let _dict = {};                  // ngôn ngữ đang chọn
+let _en = {};                    // lưới đỡ tiếng Anh
+const _warnedKeys = {};
+
+/* `def` chỉ dùng cho những chỗ có thể vẽ TRƯỚC khi từ điển về (hộp báo lệch
+   phiên bản): ở đó thà hiện câu tiếng Anh viết sẵn còn hơn hiện tên khoá. */
+function T(key, vars, def) {
+  let s = _dict[key];
+  if (s === undefined) s = _en[key];
+  if (typeof s !== 'string') {
+    if (def !== undefined) {
+      s = def;
+    } else {
+      if (!_warnedKeys[key]) {
+        _warnedKeys[key] = true;
+        console.warn('[media_library] no translation for key:', key);
+      }
+      s = key;
+    }
+  }
+  if (vars) {
+    Object.keys(vars).forEach(function (k) {
+      s = s.split('{' + k + '}').join(String(vars[k]));
+    });
+  }
+  return s;
+}
+
+/* Như T() nhưng chèn NÚT DOM vào chỗ trống thay vì chuỗi: giữ được <b> quanh
+   con số hay <code> quanh mã kho mà người dịch vẫn đảo được thứ tự. */
+function tNodes(key, vars) {
+  const frag = document.createDocumentFragment();
+  const s = T(key);
+  const re = /\{(\w+)\}/g;
+  let last = 0, m;
+  while ((m = re.exec(s))) {
+    if (m.index > last) frag.appendChild(document.createTextNode(s.slice(last, m.index)));
+    const v = vars ? vars[m[1]] : undefined;
+    if (v == null) frag.appendChild(document.createTextNode(m[0]));
+    else if (v.nodeType) frag.appendChild(v);
+    else frag.appendChild(document.createTextNode(String(v)));
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+  return frag;
+}
+
+/* Khoá tra không ra thì GIỮ NGUYÊN chữ đã viết sẵn trong HTML: viết tên khoá
+   lên màn hình còn tệ hơn là để nguyên tiếng Anh. */
+function applyI18n(root) {
+  const scope = root || document;
+  const put = function (attr, set) {
+    const list = scope.querySelectorAll('[' + attr + ']');
+    for (let i = 0; i < list.length; i++) {
+      const k = list[i].getAttribute(attr);
+      let v = _dict[k];
+      if (typeof v !== 'string') v = _en[k];
+      if (typeof v === 'string') set(list[i], v);
+    }
+  };
+  put('data-i18n', function (n, v) { n.textContent = v; });
+  put('data-i18n-placeholder', function (n, v) { n.placeholder = v; });
+  put('data-i18n-title', function (n, v) { n.title = v; });
+  put('data-i18n-aria-label', function (n, v) { n.setAttribute('aria-label', v); });
+  if (!root) document.documentElement.lang = _lang;
+}
+
+/* Không bao giờ ném: mất dịch vụ dịch thì trang vẫn phải chạy được bằng chữ
+   tiếng Anh viết sẵn trong HTML. */
+async function loadI18n() {
+  let base = window.location.origin;
+  try { base = localStorage.getItem('tubecli_api') || base; } catch (e) { /* chế độ riêng tư */ }
+
+  let got = false;
+  try {
+    const r = await fetch(base + '/api/v1/settings/language');
+    if (r.ok) {
+      const d = await r.json();
+      if (d && d.language) { _lang = d.language; got = true; }
+    }
+  } catch (e) { /* rơi xuống dưới */ }
+  if (!got) {
+    let cached = '';
+    try { cached = localStorage.getItem('tubecli_lang') || ''; } catch (e) { /* riêng tư */ }
+    _lang = cached || (navigator.language || 'en').slice(0, 2) || 'en';
+  }
+
+  const bust = '?v=' + Date.now();
+  try {
+    const rd = await fetch(base + '/api/v1/i18n/' + encodeURIComponent(_lang) + bust);
+    if (rd.ok) _dict = await rd.json();
+  } catch (e) {
+    console.warn('[media_library] i18n fetch failed for', _lang, e);
+  }
+  if (_lang === 'en') {
+    _en = _dict;
+  } else {
+    try {
+      const re2 = await fetch(base + '/api/v1/i18n/en' + bust);
+      if (re2.ok) _en = await re2.json();
+    } catch (e) {
+      console.warn('[media_library] English fallback fetch failed', e);
+    }
+  }
+  applyI18n();
+}
 
 const state = {
   view: 'list',        // 'list' | 'col' — khớp với hash
@@ -125,24 +245,37 @@ function msg(text, kind) {
   });
 }
 
-/* Cỡ tệp cho người đọc. Dấu phẩy thập phân theo cách viết tiếng Việt. */
+/* Cỡ tệp cho người đọc. Dấu thập phân đi theo NGÔN NGỮ ĐANG CHỌN chứ không
+   ghim cứng một locale: tiếng Việt viết «1,5 MB», tiếng Anh viết «1.5 MB». */
 function fmtBytes(n) {
   n = Number(n) || 0;
-  if (n < 1024) return n + ' B';
-  const dec = function (x) { return (Math.round(x * 10) / 10).toFixed(1).replace('.', ','); };
-  if (n < 1048576) return dec(n / 1024) + ' KB';
-  if (n < 1073741824) return dec(n / 1048576) + ' MB';
-  return dec(n / 1073741824) + ' GB';
+  if (n < 1024) return n + ' ' + T('media.unit.b');
+  const dec = function (x) {
+    try {
+      return x.toLocaleString(_lang, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    } catch (e) {
+      return (Math.round(x * 10) / 10).toFixed(1);
+    }
+  };
+  if (n < 1048576) return dec(n / 1024) + ' ' + T('media.unit.kb');
+  if (n < 1073741824) return dec(n / 1048576) + ' ' + T('media.unit.mb');
+  return dec(n / 1073741824) + ' ' + T('media.unit.gb');
 }
 
 /* {image:12, video:3} → «12 ảnh · 3 video». Đếm theo LOẠI chứ không chỉ tổng:
-   một kho 40 tệp toàn video dùng khác hẳn một kho 40 tấm ảnh. */
+   một kho 40 tệp toàn video dùng khác hẳn một kho 40 tấm ảnh. Mỗi vế là một
+   câu riêng để tiếng nào cần dạng số nhiều khác cũng viết được. */
 function kindsLine(kinds) {
   const k = kinds || {};
   const parts = KIND_ORDER.filter(function (x) { return k[x]; })
-                          .map(function (x) { return k[x] + ' ' + KIND_VI[x]; });
+                          .map(function (x) { return T(KIND_COUNT_KEY[x], { n: k[x] }); });
   return parts.join(' · ');
 }
+
+/* 'image' → «ảnh» (câu văn xuôi) và «ẢNH» (nhãn chip trên ô). Loại lạ từ một
+   bản dữ liệu cũ thì trả nguyên chuỗi máy chủ gửi, hơn là để trống. */
+function kindName(kind) { return KIND_KEY[kind] ? T(KIND_KEY[kind]) : String(kind || ''); }
+function kindTag(kind) { return KIND_TAG_KEY[kind] ? T(KIND_TAG_KEY[kind]) : String(kind || ''); }
 
 /* «2 giờ trước» / «hôm qua» / «12/09». Giờ tuyệt đối trên thẻ không nói lên
    gì: cái người ta cần biết là kho nào vừa đụng tới. */
@@ -155,15 +288,18 @@ function relTime(ts) {
   const days = Math.round((day(now) - day(then)) / 86400000);
   if (days <= 0) {
     const s = Math.max(0, Math.round((now.getTime() - t) / 1000));
-    if (s < 90) return 'vừa xong';
-    if (s < 3600) return Math.round(s / 60) + ' phút trước';
-    return Math.round(s / 3600) + ' giờ trước';
+    if (s < 90) return T('media.time.just_now');
+    if (s < 3600) return T('media.time.minutes_ago', { n: Math.round(s / 60) });
+    return T('media.time.hours_ago', { n: Math.round(s / 3600) });
   }
-  if (days === 1) return 'hôm qua';
-  if (days < 7) return days + ' ngày trước';
-  const dd = ('0' + then.getDate()).slice(-2);
-  const mm = ('0' + (then.getMonth() + 1)).slice(-2);
-  return dd + '/' + mm + (then.getFullYear() === now.getFullYear() ? '' : '/' + then.getFullYear());
+  if (days === 1) return T('media.time.yesterday');
+  if (days < 7) return T('media.time.days_ago', { n: days });
+  // Quá một tuần thì viết ngày tháng theo lối của ngôn ngữ đang chọn; khác năm
+  // thì hiện cả năm ra, không thì bỏ đi cho gọn.
+  const opt = { day: '2-digit', month: '2-digit' };
+  if (then.getFullYear() !== now.getFullYear()) opt.year = 'numeric';
+  try { return then.toLocaleDateString(_lang, opt); }
+  catch (e) { return then.toLocaleDateString(); }
 }
 
 function extOf(name) {
@@ -175,12 +311,14 @@ function copyText(text, label) {
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(text).then(
-        function () { msg('Đã chép ' + (label || text) + ' vào bộ nhớ tạm.', 'ok'); },
-        function (e) { msg('Không chép được vào bộ nhớ tạm: ' + (e && e.message ? e.message : e), 'warn'); });
+        function () { msg(T('media.msg.copied', { what: label || text }), 'ok'); },
+        function (e) {
+          msg(T('media.msg.copy_failed', { err: (e && e.message ? e.message : e) }), 'warn');
+        });
       return;
     }
   } catch (e) { /* rơi xuống dưới */ }
-  msg('Trình duyệt không cho chép tự động — chọn tay: ' + text, 'warn');
+  msg(T('media.msg.copy_manual', { text: text }), 'warn');
 }
 
 /* ── Gọi API ─────────────────────────────────────────────────────────── */
@@ -188,8 +326,8 @@ function copyText(text, label) {
 async function hit(path, opts) {
   const res = await fetch(API + path, opts);
   if (!res.ok) {
-    // Kèm luôn phần thân lỗi: backend trả câu giải thích tiếng Việt ở đó, giấu
-    // đi là người dùng chỉ thấy một con số 400 chẳng nói lên điều gì.
+    // Kèm luôn phần thân lỗi: backend trả câu giải thích ở đó, giấu đi là người
+    // dùng chỉ thấy một con số 400 chẳng nói lên điều gì.
     let detail = '';
     try { detail = clip(await res.text(), 180); } catch (e) { /* thân rỗng */ }
     throw new Error(res.status + (detail ? ' — ' + detail : ' ' + res.statusText));
@@ -220,7 +358,7 @@ function fileUrl(cid, name, ver) {
 function coverPlaceholder(text) {
   const d = el('div', 'pcard-empty');
   d.appendChild(el('div', 'glyph', '▦'));
-  d.appendChild(el('div', null, text || 'kho rỗng'));
+  d.appendChild(el('div', null, text || T('media.cover.empty')));
   return d;
 }
 
@@ -241,7 +379,7 @@ function renderRail() {
     item.type = 'button';
     item.dataset.id = c.id;
     if (state.col && state.col.id === c.id) item.classList.add('on');
-    item.title = 'Mở «' + (c.name || c.id) + '» · mã ' + c.id;
+    item.title = T('media.rail.open_title', { name: c.name || c.id, id: c.id });
 
     const shot = el('div', 'rail-shot');
     if (c.cover) {
@@ -254,7 +392,7 @@ function renderRail() {
     item.appendChild(shot);
 
     const t = el('div', 'rail-t');
-    t.appendChild(el('div', 'rail-n', c.name || '(không tên)'));
+    t.appendChild(el('div', 'rail-n', c.name || T('media.collection.untitled')));
 
     const m = el('div', 'rail-m');
     const n = Number(c.count) || 0;
@@ -262,10 +400,12 @@ function renderRail() {
     // tệp được dùng đi dùng lại nên một tấm cũng chạy được mãi.
     if (!n) {
       const dot = el('span', 'hdot');
-      dot.title = 'Kho rỗng';
+      dot.title = T('media.collection.empty_badge');
       m.appendChild(dot);
     }
-    m.appendChild(el('span', null, n ? (kindsLine(c.kinds) || n + ' tệp') : 'rỗng'));
+    m.appendChild(el('span', null, n
+      ? (kindsLine(c.kinds) || T('media.count.files', { n: n }))
+      : T('media.collection.empty_short')));
     t.appendChild(m);
     item.appendChild(t);
 
@@ -274,7 +414,7 @@ function renderRail() {
   });
 
   if (!state.collections.length) {
-    const none = el('div', 'rail-f', 'Chưa có kho nào.');
+    const none = el('div', 'rail-f', T('media.rail.none'));
     none.style.borderTop = '0';
     list.appendChild(none);
   }
@@ -285,7 +425,8 @@ function renderRail() {
   const warn = $('#railWarn');
   warn.hidden = !empty.length;
   warn.textContent = empty.length
-    ? empty.length + ' kho rỗng — mẫu trỏ vào sẽ ra lớp trống'
+    ? T(empty.length === 1 ? 'media.rail.empty_warn_one' : 'media.rail.empty_warn_many',
+        { n: empty.length })
     : '';
   warn.title = empty.map(function (c) { return c.name || c.id; }).join(', ');
 
@@ -299,22 +440,24 @@ function renderRailFoot() {
   f.textContent = '';
   const s = state.stats || {};
 
+  // tNodes chứ không ghép chuỗi: hai con số vẫn in đậm mà người dịch vẫn đảo
+  // được thứ tự hai vế.
   const l1 = el('div');
-  l1.appendChild(el('b', null, String(s.collections || 0)));
-  l1.appendChild(document.createTextNode(' kho · '));
-  l1.appendChild(el('b', null, String(s.files || 0)));
-  l1.appendChild(document.createTextNode(' tệp'));
+  l1.appendChild(tNodes('media.foot.totals', {
+    collections: el('b', null, String(s.collections || 0)),
+    files: el('b', null, String(s.files || 0))
+  }));
   f.appendChild(l1);
 
   if (state.col) {
     const files = state.col.files || [];
     const total = files.reduce(function (a, x) { return a + (x.bytes || 0); }, 0);
     f.appendChild(el('div', null,
-      'Kho đang mở: ' + files.length + ' tệp · ' + fmtBytes(total)));
+      T('media.foot.open_collection', { n: files.length, size: fmtBytes(total) })));
   } else if (s.dir) {
     const d = el('div', null, s.dir);
     d.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
-    d.title = 'Thư mục trên đĩa: ' + s.dir;
+    d.title = T('media.foot.dir_title', { dir: s.dir });
     f.appendChild(d);
   }
 }
@@ -336,7 +479,7 @@ async function loadCollections() {
     renderRail();
     renderList();
     if (state.view === 'list') renderInspector();
-    msg('Không lấy được danh sách kho: ' + err.message, 'err');
+    msg(T('media.msg.list_failed', { err: err.message }), 'err');
   }
 }
 
@@ -352,19 +495,21 @@ function renderList() {
   });
 
   const s = state.stats || {};
-  const base = (s.collections || 0) + ' kho · ' + (s.files || 0) + ' tệp';
+  const base = T('media.stats.base', { collections: s.collections || 0, files: s.files || 0 });
   const foot = $('#colStats');
-  foot.textContent = q ? (arr.length + '/' + (s.collections || 0) + ' kho khớp · ' + base) : base;
-  foot.title = s.dir ? 'Thư mục trên đĩa: ' + s.dir : '';
+  foot.textContent = q
+    ? T('media.list.matched', { n: arr.length, total: s.collections || 0, base: base })
+    : base;
+  foot.title = s.dir ? T('media.foot.dir_title', { dir: s.dir }) : '';
 
   const sub = $('#listSub');
   sub.textContent = state.collections.length
-    ? base + ' — bấm một kho để mở'
-    : 'Chưa có kho nào';
+    ? T('media.list.sub', { base: base })
+    : T('media.list.none');
 
   if (!state.collections.length) { grid.appendChild(emptyState()); return; }
   if (!arr.length) {
-    grid.appendChild(el('div', 'gal-empty', 'Không có kho nào tên hay mô tả chứa «' + q + '».'));
+    grid.appendChild(el('div', 'gal-empty', T('media.list.no_match', { q: q })));
     return;
   }
   arr.forEach(function (c) { grid.appendChild(colCard(c)); });
@@ -372,13 +517,10 @@ function renderList() {
 
 function emptyState() {
   const box = el('div', 'gal-empty');
-  box.appendChild(el('h2', null, 'Chưa có kho nào'));
-  box.appendChild(el('p', null,
-    'Một kho là một túi nguyên liệu có tên: ảnh, GIF, video để chung một chỗ. ' +
-    'Extension khác chỉ cần trỏ vào mã kho rồi để máy bốc — ngẫu nhiên, xoay ' +
-    'vòng hay để AI chọn — nên cùng một tấm không phải tải lên năm lần nữa.'));
+  box.appendChild(el('h2', null, T('media.empty.title')));
+  box.appendChild(el('p', null, T('media.empty.body')));
   const row = el('div', 'row');
-  const b = el('button', 'btn primary', '+ Tạo kho');
+  const b = el('button', 'btn primary', T('media.action.new_collection_plus'));
   b.type = 'button';
   b.addEventListener('click', function () { openCreate(); });
   row.appendChild(b);
@@ -397,12 +539,12 @@ function colCard(c) {
 
   const shot = el('button', 'pcard-shot');
   shot.type = 'button';
-  shot.title = 'Mở «' + (c.name || c.id) + '»';
+  shot.title = T('media.card.open', { name: c.name || c.id });
   if (c.cover) {
-    const img = coverImg(c, 'Ảnh bìa của kho ' + (c.name || c.id));
+    const img = coverImg(c, T('media.card.cover_alt', { name: c.name || c.id }));
     img.addEventListener('error', function () {
       img.remove();
-      shot.appendChild(coverPlaceholder('không xem trước được'));
+      shot.appendChild(coverPlaceholder(T('media.cover.no_preview')));
     });
     shot.appendChild(img);
   } else {
@@ -413,7 +555,7 @@ function colCard(c) {
 
   const body = el('div', 'pcard-body');
   const row = el('div', 'pcard-namerow');
-  const name = el('button', 'pcard-name', c.name || '(không tên)');
+  const name = el('button', 'pcard-name', c.name || T('media.collection.untitled'));
   name.type = 'button';
   name.title = c.name || '';
   name.addEventListener('click', function () { goCollection(c.id); });
@@ -421,24 +563,27 @@ function colCard(c) {
 
   const more = el('button', 'icobtn pcard-more', '⋯');
   more.type = 'button';
-  more.title = 'Việc khác với kho này';
+  more.title = T('media.card.more');
   more.setAttribute('aria-haspopup', 'true');
   row.appendChild(more);
   body.appendChild(row);
 
   const desc = el('div', 'pcard-desc' + (c.description ? '' : ' empty'),
-                  c.description || 'Chưa có mô tả');
+                  c.description || T('media.collection.no_desc'));
   desc.title = c.description || '';
   body.appendChild(desc);
 
   const meta = el('div', 'pcard-meta muted');
   if (!Number(c.count)) {
     const dot = el('span', 'hdot');
-    dot.title = 'Kho rỗng';
+    dot.title = T('media.collection.empty_badge');
     meta.appendChild(dot);
   }
   meta.appendChild(el('span', null,
-    [Number(c.count) ? (kindsLine(c.kinds) || c.count + ' tệp') : 'rỗng', relTime(c.updated_at)]
+    [Number(c.count)
+       ? (kindsLine(c.kinds) || T('media.count.files', { n: c.count }))
+       : T('media.collection.empty_short'),
+     relTime(c.updated_at)]
       .filter(function (x) { return x; }).join(' · ')));
   body.appendChild(meta);
   card.appendChild(body);
@@ -449,8 +594,8 @@ function colCard(c) {
 
   const menu = el('div', 'pmenu');
   menu.hidden = true;
-  [['Đổi tên', function () { beginCardRename(card, c); }],
-   ['Xoá', function () { askDeleteCollection(conf, c); }, 'danger']
+  [[T('media.action.rename'), function () { beginCardRename(card, c); }],
+   [T('media.action.delete'), function () { askDeleteCollection(conf, c); }, 'danger']
   ].forEach(function (item) {
     const b = el('button', 'pmenu-i' + (item[2] ? ' ' + item[2] : ''), item[0]);
     b.type = 'button';
@@ -478,24 +623,24 @@ function colCard(c) {
 function askDeleteCollection(conf, c) {
   conf.textContent = '';
   conf.hidden = false;
-  conf.appendChild(el('span', null,
-    'Xoá kho «' + clip(c.name, 34) + '»' +
-    (c.count ? ' cùng ' + c.count + ' tệp bên trong' : '') + '? Không lấy lại được.'));
+  conf.appendChild(el('span', null, c.count
+    ? T('media.delete.collection_with_files', { name: clip(c.name, 34), n: c.count })
+    : T('media.delete.collection', { name: clip(c.name, 34) })));
 
   const keepBox = el('label', 'keep');
   const keep = el('input');
   keep.type = 'checkbox';
   keepBox.appendChild(keep);
-  keepBox.appendChild(el('span', null, 'Giữ lại tệp trên đĩa, chỉ bỏ kho khỏi danh sách'));
+  keepBox.appendChild(el('span', null, T('media.delete.keep_files')));
   conf.appendChild(keepBox);
 
-  const yes = el('button', 'btn sm danger', 'Xoá');
+  const yes = el('button', 'btn sm danger', T('media.action.delete'));
   yes.type = 'button';
   yes.addEventListener('click', function () {
     conf.hidden = true;
     deleteCollection(c, keep.checked);
   });
-  const no = el('button', 'btn sm', 'Huỷ');
+  const no = el('button', 'btn sm', T('media.common.cancel'));
   no.type = 'button';
   no.addEventListener('click', function () { conf.hidden = true; conf.textContent = ''; });
   conf.appendChild(yes);
@@ -507,10 +652,10 @@ async function deleteCollection(c, keepFiles) {
   try {
     await hit('/collections/' + enc(c.id) + '?keep_files=' + (keepFiles ? 'true' : 'false'),
               { method: 'DELETE' });
-    msg('Đã xoá kho «' + clip(c.name, 34) + '»' +
-        (keepFiles ? ' — tệp vẫn còn trên đĩa.' : '.'), 'ok');
+    msg(T(keepFiles ? 'media.msg.collection_deleted_kept' : 'media.msg.collection_deleted',
+          { name: clip(c.name, 34) }), 'ok');
   } catch (err) {
-    msg('Xoá kho hỏng: ' + err.message, 'err');
+    msg(T('media.msg.delete_collection_failed', { err: err.message }), 'err');
     await loadCollections();
     return;
   }
@@ -528,7 +673,7 @@ function beginCardRename(card, c) {
   const i = el('input', 'in pcard-rename');
   i.type = 'text';
   i.value = c.name || '';
-  i.setAttribute('aria-label', 'Tên kho');
+  i.setAttribute('aria-label', T('media.collection.name_aria'));
 
   let done = false;
   async function finish(keep) {
@@ -543,10 +688,10 @@ function beginCardRename(card, c) {
       c.name = (r.collection && r.collection.name) || v;
       btn.textContent = c.name;
       btn.title = c.name;
-      msg('Đã đổi tên kho thành «' + c.name + '».', 'ok');
+      msg(T('media.msg.renamed', { name: c.name }), 'ok');
       await loadCollections();
     } catch (err) {
-      msg('Đổi tên kho hỏng: ' + err.message, 'err');
+      msg(T('media.msg.rename_failed', { err: err.message }), 'err');
     }
   }
 
@@ -572,7 +717,7 @@ async function openCollection(cid) {
   try {
     c = await jget('/collections/' + enc(cid));
   } catch (err) {
-    msg('Mở kho «' + cid + '» hỏng: ' + err.message, 'err');
+    msg(T('media.msg.open_failed', { id: cid, err: err.message }), 'err');
     state.col = null;
     setView('list');
     await loadCollections();
@@ -590,7 +735,7 @@ async function openCollection(cid) {
   // vào đâu.
   const cur = $('#colStatusMsg');
   if (!cur.textContent || cur.classList.contains('err')) {
-    msg(c.count ? '' : 'Kho đang rỗng — kéo tệp thả vào bất cứ đâu trên trang, hoặc bấm «Tải lên».');
+    msg(c.count ? '' : T('media.msg.collection_empty_hint'));
   }
 }
 
@@ -609,7 +754,7 @@ async function reloadCollection() {
     renderCollection();
     loadCollections();          // cột trái và số liệu chung cũng phải theo kịp
   } catch (err) {
-    msg('Đọc lại kho hỏng: ' + err.message + ' — bấm «← Kho» rồi mở lại.', 'err');
+    msg(T('media.msg.reload_failed', { err: err.message }), 'err');
   }
 }
 
@@ -617,15 +762,15 @@ function renderCollection() {
   const c = state.col;
   if (!c) return;
 
-  $('#colName').textContent = c.name || '(không tên)';
-  $('#colName').title = 'Bấm để đổi tên · mã kho: ' + c.id;
+  $('#colName').textContent = c.name || T('media.collection.untitled');
+  $('#colName').title = T('media.collection.rename_title', { id: c.id });
   $('#colName').hidden = false;
   $('#colNameIn').hidden = true;
 
   const d = $('#colDesc');
-  d.textContent = c.description || 'Chưa có mô tả — bấm để viết';
+  d.textContent = c.description || T('media.collection.no_desc_edit');
   d.classList.toggle('empty', !c.description);
-  d.title = c.description || 'Bấm để sửa mô tả';
+  d.title = c.description || T('media.collection.edit_desc_hint');
   d.hidden = false;
   $('#colDescIn').hidden = true;
 
@@ -665,27 +810,26 @@ function renderNextInfo() {
   const files = c.files || [];
 
   if (!files.length) {
-    box.appendChild(el('span', null, 'Kho rỗng — mẫu trỏ vào kho này sẽ ra một lớp trống.'));
+    box.appendChild(el('span', null, T('media.next.empty')));
     return;
   }
   if (state.mode === 'cycle') {
     const i = nextIndex();
     const pill = el('span', 'pill');
     pill.appendChild(ico('next'));
-    pill.appendChild(document.createTextNode('lần tới'));
+    pill.appendChild(document.createTextNode(T('media.next.pill')));
     box.appendChild(pill);
-    box.appendChild(el('b', null, i < 0 ? '(chưa xác định)' : files[i].name));
+    box.appendChild(el('b', null, i < 0 ? T('media.next.unknown') : files[i].name));
     if (i >= 0) box.appendChild(el('span', null, '(' + (i + 1) + '/' + files.length + ')'));
     return;
   }
   if (state.mode === 'random') {
-    box.appendChild(el('span', null,
-      'Mỗi lần gọi lấy một tệp bất kỳ trong ' + files.length + ' tệp.'));
+    box.appendChild(el('span', null, T('media.next.random', { n: files.length })));
     return;
   }
   box.appendChild(el('span', null, state.sel
-    ? 'AI chọn: đang chỉ đích danh «' + clip(state.sel, 42) + '».'
-    : 'AI chọn: bấm một ô trong lưới để chỉ đích danh tệp.'));
+    ? T('media.next.ai_named', { name: clip(state.sel, 42) })
+    : T('media.next.ai_none')));
 }
 
 /* ── Lưới tệp đều mép ────────────────────────────────────────────────────
@@ -771,15 +915,16 @@ function renderFiles() {
 
   const total = all.reduce(function (a, f) { return a + (f.bytes || 0); }, 0);
   $('#colCount').textContent = !all.length
-    ? 'Kho đang rỗng'
-    : (q ? files.length + '/' + all.length + ' tệp khớp «' + q + '» · ' + fmtBytes(total)
-         : all.length + ' tệp · ' + fmtBytes(total));
+    ? T('media.files.empty')
+    : (q ? T('media.files.matched',
+             { n: files.length, total: all.length, q: q, size: fmtBytes(total) })
+         : T('media.files.total', { n: all.length, size: fmtBytes(total) }));
 
   grid.classList.toggle('names', state.size < NAME_ALWAYS_BELOW);
 
   if (!all.length) { grid.appendChild(emptyCollection()); return; }
   if (!files.length) {
-    grid.appendChild(el('div', 'gal-empty', 'Không có tệp nào tên chứa «' + q + '» trong kho này.'));
+    grid.appendChild(el('div', 'gal-empty', T('media.files.no_match', { q: q })));
     return;
   }
 
@@ -811,23 +956,23 @@ function emptyCollection() {
     '<path d="M120 81v14M113 88h14" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>';
   box.appendChild(ill);
 
-  box.appendChild(el('h2', null, 'Kho «' + (state.col.name || state.col.id) + '» chưa có tệp nào'));
-  box.appendChild(el('p', null,
-    'Kéo ảnh, GIF hay video thả vào bất cứ đâu trên trang này. Tên tệp được giữ ' +
-    'nguyên — đặt tên có nghĩa thì chế độ «AI chọn» chọn đúng hơn.'));
+  box.appendChild(el('h2', null,
+    T('media.empty_col.title', { name: state.col.name || state.col.id })));
+  box.appendChild(el('p', null, T('media.empty_col.body')));
 
   const row = el('div', 'row');
-  const b = el('button', 'btn primary', 'Chọn tệp');
+  const b = el('button', 'btn primary', T('media.empty_col.choose'));
   b.type = 'button';
   b.addEventListener('click', function () { $('#fileIn').click(); });
   row.appendChild(b);
   box.appendChild(row);
 
+  // Câu này ôm một <code> ở giữa nên tách làm hai vế thay vì một chỗ trống:
+  // mã kho phải giữ được kiểu chữ đơn cách để đọc và chép cho đúng.
   const foot = el('div', 'foot');
-  foot.appendChild(document.createTextNode('Extension đã trỏ được vào kho này bằng mã '));
+  foot.appendChild(document.createTextNode(T('media.empty_col.foot_before')));
   foot.appendChild(el('code', 'mono', state.col.id));
-  foot.appendChild(document.createTextNode(
-    ' ngay bây giờ — tệp đến sau cũng được, máy sẽ bốc khi có.'));
+  foot.appendChild(document.createTextNode(T('media.empty_col.foot_after')));
   box.appendChild(foot);
 
   wrap.appendChild(box);
@@ -838,7 +983,8 @@ function fileTile(f) {
   const t = el('div', 'ftile');
   t.dataset.name = f.name;
   t.tabIndex = 0;
-  t.title = f.name + ' — ' + (KIND_VI[f.kind] || f.kind) + ' · ' + fmtBytes(f.bytes);
+  t.title = T('media.file.tile_title',
+              { name: f.name, kind: kindName(f.kind), size: fmtBytes(f.bytes) });
 
   const src = fileUrl(state.col.id, f.name, state.col.updated_at);
   if (f.kind === 'video') {
@@ -866,12 +1012,12 @@ function fileTile(f) {
     });
     img.addEventListener('error', function () {
       img.remove();
-      t.appendChild(coverPlaceholder('không đọc được'));
+      t.appendChild(coverPlaceholder(T('media.cover.unreadable')));
     });
     t.appendChild(img);
   }
 
-  if (f.kind !== 'image') t.appendChild(el('span', 'ftile-kind', KIND_TAG[f.kind] || f.kind));
+  if (f.kind !== 'image') t.appendChild(el('span', 'ftile-kind', kindTag(f.kind)));
 
   t.appendChild(el('div', 'ftile-name', f.name));
 
@@ -881,7 +1027,7 @@ function fileTile(f) {
 
   const del = el('button', 'ftile-del', '×');
   del.type = 'button';
-  del.title = 'Xoá ' + f.name;
+  del.title = T('media.file.delete_title', { name: f.name });
   del.addEventListener('click', function (ev) {
     ev.stopPropagation();
     askDeleteFile(t, f);
@@ -905,8 +1051,11 @@ function markTiles() {
     t.node.classList.toggle('next', isNext);
     const badge = $('.ftile-badge', t.node);
     if (!badge) return;
-    if (isNext) { badge.hidden = false; badge.textContent = 'kế tiếp'; }
-    else if (t.f.name === state.picked) { badge.hidden = false; badge.textContent = 'vừa bốc'; }
+    if (isNext) { badge.hidden = false; badge.textContent = T('media.badge.next'); }
+    else if (t.f.name === state.picked) {
+      badge.hidden = false;
+      badge.textContent = T('media.badge.picked');
+    }
     else { badge.hidden = true; badge.textContent = ''; }
   });
 }
@@ -920,8 +1069,8 @@ function selectFile(name) {
   renderInspector();
   if (state.mode === 'ai') {
     msg(state.sel
-      ? 'Bấm «Bốc thử» để nhờ máy chủ lấy đúng «' + clip(state.sel, 40) + '».'
-      : 'Chưa chọn tệp nào — chế độ «AI chọn» cần biết tên tệp.');
+      ? T('media.msg.ai_selected', { name: clip(state.sel, 40) })
+      : T('media.msg.ai_none'));
   }
 }
 
@@ -929,13 +1078,13 @@ function askDeleteFile(tile, f) {
   if ($('.fconfirm', tile)) return;      // đã hỏi rồi, đừng chồng hộp thứ hai
   const box = el('div', 'fconfirm');
   box.addEventListener('click', function (ev) { ev.stopPropagation(); });
-  box.appendChild(el('div', null, 'Xoá «' + clip(f.name, 26) + '»? Không lấy lại được.'));
+  box.appendChild(el('div', null, T('media.delete.file', { name: clip(f.name, 26) })));
 
   const row = el('div', 'row');
-  const yes = el('button', 'btn sm danger', 'Xoá');
+  const yes = el('button', 'btn sm danger', T('media.action.delete'));
   yes.type = 'button';
   yes.addEventListener('click', function () { box.remove(); deleteFile(f.name); });
-  const no = el('button', 'btn sm', 'Huỷ');
+  const no = el('button', 'btn sm', T('media.common.cancel'));
   no.type = 'button';
   no.addEventListener('click', function () { box.remove(); });
   row.appendChild(yes);
@@ -950,9 +1099,9 @@ async function deleteFile(name) {
   try {
     await hit('/collections/' + enc(state.col.id) + '/files/' + enc(name),
               { method: 'DELETE' });
-    msg('Đã xoá «' + clip(name, 40) + '».', 'ok');
+    msg(T('media.msg.file_deleted', { name: clip(name, 40) }), 'ok');
   } catch (err) {
-    msg('Xoá tệp hỏng: ' + err.message, 'err');
+    msg(T('media.msg.delete_file_failed', { err: err.message }), 'err');
   }
   await reloadCollection();
 }
@@ -990,9 +1139,10 @@ function pathBox(text, label) {
   box.appendChild(el('code', null, text));
   const b = el('button', 'icobtn');
   b.type = 'button';
-  b.title = 'Chép ' + (label || 'đường dẫn');
+  const what = label || T('media.label.path');
+  b.title = T('media.action.copy_what', { what: what });
   b.innerHTML = ICO.copy;
-  b.addEventListener('click', function () { copyText(text, label || 'đường dẫn'); });
+  b.addEventListener('click', function () { copyText(text, what); });
   box.appendChild(b);
   return box;
 }
@@ -1000,12 +1150,11 @@ function pathBox(text, label) {
 /* Chỗ dành cho «Đang dùng ở». Backend không có chỉ mục nào cho biết mẫu nào
    đang trỏ tới kho, nên giữ đúng khoảng trống và nói thật. */
 function usageSection(cid) {
-  const s = inspSection('Đang dùng ở', 'chưa theo dõi');
+  const s = inspSection(T('media.usage.title'), T('media.usage.note'));
   const p = el('div', 'nouse');
-  p.appendChild(document.createTextNode('Chưa có dữ liệu sử dụng. Trang này không ' +
-    'theo dõi được mẫu nào đang gọi tới kho — muốn trỏ vào thì dùng mã '));
+  p.appendChild(document.createTextNode(T('media.usage.body_before')));
   p.appendChild(el('code', 'mono', cid));
-  p.appendChild(document.createTextNode(' trong Thumbnail Studio hay Content Studio.'));
+  p.appendChild(document.createTextNode(T('media.usage.body_after')));
   s.appendChild(p);
   return s;
 }
@@ -1025,24 +1174,25 @@ function libraryPanel() {
   const wrap = document.createDocumentFragment();
   const s = state.stats || {};
 
-  const head = inspSection('Thư viện');
+  const head = inspSection(T('media.insp.library'));
   head.appendChild(kvBox([
-    ['Số kho', String(s.collections || 0)],
-    ['Tổng số tệp', String(s.files || 0)]
+    [T('media.insp.collections'), String(s.collections || 0)],
+    [T('media.insp.total_files'), String(s.files || 0)]
   ]));
-  if (s.dir) head.appendChild(pathBox(s.dir, 'thư mục'));
+  if (s.dir) head.appendChild(pathBox(s.dir, T('media.label.folder')));
   wrap.appendChild(head);
 
   const empty = state.collections.filter(function (c) { return !Number(c.count); });
-  const st = inspSection('Kho rỗng', empty.length ? String(empty.length) : 'không có');
+  const st = inspSection(T('media.insp.empty_collections'),
+                         empty.length ? String(empty.length) : T('media.insp.none'));
   if (!empty.length) {
-    st.appendChild(el('div', 'state', 'Mọi kho đều có tệp để bốc.'));
+    st.appendChild(el('div', 'state', T('media.insp.all_have_files')));
   } else {
     empty.forEach(function (c) {
       const row = el('div', 'state');
       row.style.marginBottom = '6px';
       row.appendChild(el('span', 'hdot'));
-      row.appendChild(el('span', null, (c.name || c.id) + ' — mẫu trỏ vào sẽ ra lớp trống'));
+      row.appendChild(el('span', null, T('media.insp.empty_row', { name: c.name || c.id })));
       row.addEventListener('click', function () { goCollection(c.id); });
       row.style.cursor = 'pointer';
       st.appendChild(row);
@@ -1050,15 +1200,13 @@ function libraryPanel() {
   }
   wrap.appendChild(st);
 
-  const how = inspSection('Kho dùng thế nào');
-  how.appendChild(el('div', 'desc-note',
-    'Mỗi kho là một túi nguyên liệu có tên. Extension trỏ vào mã kho rồi để máy ' +
-    'bốc — cùng một tấm được dùng đi dùng lại, chỉ phần chữ trên thumbnail là khác.'));
+  const how = inspSection(T('media.insp.how_title'));
+  how.appendChild(el('div', 'desc-note', T('media.insp.how_body')));
   wrap.appendChild(how);
 
   const acts = inspSection(null);
   acts.className = 'acts';
-  const b = el('button', 'btn sm', '+ Tạo kho');
+  const b = el('button', 'btn sm', T('media.action.new_collection_plus'));
   b.type = 'button';
   b.addEventListener('click', function () { openCreate(); });
   acts.appendChild(b);
@@ -1090,22 +1238,22 @@ function collectionPanel(insp) {
     cover.appendChild(m);
   } else {
     cover.appendChild(el('div', 'mosaic-none', files.length
-      ? 'Kho toàn video — chưa có ảnh nào để làm bìa'
-      : 'Chưa có bìa — tệp đầu tiên sẽ thành bìa'));
+      ? T('media.insp.cover_video_only')
+      : T('media.insp.cover_none')));
   }
   insp.appendChild(cover);
 
   const head = inspSection(null);
   const name = el('div', 'fname');
-  name.appendChild(el('span', null, c.name || '(không tên)'));
+  name.appendChild(el('span', null, c.name || T('media.collection.untitled')));
   head.appendChild(name);
   head.appendChild(kvBox([
-    ['Số tệp', String(files.length)],
-    ['Dung lượng', fmtBytes(total)],
-    ['Sửa lần cuối', relTime(c.updated_at) || '—'],
-    ['Toàn thư viện', (state.stats.files || 0) + ' tệp']
+    [T('media.insp.file_count'), String(files.length)],
+    [T('media.insp.size'), fmtBytes(total)],
+    [T('media.insp.modified'), relTime(c.updated_at) || '—'],
+    [T('media.insp.whole_library'), T('media.count.files', { n: state.stats.files || 0 })]
   ]));
-  head.appendChild(pathBox(c.id, 'mã kho'));
+  head.appendChild(pathBox(c.id, T('media.label.collection_id')));
   insp.appendChild(head);
 
   insp.appendChild(pickRuleSection(null));
@@ -1116,7 +1264,7 @@ function collectionPanel(insp) {
   const ren = el('button', 'btn sm');
   ren.type = 'button';
   ren.innerHTML = ICO.pen;
-  ren.appendChild(document.createTextNode('Đổi tên'));
+  ren.appendChild(document.createTextNode(T('media.action.rename')));
   ren.addEventListener('click', beginColRename);
   acts.appendChild(ren);
 
@@ -1129,7 +1277,7 @@ function collectionPanel(insp) {
   del.type = 'button';
   del.style.color = 'var(--red)';
   del.innerHTML = ICO.trash;
-  del.appendChild(document.createTextNode('Xoá kho'));
+  del.appendChild(document.createTextNode(T('media.action.delete_collection')));
   del.addEventListener('click', function () { askDeleteCollection(conf, c); });
   acts.appendChild(del);
   acts.appendChild(conf);
@@ -1141,11 +1289,12 @@ function collectionPanel(insp) {
 function pickRuleSection(f) {
   const c = state.col;
   const files = c.files || [];
-  const s = inspSection('Quy tắc bốc', MODE_NAME[state.mode] + ' · ' + state.mode);
-  s.appendChild(el('div', 'desc-note', MODE_HINT[state.mode]));
+  const s = inspSection(T('media.pick.rule'),
+                        T(MODE_NAME_KEY[state.mode]) + ' · ' + state.mode);
+  s.appendChild(el('div', 'desc-note', T(MODE_HINT_KEY[state.mode])));
 
   if (!files.length) {
-    s.appendChild(el('div', 'state', 'Kho rỗng — chưa bốc được gì.'));
+    s.appendChild(el('div', 'state', T('media.pick.empty')));
     return s;
   }
 
@@ -1158,26 +1307,26 @@ function pickRuleSection(f) {
         const row = el('div', 'state on');
         const pill = el('span', 'pill');
         pill.appendChild(ico('next'));
-        pill.appendChild(document.createTextNode('lần tới'));
+        pill.appendChild(document.createTextNode(T('media.next.pill')));
         row.appendChild(pill);
-        row.appendChild(el('span', null, 'Lượt gọi tới sẽ lấy đúng tệp này.'));
+        row.appendChild(el('span', null, T('media.pick.cycle_this_next')));
         s.appendChild(row);
       } else {
         s.appendChild(el('div', 'state',
-          'Đứng thứ ' + pos + '/' + files.length + ' trong vòng. Vòng chạy tới đâu thì lấy tệp ở đó.'));
+          T('media.pick.cycle_position', { pos: pos, total: files.length })));
       }
     } else {
       const row = el('div', 'state on');
       const pill = el('span', 'pill');
       pill.appendChild(ico('next'));
-      pill.appendChild(document.createTextNode('lần tới'));
+      pill.appendChild(document.createTextNode(T('media.next.pill')));
       row.appendChild(pill);
-      row.appendChild(el('span', null, nm || '(chưa xác định)'));
+      row.appendChild(el('span', null, nm || T('media.next.unknown')));
       s.appendChild(row);
     }
     if (i >= 0) {
       const prog = el('div', 'prog');
-      prog.appendChild(el('span', null, 'Vị trí trong vòng'));
+      prog.appendChild(el('span', null, T('media.pick.cycle_progress')));
       const bar = el('div', 'bar');
       const fill = el('i');
       fill.style.width = ((i + 1) / files.length * 100).toFixed(1) + '%';
@@ -1191,15 +1340,15 @@ function pickRuleSection(f) {
 
   if (state.mode === 'random') {
     s.appendChild(el('div', 'state', f
-      ? 'Mỗi lần gọi, tệp này có 1/' + files.length + ' khả năng được lấy.'
-      : 'Mỗi lần gọi lấy một tệp bất kỳ trong ' + files.length + ' tệp.'));
+      ? T('media.pick.random_odds', { n: files.length })
+      : T('media.next.random', { n: files.length })));
     return s;
   }
 
   s.appendChild(el('div', 'state', f
-    ? '«Bốc thử» sẽ lấy đúng tệp đang chọn.'
-    : (state.sel ? 'Đang chỉ đích danh «' + clip(state.sel, 34) + '».'
-                 : 'Bấm một ô trong lưới để chỉ đích danh tệp.')));
+    ? T('media.pick.ai_this')
+    : (state.sel ? T('media.pick.ai_named', { name: clip(state.sel, 34) })
+                 : T('media.pick.ai_hint'))));
   return s;
 }
 
@@ -1232,7 +1381,7 @@ function filePanel(insp, f) {
     img.addEventListener('load', function () { noteRatio(f.name, img.naturalWidth, img.naturalHeight); });
     img.addEventListener('error', function () {
       img.remove();
-      box.appendChild(coverPlaceholder('không đọc được'));
+      box.appendChild(coverPlaceholder(T('media.cover.unreadable')));
     });
     box.appendChild(img);
   }
@@ -1243,16 +1392,16 @@ function filePanel(insp, f) {
   const head = inspSection(null);
   const name = el('div', 'fname');
   name.appendChild(el('span', null, f.name));
-  name.appendChild(el('span', 'kind', extOf(f.name) || KIND_TAG[f.kind] || ''));
+  name.appendChild(el('span', 'kind', extOf(f.name) || kindTag(f.kind)));
   head.appendChild(name);
 
   head.appendChild(kvBox([
-    ['Loại', KIND_VI[f.kind] || f.kind],
-    ['Dung lượng', fmtBytes(f.bytes)],
-    ['Kích thước', state.dim[arKey(f.name)] || 'đang đo…'],
-    ['Kho', c.name || c.id]
+    [T('media.insp.kind'), kindName(f.kind)],
+    [T('media.insp.size'), fmtBytes(f.bytes)],
+    [T('media.insp.dimensions'), state.dim[arKey(f.name)] || T('media.insp.measuring')],
+    [T('media.insp.collection'), c.name || c.id]
   ]));
-  head.appendChild(pathBox('media/' + c.id + '/' + f.name, 'đường dẫn'));
+  head.appendChild(pathBox('media/' + c.id + '/' + f.name, T('media.label.path')));
   insp.appendChild(head);
 
   insp.appendChild(pickRuleSection(f));
@@ -1261,7 +1410,7 @@ function filePanel(insp, f) {
   const acts = inspSection(null);
   acts.className = 'acts';
 
-  const open = el('a', 'btn sm', 'Mở tệp gốc');
+  const open = el('a', 'btn sm', T('media.action.open_original'));
   open.href = src;
   open.target = '_blank';
   open.rel = 'noopener';
@@ -1271,7 +1420,7 @@ function filePanel(insp, f) {
   del.type = 'button';
   del.style.color = 'var(--red)';
   del.innerHTML = ICO.trash;
-  del.appendChild(document.createTextNode('Xoá tệp'));
+  del.appendChild(document.createTextNode(T('media.action.delete_file')));
   del.addEventListener('click', function () {
     const tile = $('.ftile[data-name="' + cssq(f.name) + '"]');
     if (tile) { askDeleteFile(tile, f); tile.scrollIntoView({ block: 'nearest' }); }
@@ -1298,14 +1447,15 @@ function setUploadBusy(on) {
 async function uploadFiles(list) {
   const arr = Array.prototype.slice.call(list || []);
   if (!arr.length) return;
-  if (!state.col) { msg('Chưa mở kho nào để tải tệp vào.', 'warn'); return; }
-  if (state.uploading) { msg('Đang có lượt tải khác chạy — chờ nó xong đã.', 'warn'); return; }
+  if (!state.col) { msg(T('media.msg.no_collection_upload'), 'warn'); return; }
+  if (state.uploading) { msg(T('media.msg.upload_busy'), 'warn'); return; }
 
   setUploadBusy(true);
   let ok = 0;
   const bad = [];
   for (let i = 0; i < arr.length; i++) {
-    msg('đang tải ' + (i + 1) + '/' + arr.length + ' — ' + clip(arr[i].name, 40));
+    msg(T('media.msg.uploading',
+          { i: i + 1, total: arr.length, name: clip(arr[i].name, 40) }));
     const fd = new FormData();
     fd.append('file', arr[i], arr[i].name);
     try {
@@ -1319,9 +1469,10 @@ async function uploadFiles(list) {
   await reloadCollection();
 
   if (!bad.length) {
-    msg('Đã thêm ' + ok + ' tệp vào kho.', 'ok');
+    msg(T('media.msg.uploaded', { n: ok }), 'ok');
   } else {
-    msg('Xong ' + ok + '/' + arr.length + ' tệp. Không lên được: ' + clip(bad.join('; '), 220),
+    msg(T('media.msg.upload_partial',
+          { ok: ok, total: arr.length, list: clip(bad.join('; '), 220) }),
         ok ? 'warn' : 'err');
   }
 }
@@ -1330,14 +1481,14 @@ async function uploadFiles(list) {
    thẳng vào kho, khỏi đẩy lại vài trăm MB đã nằm sẵn trên đĩa. */
 async function importPath(path) {
   if (!state.col) return;
-  msg('Đang chép «' + clip(path, 60) + '» vào kho…');
+  msg(T('media.msg.importing', { path: clip(path, 60) }));
   try {
     const r = await jsend('POST', '/collections/' + enc(state.col.id) + '/import',
                           { path: path });
-    msg('Đã chép «' + r.name + '» vào kho.', 'ok');
+    msg(T('media.msg.imported', { name: r.name }), 'ok');
     await reloadCollection();
   } catch (err) {
-    msg('Chép «' + clip(path, 60) + '» vào kho hỏng: ' + err.message, 'err');
+    msg(T('media.msg.import_failed', { path: clip(path, 60), err: err.message }), 'err');
   }
 }
 
@@ -1347,9 +1498,10 @@ function bindDropZone() {
 
   function veilOn() {
     if (state.view === 'col' && state.col) {
-      $('#dropVeilTitle').textContent = 'Thả để thêm vào «' + clip(state.col.name || state.col.id, 40) + '»';
+      $('#dropVeilTitle').textContent = T('media.drop.title',
+        { name: clip(state.col.name || state.col.id, 40) });
     } else {
-      $('#dropVeilTitle').textContent = 'Mở một kho trước đã';
+      $('#dropVeilTitle').textContent = T('media.drop.no_collection');
     }
     veil.hidden = false;
     const card = $('#emptyCard');
@@ -1391,14 +1543,14 @@ function bindDropZone() {
     const dt = ev.dataTransfer;
     if (!dt) return;
     if (!state.col) {
-      msg('Chưa mở kho nào — vào một kho rồi thả lại, tệp sẽ vào đúng kho đó.', 'warn');
+      msg(T('media.msg.drop_no_collection'), 'warn');
       return;
     }
     if (dt.files && dt.files.length) { uploadFiles(dt.files); return; }
     let text = '';
     try { text = (dt.getData('text/plain') || '').trim(); } catch (e) { /* nguồn lạ */ }
     if (text) importPath(text);
-    else msg('Không thấy tệp nào trong thứ vừa thả.', 'warn');
+    else msg(T('media.msg.drop_nothing'), 'warn');
   });
 
   // Kéo tệp từ File Manager TRÊN CANVAS FLOW sang trang này. Đó không phải kéo
@@ -1414,12 +1566,12 @@ function bindDropZone() {
     const d = ev.data;
     if (!d || d.type !== 'tubecli-file-drop' || !d.file) return;
     const path = String(d.file.path || '').trim();
-    if (!path) { msg('Canvas thả sang một tệp không có đường dẫn.', 'warn'); return; }
+    if (!path) { msg(T('media.msg.canvas_no_path'), 'warn'); return; }
     if (state.col) { importPath(path); return; }
     // Đang ở lưới kho: chưa biết bỏ vào kho nào. Nói rõ chứ không đoán, và
     // nhớ lại để mở kho nào xong là chép ngay vào kho đó.
     state.pendingDrop = path;
-    msg('Nhận «' + clip(path, 50) + '» từ canvas — mở kho muốn chép vào, tệp sẽ vào đó.', 'warn');
+    msg(T('media.msg.canvas_pending', { path: clip(path, 50) }), 'warn');
   });
 }
 
@@ -1428,12 +1580,12 @@ function bindDropZone() {
 async function doPick() {
   if (!state.col) return;
   const files = state.col.files || [];
-  if (!files.length) { msg('Kho đang rỗng — chưa có gì để bốc.', 'warn'); return; }
+  if (!files.length) { msg(T('media.msg.pick_empty'), 'warn'); return; }
 
   const body = { mode: state.mode, commit: false };
   if (state.mode === 'ai') {
     if (!state.sel) {
-      msg('Chế độ «AI chọn» cần biết tên tệp — bấm vào một ô trong lưới rồi bốc lại.', 'warn');
+      msg(T('media.msg.pick_ai_need'), 'warn');
       return;
     }
     body.file = state.sel;
@@ -1446,7 +1598,7 @@ async function doPick() {
     if (!r.file) {
       state.picked = '';
       markTiles();
-      msg('Không bốc được tệp nào — ' + (r.why || 'kho rỗng') + '.', 'warn');
+      msg(T('media.msg.pick_none', { why: r.why || T('media.pick.why_empty') }), 'warn');
       return;
     }
     state.picked = r.file;
@@ -1456,10 +1608,10 @@ async function doPick() {
     if (node && node.scrollIntoView) node.scrollIntoView({ block: 'nearest' });
     // commit:false — bốc thử KHÔNG dời con trỏ vòng xoay, nói rõ ra để người
     // dùng khỏi tưởng mình vừa làm lệch thứ tự của các extension khác.
-    msg('Bốc được «' + r.file + '»' + (r.why ? ' — ' + r.why : '') +
-        '. Chỉ xem thử, vòng xoay giữ nguyên chỗ.', 'ok');
+    msg(r.why ? T('media.msg.picked_why', { name: r.file, why: r.why })
+              : T('media.msg.picked', { name: r.file }), 'ok');
   } catch (err) {
-    msg('Bốc thử hỏng: ' + err.message, 'err');
+    msg(T('media.msg.pick_failed', { err: err.message }), 'err');
   } finally {
     btn.disabled = state.uploading;
   }
@@ -1477,7 +1629,7 @@ function syncSeg() {
 }
 
 function setMode(mode) {
-  if (!MODE_HINT[mode]) return;
+  if (!MODE_HINT_KEY[mode]) return;
   state.mode = mode;
   const sel = $('#pickMode');
   if (sel.value !== mode) sel.value = mode;
@@ -1485,7 +1637,7 @@ function setMode(mode) {
   markTiles();               // nhãn «kế tiếp» chỉ có nghĩa ở chế độ xoay vòng
   renderNextInfo();
   renderInspector();
-  msg(MODE_HINT[mode] || '');
+  msg(T(MODE_HINT_KEY[mode]));
 }
 
 /* ── Sửa tên và mô tả ngay tại chỗ ───────────────────────────────────── */
@@ -1515,9 +1667,9 @@ async function endColRename(keep) {
     state.col.name = (r.collection && r.collection.name) || v;
     renderCollection();
     loadCollections();
-    msg('Đã đổi tên kho thành «' + state.col.name + '».', 'ok');
+    msg(T('media.msg.renamed', { name: state.col.name }), 'ok');
   } catch (err) {
-    msg('Đổi tên kho hỏng: ' + err.message, 'err');
+    msg(T('media.msg.rename_failed', { err: err.message }), 'err');
   }
 }
 
@@ -1543,9 +1695,9 @@ async function endColDesc(keep) {
     state.col.description = (r.collection && r.collection.description) || v;
     renderCollection();
     loadCollections();
-    msg('Đã lưu mô tả kho.', 'ok');
+    msg(T('media.msg.desc_saved'), 'ok');
   } catch (err) {
-    msg('Lưu mô tả hỏng: ' + err.message, 'err');
+    msg(T('media.msg.desc_failed', { err: err.message }), 'err');
     renderCollection();
   }
 }
@@ -1558,15 +1710,13 @@ function setView(name) {
   $('#colView').hidden = (name !== 'col');
 
   const s = $('#colSearch');
-  s.placeholder = (name === 'col') ? 'Tìm trong kho đang mở' : 'Tìm kho theo tên';
+  s.placeholder = T(name === 'col' ? 'media.search.files_ph' : 'media.search.collections_ph');
   if (s.value) { s.value = ''; state.filter = ''; }
 
   // Tải lên chỉ có nghĩa khi đã biết đổ tệp vào kho nào.
   const lbl = $('#upLbl');
   lbl.classList.toggle('off', name !== 'col');
-  lbl.title = (name === 'col')
-    ? 'Chọn ảnh, GIF hoặc video để thêm vào kho'
-    : 'Mở một kho trước đã';
+  lbl.title = T(name === 'col' ? 'media.upload.title' : 'media.drop.no_collection');
 }
 
 function goCollection(cid) {
@@ -1630,24 +1780,25 @@ function closeCreate() { $('#createDlg').hidden = true; }
 async function createCollection() {
   const name = $('#newName').value.trim();
   if (!name) {
-    createMsg('Cần đặt tên cho kho — tên là thứ extension khác nhìn vào để chọn.', 'warn');
+    createMsg(T('media.create.need_name'), 'warn');
     $('#newName').focus();
     return;
   }
   const btn = $('#createGo');
   btn.disabled = true;
-  createMsg('Đang tạo…');
+  createMsg(T('media.create.creating'));
   try {
     const r = await jsend('POST', '/collections',
                           { name: name, description: $('#newDesc').value.trim() });
     const c = r.collection;
-    if (!c || !c.id) throw new Error('máy chủ không trả kho nào');
+    if (!c || !c.id) throw new Error(T('media.create.no_collection_returned'));
     closeCreate();
-    msg('Đã tạo kho «' + c.name + '» (mã: ' + c.id + ').', 'ok');
+    msg(T('media.msg.created', { name: c.name, id: c.id }), 'ok');
     goCollection(c.id);
   } catch (err) {
-    createMsg('Tạo kho hỏng: ' + err.message, 'err');
-    msg('Tạo kho hỏng: ' + err.message, 'err');
+    const line = T('media.msg.create_failed', { err: err.message });
+    createMsg(line, 'err');
+    msg(line, 'err');
   } finally {
     btn.disabled = false;
   }
@@ -1658,7 +1809,7 @@ async function createCollection() {
    trên URL của iframe; người dùng bấm tay thì ghi nhớ để lần sau mở lại đúng
    thế, còn khối script chạy trước khi vẽ nằm ở đầu index.html. */
 const THEMES = [null, 'dark', 'light'];
-const THEME_VI = { dark: 'tối', light: 'sáng' };
+const THEME_KEY = { dark: 'media.theme.dark', light: 'media.theme.light' };
 let themeIx = 0;
 
 /* remember=false lúc khởi động: theme lúc đó có thể do bảng điều khiển ghim qua
@@ -1677,7 +1828,7 @@ function applyTheme(remember) {
   }
   const b = $('#themeBtn');
   b.innerHTML = t === 'dark' ? ICO.moon : t === 'light' ? ICO.sun : ICO.auto;
-  b.title = 'Giao diện: ' + (t ? THEME_VI[t] : 'theo hệ thống');
+  b.title = T('media.theme.title', { mode: T(t ? THEME_KEY[t] : 'media.theme.system') });
 }
 
 function cycleTheme() { themeIx = (themeIx + 1) % THEMES.length; applyTheme(true); }
@@ -1809,23 +1960,40 @@ function fatalBox(title, detail) {
   box.style.cssText = 'position:fixed;inset:12px auto auto 12px;z-index:9999;max-width:520px;'
     + 'padding:12px 14px;border-radius:10px;background:#3a1212;color:#ffd7d7;'
     + 'font:13px/1.5 system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.5)';
-  box.innerHTML = '<b></b><br>'
-    + 'Trình duyệt có thể đang chạy bản JavaScript cũ trong bộ nhớ đệm. '
-    + 'Nhấn <b>Ctrl+Shift+R</b> để tải lại.<br>'
-    + '<span style="opacity:.7"></span>';
-  box.firstChild.textContent = title;
-  box.lastChild.textContent = detail || '';
+  // Dựng bằng DOM chứ không innerHTML: `detail` là câu lỗi của trình duyệt,
+  // ghép thẳng vào HTML là mở cửa cho một chuỗi lạ chèn thẻ.
+  const h = document.createElement('b');
+  h.textContent = title;
+  box.appendChild(h);
+  box.appendChild(document.createElement('br'));
+  const keys = document.createElement('b');
+  keys.textContent = 'Ctrl+Shift+R';
+  box.appendChild(document.createTextNode(T('media.fatal.body_before', null,
+    'The browser may be running a cached copy of the old JavaScript. Press ')));
+  box.appendChild(keys);
+  box.appendChild(document.createTextNode(T('media.fatal.body_after', null, ' to reload.')));
+  box.appendChild(document.createElement('br'));
+  const d = document.createElement('span');
+  d.style.opacity = '.7';
+  d.textContent = detail || '';
+  box.appendChild(d);
   document.body.appendChild(box);
 }
 
 async function boot() {
+  // Từ điển TRƯỚC, giao diện SAU: mọi câu do JS sinh ra đều đi qua T(), dựng
+  // trước là màn hình chớp một nhịp tiếng Anh rồi mới đổi sang tiếng của người
+  // dùng. loadI18n() không bao giờ ném, nên không cần try ở đây.
+  await loadI18n();
+
   // Nếu trình duyệt còn giữ bản JS cũ mà HTML đã mới, bindUi sẽ vấp một phần tử
   // không còn tồn tại và chết ngay ở đây — hậu quả là mọi nút đều không bấm
   // được, mà console thì chỉ có một dòng TypeError khó hiểu. Nói thẳng ra.
   try {
     bindUi();
   } catch (err) {
-    fatalBox('Giao diện và mã lệch phiên bản.', err && err.message ? err.message : String(err));
+    fatalBox(T('media.fatal.title', null, 'The page and its code are out of sync.'),
+             err && err.message ? err.message : String(err));
     throw err;
   }
 

@@ -1,4 +1,4 @@
-# Kho nguyên liệu (Media Library)
+# Media Library
 
 A shared bag of raw material — images, GIFs and videos — that every extension
 can draw from. The user gathers material once; extensions point at a collection

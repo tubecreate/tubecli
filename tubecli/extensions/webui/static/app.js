@@ -476,6 +476,7 @@ const EXT_REGISTRY = [
     { id:'studio_3d',       tab:'ext-studio',       icon:'palette',    name:'3D Studio',       type:'static' },
     { id:'content_tracker', tab:'ext-tracker',      icon:'monitoring', name:'Content Tracker', type:'static' },
     { id:'file_browser',    tab:'ext-file-manager', icon:'folder',     name:'Files',           type:'static' },
+    { id:'media_library',   tab:'ext-media-library', icon:'perm_media', name:'media_library',   type:'static' },
 ];
 
 // ── IDs that cannot be grouped (core nav) ──

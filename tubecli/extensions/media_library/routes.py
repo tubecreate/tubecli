@@ -1,4 +1,9 @@
-"""API của Kho nguyên liệu — tiền tố /api/v1/media."""
+"""API của Media Library — tiền tố /api/v1/media.
+
+Câu lỗi trả về viết tiếng Anh: trang hiện nguyên phần thân lỗi ra dòng trạng
+thái, mà trang thì đã dịch sang chín thứ tiếng — nhét một câu tiếng Việt vào
+giữa giao diện tiếng Hàn là chỗ duy nhất còn lệch.
+"""
 from __future__ import annotations
 
 import logging
@@ -31,7 +36,7 @@ def list_collections():
 def create_collection(body: Dict[str, Any] = Body(...)):
     name = str((body or {}).get("name") or "").strip()
     if not name:
-        raise HTTPException(400, "cần đặt tên cho kho")
+        raise HTTPException(400, "the collection needs a name")
     return {"ok": True, "collection": library.create(
         name, description=str((body or {}).get("description") or ""))}
 
@@ -40,7 +45,7 @@ def create_collection(body: Dict[str, Any] = Body(...)):
 def get_collection(cid: str):
     c = library.get(cid)
     if not c:
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     c["files"] = library.list_files(cid)
     c["cursor"] = library.peek_cycle(cid)
     return c
@@ -51,29 +56,29 @@ def rename_collection(cid: str, body: Dict[str, Any] = Body(...)):
     c = library.rename(cid, name=str((body or {}).get("name") or ""),
                        description=(body or {}).get("description"))
     if not c:
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     return {"ok": True, "collection": c}
 
 
 @router.delete("/collections/{cid}")
 def delete_collection(cid: str, keep_files: bool = Query(False)):
     if not library.delete(cid, with_files=not keep_files):
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     return {"ok": True}
 
 
 @router.post("/collections/{cid}/files")
 async def upload_file(cid: str, file: UploadFile = File(...)):
     if not library.get(cid):
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     blob = await file.read()
     if not blob:
-        raise HTTPException(400, "tệp rỗng")
+        raise HTTPException(400, "the file is empty")
     if len(blob) > MAX_UPLOAD:
-        raise HTTPException(413, f"tệp lớn hơn {MAX_UPLOAD // (1024 * 1024)} MB")
+        raise HTTPException(413, f"the file is larger than {MAX_UPLOAD // (1024 * 1024)} MB")
     name = file.filename or "file"
     if not name.lower().endswith(library.ALL_EXT):
-        raise HTTPException(400, "chỉ nhận ảnh, GIF hoặc video")
+        raise HTTPException(400, "only images, GIFs or videos are accepted")
     saved = library.add_file(cid, name, blob)
     return {"ok": True, "name": saved, "kind": library.kind_of(saved)}
 
@@ -82,18 +87,18 @@ async def upload_file(cid: str, file: UploadFile = File(...)):
 def import_file(cid: str, body: Dict[str, Any] = Body(...)):
     """Chép một file đã nằm sẵn trên máy vào kho, khỏi tải lên lại."""
     if not library.get(cid):
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     src = str((body or {}).get("path") or "")
     name = library.import_path(cid, src)
     if not name:
-        raise HTTPException(400, f"không đọc được tệp: {src}")
+        raise HTTPException(400, f"could not read the file: {src}")
     return {"ok": True, "name": name}
 
 
 @router.delete("/collections/{cid}/files/{filename}")
 def remove_file(cid: str, filename: str):
     if not library.delete_file(cid, filename):
-        raise HTTPException(404, "không có tệp đó trong kho")
+        raise HTTPException(404, "no such file in the collection")
     return {"ok": True}
 
 
@@ -101,7 +106,7 @@ def remove_file(cid: str, filename: str):
 def serve_file(cid: str, filename: str):
     p = library.file_path(cid, filename)
     if not p:
-        raise HTTPException(404, "không có tệp đó")
+        raise HTTPException(404, "no such file")
     return FileResponse(p)
 
 
@@ -111,7 +116,7 @@ def pick_file(cid: str, body: Dict[str, Any] = Body(default={})):
     mà làm kho nhảy một tấm mỗi lần thì chế độ xoay vòng thành vô nghĩa."""
     body = body or {}
     if not library.get(cid):
-        raise HTTPException(404, f"không có kho '{cid}'")
+        raise HTTPException(404, f"no collection '{cid}'")
     path, why = library.pick(cid, str(body.get("mode") or "random"),
                              commit=bool(body.get("commit", False)),
                              chosen=str(body.get("file") or ""),
@@ -131,7 +136,7 @@ def health():
 def media_page():
     p = os.path.join(STATIC_DIR, "index.html")
     if not os.path.isfile(p):
-        return HTMLResponse("<h1>Kho nguyên liệu</h1><p>Thiếu static/index.html.</p>",
+        return HTMLResponse("<h1>Media Library</h1><p>static/index.html is missing.</p>",
                             status_code=500)
     with open(p, encoding="utf-8") as f:
         html = f.read()
@@ -144,7 +149,7 @@ def media_static(filepath: str, v: str = Query("")):
     root = os.path.abspath(STATIC_DIR)
     full = os.path.abspath(os.path.join(root, filepath))
     if not (full == root or full.startswith(root + os.sep)) or not os.path.isfile(full):
-        raise HTTPException(404, f"không có tệp tĩnh: {filepath}")
+        raise HTTPException(404, f"no such static file: {filepath}")
     cache = "public, max-age=31536000, immutable" if v else "no-store"
     return FileResponse(full, headers={"Cache-Control": cache})
 

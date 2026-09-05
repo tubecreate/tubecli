@@ -1,4 +1,4 @@
-"""Kho nguyên liệu — bộ sưu tập ảnh, GIF và video dùng chung cho mọi extension.
+"""Media Library — bộ sưu tập ảnh, GIF và video dùng chung cho mọi extension.
 
 Cài sẵn cùng TubeCLI. Mỗi extension trước đây tự đẻ một kho riêng, nên cùng một
 tấm ảnh phải tải lên nhiều lần và sửa một chỗ thì các chỗ khác vẫn cũ. Ở đây
@@ -15,8 +15,11 @@ logger = logging.getLogger("MediaLibraryExtension")
 
 class MediaLibraryExtension(Extension):
     name = "media_library"
-    version = "1.0.0"
-    description = "Kho ảnh, GIF và video dùng chung cho mọi extension"
+    # Tên máy giữ nguyên `media_library`; tên người đọc là tiếng Anh, và bảng
+    # điều khiển dịch nó qua khoá i18n cùng tên (xem locales/*.json).
+    display_name = "Media Library"
+    version = "1.1.0"
+    description = "Shared store of images, GIFs and videos for every extension"
     author = "TubeCreate"
     extension_type = "system"
 

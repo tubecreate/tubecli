@@ -57,7 +57,7 @@ def _meta_path() -> str:
     return os.path.join(data_dir(), "collections.json")
 
 
-def safe_id(text: str, fallback: str = "kho") -> str:
+def safe_id(text: str, fallback: str = "collection") -> str:
     """Tên có dấu → định danh ASCII dùng làm tên thư mục.
 
     Thư mục đặt theo `id` chứ không theo tên hiển thị, và `id` không bao giờ
@@ -117,7 +117,11 @@ def collection_dir(cid: str) -> str:
 def create(name: str, *, description: str = "", cid: str = "") -> dict:
     with _lock:
         meta = _load_meta()
-        base = safe_id(cid or name, "kho")
+        # Tên toàn chữ phi Latinh (Nhật, Hàn, Trung, Nga…) rụng hết sau khi lọc
+        # về ASCII, nên phải có đường lui. Đường lui là TỪ TIẾNG ANH: mã kho là
+        # định danh, người Nhật đặt tên kho tiếng Nhật mà nhận về "kho_2" thì đó
+        # là tiếng Việt lọt vào chỗ không ai chờ.
+        base = safe_id(cid or name, "collection")
         new_id, n = base, 2
         while new_id in meta:
             new_id, n = f"{base}_{n}", n + 1
