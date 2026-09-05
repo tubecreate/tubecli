@@ -76,5 +76,27 @@ import inspect
 src = inspect.getsource(CP)
 assert "handled, _task = _extract_task_marker(handled)" in src
 print("5 chat card  : marker lifted -> meta.codex_task, comment removed from text")
+
+# ── Cửa sổ ngày: mặc định chỉ HÔM NAY, phải nói được "tất cả" ────────────────
+# Ca thật 5/9/26: task render chạy ngon tối hôm trước, sáng sau ra "The corpus
+# has nothing new" — kho đầy nhưng lệnh chỉ nhìn hôm nay, và không có cách nào
+# nói "lấy hết" nên người dùng tắc mỗi sáng.
+for _msg, _want in [
+    ("làm video từ tất cả những gì đã đọc", "all"),
+    ("lam video tu tat ca noi dung da thu duoc", "all"),
+    ("làm video từ toàn bộ dữ liệu đã thu thập", "all"),
+    ("make a video from everything I have read", "all"),
+    ("làm video từ những gì đã đọc hôm qua", "yesterday"),
+    ("làm video từ những gì đã đọc hôm nay", None),
+]:
+    _r = cls(_msg)
+    assert _r is not None and _r.intent_type == "content_video", (_msg, _r and _r.intent_type)
+    assert _r.extracted_data.get("day") == _want, (_msg, _r.extracted_data.get("day"), _want)
+# "tất cả" KHÔNG được là cue trần: hai câu này không phải làm video từ kho.
+for _msg in ["làm video quảng cáo cho tất cả sản phẩm", "gửi tất cả hoá đơn qua email"]:
+    _r = cls(_msg)
+    assert not _r or _r.intent_type != "content_video", (_msg, _r and _r.intent_type)
+print("6 cua so ngay: 'tất cả' → all | 'hôm qua' → yesterday | mặc định hôm nay | không khớp nhầm")
+
 print()
-print("ALL 5 GROUPS PASSED")
+print("ALL 6 GROUPS PASSED")

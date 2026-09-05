@@ -282,7 +282,11 @@ CONTENT_VIDEO_VERBS = [
 CONTENT_VIDEO_CORPUS_CUES = [
     "đã đọc", "da doc", "đã xem", "da xem", "hôm nay", "hom nay", "hôm qua", "hom qua",
     "những gì", "nhung gi", "tổng hợp", "tong hop", "đã cào", "da cao", "tin tức", "tin tuc",
-    "from what", "i read", "i've read", "we read", "watched", "today", "yesterday",
+    # CỐ Ý không có "tất cả" trần: "làm video quảng cáo cho tất cả sản phẩm" sẽ
+    # khớp nhầm. Chỉ những cụm nói rõ là NỘI DUNG ĐÃ THU mới vào đây.
+    "đã thu", "da thu", "thu thập", "thu thap",
+    "from what", "i read", "i've read", "i have read", "have read", "we read", "watched",
+    "everything i", "all the content", "collected", "today", "yesterday",
     "digest", "round-up", "roundup", "recap", "오늘", "сегодня", "bugün", "hoy",
 ]
 CONTENT_VIDEO_SOURCE_CUES = [
@@ -290,6 +294,15 @@ CONTENT_VIDEO_SOURCE_CUES = [
     "nguồn", "nguon", "sources", "source", "trang này", "trang nay", "url",
 ]
 CONTENT_VIDEO_YESTERDAY = ["hôm qua", "hom qua", "yesterday", "어제", "вчера", "dün", "ayer"]
+# "tất cả những gì đã đọc" → bỏ hẳn bộ lọc ngày. Mặc định của lệnh là CHỈ
+# hôm nay, nên một agent thu thập tối qua mà sáng nay chưa chạy lượt nào sẽ
+# bị báo "không có gì mới" dù kho đầy. Đặt TRƯỚC "hôm qua" khi cả hai cùng
+# khớp: "tất cả" rộng hơn nên nó thắng.
+CONTENT_VIDEO_ALLTIME = [
+    "tất cả", "tat ca", "toàn bộ", "toan bo", "mọi thứ", "moi thu", "từ trước", "tu truoc",
+    "đã thu được", "da thu duoc", "all of", "everything", "all the", "so far",
+    "全部", "すべて", "전체", "всё", "все", "tümü", "todo",
+]
 CONTENT_VIDEO_VERTICAL = ["reels", "reel", "shorts", "short", "tiktok", "dọc", "9:16", "vertical"]
 # "theo mẫu Tin nhanh" / "with the template "News Flash"" → the Content Studio
 # wizard preset the video follows. Matched on the ORIGINAL text so the name
@@ -867,7 +880,9 @@ class IntentRouter:
         if not corpus_cue and not (source_cue and urls):
             return None
         data: Dict[str, Any] = {"sources": urls, "original_message": text}
-        if self._kw_hit(text_lower, CONTENT_VIDEO_YESTERDAY):
+        if self._kw_hit(text_lower, CONTENT_VIDEO_ALLTIME):
+            data["day"] = "all"
+        elif self._kw_hit(text_lower, CONTENT_VIDEO_YESTERDAY):
             data["day"] = "yesterday"
         if self._kw_hit(text_lower, CONTENT_VIDEO_VERTICAL):
             data["aspect_ratio"] = "9:16"

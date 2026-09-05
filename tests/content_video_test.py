@@ -168,8 +168,14 @@ try:
     P.run_plan({"agent_id": "a1", "task_id": "t2"}, None, None)
     raise SystemExit("must fail: empty corpus")
 except RuntimeError as e:
-    assert "nothing new" in str(e)
-print("4 clear errs : missing agent -> 'not found' | empty corpus -> 'nothing new'")
+    # Câu lỗi phải nói RÕ cửa sổ đang xét và chỉ ra lối thoát: lệnh từ chat chỉ
+    # nhìn hôm nay, nên kho đầy dữ liệu hôm qua vẫn ra câu này và người dùng
+    # tưởng thu thập hỏng (đã xảy ra thật, 5/9/26).
+    msg = str(e)
+    assert "corpus has nothing" in msg, msg
+    assert "collected today" in msg, msg
+    assert "all" in msg and "tất cả" in msg, msg
+print("4 clear errs : missing agent -> 'not found' | kho rỗng -> nói rõ cửa sổ + chỉ lối thoát 'tất cả'")
 
 print()
 print("ALL 4 GROUPS PASSED")

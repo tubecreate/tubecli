@@ -651,9 +651,14 @@ def _step_gather(state: Dict, options: Dict) -> None:
                         hw_prev=hw_prev, hw_max=hw_max, day=day,
                         with_content=True, only_with_content=False)
     if not items:
+        # Nói rõ cửa sổ đang xét, vì đây là hiểu nhầm hay gặp nhất: kho ĐẦY dữ
+        # liệu của hôm qua mà lệnh chỉ nhìn hôm nay thì vẫn ra câu này.
+        window = {"today": "collected today", "yesterday": "collected yesterday"}.get(
+            str(day or ""), "newer than the last video")
         raise RuntimeError(
-            "The corpus has nothing new for this agent. Run a browsing routine with "
-            "data collection on, or add sources to crawl."
+            f"The corpus has nothing {window} for this agent. Say “all” (\"tất cả\") to use "
+            "everything collected so far, run a browsing routine with data collection on, "
+            "or add sources to crawl."
         )
     max_items = int(options.get("max_items") or DEFAULTS["max_items"])
     items = items[-max_items:]                     # ascending → keep the newest
