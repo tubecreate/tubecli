@@ -1,0 +1,1324 @@
+/* Kho nguyên liệu — giao diện trang, bố cục "thư viện ảnh".
+   Màu lấy nguyên hệ token của bảng điều khiển TubeCLI, ĐÚNG TÊN token: trang
+   này sống trong iframe của bảng điều khiển và bảng điều khiển đồng bộ theme
+   xuống bằng chính những tên ấy — đặt tên khác là mất đường ghi đè.
+   Tối là nền gốc trên :root trần; sáng ghi đè hai lần (?theme=light ghim tay và
+   prefers-color-scheme của hệ điều hành), hai khối phải giống hệt nhau.
+   Không webfont, không CDN: trang phải lên hình cả khi máy khách không ra được
+   Internet, nên chỉ dùng phông hệ thống. */
+
+:root {
+  color-scheme: dark;
+
+  --bg:            #1a1a1a;
+  --bg2:           #1e1e1e;
+  --bg3:           #262626;
+  --bg-hover:      #303030;
+  --bg-secondary:  #2a2a2a;
+  --border:        #333;
+  --border-subtle: #2a2a2a;
+
+  --text:          #ededed;
+  --text2:         #9ca3af;
+  --text-muted:    #6b7280;
+  --text-subtle:   #555;
+
+  --primary:       #5276EB;
+  --primary-hover: #3d5fd4;
+  --primary-light: rgba(82, 118, 235, .12);
+  --accent:        var(--primary);
+
+  --green:         #22c55e;
+  --orange:        #f59e0b;
+  --red:           #ef4444;
+  --yellow:        #eab308;
+  --purple:        #7c5ce7;
+
+  --radius:        10px;
+  --radius-lg:     14px;
+  --shadow-soft:     0 1px 3px rgba(0, 0, 0, .3);
+  --shadow-elevated: 0 12px 28px -4px rgba(0, 0, 0, .45);
+
+  /* Riêng của trang, dẫn ra từ bộ trên chứ không phải màu mới: sân khấu ảnh
+     tối hơn nền trang một nấc để nguyên liệu nổi lên. */
+  --stage:         #121212;
+}
+
+/* Sáng — ghim tay bằng ?theme=light (bảng điều khiển gắn vào URL iframe). */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg:            #f7f8fa;
+  --bg2:           #ffffff;
+  --bg3:           rgba(255, 255, 255, .9);
+  --bg-hover:      rgba(15, 23, 42, .05);
+  --bg-secondary:  #f1f3f7;
+  --border:        rgba(15, 23, 42, .1);
+  --border-subtle: rgba(15, 23, 42, .06);
+
+  --text:          #1e293b;
+  --text2:         #475569;
+  --text-muted:    #64748b;
+  --text-subtle:   #94a3b8;
+
+  --green:         #15803d;
+  --orange:        #b45309;
+  --red:           #dc2626;
+  --yellow:        #a16207;
+
+  --shadow-soft:     0 1px 3px rgba(15, 23, 42, .08);
+  --shadow-elevated: 0 12px 28px -4px rgba(15, 23, 42, .16);
+
+  --stage:         #e6e9ee;
+}
+
+/* Sáng — theo hệ điều hành, CHỈ khi người dùng không ghim tối. Khối này phải
+   giống hệt khối trên: lệch một dòng là hai đường vào cùng một giao diện lại ra
+   hai màu khác nhau, mà chỉ một nửa người dùng thấy. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    --bg:            #f7f8fa;
+    --bg2:           #ffffff;
+    --bg3:           rgba(255, 255, 255, .9);
+    --bg-hover:      rgba(15, 23, 42, .05);
+    --bg-secondary:  #f1f3f7;
+    --border:        rgba(15, 23, 42, .1);
+    --border-subtle: rgba(15, 23, 42, .06);
+
+    --text:          #1e293b;
+    --text2:         #475569;
+    --text-muted:    #64748b;
+    --text-subtle:   #94a3b8;
+
+    --green:         #15803d;
+    --orange:        #b45309;
+    --red:           #dc2626;
+    --yellow:        #a16207;
+
+    --shadow-soft:     0 1px 3px rgba(15, 23, 42, .08);
+    --shadow-elevated: 0 12px 28px -4px rgba(15, 23, 42, .16);
+
+    --stage:         #e6e9ee;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Luật này phải đứng sớm và mạnh: quá nửa số khối trong trang là flex/grid, mà
+   display của chúng thắng [hidden] nếu không có !important — màn hình "đang
+   giấu" vẫn chiếm chỗ và đè lên màn hình đang mở. */
+[hidden] { display: none !important; }
+
+.spacer { flex: 1 1 auto; }
+.muted  { color: var(--text-muted); }
+
+/* Ô chọn thật của "Quy tắc bốc": vẫn ở trong DOM cho script gọi tới, chỉ không
+   chiếm chỗ trên màn hình. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Mọi biểu tượng đều là một <svg class="i"> nét, không phông chữ, không ảnh. */
+.i {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ── Khung ba cột ────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr) 318px;
+  grid-template-rows: 46px minmax(0, 1fr);
+  height: 100%;
+}
+
+/* ── Thanh trên ──────────────────────────────────────────────────────── */
+.top {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px 0 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 212px;
+  font-weight: 650;
+  font-size: 13px;
+  letter-spacing: .2px;
+}
+
+.brand small { font-weight: 500; color: var(--text-muted); }
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--primary);
+  box-shadow: inset 0 0 0 2px var(--bg2);
+  outline: 1px solid var(--primary);
+}
+
+.search {
+  flex: 1 1 auto;
+  max-width: 420px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 9px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+}
+
+.search:focus-within { border-color: var(--primary); }
+
+.search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: none;
+  border: 0;
+  outline: 0;
+}
+
+.search input::placeholder { color: var(--text-muted); }
+
+.search kbd {
+  font: 600 10px/1 inherit;
+  padding: 2px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+/* ── Điều khiển chung ────────────────────────────────────────────────── */
+.in {
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.in:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: -1px;
+  background: var(--bg3);
+}
+
+textarea.in { resize: vertical; line-height: 1.35; font-size: 12px; padding: 5px 8px; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+a.btn { text-decoration: none; }
+.btn:hover { background: var(--bg-hover); }
+.btn:active { transform: translateY(1px); }
+.btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.btn.sm { padding: 3px 8px; font-size: 12px; }
+.btn.ghost { background: none; border-color: transparent; color: var(--text2); }
+.btn.ghost:hover { background: var(--bg-hover); color: var(--text); }
+
+.btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn.primary:hover { background: var(--primary-hover); border-color: var(--primary-hover); }
+
+.btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff;
+  font-weight: 600;
+}
+
+.btn.danger:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* Nút «Tải lên» thật ra là <label> ôm <input type=file>: ô chọn tệp gốc không
+   tạo kiểu được, giấu nó đi là cách duy nhất giữ được nét chung. */
+.up-lbl { display: inline-flex; align-items: center; }
+.up-lbl input { display: none; }
+.up-lbl.busy { opacity: .55; cursor: progress; }
+.up-lbl.off { opacity: .45; cursor: not-allowed; pointer-events: none; }
+
+.icobtn {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.icobtn:hover { background: var(--bg-hover); border-color: var(--border); color: var(--text); }
+
+.icobtn2 {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.icobtn2:hover { background: var(--bg-hover); color: var(--text); }
+
+.note {
+  font-size: 12px;
+  color: var(--text2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 7px 9px;
+  line-height: 1.45;
+}
+
+.chip {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 9px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.fld { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.fld.col { flex-direction: column; align-items: stretch; gap: 4px; margin-bottom: 12px; }
+.fld .in { flex: 1 1 auto; }
+
+/* ── Dòng trạng thái ─────────────────────────────────────────────────────
+   Ba màu trạng thái CHỈ dùng ở đây, ở hộp xác nhận và ở chấm sức khoẻ — nút
+   bấm, viền, ô đang chọn đều là xanh --primary của bảng điều khiển. */
+.msg { color: var(--text-muted); }
+.msg.err  { color: var(--red); font-weight: 600; }
+.msg.warn { color: var(--orange); }
+.msg.ok   { color: var(--green); }
+
+/* ── Cột trái: danh sách kho ─────────────────────────────────────────── */
+.rail {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+}
+
+.rail-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 12px 12px 6px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* «1 kho rỗng» — câu tóm tắt duy nhất ở đầu cột, chỉ hiện khi thật sự có kho
+   rỗng. Tệp trong kho DÙNG LẠI mãi mãi (mỗi thumbnail khác nhau ở phần chữ),
+   nên không có chuyện kho «sắp cạn»: hoặc có tệp, hoặc rỗng. */
+.rail-warn {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--red);
+}
+
+.rail-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 6px 6px; }
+
+/* Một dòng trong cột trái CŨNG là một .pcard: cùng dữ liệu, cùng cách bấm, chỉ
+   khác dáng — thẻ lớn ở lưới, dòng gọn ở cột. */
+.pcard.rail-item {
+  position: relative;
+  display: flex;
+  /* .pcard xếp dọc; dòng trong cột trái xếp ngang — phải nói rõ, không thì
+     luật cha còn nguyên và ảnh bìa nhảy xuống dưới tên. */
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 6px;
+  margin-bottom: 2px;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  box-shadow: none;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pcard.rail-item:hover { background: var(--bg-hover); border-color: transparent; }
+.pcard.rail-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.pcard.rail-item.on { background: var(--primary-light); }
+
+.pcard.rail-item.on::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--primary);
+}
+
+.rail-shot {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--bg3);
+}
+
+.rail-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+.rail-t { flex: 1 1 auto; min-width: 0; }
+
+.rail-n {
+  font-size: 12.5px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rail-m {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.rail-m span { overflow: hidden; text-overflow: ellipsis; }
+
+/* Chấm đỏ CHỈ cho kho rỗng — một trạng thái hỏng duy nhất. Kho có tệp không
+   đeo chấm nào: chấm xanh cho mọi kho bình thường chỉ là nhiễu. */
+.hdot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--red);
+}
+
+.rail-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 4px 8px 6px;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text2);
+  background: none;
+  border: 1.5px dashed var(--text-subtle);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.rail-new:hover { color: var(--text); border-color: var(--primary); background: var(--primary-light); }
+
+.rail-f {
+  flex: 0 0 auto;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.rail-f b { color: var(--text2); font-weight: 650; }
+
+/* ── Cột giữa ────────────────────────────────────────────────────────── */
+.stage { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--stage); }
+
+.view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.head {
+  flex: 0 0 auto;
+  padding: 9px 14px 8px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
+
+.title-row { display: flex; align-items: center; gap: 8px; }
+
+.head h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+.sub-line { font-size: 12px; color: var(--text-muted); }
+
+.back { padding: 4px 9px 4px 7px; }
+
+.name-btn {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  max-width: 320px;
+  padding: 2px 7px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.name-btn:hover { background: var(--bg-hover); border-color: var(--border); }
+.name-in { width: 300px; font-size: 15px; font-weight: 700; }
+
+.sizer { display: flex; align-items: center; gap: 6px; color: var(--text-muted); }
+.sizer input { width: 108px; accent-color: var(--primary); }
+
+/* Dải mô tả dưới hàng tên */
+.sub { display: flex; align-items: flex-start; gap: 8px; margin-top: 2px; }
+
+.desc-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--text2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  padding: 2px 7px;
+  cursor: text;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desc-btn:hover { background: var(--bg-hover); border-color: var(--border); }
+.desc-btn.empty { color: var(--text-muted); font-style: italic; }
+.desc-in { flex: 1 1 auto; min-width: 0; }
+
+/* Thanh công cụ: quy tắc bốc + tệp kế tiếp */
+.toolbar { display: flex; align-items: center; gap: 9px; margin-top: 8px; flex-wrap: wrap; }
+.toolbar .lbl { font-size: 11.5px; color: var(--text-muted); font-weight: 550; }
+
+.seg {
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text2);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+
+.seg button:hover { color: var(--text); }
+.seg button code { font-size: 10.5px; opacity: .7; }
+
+.seg button.on {
+  color: var(--text);
+  background: var(--bg2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .18);
+}
+
+.nextinfo {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.nextinfo b { color: var(--text); font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+
+.pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--primary);
+  color: #fff;
+}
+
+.gal-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Lưới kho (màn hình 1) ───────────────────────────────────────────── */
+.gal-wrap { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(212px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.gal-empty {
+  grid-column: 1 / -1;
+  max-width: 540px;
+  margin: 40px auto;
+  text-align: center;
+  color: var(--text2);
+}
+
+.gal-empty h2 { margin: 0 0 6px; font-size: 15px; color: var(--text); }
+.gal-empty p  { margin: 0 0 12px; line-height: 1.55; }
+.gal-empty .row { display: flex; gap: 8px; justify-content: center; }
+
+/* Thẻ kho. KHÔNG dùng overflow:hidden ở thẻ — menu ⋯ mở ra ngoài mép thẻ, cắt
+   đi là menu cụt. Ảnh bìa được cắt ở .pcard-shot thay vào đó. */
+.pcard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
+}
+
+.pcard:hover { border-color: var(--text-subtle); }
+
+.pcard-shot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  font: inherit;
+  padding: 0;
+  overflow: hidden;
+  background: var(--bg3);
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  cursor: pointer;
+}
+
+.pcard-shot img { display: block; width: 100%; height: 100%; object-fit: cover; }
+
+.pcard-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.pcard-empty .glyph { font-size: 20px; line-height: 1; }
+
+.pcard-body { padding: 7px 9px 9px; }
+.pcard-namerow { display: flex; align-items: center; gap: 5px; }
+
+.pcard-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pcard-name:hover { color: var(--primary); }
+.pcard-rename { flex: 1 1 auto; min-width: 0; }
+.pcard-more { flex: 0 0 auto; }
+
+/* Mô tả trên thẻ: hai dòng rồi cắt. Một dòng thì câu nào cũng cụt, ba dòng thì
+   thẻ cao thấp so le trông như lưới hỏng. */
+.pcard-desc {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 30px;
+}
+
+.pcard-desc.empty { color: var(--text-muted); font-style: italic; }
+
+.pcard-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.pcard-meta span { overflow: hidden; text-overflow: ellipsis; }
+
+.pmenu {
+  position: absolute;
+  right: 6px;
+  top: 100%;
+  z-index: 5;
+  min-width: 140px;
+  padding: 4px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-elevated);
+}
+
+.pmenu-i {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  padding: 5px 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.pmenu-i:hover { background: var(--bg-hover); }
+.pmenu-i.danger { color: var(--red); }
+
+/* Xác nhận xoá ngay trong thẻ / trong ô soi — KHÔNG dùng window.confirm: trang
+   này chạy trong iframe của bảng điều khiển, hộp của trình duyệt hiện lạc hẳn
+   ngữ cảnh hoặc bị chặn thẳng.
+   Báo nguy bằng một vạch đỏ chứ không nhuộm cả mảng: đỏ ở đây phải cùng một
+   nghĩa với đỏ ở dòng trạng thái, không phải một tông nền mới. */
+.pconfirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 9px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border-top: 2px solid var(--red);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+.pconfirm span { flex: 1 1 100%; color: var(--text2); }
+
+.pconfirm .keep {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1 1 100%;
+  font-size: 11px;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.pconfirm .keep input { accent-color: var(--primary); }
+
+/* Trong ô soi, hộp xác nhận không nằm dưới đáy thẻ nên bo cả bốn góc. */
+.insp .pconfirm {
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--red);
+  border-radius: var(--radius);
+}
+
+/* ── Lưới tệp: hàng đều mép, đọc trái sang phải là đúng thứ tự xoay vòng ──
+   Chiều rộng và chiều cao mỗi ô do JS tính theo tỉ lệ ảnh thật, nên ở đây chỉ
+   có hộp và lớp phủ; đừng đặt width/height cứng kẻo đè lên phép tính đó. */
+.gridwrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px;
+}
+
+/* Kéo tệp vào: viền đứt chạy quanh cả vùng. Ranh giới thả phải thấy được. */
+.gridwrap.over { outline: 2px dashed var(--primary); outline-offset: -6px; background: var(--primary-light); }
+
+.fgrid { display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+
+.ftile {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.ftile img, .ftile video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg3);
+}
+
+.ftile:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.ftile.sel    { box-shadow: 0 0 0 3px var(--primary) inset; }
+.ftile.next   { outline: 2px dashed var(--primary); outline-offset: -3px; }
+.ftile.picked { box-shadow: 0 0 0 3px var(--primary); }
+
+/* Tên tệp: LUÔN hiện khi ô nhỏ — ở cỡ 100px thì chữ là thứ duy nhất phân biệt
+   được hai tấm hậu cảnh gần giống nhau; ô đã to thì rê chuột mới hiện, để lưới
+   còn ra lưới ảnh chứ không thành bức tường chữ. */
+.ftile-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 16px 6px 4px;
+  font-size: 10.5px;
+  line-height: 1.3;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .72));
+  color: #fff;
+  opacity: 0;
+  transition: opacity .12s;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fgrid.names .ftile-name { opacity: 1; padding-top: 4px; background: rgba(0, 0, 0, .62); }
+
+.ftile:hover .ftile-name,
+.ftile:focus-within .ftile-name,
+.ftile.sel .ftile-name,
+.ftile.picked .ftile-name { opacity: 1; }
+
+.ftile-badge {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 99px;
+  background: var(--primary);
+  color: #fff;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+
+.ftile-kind {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .55);
+  color: #fff;
+  pointer-events: none;
+}
+
+.ftile-play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .5);
+  border: 1px solid rgba(255, 255, 255, .4);
+  color: #fff;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-left: 2px;
+  pointer-events: none;
+}
+
+.ftile-del {
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 18px;
+  text-align: center;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--red);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .12s;
+}
+
+.ftile:hover .ftile-del, .ftile:focus-within .ftile-del { opacity: 1; }
+
+/* Hỏi xoá đè lên chính ô ảnh — cùng lý do như thẻ kho: không window.confirm. */
+.fconfirm {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 6px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text);
+  background: var(--bg2);
+  box-shadow: inset 0 0 0 2px var(--red);
+  border-radius: 6px;
+}
+
+.fconfirm .row { display: flex; gap: 6px; }
+
+/* ── Trạng thái rỗng của một kho ─────────────────────────────────────────
+   Nằm trong .fgrid (một hộp flex) nên phải tự đòi trọn một hàng, không thì nó
+   co lại bằng bề ngang chữ và nằm nép ở góc trái. */
+.fgrid > .empty-state,
+.fgrid > .gal-empty { flex: 1 1 100%; }
+
+/* Khối trạng thái trống của lưới. KHÔNG đặt tên `.empty`: tên đó đang là bổ
+   nghĩa của ô mô tả và mô tả thẻ (.desc-btn.empty, .pcard-desc.empty) — trùng
+   tên là ô mô tả rỗng cũng bị kéo cao 300px, đúng lỗi đã thấy. */
+.empty-state { display: grid; place-items: center; min-height: 300px; padding: 24px; }
+
+.empty-card {
+  width: min(520px, 100%);
+  padding: 30px 30px 24px;
+  text-align: center;
+  background: var(--bg2);
+  border: 2px dashed var(--text-subtle);
+  border-radius: 16px;
+}
+
+.empty-card.hot { border-color: var(--primary); background: var(--primary-light); }
+.empty-card h2 { margin: 0 0 6px; font-size: 15px; font-weight: 700; }
+.empty-card p { margin: 0 auto 16px; max-width: 400px; color: var(--text2); line-height: 1.55; }
+.empty-card .row { display: flex; gap: 8px; justify-content: center; margin-bottom: 18px; }
+
+.empty-card .foot {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+.empty-ill { display: block; width: 132px; height: 96px; margin: 0 auto 14px; }
+
+code.mono {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text2);
+}
+
+/* ── Cột phải: ô soi ─────────────────────────────────────────────────── */
+.insp {
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+}
+
+.insp section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+
+.insp h3 {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 10.5px;
+  font-weight: 650;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.insp h3 em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-muted);
+}
+
+.prevsec { padding: 10px !important; background: var(--stage); }
+
+.prev {
+  display: grid;
+  place-items: center;
+  min-height: 150px;
+  border-radius: var(--radius);
+}
+
+.prevbox {
+  position: relative;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, .28);
+}
+
+.prevbox img, .prevbox video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg3);
+}
+
+.prevbox .ftile-play { width: 38px; height: 38px; font-size: 14px; }
+
+.mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.mosaic.one { grid-template-columns: 1fr; }
+.mosaic img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: var(--bg3); }
+
+.mosaic-none {
+  display: grid;
+  place-items: center;
+  min-height: 130px;
+  padding: 10px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  border: 1.5px dashed var(--text-subtle);
+  border-radius: 8px;
+}
+
+.fname {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-bottom: 9px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  word-break: break-all;
+}
+
+.fname .kind {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text2);
+}
+
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.kv .k { font-size: 10.5px; color: var(--text-muted); margin-bottom: 1px; }
+.kv .v { font-size: 12px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+
+.path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 4px 5px 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.path code {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 10.5px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path .icobtn { width: 22px; height: 22px; }
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--text2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.state.on { background: var(--primary-light); border-color: var(--primary); color: var(--text); }
+.state span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.desc-note { margin-bottom: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text2); }
+
+.prog { display: flex; align-items: center; gap: 8px; margin-top: 9px; font-size: 11px; color: var(--text-muted); }
+.prog .bar { flex: 1 1 auto; height: 4px; border-radius: 2px; background: var(--bg-secondary); border: 1px solid var(--border); overflow: hidden; }
+.prog .bar i { display: block; height: 100%; background: var(--primary); }
+
+/* Chỗ dành cho «Đang dùng ở». Không có chỉ mục nào cho biết mẫu nào đang gọi
+   tới kho, nên chừa đúng khoảng trống và nói thẳng là chưa có dữ liệu — bịa ra
+   một con số ở đây là nói dối người dùng về thứ họ sắp xoá. */
+.nouse { font-size: 11.5px; line-height: 1.55; color: var(--text-muted); }
+
+.acts { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── Màn thả tệp phủ toàn trang ──────────────────────────────────────── */
+.dropveil {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .58);
+}
+
+.dropveil-box {
+  width: min(520px, 76vw);
+  padding: 34px 26px;
+  text-align: center;
+  color: #fff;
+  border: 3px dashed var(--primary);
+  border-radius: 18px;
+  background: rgba(82, 118, 235, .14);
+}
+
+.dropveil-ic {
+  display: grid;
+  place-items: center;
+  width: 50px;
+  height: 50px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+}
+
+.dropveil-ic svg { width: 24px; height: 24px; }
+.dropveil h2 { margin: 0 0 5px; font-size: 17px; font-weight: 700; }
+.dropveil p { margin: 0; font-size: 12.5px; opacity: .82; }
+
+/* ── Hộp thoại tạo kho ───────────────────────────────────────────────── */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, .5); }
+
+.modal-box {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(520px, 100%);
+  max-height: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  overflow: hidden;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-head h2 { flex: 1 1 auto; margin: 0; font-size: 14px; font-weight: 650; }
+.modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px; }
+
+.modal-lbl {
+  font-size: 11px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  color: var(--text-muted);
+}
+
+.modal-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+}
+
+/* ── Màn hẹp ─────────────────────────────────────────────────────────────
+   Cắt theo thứ tự quan trọng: ô soi là thứ đọc thêm nên đi trước, cột kho đi
+   sau — mất cột kho thì vẫn còn nút «← Kho» trên thanh của màn hình kho. */
+@media (max-width: 1180px) {
+  .app { grid-template-columns: 212px minmax(0, 1fr) 286px; }
+  .brand { min-width: 0; }
+  .brand small { display: none; }
+}
+
+@media (max-width: 960px) {
+  .app { grid-template-columns: 212px minmax(0, 1fr); }
+  .insp { display: none; }
+}
+
+@media (max-width: 700px) {
+  .app { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .search { max-width: none; }
+}

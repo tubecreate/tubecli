@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<script>(function(){try{var r=document.documentElement;var t=new URLSearchParams(location.search).get('theme');if(t==='glass'||t==='light'){r.setAttribute('data-theme','light')}else if(t==='dark'){r.setAttribute('data-theme','dark')}else{var s=null;try{s=localStorage.getItem('media-library-theme')}catch(e){}if(s==='light'||s==='dark'){r.setAttribute('data-theme',s)}else if(window.self!==window.top){r.setAttribute('data-theme','dark')}}}catch(e){}})();</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kho nguyên liệu</title>
+<link rel="stylesheet" href="/media-library-static/app.css?v=__ASSET_VER__">
+</head>
+<body>
+
+<!-- ══ Khung ba cột kiểu thư viện ảnh ═══════════════════════════════════
+     Trái: danh sách kho, luôn nhìn thấy — kho là thứ người dùng chuyển qua lại
+     nhiều nhất, giấu nó sau một cú bấm là bắt nhớ thay vì bắt nhìn.
+     Giữa: sân khấu, hoặc lưới kho (#listView) hoặc lưới tệp (#colView).
+     Phải: ô soi, nói về thứ đang chọn — kho hay tệp.
+     Hai màn hình giữa vẫn chọn bằng hash: #/ và #/c/<mã>. -->
+<div class="app">
+
+  <!-- ── Thanh trên ──────────────────────────────────────────────────── -->
+  <header class="top">
+    <div class="brand">
+      <span class="brand-dot" aria-hidden="true"></span>Kho nguyên liệu<small>· TubeCLI</small>
+    </div>
+
+    <label class="search">
+      <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+      <input id="colSearch" type="search" placeholder="Tìm kho theo tên" autocomplete="off"
+             aria-label="Tìm">
+      <kbd>/</kbd>
+    </label>
+
+    <span class="spacer"></span>
+
+    <button id="themeBtn" class="icobtn2" type="button" title="Giao diện: theo hệ thống"
+            aria-label="Đổi giao diện"></button>
+
+    <button id="newColBtn" class="btn" type="button">
+      <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Tạo kho
+    </button>
+
+    <!-- Nút tải lên thật ra là <label> ôm <input type=file>: ô chọn tệp gốc
+         không tạo kiểu được, giấu nó đi là cách duy nhất giữ nét chung. -->
+    <label id="upLbl" class="btn primary up-lbl" title="Chọn ảnh, GIF hoặc video để thêm vào kho">
+      <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 11.5V3M4.5 6.5 8 3l3.5 3.5M3 13.5h10"/></svg>Tải lên
+      <input id="fileIn" type="file" multiple accept="image/*,video/*,.gif">
+    </label>
+  </header>
+
+  <!-- ── Cột trái: mọi kho ───────────────────────────────────────────── -->
+  <aside class="rail">
+    <div class="rail-h">
+      <span>Kho</span>
+      <span id="railWarn" class="rail-warn" hidden></span>
+    </div>
+    <div id="railList" class="rail-list"></div>
+    <button id="railNew" class="rail-new" type="button">
+      <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Tạo kho mới
+    </button>
+    <div id="railFoot" class="rail-f"></div>
+  </aside>
+
+  <!-- ── Cột giữa: sân khấu ──────────────────────────────────────────── -->
+  <main class="stage">
+
+    <!-- ══ Màn hình 1: danh sách kho ═══════════════════════════════════
+         Màn hình mở đầu. Một "kho" là một túi nguyên liệu có tên — extension
+         khác chỉ cần trỏ vào mã kho rồi để máy bốc file, nên chuyện đầu tiên
+         người dùng phải thấy là mình đang có những túi nào. -->
+    <div id="listView" class="view">
+      <div class="head">
+        <div class="title-row">
+          <h1>Thư viện kho</h1>
+          <span id="listSub" class="sub-line"></span>
+        </div>
+      </div>
+
+      <div class="gal-wrap">
+        <div id="colGrid" class="grid"></div>
+      </div>
+
+      <footer class="gal-foot">
+        <span id="colStats" class="muted"></span>
+        <span class="spacer"></span>
+        <span id="listStatusMsg" class="msg"></span>
+      </footer>
+    </div>
+
+    <!-- ══ Màn hình 2: bên trong một kho ═══════════════════════════════ -->
+    <div id="colView" class="view" hidden>
+      <div class="head">
+        <div class="title-row">
+          <button id="backBtn" class="btn ghost back" type="button" title="Về danh sách kho">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>Kho
+          </button>
+
+          <button id="colName" class="name-btn" type="button" title="Bấm để đổi tên kho">Kho</button>
+          <input id="colNameIn" class="in name-in" type="text" hidden aria-label="Tên kho">
+
+          <span id="colKinds" class="chip" hidden></span>
+
+          <span class="spacer"></span>
+
+          <label class="sizer" title="Cỡ ô trong lưới">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2"/><path d="M6 2.5v11M2.5 6h11"/></svg>
+            <input id="sizeRange" type="range" min="96" max="320" step="2" value="170"
+                   aria-label="Cỡ ô trong lưới">
+          </label>
+        </div>
+
+        <!-- Mô tả kho: sửa ngay tại chỗ, vì đây là thứ người dùng đọc để nhớ
+             kho này dùng cho việc gì sau ba tháng không mở. -->
+        <div class="sub">
+          <button id="colDesc" class="desc-btn" type="button" title="Bấm để sửa mô tả">Chưa có mô tả</button>
+          <textarea id="colDescIn" class="in desc-in" rows="2" hidden aria-label="Mô tả kho"></textarea>
+        </div>
+
+        <div class="toolbar">
+          <span class="lbl">Quy tắc bốc</span>
+
+          <!-- Ba nút này là mặt tiền; ô <select id="pickMode"> bên dưới mới là
+               nguồn sự thật — script bên ngoài vẫn đặt .value rồi bắn 'change'
+               như một ô chọn bình thường. -->
+          <div id="pickSeg" class="seg" role="group" aria-label="Cách bốc tệp">
+            <button type="button" data-mode="random">
+              <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h2.5l6 8H14M2 12h2.5l1.6-2.1M14 12l-2-2m2 2-2 2M14 4l-2-2m2 2-2 2M14 4h-3.5L9 6"/></svg>Ngẫu nhiên<code>random</code>
+            </button>
+            <button type="button" data-mode="cycle">
+              <svg class="i" viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 0 1-9.2 2.7M3 8a5 5 0 0 1 9.2-2.7M12.5 2.5v3h-3M3.5 13.5v-3h3"/></svg>Xoay vòng<code>cycle</code>
+            </button>
+            <button type="button" data-mode="ai">
+              <svg class="i" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" stroke="none"><path d="M8 1.5 9.6 6.4 14.5 8 9.6 9.6 8 14.5 6.4 9.6 1.5 8l4.9-1.6z"/></svg>AI chọn<code>ai</code>
+            </button>
+          </div>
+          <select id="pickMode" class="sr-only" tabindex="-1" aria-hidden="true">
+            <option value="random">Ngẫu nhiên</option>
+            <option value="cycle">Xoay vòng</option>
+            <option value="ai">AI chọn</option>
+          </select>
+
+          <button id="pickBtn" class="btn" type="button"
+                  title="Bốc thử một tệp — chỉ để xem, không dời con trỏ xoay vòng">Bốc thử</button>
+
+          <span id="nextInfo" class="nextinfo"></span>
+        </div>
+      </div>
+
+      <!-- Thả tệp vào bất cứ đâu trên trang cũng vào kho này; vùng lưới còn sáng
+           viền lên để thấy rõ tệp sẽ rơi vào đâu. -->
+      <div id="dropZone" class="gridwrap">
+        <div id="fileGrid" class="fgrid"></div>
+      </div>
+
+      <footer class="gal-foot">
+        <span id="colCount" class="muted"></span>
+        <span class="spacer"></span>
+        <span id="colStatusMsg" class="msg"></span>
+      </footer>
+    </div>
+
+  </main>
+
+  <!-- ── Cột phải: ô soi ─────────────────────────────────────────────── -->
+  <aside id="insp" class="insp"></aside>
+</div>
+
+<!-- ══ Màn thả tệp phủ toàn trang ═══════════════════════════════════════
+     Kéo tệp vào bất kỳ đâu trên trang cũng vào kho đang mở — người ta kéo tới
+     giữa màn hình chứ không ngắm cho trúng cái khung lưới. -->
+<div id="dropVeil" class="dropveil" hidden>
+  <div class="dropveil-box">
+    <div class="dropveil-ic">
+      <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 11.5V3M4.5 6.5 8 3l3.5 3.5M3 13.5h10"/></svg>
+    </div>
+    <h2 id="dropVeilTitle">Thả để thêm vào kho</h2>
+    <p>Ảnh, GIF hoặc video · tên tệp được giữ nguyên</p>
+  </div>
+</div>
+
+<!-- ══ Hộp thoại tạo kho ════════════════════════════════════════════════ -->
+<div id="createDlg" class="modal" hidden>
+  <div class="modal-scrim" data-close="1"></div>
+
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="createTitle">
+    <div class="modal-head">
+      <h2 id="createTitle">Tạo kho mới</h2>
+      <button id="createClose" class="icobtn" type="button" title="Đóng" data-close="1">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div class="fld col">
+        <span class="modal-lbl">Tên kho</span>
+        <input id="newName" class="in" type="text"
+               placeholder="Ví dụ: Nền đỏ, Avatar nam, Cảnh cắt sẵn" autocomplete="off">
+      </div>
+      <div class="fld col">
+        <span class="modal-lbl">Mô tả</span>
+        <textarea id="newDesc" class="in" rows="3"
+                  placeholder="Kho này chứa gì, dùng cho việc gì — để tháng sau mở lại còn nhớ"></textarea>
+      </div>
+      <div class="note">
+        Kho chỉ có MỘT cấp: một cái tên, bên trong là tệp. Không có thư mục con —
+        cần chia nhỏ thì tạo thêm kho.
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <span id="createMsg" class="msg"></span>
+      <div class="spacer"></div>
+      <button id="createCancel" class="btn" type="button" data-close="1">Huỷ</button>
+      <button id="createGo" class="btn primary" type="button">Tạo kho</button>
+    </div>
+  </div>
+</div>
+
+<script src="/media-library-static/app.js?v=__ASSET_VER__"></script>
+</body>
+</html>
