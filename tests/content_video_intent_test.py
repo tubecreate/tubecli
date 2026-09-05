@@ -98,5 +98,24 @@ for _msg in ["làm video quảng cáo cho tất cả sản phẩm", "gửi tất
     assert not _r or _r.intent_type != "content_video", (_msg, _r and _r.intent_type)
 print("6 cua so ngay: 'tất cả' → all | 'hôm qua' → yesterday | mặc định hôm nay | không khớp nhầm")
 
+
+# ── Độ dài video: nói được "N phút" ─────────────────────────────────────────
+# Ca thật: "video làm ngắn quá". Mọi video ra ~90 giây vì target_words ghi cứng
+# 260 và chat không có cách nào đổi — kể cả khi mẫu Studio chọn "Long > 10 phút".
+for _msg, _want in [
+    ("làm video 5 phút từ những gì đã đọc hôm nay", 750),
+    ("làm video dài 10 phút từ tất cả những gì đã đọc", 1500),
+    ("lam video 3 phut tu nhung gi da doc", 450),
+    ("make a 2 minute video from what I read today", 300),
+    ("làm video từ những gì đã đọc hôm nay", None),
+]:
+    _r = cls(_msg)
+    assert _r is not None and _r.intent_type == "content_video", (_msg, _r and _r.intent_type)
+    assert _r.extracted_data.get("target_words") == _want, (_msg, _r.extracted_data.get("target_words"))
+# Số vô lý thì bỏ qua, không để một con số lạ đi thẳng vào prompt.
+for _msg in ["làm video 999 phút từ những gì đã đọc", "làm video 0 phút từ những gì đã đọc"]:
+    assert cls(_msg).extracted_data.get("target_words") is None, _msg
+print("7 do dai     : 'N phút' → số chữ | vi/en, có/không dấu | số vô lý bị bỏ")
+
 print()
-print("ALL 6 GROUPS PASSED")
+print("ALL 7 GROUPS PASSED")

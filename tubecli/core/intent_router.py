@@ -303,6 +303,12 @@ CONTENT_VIDEO_ALLTIME = [
     "đã thu được", "da thu duoc", "all of", "everything", "all the", "so far",
     "全部", "すべて", "전체", "всё", "все", "tümü", "todo",
 ]
+# "video 5 phút" / "dài 10 phút" / "a 3 minute video" → độ dài kịch bản.
+# Trước đây không có cách nào nói độ dài từ chat: mọi video ra ~90 giây, kể cả
+# khi mẫu Content Studio đã chọn "Long > 10 phút".
+CONTENT_VIDEO_MINUTES_RE = re.compile(
+    r"(?<!\d)(\d{1,3})\s*(?:phút|phut|p|minutes?|mins?|分|분)", re.I)
+
 CONTENT_VIDEO_VERTICAL = ["reels", "reel", "shorts", "short", "tiktok", "dọc", "9:16", "vertical"]
 # "theo mẫu Tin nhanh" / "with the template "News Flash"" → the Content Studio
 # wizard preset the video follows. Matched on the ORIGINAL text so the name
@@ -880,6 +886,16 @@ class IntentRouter:
         if not corpus_cue and not (source_cue and urls):
             return None
         data: Dict[str, Any] = {"sources": urls, "original_message": text}
+        # Độ dài: đổi ra số chữ ngay tại đây để pipeline chỉ phải hiểu MỘT đơn
+        # vị. 150 chữ/phút là nhịp đọc thành tiếng, khớp WORDS_PER_MINUTE.
+        m_len = CONTENT_VIDEO_MINUTES_RE.search(text_lower)
+        if m_len:
+            try:
+                mins = int(m_len.group(1))
+                if 1 <= mins <= 30:
+                    data["target_words"] = mins * 150
+            except ValueError:
+                pass
         if self._kw_hit(text_lower, CONTENT_VIDEO_ALLTIME):
             data["day"] = "all"
         elif self._kw_hit(text_lower, CONTENT_VIDEO_YESTERDAY):
