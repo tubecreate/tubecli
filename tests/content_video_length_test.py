@@ -64,11 +64,11 @@ class A:
 
 state = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
          "_say": lambda *a: None, "_cancelled": lambda: False}
-P._step_script(state, {"target_words": 3000})
-assert budgets == [9600], budgets
-assert state["target_words"] == 3000 and state["words_from"] == "asked for"
+P._step_script(state, {"target_words": 1000})
+assert budgets == [4096], budgets
+assert state["target_words"] == 1000 and state["words_from"] == "asked for"
 assert any("stopped early" in w for w in state.get("warnings", [])), state.get("warnings")
-print("3 step       : model called under the 20-minute budget; 3-word reply → 'stopped early' warning")
+print("3 step       : ≤1000 words → one call under its budget; 3-word reply → 'stopped early' warning")
 
 # 3b. A provider error string must not become the script (it used to land as "scene 2")
 B.AgentBrain._call_llm = staticmethod(lambda *a, **k: "[OpenAI Error] deepseek-v4-flash returned an empty response (finish_reason=length, the model spent its whole budget on reasoning).")
@@ -294,5 +294,53 @@ P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(scr
 P._step_script(st, {"target_words": 3000})
 assert st["scene_count"] == 1 and any("only 1 [SHOW] scene" in w for w in st["warnings"]), st.get("warnings")
 print("9 plan       : 3000 words in one [SHOW] → warning on the plan")
+# 10. Long scripts are written in batches: outline call + one call per 6 scenes
+calls = []
+
+
+def chunk_llm(agent, messages, temperature=0.7):
+    prompt = messages[-1]["content"]
+    calls.append((prompt, B._output_budget(4096)))
+    if "Plan a news video" in prompt:
+        return "TITLE: Twenty Minutes\n" + "\n".join(f"{i}. [SHOW: frame {i}] — gist {i}" for i in range(1, 27))
+    import re as _re
+    m = _re.search(r"scenes (\d+)-(\d+) ONLY", prompt)
+    a, b = int(m.group(1)), int(m.group(2))
+    return "\n\n".join(f"[SHOW: frame {i}]\n" + " ".join([f"s{i}w"] * 110) + "." for i in range(a, b + 1))
+
+
+B.AgentBrain._call_llm = staticmethod(chunk_llm)
+st = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_script(st, {"target_words": 3000})
+assert len(calls) == 1 + 5, [c[0][:40] for c in calls]                      # 26 scenes → 5 batches of ≤6
+assert calls[0][1] == 4096 and all(c[1] == 4096 for c in calls[1:]), "each call small enough for a 4096 budget"
+assert st["title"] == "Twenty Minutes" and st["scene_count"] == 26, (st["title"], st["scene_count"])
+assert "scenes 1-6 ONLY" in calls[1][0] and "start with a hook" in calls[1][0]
+assert "scenes 25-26 ONLY" in calls[5][0] and "Close the video" in calls[5][0] and "previous scene ended with" in calls[5][0]
+assert "planned as these 26 scenes" in calls[3][0], "every batch sees the whole outline"
+assert not st.get("warnings"), st.get("warnings")
+assert 26 * 110 <= len(st["script"].split()) <= 26 * 115, len(st["script"].split())
+
+# revision of a long script also goes batch by batch, keeping the title
+calls.clear()
+B.AgentBrain._call_llm = staticmethod(lambda agent, messages, temperature=0.7: calls.append(messages[-1]["content"]) or
+                                      "\n\n".join(f"[SHOW: fixed {k}]\n" + " ".join(["r"] * 100) for k in range(6)))
+st2 = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+       "feedback": ["make scene 3 funnier"], "checkpoint": {"script": st["script"], "title": "Twenty Minutes"},
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_script(st2, {"target_words": 3000})
+assert len(calls) == 5 and all("make scene 3 funnier" in c for c in calls) and "scenes 7-12 of 26" in calls[1]
+assert st2["title"] == "Twenty Minutes" and st2["scene_count"] == 30
+
+# outline that does not parse → single call, as before
+calls.clear()
+B.AgentBrain._call_llm = staticmethod(lambda agent, messages, temperature=0.7: calls.append(messages[-1]["content"]) or
+                                      "TITLE: T\n\n[SHOW: one]\n" + " ".join(["w"] * 3000))
+st3 = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_script(st3, {"target_words": 3000})
+assert len(calls) == 2 and st3["scene_count"] == 1, "outline unusable → one full write"
+print("10 chunked   : 3000 words = outline + 5 batches of ≤6 scenes, each under 4096 tokens; revision batched; bad outline → single call")
 print()
-print("ALL 9 GROUPS PASSED")
+print("ALL 10 GROUPS PASSED")
