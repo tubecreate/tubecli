@@ -301,7 +301,7 @@
   "fm.media.prev": "이전",
   "fm.name_invalid": "이름에 \"/\" 또는 \"\\\"를 쓸 수 없고, \".\"이나 \"..\"도 안 됩니다.",
   "fm.name_required": "이름은 비워 둘 수 없습니다.",
-  "fm.nav.allowed_roots": "바로가기",
+  "fm.nav.allowed_roots": "시작 폴더",
   "fm.nav.back": "대시보드로 돌아가기",
   "fm.nav.browse": "파일",
   "fm.nav.cleanup": "정리",

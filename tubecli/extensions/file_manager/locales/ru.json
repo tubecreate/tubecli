@@ -301,7 +301,7 @@
   "fm.media.prev": "Назад",
   "fm.name_invalid": "Имя не может содержать \"/\" или \"\\\", а также быть \".\" или \"..\".",
   "fm.name_required": "Имя не может быть пустым.",
-  "fm.nav.allowed_roots": "Ярлыки",
+  "fm.nav.allowed_roots": "Начальные папки",
   "fm.nav.back": "Назад на панель",
   "fm.nav.browse": "Файлы",
   "fm.nav.cleanup": "Очистка",

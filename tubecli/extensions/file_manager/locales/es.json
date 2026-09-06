@@ -301,7 +301,7 @@
   "fm.media.prev": "Anterior",
   "fm.name_invalid": "El nombre no puede contener \"/\" ni \"\\\", ni ser \".\" o \"..\".",
   "fm.name_required": "El nombre no puede estar vacío.",
-  "fm.nav.allowed_roots": "Accesos directos",
+  "fm.nav.allowed_roots": "Carpetas de inicio",
   "fm.nav.back": "Volver al panel",
   "fm.nav.browse": "Archivos",
   "fm.nav.cleanup": "Limpieza",

@@ -301,7 +301,7 @@
   "fm.media.prev": "Previous",
   "fm.name_invalid": "The name cannot contain \"/\" or \"\\\", and cannot be \".\" or \"..\".",
   "fm.name_required": "The name cannot be empty.",
-  "fm.nav.allowed_roots": "Shortcuts",
+  "fm.nav.allowed_roots": "Starting folders",
   "fm.nav.back": "Back to dashboard",
   "fm.nav.browse": "Files",
   "fm.nav.cleanup": "Cleanup",

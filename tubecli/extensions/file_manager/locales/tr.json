@@ -301,7 +301,7 @@
   "fm.media.prev": "Önceki",
   "fm.name_invalid": "Ad \"/\" veya \"\\\" içeremez ve \".\" ya da \"..\" olamaz.",
   "fm.name_required": "Ad boş olamaz.",
-  "fm.nav.allowed_roots": "Kısayollar",
+  "fm.nav.allowed_roots": "Başlangıç klasörleri",
   "fm.nav.back": "Panoya dön",
   "fm.nav.browse": "Dosyalar",
   "fm.nav.cleanup": "Temizlik",

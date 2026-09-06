@@ -301,7 +301,7 @@
   "fm.media.prev": "Trước",
   "fm.name_invalid": "Tên không được chứa \"/\" hoặc \"\\\", và không được là \".\" hay \"..\".",
   "fm.name_required": "Tên không được để trống.",
-  "fm.nav.allowed_roots": "Lối tắt",
+  "fm.nav.allowed_roots": "Thư mục bắt đầu",
   "fm.nav.back": "Về Dashboard",
   "fm.nav.browse": "File",
   "fm.nav.cleanup": "Dọn dẹp",

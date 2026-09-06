@@ -301,7 +301,7 @@
   "fm.media.prev": "前へ",
   "fm.name_invalid": "名前に \"/\" や \"\\\" は使えません。また \".\" や \"..\" にはできません。",
   "fm.name_required": "名前は空にできません。",
-  "fm.nav.allowed_roots": "ショートカット",
+  "fm.nav.allowed_roots": "開始フォルダ",
   "fm.nav.back": "ダッシュボードに戻る",
   "fm.nav.browse": "ファイル",
   "fm.nav.cleanup": "クリーンアップ",

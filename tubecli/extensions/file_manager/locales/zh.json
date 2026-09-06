@@ -301,7 +301,7 @@
   "fm.media.prev": "上一个",
   "fm.name_invalid": "名称不能包含 \"/\" 或 \"\\\"，也不能是 \".\" 或 \"..\"。",
   "fm.name_required": "名称不能为空。",
-  "fm.nav.allowed_roots": "快捷方式",
+  "fm.nav.allowed_roots": "起始文件夹",
   "fm.nav.back": "返回仪表板",
   "fm.nav.browse": "文件",
   "fm.nav.cleanup": "清理",
