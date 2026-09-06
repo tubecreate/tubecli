@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from tubecli.core import brain as B  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
+_REAL_POLL = P._poll_studio
 
 # 1. Output budget reaches every provider through the contextvar, and only inside the block
 assert B._output_budget(4096) == 4096
@@ -342,5 +343,95 @@ st3 = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "cont
 P._step_script(st3, {"target_words": 3000})
 assert len(calls) == 2 and st3["scene_count"] == 1, "outline unusable → one full write"
 print("10 chunked   : 3000 words = outline + 5 batches of ≤6 scenes, each under 4096 tokens; revision batched; bad outline → single call")
+# 11. Slow box: wait on PROGRESS, not on the clock; Retry re-attaches to the running export
+import time as _time
+P.POLL_SEC = 0
+P._poll_studio = _REAL_POLL          # groups 5/6 mocked it
+# (a) status keeps changing → a 1800s-style stall budget never fires; the absolute cap does
+import itertools as _it
+ticks = _it.count()
+P._get = lambda path, timeout=60: {"status": "running", "done": next(ticks), "total": 10_000, "current_shot": "Shot"}
+st = {"_cancelled": lambda: False, "_say": lambda *a: None}
+t0 = _time.time()
+try:
+    P._poll_studio("/x", 0.5, st, "render", done_statuses=("completed",), max_wait=0.15)
+    raise SystemExit("must hit the absolute cap")
+except RuntimeError as e:
+    assert str(e).startswith("Gave up after 0.15s") and "running" in str(e), e
+assert _time.time() - t0 < 0.5, "progress kept it alive right up to the cap, not the stall budget"
+# (b) frozen status → stall budget fires, message shows what it last saw
+P._get = lambda path, timeout=60: {"status": "running", "done": 3, "total": 32, "current_shot": "Shot 4/32: Dawn"}
+try:
+    P._poll_studio("/x", 0.1, st, "render", done_statuses=("completed",))
+    raise SystemExit("must stall")
+except RuntimeError as e:
+    assert str(e).startswith("No progress for 0.1s") and "3/32" in str(e) and "Dawn" in str(e), e
+# (c) Studio restarted: 404 → says so instead of spinning
+def _404(path, timeout=60):
+    raise RuntimeError(f"{path} → HTTP 404: Task not found")
+P._get = _404
+try:
+    P._poll_studio("/x", 5, st, "render")
+    raise SystemExit("404 must raise")
+except RuntimeError as e:
+    assert "no longer knows this task" in str(e), e
+# (d) a transient connection error is not a failure
+seq = [OSError("connection refused"), {"status": "completed", "done": 100, "total": 100}]
+def _flaky(path, timeout=60):
+    x = seq.pop(0)
+    if isinstance(x, Exception):
+        raise x
+    return x
+P._get = _flaky
+assert P._poll_studio("/x", 5, st, "render", done_statuses=("completed",))["status"] == "completed"
+# (e) render: an export the last attempt started is re-used, no second ffmpeg
+posts, cks = [], []
+P._post = lambda path, payload, timeout=300: posts.append(path) or {"task_id": "new1"}
+P._read_checkpoint = lambda task_id: {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"}
+P._write_checkpoint = lambda task_id, data: cks.append(dict(data))
+P.media_seconds = lambda path: 1200.0
+gets = []
+def _get_render(path, timeout=60):
+    gets.append(path)
+    if path.endswith("/status/old7"):
+        return {"status": "running", "done": 90, "total": 100} if len(gets) < 3 else {"status": "completed", "done": 100, "total": 100}
+    return {"video_url": "/tmp/ep9.mp4"}
+P._get = _get_render
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 3000),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"},
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert posts == [] and st["video_seconds"] == 1200.0, (posts, st.get("video_seconds"))
+assert P.render_max_wait(st) == 3000 * 60 / 150 * 20 == 24000, P.render_max_wait(st)
+# (f) old export unknown (Studio restarted) → start a new one and checkpoint its id WITHOUT losing the rest
+gets.clear()
+def _get_render2(path, timeout=60):
+    gets.append(path)
+    if path.endswith("/status/old7"):
+        raise RuntimeError(path + " → HTTP 404: Task not found")
+    if path.endswith("/status/new1"):
+        return {"status": "completed", "done": 100, "total": 100}
+    return {"video_url": "/tmp/ep9.mp4"}
+P._get = _get_render2
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"},
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+assert cks[-1] == {"drama_id": 9, "episode_id": 9, "export_task_id": "new1"}, cks[-1]
+assert P.render_max_wait(st) == 4 * 3600, "short video → 4h floor"
+# (g) a stall in render carries the re-attach hint
+P._get = lambda path, timeout=60: ({"status": "running", "done": 1, "total": 100} if "/status/" in path else {})
+P._running_export = lambda tid: ""
+P.TIMEOUTS["render"] = 0.1
+st = {"task_id": "t", "episode_id": 9, "script": "a b", "checkpoint": {},
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+try:
+    P._step_render(st, {})
+    raise SystemExit("must stall")
+except RuntimeError as e:
+    assert "No progress for 0.1s" in str(e) and "Retry re-attaches" in str(e), e
+P.TIMEOUTS["render"] = 1800
+print("11 slow box  : stall budget resets on progress; 404 → restarted; transient error tolerated; Retry re-attaches to the running export; cap scales with length")
 print()
-print("ALL 10 GROUPS PASSED")
+print("ALL 11 GROUPS PASSED")

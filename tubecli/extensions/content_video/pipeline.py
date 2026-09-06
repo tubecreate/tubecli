@@ -530,23 +530,55 @@ def _is_cancel(e: BaseException) -> bool:
     return type(e).__name__ == "TaskCancelled" or "Cancelled by the user" in str(e)
 
 
+# Trần tuyệt đối cho một việc nền của Studio. Máy 2 nhân, RAM ít dựng video 20
+# phút mất hàng giờ — miễn là còn nhích, ta còn chờ; trần này chỉ để không treo
+# mãi khi Studio kẹt mà vẫn báo "running".
+MAX_WAIT_FACTOR = 8
+
+
 def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
-                 done_statuses=("completed", "done")) -> Dict:
+                 done_statuses=("completed", "done"), max_wait: Optional[int] = None) -> Dict:
     """Wait for a Content Studio background task.
+
+    `timeout_sec` là thời gian tối đa KHÔNG CÓ TIẾN ĐỘ (status/done/total/
+    current_shot không đổi), không phải tổng thời gian: một lượt render dài
+    trên máy chậm từng bị cắt ở 1800s trong khi ffmpeg vẫn đang chạy ngầm.
+    `max_wait` là trần tuyệt đối (mặc định timeout_sec × MAX_WAIT_FACTOR).
 
     Not video_studio's _poll_task: the Studio reports {status, done, total}
     and signals failure with status == "error: <why>", which that poller
     would spin on until its timeout.
     """
-    deadline = time.time() + timeout_sec
+    max_wait = max_wait or timeout_sec * MAX_WAIT_FACTOR
+    started = time.time()
+    last_change = started
+    last_sig = None
     last_pct = -1
-    while time.time() < deadline:
+    last_seen = "no answer yet"
+    while True:
         if state["_cancelled"]():
             raise _cancel_exc()
-        data = _get(status_path, timeout=30)
+        now = time.time()
+        if now - last_change > timeout_sec:
+            raise RuntimeError(f"No progress for {timeout_sec}s waiting for {status_path} (last: {last_seen})")
+        if now - started > max_wait:
+            raise RuntimeError(f"Gave up after {max_wait}s waiting for {status_path} (last: {last_seen})")
+        try:
+            data = _get(status_path, timeout=30)
+        except (RuntimeError, OSError) as e:
+            if "HTTP 404" in str(e):
+                raise RuntimeError(f"{status_path}: the Studio no longer knows this task "
+                                   "(it was probably restarted)")
+            # Studio bận/khởi động lại giữa chừng: chưa phải lỗi, đồng hồ trì trệ lo.
+            time.sleep(max(POLL_SEC, 1.0))
+            continue
         status = str(data.get("status") or "")
         total = data.get("total") or 0
         done = data.get("done") or 0
+        sig = (status, done, total, str(data.get("current_shot") or ""))
+        if sig != last_sig:
+            last_sig, last_change = sig, time.time()
+            last_seen = f"{status} {done}/{total}" + (f" · {sig[3][:60]}" if sig[3] else "")
         if total:
             pct = int(min(99, done * 100 / total))
             if pct != last_pct:          # every report rewrites tasks.json — only on change
@@ -557,7 +589,6 @@ def _poll_studio(status_path: str, timeout_sec: int, state: Dict, step: str,
         if status.startswith("error"):
             raise RuntimeError(status[len("error"):].strip(": ") or "background task failed")
         time.sleep(POLL_SEC)
-    raise RuntimeError(f"Timed out after {timeout_sec}s waiting for {status_path}")
 
 
 # ── Scope, checkpoint, plan, feedback ────────────────────────────────
@@ -1575,13 +1606,71 @@ def _step_tts(state: Dict, options: Dict) -> None:
         _tts_edge(state, options)
 
 
+# Dựng video: trần tuyệt đối tối thiểu 4 giờ, và ít nhất 20 lần thời lượng
+# video (20 phút → ~7 giờ) — máy yếu chạy ffmpeg 1080p chậm hơn thời gian thực
+# nhiều lần, nhưng vẫn phải có lúc buông.
+RENDER_MAX_WAIT = 4 * 3600
+RENDER_WAIT_PER_SECOND = 20
+
+
+def render_max_wait(state: Dict) -> int:
+    return int(max(RENDER_MAX_WAIT, planned_seconds(state) * RENDER_WAIT_PER_SECOND))
+
+
+def _checkpoint_merge(state: Dict, extra: Dict[str, Any]) -> None:
+    """Gộp vào checkpoint mới nhất rồi ghi — checkpoint là bản mới nhất thắng
+    toàn bộ, nên ghi lẻ vài khoá sẽ làm mất drama_id/episode_id."""
+    task_id = str(state.get("task_id") or "")
+    ck = dict(state.get("checkpoint") or {})
+    ck.update(_read_checkpoint(task_id) or {})
+    # Những gì lượt này đã biết chắc thì không được rơi khỏi sổ.
+    for key in ("drama_id", "episode_id", "title"):
+        if state.get(key) is not None:
+            ck[key] = state[key]
+    if state.get("preset_name"):
+        ck["preset"] = state["preset_name"]
+    ck.update(extra)
+    _write_checkpoint(task_id, ck)
+    state["checkpoint"] = ck
+
+
+def _running_export(task_id: str) -> str:
+    """Trạng thái của một lượt export cũ nếu Studio vẫn còn biết nó, else ""."""
+    if not task_id:
+        return ""
+    try:
+        cur = _get(f"/api/v1/studio/export-ffmpeg/status/{task_id}", timeout=30)
+    except Exception:
+        return ""
+    stt = str((cur or {}).get("status") or "")
+    return stt if stt in ("starting", "running", "completed") else ""
+
+
 def _step_render(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
-    res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg", {}, timeout=60)
-    if not res.get("task_id"):
-        raise RuntimeError(f"export-ffmpeg did not start: {str(res)[:200]}")
-    _poll_studio(f"/api/v1/studio/export-ffmpeg/status/{res['task_id']}",
-                 TIMEOUTS["render"], state, "render", done_statuses=("completed",))
+    # Lượt trước hết giờ chờ nhưng ffmpeg vẫn chạy ngầm trong Studio: bám vào
+    # nó thay vì khởi động ffmpeg thứ hai trên cùng cái máy đã chậm sẵn.
+    old = str((state.get("checkpoint") or {}).get("export_task_id") or "")
+    stt = _running_export(old)
+    if stt:
+        state["_say"]("render", "running", f"export {old} is still {stt} — waiting for it, not starting another")
+        task_id = old
+    else:
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/export-ffmpeg", {}, timeout=60)
+        if not res.get("task_id"):
+            raise RuntimeError(f"export-ffmpeg did not start: {str(res)[:200]}")
+        task_id = str(res["task_id"])
+        _checkpoint_merge(state, {"export_task_id": task_id})
+    try:
+        _poll_studio(f"/api/v1/studio/export-ffmpeg/status/{task_id}",
+                     TIMEOUTS["render"], state, "render", done_statuses=("completed",),
+                     max_wait=render_max_wait(state))
+    except RuntimeError as e:
+        msg = str(e)
+        if msg.startswith(("No progress", "Gave up")):
+            raise RuntimeError(msg + ". The export may still be running in Content Studio — "
+                               "Retry re-attaches to it instead of starting another.")
+        raise
     ep = _get(f"/api/v1/studio/episodes/{ep_id}")
     path = str((ep or {}).get("video_url") or "")
     if not path:
