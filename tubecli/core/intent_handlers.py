@@ -138,7 +138,11 @@ async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
     except ImportError:
         return None
     data = getattr(intent, "extracted_data", None) or {}
-    options = {k: data[k] for k in ("day", "aspect_ratio", "preset") if data.get(k)}
+    # target_words là "video 10 phút" đã đổi ra số chữ ở router. Trước đây tuple
+    # này thiếu nó nên lời hẹn độ dài rơi ngay tại đây: pipeline lặng lẽ lấy độ
+    # dài của mẫu (hoặc mặc định ~2 phút) và thẻ kết quả ghi "from the template".
+    options = {k: data[k] for k in ("day", "aspect_ratio", "preset", "target_words", "language")
+               if data.get(k)}
     # created_by="user": the human typed the command verbatim, so the task
     # follows the codex auto-approve policy exactly like a skill command.
     task = await asyncio.to_thread(

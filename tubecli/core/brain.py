@@ -6,6 +6,21 @@ import json
 import re
 import datetime
 from typing import Dict, List, Optional, Any
+import contextlib
+import contextvars
+
+# Ngân sách token ĐẦU RA cho lượt gọi model hiện tại. Mặc định (None) giữ trần
+# cũ 4096 của Gemini/Claude — đủ cho chat, nhưng một kịch bản video 20 phút là
+# ~3000 chữ tiếng Việt ≈ 6000 token: model dừng giữa chừng mà không báo lỗi và
+# video ra ngắn hơn yêu cầu. Việc nào biết trước đầu ra dài thì bọc trong
+# AgentBrain.output_budget(n); mọi nhánh provider (kể cả failover) đọc cùng
+# một chỗ, nên không phải luồn tham số qua từng hàm.
+_OUTPUT_TOKENS: contextvars.ContextVar = contextvars.ContextVar("brain_output_tokens", default=None)
+
+
+def _output_budget(default: int) -> int:
+    n = _OUTPUT_TOKENS.get()
+    return int(n) if n else default
 
 # rev: 28455a7d6e3a
 
@@ -985,7 +1000,21 @@ Rules:
     # ── LLM Management ────────────────────────────────────────────
 
     @staticmethod
-    def _call_llm(agent: Dict, messages: List[Dict], temperature: float = 0.7) -> str:
+    @contextlib.contextmanager
+    def output_budget(max_tokens: Optional[int]):
+        """Đặt trần token đầu ra cho các lượt _call_llm bên trong khối with."""
+        token = _OUTPUT_TOKENS.set(int(max_tokens) if max_tokens else None)
+        try:
+            yield
+        finally:
+            _OUTPUT_TOKENS.reset(token)
+
+    @staticmethod
+    def _call_llm(agent: Dict, messages: List[Dict], temperature: float = 0.7,
+                  max_tokens: Optional[int] = None) -> str:
+        if max_tokens:
+            with AgentBrain.output_budget(max_tokens):
+                return AgentBrain._call_llm(agent, messages, temperature)
         # Same chain as the browser: the agent's own pick, then the default
         # browser AI, then the user's default AI. It ended in "qwen:latest",
         # so an agent with no model of its own talked to an Ollama that is
@@ -1382,7 +1411,9 @@ Rules:
         try:
             resp = requests.post(
                 "http://localhost:11434/api/chat",
-                json={"model": model, "messages": messages, "stream": False, "options": {"temperature": temperature}},
+                json={"model": model, "messages": messages, "stream": False,
+                      "options": {"temperature": temperature,
+                                  **({"num_predict": _output_budget(0)} if _output_budget(0) else {})}},
                 timeout=120,
             )
             if resp.status_code == 200:
@@ -1411,7 +1442,7 @@ Rules:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
             payload = {
                 "contents": contents,
-                "generationConfig": {"temperature": temperature, "maxOutputTokens": 4096},
+                "generationConfig": {"temperature": temperature, "maxOutputTokens": _output_budget(4096)},
             }
             r = requests.post(url, json=payload, timeout=120)
             if r.status_code != 200:
@@ -1449,7 +1480,8 @@ Rules:
                     choice.message,
                 )
 
-            content, finish, msg = _ask()
+            budget = _output_budget(0)
+            content, finish, msg = _ask(**({"max_tokens": budget} if budget else {}))
 
             # Reasoning models (deepseek-v4-*, o-series behind proxies) put their
             # chain of thought in `reasoning_content` and the answer in
@@ -1459,7 +1491,7 @@ Rules:
             # bigger budget so the visible answer fits.
             if not content and finish == "length":
                 print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with a larger token budget")
-                content, finish, msg = _ask(max_tokens=8192)
+                content, finish, msg = _ask(max_tokens=max(8192, budget))
 
             if not content:
                 reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
@@ -1479,7 +1511,7 @@ Rules:
             chat_messages = [{"role": "user" if m["role"] == "user" else "assistant", "content": m["content"]} for m in messages if m["role"] != "system"]
             resp = httpx.post("https://api.anthropic.com/v1/messages", 
                              headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                             json={"model": model, "max_tokens": 4096, "messages": chat_messages, "system": system_text}, timeout=120)
+                             json={"model": model, "max_tokens": _output_budget(4096), "messages": chat_messages, "system": system_text}, timeout=120)
             data = resp.json()
             return "\n".join(b["text"] for b in data.get("content", []) if b["type"] == "text")
         except Exception as e: return f"[Claude Error] {e}"
@@ -1522,6 +1554,8 @@ Rules:
                 "messages": [{"role": m["role"], "content": m["content"]} for m in messages],
                 "temperature": temperature,
             }
+            if _output_budget(0):
+                payload["max_tokens"] = _output_budget(0)
             resp = requests.post(url, headers=headers, json=payload, timeout=120)
             if resp.status_code != 200:
                 # Surface Cloudflare's own error text so a 401/quota is legible

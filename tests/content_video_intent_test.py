@@ -65,8 +65,12 @@ assert reply and reply.endswith("<!--codex:0190a1b2-0000-7000-8000-00000000abcd:
 assert calls == [("a1", {}, "user", {"agent_id": "a1"}, [])], calls
 reply2 = asyncio.run(H.dispatch(cls("làm video reels từ bài này https://x.y/z hôm qua"), {"id": "a1"}, "vi"))
 assert calls[-1][1] == {"day": "yesterday", "aspect_ratio": "9:16"} and calls[-1][4] == ["https://x.y/z"], calls[-1]
+# "10 phút" phải đi TỚI pipeline: trước đây handler chỉ chuyển day/aspect/preset,
+# target_words rơi ở đây và thẻ kết quả ghi "from the template's Video Length".
+asyncio.run(H.dispatch(cls("làm video 10 phút từ tất cả những gì đã đọc"), {"id": "a1"}, "vi"))
+assert calls[-1][1].get("target_words") == 1500 and calls[-1][1].get("day") == "all", calls[-1]
 assert asyncio.run(H.dispatch(cv, {}, "vi")) is None, "no agent → fall back to LLM"
-print("4 handler    : queues once, created_by=user, options/sources passed | no agent -> None")
+print("4 handler    : queues once, created_by=user, options/sources/target_words passed | no agent -> None")
 
 # 5. chat pipeline lifts the marker into meta
 from tubecli.extensions.chat import pipeline as CP

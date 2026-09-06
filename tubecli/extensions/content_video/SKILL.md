@@ -27,13 +27,15 @@ Optional fields (all flat):
  "style": "news",
  "title": "",
  "tts_voice": "vi-VN-HoaiMyNeural",
- "language": "vi"}
+ "language": "vi",
+ "target_words": 1500}
 ```
 
 - `day`: `today` (default), `yesterday`, or `all`.
 - `sources`: extra links to crawl and fold in. YouTube links become transcripts.
 - `aspect_ratio`: `16:9` (default) or `9:16` for Reels/Shorts/TikTok.
 - `style`: `news`, `story`, `review`, `explainer`… — a hint to the writer.
+- `target_words`: script length in words, ~150 words per minute read aloud (10 minutes → 1500, 20 minutes → 3000). Omit to follow the agent's Content Studio template. The user saying *"video 10 phút"* / *"a 20 minute video"* is this field.
 
 The agent that is speaking is always the owner of the video; you cannot make one for another agent.
 

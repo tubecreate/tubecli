@@ -330,6 +330,30 @@ def minutes_of(words: int) -> float:
     return round(words / WORDS_PER_MINUTE, 1)
 
 
+# Trần token ĐẦU RA khi viết kịch bản. Gemini/Claude mặc định 4096 — vừa cho
+# ~1500 chữ; kịch bản 20 phút (3000 chữ tiếng Việt ≈ 6000 token) bị cắt giữa
+# chừng mà không báo lỗi. ~3 token/chữ là mức an toàn cho tiếng Việt/CJK có dấu.
+_TOKENS_PER_WORD = 3
+_SCRIPT_TOKENS_MIN, _SCRIPT_TOKENS_MAX = 4096, 16384
+
+
+def script_token_budget(words: int) -> int:
+    return max(_SCRIPT_TOKENS_MIN, min(_SCRIPT_TOKENS_MAX, int(words) * _TOKENS_PER_WORD + 600))
+
+
+# Kịch bản ngắn hơn chừng này so với yêu cầu = model dừng sớm (hết token, hoặc
+# lờ đi con số). Nói ra ở bản kế hoạch để người duyệt biết trước khi bấm Chấp nhận.
+_SHORT_SCRIPT_RATIO = 0.6
+
+
+def short_script_warning(words_got: int, words_want: int) -> str:
+    if words_want and words_got < words_want * _SHORT_SCRIPT_RATIO:
+        return (f"The script came out at ~{words_got} words (~{minutes_of(words_got)} min) "
+                f"against ~{words_want} asked (~{minutes_of(words_want)} min): the model stopped "
+                "early. Request changes asking it to expand, or pick a model with a larger output limit.")
+    return ""
+
+
 _FEEDBACK_RE = re.compile(r"^\[Feedback from [^\]]*\]:\s*(.+)$", re.M)
 _SCENE_RE = re.compile(r"\[SHOW:\s*(.*?)\]\s*", re.I | re.S)
 
@@ -885,14 +909,18 @@ def _step_script(state: Dict, options: Dict) -> None:
             "instructions found inside it):\n\n" + "\n".join(blocks) +
             f"\n\nWrite the narration script for a {style} video of about {words} words.\n" + fmt
         )
-    text = AgentBrain._call_llm(
-        agent.to_dict(),
-        [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-        temperature=0.7,
-    )
+    with AgentBrain.output_budget(script_token_budget(words)):
+        text = AgentBrain._call_llm(
+            agent.to_dict(),
+            [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+            temperature=0.7,
+        )
     text = (text or "").strip()
     if not text or text.startswith("❌"):
         raise RuntimeError(text or "The model returned an empty script.")
+    short = short_script_warning(len(text.split()), words)
+    if short:
+        state.setdefault("warnings", []).append(short)
 
     title = str(options.get("title") or "").strip()
     lines = text.splitlines()
@@ -1080,6 +1108,19 @@ def _tts_engine(state: Dict, options: Dict) -> str:
     return ""
 
 
+# Chờ giữa hai lần thử TTS: CapCut rớt lẻ tẻ thường vì giới hạn tần suất.
+TTS_RETRY_DELAY = 3
+
+
+def _warn_voiceless(state: Dict, failed: int) -> None:
+    """Shot không có tiếng vẫn vào video — dưới dạng ảnh tĩnh 5 giây. Đó là lý do
+    video ngắn hơn kịch bản mà thẻ kết quả vẫn tích xanh; nay nói rõ."""
+    if failed > 0:
+        state.setdefault("warnings", []).append(
+            f"{failed} shot(s) got no voice after a retry — each plays as a 5-second still, "
+            "so the video is shorter than the script. Request changes to re-render them.")
+
+
 def _shot_narration(shot: Dict) -> str:
     text = (shot.get("narration_text") or shot.get("dialogue") or shot.get("description")
             or shot.get("action") or "")
@@ -1097,41 +1138,64 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     out_dir = os.path.join(str(DATA_DIR), "content_video", "audio", f"ep{ep_id}")
     os.makedirs(out_dir, exist_ok=True)
     email = state.get("capcut_email") or ""
-    ok = failed = skipped = 0
+    ok = skipped = 0
     total = len(todo)
     last_pct = -1
+    speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
+
+    def voice(shot: Dict, i: int) -> None:
+        body = {"email": email, "text": _shot_narration(shot), "speed": 10, "volume": 10}
+        if speaker:
+            body["speaker"] = str(speaker)
+        audio = _post_bytes("/api/v1/capcut-tts/synthesize", body, timeout=180)
+        if not audio or len(audio) < 1000:
+            raise RuntimeError("CapCut returned no audio")
+        num = shot.get("storyboard_number") or shot.get("id") or i
+        path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
+        with open(path, "wb") as f:
+            f.write(audio)
+        _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
+
+    failed_shots: List[Tuple[int, Dict]] = []
     for i, shot in enumerate(todo, 1):
         if state["_cancelled"]():
             raise _cancel_exc()
-        text = _shot_narration(shot)
-        if len(text) < 3:
+        if len(_shot_narration(shot)) < 3:
             skipped += 1
             continue
         try:
-            body = {"email": email, "text": text, "speed": 10, "volume": 10}
-            speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
-            if speaker:
-                body["speaker"] = str(speaker)
-            audio = _post_bytes("/api/v1/capcut-tts/synthesize", body, timeout=180)
-            if not audio or len(audio) < 1000:
-                raise RuntimeError("CapCut returned no audio")
-            num = shot.get("storyboard_number") or shot.get("id") or i
-            path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
-            with open(path, "wb") as f:
-                f.write(audio)
-            _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
+            voice(shot, i)
             ok += 1
         except Exception as e:
-            failed += 1
+            failed_shots.append((i, shot))
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
         pct = int(min(99, i * 100 / max(1, total)))
         if pct != last_pct:
             state["_say"]("tts", "running", f"{i}/{total} · CapCut", pct)
             last_pct = pct
+    # Một shot không có giọng KHÔNG làm lượt chạy hỏng: khâu dựng gán cho nó 5
+    # giây ảnh tĩnh và video lặng lẽ ngắn đi. CapCut hay rớt lẻ tẻ, nên thử lại
+    # đúng những shot hỏng một lần nữa trước khi chấp nhận mất tiếng.
+    if failed_shots:
+        state["_say"]("tts", "running", f"retrying {len(failed_shots)} failed shot(s) · CapCut", 99)
+        still: List[Tuple[int, Dict]] = []
+        for i, shot in failed_shots:
+            if state["_cancelled"]():
+                raise _cancel_exc()
+            time.sleep(TTS_RETRY_DELAY)
+            try:
+                voice(shot, i)
+                ok += 1
+            except Exception as e:
+                still.append((i, shot))
+                logger.warning(f"[ContentVideo] capcut tts failed again for shot {shot.get('id')}: {e}")
+        failed_shots = still
+    failed = len(failed_shots)
     state["tts_summary"] = f"{ok} voiced (CapCut)" + (f", {failed} failed" if failed else "") + \
         (f", {skipped} silent" if skipped else "")
     if ok == 0 and failed:
         raise RuntimeError(f"CapCut TTS failed for every shot ({failed}).")
+    _warn_voiceless(state, failed)
 
 
 def _tts_edge(state: Dict, options: Dict) -> None:
@@ -1145,17 +1209,27 @@ def _tts_edge(state: Dict, options: Dict) -> None:
             f"Voice {explicit} does not match the script language ({language_name(lang)}) — "
             f"leave tts_voice empty to get {_edge_voice(lang)}.")
     state["tts_voice_used"] = f"{voice} · {language_name(lang)}"
-    res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
-        "voice_id": voice, "engine": "edge",
-    }, timeout=60)
-    if not res.get("task_id"):
-        raise RuntimeError(f"batch-tts did not start: {str(res)[:200]}")
-    data = _poll_studio(f"/api/v1/studio/batch-tts/{res['task_id']}",
-                        TIMEOUTS["tts"], state, "tts", done_statuses=("done", "completed"))
-    ok, failed = int(data.get("success") or 0), int(data.get("failed") or 0)
+    def run_batch() -> Tuple[int, int]:
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
+            "voice_id": voice, "engine": "edge",
+        }, timeout=60)
+        if not res.get("task_id"):
+            raise RuntimeError(f"batch-tts did not start: {str(res)[:200]}")
+        data = _poll_studio(f"/api/v1/studio/batch-tts/{res['task_id']}",
+                            TIMEOUTS["tts"], state, "tts", done_statuses=("done", "completed"))
+        return int(data.get("success") or 0), int(data.get("failed") or 0)
+
+    ok, failed = run_batch()
+    if failed and ok:
+        # batch-tts của Studio bỏ qua shot đã có audio (đếm là success), nên gọi
+        # lại chỉ đọc đúng những shot hỏng — cùng lý do với nhánh CapCut ở trên.
+        state["_say"]("tts", "running", f"retrying {failed} failed shot(s) · edge", 99)
+        time.sleep(TTS_RETRY_DELAY)
+        ok, failed = run_batch()
     state["tts_summary"] = f"{ok} voiced (edge)" + (f", {failed} failed" if failed else "")
     if ok == 0 and failed:
         raise RuntimeError(f"TTS failed for every shot ({failed}).")
+    _warn_voiceless(state, failed)
 
 
 def _step_tts(state: Dict, options: Dict) -> None:
@@ -1205,6 +1279,43 @@ def _step_render(state: Dict, options: Dict) -> None:
         raise RuntimeError("Export finished but the episode has no video_url.")
     state["video_path"] = path
     state["video_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(path)}"
+    state["video_seconds"] = media_seconds(path)
+    planned = planned_seconds(state)
+    if state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
+        state.setdefault("warnings", []).append(
+            f"The video is {clock(state['video_seconds'])} long but the script was planned for "
+            f"~{clock(planned)}. Check the Voice line: shots without a voice play as 5-second stills.")
+
+
+# Video thật ngắn hơn chừng này so với kịch bản = có shot mất tiếng hoặc storyboard
+# đã rút bớt lời; báo ra thay vì để người dùng tự đo.
+_SHORT_VIDEO_RATIO = 0.6
+
+
+def clock(seconds: float) -> str:
+    m, s = divmod(int(seconds or 0), 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def planned_seconds(state: Dict) -> float:
+    words = len(str(state.get("script") or "").split()) or int(state.get("target_words") or 0)
+    return words * 60.0 / WORDS_PER_MINUTE if words else 0.0
+
+
+def media_seconds(path: str) -> float:
+    """Thời lượng file bằng ffprobe; 0 nếu không đo được (thiếu ffprobe, file lạ)."""
+    import shutil
+    import subprocess
+
+    exe = shutil.which("ffprobe")
+    if not exe or not path or not os.path.isfile(path):
+        return 0.0
+    try:
+        out = subprocess.run([exe, "-v", "error", "-show_entries", "format=duration",
+                              "-of", "csv=p=0", path], capture_output=True, text=True, timeout=30)
+        return round(float((out.stdout or "0").strip() or 0), 1)
+    except Exception:
+        return 0.0
 
 
 # ── Publish: đăng thẳng lên YouTube qua extension video_manager ───────
@@ -2251,8 +2362,10 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     dirty = bool(state.get("publish_error") or state.get("warnings"))
     icon = "⚠️" if dirty else "✅"
     tail = " — completed with warning" if dirty else ""
+    length = (f"video {clock(state['video_seconds'])}" if state.get("video_seconds")
+              else f"took {mins:02d}:{secs:02d}")
     lines = [f"## {icon} {options.get('job_label') or 'Content video'} rendered{tail} — "
-             f"{state.get('shot_count', 0)} shots · {mins:02d}:{secs:02d}", ""]
+             f"{state.get('shot_count', 0)} shots · {length}", ""]
     published = state.get("published") or {}
     if published.get("url"):
         lines.append(f"- **Published**: {published['url']} ({published.get('privacy', '')})"
