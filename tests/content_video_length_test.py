@@ -196,46 +196,95 @@ st = {"shot_count": 13, "title": "T"}
 out = P._render_result(st, {}, [], [], 125.0)
 assert "13 shots · took 02:05" in out.splitlines()[0], out.splitlines()[0]
 print("7 card       : header says 'video MM:SS' when measured, 'took MM:SS' otherwise")
-# 8. Storyboard that drops the script: measured, regenerated once, then a clear failure
-script = "\n".join(f"[SHOW: scene {i}]\n" + " ".join(["word"] * 100) for i in range(26))   # 2600 words, 26 scenes
-full = [{"id": i, "narration_text": " ".join(["word"] * 95)} for i in range(26)]
-tiny = [{"id": i, "narration_text": " ".join(["word"] * 30)} for i in range(3)]
-assert P.storyboard_coverage(full, script) > 0.9 and P.storyboard_coverage(tiny, script) < 0.05
+# 8. Storyboard that condenses the script: narration restored in place, nothing regenerated
+def mk_script(n, per=100):
+    return "\n".join(f"[SHOW: scene {i} about topic{i}]\nTopic{i} sentence one is here. "
+                      + " ".join([f"topic{i}word"] * (per - 12)) + f". Topic{i} sentence three ends it."
+                      for i in range(n))
+
+
+script = mk_script(20)                                   # ~2000 words, 20 scenes
+full = [{"id": i, "storyboard_number": i + 1, "narration_text": f"topic{i} " + " ".join([f"topic{i}word"] * 95)} for i in range(20)]
+# What the Studio did: 32 shots (some scenes split in two), each narration a short paraphrase
+condensed = []
+num = 1
+for i in range(20):
+    parts = 2 if i % 3 == 0 else 1
+    for k in range(parts):
+        condensed.append({"id": 100 + num, "storyboard_number": num, "title": f"Scene {i} (Part {k + 1})",
+                          "narration_text": f"Topic{i} short summary {k}.", "image_prompt": f"img {i}"})
+        num += 1
+assert len(condensed) == 27
+assert P.storyboard_coverage(full, script) > 0.9 and P.storyboard_coverage(condensed, script) < 0.1
 assert P.storyboard_coverage([], "") == 1.0, "no script → nothing to lose"
-streams = []
-P._stream_storyboard = lambda ep_id, st: streams.append(ep_id)
-served = iter([tiny, tiny, tiny])
-P._storyboards = lambda ep_id: next(served)
-st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
-      "_say": lambda *a: None, "_cancelled": lambda: False}
-try:
-    P._step_studio(st, {})
-    raise SystemExit("3-shot storyboard for 26 scenes must fail")
-except RuntimeError as e:
-    assert "kept only 3% of the script (3 shots for 26 scenes" in str(e) and "Settings" in str(e), e
-assert streams == [9], "shots existed → regenerated exactly once before giving up"
-streams.clear()
-served = iter([tiny, full])
+
+scenes = [sc for sc in P.scenes_of(script) if sc[1]]
+owner = P.align_shots_to_scenes(condensed, scenes)
+assert owner == sorted(owner) and owner[0] == 0 and owner[-1] == 19, owner
+assert owner[:3] == [0, 0, 1], "scene 0 has two shots; both stay on scene 0"
+fixed = P.restore_narration(condensed, script)
+assert [sid for sid, _ in fixed] == [sh["id"] for sh in condensed], "every shot, in order"
+joined = " ".join(t for _, t in fixed)
+for i in range(20):
+    assert f"Topic{i} sentence one is here." in joined and f"Topic{i} sentence three ends it." in joined, i
+assert fixed[0][1].startswith("Topic0 sentence one is here.") and fixed[1][1].endswith("Topic0 sentence three ends it."), \
+    "a split scene hands its sentences to its two shots in order"
+assert not P.storyboard_stopped_early(condensed, scenes)
+
+# dropped scenes: 3 shots for 20 scenes, only the first three covered → stopped early;
+# after Studio's append the rest is still missing → text of the uncovered scenes folds into neighbours
+three = condensed[:3]
+assert P.storyboard_stopped_early(three, scenes)
+fixed3 = P.restore_narration(three, script)
+assert "Topic19 sentence three ends it." in fixed3[-1][1], "tail scenes fold into the last shot"
+
+# _step_studio: restore via PUT, no regeneration, coverage re-measured
+streams, puts = [], []
+P._stream_storyboard = lambda ep_id, st, append=False: streams.append((ep_id, append))
+P._put = lambda path, payload, timeout=60: puts.append((path, payload)) or {}
+store = {"shots": [dict(sh) for sh in condensed]}
+
+
+def fake_storyboards(ep_id):
+    for sh in store["shots"]:
+        for path, payload in puts:
+            if path.endswith(f"/{sh['id']}"):
+                sh["narration_text"] = payload["narration_text"]
+    return [dict(sh) for sh in store["shots"]]
+
+
+P._storyboards = fake_storyboards
 st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
       "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_studio(st, {})
-assert st["shot_count"] == 26 and st["storyboard_coverage"] > 0.9 and streams == [9], (st, streams)
-streams.clear()
-served = iter([full])
-st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
-      "_say": lambda *a: None, "_cancelled": lambda: False}
-P._step_studio(st, {})
-assert streams == [] and st["shot_count"] == 26, "good storyboard → no regeneration"
+assert streams == [], "condensed (not truncated) storyboard → no Studio call at all"
+assert len(puts) == 27 and all(p[1]["tts_audio_url"] == "" for p in puts), "every shot rewritten, stale audio dropped"
+assert st["shot_count"] == 27 and st["storyboard_coverage"] > 0.9 and st["storyboard_restored"] == 27, st
 out = P._render_result(st, {}, [], [], 1.0)
-assert "- **Storyboard**: 26 shots · covers 95% of the script" in out, out
-# Short scripts (under the word floor) are never judged: a 90-second clip with a
-# lossy storyboard is cheap to redo by hand, and the ratio is noise at that size.
-served = iter([tiny])
+assert "- **Storyboard**: 27 shots · covers" in out and "narration restored from the script" in out, out
+
+# truncated storyboard → append first, then restore
+puts.clear()
+store["shots"] = [dict(sh) for sh in condensed[:3]]
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_studio(st, {})
+assert streams == [(9, True)], "stopped early → continue with append=True, never a fresh regenerate"
+assert st["storyboard_coverage"] > 0.9
+
+# good storyboard → untouched; short scripts never judged
+puts.clear(); streams.clear()
+store["shots"] = [dict(sh) for sh in full]
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_studio(st, {})
+assert puts == [] and streams == [] and st["shot_count"] == 20 and "storyboard_restored" not in st
+store["shots"] = [dict(sh) for sh in condensed[:3]]
 st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": "[SHOW: a]\n" + " ".join(["w"] * 150),
       "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_studio(st, {})
-assert streams == [] and st.get("storyboard_coverage") is None
-print("8 storyboard : coverage measured; <60% → regenerate once → still low → error naming the Studio model")
+assert puts == [] and st.get("storyboard_coverage") is None
+print("8 storyboard : condensed narration restored in place (27 PUTs, 0 regenerations); truncated → append; good → untouched")
 
 # 9. Plan warns when a long script has almost no [SHOW] scenes
 B.AgentBrain._call_llm = staticmethod(lambda *a, **k: "TITLE: T\n\n[SHOW: one]\n" + " ".join(["w"] * 3000))

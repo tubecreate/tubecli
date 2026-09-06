@@ -982,12 +982,13 @@ def _storyboards(ep_id: int) -> List[Dict]:
     return [s for s in (data or []) if isinstance(s, dict)]
 
 
-def _stream_storyboard(ep_id: int, state: Dict) -> None:
-    """POST /storyboard is server-sent events; read it to [DONE]."""
+def _stream_storyboard(ep_id: int, state: Dict, append: bool = False) -> None:
+    """POST /storyboard is server-sent events; read it to [DONE].
+    append=True continues after the last saved shot instead of clearing."""
     import requests
 
     with requests.post(f"{_base_url()}/api/v1/studio/episodes/{ep_id}/storyboard",
-                       json={"append": False}, stream=True,
+                       json={"append": append}, stream=True,
                        timeout=(30, TIMEOUTS["storyboard"])) as r:
         if r.status_code >= 400:
             raise RuntimeError(f"storyboard → HTTP {r.status_code}: {r.text[:300]}")
@@ -1071,11 +1072,24 @@ def _step_studio(state: Dict, options: Dict) -> None:
     judged = len(script.split()) >= STORYBOARD_COVERAGE_MIN_WORDS
     cov = storyboard_coverage(shots, script) if judged else None
     if judged and cov < STORYBOARD_COVERAGE_MIN:
+        # Sửa tại chỗ chứ KHÔNG dựng lại: 32 shot đã có prompt ảnh (và có thể
+        # cả ảnh) — thứ mất chỉ là lời thoại bị model Studio viết ngắn lại.
+        scenes = [sc for sc in scenes_of(script) if sc[1]]
         state["_say"]("studio", "running",
-                      f"storyboard kept only {int(cov * 100)}% of the script ({len(shots)} shots) — regenerating")
-        _stream_storyboard(ep_id, state)
+                      f"storyboard kept only {int(cov * 100)}% of the script "
+                      f"({len(shots)} shots for {len(scenes)} scenes) — restoring the script's narration")
+        if storyboard_stopped_early(shots, scenes):
+            # Studio dừng giữa chừng (ít shot hơn cảnh và đuôi kịch bản không có
+            # shot nào): bảo nó LÀM TIẾP từ shot cuối, không xoá gì.
+            state["_say"]("studio", "running", "storyboard stopped early — continuing from the last shot")
+            _stream_storyboard(ep_id, state, append=True)
+            shots = _storyboards(ep_id)
+        fixed = restore_narration(shots, script)
+        for sb_id, text in fixed:
+            _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
         shots = _storyboards(ep_id)
         cov = storyboard_coverage(shots, script)
+        state["storyboard_restored"] = len(fixed)
         if not shots or cov < STORYBOARD_COVERAGE_MIN:
             raise RuntimeError(coverage_error(shots, script, cov))
     state["shot_count"] = len(shots)
@@ -1103,14 +1117,112 @@ def storyboard_coverage(shots: List[Dict], script: str) -> float:
     return min(1.0, got / want)
 
 
+_WORD_RE = re.compile(r"[\w']+", re.U)
+_SENT_RE = re.compile(r"(?<=[.!?…。！？])\s+")
+
+
+def _tokens(text: str) -> set:
+    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) >= 3}
+
+
+def align_shots_to_scenes(shots: List[Dict], scenes: List[tuple]) -> List[int]:
+    """Cảnh (chỉ số) của từng shot, KHÔNG LÙI theo thứ tự shot.
+
+    Studio tạo shot theo thứ tự kịch bản, nhưng một cảnh có thể thành nhiều shot
+    và một cảnh có thể bị bỏ. Quy hoạch động: tổng điểm trùng chữ lớn nhất với
+    ràng buộc đơn điệu; hoà thì ở lại cảnh hiện tại (shot "(Part 2)" đi theo
+    Part 1 chứ không nhảy sang cảnh sau)."""
+    if not shots or not scenes:
+        return [0] * len(shots)
+    sc_tok = [_tokens(f"{show} {narr}") for show, narr in scenes]
+    m, n = len(shots), len(scenes)
+    score = [[0.0] * n for _ in range(m)]
+    for i, sh in enumerate(shots):
+        st = _tokens(f"{sh.get('title') or ''} {_shot_narration(sh)} {sh.get('description') or ''}")
+        for j in range(n):
+            score[i][j] = (len(st & sc_tok[j]) / len(st)) if st else 0.0
+    NEG = float("-inf")
+    best = [[NEG] * n for _ in range(m)]
+    back = [[0] * n for _ in range(m)]
+    for j in range(n):
+        best[0][j] = score[0][j] - j * 1e-6          # chọn cảnh sớm khi hoà
+    for i in range(1, m):
+        run_best, run_j = NEG, 0
+        for j in range(n):
+            if best[i - 1][j] >= run_best:           # >=: ưu tiên ở lại cảnh hiện tại
+                run_best, run_j = best[i - 1][j], j
+            best[i][j] = run_best + score[i][j]
+            back[i][j] = run_j
+    j = max(range(n), key=lambda k: best[m - 1][k])
+    out = [0] * m
+    for i in range(m - 1, -1, -1):
+        out[i] = j
+        j = back[i][j]
+    return out
+
+
+def storyboard_stopped_early(shots: List[Dict], scenes: List[tuple]) -> bool:
+    """Ít shot hơn cảnh VÀ quá một phần tư cuối kịch bản không có shot nào."""
+    if not shots or not scenes or len(shots) >= len(scenes):
+        return False
+    last = max(align_shots_to_scenes(shots, scenes))
+    return last < len(scenes) - max(1, len(scenes) // 4)
+
+
+def _split_even(text: str, parts: int) -> List[str]:
+    """Chia câu của một cảnh thành `parts` khúc liền nhau, cân theo số chữ."""
+    sents = [x.strip() for x in _SENT_RE.split((text or "").strip()) if x.strip()]
+    if parts <= 1 or len(sents) <= 1:
+        return [" ".join(sents)] + [""] * (parts - 1)
+    total = sum(len(x.split()) for x in sents)
+    out, cur, used, k = [], [], 0, 0
+    for sent in sents:
+        cur.append(sent)
+        used += len(sent.split())
+        if len(out) < parts - 1 and used >= total * (len(out) + 1) / parts:
+            out.append(" ".join(cur))
+            cur = []
+    out.append(" ".join(cur))
+    return out + [""] * (parts - len(out))
+
+
+def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:
+    """[(shot id, lời thoại đúng nguyên văn)] cho MỌI shot, theo thứ tự.
+
+    Mỗi cảnh chia câu đều cho các shot của nó; cảnh không có shot nào thì lời
+    của nó nối vào shot cuối của cảnh liền trước (không có thì shot đầu của cảnh
+    liền sau) — không mất chữ nào, không cần tạo shot mới."""
+    scenes = [sc for sc in scenes_of(script) if sc[1]]
+    if not shots or not scenes:
+        return []
+    shots = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None,
+                                          sh.get("storyboard_number") or 0, sh.get("id") or 0))
+    owner = align_shots_to_scenes(shots, scenes)
+    groups: Dict[int, List[int]] = {}
+    for i, j in enumerate(owner):
+        groups.setdefault(j, []).append(i)
+    text = [""] * len(shots)
+    covered = sorted(groups)
+    for j, (_, narr) in enumerate(scenes):
+        if j in groups:
+            idxs = groups[j]
+            for i, piece in zip(idxs, _split_even(narr, len(idxs))):
+                text[i] = (text[i] + " " + piece).strip()
+            continue
+        prev = [k for k in covered if k < j]
+        nxt = [k for k in covered if k > j]
+        i = groups[prev[-1]][-1] if prev else groups[nxt[0]][0]
+        text[i] = (text[i] + " " + narr).strip()
+    return [(sh.get("id"), text[i]) for i, sh in enumerate(shots)]
+
+
 def coverage_error(shots: List[Dict], script: str, cov: float) -> str:
     scenes = len(scenes_of(script))
     words = len((script or "").split())
     return (f"Content Studio's storyboard kept only {int(cov * 100)}% of the script "
-            f"({len(shots or [])} shots for {scenes} scenes, ~{words} words), twice in a row. "
-            "The Studio's own AI model is dropping text — a reasoning model or one with a small "
-            "output limit does this on long scripts. Change the model in Content Studio → Settings, "
-            "or ask for a shorter video.")
+            f"({len(shots or [])} shots for {scenes} scenes, ~{words} words) even after restoring "
+            "the script's narration into the shots. The Studio's own AI model is dropping text — "
+            "change the model in Content Studio → Settings, or ask for a shorter video.")
 
 
 def _step_images(state: Dict, options: Dict) -> None:
@@ -2456,7 +2568,8 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Content Studio**: drama {state['drama_id']} · episode {state.get('episode_id')}")
     if state.get("storyboard_coverage") is not None:
         lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
-                     f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script")
+                     f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script"
+                     + (" · narration restored from the script" if state.get("storyboard_restored") else ""))
     if state.get("tts_summary"):
         lines.append(f"- **Voice**: {state['tts_summary']}"
                      + (f" · {state['tts_voice_used']}" if state.get("tts_voice_used") else ""))
