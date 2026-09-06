@@ -18,6 +18,10 @@ import contextvars
 _OUTPUT_TOKENS: contextvars.ContextVar = contextvars.ContextVar("brain_output_tokens", default=None)
 
 
+# Trần cho lần thử lại khi model suy luận tiêu hết ngân sách vào phần nghĩ.
+_RETRY_TOKENS_MAX = 32768
+
+
 def _output_budget(default: int) -> int:
     n = _OUTPUT_TOKENS.get()
     return int(n) if n else default
@@ -1489,9 +1493,12 @@ Rules:
             # API returns finish_reason="length" with content="" — a perfectly
             # successful HTTP call that yields an empty reply. Retry once with a
             # bigger budget so the visible answer fits.
+            # Lần hai phải LỚN HƠN lần một: với ngân sách 9600 (kịch bản 20 phút)
+            # mà retry cũng 9600 thì chỉ là lặp lại cùng thất bại.
             if not content and finish == "length":
-                print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with a larger token budget")
-                content, finish, msg = _ask(max_tokens=max(8192, budget))
+                bigger = min(_RETRY_TOKENS_MAX, max(8192, budget * 2))
+                print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with max_tokens={bigger}")
+                content, finish, msg = _ask(max_tokens=bigger)
 
             if not content:
                 reasoning = (getattr(msg, "reasoning_content", None) or "").strip()

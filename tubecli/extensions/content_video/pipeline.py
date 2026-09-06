@@ -346,6 +346,25 @@ def script_token_budget(words: int) -> int:
 _SHORT_SCRIPT_RATIO = 0.6
 
 
+# AgentBrain trả lỗi provider dưới dạng CHUỖI "[OpenAI Error] …" chứ không raise.
+# Trước đây bước viết chỉ bắt "❌", nên câu lỗi đi thẳng vào kế hoạch làm "cảnh 2"
+# và người duyệt thấy một kịch bản gồm đúng một dòng báo lỗi.
+_LLM_ERROR_RE = re.compile(r"^\[[\w .-]*Error\]", re.I)
+
+
+def is_llm_error(text: str) -> bool:
+    return bool(_LLM_ERROR_RE.match((text or "").lstrip()))
+
+
+def llm_error_hint(text: str, words: int) -> str:
+    msg = f"The model could not write the script: {text.strip()[:300]}"
+    if "reasoning" in text or "finish_reason=length" in text:
+        msg += (f"\nThis is a reasoning model running out of output room on a ~{words}-word "
+                f"(~{minutes_of(words)} min) script even after a retry with a larger budget. "
+                "Pick a non-reasoning model for this agent (Basics → Model), or ask for a shorter video.")
+    return msg
+
+
 def short_script_warning(words_got: int, words_want: int) -> str:
     if words_want and words_got < words_want * _SHORT_SCRIPT_RATIO:
         return (f"The script came out at ~{words_got} words (~{minutes_of(words_got)} min) "
@@ -918,6 +937,8 @@ def _step_script(state: Dict, options: Dict) -> None:
     text = (text or "").strip()
     if not text or text.startswith("❌"):
         raise RuntimeError(text or "The model returned an empty script.")
+    if is_llm_error(text):
+        raise RuntimeError(llm_error_hint(text, words))
     short = short_script_warning(len(text.split()), words)
     if short:
         state.setdefault("warnings", []).append(short)
@@ -1635,7 +1656,7 @@ def _seo_for(state: Dict, options: Dict, channel: Dict) -> Dict[str, Any]:
         ) or ""
     except Exception as e:
         logger.warning(f"[ContentVideo] SEO model call failed: {e}")
-    data = _json_object(raw) if (raw and not str(raw).startswith("❌")) else None
+    data = _json_object(raw) if (raw and not str(raw).startswith("❌") and not is_llm_error(str(raw))) else None
     title = str((data or {}).get("title") or "").strip().strip("\"“” ")
     desc = str((data or {}).get("description") or "").strip()
     tags = _clean_tags((data or {}).get("tags"))

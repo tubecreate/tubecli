@@ -70,6 +70,58 @@ assert state["target_words"] == 3000 and state["words_from"] == "asked for"
 assert any("stopped early" in w for w in state.get("warnings", [])), state.get("warnings")
 print("3 step       : model called under the 20-minute budget; 3-word reply → 'stopped early' warning")
 
+# 3b. A provider error string must not become the script (it used to land as "scene 2")
+B.AgentBrain._call_llm = staticmethod(lambda *a, **k: "[OpenAI Error] deepseek-v4-flash returned an empty response (finish_reason=length, the model spent its whole budget on reasoning).")
+state = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+         "_say": lambda *a: None, "_cancelled": lambda: False}
+try:
+    P._step_script(state, {"target_words": 3000})
+    raise SystemExit("error string must raise")
+except RuntimeError as e:
+    assert "could not write the script" in str(e) and "reasoning model" in str(e) and "shorter video" in str(e), e
+assert P.is_llm_error("[Gemini Error] HTTP 429") and P.is_llm_error("  [Claude Error] x") and not P.is_llm_error("TITLE: Errors of 1999")
+print("3b error     : '[… Error]' reply → RuntimeError with the reasoning-model hint, never a one-line plan")
+
+# 3c. OpenAI-compatible retry after finish=length asks for MORE than the first budget
+import types
+asks = []
+
+
+class _Msg:
+    def __init__(self, content):
+        self.content = content
+        self.reasoning_content = "thinking…"
+
+
+class _Choice:
+    def __init__(self, content, finish):
+        self.message = _Msg(content)
+        self.finish_reason = finish
+
+
+class _Completions:
+    def create(self, **kw):
+        asks.append(kw.get("max_tokens"))
+        if len(asks) == 1:
+            return types.SimpleNamespace(choices=[_Choice("", "length")])
+        return types.SimpleNamespace(choices=[_Choice("TITLE: ok", "stop")])
+
+
+class _OpenAI:
+    def __init__(self, *a, **k):
+        self.chat = types.SimpleNamespace(completions=_Completions())
+
+
+sys.modules["openai"] = types.SimpleNamespace(OpenAI=_OpenAI)
+with B.AgentBrain.output_budget(9600):
+    out = B.AgentBrain._call_openai("deepseek-v4-flash", "k", [{"role": "user", "content": "x"}])
+assert out == "TITLE: ok" and asks == [9600, 19200], asks
+asks.clear()
+out = B.AgentBrain._call_openai("gpt-x", "k", [{"role": "user", "content": "x"}])
+assert asks == [None, 8192], asks
+del sys.modules["openai"]
+print("3c retry     : finish=length → second ask doubles the budget (9600→19200); no budget → 8192 as before")
+
 # 4. CapCut: a shot that fails once is retried, one that fails twice becomes a warning
 import tubecli.config as CFG
 
