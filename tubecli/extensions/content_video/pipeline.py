@@ -1662,9 +1662,12 @@ def _step_render(state: Dict, options: Dict) -> None:
         task_id = str(res["task_id"])
         _checkpoint_merge(state, {"export_task_id": task_id})
     try:
-        _poll_studio(f"/api/v1/studio/export-ffmpeg/status/{task_id}",
-                     TIMEOUTS["render"], state, "render", done_statuses=("completed",),
-                     max_wait=render_max_wait(state))
+        done = _poll_studio(f"/api/v1/studio/export-ffmpeg/status/{task_id}",
+                            TIMEOUTS["render"], state, "render", done_statuses=("completed",),
+                            max_wait=render_max_wait(state))
+        # Studio ≥ 2026.09.06 báo phụ đề đã đốt thế nào (mẫu, số shot, nguồn mốc).
+        if isinstance(done, dict) and isinstance(done.get("subtitles"), dict):
+            state["subtitles"] = done["subtitles"]
     except RuntimeError as e:
         msg = str(e)
         if msg.startswith(("No progress", "Gave up")):
@@ -2750,6 +2753,21 @@ def _plan_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: Lis
     return "\n".join(lines)
 
 
+def subtitles_line(rep: Dict) -> str:
+    """Dòng **Subtitles** từ báo cáo của Studio: {style, name, shots, tts, estimated, skipped}."""
+    if rep.get("skipped"):
+        return f"- **Subtitles**: skipped — {rep['skipped']}"
+    if not rep.get("style"):
+        return "- **Subtitles**: none"
+    src = []
+    if rep.get("tts"):
+        src.append(f"{rep['tts']} timed by TTS")
+    if rep.get("estimated"):
+        src.append(f"{rep['estimated']} estimated from audio length")
+    return (f"- **Subtitles**: {rep.get('name') or rep['style']} · {rep.get('shots', 0)} shot(s)"
+            + (f" · {', '.join(src)}" if src else ""))
+
+
 def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: List[str],
                    duration: float) -> str:
     mins, secs = divmod(int(duration), 60)
@@ -2782,6 +2800,8 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
                      f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script"
                      + (" · narration restored from the script" if state.get("storyboard_restored") else ""))
+    if state.get("subtitles"):
+        lines.append(subtitles_line(state["subtitles"]))
     if state.get("tts_summary"):
         lines.append(f"- **Voice**: {state['tts_summary']}"
                      + (f" · {state['tts_voice_used']}" if state.get("tts_voice_used") else ""))

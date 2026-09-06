@@ -855,8 +855,15 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
             for file_info in item_data["files"]:
                 fpath = os.path.join(ext_dir, file_info["path"])
                 os.makedirs(os.path.dirname(fpath), exist_ok=True)
+                # File nhị phân (font .ttf của Content Studio) đi bằng content_b64;
+                # pack vẫn kèm content="" để bản cài cũ không vỡ (ghi file rỗng).
+                if file_info.get("content_b64"):
+                    import base64 as _b64f
+                    with open(fpath, "wb") as f:
+                        f.write(_b64f.b64decode(file_info["content_b64"]))
+                    continue
                 with open(fpath, "w", encoding="utf-8") as f:
-                    f.write(file_info["content"])
+                    f.write(file_info.get("content") or "")
             print(f"[Market] Wrote {len(item_data['files'])} files to {ext_dir}")
         else:
             # ── Fallback 1: git_url backup ──
