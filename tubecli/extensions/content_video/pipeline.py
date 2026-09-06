@@ -964,6 +964,12 @@ def _step_script(state: Dict, options: Dict) -> None:
                                          "seo_sources": _checkpoint_sources(state)})
     n = _publish_plan(state["task_id"], str(agent.name), state["title"], text)
     state["scene_count"] = n
+    # Studio băm theo [SHOW]; kịch bản dài mà chỉ vài thẻ thì mỗi "cảnh" là cả
+    # trang lời thoại và storyboard hay nuốt bớt. Nói ra ở bản kế hoạch.
+    if n < max(2, scenes_n // 2) and len(text.split()) >= 400:
+        state.setdefault("warnings", []).append(
+            f"The script has only {n} [SHOW] scene(s) where ~{scenes_n} were asked for a "
+            f"~{minutes_of(words)}-minute video. Request changes: \"split into ~{scenes_n} [SHOW] scenes\".")
     state["_say"]("script", "running", f"{len(text.split())} words · {n} scenes")
 
 
@@ -1056,8 +1062,55 @@ def _step_studio(state: Dict, options: Dict) -> None:
         shots = _storyboards(ep_id)
     if not shots:
         raise RuntimeError("Content Studio produced no storyboard shots.")
+    # Storyboard là bước AI của Studio và nó có thể LÀM RƠI kịch bản mà không
+    # báo: một kịch bản 3000 chữ / 26 cảnh từng ra 3 shot và video 40 giây,
+    # thẻ vẫn "success". Đo phần kịch bản còn lại trong lời thoại của các shot;
+    # mất quá nửa thì dựng lại một lần (route xoá shot cũ), vẫn mất thì dừng
+    # với lý do rõ — đừng đốt ảnh + giọng cho một video cụt.
+    script = str(state.get("script") or "")
+    judged = len(script.split()) >= STORYBOARD_COVERAGE_MIN_WORDS
+    cov = storyboard_coverage(shots, script) if judged else None
+    if judged and cov < STORYBOARD_COVERAGE_MIN:
+        state["_say"]("studio", "running",
+                      f"storyboard kept only {int(cov * 100)}% of the script ({len(shots)} shots) — regenerating")
+        _stream_storyboard(ep_id, state)
+        shots = _storyboards(ep_id)
+        cov = storyboard_coverage(shots, script)
+        if not shots or cov < STORYBOARD_COVERAGE_MIN:
+            raise RuntimeError(coverage_error(shots, script, cov))
     state["shot_count"] = len(shots)
-    state["_say"]("studio", "running", f"{len(shots)} shots")
+    if judged:
+        state["storyboard_coverage"] = cov
+    state["_say"]("studio", "running",
+                  f"{len(shots)} shots" + (f" · covers {int(cov * 100)}% of the script" if judged else ""))
+
+
+# Dưới mức này, storyboard đã rút bớt kịch bản chứ không phải chỉ gọt vài chữ.
+STORYBOARD_COVERAGE_MIN = 0.6
+# Chỉ xét kịch bản từ chừng này chữ (~80 giây): clip ngắn dựng lại tay rẻ hơn,
+# và tỷ lệ ở cỡ đó nhiễu (một câu mở đầu cũng đủ lệch hàng chục phần trăm).
+STORYBOARD_COVERAGE_MIN_WORDS = 200
+
+
+def storyboard_coverage(shots: List[Dict], script: str) -> float:
+    """Tỷ lệ chữ của kịch bản còn nằm trong lời thoại các shot (0..1).
+    Lời thoại của Studio là kịch bản chép lại, nên số chữ gần bằng nhau khi nó
+    giữ đủ; cắt cụt thì tỷ lệ rơi hẳn."""
+    want = len(" ".join(_CUE_RE.sub(" ", script or "").split()).split())
+    if not want:
+        return 1.0
+    got = sum(len(_shot_narration(sh).split()) for sh in shots or [])
+    return min(1.0, got / want)
+
+
+def coverage_error(shots: List[Dict], script: str, cov: float) -> str:
+    scenes = len(scenes_of(script))
+    words = len((script or "").split())
+    return (f"Content Studio's storyboard kept only {int(cov * 100)}% of the script "
+            f"({len(shots or [])} shots for {scenes} scenes, ~{words} words), twice in a row. "
+            "The Studio's own AI model is dropping text — a reasoning model or one with a small "
+            "output limit does this on long scripts. Change the model in Content Studio → Settings, "
+            "or ask for a shorter video.")
 
 
 def _step_images(state: Dict, options: Dict) -> None:
@@ -2401,6 +2454,9 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Title**: {state['title']}")
     if state.get("drama_id") is not None:
         lines.append(f"- **Content Studio**: drama {state['drama_id']} · episode {state.get('episode_id')}")
+    if state.get("storyboard_coverage") is not None:
+        lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
+                     f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script")
     if state.get("tts_summary"):
         lines.append(f"- **Voice**: {state['tts_summary']}"
                      + (f" · {state['tts_voice_used']}" if state.get("tts_voice_used") else ""))

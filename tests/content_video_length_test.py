@@ -196,5 +196,54 @@ st = {"shot_count": 13, "title": "T"}
 out = P._render_result(st, {}, [], [], 125.0)
 assert "13 shots · took 02:05" in out.splitlines()[0], out.splitlines()[0]
 print("7 card       : header says 'video MM:SS' when measured, 'took MM:SS' otherwise")
+# 8. Storyboard that drops the script: measured, regenerated once, then a clear failure
+script = "\n".join(f"[SHOW: scene {i}]\n" + " ".join(["word"] * 100) for i in range(26))   # 2600 words, 26 scenes
+full = [{"id": i, "narration_text": " ".join(["word"] * 95)} for i in range(26)]
+tiny = [{"id": i, "narration_text": " ".join(["word"] * 30)} for i in range(3)]
+assert P.storyboard_coverage(full, script) > 0.9 and P.storyboard_coverage(tiny, script) < 0.05
+assert P.storyboard_coverage([], "") == 1.0, "no script → nothing to lose"
+streams = []
+P._stream_storyboard = lambda ep_id, st: streams.append(ep_id)
+served = iter([tiny, tiny, tiny])
+P._storyboards = lambda ep_id: next(served)
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+try:
+    P._step_studio(st, {})
+    raise SystemExit("3-shot storyboard for 26 scenes must fail")
+except RuntimeError as e:
+    assert "kept only 3% of the script (3 shots for 26 scenes" in str(e) and "Settings" in str(e), e
+assert streams == [9], "shots existed → regenerated exactly once before giving up"
+streams.clear()
+served = iter([tiny, full])
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_studio(st, {})
+assert st["shot_count"] == 26 and st["storyboard_coverage"] > 0.9 and streams == [9], (st, streams)
+streams.clear()
+served = iter([full])
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": script,
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_studio(st, {})
+assert streams == [] and st["shot_count"] == 26, "good storyboard → no regeneration"
+out = P._render_result(st, {}, [], [], 1.0)
+assert "- **Storyboard**: 26 shots · covers 95% of the script" in out, out
+# Short scripts (under the word floor) are never judged: a 90-second clip with a
+# lossy storyboard is cheap to redo by hand, and the ratio is noise at that size.
+served = iter([tiny])
+st = {"agent": A(), "checkpoint": {"drama_id": 9, "episode_id": 9}, "script": "[SHOW: a]\n" + " ".join(["w"] * 150),
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_studio(st, {})
+assert streams == [] and st.get("storyboard_coverage") is None
+print("8 storyboard : coverage measured; <60% → regenerate once → still low → error naming the Studio model")
+
+# 9. Plan warns when a long script has almost no [SHOW] scenes
+B.AgentBrain._call_llm = staticmethod(lambda *a, **k: "TITLE: T\n\n[SHOW: one]\n" + " ".join(["w"] * 3000))
+st = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+      "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(script))
+P._step_script(st, {"target_words": 3000})
+assert st["scene_count"] == 1 and any("only 1 [SHOW] scene" in w for w in st["warnings"]), st.get("warnings")
+print("9 plan       : 3000 words in one [SHOW] → warning on the plan")
 print()
-print("ALL 7 GROUPS PASSED")
+print("ALL 9 GROUPS PASSED")
