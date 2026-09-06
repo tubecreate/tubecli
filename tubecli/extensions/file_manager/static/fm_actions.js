@@ -1017,6 +1017,20 @@
             'but the walk has to be started from its own button.');
     }
 
+    /* Lối tắt thư mục: ghim/bỏ ghim mục đang chọn (menu chuột phải) — file_manager.js
+       giữ danh sách và gọi máy chủ; ở đây chỉ chuyển đường dẫn. */
+    function actShortcutToggle(node, ev) {
+        var p = requireTarget(node);
+        if (!p) return;
+        return callFM('toggleShortcut', p);
+    }
+    function actShortcutRemove(node, ev) {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        var p = targetPath(node);
+        if (!p) return;
+        return callFM('removeShortcut', p);
+    }
+
     function actAnalyze(node, ev) {
         return analyzeFolder(node, ev, targetPath(node) || currentPath());
     }
@@ -1119,7 +1133,9 @@
         'picker-confirm': actPickerConfirm,
         'volumes-refresh': actVolumesRefresh,
         'analyze': actAnalyze,
-        'permissions': actPermissions
+        'permissions': actPermissions,
+        'shortcut-toggle': actShortcutToggle,
+        'shortcut-remove': actShortcutRemove
     }, 'fm_actions');
 
     // ══════════════════════════════════════════════════════════════════

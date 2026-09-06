@@ -2055,3 +2055,13 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-menu-sep { height: 1px; margin: 4px 6px; background: var(--border-subtle); }
 .fm-menu-item.is-danger { color: var(--red); }
 .fm-menu-item.is-danger:hover { background: rgba(239, 68, 68, .1); color: var(--red); }
+
+/* Lối tắt: nút bỏ ghim chỉ hiện khi rê chuột, không chiếm chỗ tên thư mục. */
+.fm-rail-item .fm-rail-x {
+    margin-left: auto; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    width: 20px; height: 20px; border: none; border-radius: 6px; background: none; color: var(--text-muted);
+    opacity: 0; cursor: pointer; padding: 0;
+}
+.fm-rail-item:hover .fm-rail-x, .fm-rail-item:focus-within .fm-rail-x { opacity: 1; }
+.fm-rail-x:hover { color: var(--red); background: var(--bg3); }
+.fm-rail-x .fm-ico { width: 14px; height: 14px; }

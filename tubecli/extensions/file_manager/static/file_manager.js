@@ -297,6 +297,15 @@
             'fm.err_shape': 'The server replied successfully but the "{field}" field is missing. Got: {got}',
             'fm.err_aborted': 'Request stopped at your request. The server may still be working.',
 
+            'fm.nav.shortcuts': 'Shortcuts',
+            'fm.shortcuts.hint': 'Right-click a folder and choose “Add to shortcuts”.',
+            'fm.browse.shortcut_add': 'Add to shortcuts',
+            'fm.browse.shortcut_remove': 'Remove shortcut',
+            'fm.shortcuts.added': 'Added “{name}” to shortcuts',
+            'fm.shortcuts.removed': 'Removed shortcut “{name}”',
+            'fm.shortcuts.remove_title': 'Remove shortcut',
+            'fm.shortcuts.missing': 'This folder no longer exists',
+            'fm.shortcuts.failed': 'Cannot update shortcuts: {message}',
             'fm.new_folder': 'New folder',
             'fm.upload': 'Upload',
             'fm.uploading': 'Uploading {n} file(s)…',
@@ -1544,6 +1553,7 @@
             // other, so they are awaited separately rather than in a Promise.all
             // whose first rejection would discard the successful half.
             await this.loadRoots();
+            this.loadShortcuts();          // không đợi: máy chủ cũ chưa có route thì mục này tự ẩn
             this.loadVolumes();
         },
 
@@ -1673,6 +1683,26 @@
                 var crumb = e.target.closest('[data-path]');
                 if (crumb) this.navigate(crumb.getAttribute('data-path'));
             }).bind(this));
+
+            // Lối tắt: bấm hàng là tới thư mục; nút × đi qua data-fm-action (fm_actions.js)
+            // nên phải bỏ qua ở đây, kẻo vừa bỏ ghim vừa nhảy tới thư mục ấy.
+            var sc = byId('fmShortcuts');
+            if (sc) {
+                sc.addEventListener('click', (function (e) {
+                    if (e.target.closest && e.target.closest('[data-fm-action]')) return;
+                    var item = e.target.closest('[data-path]');
+                    if (!item) return;
+                    if (item.getAttribute('data-exists') === '0') { toast(T('fm.shortcuts.missing'), 'warn'); return; }
+                    this.navigate(item.getAttribute('data-path'));
+                }).bind(this));
+                sc.addEventListener('keydown', (function (e) {
+                    if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+                    var item = e.target.closest('[data-path]');
+                    if (!item || item.getAttribute('data-exists') === '0') return;
+                    e.preventDefault();
+                    this.navigate(item.getAttribute('data-path'));
+                }).bind(this));
+            }
 
             var quick = byId('quickAccess');
             if (quick) {
@@ -1867,6 +1897,7 @@
                 window.FMActions.setView('files');
             }
             this.currentPath = path;
+            if (typeof this.renderShortcuts === 'function') this.renderShortcuts();   // tô đậm lối tắt đang mở
             this.selectedItem = null;
             this.searchResults = null;
             // Điều hướng = thoát kết quả tìm (trước đây chỉ hàm này reset được,
@@ -1925,6 +1956,88 @@
         },
 
         // ── Render ───────────────────────────────────────────────────
+
+        // ── Lối tắt thư mục ──────────────────────────────────────────
+        shortcuts: [],
+        shortcutsSupported: true,
+
+        async loadShortcuts() {
+            try {
+                var data = await this.api('GET', '/shortcuts');
+                this.shortcuts = (data && data.shortcuts) || [];
+                this.shortcutsSupported = true;
+            } catch (e) {
+                // máy chủ cũ (chưa cập nhật) → không có route: ẩn cả mục, không báo lỗi
+                this.shortcuts = [];
+                this.shortcutsSupported = false;
+            }
+            this.renderShortcuts();
+        },
+
+        normPath(p) {
+            return String(p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
+        },
+
+        isShortcut(path) {
+            var k = this.normPath(path);
+            return (this.shortcuts || []).some((function (s) { return this.normPath(s.path) === k; }).bind(this));
+        },
+
+        async toggleShortcut(path) {
+            if (!path) return;
+            var name = String(path).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+            try {
+                var data;
+                if (this.isShortcut(path)) {
+                    data = await this.api('DELETE', '/shortcuts?path=' + encodeURIComponent(path));
+                    toast(T('fm.shortcuts.removed', { name: name }), 'info');
+                } else {
+                    data = await this.api('POST', '/shortcuts', { path: path });
+                    toast(T('fm.shortcuts.added', { name: name }), 'success');
+                }
+                this.shortcuts = (data && data.shortcuts) || this.shortcuts;
+                this.renderShortcuts();
+            } catch (e) {
+                toast(T('fm.shortcuts.failed', { message: (e && e.message) || String(e) }), 'error');
+            }
+        },
+
+        async removeShortcut(path) {
+            if (!path || !this.isShortcut(path)) return;
+            return this.toggleShortcut(path);
+        },
+
+        renderShortcuts() {
+            var section = byId('fm-shortcuts-section');
+            var box = byId('fmShortcuts');
+            var note = byId('fmShortcutsNote');
+            if (!box) return;
+            if (section) section.hidden = !this.shortcutsSupported;
+            clear(box);
+            var list = this.shortcuts || [];
+            if (note) note.hidden = list.length > 0;
+            var cur = this.normPath(this.currentPath);
+            list.forEach((function (sc) {
+                var row = h('div', {
+                    class: 'fm-rail-item' + (this.normPath(sc.path) === cur ? ' is-active' : ''),
+                    role: 'button',
+                    tabindex: sc.exists === false ? '-1' : '0',
+                    'data-path': sc.path,
+                    'data-exists': sc.exists === false ? '0' : '1',
+                    'aria-disabled': sc.exists === false ? 'true' : null,
+                    title: sc.path + (sc.exists === false ? ' — ' + T('fm.shortcuts.missing') : '')
+                }, [
+                    spriteIcon('i-folder', 'fm-ico'),
+                    h('span', { text: sc.name || sc.path }),
+                    h('button', {
+                        type: 'button', class: 'fm-rail-x', 'data-fm-action': 'shortcut-remove',
+                        'data-path': sc.path, title: T('fm.shortcuts.remove_title'),
+                        'aria-label': T('fm.shortcuts.remove_title')
+                    }, [spriteIcon('i-x', 'fm-ico')])
+                ]);
+                box.appendChild(row);
+            }).bind(this));
+        },
 
         renderSidebar(roots) {
             var container = byId('quickAccess');
@@ -2305,6 +2418,12 @@
             this.selectItem(card, path);
             var menu = byId('contextMenu');
             if (!menu) return;
+            // Mục chỉ dành cho thư mục (lối tắt) ẩn khi bấm vào file; nhãn đổi theo
+            // trạng thái đã ghim hay chưa.
+            var dirOnly = menu.querySelectorAll('[data-fm-dir-only]');
+            for (var i = 0; i < dirOnly.length; i++) dirOnly[i].hidden = !isDir || !this.shortcutsSupported;
+            var lab = byId('ctxShortcutLabel');
+            if (lab) lab.textContent = T(this.isShortcut(path) ? 'fm.browse.shortcut_remove' : 'fm.browse.shortcut_add');
             menu.style.display = 'block';
             menu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 8)) + 'px';
             menu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8)) + 'px';

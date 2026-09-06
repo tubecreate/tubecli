@@ -52,7 +52,7 @@ import stat
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File, Form, Body
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import FileResponse
@@ -470,6 +470,89 @@ class PermissionsRequest(BaseModel):
 
 
 # ── Shared CRUD routes (served under both prefixes) ──────────────
+
+# ── Lối tắt thư mục (người dùng ghim) ─────────────────────────────
+# Lưu trên MÁY CHỦ (không phải localStorage) để mở từ máy nào cũng thấy cùng
+# một danh sách — File Manager mở qua cloud, qua điện thoại, qua node canvas.
+
+def _shortcuts_file() -> str:
+    data_dir = os.environ.get("TUBECLI_DATA_DIR", "data")
+    try:
+        from tubecli.config import DATA_DIR as _dd
+        data_dir = str(_dd)
+    except Exception:
+        pass
+    d = os.path.join(os.path.abspath(data_dir), "file_manager")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "shortcuts.json")
+
+
+def _load_shortcuts() -> List[Dict[str, Any]]:
+    import json
+    try:
+        with open(_shortcuts_file(), encoding="utf-8") as f:
+            data = json.load(f)
+        items = data.get("shortcuts") if isinstance(data, dict) else data
+        out = []
+        for it in items or []:
+            if isinstance(it, dict) and it.get("path"):
+                out.append({"path": str(it["path"]), "name": str(it.get("name") or os.path.basename(str(it["path"])) or it["path"])})
+        return out
+    except Exception:
+        return []
+
+
+def _save_shortcuts(items: List[Dict[str, Any]]) -> None:
+    import json
+    p = _shortcuts_file()
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"shortcuts": items}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, p)
+
+
+def _shortcuts_view(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    return [{"path": it["path"], "name": it["name"], "exists": os.path.isdir(it["path"])} for it in items]
+
+
+MAX_SHORTCUTS = 40
+
+
+@_shared.get("/shortcuts")
+async def list_shortcuts():
+    """Thư mục đã ghim, kèm cờ còn tồn tại hay không (ghim rồi xoá thư mục là chuyện thường)."""
+    return {"success": True, "shortcuts": _shortcuts_view(_load_shortcuts())}
+
+
+@_shared.post("/shortcuts")
+async def add_shortcut(body: Dict[str, Any] = Body(default={})):
+    """Ghim một THƯ MỤC. Đường dẫn đi qua đúng chốt kiểm của mọi endpoint khác
+    (blocklist), và phải là thư mục có thật — ghim file thì thành nút chết."""
+    svc = _get_service()
+    raw = str((body or {}).get("path") or "")
+    path = _validate(svc, raw)
+    if not os.path.isdir(path):
+        raise HTTPException(status_code=400, detail="Chỉ ghim được thư mục.")
+    name = str((body or {}).get("name") or "").strip() or (os.path.basename(os.path.normpath(path)) or path)
+    items = _load_shortcuts()
+    key = os.path.normcase(os.path.normpath(path))
+    items = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) != key]
+    if len(items) >= MAX_SHORTCUTS:
+        raise HTTPException(status_code=400, detail=f"Tối đa {MAX_SHORTCUTS} lối tắt.")
+    items.append({"path": os.path.normpath(path), "name": name[:80]})
+    _save_shortcuts(items)
+    return {"success": True, "shortcuts": _shortcuts_view(items)}
+
+
+@_shared.delete("/shortcuts")
+async def remove_shortcut(path: str = Query(...)):
+    key = os.path.normcase(os.path.normpath(str(path or "")))
+    items = _load_shortcuts()
+    kept = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) != key]
+    if len(kept) != len(items):
+        _save_shortcuts(kept)
+    return {"success": True, "shortcuts": _shortcuts_view(kept), "removed": len(kept) != len(items)}
+
 
 @_shared.get("/roots")
 async def get_roots():

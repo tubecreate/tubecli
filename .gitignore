@@ -119,3 +119,4 @@ cloud/tubecli-scripts/
 # Screenshots referenced by README.md are tracked on purpose; the blanket
 # screenshots/*.png rule above still keeps ad-hoc local captures out.
 !screenshots/dashboard.png
+_tmp_tests/

@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=13">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=14">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -79,6 +79,7 @@
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
     <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.6l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.6l-5.9 3.2 1.2-6.6L2.5 9.6l6.6-.9z"/></symbol>
     <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14h6"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></symbol>
     <symbol id="i-file-plus" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/><path d="M12 18v-6"/><path d="M9 15h6"/></symbol>
@@ -276,6 +277,14 @@
         <!-- JS fills from GET /roots. Items use .fm-rail-item. -->
         <div id="quickAccess" class="fm-rail-list"></div>
         <p class="fm-rail-note fm-rail-note-sm" data-i18n="fm.nav.allowed_roots"></p>
+      </section>
+
+      <!-- Lối tắt do người dùng ghim (chuột phải thư mục → Tạo lối tắt). JS fills
+           #fmShortcuts from GET /shortcuts; the note shows only while the list is empty. -->
+      <section class="fm-rail-section" id="fm-shortcuts-section">
+        <h2 class="fm-rail-title" data-i18n="fm.nav.shortcuts"></h2>
+        <div id="fmShortcuts" class="fm-rail-list"></div>
+        <p class="fm-rail-note fm-rail-note-sm" id="fmShortcutsNote" data-i18n="fm.shortcuts.hint"></p>
       </section>
 
       <!-- Google Drive shortcut. The header row opens the Drive tab; fm_drive.js
@@ -1131,6 +1140,11 @@
     <svg class="fm-ico" aria-hidden="true"><use href="#i-pie"/></svg>
     <span data-i18n="fm.browse.analyze_folder"></span>
   </button>
+  <!-- Chỉ thư mục: showContextMenu() ẩn mọi mục data-fm-dir-only khi bấm vào file. -->
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="shortcut-toggle" data-fm-dir-only="1">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-star"/></svg>
+    <span id="ctxShortcutLabel" data-i18n="fm.browse.shortcut_add"></span>
+  </button>
   <hr class="fm-menu-sep">
   <button type="button" class="fm-menu-item fm-menu-danger" role="menuitem" data-fm-action="delete">
     <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
@@ -1478,7 +1492,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=18"></script>
+<script src="/file-manager-static/file_manager.js?v=19"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1492,7 +1506,7 @@
   keeps registration synchronous and makes "first claim wins" deterministic,
   so which module owns a duplicated name never depends on network timing.
 -->
-<script src="/file-manager-static/fm_actions.js?v=4"></script>
+<script src="/file-manager-static/fm_actions.js?v=5"></script>
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
