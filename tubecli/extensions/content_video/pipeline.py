@@ -2344,12 +2344,124 @@ def _describe_with_tags(seo: Dict) -> str:
     return (desc[:4900].rstrip() + "\n\n" + line)[:5000]
 
 
+# Nhánh tải thumbnail trong script YouTube Studio. Script là DỮ LIỆU của người
+# dùng (ghi từ 23/7), không đi theo mã, nên pipeline tự chèn nhánh này vào một
+# lần (đánh dấu bằng nhãn) — bản trên VPS cũng được vá lúc chạy. Nhánh là bước
+# `condition`: chỉ chạy khi thumbnail_set = 1, không có ảnh thì bỏ qua sạch.
+THUMB_BRANCH_LABEL = "t2:thumbnail — tải ảnh đại diện tuỳ chỉnh (chỉ khi có)"
+THUMB_INPUT_SELECTOR = "ytcp-thumbnail-uploader input#file-loader"
+
+
+def thumbnail_branch_step() -> Dict[str, Any]:
+    return {
+        "type": "condition", "label": THUMB_BRANCH_LABEL,
+        "params": {
+            # KHÔNG dùng bước `wait`: runner chờ phần tử HIỂN THỊ, mà input file của
+            # YouTube Studio là input ẩn → treo rồi rơi vào chuỗi tự sửa rất lâu.
+            # Điều kiện kiểm luôn ô upload có trên trang (kênh chưa xác minh thì không
+            # có), để bước upload không bao giờ phải "tự sửa" và nạp nhầm ảnh vào ô video.
+            "check": ("'{{thumbnail_set}}' === '1' && !!document.querySelector(" + repr(THUMB_INPUT_SELECTOR) + ")"),
+            "then_steps": [
+                {"type": "upload", "label": "Nạp thumbnail", "selector": THUMB_INPUT_SELECTOR,
+                 "on_error": "skip", "params": {"file": "{{thumbnail_path}}"}},
+                {"type": "sleep", "label": "Chờ thumbnail lên", "params": {"ms": 4000}},
+            ],
+            "else_steps": [],
+        },
+    }
+
+
+OPEN_UPLOAD_LABEL = "t2:open-upload — bấm Tạo → Tải video lên nếu hộp thoại chưa mở"
+
+
+def open_upload_step() -> Dict[str, Any]:
+    """Studio đôi khi mở trang danh sách thay vì hộp thoại tải lên (URL thiếu ?d=ud,
+    hay Studio đổi cách xử lý). Chưa thấy ô chọn file thì bấm Create → Upload videos,
+    đúng thao tác tay của người dùng."""
+    return {
+        "type": "condition", "label": OPEN_UPLOAD_LABEL,
+        "params": {
+            "check": "!document.querySelector(\"input[type='file']\")",
+            "then_steps": [
+                {"type": "click_if_exists", "label": "Bấm Tạo (Create)", "selector": "#create-icon, ytcp-button#create-icon", "params": {}},
+                {"type": "sleep", "params": {"ms": 1500}},
+                {"type": "click_if_exists", "label": "Bấm Tải video lên", "selector": "#text-item-0, tp-yt-paper-item#text-item-0", "params": {}},
+                {"type": "sleep", "params": {"ms": 2000}},
+            ],
+            "else_steps": [],
+        },
+    }
+
+
+def ensure_thumbnail_branch(slug: str) -> bool:
+    """Chèn (hoặc làm mới) hai bước do pipeline sở hữu trong script `slug`:
+    t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả.
+    True nếu có thay đổi."""
+    try:
+        from tubecli.extensions.browser_scripts.script_routes import _store
+        store = _store()
+        script = store.get_script(slug)
+    except Exception as e:
+        logger.info(f"[ContentVideo] script store unavailable: {e}")
+        return False
+    if not script:
+        return False
+    steps = list(script.get("steps") or [])
+    changed = False
+    # 1. Mở hộp thoại tải lên (ngay sau bước navigate đầu tiên)
+    opener = open_upload_step()
+    idx = next((i for i, s in enumerate(steps) if isinstance(s, dict)
+                and str(s.get("label") or "").startswith("t2:open-upload")), None)
+    if idx is None:
+        nav = next((i for i, s in enumerate(steps) if isinstance(s, dict) and s.get("type") == "navigate"), None)
+        if nav is not None:
+            steps.insert(nav + 1, opener)
+            changed = True
+    elif steps[idx].get("params") != opener["params"]:
+        steps[idx] = opener
+        changed = True
+    # 2. Nhánh thumbnail
+    fresh = thumbnail_branch_step()
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and str(s.get("label") or "").startswith("t2:thumbnail"):
+            if s.get("params") != fresh["params"]:
+                steps[i] = fresh                  # bản cũ (vd còn bước wait) → thay
+                changed = True
+            if changed:
+                try:
+                    store.update_script(slug, steps=steps)
+                except Exception as e:
+                    logger.warning(f"[ContentVideo] could not refresh the pipeline steps in {slug}: {e}")
+                    return False
+            return changed
+    # Sau bước điền mô tả (ô thumbnail đã hiện ở trang Chi tiết); không thấy thì sau tiêu đề.
+    at = None
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and s.get("type") == "type" and "description" in str(s.get("selector") or ""):
+            at = i + 1
+    if at is None:
+        for i, s in enumerate(steps):
+            if isinstance(s, dict) and s.get("type") == "type" and "title" in str(s.get("selector") or ""):
+                at = i + 1
+    if at is None:
+        return False
+    steps.insert(at, thumbnail_branch_step())
+    try:
+        store.update_script(slug, steps=steps)
+    except Exception as e:
+        logger.warning(f"[ContentVideo] could not add the thumbnail branch to {slug}: {e}")
+        return False
+    return True
+
+
 def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     """Đăng qua YouTube Studio bằng script trình duyệt của chính người dùng."""
     from tubecli.extensions.browser_scripts.script_routes import run_script_sync
 
     agent, say = state["agent"], state["_say"]
     slug = str(options.get("publish_script") or DEFAULTS["publish_script"]).strip()
+    if state.get("thumbnail_path") and ensure_thumbnail_branch(slug):
+        say("publish", "running", f"added the thumbnail branch to script “{slug}”")
     profile = _login_profile(agent, options)
     if not profile:
         raise RuntimeError(
@@ -2366,7 +2478,9 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     state["publish_channel"] = channel
     seo = _seo_for(state, options, channel)
 
-    upload_url = ("https://studio.youtube.com/channel/%s/videos/upload" % channel["id"]
+    # ?d=ud là tham số mở HỘP THOẠI tải lên; thiếu nó Studio chỉ mở trang danh sách
+    # video, script không thấy ô chọn file rồi "tự sửa" gõ nhầm vào ô tìm kiếm.
+    upload_url = ("https://studio.youtube.com/channel/%s/videos/upload?d=ud" % channel["id"]
                   if channel["id"] else "https://www.youtube.com/upload")
     monetize = "1" if options.get("publish_monetize") else "0"
     variables = {
@@ -2378,6 +2492,10 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         "monetize": monetize,
         # Hẹn giờ là việc của người dùng trên Studio; lượt tự động đăng ngay.
         "schedule": "0", "schedule_date": "", "schedule_time": "",
+        # Ảnh đại diện tuỳ chỉnh: script chỉ chạy nhánh tải thumbnail khi thumbnail_set = 1
+        # (bước condition), không có thì bỏ qua sạch — không bắt buộc.
+        "thumbnail_path": str(state.get("thumbnail_path") or ""),
+        "thumbnail_set": "1" if (state.get("thumbnail_path") and os.path.isfile(str(state["thumbnail_path"]))) else "0",
     }
     say("publish", "running",
         "opening YouTube Studio as “%s”%s" % (profile, " · monetised" if monetize == "1" else ""))
@@ -2683,9 +2801,11 @@ def _attach_thumbnail_after_script(state: Dict, options: Dict, title: str) -> No
     channel = _resolve_channel(state, options)
     token = _vm_token(channel.get("token_id") or str(options.get("publish_token_id") or ""))
     if not token or not channel.get("id"):
+        # Script đã nhận thumbnail_path và tự tải lên trong Studio; chỉ là không có
+        # token API để xác nhận và điền link.
         state.setdefault("warnings", []).append(
-            f"Thumbnail is ready at `{path}`; the channel has no API token here so it was not "
-            "attached — set it on YouTube Studio by hand.")
+            f"Thumbnail `{os.path.basename(path)}` was handed to the YouTube Studio upload script; "
+            "no API token for this channel to verify it — check the video's thumbnail.")
         return
     vm = _vm_module("providers/youtube/video_manager.py", "tubecli_vm_youtube_videos")
     if vm is None or not hasattr(vm, "list_videos"):

@@ -174,7 +174,8 @@ P.THUMB_LOOKUP_DELAY = 0
 st = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png, "_say": lambda *a: None, "_cancelled": lambda: False}
 opts = {"publish_channel_name": "Cinematic Bible", "publish_method": "script"}
 P._publish_via_script(st, opts, "public")
-assert runs and "studio.youtube.com/channel/UC2/videos/upload" in runs[0]["upload_url"], runs[0]["upload_url"]
+assert runs and runs[0]["upload_url"] == "https://studio.youtube.com/channel/UC2/videos/upload?d=ud", runs[0]["upload_url"]
+assert runs[0]["thumbnail_path"] == png and runs[0]["thumbnail_set"] == "1", runs[0]
 assert st["published"]["video_id"] == "VID9" and st["published"]["thumbnail"] == "set" and setmb == [("VID9", png, "live-tokB")], (st["published"], setmb)
 assert listed == ["UC2", "UC2"], "thử lại vì YouTube liệt kê chậm"
 # không có token cho kênh → thumbnail để lại cảnh báo, video vẫn lên
@@ -182,8 +183,48 @@ P._google_tokens = lambda: []
 setmb.clear()
 st = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png, "_say": lambda *a: None, "_cancelled": lambda: False}
 P._publish_via_script(st, {"publish_channel_name": "Nope"}, "public")
-assert st["published"]["via"] == "script" and not setmb and any("set it on youtube studio by hand" in w.lower() for w in st["warnings"]), st["warnings"]
+assert st["published"]["via"] == "script" and not setmb and any("handed to the youtube studio upload script" in w.lower() for w in st["warnings"]), st["warnings"]
+st = {"agent": _A3(), "video_path": "/v.mp4", "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(st, {"publish_channel_name": "Nope"}, "public")
+assert runs[-1]["thumbnail_set"] == "0" and runs[-1]["thumbnail_path"] == "", "không có thumbnail → nhánh script tắt"
 print("6 đăng      : script → tìm video theo tiêu đề, gắn thumbnail, điền id/link; không token → cảnh báo rõ")
+
+# 6b. Nhánh thumbnail tự chèn vào script (một lần, sau bước mô tả), là bước condition theo thumbnail_set
+class _Store:
+    def __init__(self):
+        self.script = {"slug": "youtube_upload", "steps": [
+            {"type": "navigate", "params": {"url": "{{upload_url}}"}},
+            {"type": "type", "selector": "#title-textarea #textbox", "params": {"text": "{{title}}"}},
+            {"type": "type", "selector": "#description-textarea #textbox", "params": {"text": "{{description}}"}},
+            {"type": "sleep", "params": {"ms": 8000}}]}
+        self.saved = []
+
+    def get_script(self, slug):
+        return self.script if slug == "youtube_upload" else None
+
+    def update_script(self, slug, **kw):
+        self.script["steps"] = kw["steps"]; self.saved.append(slug); return self.script
+
+
+store = _Store()
+SR = sys.modules["tubecli.extensions.browser_scripts.script_routes"]   # module giả từ nhóm 6
+SR._store = lambda: store
+assert P.ensure_thumbnail_branch("youtube_upload") is True and store.saved == ["youtube_upload"]
+steps = store.script["steps"]
+assert steps[1]["label"].startswith("t2:open-upload") and steps[1]["params"]["check"].startswith("!document.querySelector"), steps[1]
+assert [t["type"] for t in steps[1]["params"]["then_steps"]] == ["click_if_exists", "sleep", "click_if_exists", "sleep"]
+assert "#create-icon" in steps[1]["params"]["then_steps"][0]["selector"] and "#text-item-0" in steps[1]["params"]["then_steps"][2]["selector"]
+steps[3], steps[4] = steps[4], steps[3]      # thumbnail đứng sau mô tả (giờ ở 4 vì có opener) — sắp lại để các check dưới giữ nguyên
+assert steps[3]["type"] == "condition" and steps[3]["label"].startswith("t2:thumbnail"), steps[3]
+assert steps[3]["params"]["check"].startswith("'{{thumbnail_set}}' === '1' && !!document.querySelector(")
+assert [t["type"] for t in steps[3]["params"]["then_steps"]] == ["upload", "sleep"], "không có bước wait (input ẩn)"
+assert steps[3]["params"]["then_steps"][0]["selector"] == "ytcp-thumbnail-uploader input#file-loader"
+assert steps[3]["params"]["then_steps"][0]["params"]["file"] == "{{thumbnail_path}}"
+assert P.ensure_thumbnail_branch("youtube_upload") is False and len(store.saved) == 1, "idempotent"
+steps[3]["params"]["then_steps"].insert(0, {"type": "wait"})              # bản cũ trên máy khác
+assert P.ensure_thumbnail_branch("youtube_upload") is True and len(store.saved) == 2 and     [t["type"] for t in store.script["steps"][3]["params"]["then_steps"]] == ["upload", "sleep"], "bản cũ được thay"
+assert P.ensure_thumbnail_branch("no_such") is False
+print("6b script   : nhánh condition thumbnail chèn sau bước mô tả, một lần, không có ảnh thì bỏ qua")
 
 # 7. Thẻ kết quả có dòng Thumbnail (xem trước Codex bắt được đường dẫn)
 out = P._render_result({"shot_count": 3, "thumbnail_path": png, "thumbnail_template_used": "news",
