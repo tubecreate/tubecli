@@ -267,18 +267,11 @@ print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upl
 # 6d. Retry của lượt auto: kịch bản đã có trong checkpoint → dùng lại, không gọi model
 from tubecli.core import brain as B
 called = []
-B.AgentBrain._call_llm = staticmethod(lambda *a, **k: called.append(1) or "TITLE: x
-
-[SHOW: a]
-b")
+B.AgentBrain._call_llm = staticmethod(lambda *a, **k: called.append(1) or "TITLE: x\n\n[SHOW: a]\nb")
 P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(script))
 P.resolve_language = lambda *a, **k: ("es", "preset")
 stx = {"task_id": "t", "agent": _A3(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
-       "checkpoint": {"script": "[SHOW: one]
-Hola.
-
-[SHOW: two]
-Adiós.", "title": "El oro"},
+       "checkpoint": {"script": "[SHOW: one]\nHola.\n\n[SHOW: two]\nAdiós.", "title": "El oro"},
        "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_script(stx, {})
 assert not called and stx["title"] == "El oro" and stx["scene_count"] == 2 and "Adiós" in stx["script"], stx.get("title")
