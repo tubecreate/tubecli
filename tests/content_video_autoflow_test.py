@@ -65,7 +65,10 @@ assert P._find_channel(channel_id="UC1")["token_id"] == "tokA"
 
 class _Agent:
     id = "a1"; name = "CB"; publish_channel_id = ""; publish_channel_name = ""; publish_token_id = ""
-    allowed_profiles = []; login_accounts = []
+    allowed_profiles = []; login_accounts = []; language = ""
+
+    def to_dict(self):
+        return {"model": "gemini-2.0-flash"}
 
 
 st = {"agent": _Agent()}
