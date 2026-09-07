@@ -1537,7 +1537,14 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
         body = {"email": email, "text": _shot_narration(shot), "speed": 10, "volume": 10, "timestamps": True}
         if speaker:
             body["speaker"] = str(speaker)
-        audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
+        try:
+            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
+        except RuntimeError as e:
+            # Bản CapCut TTS 1.3.0 báo 502 khi giọng không có mốc từ; đọc thường.
+            if "timestamps" not in str(e) and "mốc" not in str(e):
+                raise
+            body.pop("timestamps", None)
+            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
         if not audio or len(audio) < 1000:
             raise RuntimeError("CapCut returned no audio")
         num = shot.get("storyboard_number") or shot.get("id") or i
@@ -1550,6 +1557,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
         _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
 
     failed_shots: List[Tuple[int, Dict]] = []
+    last_err = ""
     for i, shot in enumerate(todo, 1):
         if state["_cancelled"]():
             raise _cancel_exc()
@@ -1561,6 +1569,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             ok += 1
         except Exception as e:
             failed_shots.append((i, shot))
+            last_err = str(e)[:200]
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
         pct = int(min(99, i * 100 / max(1, total)))
         if pct != last_pct:
@@ -1581,13 +1590,17 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                 ok += 1
             except Exception as e:
                 still.append((i, shot))
+                last_err = str(e)[:200]
                 logger.warning(f"[ContentVideo] capcut tts failed again for shot {shot.get('id')}: {e}")
         failed_shots = still
     failed = len(failed_shots)
     state["tts_summary"] = f"{ok} voiced (CapCut)" + (f", {failed} failed" if failed else "") + \
         (f", {skipped} silent" if skipped else "")
+    if failed and last_err:
+        # Lý do hỏng phải lên thẻ, không chỉ nằm trong log server.
+        state.setdefault("warnings", []).append(f"CapCut TTS last error: {last_err}")
     if ok == 0 and failed:
-        raise RuntimeError(f"CapCut TTS failed for every shot ({failed}).")
+        raise RuntimeError(f"CapCut TTS failed for every shot ({failed}): {last_err}")
     _warn_voiceless(state, failed)
 
 
