@@ -2017,6 +2017,69 @@ def _find_channel(name: str = "", channel_id: str = "", prefer_token: str = "") 
     return best
 
 
+def _ident_key(s: str) -> str:
+    """So tên khoan dung: bỏ khoảng trắng/dấu câu, chữ thường — "mai le" ≈ "maile.x2b1m"."""
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    return "".join(ch for ch in s.casefold() if ch.isalnum())
+
+
+def _profile_identities(agent) -> List[Tuple[str, List[str]]]:
+    """[(hồ sơ, [tên/bí danh/tài khoản gắn với nó])] trong phạm vi agent: bí danh
+    trong nhóm Flow, tên hồ sơ, email/nhãn của google_account, ghi chú."""
+    out: List[Tuple[str, List[str]]] = []
+    seen = set()
+
+    def add(name: str, labels: List[str]) -> None:
+        if not name or name in seen:
+            return
+        seen.add(name)
+        ids = [name] + [str(x) for x in labels if x]
+        try:
+            from tubecli.extensions.browser.profile_manager import get_profile
+            p = get_profile(name) or {}
+            ga = p.get("google_account") or {}
+            if isinstance(ga, dict):
+                email = str(ga.get("email") or "")
+                ids += [email, email.split("@")[0] if "@" in email else "",
+                        str(ga.get("label") or ""), str(ga.get("name") or ""), str(ga.get("display_name") or "")]
+            ids.append(str(p.get("notes") or ""))
+        except Exception as e:
+            logger.debug(f"[ContentVideo] profile {name}: {e}")
+        out.append((name, [i for i in ids if i]))
+
+    try:
+        from tubecli.core import group_context
+        for g in group_context.effective_groups(str(agent.id)):
+            for p in (g.get("profiles") or []) if isinstance(g, dict) else []:
+                if isinstance(p, dict) and group_context.allows(p.get("access") or "use", "use"):
+                    add(str(p.get("profile") or "").strip(), [str(p.get("alias") or "")])
+    except Exception as e:
+        logger.debug(f"[ContentVideo] group profiles unavailable: {e}")
+    for name in (getattr(agent, "allowed_profiles", None) or []):
+        add(str(name), [])
+    return out
+
+
+def _profile_for_channel(agent, name: str) -> str:
+    """Hồ sơ trình duyệt mà tên kênh trỏ tới (bí danh nhóm, tên hồ sơ, tài khoản
+    Google gắn với hồ sơ), hay "". Kênh không có token API vẫn đăng được qua đúng
+    hồ sơ đang đăng nhập tài khoản đó — kênh mặc định của tài khoản chính là nó."""
+    want = _ident_key(name)
+    if not want:
+        return ""
+    best, best_score = "", 0
+    for prof, labels in _profile_identities(agent):
+        for lab in labels:
+            k = _ident_key(lab)
+            if not k:
+                continue
+            score = 3 if k == want else (2 if (want in k or k in want) and min(len(k), len(want)) >= 4 else 0)
+            if score > best_score:
+                best, best_score = prof, score
+    return best
+
+
 def _resolve_channel(state: Dict, options: Dict) -> Dict[str, str]:
     """Điền publish_channel_id / publish_token_id / tên chuẩn từ những gì có:
     lệnh chat (tên) > tuỳ chọn > cấu hình agent. Ghi nhớ trong state để bước
@@ -2040,9 +2103,19 @@ def _resolve_channel(state: Dict, options: Dict) -> Dict[str, str]:
         if found.get("token_id"):
             options["publish_token_id"] = found["token_id"]
     elif name and not cid:
-        state.setdefault("warnings", []).append(
-            f"No YouTube account authorised here manages a channel named “{name}” — "
-            "publishing to the browser profile's default channel instead.")
+        # Không token API nào quản lý kênh này → tìm HỒ SƠ TRÌNH DUYỆT mang tên/tài
+        # khoản đó (bí danh nhóm, tên hồ sơ, google_account). Ví dụ thật: "mai le" là
+        # tài khoản đang đăng nhập trong hồ sơ test2 của nhóm, không có token.
+        prof = "" if options.get("publish_profile") else _profile_for_channel(agent, name)
+        if prof:
+            options["publish_profile"] = prof
+            state["channel_profile"] = prof
+            state["_say"]("publish", "running", f"channel “{name}” → browser profile “{prof}”") if callable(state.get("_say")) else None
+        else:
+            state.setdefault("warnings", []).append(
+                f"Channel “{name}” has no API token here and no browser profile is named/aliased/logged in as it — "
+                "publishing to the default channel of the profile picked for this agent. Give the group's "
+                "profile the alias “{name}” (or add a Google token) to pin it.")
     res = {"id": str(options.get("publish_channel_id") or ""),
            "name": str(options.get("publish_channel_name") or name),
            "token_id": str(options.get("publish_token_id") or ""),

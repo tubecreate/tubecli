@@ -76,8 +76,22 @@ assert P._resolve_channel(st, {}) is res, "nhớ trong state, không tra lại"
 st2 = {"agent": _Agent()}
 o2 = {"publish_channel_name": "Nope"}
 P._resolve_channel(st2, o2)
-assert not o2.get("publish_channel_id") and any("no youtube account" in w.lower() for w in st2["warnings"]), st2
-print("3 kênh      : tên → id + token_id qua mọi token; khớp đúng tên thắng; không thấy → cảnh báo")
+assert not o2.get("publish_channel_id") and any("no api token here" in w.lower() for w in st2["warnings"]), st2
+# 3b. Không token nhưng có HỒ SƠ TRÌNH DUYỆT mang tên kênh: bí danh nhóm / tên hồ sơ / google_account
+from tubecli.core import group_context as G0
+from tubecli.extensions.browser import profile_manager as PM0
+G0.effective_groups = lambda agent_id, group_id="": [{"profiles": [{"profile": "test2", "alias": "mai le", "access": "use"}, {"profile": "other", "alias": "", "access": "use"}]}]
+PM0.get_profile = lambda name: {"test2": {"google_account": {"email": "maile.x2b1m@gmail.com"}}, "other": {"google_account": {"email": "someone@gmail.com"}}}.get(name, {})
+assert P._profile_for_channel(_Agent(), "mai le") == "test2"
+G0.effective_groups = lambda agent_id, group_id="": [{"profiles": [{"profile": "test2", "alias": "", "access": "use"}]}]
+assert P._profile_for_channel(_Agent(), "Mai Le") == "test2", "khớp qua email google_account (maile…)"
+assert P._profile_for_channel(_Agent(), "Cinematic Bible") == ""
+st3 = {"agent": _Agent(), "_say": lambda *a: None}
+o3 = {"publish_channel_name": "mai le"}
+P._resolve_channel(st3, o3)
+assert o3.get("publish_profile") == "test2" and not st3.get("warnings") and st3["channel_profile"] == "test2", (o3, st3)
+G0.effective_groups = lambda agent_id, group_id="": []
+print("3 kênh      : tên → id + token_id qua token; không token → hồ sơ trình duyệt mang tên/bí danh/tài khoản đó; không gì → cảnh báo có hướng dẫn")
 
 # 4. Hồ sơ trình duyệt: nhóm đã đăng nhập → riêng đã đăng nhập → Keychain → nhóm → riêng
 from tubecli.core import group_context as G
