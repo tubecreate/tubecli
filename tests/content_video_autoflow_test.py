@@ -226,6 +226,30 @@ assert P.ensure_thumbnail_branch("youtube_upload") is True and len(store.saved) 
 assert P.ensure_thumbnail_branch("no_such") is False
 print("6b script   : nhánh condition thumbnail chèn sau bước mô tả, một lần, không có ảnh thì bỏ qua")
 
+# 6c. VPS không có script youtube_upload → tạo từ bản mẫu đóng kèm (44 bước, có 2 bước của pipeline)
+class _EmptyStore:
+    def __init__(self):
+        self.created = []
+
+    def get_script(self, slug):
+        return self.created[-1] if self.created else None
+
+    def create_script(self, name, slug=None, description="", category="general", target_url="", tags=None, steps=None, variables=None):
+        d = {"name": name, "slug": slug, "steps": steps or [], "target_url": target_url}
+        self.created.append(d); return d
+
+
+es = _EmptyStore()
+SR._store = lambda: es
+assert P.ensure_upload_script("youtube_upload") is True and es.created[0]["slug"] == "youtube_upload"
+seeded = es.created[0]["steps"]
+assert len(seeded) >= 40 and seeded[0]["type"] == "navigate" and es.created[0]["target_url"] == "{{upload_url}}", (len(seeded), es.created[0])
+assert any(str(x.get("label", "")).startswith("t2:thumbnail") for x in seeded) and any(str(x.get("label", "")).startswith("t2:open-upload") for x in seeded)
+assert P.ensure_upload_script("youtube_upload") is False and len(es.created) == 1, "đã có thì không tạo lại"
+assert P.ensure_upload_script("no_such_script") is False
+assert P.ensure_thumbnail_branch("youtube_upload") is False, "bản mẫu đã mang đúng hai bước"
+print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upload.json, có sẵn hai bước pipeline")
+
 # 7. Thẻ kết quả có dòng Thumbnail (xem trước Codex bắt được đường dẫn)
 out = P._render_result({"shot_count": 3, "thumbnail_path": png, "thumbnail_template_used": "news",
                         "published": {"thumbnail": "set", "url": "https://youtu.be/x", "video_id": "x"}}, {}, [], [], 1.0)

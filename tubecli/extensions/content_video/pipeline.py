@@ -2393,6 +2393,38 @@ def open_upload_step() -> Dict[str, Any]:
     }
 
 
+SEED_SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+
+
+def ensure_upload_script(slug: str) -> bool:
+    """Script đăng YouTube Studio là DỮ LIỆU ghi trên máy dev; VPS mới cài không có
+    nó và bước đăng chết với "Script youtube_upload not found". Đóng bản mẫu vào
+    TubeCLI (assets/<slug>.json) và tạo vào kho script khi thiếu. True nếu vừa tạo."""
+    seed = os.path.join(SEED_SCRIPTS_DIR, f"{slug}.json")
+    if not os.path.isfile(seed):
+        return False
+    try:
+        from tubecli.extensions.browser_scripts.script_routes import _store
+        store = _store()
+        if store.get_script(slug):
+            return False
+        data = json.load(open(seed, encoding="utf-8"))
+        store.create_script(
+            name=str(data.get("name") or slug), slug=slug,
+            description=str(data.get("description") or ""),
+            category=str(data.get("category") or "post"),
+            target_url=str(data.get("target_url") or ""),
+            tags=list(data.get("tags") or []),
+            steps=list(data.get("steps") or []),
+            variables=list(data.get("variables") or []),
+        )
+        logger.info(f"[ContentVideo] seeded browser script {slug} from {seed}")
+        return True
+    except Exception as e:
+        logger.warning(f"[ContentVideo] could not seed script {slug}: {e}")
+        return False
+
+
 def ensure_thumbnail_branch(slug: str) -> bool:
     """Chèn (hoặc làm mới) hai bước do pipeline sở hữu trong script `slug`:
     t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả.
@@ -2460,8 +2492,10 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
 
     agent, say = state["agent"], state["_say"]
     slug = str(options.get("publish_script") or DEFAULTS["publish_script"]).strip()
-    if state.get("thumbnail_path") and ensure_thumbnail_branch(slug):
-        say("publish", "running", f"added the thumbnail branch to script “{slug}”")
+    if ensure_upload_script(slug):
+        say("publish", "running", f"installed the default upload script “{slug}”")
+    if ensure_thumbnail_branch(slug):
+        say("publish", "running", f"updated the pipeline steps in script “{slug}”")
     profile = _login_profile(agent, options)
     if not profile:
         raise RuntimeError(

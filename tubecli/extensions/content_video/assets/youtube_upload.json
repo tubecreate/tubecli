@@ -1,0 +1,546 @@
+{
+  "name": "YouTube Upload Video",
+  "slug": "youtube_upload",
+  "description": "Đăng 1 video lên YouTube Studio: chọn file, tiêu đề, mô tả, đối tượng, KIẾM TIỀN (monetize=1 bật / 0 tắt, tự đánh giá 'An toàn cho quảng cáo'), rồi CÔNG KHAI/RIÊNG TƯ/KHÔNG CÔNG KHAI (visibility_radio) hoặc HẸN GIỜ. Biến: video_path, title, description, monetize, visibility_radio, schedule, schedule_date, schedule_time.",
+  "category": "post",
+  "target_url": "{{upload_url}}",
+  "tags": [
+    "post",
+    "upload"
+  ],
+  "steps": [
+    {
+      "type": "navigate",
+      "label": "Mở hộp thoại tải video YouTube",
+      "params": {
+        "url": "{{upload_url}}"
+      }
+    },
+    {
+      "type": "condition",
+      "label": "t2:open-upload — bấm Tạo → Tải video lên nếu hộp thoại chưa mở",
+      "params": {
+        "check": "!document.querySelector(\"input[type='file']\")",
+        "then_steps": [
+          {
+            "type": "click_if_exists",
+            "label": "Bấm Tạo (Create)",
+            "selector": "#create-icon, ytcp-button#create-icon",
+            "params": {}
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 1500
+            }
+          },
+          {
+            "type": "click_if_exists",
+            "label": "Bấm Tải video lên",
+            "selector": "#text-item-0, tp-yt-paper-item#text-item-0",
+            "params": {}
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 2000
+            }
+          }
+        ],
+        "else_steps": []
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ ô chọn file",
+      "selector": "input[type='file']",
+      "params": {
+        "state": "attached",
+        "timeout": 60000
+      }
+    },
+    {
+      "type": "upload",
+      "label": "Nạp file video",
+      "selector": "input[type='file']",
+      "params": {
+        "file": "{{video_path}}"
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "BẬT tự đóng bảng feedback/tooltip (chạy nền cả phiên)",
+      "params": {
+        "code": "(()=>{if(window.__t2fbkiller)return 'already';const kill=()=>{try{document.querySelectorAll('[role=dialog]').forEach(dg=>{const h=dg.querySelector('h1,h2,[role=heading]');const ht=(h&&h.textContent)||'';if(/send feedback|gửi phản hồi/i.test(ht)){const c=dg.querySelector('[aria-label=Close],[aria-label=Đóng]');if(c)c.click();}});for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(/^(OK, Got it|Got it|Tôi hiểu|OK, tôi hiểu)$/i.test(tx)){let a=e;for(let i=0;i<4&&a;i++){if(a.tagName==='BUTTON'||(a.getAttribute&&a.getAttribute('role')==='button'))break;a=a.parentElement}try{(a||e).click()}catch(x){}}}}}catch(e){}};window.__t2fbkiller=setInterval(kill,700);kill();return 'installed'})()"
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ ô Tiêu đề",
+      "selector": "#title-textarea #textbox",
+      "params": {
+        "state": "visible",
+        "timeout": 120000
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Ổn định",
+      "params": {
+        "ms": 2000
+      }
+    },
+    {
+      "type": "type",
+      "label": "Điền tiêu đề",
+      "selector": "#title-textarea #textbox",
+      "params": {
+        "text": "{{title}}",
+        "clear_first": true
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Nghỉ",
+      "params": {
+        "ms": 1200
+      }
+    },
+    {
+      "type": "type",
+      "label": "Điền mô tả",
+      "selector": "#description-textarea #textbox",
+      "params": {
+        "text": "{{description}}",
+        "clear_first": true
+      }
+    },
+    {
+      "type": "condition",
+      "label": "t2:thumbnail — tải ảnh đại diện tuỳ chỉnh (chỉ khi có)",
+      "params": {
+        "check": "'{{thumbnail_set}}' === '1' && !!document.querySelector('ytcp-thumbnail-uploader input#file-loader')",
+        "then_steps": [
+          {
+            "type": "upload",
+            "label": "Nạp thumbnail",
+            "selector": "ytcp-thumbnail-uploader input#file-loader",
+            "on_error": "skip",
+            "params": {
+              "file": "{{thumbnail_path}}"
+            }
+          },
+          {
+            "type": "sleep",
+            "label": "Chờ thumbnail lên",
+            "params": {
+              "ms": 4000
+            }
+          }
+        ],
+        "else_steps": []
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ tải/xử lý một phần",
+      "params": {
+        "ms": 8000
+      }
+    },
+    {
+      "type": "click_if_exists",
+      "label": "Đóng popup chính sách (nếu có)",
+      "selector": "#dismiss-button, tp-yt-paper-dialog #close-button",
+      "params": {}
+    },
+    {
+      "type": "click_if_exists",
+      "label": "BẮT BUỘC: 'Không dành cho trẻ em'",
+      "selector": "tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK'] #radioContainer, tp-yt-paper-radio-button[name='VIDEO_MADE_FOR_KIDS_NOT_MFK']",
+      "params": {}
+    },
+    {
+      "type": "sleep",
+      "label": "Sau chọn đối tượng",
+      "params": {
+        "ms": 1500
+      }
+    },
+    {
+      "type": "loop",
+      "label": "Đi tới bước HIỂN THỊ (không đếm tab — số tab & ngôn ngữ thay đổi theo kênh)",
+      "params": {
+        "count": 16,
+        "delay": 1600,
+        "break_on": "(()=>{const e=document.querySelector(\"tp-yt-paper-radio-button[name='PUBLIC'], tp-yt-paper-radio-button[name='PRIVATE'], tp-yt-paper-radio-button[name='UNLISTED']\");return !!e && e.getBoundingClientRect().width>0})()",
+        "steps": [
+          {
+            "type": "evaluate",
+            "label": "Dò kênh có bật kiếm tiền (bước Kiếm tiền) — gắn cờ",
+            "save_as": "monetized",
+            "params": {
+              "save_as": "monetized",
+              "code": "(()=>{const el=document.querySelector('ytcp-video-monetization');if(el&&el.getBoundingClientRect().width>0)window.__t2mon='1';return window.__t2mon||''})()"
+            }
+          },
+          {
+            "type": "condition",
+            "label": "Xử lý màn Kiếm tiền / Mức độ phù hợp nếu đang ở đó (cơ hội, nơi khác no-op)",
+            "params": {
+              "check": "'{{monetize}}' !== '1'",
+              "then_steps": [
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] mở ô Chọn",
+                  "selector": "ytcp-video-monetization .m10n-text.clickable, ytcp-video-monetization #text-container",
+                  "params": {}
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 800
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] chọn TẮT",
+                  "selector": "ytcp-video-monetization-edit-dialog #radio-off, #radio-off, tp-yt-paper-radio-button[name='OFF'], tp-yt-paper-radio-button:has-text('Tắt')",
+                  "params": {}
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 600
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] Xong/Done",
+                  "selector": "ytcp-video-monetization-edit-dialog #save-button, ytcp-video-monetization-edit-dialog ytcp-button:has-text('Xong'), #save-button",
+                  "params": {}
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 700
+                  }
+                }
+              ],
+              "else_steps": [
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] mở ô Chọn (bật)",
+                  "selector": "ytcp-video-monetization .m10n-text.clickable, ytcp-video-monetization #text-container, ytcp-video-monetization ytcp-select"
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 900
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] chọn BẬT/On",
+                  "selector": "ytcp-video-monetization-edit-dialog #radio-on, #radio-on, tp-yt-paper-radio-button[name='ON'], tp-yt-paper-radio-button:has-text('Bật')"
+                },
+                {
+                  "type": "evaluate",
+                  "label": "[Kiếm tiền] đảm bảo Bật đã chọn (JS fallback)",
+                  "params": {
+                    "code": "(()=>{const r=document.querySelector('#radio-on, tp-yt-paper-radio-button[name=\"ON\"]');if(!r)return 'no-radio';if(r.getAttribute('aria-checked')==='true')return 'already';try{r.click()}catch(e){}try{const c=r.querySelector('#radioContainer')||r;['pointerdown','mousedown','pointerup','mouseup','click'].forEach(t=>c.dispatchEvent(new MouseEvent(t,{bubbles:true,cancelable:true})))}catch(e){}return r.getAttribute('aria-checked')||'clicked'})()"
+                  }
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 800
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "[Kiếm tiền] Xong/Done (lưu bật)",
+                  "selector": "ytcp-video-monetization-edit-dialog #save-button, ytcp-video-monetization-edit-dialog ytcp-button:has-text('Xong'), #save-button"
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 900
+                  }
+                },
+                {
+                  "type": "evaluate",
+                  "label": "[Mức độ phù hợp] tick 'không chứa nội dung' nếu có (1 lần)",
+                  "params": {
+                    "code": "(()=>{const fd=(r)=>{for(const e of r.querySelectorAll('[role=checkbox]')){const al=(e.getAttribute('aria-label')||'');if(/không chứa nội dung|none of the above/i.test(al))return e;}for(const e of r.querySelectorAll('*')){if(e.shadowRoot){const x=fd(e.shadowRoot);if(x)return x;}}return null;};const el=fd(document);if(!el)return 'no';if(el.getAttribute('aria-checked')==='true')return 'already';el.scrollIntoView({block:'center'});el.click();return 'ok';})()"
+                  }
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 1000
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "[Mức độ phù hợp] Gửi/Submit",
+                  "selector": "ytcp-button:has-text('Gửi thông tin đánh giá'), ytcp-button:has-text('Submit rating')"
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 1000
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "click_if_exists",
+            "label": "Bấm Tiếp (#next-button — cấu trúc, không phụ thuộc ngôn ngữ)",
+            "selector": "#next-button",
+            "params": {}
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 900
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Ổn định ở bước Hiển thị",
+      "params": {
+        "ms": 1800
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Xác nhận đã tới bước Hiển thị",
+      "selector": "#privacy-radios, tp-yt-paper-radio-button[name='PUBLIC'], ytcp-video-visibility-select",
+      "on_error": "skip",
+      "params": {
+        "state": "visible",
+        "timeout": 30000
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Ổn định",
+      "params": {
+        "ms": 1500
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "Đóng feedback/tooltip chặn trang",
+      "params": {
+        "code": "(()=>{document.querySelectorAll('[role=dialog]').forEach(dg=>{const h=dg.querySelector('h1,h2,[role=heading]');const ht=(h&&h.textContent)||'';if(/send feedback|gửi phản hồi/i.test(ht)){const c=dg.querySelector('[aria-label=Close],[aria-label=Đóng]');if(c){try{c.click()}catch(e){}}}});for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(/^(OK, Got it|Got it|Tôi hiểu|OK, tôi hiểu)$/i.test(tx)){let a=e;for(let i=0;i<4&&a;i++){if(a.tagName==='BUTTON'||(a.getAttribute&&a.getAttribute('role')==='button'))break;a=a.parentElement}try{(a||e).click()}catch(x){}}}};return 'ok'})()"
+      }
+    },
+    {
+      "type": "sleep",
+      "params": {
+        "ms": 500
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "Chế độ hiển thị (nếu KHÔNG hẹn giờ)",
+      "params": {
+        "code": "(()=>{if('{{schedule}}'==='1')return 'skip';for(const s of[\"tp-yt-paper-radio-button[name='{{visibility_radio}}'] #radio\",\"tp-yt-paper-radio-button[name='{{visibility_radio}}']\"]){const e=document.querySelector(s);if(e){e.click();return 'vis'}}return 'no'})()"
+      }
+    },
+    {
+      "type": "loop",
+      "label": "Mở phần Lên lịch (thử tới khi hiện lịch)",
+      "params": {
+        "count": 8,
+        "delay": 1400,
+        "break_on": "'{{schedule}}'!=='1' || !!document.querySelector('#datepicker-trigger')",
+        "steps": [
+          {
+            "type": "evaluate",
+            "label": "tag Schedule",
+            "params": {
+              "code": "(()=>{if('{{schedule}}'!=='1')return 'x';if(document.querySelector('#datepicker-trigger'))return 'already';const RX=/^(schedule|lên lịch|len lich|planifier|programar|programa|zeitplan|スケジュール|일정)$/i;for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(RX.test(tx)){const r=e.getBoundingClientRect();if(r.width>0&&r.top>240&&r.top<820){let a=e;for(let i=0;i<6&&a&&a.parentElement;i++){a=a.parentElement;const rr=a.getBoundingClientRect();if(rr.width>300&&rr.height>40&&rr.height<130){break}}(a||e).setAttribute('data-t2sched','1');(a||e).scrollIntoView({block:'center'});return 'tagged'}}}}return 'no-row'})()"
+            }
+          },
+          {
+            "type": "click_if_exists",
+            "label": "click Schedule (Playwright tap)",
+            "selector": "[data-t2sched='1']",
+            "params": {}
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 1300
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "sleep",
+      "params": {
+        "ms": 800
+      }
+    },
+    {
+      "type": "click_if_exists",
+      "label": "Mở lịch (calendar)",
+      "selector": "#datepicker-trigger, #datepicker-trigger #textbox, ytcp-date-picker",
+      "params": {}
+    },
+    {
+      "type": "sleep",
+      "params": {
+        "ms": 1400
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "Dựng ngày theo NGÔN NGỮ YouTube (<html lang> + Intl) + đánh dấu",
+      "params": {
+        "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const EN=[\"Jan\",\"Feb\",\"Mar\",\"Apr\",\"May\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Oct\",\"Nov\",\"Dec\"];const src='{{schedule_date}}';const sm=src.match(/([A-Za-z]{3,})\\s+(\\d{1,2}),?\\s+(\\d{4})/);if(!sm)return 'badsrc:'+src;const M=EN.findIndex(x=>x.toLowerCase()===sm[1].slice(0,3).toLowerCase())+1;const D=parseInt(sm[2],10),Y=parseInt(sm[3],10);if(!M)return 'badmon';const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const dObj=new Date(Y,M-1,D);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=24&&/\\d{4}/.test(v)&&!/:/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-date-picker input, tp-yt-datetime-picker input, #datepicker-trigger input, [id*=datepicker] input\");if(!inp)return 'no-input';const cur=(inp.value||'');let out;if(/thg/i.test(cur))out=D+' thg '+M+', '+Y;else if(/^[A-Za-z]{3}\\.?\\s+\\d{1,2},/.test(cur))out=EN[M-1]+' '+D+', '+Y;else{try{out=new Intl.DateTimeFormat(loc,{year:'numeric',month:'short',day:'numeric'}).format(dObj)}catch(e){out=EN[M-1]+' '+D+', '+Y}}inp.setAttribute('data-t2date','1');return out})()",
+        "save_as": "t2_date_str"
+      }
+    },
+    {
+      "type": "type",
+      "label": "Gõ ngày",
+      "selector": "[data-t2date='1']",
+      "params": {
+        "text": "{{t2_date_str}}",
+        "clear_first": true
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "keyboard",
+      "params": {
+        "key": "Enter"
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "sleep",
+      "params": {
+        "ms": 1200
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "Dựng giờ theo NGÔN NGỮ YouTube (Intl, 24h/12h theo ô) + đánh dấu",
+      "params": {
+        "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const src='{{schedule_time}}';const sm=src.match(/(\\d{1,2}):(\\d{2})\\s*([AP]M)?/i);if(!sm)return 'badsrc:'+src;let H=parseInt(sm[1],10);const Mi=parseInt(sm[2],10);const ap=(sm[3]||'').toUpperCase();if(ap==='PM'&&H<12)H+=12;if(ap==='AM'&&H===12)H=0;const mm=(Mi<10?'0':'')+Mi;const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const tObj=new Date(2000,0,1,H,Mi);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=12&&/\\d{1,2}[:.]\\d{2}/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-time-of-day-picker input, [id*=time-of-day] input, [id*=time] input\");if(!inp)return 'no-input';const cur=(inp.value||'');const stripped=cur.replace(/[\\d:.\\s\\u00a0]/g,'');let out;if(stripped.length>0){try{out=new Intl.DateTimeFormat(loc,{hour:'numeric',minute:'2-digit',hour12:true}).format(tObj)}catch(e){const h12=(H%12)||12;out=h12+':'+mm+' '+(H<12?'AM':'PM')}}else{const sep=/\\d[.]\\d/.test(cur)?'.':':';const pad=/^\\d{2}[:.]/.test(cur);out=(pad?((H<10?'0':'')+H):(''+H))+sep+mm}inp.setAttribute('data-t2time','1');return out})()",
+        "save_as": "t2_time_str"
+      }
+    },
+    {
+      "type": "type",
+      "label": "Gõ giờ",
+      "selector": "[data-t2time='1']",
+      "params": {
+        "text": "{{t2_time_str}}",
+        "clear_first": true
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "keyboard",
+      "params": {
+        "key": "Enter"
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "sleep",
+      "params": {
+        "ms": 800
+      }
+    },
+    {
+      "type": "evaluate",
+      "label": "Đóng feedback lần nữa",
+      "params": {
+        "code": "(()=>{document.querySelectorAll('[role=dialog]').forEach(dg=>{const h=dg.querySelector('h1,h2,[role=heading]');const ht=(h&&h.textContent)||'';if(/send feedback|gửi phản hồi/i.test(ht)){const c=dg.querySelector('[aria-label=Close],[aria-label=Đóng]');if(c){try{c.click()}catch(e){}}}});for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(/^(OK, Got it|Got it|Tôi hiểu|OK, tôi hiểu)$/i.test(tx)){let a=e;for(let i=0;i<4&&a;i++){if(a.tagName==='BUTTON'||(a.getAttribute&&a.getAttribute('role')==='button'))break;a=a.parentElement}try{(a||e).click()}catch(x){}}}};return 'ok'})()"
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ nút Xuất bản/Lên lịch bật",
+      "params": {
+        "ms": 6000
+      }
+    },
+    {
+      "type": "wait",
+      "label": "Chờ nút Xong/Lên lịch",
+      "selector": "#done-button",
+      "on_error": "skip",
+      "params": {
+        "state": "visible",
+        "timeout": 60000
+      }
+    },
+    {
+      "type": "click",
+      "label": "Xuất bản / Lên lịch (thử 1)",
+      "selector": "#done-button",
+      "retry_count": 2,
+      "retry_delay": 1500,
+      "on_error": "skip",
+      "params": {}
+    },
+    {
+      "type": "sleep",
+      "label": "Nghỉ",
+      "params": {
+        "ms": 2000
+      }
+    },
+    {
+      "type": "click_if_exists",
+      "label": "Xuất bản / Lên lịch (thử 2)",
+      "selector": "#done-button",
+      "params": {}
+    },
+    {
+      "type": "sleep",
+      "label": "Nghỉ",
+      "params": {
+        "ms": 1200
+      }
+    },
+    {
+      "type": "keyboard",
+      "label": "Fallback: Enter để xác nhận",
+      "on_error": "skip",
+      "params": {
+        "key": "Enter"
+      }
+    },
+    {
+      "type": "sleep",
+      "label": "Chờ xác nhận xuất bản",
+      "params": {
+        "ms": 6000
+      }
+    },
+    {
+      "type": "click_if_exists",
+      "label": "Đóng hộp thoại đã đăng (nếu có)",
+      "selector": "#close-button, ytcp-button#close-button, tp-yt-paper-dialog #close-button",
+      "params": {}
+    }
+  ],
+  "variables": [],
+  "is_function": false,
+  "function_inputs": [],
+  "function_outputs": []
+}
