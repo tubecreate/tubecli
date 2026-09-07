@@ -320,6 +320,10 @@
             'fm.drive.paste_server': 'Paste from server (upload to Drive)',
             'fm.drive.pasted': 'Uploaded “{name}” to Drive',
             'fm.drive.paste_failed': 'Cannot upload to Drive: {message}',
+            'fm.busy.copying': 'Copying “{name}”…',
+            'fm.busy.moving': 'Moving “{name}”…',
+            'fm.drive.uploading_server': 'Uploading to Drive: “{name}” ({size})…',
+            'fm.drive.paste_none': 'Copy a file on the server first (right-click it → Copy).',
             'fm.nav.shortcuts': 'Shortcuts',
             'fm.shortcuts.hint': 'Right-click a folder and choose “Add to shortcuts”.',
             'fm.browse.shortcut_add': 'Add to shortcuts',
@@ -1711,6 +1715,16 @@
                 });
             }
 
+            // Chặn menu gốc của trình duyệt trong toàn khung File Manager: chuột phải
+            // ở đây là của menu riêng (thẻ, nền thư mục, Drive). Trừ ô nhập liệu và
+            // trình phát video/âm thanh — ở đó menu gốc có việc của nó.
+            document.addEventListener('contextmenu', function (e) {
+                var t = e.target;
+                if (!t || !t.closest) return;
+                if (t.closest('input, textarea, select, [contenteditable="true"], video, audio, a[href]')) return;
+                e.preventDefault();
+            });
+
             var bc = byId('breadcrumb');
             if (bc) bc.addEventListener('click', (function (e) {
                 var crumb = e.target.closest('[data-path]');
@@ -2366,6 +2380,8 @@
             var name = baseName(src);
             var dst = joinPath(this.currentPath, name);
             if (dst === src) { toast(T('fm.paste_same_dir'), 'warn'); return; }
+            this.hideContextMenu();
+            this.busy(T(this.clipboard.action === 'copy' ? 'fm.busy.copying' : 'fm.busy.moving', { name: name }));
             try {
                 if (this.clipboard.action === 'copy') {
                     await this.api('POST', '/copy', { src: src, dst: dst });
@@ -2378,6 +2394,7 @@
                 }
                 this.refresh();
             } catch (e) { /* reported by api() */ }
+            finally { this.busyDone(); }
         },
 
         openItem(path, isDir) {
@@ -2471,6 +2488,33 @@
             if (menu) menu.style.display = 'none';
             var bg = byId('bgContextMenu');
             if (bg) bg.style.display = 'none';
+        },
+
+        /* Dải «đang làm việc» nổi giữa trên: dán/tải lên có thể mất cả phút với file
+           lớn mà không có gì báo, người dùng tưởng bấm hụt rồi bấm tiếp. Một dải, một
+           việc; xong thì tự biến. */
+        busy(text) {
+            var el = byId('fmBusy');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'fmBusy';
+                el.className = 'fm-busy-banner';
+                el.setAttribute('role', 'status');
+                el.setAttribute('aria-live', 'polite');
+                document.body.appendChild(el);
+            }
+            el.textContent = '';
+            var spin = document.createElement('span');
+            spin.className = 'fm-spin';
+            el.appendChild(spin);
+            el.appendChild(document.createTextNode(text || ''));
+            el.hidden = false;
+            return el;
+        },
+
+        busyDone() {
+            var el = byId('fmBusy');
+            if (el) el.hidden = true;
         },
 
         /* Menu trên NỀN thư mục: Dán (mờ khi chưa sao chép gì), tạo mới, tải lên, làm

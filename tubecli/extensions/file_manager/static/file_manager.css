@@ -2071,3 +2071,18 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-share-row .fm-input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
 .fm-btn-danger { color: var(--red); }
 .fm-menu-item:disabled { opacity: 0.45; cursor: default; }
+
+/* Dải «đang làm việc» (dán, tải lên Drive): nổi giữa trên, khó bỏ sót. */
+.fm-busy-banner {
+    position: fixed; top: 72px; left: 50%; transform: translateX(-50%); z-index: 99998;
+    display: flex; align-items: center; gap: 10px; max-width: min(90vw, 640px);
+    padding: 10px 18px; border-radius: 999px; background: var(--accent, #5276eb); color: #fff;
+    font-weight: 600; font-size: 0.9rem; box-shadow: 0 10px 30px rgba(0, 0, 0, .25);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.fm-busy-banner[hidden] { display: none; }
+.fm-spin {
+    width: 16px; height: 16px; flex: 0 0 auto; border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; animation: fm-spin .8s linear infinite;
+}
+@keyframes fm-spin { to { transform: rotate(360deg); } }

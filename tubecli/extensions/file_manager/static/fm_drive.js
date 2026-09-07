@@ -557,17 +557,36 @@
         var m = byId('fm-drive-bgmenu');
         if (!m) return;
         hideDriveMenu();
+        var cb = window.FM && window.FM.clipboard;
+        var item = m.querySelector('[data-fm-action="dmenu-paste-server"]');
+        if (item) item.disabled = !(cb && cb.path) || !!S.uploadingPath;
         m.hidden = false;
         var r = m.getBoundingClientRect();
         m.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - r.width - 8)) + 'px';
         m.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - r.height - 8)) + 'px';
     }
 
+    function humanSize(n) {
+        var x = Number(n) || 0, u = ['B', 'KB', 'MB', 'GB'], i = 0;
+        while (x >= 1024 && i < u.length - 1) { x /= 1024; i++; }
+        return (i ? x.toFixed(1) : x) + ' ' + u[i];
+    }
+
     async function pasteFromServer() {
         var cb = window.FM && window.FM.clipboard;
-        if (!cb || !cb.path) return;
+        if (!cb || !cb.path) { toast(tr('fm.drive.paste_none'), 'warn'); return; }
+        if (S.uploadingPath) return;                 // một lượt một file — bấm đúp không tải hai lần
         var name = cb.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cb.path;
         var folder = currentFolder();
+        // Dung lượng lấy từ danh sách đang mở nếu có (cùng thư mục), không thì bỏ trống.
+        var size = '';
+        try {
+            var it = window.FM && Array.isArray(window.FM.items) ? window.FM.items.filter(function (i) { return i.path === cb.path; })[0] : null;
+            if (it && it.size) size = humanSize(it.size);
+        } catch (x) {}
+        S.uploadingPath = cb.path;
+        var f = window.FM;
+        if (f && typeof f.busy === 'function') f.busy(tr('fm.drive.uploading_server', { name: name, size: size || '…' }));
         try {
             await driveFetch('POST', '/upload', {
                 local_path: cb.path,
@@ -578,6 +597,9 @@
             await loadList();
         } catch (err) {
             toast(tr('fm.drive.paste_failed', { message: String(err && err.message || err) }), 'error');
+        } finally {
+            S.uploadingPath = '';
+            if (f && typeof f.busyDone === 'function') f.busyDone();
         }
     }
 
@@ -677,10 +699,10 @@
         document.addEventListener('contextmenu', function (e) {
             var el = e.target.closest ? e.target.closest('.fm-drive-item') : null;
             if (!el) {
-                // nền tab Drive + đang có file sao chép ở máy chủ → menu «Dán từ máy chủ»
-                var host = e.target.closest ? e.target.closest('#fm-drive-listcard, #fm-drive-noauth, .fm-drive-crumbs') : null;
-                var cb = window.FM && window.FM.clipboard;
-                if (!host || !cb || !cb.path) return;
+                // Nền tab Drive: LUÔN menu của mình (menu gốc trình duyệt đã bị chặn ở
+                // file_manager.js). Mục «Dán từ máy chủ» mờ khi chưa sao chép gì.
+                var host = e.target.closest ? e.target.closest('#fm-view-drive, .fm-view-drive, #fm-drive-listcard') : null;
+                if (!host) return;
                 e.preventDefault();
                 showDriveBgMenu(e);
                 return;

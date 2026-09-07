@@ -132,10 +132,14 @@ check('id="fm-share"' in html and 'data-fm-action="share"' in html and 'data-fm-
 check("showBgMenu(" in js and "openShare(" in js and "createShare(" in js and "revokeShare(" in js and "data-fm-file-only" in js, "JS: menu nền + chia sẻ")
 check("'share': actShare" in acts and "'bg-upload': actBgUpload" in acts, "fm_actions: đăng ký share/bg-upload")
 check("'dmenu-paste-server'" in drv and "pasteFromServer" in drv and "'/upload'" in drv, "fm_drive: dán từ máy chủ = /drive/upload")
+check("document.addEventListener('contextmenu'" in js and "e.preventDefault()" in js.split("document.addEventListener('contextmenu'")[1][:600], "JS: chặn menu gốc trình duyệt trong khung FM")
+check("busy(text)" in js and "busyDone()" in js and "fm.drive.uploading_server" in drv and "S.uploadingPath" in drv, "dải đang làm việc khi dán / tải lên Drive")
+css = open(os.path.join(ST, "file_manager.css"), encoding="utf-8").read()
+check(".fm-busy-banner" in css and "fm-spin" in css, "CSS dải bận")
 for lang in ("en", "vi", "es", "ja", "ko", "ru", "tr", "zh", "zh-TW"):
     with open(os.path.join(os.path.dirname(ST), "locales", lang + ".json"), encoding="utf-8") as f:
         d = json.load(f)
-    check(all(k in d for k in ("fm.browse.share", "fm.share.create", "fm.share.revoke", "fm.drive.paste_server")), f"locale {lang} có khoá chia sẻ")
+    check(all(k in d for k in ("fm.browse.share", "fm.share.create", "fm.share.revoke", "fm.drive.paste_server", "fm.drive.uploading_server", "fm.drive.uploading")), f"locale {lang} có khoá chia sẻ")
 
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{COUNT[0] - len(FAILS)}/{COUNT[0]} passed")
