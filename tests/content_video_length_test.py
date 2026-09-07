@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from tubecli.core import brain as B  # noqa: E402
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
 _REAL_POLL = P._poll_studio
+_REAL_CALL_LLM = B.AgentBrain._call_llm
 
 # 1. Output budget reaches every provider through the contextvar, and only inside the block
 assert B._output_budget(4096) == 4096
@@ -433,5 +434,70 @@ except RuntimeError as e:
     assert "No progress for 0.1s" in str(e) and "Retry re-attaches" in str(e), e
 P.TIMEOUTS["render"] = 1800
 print("11 slow box  : stall budget resets on progress; 404 → restarted; transient error tolerated; Retry re-attaches to the running export; cap scales with length")
+# 12. Model suy luận nghĩ hết ngân sách: thang thử lại có ý nghĩa → provider khác → viết theo đợt
+import types as _t2
+asks12 = []
+
+
+class _C12:
+    def create(self, **kw):
+        asks12.append({k: v for k, v in kw.items() if k in ("max_tokens", "extra_body", "reasoning_effort")})
+        if "extra_body" in kw:
+            raise TypeError("Unrecognized request argument: thinking")      # API không nhận tham số này
+        if kw.get("reasoning_effort") == "low":
+            return _t2.SimpleNamespace(choices=[_Choice("TITLE: low effort", "stop")])
+        return _t2.SimpleNamespace(choices=[_Choice("", "length")])
+
+
+sys.modules["openai"] = _t2.SimpleNamespace(OpenAI=lambda *a, **k: _t2.SimpleNamespace(chat=_t2.SimpleNamespace(completions=_C12())))
+with B.AgentBrain.output_budget(4096):
+    out = B.AgentBrain._call_openai("deepseek-v4-flash", "k", [{"role": "user", "content": "x"}], base_url="https://api.deepseek.com/v1")
+assert out == "TITLE: low effort", out
+assert [a.get("max_tokens") for a in asks12] == [4096, 8192, 8192] and "extra_body" in asks12[1] and asks12[2].get("reasoning_effort") == "low", asks12
+print("12a ladder    : thinking-disabled bị API từ chối → reasoning_effort=low → có bài")
+
+
+class _C12b:
+    def create(self, **kw):
+        return _t2.SimpleNamespace(choices=[_Choice("", "length")])
+
+
+sys.modules["openai"] = _t2.SimpleNamespace(OpenAI=lambda *a, **k: _t2.SimpleNamespace(chat=_t2.SimpleNamespace(completions=_C12b())))
+gem = []
+B.AgentBrain._call_gemini = staticmethod(lambda model, key, messages, temperature=0.7: gem.append(model) or "TITLE: from gemini")
+B.AgentBrain._call_llm = _REAL_CALL_LLM          # các nhóm trước đã mock nó
+agent12 = {"model": "deepseek-v4-flash", "provider": "deepseek", "cloud_api_keys": {"deepseek": "k", "gemini": "g"}}
+with B.AgentBrain.output_budget(4096):
+    out = B.AgentBrain._call_llm(agent12, [{"role": "user", "content": "x"}])
+assert out == "TITLE: from gemini" and gem, (out, gem)
+out2 = B.AgentBrain._call_llm(agent12, [{"role": "user", "content": "x"}])            # chat thường: KHÔNG tự đổi provider
+assert B.REASONING_STALL in out2, out2
+del sys.modules["openai"]
+print("12b failover  : suy luận nuốt hết ngân sách → sang Gemini khi có budget (pipeline); chat thường giữ lỗi")
+
+# pipeline: một lượt hỏng vì suy luận → chuyển sang viết theo đợt thay vì bỏ cuộc
+calls12 = []
+
+
+def stall_then_batches(agent, messages, temperature=0.7):
+    prompt = messages[-1]["content"]
+    calls12.append(prompt[:40])
+    if "Plan a news video" in prompt:
+        return "TITLE: Batched\n" + "\n".join(f"{i}. [SHOW: f{i}] — g{i}" for i in range(1, 14))
+    import re as _re
+    m = _re.search(r"scenes (\d+)-(\d+) ONLY", prompt)
+    if m:
+        a, b = int(m.group(1)), int(m.group(2))
+        return "\n\n".join(f"[SHOW: f{i}]\n" + " ".join([f"w{i}"] * 60) + "." for i in range(a, b + 1))
+    return "[OpenAI Error] deepseek-v4-flash returned an empty response (finish_reason=length, the model spent its whole budget on reasoning)."
+
+
+B.AgentBrain._call_llm = staticmethod(stall_then_batches)
+P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(script))
+st12 = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+        "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_script(st12, {"target_words": 800})
+assert st12["title"] == "Batched" and st12["scene_count"] == 13 and len(calls12) == 1 + 1 + 3, (st12.get("title"), st12.get("scene_count"), len(calls12))
+print("12c pipeline  : một lượt 800 chữ nghẽn vì suy luận → dàn ý + 3 đợt, không bỏ cuộc")
 print()
-print("ALL 11 GROUPS PASSED")
+print("ALL 12 GROUPS PASSED")

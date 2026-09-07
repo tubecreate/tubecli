@@ -1111,7 +1111,16 @@ def _step_script(state: Dict, options: Dict) -> None:
         text = write_script_chunked(state, agent, system_prompt, blocks, style, words, scenes_n,
                                     sent_lo, sent_hi, lang, write_in, feedback, previous)
     else:
-        text = _ask_model(agent, system_prompt, user_prompt, words)
+        try:
+            text = _ask_model(agent, system_prompt, user_prompt, words)
+        except RuntimeError as e:
+            # Model suy luận nghĩ hết ngân sách ở một lượt 800 chữ, thử lại bao
+            # nhiêu lần cũng thế. Viết theo đợt: mỗi lượt vài trăm chữ, ít phải nghĩ.
+            if "reasoning" not in str(e):
+                raise
+            state["_say"]("script", "running", "reasoning model stalled — writing in batches instead")
+            text = write_script_chunked(state, agent, system_prompt, blocks, style, words, scenes_n,
+                                        sent_lo, sent_hi, lang, write_in, feedback, previous)
     short = short_script_warning(len(text.split()), words)
     if short:
         state.setdefault("warnings", []).append(short)

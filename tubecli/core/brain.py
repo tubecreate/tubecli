@@ -20,6 +20,9 @@ _OUTPUT_TOKENS: contextvars.ContextVar = contextvars.ContextVar("brain_output_to
 
 # Trần cho lần thử lại khi model suy luận tiêu hết ngân sách vào phần nghĩ.
 _RETRY_TOKENS_MAX = 32768
+# Câu báo lỗi của _call_openai khi phần nghĩ nuốt hết ngân sách — _call_llm và
+# pipeline nhận ra ca này bằng đúng chuỗi này.
+REASONING_STALL = "the model spent its whole budget on reasoning"
 
 
 def _output_budget(default: int) -> int:
@@ -1052,6 +1055,12 @@ Rules:
                     forced = AgentBrain._failover_llm(
                         model, cloud_keys, messages, temperature, forced
                     )
+                # Agent chỉ định rõ provider (đa số agent hiện nay) cũng phải được
+                # cứu khi model suy luận nghĩ hết ngân sách — xem nhánh dưới.
+                if REASONING_STALL in forced and _output_budget(0):
+                    alt = AgentBrain._failover_non_reasoning(model, cloud_keys, messages, temperature)
+                    if alt:
+                        return alt
                 return forced
             print(f"[Brain] ⚠️ Unknown provider '{explicit_provider}', falling back to model-name routing")
 
@@ -1118,7 +1127,14 @@ Rules:
         if any(err_tag in result for err_tag in ["429", "quota", "rate limit", "Too Many Requests", "exceeded"]):
             print(f"[Brain] ⚠️ Provider quota error detected: {result[:100]}")
             result = AgentBrain._failover_llm(model, cloud_keys, messages, temperature, result)
-        
+        # ── Model suy luận nghĩ hết ngân sách kể cả sau thang thử lại: rơi sang
+        # provider KHÁC đã có key (chỉ khi việc này cho phép: output_budget đặt,
+        # tức là bước sinh văn bản dài của pipeline, không phải chat thường).
+        if REASONING_STALL in result and _output_budget(0):
+            alt = AgentBrain._failover_non_reasoning(model, cloud_keys, messages, temperature)
+            if alt:
+                return alt
+
         return result
 
     @staticmethod
@@ -1236,6 +1252,46 @@ Rules:
                 return AgentBrain._call_openai(model, key, messages, base_url=base_url, temperature=temperature)
         except Exception:
             pass
+        return None
+
+    @staticmethod
+    def _failover_non_reasoning(failed_model: str, cloud_keys: Dict, messages: List[Dict], temperature: float):
+        """Model suy luận không viết nổi → thử provider khác có key (bỏ provider
+        vừa hỏng). Trả lời đầu tiên không phải lỗi, hoặc None."""
+        try:
+            from tubecli.extensions.cloud_api.extension import PROVIDERS
+        except Exception:
+            return None
+        lower = str(failed_model or "").lower()
+        failed = next((p for p in ("deepseek", "gemini", "openai", "grok", "claude", "openrouter", "9router")
+                       if p in lower), "")
+        for provider in ["gemini", "openai", "grok", "claude", "openrouter", "deepseek"]:
+            if provider == failed:
+                continue
+            key = cloud_keys.get(provider, "")
+            prov_models = PROVIDERS.get(provider, {}).get("models", []) if key else []
+            if not prov_models:
+                continue
+            alt_model = prov_models[0]
+            print(f"[Brain] 🔄 {failed_model} spent its budget on reasoning → trying {provider}/{alt_model}")
+            try:
+                if provider == "gemini":
+                    result = AgentBrain._call_gemini(alt_model, key, messages, temperature=temperature)
+                elif provider == "claude":
+                    result = AgentBrain._call_claude(alt_model, key, messages)
+                elif provider == "openrouter":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
+                elif provider == "grok":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
+                elif provider == "deepseek":
+                    result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                else:
+                    result = AgentBrain._call_openai(alt_model, key, messages, temperature=temperature)
+            except Exception as e:
+                print(f"[Brain]    {provider} failed: {str(e)[:100]}")
+                continue
+            if result and not result.lstrip().startswith("[") and "Error]" not in result[:40]:
+                return result
         return None
 
     @staticmethod
@@ -1493,12 +1549,27 @@ Rules:
             # API returns finish_reason="length" with content="" — a perfectly
             # successful HTTP call that yields an empty reply. Retry once with a
             # bigger budget so the visible answer fits.
-            # Lần hai phải LỚN HƠN lần một: với ngân sách 9600 (kịch bản 20 phút)
-            # mà retry cũng 9600 thì chỉ là lặp lại cùng thất bại.
+            # Model suy luận nghĩ hết ngân sách rồi không còn chỗ viết. Gấp đôi
+            # ngân sách thường KHÔNG đủ (phần nghĩ phình theo) — thử theo thang:
+            # (1) tắt suy luận (DeepSeek: thinking.type=disabled), (2) hạ mức
+            # suy luận (reasoning_effort=low, kiểu OpenAI), (3) ngân sách gấp
+            # đôi. Tham số API từ chối thì bỏ qua bậc đó, không lỗi.
             if not content and finish == "length":
                 bigger = min(_RETRY_TOKENS_MAX, max(8192, budget * 2))
-                print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with max_tokens={bigger}")
-                content, finish, msg = _ask(max_tokens=bigger)
+                ladder = [
+                    ("thinking disabled", {"max_tokens": bigger, "extra_body": {"thinking": {"type": "disabled"}}}),
+                    ("reasoning_effort=low", {"max_tokens": bigger, "reasoning_effort": "low"}),
+                    (f"max_tokens={min(_RETRY_TOKENS_MAX, bigger * 2)}", {"max_tokens": min(_RETRY_TOKENS_MAX, bigger * 2)}),
+                ]
+                for why, extra in ladder:
+                    print(f"[Brain] ⚠️ {model} returned empty content (finish=length); retrying with {why}")
+                    try:
+                        content, finish, msg = _ask(**extra)
+                    except Exception as e:      # tham số không được API chấp nhận → bậc kế tiếp
+                        print(f"[Brain]    {why} rejected: {str(e)[:120]}")
+                        continue
+                    if content:
+                        break
 
             if not content:
                 reasoning = (getattr(msg, "reasoning_content", None) or "").strip()
