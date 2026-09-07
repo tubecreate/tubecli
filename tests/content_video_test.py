@@ -23,7 +23,7 @@ from tubecli.extensions.content_video import pipeline as P
 # 10 = 5 bước kế hoạch + 5 bước dựng (RENDER_STEPS[0] trùng 'capabilities'),
 # bước thứ 10 là "publish" — đăng thẳng lên YouTube, mặc định TẮT.
 rows = P.plan({})
-assert len(rows) == len(P.PLAN_STEPS) + len(P.RENDER_STEPS) - 1 == 10, rows
+assert len(rows) == len(P.PLAN_STEPS) + len(P.RENDER_STEPS) - 1 == 11, rows
 pub = next(r for r in rows if r["step"] == "publish")
 assert pub["optional"] and pub["enabled"] is False and pub["job"] == "publish", pub
 assert next(r for r in P.plan({"publish": True}) if r["step"] == "publish")["enabled"], "publish=True phải bật"

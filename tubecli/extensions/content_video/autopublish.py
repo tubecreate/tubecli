@@ -443,6 +443,8 @@ def _maybe_publish(agent_id: str, run_id: str, outcome: str, trigger: str = "") 
             # commit_published() ngược về đây. Một lượt dựng thủ công cũng có
             # thể bật publish, và nó KHÔNG được tiêu một suất của trần ngày.
             "autopublish": True,
+            # Ảnh đại diện qua Thumbnail Studio; là bước mềm — không cài thì bỏ qua.
+            "thumbnail": True,
         }
         preset = str(getattr(agent, "content_video_preset", "") or "")
         if preset:

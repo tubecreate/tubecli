@@ -65,12 +65,15 @@ RENDER_STEPS = [
     ("images", "Generate shot images", "images", False),
     ("tts", "Voice the narration", "tts", True),
     ("render", "Assemble the video", "render", False),
+    # Ảnh đại diện SAU khi có mp4 (Thumbnail Studio cắt frame từ video) và TRƯỚC
+    # khi đăng (để gắn lên video). Tuỳ chọn, mặc định tắt — xem DEFAULTS["thumbnail"].
+    ("thumbnail", "Design the thumbnail", "thumbnail", True),
     # Đăng là bước CUỐI và luôn tuỳ chọn: mp4 đã dựng xong là thứ đáng giá, một
     # lần upload hỏng không được phép nuốt cả lượt dựng (xem _step_publish).
     ("publish", "Publish to YouTube", "publish", True),
 ]
 # Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt: chỉ "publish".
-SOFT_FAIL_STEPS = {"publish"}
+SOFT_FAIL_STEPS = {"publish", "thumbnail"}
 STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe_plan()
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
 AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
@@ -107,9 +110,14 @@ DEFAULTS: Dict[str, Any] = {
     "seo_title": "",
     "seo_description": "",
     "seo_tags": [],
+    # Hồ sơ trình duyệt ép dùng khi đăng bằng script (rỗng = tự chọn, xem _login_profile).
+    "publish_profile": "",
+    # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
+    # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
+    "thumbnail": False, "thumbnail_template": "",
 }
 POLL_SEC = 1.0
-TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800}
+TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800, "thumbnail": 900}
 # scraped_store.query kẹp cứng limit ở 500 rồi mới cắt items[offset:offset+limit].
 # Một trang là 500 dòng, nên quét mốc phải LẬT TRANG chứ không phải xin một trang.
 PAGE_LIMIT = 500
@@ -1956,6 +1964,93 @@ def _pick_channel(channels: Optional[List[Dict]], channel_id: str = "") -> Dict[
     return {}
 
 
+def _google_tokens() -> List[Dict]:
+    """Các token Google có scope YouTube: [{token_id, email?, scopes}]."""
+    try:
+        from tubecli.extensions.auth_manager.extension import auth_manager
+        rows = [t for t in (auth_manager.list_tokens(provider="google") or []) if isinstance(t, dict)]
+    except Exception as e:
+        logger.info(f"[ContentVideo] Google tokens unavailable: {e}")
+        return []
+    out = []
+    for t in rows:
+        scopes = [str(s) for s in (t.get("scopes") or [])]
+        if scopes and not any("youtube" in s for s in scopes):
+            continue
+        if t.get("token_id"):
+            out.append(t)
+    return out
+
+
+def _channel_match(want: str, title: str) -> int:
+    """0 = không khớp, 2 = khớp đúng tên, 1 = chứa nhau."""
+    a, b = " ".join(str(want).casefold().split()), " ".join(str(title).casefold().split())
+    if not a or not b:
+        return 0
+    if a == b:
+        return 2
+    return 1 if (a in b or b in a) else 0
+
+
+def _find_channel(name: str = "", channel_id: str = "", prefer_token: str = "") -> Dict[str, str]:
+    """Tra kênh theo TÊN (hoặc id) qua mọi token Google đã cấp → {id, name, about, token_id}, hay {}.
+    Trước đây tên kênh chỉ để hiển thị; người dùng nói "đăng lên kênh X" mà không
+    ai tra X là kênh nào, token nào."""
+    tokens = _google_tokens()
+    if prefer_token:
+        tokens.sort(key=lambda t: 0 if str(t.get("token_id")) == prefer_token else 1)
+    best, best_score = {}, 0
+    for t in tokens:
+        tid = str(t.get("token_id") or "")
+        token = _vm_token(tid)
+        if not token:
+            continue
+        for c in _channels(token) or []:
+            cid = str(c.get("id") or "")
+            title = str(c.get("title") or "")
+            score = 3 if (channel_id and cid == channel_id) else _channel_match(name, title)
+            if score > best_score:
+                best, best_score = {"id": cid, "name": title, "about": str(c.get("description") or ""),
+                                    "token_id": tid}, score
+            if best_score >= 2:
+                return best
+    return best
+
+
+def _resolve_channel(state: Dict, options: Dict) -> Dict[str, str]:
+    """Điền publish_channel_id / publish_token_id / tên chuẩn từ những gì có:
+    lệnh chat (tên) > tuỳ chọn > cấu hình agent. Ghi nhớ trong state để bước
+    thumbnail và bước đăng không tra hai lần."""
+    if isinstance(state.get("channel_resolved"), dict):
+        return state["channel_resolved"]
+    agent = state.get("agent")
+    cid = str(options.get("publish_channel_id") or "")
+    name = str(options.get("publish_channel_name") or "")
+    tid = str(options.get("publish_token_id") or "")
+    if not cid and not name and agent is not None:
+        cid = str(getattr(agent, "publish_channel_id", "") or "")
+        name = str(getattr(agent, "publish_channel_name", "") or "")
+        tid = tid or str(getattr(agent, "publish_token_id", "") or "")
+    found: Dict[str, str] = {}
+    if (name and (not cid or not tid)) or (cid and not tid):
+        found = _find_channel(name=name, channel_id=cid, prefer_token=tid)
+    if found.get("id"):
+        options["publish_channel_id"] = found["id"]
+        options["publish_channel_name"] = found.get("name") or name
+        if found.get("token_id"):
+            options["publish_token_id"] = found["token_id"]
+    elif name and not cid:
+        state.setdefault("warnings", []).append(
+            f"No YouTube account authorised here manages a channel named “{name}” — "
+            "publishing to the browser profile's default channel instead.")
+    res = {"id": str(options.get("publish_channel_id") or ""),
+           "name": str(options.get("publish_channel_name") or name),
+           "token_id": str(options.get("publish_token_id") or ""),
+           "about": str(found.get("about") or "")}
+    state["channel_resolved"] = res
+    return res
+
+
 def _channel_profile(token: str, channel_id: str = "") -> Optional[Dict[str, str]]:
     """Hồ sơ kênh sẽ đăng — tên kênh là nguyên liệu chính để viết tiêu đề/mô tả.
 
@@ -2176,6 +2271,18 @@ def _login_profile(agent, options: Dict) -> str:
     forced = str(options.get("publish_profile") or "").strip()
     if forced:
         return forced
+    # Thứ tự (người dùng chốt): hồ sơ CHIA SẺ TRONG NHÓM đã đăng nhập YouTube →
+    # hồ sơ riêng đã đăng nhập → tài khoản Keychain (tự tạo hồ sơ, đổ mật khẩu)
+    # → hồ sơ nhóm bất kỳ → hồ sơ riêng bất kỳ. Trước đây Keychain đứng đầu và
+    # hồ sơ nhóm xếp cuối, và không ai kiểm tra đã đăng nhập hay chưa.
+    group_profiles = _group_profiles(agent)
+    own = [str(p) for p in (getattr(agent, "allowed_profiles", None) or []) if p]
+    for p in group_profiles:
+        if _logged_in_youtube(p):
+            return p
+    for p in own:
+        if p not in group_profiles and _logged_in_youtube(p):
+            return p
     for acc_id in (getattr(agent, "login_accounts", None) or []):
         try:
             from tubecli.extensions.keychain.routes import ensure_profile_for_account
@@ -2185,8 +2292,41 @@ def _login_profile(agent, options: Dict) -> str:
                 return prof
         except Exception as e:
             logger.info("[ContentVideo] keychain profile for %s: %s", acc_id, e)
-    scope = _agent_scope(agent) or []
-    return str(scope[0]) if scope else ""
+    if group_profiles:
+        return group_profiles[0]
+    return own[0] if own else ""
+
+
+def _group_profiles(agent) -> List[str]:
+    """Hồ sơ trình duyệt các nhóm Flow chia sẻ cho agent (quyền ≥ use), theo thứ tự nhóm."""
+    out: List[str] = []
+    try:
+        from tubecli.core import group_context
+
+        for g in group_context.effective_groups(str(agent.id)):
+            if not isinstance(g, dict):
+                continue
+            for p in g.get("profiles") or []:
+                if not isinstance(p, dict):
+                    continue
+                name = str(p.get("profile") or "").strip()
+                if name and name not in out and group_context.allows(p.get("access") or "use", "use"):
+                    out.append(name)
+    except Exception as e:
+        logger.debug(f"[ContentVideo] group profiles unavailable: {e}")
+    return out
+
+
+def _logged_in_youtube(profile: str) -> bool:
+    """Hồ sơ đã có cookie đăng nhập YouTube/Google chưa (đọc kho cookie thật)."""
+    try:
+        from tubecli.extensions.browser.profile_manager import detect_logins
+
+        sites = {str(s).lower() for s in (detect_logins(profile) or [])}
+        return bool(sites & {"youtube", "google"})
+    except Exception as e:
+        logger.debug(f"[ContentVideo] login check for {profile}: {e}")
+        return False
 
 
 def _describe_with_tags(seo: Dict) -> str:
@@ -2217,9 +2357,12 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
             "Social login accounts, or pick a browser profile for it.")
 
     # Đường script không hỏi YouTube API nên không có danh sách kênh; tên kênh
-    # người dùng đã chọn ở giao diện chính là thứ SEO cần.
+    # người dùng đã chọn (hay nói trong chat) là thứ SEO cần. _resolve_channel
+    # đã đổi tên → id (+ token) nếu một tài khoản Google ở đây quản lý kênh đó.
+    resolved = _resolve_channel(state, options)
     channel = {"id": str(options.get("publish_channel_id") or ""),
-               "name": str(options.get("publish_channel_name") or "")}
+               "name": str(options.get("publish_channel_name") or ""),
+               "about": str(resolved.get("about") or "")}
     state["publish_channel"] = channel
     seo = _seo_for(state, options, channel)
 
@@ -2270,6 +2413,7 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         "monetized": monetize == "1",
     }
     say("publish", "running", "published via YouTube Studio")
+    _attach_thumbnail_after_script(state, options, seo["title"])
 
 
 def _publish_now(state: Dict, options: Dict) -> None:
@@ -2297,6 +2441,7 @@ def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
         raise RuntimeError(
             "Video Manager is not installed on this server (or its YouTube uploader is missing) — "
             "install it from the Market, then restart TubeCLI.")
+    _resolve_channel(state, options)
     token_id = str(options.get("publish_token_id") or "").strip()
     say("publish", "running", "checking the YouTube account")
     token = _vm_token(token_id)
@@ -2382,6 +2527,7 @@ def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
         "channel_name": channel_name,
     }
     say("publish", "running", f"published: {state['published']['url']}")
+    _attach_thumbnail(state, token, state["published"]["video_id"])
 
 
 def _remember_published(state: Dict) -> None:
@@ -2429,6 +2575,152 @@ def _commit_autopublish(state: Dict, options: Dict) -> None:
     except Exception as e:
         # Sổ của cò súng không được phép làm hỏng một lượt đăng đã thành công.
         logger.warning(f"[ContentVideo] could not commit the auto-publish mark: {e}")
+
+
+def _thumbnail_template(state: Dict, options: Dict) -> str:
+    return str(options.get("thumbnail_template") or _preset_meta(state).get("thumbnail_template") or "")
+
+
+def _step_thumbnail(state: Dict, options: Dict) -> None:
+    """Ảnh đại diện qua Thumbnail Studio (/auto): AI lên tít ngắn theo kịch bản,
+    chọn họ mẫu (hoặc mẫu chỉ định), sinh ảnh Flux vào khe, dựng PNG. Lấy phương án A."""
+    if not options.get("thumbnail"):
+        state["_say"]("thumbnail", "skipped", "off")
+        return
+    ck = state.get("checkpoint") or {}
+    if ck.get("thumbnail_path") and os.path.isfile(str(ck["thumbnail_path"])):
+        state["thumbnail_path"] = str(ck["thumbnail_path"])
+        state["_say"]("thumbnail", "skipped", f"already made: {os.path.basename(state['thumbnail_path'])}")
+        return
+    from tubecli.config import DATA_DIR
+
+    agent = state["agent"]
+    say = state["_say"]
+    channel = _resolve_channel(state, options)
+    lang = str(state.get("language") or "vi")
+    aspect = str(state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"])
+    out_dir = os.path.join(str(DATA_DIR), "content_video", "thumbs", f"ep{state.get('episode_id') or 'x'}")
+    os.makedirs(out_dir, exist_ok=True)
+    body = {
+        "agent_id": str(agent.id), "title": str(state.get("title") or ""),
+        "script": str(state.get("script") or "")[:2500],
+        "channel": channel.get("name") or str(agent.name),
+        "video_path": str(state.get("video_path") or ""),
+        "platform": "shorts" if aspect == "9:16" else "youtube",
+        "lang": lang, "template_id": _thumbnail_template(state, options), "n": 1, "out_dir": out_dir,
+    }
+    res = _post("/api/v1/thumbnail/auto", body, timeout=60)
+    job = str((res or {}).get("job_id") or "")
+    if not job:
+        raise RuntimeError(f"Thumbnail Studio did not start a job: {str(res)[:200]}")
+    deadline = time.time() + TIMEOUTS["thumbnail"]
+    last = ""
+    while True:
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        if time.time() > deadline:
+            raise RuntimeError(f"Thumbnail job {job} did not finish in {TIMEOUTS['thumbnail']}s")
+        data = _get(f"/api/v1/thumbnail/jobs/{job}", timeout=30) or {}
+        status = str(data.get("status") or "")
+        running = [s.get("name") for s in (data.get("steps") or []) if s.get("state") == "running"]
+        msg = f"{running[0]}…" if running else status
+        if msg != last:
+            say("thumbnail", "running", msg)
+            last = msg
+        if status == "error":
+            raise RuntimeError(str(data.get("error") or "Thumbnail Studio failed"))
+        if status == "done":
+            break
+        time.sleep(max(POLL_SEC, 2.0))
+    files = [str(v.get("file") or "") for v in (data.get("variants") or []) if isinstance(v, dict)]
+    files = [f for f in files if f and os.path.isfile(f)]
+    if not files:
+        raise RuntimeError("Thumbnail Studio finished but produced no file")
+    state["thumbnail_path"] = files[0]
+    state["thumbnail_template_used"] = str(((data.get("variants") or [{}])[0] or {}).get("template") or "")
+    for w in data.get("warnings") or []:
+        state.setdefault("warnings", []).append(f"Thumbnail: {w}")
+    _checkpoint_merge(state, {"thumbnail_path": files[0]})
+    say("thumbnail", "running", f"{os.path.basename(files[0])} · {state['thumbnail_template_used'] or 'auto'}")
+
+
+def _attach_thumbnail(state: Dict, token: str, video_id: str) -> None:
+    """Gắn ảnh đại diện lên video vừa đăng bằng API (videos.thumbnails.set)."""
+    path = str(state.get("thumbnail_path") or "")
+    if not path or not os.path.isfile(path):
+        return
+    if not token or not video_id:
+        state.setdefault("warnings", []).append(
+            f"Thumbnail is ready at `{path}` but could not be attached — no API token/video id; "
+            "set it on YouTube Studio by hand.")
+        return
+    uploader = _vm_uploader()
+    if uploader is None or not hasattr(uploader, "set_thumbnail"):
+        state.setdefault("warnings", []).append("Video Manager has no set_thumbnail — thumbnail not attached.")
+        return
+    try:
+        res = uploader.set_thumbnail(video_id, path, token) or {}
+    except Exception as e:
+        res = {"status": "error", "message": str(e)[:200]}
+    if str(res.get("status") or "") == "success":
+        state.setdefault("published", {})["thumbnail"] = "set"
+        state["_say"]("publish", "running", "thumbnail attached")
+    else:
+        state.setdefault("warnings", []).append(
+            f"Thumbnail not attached: {res.get('message') or 'unknown error'} — it is at `{path}`.")
+
+
+def _attach_thumbnail_after_script(state: Dict, options: Dict, title: str) -> None:
+    """Đường script không trả video id. Nếu kênh có token API thì tìm video vừa
+    lên theo TIÊU ĐỀ (YouTube cần vài chục giây để liệt kê) rồi gắn thumbnail và
+    điền luôn id/link vào thẻ."""
+    path = str(state.get("thumbnail_path") or "")
+    pub = state.get("published") or {}
+    if not path:
+        return
+    if pub.get("video_id"):
+        return _attach_thumbnail(state, _vm_token(str(options.get("publish_token_id") or "")), pub["video_id"])
+    channel = _resolve_channel(state, options)
+    token = _vm_token(channel.get("token_id") or str(options.get("publish_token_id") or ""))
+    if not token or not channel.get("id"):
+        state.setdefault("warnings", []).append(
+            f"Thumbnail is ready at `{path}`; the channel has no API token here so it was not "
+            "attached — set it on YouTube Studio by hand.")
+        return
+    vm = _vm_module("providers/youtube/video_manager.py", "tubecli_vm_youtube_videos")
+    if vm is None or not hasattr(vm, "list_videos"):
+        return
+    want = " ".join(str(title).casefold().split())
+    vid = ""
+    for attempt in range(THUMB_LOOKUP_TRIES):
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        try:
+            rows = vm.list_videos(channel["id"], token, max_results=10) or []
+        except Exception as e:
+            logger.info(f"[ContentVideo] list_videos: {e}")
+            rows = []
+        for r in rows:
+            d = r.to_dict() if hasattr(r, "to_dict") else (r if isinstance(r, dict) else {})
+            t = " ".join(str(d.get("title") or "").casefold().split())
+            if t == want or (want and (want in t or t in want)):
+                vid = str(d.get("id") or d.get("video_id") or "")
+                break
+        if vid:
+            break
+        time.sleep(THUMB_LOOKUP_DELAY)
+    if not vid:
+        state.setdefault("warnings", []).append(
+            f"Thumbnail is ready at `{path}` but the new video was not listed yet — "
+            "set it on YouTube Studio by hand.")
+        return
+    state["published"]["video_id"] = vid
+    state["published"]["url"] = state["published"].get("url") or f"https://www.youtube.com/watch?v={vid}"
+    _attach_thumbnail(state, token, vid)
+
+
+THUMB_LOOKUP_TRIES = 4
+THUMB_LOOKUP_DELAY = 20
 
 
 def _step_publish(state: Dict, options: Dict) -> None:
@@ -2480,6 +2772,7 @@ _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "images": _step_images,
     "tts": _step_tts,
     "render": _step_render,
+    "thumbnail": _step_thumbnail,
     "publish": _step_publish,
 }
 
@@ -2888,6 +3181,10 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
                      + (f" → {published['channel_name']}" if published.get("channel_name") else ""))
     if state.get("video_path"):
         lines.append(f"- **Video**: `{state['video_path']}`")
+    if state.get("thumbnail_path"):
+        lines.append(f"- **Thumbnail**: `{state['thumbnail_path']}`"
+                     + (f" · template {state['thumbnail_template_used']}" if state.get("thumbnail_template_used") else "")
+                     + (" · set on YouTube" if (state.get("published") or {}).get("thumbnail") == "set" else ""))
     if state.get("video_link"):
         lines.append(f"- **Watch**: {state['video_link']}")
     if published.get("title") and published["title"] != state.get("title"):
@@ -2984,7 +3281,8 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
                      created_by: str = "autopublish", origin: Optional[Dict] = None,
                      job_label: str = "Auto publish",
                      high_water_prev: Optional[str] = None,
-                     high_water: Optional[str] = None) -> Dict:
+                     high_water: Optional[str] = None,
+                     sources: Optional[List[str]] = None) -> Dict:
     """Xếp MỘT task chạy trọn chuỗi rồi đăng. Không ô duyệt ở giữa.
 
     approval_required=False: cổng duyệt TRƯỚC khi chạy cũng bỏ luôn, vì lượt
@@ -2997,7 +3295,8 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
     name = str(getattr(agent, "name", "") or agent_id)
     options = dict(options or {})
     options.setdefault("job_label", job_label)
-    options["sources"] = []
+    # Lịch tự động không có link; lệnh chat thì có thể kèm link bài viết.
+    options["sources"] = [str(s) for s in (sources or []) if str(s).startswith("http")]
 
     goal = (f"{job_label} for agent {name}\n\n"
             "Thu thập xong → viết kịch bản → dựng video → đăng thẳng lên YouTube.\n"
@@ -3016,7 +3315,7 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
     codex_manager.append_event(
         task["id"], "log", f"{job_label} queued (runs straight through)", actor=ACTOR,
         data={"kind": KIND_AUTO, "task_id": task["id"], "agent_id": str(agent_id),
-              "sources": [], "options": options,
+              "sources": options["sources"], "options": options,
               # Cả hai đầu của cửa sổ corpus: mốc lần trước và mốc cò súng vừa
               # ĐẾM. Thiếu cái sau, bài thu thập được trong lúc task đang chạy
               # sẽ vào video này rồi còn được lượt sau đếm lại.

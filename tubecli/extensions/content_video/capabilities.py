@@ -70,6 +70,9 @@ JOBS: Dict[str, Dict] = {
     # Đăng gọi THẲNG uploader của video_manager (nạp file theo đường dẫn tuyệt
     # đối), không qua POST /api/v1/video_manager/upload — hàng đợi của route đó
     # truyền page_id cho một hàm không có tham số ấy nên upload nào cũng chết.
+    # Ảnh đại diện: Thumbnail Studio tự lên tít + sinh ảnh Flux theo mẫu (route /auto).
+    "thumbnail": {"label": "Design the thumbnail", "requires": ["thumbnail_studio"],
+                  "endpoint": "POST /api/v1/thumbnail/auto"},
     "publish": {"label": "Publish to YouTube", "requires": ["video_manager"],
                 "endpoint": "video_manager/providers/youtube/uploader.upload_video"},
 }

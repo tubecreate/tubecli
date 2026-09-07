@@ -35,6 +35,9 @@ Optional fields (all flat):
 - `sources`: extra links to crawl and fold in. YouTube links become transcripts.
 - `aspect_ratio`: `16:9` (default) or `9:16` for Reels/Shorts/TikTok.
 - `style`: `news`, `story`, `review`, `explainer`… — a hint to the writer.
+- `publish`: `true` to upload to YouTube when the video is done (runs straight through, no review). `publish_channel_name`: the channel by name, e.g. `"Cinematic Bible"` (resolved to the right Google account); `publish_privacy`: `public` (default) | `unlisted` | `private`.
+- `thumbnail`: `true` to design a thumbnail with Thumbnail Studio (AI title + Flux image on a template) and attach it when publishing; `thumbnail_template`: a template id to force.
+- The user saying *"đăng luôn lên kênh X, khỏi duyệt, có thumbnail"* / *"publish it to channel X without review with a thumbnail"* is `publish` + `publish_channel_name` + `thumbnail`.
 - `target_words`: script length in words, ~150 words per minute read aloud (10 minutes → 1500, 20 minutes → 3000). Omit to follow the agent's Content Studio template. The user saying *"video 10 phút"* / *"a 20 minute video"* is this field.
 
 The agent that is speaking is always the owner of the video; you cannot make one for another agent.

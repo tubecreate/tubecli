@@ -134,19 +134,31 @@ async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
     if not agent_id:
         return None
     try:
-        from tubecli.extensions.content_video.pipeline import create_digest_task, queued_reply
+        from tubecli.extensions.content_video.pipeline import (create_auto_task, create_digest_task,
+                                                               queued_reply)
     except ImportError:
         return None
     data = getattr(intent, "extracted_data", None) or {}
     # target_words là "video 10 phút" đã đổi ra số chữ ở router. Trước đây tuple
     # này thiếu nó nên lời hẹn độ dài rơi ngay tại đây: pipeline lặng lẽ lấy độ
     # dài của mẫu (hoặc mặc định ~2 phút) và thẻ kết quả ghi "from the template".
-    options = {k: data[k] for k in ("day", "aspect_ratio", "preset", "target_words", "language")
+    options = {k: data[k] for k in ("day", "aspect_ratio", "preset", "target_words", "language",
+                                    "publish", "publish_channel_name", "thumbnail")
                if data.get(k)}
+    sources = list(data.get("sources") or [])
+    if data.get("publish") or data.get("no_review"):
+        # "đăng luôn lên kênh X" = một lượt chạy TRỌN: viết, dựng, thumbnail, đăng —
+        # không ô duyệt ở giữa (cổng duyệt sẽ chặn đúng bước đăng mà người dùng
+        # vừa yêu cầu). Ô review trên bảng chỉ là bản ghi.
+        options["publish"] = True
+        task = await asyncio.to_thread(
+            create_auto_task, agent_id, options, "user", {"agent_id": agent_id},
+            "Content video", None, None, sources,
+        )
+        return queued_reply(task)
     # created_by="user": the human typed the command verbatim, so the task
     # follows the codex auto-approve policy exactly like a skill command.
     task = await asyncio.to_thread(
-        create_digest_task, agent_id, options, "user", {"agent_id": agent_id},
-        list(data.get("sources") or []),
+        create_digest_task, agent_id, options, "user", {"agent_id": agent_id}, sources,
     )
     return queued_reply(task)

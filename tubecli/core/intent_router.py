@@ -310,6 +310,30 @@ CONTENT_VIDEO_MINUTES_RE = re.compile(
     r"(?<!\d)(\d{1,3})\s*(?:phút|phut|p|minutes?|mins?|分|분)", re.I)
 
 CONTENT_VIDEO_VERTICAL = ["reels", "reel", "shorts", "short", "tiktok", "dọc", "9:16", "vertical"]
+# "… rồi đăng luôn lên kênh X, khỏi duyệt, có thumbnail" → lượt chạy TRỌN không
+# qua ô duyệt, đăng lên đúng kênh, kèm ảnh đại diện. Ba bảng cue + tên kênh.
+CONTENT_VIDEO_PUBLISH_CUES = [
+    "đăng luôn", "dang luon", "đăng ngay", "dang ngay", "đăng lên", "dang len", "đăng video",
+    "dang video", "lên kênh", "len kenh", "upload", "publish", "post it", "post to", "post on",
+]
+CONTENT_VIDEO_NOW_CUES = ["luôn", "luon", "ngay", "right away", "immediately", "now", "straight"]
+CONTENT_VIDEO_NOREVIEW_CUES = [
+    "khỏi duyệt", "khoi duyet", "không duyệt", "khong duyet", "bỏ duyệt", "bo duyet",
+    "bỏ qua duyệt", "bo qua duyet", "bỏ qua phần duyệt", "bo qua phan duyet", "không cần duyệt",
+    "khong can duyet", "no review", "skip review", "skip the review", "without review",
+    "without approval", "no approval", "don't wait for approval",
+]
+CONTENT_VIDEO_THUMB_CUES = ["thumbnail", "thumb ", "ảnh đại diện", "anh dai dien", "ảnh bìa", "anh bia"]
+# Tên kênh đọc trên VĂN BẢN GỐC (giữ hoa/thường): "lên kênh Cinematic Bible luôn".
+CONTENT_VIDEO_CHANNEL_RES = [
+    re.compile(r"(?<!\w)(?:lên|len|vào|vao|to|on|onto)\s+(?:kênh|kenh|channel)\s+(.+)", re.I | re.S),
+    re.compile(r"(?<!\w)(?:kênh|kenh|channel)\s+(.+)", re.I | re.S),
+]
+_CHANNEL_STOP_RE = re.compile(
+    r"\s*(?:[,.;\n]|\b(?:luôn|luon|ngay|nhé|nhe|nha|khỏi|khoi|không|khong|bỏ|bo|và|va|rồi|roi|"
+    r"then|and|without|no|skip|with|có|co|kèm|kem|có thumbnail|thumbnail)\b).*$", re.I | re.S)
+# "kênh youtube" không phải tên kênh.
+_CHANNEL_GENERIC = {"youtube", "yt", "tiktok", "facebook", "fb", "channel", "kênh", "kenh", "của tôi", "cua toi", "my"}
 # "theo mẫu Tin nhanh" / "with the template "News Flash"" → the Content Studio
 # wizard preset the video follows. Matched on the ORIGINAL text so the name
 # keeps its case: preset names are looked up verbatim on the server.
@@ -905,12 +929,38 @@ class IntentRouter:
         preset = self._content_video_preset(text)
         if preset:
             data["preset"] = preset
+        publish = self._kw_hit(text_lower, CONTENT_VIDEO_PUBLISH_CUES)
+        channel = self._content_video_channel(text) if publish else ""
+        if publish:
+            data["publish"] = True
+            if channel:
+                data["publish_channel_name"] = channel
+            # "đăng luôn" / "đăng ngay": muốn nó lên kênh mà không ai phải bấm gì.
+            if self._kw_hit(text_lower, CONTENT_VIDEO_NOW_CUES):
+                data["no_review"] = True
+        if self._kw_hit(text_lower, CONTENT_VIDEO_NOREVIEW_CUES):
+            data["no_review"] = True
+        if self._kw_hit(text_lower, CONTENT_VIDEO_THUMB_CUES) or "thumb" in text_lower.split()[-1:]:
+            data["thumbnail"] = True
         return IntentResult(
             intent_type="content_video",
             confidence=0.97,
             extracted_data=data,
             skip_llm=True,
         )
+
+    @staticmethod
+    def _content_video_channel(text: str) -> str:
+        """Tên kênh sau "lên kênh …"/"to channel …", cắt ở dấu câu hay từ nối."""
+        for rx in CONTENT_VIDEO_CHANNEL_RES:
+            m = rx.search(text or "")
+            if not m:
+                continue
+            name = _CHANNEL_STOP_RE.sub("", m.group(1)).strip().strip("\"'“”‘’«»").strip()
+            name = re.sub(r"\s+", " ", name)[:60]
+            if name and name.lower() not in _CHANNEL_GENERIC:
+                return name
+        return ""
 
     @staticmethod
     def _content_video_preset(text: str) -> str:
