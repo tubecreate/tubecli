@@ -195,6 +195,9 @@ check("J cache-bust", "studio2.js?v=20260907_voice2" in html)
 check("J voice preset field", "'wizTtsPreset'" in js.split("const WIZ_CHECKBOX_IDS")[0] and 'id="wizTtsPreset"' in html
       and "data.wizTtsEngine" in js and "_capcutVoicesHtml" in js and "_applyWizVoice" in js and "_capcutSpeakers" in js)
 check("J languages th/id", 'value="th"' in html.split('id="wizLanguage"')[1][:900] and 'value="id"' in html.split('id="wizLanguage"')[1][:900])
+_wl = html.split('id="wizLanguage"')[1][:1200]
+check("J languages es/de + prompt", 'value="es"' in _wl and 'value="de"' in _wl
+      and all(k in open(EXT / "agents" / "base_agent.py", encoding="utf-8").read() for k in ('"es": "CRITICAL', '"de": "CRITICAL')))
 check("J apiFetch parse sẵn", "const data = await apiFetch('/subtitle-styles')" in js and "await r.json()" not in js.split("async function loadSubtitleStyles")[1].split("function renderSubtitlePreview")[0])
 check("J manifest", json.loads((EXT / "tubecli-extension.json").read_text(encoding="utf-8"))["version"] >= "2026.09.06.235000")
 
