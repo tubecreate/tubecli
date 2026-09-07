@@ -137,14 +137,14 @@ def flaky(path, payload, timeout=180):
         raise RuntimeError("429")
     if payload["text"] == "always dead":
         raise RuntimeError("500")
-    return b"ID3" + b"\x00" * 2000
+    return b"ID3" + b"\x00" * 2000, []
 
 
 shots = [{"id": 1, "storyboard_number": 1, "narration_text": "fine"},
          {"id": 2, "storyboard_number": 2, "narration_text": "flaky once"},
          {"id": 3, "storyboard_number": 3, "narration_text": "always dead"}]
 P._storyboards = lambda ep_id: shots
-P._post_bytes = flaky
+P._post_audio_marks = flaky
 P._put = lambda path, payload, timeout=60: {}
 st = {"episode_id": 1, "capcut_email": "a@x", "_cancelled": lambda: False, "_say": lambda *a: None}
 P._tts_capcut(st, {})

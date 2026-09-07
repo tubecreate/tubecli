@@ -94,6 +94,16 @@ words, src = S.words_for_shot(text, mp3, 5.0)
 check("E sidecar thiếu → ước lượng", src == "estimated" and len(words) == 10, (src, len(words)))
 words, src = S.words_for_shot(text, Path(TMP) / "none.mp3", 5.0)
 check("E không sidecar → ước lượng", src == "estimated")
+# E2. gộp mốc vỡ của engine về từng từ kịch bản: "Việt" = Vi + ệ + t; dấu câu rời bị bỏ
+marks = [{"word": "Xin", "start": 0.0, "end": 0.3}, {"word": "chào", "start": 0.3, "end": 0.6},
+         {"word": "Vi", "start": 0.7, "end": 0.8}, {"word": "ệ", "start": 0.8, "end": 0.9}, {"word": "t", "start": 0.9, "end": 1.0},
+         {"word": "，", "start": 1.0, "end": 1.05}, {"word": "Nam", "start": 1.1, "end": 1.4}]
+al = S.align_to_text("Xin chào Việt, Nam!", marks, "vi")
+check("E2 align", [w["word"] for w in al] == ["Xin", "chào", "Việt,", "Nam!"] and al[2]["start"] == 0.7 and al[2]["end"] == 1.0, al)
+check("E2 clean", [w["word"] for w in S.clean_marks(marks)] == ["Xin", "chào", "Vi", "ệ", "t", "Nam"])
+S.sidecar_path(mp3).write_text(json.dumps({"engine": "edge", "words": marks}), encoding="utf-8")
+words, src = S.words_for_shot("Xin chào Việt, Nam!", mp3, 2.0, "vi")
+check("E2 sidecar vỡ vẫn → tts", src == "tts" and len(words) == 4 and words[2]["word"] == "Việt,", (src, words))
 
 # F. build_ass: mỗi từ một Dialogue chứa trọn cụm, chỉ từ đang đọc tô màu; ước lượng thì không tô
 w = S.estimate_words("Hôm nay chúng ta nói về ba điều quan trọng", 4.0)
@@ -169,7 +179,7 @@ check("J metadata.subtitle_style", "metadata.subtitle_style = document.getElemen
 check("J select + preview", 'id="wizSubtitleStyle"' in html and 'id="wizSubtitlePreview"' in html)
 check("J cache-bust", "studio2.js?v=20260906_subtitles2" in html)
 check("J apiFetch parse sẵn", "const data = await apiFetch('/subtitle-styles')" in js and "await r.json()" not in js.split("async function loadSubtitleStyles")[1].split("function renderSubtitlePreview")[0])
-check("J manifest", json.loads((EXT / "tubecli-extension.json").read_text(encoding="utf-8"))["version"] >= "2026.09.06")
+check("J manifest", json.loads((EXT / "tubecli-extension.json").read_text(encoding="utf-8"))["version"] >= "2026.09.06.235000")
 
 print("=" * 70)
 if failures:

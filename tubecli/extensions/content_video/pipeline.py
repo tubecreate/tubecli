@@ -419,6 +419,23 @@ def _post_bytes(path: str, payload: Dict, timeout: int = 180) -> bytes:
     return r.content
 
 
+def _post_audio_marks(path: str, payload: Dict, timeout: int = 180) -> Tuple[bytes, List[Dict]]:
+    """POST mà đầu ra có thể là mp3 thô (bản cũ) hoặc JSON {audio_b64, words}
+    (bản có mốc từ). Trả (bytes mp3, mốc từ hoặc [])."""
+    import base64
+    import requests
+
+    r = requests.post(_base_url() + path, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
+    if "json" in (r.headers.get("content-type") or "").lower():
+        obj = r.json() if r.text else {}
+        audio = base64.b64decode(obj.get("audio_b64") or obj.get("audio") or "")
+        words = [w for w in (obj.get("words") or []) if isinstance(w, dict)]
+        return audio, words
+    return r.content, []
+
+
 def _get(path: str, timeout: int = 60) -> Any:
     import requests
 
@@ -1484,16 +1501,22 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
 
     def voice(shot: Dict, i: int) -> None:
-        body = {"email": email, "text": _shot_narration(shot), "speed": 10, "volume": 10}
+        # timestamps=True: bản CapCut TTS ≥ 1.3.0 trả JSON kèm mốc từng từ →
+        # ghi sidecar <mp3>.words.json để Studio đốt phụ đề chạy theo giọng.
+        # Bản cũ lờ trường này và trả mp3 thô như trước.
+        body = {"email": email, "text": _shot_narration(shot), "speed": 10, "volume": 10, "timestamps": True}
         if speaker:
             body["speaker"] = str(speaker)
-        audio = _post_bytes("/api/v1/capcut-tts/synthesize", body, timeout=180)
+        audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
         if not audio or len(audio) < 1000:
             raise RuntimeError("CapCut returned no audio")
         num = shot.get("storyboard_number") or shot.get("id") or i
         path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
         with open(path, "wb") as f:
             f.write(audio)
+        if words:
+            with open(path + ".words.json", "w", encoding="utf-8") as f:
+                json.dump({"engine": "capcut", "words": words}, f, ensure_ascii=False)
         _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
 
     failed_shots: List[Tuple[int, Dict]] = []

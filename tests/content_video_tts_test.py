@@ -47,17 +47,21 @@ shots = [{"id": 1, "storyboard_number": 1, "narration_text": "[nhạc nền] Xin
          {"id": 2, "storyboard_number": 2, "narration_text": "Cảnh hai", "tts_audio_url": "/already.mp3"},
          {"id": 3, "storyboard_number": 3, "narration_text": "[]"}]
 P._storyboards = lambda ep_id: shots
-P._post_bytes = lambda path, payload, timeout=180: posts.append(payload) or (b"ID3" + b"\x00" * 2000)
+P._post_audio_marks = lambda path, payload, timeout=180: (posts.append(payload) or (b"ID3" + b"\x00" * 2000),
+                                                          [{"word": "Xin", "start": 0.0, "end": 0.4}] if payload["text"].startswith("Xin") else [])
 P._put = lambda path, payload, timeout=60: puts.append((path, payload)) or {}
 reports = []
 state = {"episode_id": 34, "capcut_email": "a@x.com", "_cancelled": lambda: False, "_say": lambda *a: reports.append(a)}
 P._tts_capcut(state, {"capcut_speaker": "vi_female_01"})
-assert posts == [{"email": "a@x.com", "text": "Xin chào các bạn hôm nay", "speed": 10, "volume": 10, "speaker": "vi_female_01"}], posts
+assert posts == [{"email": "a@x.com", "text": "Xin chào các bạn hôm nay", "speed": 10, "volume": 10, "speaker": "vi_female_01", "timestamps": True}], posts
 assert len(puts) == 1 and puts[0][0] == "/api/v1/studio/storyboards/1"
 path = puts[0][1]["tts_audio_url"]
 import os
 assert os.path.isabs(path) and os.path.isfile(path) and path.endswith("shot001.mp3"), path
 assert state["tts_summary"] == "1 voiced (CapCut), 1 silent", state["tts_summary"]
+import json as _json
+side = _json.load(open(path + ".words.json", encoding="utf-8"))
+assert side["engine"] == "capcut" and side["words"][0]["word"] == "Xin", side
 print("3 capcut     : cue stripped, voiced shot saved + PUT absolute path, existing audio kept, empty skipped")
 
 # 4. _step_tts dispatch: edge path still goes through the Studio's batch-tts
