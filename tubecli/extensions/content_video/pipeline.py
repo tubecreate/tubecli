@@ -1084,6 +1084,15 @@ def _step_script(state: Dict, options: Dict) -> None:
     words, words_from = resolve_words(options, state.get("preset"))
     scenes_n, sent_lo, sent_hi = scene_budget(words)
     state["target_words"], state["words_from"] = words, words_from
+    # Retry của một lượt đã viết xong kịch bản (hỏng ở bước sau, vd đăng): dùng lại,
+    # không tốn lượt model và không đổi nội dung đã dựng ảnh/giọng theo nó.
+    ck_prev = state.get("checkpoint") or {}
+    if ck_prev.get("script") and not (state.get("feedback") or []):
+        state["script"] = str(ck_prev["script"])
+        state["title"] = str(ck_prev.get("title") or state.get("title") or f"{agent.name} · {time.strftime('%Y-%m-%d')}")[:120]
+        state["scene_count"] = _publish_plan(state["task_id"], str(agent.name), state["title"], state["script"])
+        state["_say"]("script", "running", f"reusing the script from the previous attempt · {state['scene_count']} scenes")
+        return
     style = options.get("style") or DEFAULTS["style"]
     system_prompt = (
         f"You are the scriptwriter for \"{agent.name}\", a short-video channel. You turn what the "
@@ -3082,7 +3091,12 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
             # chuyện khác: giọng đọc hỏng cả 15 shot mà lượt vẫn dựng tiếp thành
             # video câm rồi đưa ra duyệt — không có nút Retry vì task "xong".
             # Chỉ bước đăng mới được nuốt lỗi (mp4 đã có là thứ đáng giá).
-            if optional and not required and sid in SOFT_FAIL_STEPS:
+            # Bước đăng: lượt tự động THEO LỊCH nuốt lỗi (giữ mp4, cảnh báo — không ai
+            # đứng xem để bấm Retry). Lượt do NGƯỜI DÙNG ra lệnh "đăng luôn" mà đăng
+            # hỏng thì task phải HỎNG để có nút Retry: về REVIEW là kẹt (Request
+            # changes dựng lại từ đầu). Retry chạy tiếp từ checkpoint, không làm lại.
+            soft = sid in SOFT_FAIL_STEPS and not (sid == "publish" and options.get("_publish_hard"))
+            if optional and not required and soft:
                 notes.append(f"- **{label}** failed: {str(e)[:200]}")
                 continue
             raise
@@ -3266,6 +3280,9 @@ def run_auto(payload: Dict[str, Any],
     # mp4 dựng được là thứ đáng giá nhất; một lần đăng hỏng không được đánh đổ
     # cả lượt (cùng lý do như run_render).
     options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s != "publish"]
+    # Lượt do người dùng ra lệnh "đăng luôn" (không phải lịch tự động): đăng hỏng →
+    # task hỏng để có Retry; Retry chạy tiếp từ checkpoint. Lịch tự động giữ mp4 + cảnh báo.
+    options["_publish_hard"] = bool(options.get("publish")) and not options.get("autopublish")
     notes: List[str] = []
     skipped_jobs: List[str] = []
     started = time.time()

@@ -135,6 +135,11 @@ except RuntimeError as e:
 notes.clear()
 P._run_steps([("publish", "Publish to YouTube", "publish", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
 assert notes and "Publish to YouTube** failed" in notes[0], notes
+try:
+    P._run_steps([("publish", "Publish to YouTube", "publish", True)], {}, {"_publish_hard": True}, lambda *a: None, lambda: False, notes, skipped)
+    raise SystemExit("lượt do người dùng ra lệnh đăng: đăng hỏng phải làm task hỏng (Retry)")
+except RuntimeError:
+    pass
 notes.clear()
 P._run_steps([("tts", "Voice the narration", "missing_cap", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
 assert notes and "skipped" in notes[0] and skipped == ["missing_cap"], (notes, skipped)

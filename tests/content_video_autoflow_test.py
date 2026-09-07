@@ -264,6 +264,30 @@ assert P.ensure_upload_script("no_such_script") is False
 assert P.ensure_thumbnail_branch("youtube_upload") is False, "bản mẫu đã mang đúng hai bước"
 print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upload.json, có sẵn hai bước pipeline")
 
+# 6d. Retry của lượt auto: kịch bản đã có trong checkpoint → dùng lại, không gọi model
+from tubecli.core import brain as B
+called = []
+B.AgentBrain._call_llm = staticmethod(lambda *a, **k: called.append(1) or "TITLE: x
+
+[SHOW: a]
+b")
+P._publish_plan = lambda task_id, agent_name, title, script: len(P.scenes_of(script))
+P.resolve_language = lambda *a, **k: ("es", "preset")
+stx = {"task_id": "t", "agent": _A3(), "corpus": [{"title": "x", "url": "u", "content": "c" * 50}],
+       "checkpoint": {"script": "[SHOW: one]
+Hola.
+
+[SHOW: two]
+Adiós.", "title": "El oro"},
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._step_script(stx, {})
+assert not called and stx["title"] == "El oro" and stx["scene_count"] == 2 and "Adiós" in stx["script"], stx.get("title")
+stx["feedback"] = ["shorter"]; stx["corpus"] = [{"title": "x", "url": "u", "content": "c" * 50}]
+P._write_checkpoint = lambda *a, **k: None
+P._step_script(stx, {})
+assert called, "có góp ý thì mới viết lại"
+print("6d retry     : kịch bản trong checkpoint được dùng lại; chỉ viết lại khi có góp ý")
+
 # 7. Thẻ kết quả có dòng Thumbnail (xem trước Codex bắt được đường dẫn)
 out = P._render_result({"shot_count": 3, "thumbnail_path": png, "thumbnail_template_used": "news",
                         "published": {"thumbnail": "set", "url": "https://youtu.be/x", "video_id": "x"}}, {}, [], [], 1.0)
