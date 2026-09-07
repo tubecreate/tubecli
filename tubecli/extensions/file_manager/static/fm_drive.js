@@ -414,6 +414,9 @@
         'dmenu-rename': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-rename'](el); },
         'dmenu-share': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-share'](el); },
         'dmenu-trash': function () { hideDriveMenu(); var el = selectedEl(); if (el) return ACTIONS['drive-trash'](el); },
+        // Dán file đang sao chép ở máy chủ vào thư mục Drive đang mở = tải từ VPS lên Drive
+        // (đi qua /drive/upload — sandbox nghiêm như thao tác của AI: chỉ trong thư mục cho phép).
+        'dmenu-paste-server': function () { hideDriveMenu(); return pasteFromServer(); },
 
         'drive-more': function () {
             if (S.nextToken) return loadList({ pageToken: S.nextToken });
@@ -545,8 +548,37 @@
     }
 
     function hideDriveMenu() {
+        var bg = byId('fm-drive-bgmenu'); if (bg) bg.hidden = true;
         var m = byId('fm-drive-menu');
         if (m) m.hidden = true;
+    }
+
+    function showDriveBgMenu(e) {
+        var m = byId('fm-drive-bgmenu');
+        if (!m) return;
+        hideDriveMenu();
+        m.hidden = false;
+        var r = m.getBoundingClientRect();
+        m.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - r.width - 8)) + 'px';
+        m.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - r.height - 8)) + 'px';
+    }
+
+    async function pasteFromServer() {
+        var cb = window.FM && window.FM.clipboard;
+        if (!cb || !cb.path) return;
+        var name = cb.path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cb.path;
+        var folder = currentFolder();
+        try {
+            await driveFetch('POST', '/upload', {
+                local_path: cb.path,
+                folder_id: folder && folder.id ? folder.id : 'root',
+                cred_id: S.accountId || null
+            });
+            toast(tr('fm.drive.pasted', { name: name }), 'success');
+            await loadList();
+        } catch (err) {
+            toast(tr('fm.drive.paste_failed', { message: String(err && err.message || err) }), 'error');
+        }
     }
 
     function showDriveMenu(e, el) {
@@ -644,7 +676,15 @@
         });
         document.addEventListener('contextmenu', function (e) {
             var el = e.target.closest ? e.target.closest('.fm-drive-item') : null;
-            if (!el) return;
+            if (!el) {
+                // nền tab Drive + đang có file sao chép ở máy chủ → menu «Dán từ máy chủ»
+                var host = e.target.closest ? e.target.closest('#fm-drive-listcard, #fm-drive-noauth, .fm-drive-crumbs') : null;
+                var cb = window.FM && window.FM.clipboard;
+                if (!host || !cb || !cb.path) return;
+                e.preventDefault();
+                showDriveBgMenu(e);
+                return;
+            }
             e.preventDefault();
             showDriveMenu(e, el);
         });

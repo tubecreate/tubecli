@@ -554,6 +554,258 @@ async def remove_shortcut(path: str = Query(...)):
     return {"success": True, "shortcuts": _shortcuts_view(kept), "removed": len(kept) != len(items)}
 
 
+# ── Chia sẻ công khai (link kiểu Google Drive) ────────────────────
+# Link `/s/<token>` mở KHÔNG cần đăng nhập (server.py miễn auth tiền tố /s/):
+# trang xem trước + nút tải. Token 24 ký tự ngẫu nhiên là thứ duy nhất bảo vệ
+# file, nên: chỉ chia sẻ FILE (không thư mục), mọi lần truy cập đều kiểm lại
+# hạn dùng + file còn tồn tại, và không bao giờ lộ đường dẫn máy chủ ra trang
+# công khai. Thu hồi = xoá bản ghi, link chết ngay.
+
+def _shares_file() -> str:
+    return os.path.join(os.path.dirname(_shortcuts_file()), "shares.json")
+
+
+def _load_shares() -> List[Dict[str, Any]]:
+    import json
+    try:
+        with open(_shares_file(), encoding="utf-8") as f:
+            data = json.load(f)
+        items = data.get("shares") if isinstance(data, dict) else data
+        return [it for it in (items or []) if isinstance(it, dict) and it.get("token") and it.get("path")]
+    except Exception:
+        return []
+
+
+def _save_shares(items: List[Dict[str, Any]]) -> None:
+    import json
+    p = _shares_file()
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"shares": items}, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, p)
+
+
+def _share_alive(it: Dict[str, Any]) -> bool:
+    import time
+    exp = it.get("expires")
+    if exp and float(exp) < time.time():
+        return False
+    return os.path.isfile(str(it.get("path") or ""))
+
+
+def _share_view(it: Dict[str, Any]) -> Dict[str, Any]:
+    path = str(it.get("path") or "")
+    try:
+        size = os.path.getsize(path) if os.path.isfile(path) else 0
+    except OSError:
+        size = 0
+    return {"token": it["token"], "name": it.get("name") or os.path.basename(path), "path": path,
+            "url_path": "/s/" + it["token"], "created": it.get("created"), "expires": it.get("expires"),
+            "downloads": int(it.get("downloads") or 0), "exists": os.path.isfile(path), "size": size,
+            "alive": _share_alive(it)}
+
+
+def _find_share(token: str) -> Optional[Dict[str, Any]]:
+    tok = str(token or "").strip()
+    if not tok:
+        return None
+    for it in _load_shares():
+        if it.get("token") == tok:
+            return it
+    return None
+
+
+@_shared.post("/share")
+async def create_share(body: Dict[str, Any] = Body(default={})):
+    """Tạo (hoặc trả lại) link công khai cho một FILE. `expires_days` 0 = không hạn.
+    Đã có link cho file này thì trả lại link cũ, trừ khi `renew` = true (link mới,
+    link cũ chết)."""
+    import secrets
+    import time
+    svc = _get_service()
+    raw = str((body or {}).get("path") or "")
+    path = _validate(svc, raw)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=400, detail="Chỉ chia sẻ được file (chưa hỗ trợ thư mục).")
+    try:
+        days = int((body or {}).get("expires_days") or 0)
+    except (TypeError, ValueError):
+        days = 0
+    days = max(0, min(days, 365))
+    key = os.path.normcase(os.path.normpath(path))
+    items = _load_shares()
+    existing = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) == key]
+    if existing and not (body or {}).get("renew"):
+        return {"success": True, "share": _share_view(existing[0]), "created": False}
+    items = [it for it in items if os.path.normcase(os.path.normpath(it["path"])) != key]
+    now = time.time()
+    it = {"token": secrets.token_urlsafe(18), "path": os.path.normpath(path),
+          "name": str((body or {}).get("name") or "").strip()[:120] or os.path.basename(path),
+          "created": now, "expires": (now + days * 86400) if days > 0 else None, "downloads": 0}
+    items.append(it)
+    _save_shares(items)
+    return {"success": True, "share": _share_view(it), "created": True}
+
+
+@_shared.get("/share")
+async def get_share(path: str = Query(...)):
+    """Link công khai của một file (null nếu chưa chia sẻ)."""
+    key = os.path.normcase(os.path.normpath(str(path or "")))
+    for it in _load_shares():
+        if os.path.normcase(os.path.normpath(it["path"])) == key:
+            return {"success": True, "share": _share_view(it)}
+    return {"success": True, "share": None}
+
+
+@_shared.get("/shares")
+async def list_shares():
+    return {"success": True, "shares": [_share_view(it) for it in _load_shares()]}
+
+
+@_shared.delete("/share/{token}")
+async def revoke_share(token: str):
+    items = _load_shares()
+    kept = [it for it in items if it.get("token") != token]
+    if len(kept) != len(items):
+        _save_shares(kept)
+    return {"success": True, "removed": len(kept) != len(items)}
+
+
+# Router KHÔNG tiền tố cho trang công khai — server.py miễn đăng nhập cho /s/.
+router_public = APIRouter(tags=["File Manager · public share"])
+
+_SHARE_PAGE_TEXT = {
+    "vi": {"title": "Tệp được chia sẻ", "download": "Tải xuống", "open": "Mở tệp", "size": "Kích thước",
+           "expires": "Hết hạn", "never": "Không hết hạn", "gone": "Link không tồn tại hoặc đã hết hạn.",
+           "by": "Chia sẻ từ TubeCLI"},
+    "en": {"title": "Shared file", "download": "Download", "open": "Open file", "size": "Size",
+           "expires": "Expires", "never": "Never expires", "gone": "This link does not exist or has expired.",
+           "by": "Shared from TubeCLI"},
+}
+
+
+def _share_lang(request: Request) -> str:
+    al = (request.headers.get("accept-language") or "").lower()
+    return "vi" if al.startswith("vi") else "en"
+
+
+def _human(n: int) -> str:
+    x = float(n or 0)
+    for u in ("B", "KB", "MB", "GB"):
+        if x < 1024:
+            return f"{x:.1f} {u}" if u != "B" else f"{int(x)} {u}"
+        x /= 1024
+    return f"{x:.1f} TB"
+
+
+def _share_page(it: Optional[Dict[str, Any]], request: Request) -> str:
+    import html as _h
+    import time
+    L = _SHARE_PAGE_TEXT[_share_lang(request)]
+    css = ("body{margin:0;background:#0f1115;color:#e6e8ee;font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}"
+           ".wrap{max-width:900px;margin:0 auto;padding:32px 20px}.card{background:#171a21;border:1px solid #262a35;"
+           "border-radius:16px;padding:24px}.name{font-size:20px;font-weight:700;word-break:break-all;margin:0 0 6px}"
+           ".meta{color:#9aa3b2;font-size:13px;margin-bottom:18px}.prev{background:#0b0d12;border-radius:12px;overflow:hidden;"
+           "margin:0 0 18px;text-align:center}.prev img,.prev video{max-width:100%;max-height:70vh;display:block;margin:0 auto}"
+           ".prev iframe{width:100%;height:70vh;border:0;background:#fff}.prev audio{width:100%;padding:24px 0}"
+           ".btn{display:inline-block;background:#5276eb;color:#fff;text-decoration:none;font-weight:600;padding:12px 22px;"
+           "border-radius:10px;margin-right:10px}.btn.q{background:#262a35}.foot{color:#5f6878;font-size:12px;margin-top:22px}"
+           ".ico{font-size:56px;padding:40px 0}")
+    if it is None or not _share_alive(it):
+        return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                f"<meta name='robots' content='noindex'><title>{_h.escape(L['title'])}</title><style>{css}</style></head>"
+                f"<body><div class='wrap'><div class='card'><p class='name'>{_h.escape(L['gone'])}</p>"
+                f"<p class='foot'>{_h.escape(L['by'])}</p></div></div></body></html>")
+    name = _h.escape(it.get("name") or os.path.basename(it["path"]))
+    tok = _h.escape(it["token"])
+    ext = os.path.splitext(it["path"])[1].lower()
+    mt = _MEDIA_TYPES.get(ext) or ""
+    raw = f"/s/{tok}/raw"
+    if mt.startswith("image/"):
+        prev = f"<div class='prev'><img src='{raw}' alt='{name}'></div>"
+    elif mt.startswith("video/"):
+        prev = f"<div class='prev'><video controls preload='metadata' src='{raw}'></video></div>"
+    elif mt.startswith("audio/"):
+        prev = f"<div class='prev'><audio controls preload='metadata' src='{raw}'></audio></div>"
+    elif mt == "application/pdf":
+        prev = f"<div class='prev'><iframe src='{raw}' title='{name}'></iframe></div>"
+    else:
+        prev = "<div class='prev'><div class='ico'>📄</div></div>"
+    exp = it.get("expires")
+    exp_s = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(exp))) if exp else L["never"]
+    size = _human(os.path.getsize(it["path"]) if os.path.isfile(it["path"]) else 0)
+    open_btn = f"<a class='btn q' href='{raw}' target='_blank' rel='noopener'>{_h.escape(L['open'])}</a>" if mt else ""
+    return (f"<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+            f"<meta name='robots' content='noindex'><title>{name} — {_h.escape(L['title'])}</title><style>{css}</style></head>"
+            f"<body><div class='wrap'><div class='card'><p class='name'>{name}</p>"
+            f"<p class='meta'>{_h.escape(L['size'])}: {size} · {_h.escape(L['expires'])}: {_h.escape(exp_s)}</p>{prev}"
+            f"<a class='btn' href='/s/{tok}/download'>⬇ {_h.escape(L['download'])}</a>{open_btn}"
+            f"<p class='foot'>{_h.escape(L['by'])}</p></div></div></body></html>")
+
+
+_SHARE_HEADERS = {"Cache-Control": "private, no-store", "X-Robots-Tag": "noindex",
+                  "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer"}
+
+
+@router_public.get("/s/{token}")
+async def public_share_page(token: str, request: Request):
+    from starlette.responses import HTMLResponse
+    it = _find_share(token)
+    alive = it is not None and _share_alive(it)
+    return HTMLResponse(_share_page(it, request), status_code=200 if alive else 404, headers=dict(_SHARE_HEADERS))
+
+
+def _public_file(it: Dict[str, Any], inline: bool) -> FileResponse:
+    resolved = os.path.realpath(it["path"])
+    try:
+        st = os.stat(resolved)
+    except OSError:
+        raise HTTPException(status_code=404, detail="File không còn trên máy chủ.")
+    if not stat.S_ISREG(st.st_mode):
+        raise HTTPException(status_code=404, detail="File không còn trên máy chủ.")
+    ext = os.path.splitext(resolved)[1].lower()
+    mt = _MEDIA_TYPES.get(ext)
+    name = it.get("name") or os.path.basename(resolved)
+    headers = {"Cache-Control": "private, max-age=0, must-revalidate", "X-Content-Type-Options": "nosniff",
+               "X-Robots-Tag": "noindex", "Cross-Origin-Resource-Policy": "cross-origin"}
+    if inline and mt:
+        headers["Content-Disposition"] = _inline_disposition(name)
+        if mt == "application/pdf":
+            headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors *"
+        elif mt.startswith(("audio/", "video/")):
+            headers["Content-Security-Policy"] = _CSP_MEDIA
+        media_type = mt
+    else:
+        headers["Content-Disposition"] = _inline_disposition(name).replace("inline", "attachment", 1)
+        media_type = "application/octet-stream"
+    return FileResponse(resolved, media_type=media_type, stat_result=st, headers=headers)
+
+
+@router_public.api_route("/s/{token}/raw", methods=["GET", "HEAD"])
+async def public_share_raw(token: str, request: Request):
+    """Xem tại chỗ (ảnh/video/âm thanh/PDF, có Range); định dạng khác thì tải về."""
+    it = _find_share(token)
+    if it is None or not _share_alive(it):
+        raise HTTPException(status_code=404, detail="Link không tồn tại hoặc đã hết hạn.")
+    return _public_file(it, inline=True)
+
+
+@router_public.get("/s/{token}/download")
+async def public_share_download(token: str):
+    it = _find_share(token)
+    if it is None or not _share_alive(it):
+        raise HTTPException(status_code=404, detail="Link không tồn tại hoặc đã hết hạn.")
+    items = _load_shares()
+    for x in items:
+        if x.get("token") == it["token"]:
+            x["downloads"] = int(x.get("downloads") or 0) + 1
+    try:
+        _save_shares(items)
+    except Exception:
+        pass
+    return _public_file(it, inline=False)
+
+
 @_shared.get("/roots")
 async def get_roots():
     r"""Get list of allowed root directories, and the server's path separator.
@@ -1418,3 +1670,4 @@ async def permissions_write(req: PermissionsRequest):
 # @_shared decorator above has been evaluated.
 router_legacy.include_router(_shared)
 router_fm.include_router(_shared)
+router.append(router_public)          # trang công khai /s/<token>, không tiền tố

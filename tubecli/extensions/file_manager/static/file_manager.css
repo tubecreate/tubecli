@@ -2065,3 +2065,9 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
 .fm-rail-item:hover .fm-rail-x, .fm-rail-item:focus-within .fm-rail-x { opacity: 1; }
 .fm-rail-x:hover { color: var(--red); background: var(--bg3); }
 .fm-rail-x .fm-ico { width: 14px; height: 14px; }
+
+/* Chia sẻ công khai */
+.fm-share-row { display: flex; gap: 8px; align-items: center; }
+.fm-share-row .fm-input { flex: 1 1 auto; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.8rem; }
+.fm-btn-danger { color: var(--red); }
+.fm-menu-item:disabled { opacity: 0.45; cursor: default; }

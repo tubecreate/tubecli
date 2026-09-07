@@ -1019,6 +1019,20 @@
 
     /* Lối tắt thư mục: ghim/bỏ ghim mục đang chọn (menu chuột phải) — file_manager.js
        giữ danh sách và gọi máy chủ; ở đây chỉ chuyển đường dẫn. */
+    /* Chia sẻ công khai: mở hộp thoại cho file đang chọn (file_manager.js gọi máy chủ). */
+    function actShare(node, ev) {
+        var p = requireTarget(node);
+        if (!p) return;
+        return callFM('openShare', p);
+    }
+    /* «Tải lên» từ menu nền: bấm hộ ô chọn file của thanh công cụ. */
+    function actBgUpload() {
+        callFM('hideContextMenu');
+        var input = document.querySelector('.fm-toolbar input[type="file"]') || document.querySelector('input[type="file"][multiple]');
+        if (input) input.click();
+        else toast(T('fm.upload_no_dir'), 'warn');
+    }
+
     function actShortcutToggle(node, ev) {
         var p = requireTarget(node);
         if (!p) return;
@@ -1135,7 +1149,13 @@
         'analyze': actAnalyze,
         'permissions': actPermissions,
         'shortcut-toggle': actShortcutToggle,
-        'shortcut-remove': actShortcutRemove
+        'shortcut-remove': actShortcutRemove,
+        'share': actShare,
+        'share-create': function () { return settle(callFM('createShare')); },
+        'share-revoke': function () { return settle(callFM('revokeShare')); },
+        'share-copy': function () { return settle(callFM('copyShareLink')); },
+        'share-close': function () { return callFM('closeShare'); },
+        'bg-upload': actBgUpload
     }, 'fm_actions');
 
     // ══════════════════════════════════════════════════════════════════

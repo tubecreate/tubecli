@@ -297,6 +297,29 @@
             'fm.err_shape': 'The server replied successfully but the "{field}" field is missing. Got: {got}',
             'fm.err_aborted': 'Request stopped at your request. The server may still be working.',
 
+            'fm.browse.share': 'Share publicly',
+            'fm.share.title': 'Share publicly',
+            'fm.share.desc': 'Anyone with the link can view and download this file — no account needed.',
+            'fm.share.expiry': 'Link expires',
+            'fm.share.exp_never': 'Never',
+            'fm.share.exp_1d': 'After 1 day',
+            'fm.share.exp_7d': 'After 7 days',
+            'fm.share.exp_30d': 'After 30 days',
+            'fm.share.link': 'Public link',
+            'fm.share.copy': 'Copy',
+            'fm.share.copied': 'Link copied',
+            'fm.share.open': 'Open',
+            'fm.share.create': 'Create link',
+            'fm.share.revoke': 'Stop sharing',
+            'fm.share.revoked': 'Sharing stopped — the link no longer works',
+            'fm.share.meta': '{downloads} downloads · {expiry}',
+            'fm.share.expires_at': 'expires {date}',
+            'fm.share.no_expiry': 'never expires',
+            'fm.share.failed': 'Cannot share: {message}',
+            'fm.share.only_files': 'Only files can be shared for now.',
+            'fm.drive.paste_server': 'Paste from server (upload to Drive)',
+            'fm.drive.pasted': 'Uploaded “{name}” to Drive',
+            'fm.drive.paste_failed': 'Cannot upload to Drive: {message}',
             'fm.nav.shortcuts': 'Shortcuts',
             'fm.shortcuts.hint': 'Right-click a folder and choose “Add to shortcuts”.',
             'fm.browse.shortcut_add': 'Add to shortcuts',
@@ -1612,7 +1635,17 @@
                 grid.addEventListener('contextmenu', (function (e) {
                     var card = e.target.closest('.fm-file-card');
                     if (card) this.showContextMenu(e, card.getAttribute('data-path'), card.getAttribute('data-dir') === '1');
+                    else if (this.currentPath) this.showBgMenu(e);     // nền thư mục: Dán, tạo mới, tải lên…
                 }).bind(this));
+                // Lưới chỉ cao bằng các thẻ; khoảng trống bên dưới thuộc vùng cuộn — chuột
+                // phải ở đó cũng là "nền thư mục" với người dùng, nên bắt luôn.
+                var scroller = grid.closest('.fm-view-scroll') || grid.parentElement;
+                if (scroller && scroller !== grid) {
+                    scroller.addEventListener('contextmenu', (function (e) {
+                        if (e.target.closest && e.target.closest('.fm-file-card, #fileGrid, .fm-menu')) return;
+                        if (this.currentPath) this.showBgMenu(e);
+                    }).bind(this));
+                }
                 // Kéo file (không phải thư mục) sang canvas Flow của cloud bằng POINTER CAPTURE
                 // (không dùng drag gốc để tránh con trỏ 🚫 no-drop qua iframe khác origin).
                 // pointerdown ghim card → vượt ngưỡng thì setPointerCapture (card nhận mọi
@@ -2420,8 +2453,12 @@
             if (!menu) return;
             // Mục chỉ dành cho thư mục (lối tắt) ẩn khi bấm vào file; nhãn đổi theo
             // trạng thái đã ghim hay chưa.
+            var bg = byId('bgContextMenu');
+            if (bg) bg.style.display = 'none';
             var dirOnly = menu.querySelectorAll('[data-fm-dir-only]');
             for (var i = 0; i < dirOnly.length; i++) dirOnly[i].hidden = !isDir || !this.shortcutsSupported;
+            var fileOnly = menu.querySelectorAll('[data-fm-file-only]');
+            for (var j = 0; j < fileOnly.length; j++) fileOnly[j].hidden = !!isDir;
             var lab = byId('ctxShortcutLabel');
             if (lab) lab.textContent = T(this.isShortcut(path) ? 'fm.browse.shortcut_remove' : 'fm.browse.shortcut_add');
             menu.style.display = 'block';
@@ -2432,6 +2469,130 @@
         hideContextMenu() {
             var menu = byId('contextMenu');
             if (menu) menu.style.display = 'none';
+            var bg = byId('bgContextMenu');
+            if (bg) bg.style.display = 'none';
+        },
+
+        /* Menu trên NỀN thư mục: Dán (mờ khi chưa sao chép gì), tạo mới, tải lên, làm
+           mới, chép đường dẫn / lối tắt / phân tích cho chính thư mục đang mở. */
+        showBgMenu(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var menu = byId('bgContextMenu');
+            if (!menu) return;
+            var ctx = byId('contextMenu');
+            if (ctx) ctx.style.display = 'none';
+            menu.setAttribute('data-path', this.currentPath || '');
+            var paste = byId('bgPaste');
+            if (paste) paste.disabled = !this.clipboard;
+            var sc = menu.querySelector('[data-fm-action="shortcut-toggle"]');
+            if (sc) sc.hidden = !this.shortcutsSupported;
+            var lab = byId('bgShortcutLabel');
+            if (lab) lab.textContent = T(this.isShortcut(this.currentPath) ? 'fm.browse.shortcut_remove' : 'fm.browse.shortcut_add');
+            menu.hidden = false;
+            menu.style.display = 'block';
+            menu.style.left = Math.max(4, Math.min(e.clientX, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+            menu.style.top = Math.max(4, Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+        },
+
+        // ── Chia sẻ công khai ────────────────────────────────────────
+        _share: null,          // { path, share }
+
+        shareUrl(share) {
+            // iframe nạp thẳng từ tên miền tunnel của máy chủ, nên origin của trang
+            // chính là địa chỉ người nhận mở được từ internet.
+            var origin = (window.FM_PUBLIC_ORIGIN || location.origin || '').replace(/\/$/, '');
+            return origin + (share && share.url_path ? share.url_path : '');
+        },
+
+        async openShare(path) {
+            if (!path) return;
+            var item = this.items.find(function (i) { return i.path === path; });
+            if (item && item.is_dir) { toast(T('fm.share.only_files'), 'warn'); return; }
+            this.hideContextMenu();
+            this._share = { path: path, share: null };
+            var dlg = byId('fm-share');
+            if (!dlg) return;
+            var f = byId('fm-share-file');
+            if (f) f.textContent = baseName(path);
+            var err = byId('fm-share-error');
+            if (err) err.hidden = true;
+            dlg.hidden = false;
+            try {
+                var data = await this.api('GET', '/share?path=' + encodeURIComponent(path));
+                this._share.share = data && data.share;
+            } catch (e) { this._share.share = null; }
+            this.renderShare();
+        },
+
+        renderShare() {
+            var st = this._share || {};
+            var have = st.share && st.share.alive !== false ? st.share : null;
+            var cBox = byId('fm-share-create'), hBox = byId('fm-share-have');
+            if (cBox) cBox.hidden = !!have;
+            if (hBox) hBox.hidden = !have;
+            var go = byId('fm-share-go'), rv = byId('fm-share-revoke'), op = byId('fm-share-open');
+            if (go) go.hidden = !!have;
+            if (rv) rv.hidden = !have;
+            if (op) { op.hidden = !have; if (have) op.href = this.shareUrl(have); }
+            if (have) {
+                var url = byId('fm-share-url');
+                if (url) url.value = this.shareUrl(have);
+                var meta = byId('fm-share-meta');
+                if (meta) {
+                    var exp = have.expires ? T('fm.share.expires_at', { date: new Date(have.expires * 1000).toLocaleString() })
+                                           : T('fm.share.no_expiry');
+                    meta.textContent = T('fm.share.meta', { downloads: have.downloads || 0, expiry: exp });
+                }
+            }
+        },
+
+        async createShare() {
+            var st = this._share;
+            if (!st) return;
+            var sel = byId('fm-share-expiry');
+            var days = sel ? parseInt(sel.value, 10) || 0 : 0;
+            try {
+                var data = await this.api('POST', '/share', { path: st.path, expires_days: days });
+                st.share = data && data.share;
+                this.renderShare();
+                var url = byId('fm-share-url');
+                if (url) { url.focus(); url.select(); }
+            } catch (e) {
+                var err = byId('fm-share-error');
+                if (err) { err.textContent = T('fm.share.failed', { message: (e && e.message) || String(e) }); err.hidden = false; }
+            }
+        },
+
+        async revokeShare() {
+            var st = this._share;
+            if (!st || !st.share) return;
+            try {
+                await this.api('DELETE', '/share/' + encodeURIComponent(st.share.token));
+                st.share = null;
+                this.renderShare();
+                toast(T('fm.share.revoked'), 'info');
+            } catch (e) { /* api() báo */ }
+        },
+
+        async copyShareLink() {
+            var st = this._share;
+            if (!st || !st.share) return;
+            var url = this.shareUrl(st.share);
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(url);
+                else { var inp = byId('fm-share-url'); if (inp) { inp.focus(); inp.select(); document.execCommand('copy'); } }
+                toast(T('fm.share.copied'), 'success');
+            } catch (e) {
+                var inp2 = byId('fm-share-url');
+                if (inp2) { inp2.focus(); inp2.select(); }
+            }
+        },
+
+        closeShare() {
+            var dlg = byId('fm-share');
+            if (dlg) dlg.hidden = true;
+            this._share = null;
         },
 
         // ── Search ───────────────────────────────────────────────────

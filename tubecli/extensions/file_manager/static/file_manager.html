@@ -37,7 +37,7 @@
     } catch (e) { /* no URLSearchParams / sandbox quirk: dark default stands */ }
 })();
 </script>
-<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=14">
+<link rel="stylesheet" href="/file-manager-static/file_manager.css?v=15">
 <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
       media="print" onload="this.media='all'">
@@ -79,6 +79,7 @@
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></symbol>
     <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
     <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 2.6l2.9 6.1 6.6.9-4.8 4.6 1.2 6.6L12 17.6l-5.9 3.2 1.2-6.6L2.5 9.6l6.6-.9z"/></symbol>
     <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/><path d="M12 11v6"/><path d="M9 14h6"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M13 2v7h7"/></symbol>
@@ -1145,6 +1146,11 @@
     <svg class="fm-ico" aria-hidden="true"><use href="#i-star"/></svg>
     <span id="ctxShortcutLabel" data-i18n="fm.browse.shortcut_add"></span>
   </button>
+  <!-- Chỉ file: chia sẻ công khai bằng link /s/<token> (không cần đăng nhập). -->
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="share" data-fm-file-only="1">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-link"/></svg>
+    <span data-i18n="fm.browse.share"></span>
+  </button>
   <hr class="fm-menu-sep">
   <button type="button" class="fm-menu-item fm-menu-danger" role="menuitem" data-fm-action="delete">
     <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
@@ -1204,6 +1210,102 @@
   </div>
 </div>
 
+
+<!-- Menu chuột phải trên NỀN thư mục (không trúng thẻ nào): dán từ nơi khác tới,
+     tạo mới, tải lên… Gốc `data-path` = thư mục đang mở, để copy-path / lối tắt /
+     phân tích trỏ đúng vào nó. -->
+<div class="fm-menu" id="bgContextMenu" role="menu" hidden>
+  <button type="button" class="fm-menu-item" role="menuitem" id="bgPaste" data-fm-action="paste">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
+    <span data-i18n="fm.paste"></span>
+  </button>
+  <hr class="fm-menu-sep">
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="new-folder">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-folder-plus"/></svg>
+    <span data-i18n="fm.new_folder"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="new-file">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-file-plus"/></svg>
+    <span data-i18n="fm.new_file"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="bg-upload">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-up"/></svg>
+    <span data-i18n="fm.upload"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="refresh">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-refresh"/></svg>
+    <span data-i18n="fm.refresh"></span>
+  </button>
+  <hr class="fm-menu-sep">
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="copy-path">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-clipboard"/></svg>
+    <span data-i18n="fm.common.copy_path"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="shortcut-toggle">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-star"/></svg>
+    <span id="bgShortcutLabel" data-i18n="fm.browse.shortcut_add"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="analyze">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-pie"/></svg>
+    <span data-i18n="fm.browse.analyze_folder"></span>
+  </button>
+</div>
+
+<!-- Menu chuột phải trên nền tab Drive: dán file đang sao chép từ máy chủ = tải lên Drive. -->
+<div class="fm-menu" id="fm-drive-bgmenu" role="menu" hidden>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="dmenu-paste-server">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-arrow-up"/></svg>
+    <span data-i18n="fm.drive.paste_server"></span>
+  </button>
+</div>
+
+<!-- Hộp thoại chia sẻ công khai -->
+<div class="fm-overlay" id="fm-share" role="dialog" aria-modal="true" aria-labelledby="fm-share-title" hidden>
+  <div class="fm-dialog">
+    <div class="fm-dialog-head">
+      <h3 class="fm-dialog-title" id="fm-share-title" data-i18n="fm.share.title"></h3>
+      <button type="button" class="fm-icon-btn" data-fm-action="share-close" data-i18n-title="fm.common.close">
+        <svg class="fm-ico" aria-hidden="true"><use href="#i-x"/></svg>
+        <span class="fm-sr" data-i18n="fm.common.close"></span>
+      </button>
+    </div>
+    <div class="fm-dialog-body">
+      <p class="fm-dialog-desc fm-ellipsis" id="fm-share-file"></p>
+      <p class="fm-dialog-desc" data-i18n="fm.share.desc"></p>
+      <div id="fm-share-create">
+        <label class="fm-field">
+          <span class="fm-field-label" data-i18n="fm.share.expiry"></span>
+          <select class="fm-input" id="fm-share-expiry">
+            <option value="0" data-i18n="fm.share.exp_never"></option>
+            <option value="1" data-i18n="fm.share.exp_1d"></option>
+            <option value="7" data-i18n="fm.share.exp_7d"></option>
+            <option value="30" data-i18n="fm.share.exp_30d"></option>
+          </select>
+        </label>
+      </div>
+      <div id="fm-share-have" hidden>
+        <label class="fm-field">
+          <span class="fm-field-label" data-i18n="fm.share.link"></span>
+          <div class="fm-share-row">
+            <input type="text" class="fm-input" id="fm-share-url" readonly spellcheck="false">
+            <button type="button" class="fm-btn" data-fm-action="share-copy"><span data-i18n="fm.share.copy"></span></button>
+          </div>
+        </label>
+        <p class="fm-rail-note" id="fm-share-meta"></p>
+      </div>
+      <p class="fm-inline-error" id="fm-share-error" hidden role="alert"></p>
+    </div>
+    <div class="fm-dialog-foot fm-dialog-foot-actions">
+      <button type="button" class="fm-btn fm-btn-quiet fm-btn-danger" id="fm-share-revoke" data-fm-action="share-revoke" hidden>
+        <span data-i18n="fm.share.revoke"></span>
+      </button>
+      <a class="fm-btn fm-btn-quiet" id="fm-share-open" target="_blank" rel="noopener" hidden><span data-i18n="fm.share.open"></span></a>
+      <button type="button" class="fm-btn fm-btn-primary" id="fm-share-go" data-fm-action="share-create">
+        <span data-i18n="fm.share.create"></span>
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- ══════════════════ TOASTS ══════════════════ -->
 <div class="fm-toasts" id="toastContainer" role="status" aria-live="polite"></div>
@@ -1492,7 +1594,7 @@
 })();
 </script>
 
-<script src="/file-manager-static/file_manager.js?v=19"></script>
+<script src="/file-manager-static/file_manager.js?v=20"></script>
 
 <!--
   The [data-fm-action] modules. Classic scripts, so they run in document order.
@@ -1506,11 +1608,11 @@
   keeps registration synchronous and makes "first claim wins" deterministic,
   so which module owns a duplicated name never depends on network timing.
 -->
-<script src="/file-manager-static/fm_actions.js?v=5"></script>
+<script src="/file-manager-static/fm_actions.js?v=6"></script>
 <script src="/file-manager-static/fm_storage.js?v=1"></script>
 <script src="/file-manager-static/fm_cleanup.js?v=1"></script>
 <script src="/file-manager-static/fm_permissions.js?v=1"></script>
-<script src="/file-manager-static/fm_drive.js?v=12"></script>
+<script src="/file-manager-static/fm_drive.js?v=13"></script>
 <script src="/file-manager-static/fm_search.js?v=2"></script>
 </body>
 </html>

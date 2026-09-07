@@ -69,7 +69,9 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
                       # summary screen advertises. It returns strictly less than
                       # the already-exempt /auth/status.
                       "/api/v1/health"}
-_AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/")
+# /s/ = link chia sẻ công khai của File Manager (token ngẫu nhiên là chìa khoá;
+# route tự kiểm hạn dùng + file còn tồn tại). Người nhận không có tài khoản.
+_AUTH_EXEMPT_PREFIX = ("/webui/static/", "/static/", "/s/")
 
 
 def _auth_exempt(path: str) -> bool:
