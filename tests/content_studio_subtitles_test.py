@@ -191,7 +191,9 @@ html = (EXT / "static" / "studio.html").read_text(encoding="utf-8")
 check("J WIZ_FIELD_IDS", "'wizSubtitleStyle'" in js.split("const WIZ_CHECKBOX_IDS")[0])
 check("J metadata.subtitle_style", "metadata.subtitle_style = document.getElementById('wizSubtitleStyle')" in js)
 check("J select + preview", 'id="wizSubtitleStyle"' in html and 'id="wizSubtitlePreview"' in html)
-check("J cache-bust", "studio2.js?v=20260907_voice2" in html)
+check("J cache-bust", "studio2.js?v=20260907_preset" in html)
+check("J preset save/save-as", "function saveWizPresetAs()" in js and 'onclick="saveWizPresetAs()"' in html
+      and "if (!current) return saveWizPresetAs();" in js and "presets[current] = data;" in js)
 check("J voice preset field", "'wizTtsPreset'" in js.split("const WIZ_CHECKBOX_IDS")[0] and 'id="wizTtsPreset"' in html
       and "data.wizTtsEngine" in js and "_capcutVoicesHtml" in js and "_applyWizVoice" in js and "_capcutSpeakers" in js)
 check("J languages th/id", 'value="th"' in html.split('id="wizLanguage"')[1][:900] and 'value="id"' in html.split('id="wizLanguage"')[1][:900])
