@@ -9,10 +9,11 @@ import asyncio
 import logging
 import mimetypes
 import os
+import re
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from tubecli.extensions.codex.manager import ALL_STATES, codex_manager
@@ -225,6 +226,66 @@ async def update_task(task_id: str, req: UpdateTaskRequest):
         codex_manager.update_task, task["id"], **req.dict(exclude_none=True)
     )
     return {"status": "updated", "task": updated}
+
+
+# Xem trước file mà một task trả về (mp4 của content_video, ảnh của Thumbnail
+# Studio…). Không phải route đọc file tự do: đường dẫn phải xuất hiện NGUYÊN VĂN
+# trong kết quả của đúng task đó, và chỉ các loại media. Có Range để <video>
+# tua được.
+_PREVIEW_TYPES = {
+    ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".m4v": "video/x-m4v",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+    ".gif": "image/gif", ".mp3": "audio/mpeg", ".wav": "audio/wav",
+}
+
+
+def preview_allowed(task: Dict[str, Any], path: str) -> bool:
+    """Đường dẫn có nằm trong kết quả của task không (so cả dạng / và \\)."""
+    text = str((task or {}).get("result") or "")
+    p = str(path or "").strip()
+    if not p or not text:
+        return False
+    return p in text or p.replace("\\", "/") in text.replace("\\", "/")
+
+
+def _range_stream(filepath: str, start: int, end: int, chunk: int = 1 << 20):
+    with open(filepath, "rb") as f:
+        f.seek(start)
+        left = end - start + 1
+        while left > 0:
+            data = f.read(min(chunk, left))
+            if not data:
+                break
+            left -= len(data)
+            yield data
+
+
+@router.get("/tasks/{task_id}/file")
+async def task_file(task_id: str, path: str, request: Request):
+    task = _require(task_id)
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in _PREVIEW_TYPES:
+        raise HTTPException(415, "Only media files can be previewed")
+    if not preview_allowed(task, path):
+        raise HTTPException(403, "That file is not part of this task's result")
+    filepath = os.path.abspath(path)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404, "File not found")
+    media = _PREVIEW_TYPES[ext]
+    size = os.path.getsize(filepath)
+    rng = request.headers.get("range") or ""
+    m = re.match(r"bytes=(\d*)-(\d*)", rng)
+    if m and size:
+        start = int(m.group(1) or 0)
+        end = int(m.group(2) or size - 1)
+        end = min(end, size - 1)
+        if start > end:
+            raise HTTPException(416, "Range not satisfiable")
+        headers = {"Content-Range": f"bytes {start}-{end}/{size}", "Accept-Ranges": "bytes",
+                   "Content-Length": str(end - start + 1)}
+        return StreamingResponse(_range_stream(filepath, start, end), status_code=206,
+                                 media_type=media, headers=headers)
+    return FileResponse(filepath, media_type=media, headers={"Accept-Ranges": "bytes"})
 
 
 @router.get("/tasks/{task_id}/events")

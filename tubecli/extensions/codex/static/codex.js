@@ -85,6 +85,53 @@ const CODEX = (() => {
     return (typeof T === 'function') ? T(key, vars) : key;
   }
 
+  // ── Xem trước file trong kết quả ──────────────────────────────
+  // Kết quả là văn bản; video/ảnh trong đó chỉ là một dòng đường dẫn. Nhận
+  // diện link http(s), đường dẫn /api/... và đường dẫn tuyệt đối trên máy
+  // (/root/… hay C:\…) có đuôi media; mỗi file một player/ảnh nhỏ.
+  const MEDIA_EXT = /\.(mp4|webm|mov|m4v|png|jpe?g|webp|gif|mp3|wav)$/i;
+  const MEDIA_REF = /(https?:\/\/[^\s`'"<>)\]]+|(?:\/|[A-Za-z]:[\\/])[^\s`'"<>)\]]+)/g;
+
+  function mediaRefs(text) {
+    const out = [];
+    const seen = new Set();
+    for (const m of String(text || '').matchAll(MEDIA_REF)) {
+      let ref = m[1].replace(/[.,;:]+$/, '');
+      if (!MEDIA_EXT.test(ref)) continue;
+      const name = ref.split(/[\\/]/).pop();
+      if (seen.has(name)) continue;               // "Video: /root/x.mp4" và "Watch: …/x.mp4" là một file
+      seen.add(name);
+      out.push({ ref, name });
+    }
+    return out;
+  }
+
+  function mediaSrc(ref, taskId) {
+    // Link tới chính máy này (http://127.0.0.1:5295/api/...) chỉ đúng từ trong
+    // máy; trình duyệt của người dùng đi qua proxy của dashboard → dùng đường
+    // dẫn tương đối cùng gốc.
+    const local = ref.match(/^https?:\/\/(?:127\.0\.0\.1|localhost|0\.0\.0\.0)(?::\d+)?(\/.*)$/i);
+    if (local) return local[1];
+    if (/^https?:\/\//i.test(ref) || ref.startsWith('/api/')) return ref;
+    return `${API}/tasks/${encodeURIComponent(taskId)}/file?path=${encodeURIComponent(ref)}`;
+  }
+
+  function mediaPreviewHtml(task) {
+    const refs = mediaRefs(task.result);
+    if (!refs.length) return '';
+    const items = refs.map(({ ref, name }) => {
+      const src = mediaSrc(ref, task.id);
+      const ext = (name.split('.').pop() || '').toLowerCase();
+      let el;
+      if (['mp4', 'webm', 'mov', 'm4v'].includes(ext)) el = `<video controls preload="metadata" src="${esc(src)}"></video>`;
+      else if (['mp3', 'wav'].includes(ext)) el = `<audio controls preload="metadata" src="${esc(src)}"></audio>`;
+      else el = `<a href="${esc(src)}" target="_blank" rel="noopener"><img src="${esc(src)}" alt="${esc(name)}" loading="lazy"></a>`;
+      return `<figure class="cx-media-item">${el}<figcaption title="${esc(ref)}">${esc(name)}</figcaption></figure>`;
+    });
+    return `<div class="cx-media-head">${icon('preview')}${esc(t('codex.section_preview'))}</div>
+      <div class="cx-media">${items.join('')}</div>`;
+  }
+
   function esc(v) {
     if (v === null || v === undefined) return '';
     return String(v)
@@ -528,6 +575,7 @@ const CODEX = (() => {
             </button>
           </div>
           <pre class="cx-pre">${esc(task.result)}</pre>
+          ${mediaPreviewHtml(task)}
         </div>`);
     }
 
