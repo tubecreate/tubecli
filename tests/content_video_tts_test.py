@@ -121,5 +121,23 @@ for meta, opts, want_engine, want_voice in [
     if meta.get("tts_email"):
         assert dm.get("tts_email") == "a@x.com", dm
 print("5 preset voice: preset thắng auto, chat thắng preset, CapCut mang speaker+email, VibeVoice không bị so ngôn ngữ, 'auto' không lọt vào drama")
+# 6. Bước tuỳ chọn ĐÃ CHẠY mà hỏng → lượt hỏng (có Retry); chỉ publish được nuốt lỗi; thiếu năng lực vẫn bỏ qua
+P.check_job = lambda job: {"ready": job != "missing_cap", "missing": ["x"] if job == "missing_cap" else [], "disabled": []}
+def boom(state, options): raise RuntimeError("CapCut TTS failed for every shot (15)")
+P._HANDLERS["tts"] = boom
+P._HANDLERS["publish"] = boom
+notes, skipped = [], []
+try:
+    P._run_steps([("tts", "Voice the narration", "tts", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
+    raise SystemExit("tts failure must fail the run")
+except RuntimeError as e:
+    assert "every shot" in str(e)
+notes.clear()
+P._run_steps([("publish", "Publish to YouTube", "publish", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
+assert notes and "Publish to YouTube** failed" in notes[0], notes
+notes.clear()
+P._run_steps([("tts", "Voice the narration", "missing_cap", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
+assert notes and "skipped" in notes[0] and skipped == ["missing_cap"], (notes, skipped)
+print("6 fail policy : tts chạy mà hỏng → RuntimeError (Retry); publish hỏng → ghi chú; thiếu năng lực → bỏ qua")
 print()
-print("ALL 5 GROUPS PASSED")
+print("ALL 6 GROUPS PASSED")

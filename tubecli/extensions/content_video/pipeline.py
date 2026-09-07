@@ -69,6 +69,8 @@ RENDER_STEPS = [
     # lần upload hỏng không được phép nuốt cả lượt dựng (xem _step_publish).
     ("publish", "Publish to YouTube", "publish", True),
 ]
+# Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt: chỉ "publish".
+SOFT_FAIL_STEPS = {"publish"}
 STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe_plan()
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
 AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
@@ -2535,7 +2537,12 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
             if _is_cancel(e):
                 raise
             say(sid, "error", str(e)[:300])
-            if optional and not required:
+            # "optional" nghĩa là ĐƯỢC BỎ QUA khi máy thiếu năng lực (không có
+            # extension giọng đọc → video không lời). Bước đã CHẠY mà HỎNG là
+            # chuyện khác: giọng đọc hỏng cả 15 shot mà lượt vẫn dựng tiếp thành
+            # video câm rồi đưa ra duyệt — không có nút Retry vì task "xong".
+            # Chỉ bước đăng mới được nuốt lỗi (mp4 đã có là thứ đáng giá).
+            if optional and not required and sid in SOFT_FAIL_STEPS:
                 notes.append(f"- **{label}** failed: {str(e)[:200]}")
                 continue
             raise
