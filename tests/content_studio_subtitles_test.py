@@ -171,13 +171,29 @@ check("I chọn None → rỗng", f["metadata"]["subtitle_style"] == "")
 res = asyncio.run(R.list_subtitle_styles())
 check("I route styles", res["success"] and len(res["styles"]) == 16 and res["featured"] == 6)
 
+# I2. giọng đọc lưu trong preset → drama metadata (edge / vibevoice / capcut / auto)
+m = R.preset_drama_fields({"wizTtsPreset": "vi-VN-HoaiMyNeural", "wizTtsEngine": "edge"})["metadata"]
+check("I2 edge", m.get("tts_voice") == "vi-VN-HoaiMyNeural" and m.get("tts_engine") == "edge" and "tts_email" not in m, m)
+m = R.preset_drama_fields({"wizTtsPreset": "Alice", "wizTtsEngine": "vibevoice"})["metadata"]
+check("I2 vibevoice", m.get("tts_voice") == "Alice" and m.get("tts_engine") == "vibevoice", m)
+m = R.preset_drama_fields({"wizTtsPreset": "capcut|a@x.com|vi_female_01", "wizTtsEngine": "capcut", "wizTtsEmail": "a@x.com"})["metadata"]
+check("I2 capcut tách ba trường", m.get("tts_voice") == "vi_female_01" and m.get("tts_engine") == "capcut" and m.get("tts_email") == "a@x.com", m)
+m = R.preset_drama_fields({"wizTtsPreset": "capcut|b@y.com|spk9"})["metadata"]
+check("I2 capcut không kèm engine vẫn hiểu", m.get("tts_engine") == "capcut" and m.get("tts_email") == "b@y.com" and m.get("tts_voice") == "spk9", m)
+m = R.preset_drama_fields({"wizTtsPreset": ""})["metadata"]
+check("I2 auto → không ghi", "tts_voice" not in m and "tts_engine" not in m)
+check("I2 batch-tts có nhánh capcut", "elif engine == \"capcut\":" in open(EXT / "studio_routes.py", encoding="utf-8").read()
+      and "async def _batch_tts_worker_capcut" in open(EXT / "studio_routes.py", encoding="utf-8").read())
+
 # J. wizard JS/HTML carry the field
 js = (EXT / "static" / "studio2.js").read_text(encoding="utf-8")
 html = (EXT / "static" / "studio.html").read_text(encoding="utf-8")
 check("J WIZ_FIELD_IDS", "'wizSubtitleStyle'" in js.split("const WIZ_CHECKBOX_IDS")[0])
 check("J metadata.subtitle_style", "metadata.subtitle_style = document.getElementById('wizSubtitleStyle')" in js)
 check("J select + preview", 'id="wizSubtitleStyle"' in html and 'id="wizSubtitlePreview"' in html)
-check("J cache-bust", "studio2.js?v=20260906_subtitles2" in html)
+check("J cache-bust", "studio2.js?v=20260907_voice" in html)
+check("J voice preset field", "'wizTtsPreset'" in js.split("const WIZ_CHECKBOX_IDS")[0] and 'id="wizTtsPreset"' in html
+      and "data.wizTtsEngine" in js and "_capcutVoicesHtml" in js and "_applyWizVoice" in js)
 check("J apiFetch parse sẵn", "const data = await apiFetch('/subtitle-styles')" in js and "await r.json()" not in js.split("async function loadSubtitleStyles")[1].split("function renderSubtitlePreview")[0])
 check("J manifest", json.loads((EXT / "tubecli-extension.json").read_text(encoding="utf-8"))["version"] >= "2026.09.06.235000")
 

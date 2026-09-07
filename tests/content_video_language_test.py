@@ -188,7 +188,7 @@ P._get = fake_get
 P.installed_extensions = lambda: {"tts_vibevoice": True, "capcut_tts": True}
 posts = []
 P._storyboards = lambda ep_id: [{"id": 1, "storyboard_number": 1, "narration_text": "Open with the number."}]
-P._post_bytes = lambda path, payload, timeout=180: posts.append(payload) or (b"ID3" + b"\x00" * 2000)
+P._post_audio_marks = lambda path, payload, timeout=180: (posts.append(payload) or (b"ID3" + b"\x00" * 2000), [])
 P._put = lambda path, payload, timeout=60: {}
 import tubecli.config as CFG  # noqa: E402
 import tempfile  # noqa: E402

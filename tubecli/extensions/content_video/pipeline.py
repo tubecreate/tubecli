@@ -1190,8 +1190,19 @@ def _step_studio(state: Dict, options: Dict) -> None:
     if not ep_id:
         lang_code = str(state.get("language") or "vi")
         agent_meta = {"aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
-                      "tts_voice": _edge_voice(lang_code, str(options.get("tts_voice") or "")),
-                      "tts_engine": "edge", "source": ACTOR, "agent_id": str(agent.id)}
+                      "source": ACTOR, "agent_id": str(agent.id)}
+        # Giọng đọc: lời nói trong chat > giọng lưu trong preset > giọng edge theo
+        # ngôn ngữ. Trước đây pipeline luôn ghi đè tts_voice/tts_engine của preset.
+        pm = _preset_meta(state)
+        opt_engine = str(options.get("tts_engine") or "").lower()
+        if opt_engine == "auto":                 # "auto" là "tuỳ pipeline", không phải một engine để ghi lên drama
+            opt_engine = ""
+        if options.get("tts_voice") or opt_engine:
+            agent_meta["tts_voice"] = str(options.get("tts_voice") or pm.get("tts_voice") or _edge_voice(lang_code))
+            agent_meta["tts_engine"] = str(opt_engine or pm.get("tts_engine") or "edge")
+        elif not pm.get("tts_voice") and not pm.get("tts_engine"):
+            agent_meta["tts_voice"] = _edge_voice(lang_code)
+            agent_meta["tts_engine"] = "edge"
         body = {
             "title": title, "style": options.get("style") or DEFAULTS["style"],
             "language": lang_code,
@@ -1434,25 +1445,44 @@ def _capcut_account(preferred: str = "") -> str:
     return str(enabled[0]["email"]) if enabled else ""
 
 
+def _preset_meta(state: Dict) -> Dict:
+    """metadata của preset Studio đang dùng ({} nếu không có)."""
+    return dict((((state.get("preset") or {}).get("fields") or {}).get("metadata")) or {})
+
+
+def _preset_voice(state: Dict, options: Dict) -> Tuple[str, str, str]:
+    """(engine, voice, email) người dùng muốn: chat > preset > auto/rỗng."""
+    pm = _preset_meta(state)
+    engine = str(options.get("tts_engine") or pm.get("tts_engine") or "auto").lower()
+    voice = str(options.get("tts_voice") or pm.get("tts_voice") or "")
+    email = str(options.get("capcut_email") or pm.get("tts_email") or "")
+    return engine, voice, email
+
+
 def _tts_engine(state: Dict, options: Dict) -> str:
     """Which voice engine this run uses: "edge" (tts_vibevoice, through the
     Studio's batch-tts) or "capcut" (capcut_tts, per shot). "auto" prefers
     CapCut when it has an enabled account — the user picked those voices on
     purpose — and otherwise edge. Returns "" when nothing usable is there."""
-    want = str(options.get("tts_engine") or "auto").lower()
+    want, voice, email = _preset_voice(state, options)
     have = installed_extensions()
     edge_ok = bool(have.get("tts_vibevoice"))
     capcut_ok = bool(have.get("capcut_tts"))
     if want == "capcut":
         if not capcut_ok:
             raise RuntimeError("tts_engine=capcut but the CapCut TTS extension is not installed/enabled.")
-        state["capcut_email"] = _capcut_account(str(options.get("capcut_email") or ""))
+        state["capcut_email"] = _capcut_account(email)
         if not state["capcut_email"]:
             raise RuntimeError("CapCut TTS has no enabled account — add one on its page, or use tts_engine=edge.")
+        if voice:
+            state["capcut_speaker"] = voice
         return "capcut"
     if want in ("edge", "vibevoice"):
         if not edge_ok:
             raise RuntimeError("tts_engine=edge but the TTS VibeVoice extension is not installed/enabled.")
+        state["tts_batch_engine"] = want
+        if voice:
+            state["tts_voice_pref"] = voice
         return "edge"
     # auto
     if capcut_ok:
@@ -1564,17 +1594,20 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
 def _tts_edge(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     lang = str(state.get("language") or "vi")
-    explicit = str(options.get("tts_voice") or "")
+    engine = str(state.get("tts_batch_engine") or "edge")
+    explicit = str(options.get("tts_voice") or state.get("tts_voice_pref") or "")
     voice = _edge_voice(lang, explicit)
-    if explicit and not _voice_matches(explicit, lang):
+    # Giọng edge có dạng vi-VN-…; giọng VibeVoice là tên tự do, không so ngôn ngữ.
+    if explicit and engine == "edge" and "-" in explicit and not _voice_matches(explicit, lang):
         # Giữ lựa chọn của người dùng, nhưng nói ra: giọng này không đọc ngôn ngữ kịch bản.
         state.setdefault("warnings", []).append(
             f"Voice {explicit} does not match the script language ({language_name(lang)}) — "
             f"leave tts_voice empty to get {_edge_voice(lang)}.")
-    state["tts_voice_used"] = f"{voice} · {language_name(lang)}"
+    state["tts_voice_used"] = f"{voice} · {language_name(lang)}" + (" · VibeVoice" if engine == "vibevoice" else "")
+
     def run_batch() -> Tuple[int, int]:
         res = _post(f"/api/v1/studio/episodes/{ep_id}/batch-tts", {
-            "voice_id": voice, "engine": "edge",
+            "voice_id": voice, "engine": engine,
         }, timeout=60)
         if not res.get("task_id"):
             raise RuntimeError(f"batch-tts did not start: {str(res)[:200]}")
@@ -1589,7 +1622,7 @@ def _tts_edge(state: Dict, options: Dict) -> None:
         state["_say"]("tts", "running", f"retrying {failed} failed shot(s) · edge", 99)
         time.sleep(TTS_RETRY_DELAY)
         ok, failed = run_batch()
-    state["tts_summary"] = f"{ok} voiced (edge)" + (f", {failed} failed" if failed else "")
+    state["tts_summary"] = f"{ok} voiced ({engine})" + (f", {failed} failed" if failed else "")
     if ok == 0 and failed:
         raise RuntimeError(f"TTS failed for every shot ({failed}).")
     _warn_voiceless(state, failed)
@@ -1603,6 +1636,8 @@ def _step_tts(state: Dict, options: Dict) -> None:
     if engine == "capcut":
         if options.get("capcut_speaker"):
             state["tts_voice_used"] = f"CapCut · {options['capcut_speaker']} (chosen)"
+        elif state.get("capcut_speaker"):
+            state["tts_voice_used"] = f"CapCut · {state['capcut_speaker']} (template)"
         else:
             # Giọng mặc định của tài khoản có thể là ngôn ngữ khác hẳn kịch bản —
             # đúng ca "video nói không đúng ngôn ngữ". Chọn giọng theo kịch bản;

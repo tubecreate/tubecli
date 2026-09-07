@@ -74,5 +74,52 @@ P._step_tts(st, {"tts_engine": "auto", "tts_voice": "vi-VN-HoaiMyNeural"})
 assert st["tts_engine"] == "edge" and calls[0][0].endswith("/batch-tts") and calls[0][1]["engine"] == "edge"
 assert st["tts_summary"] == "3 voiced (edge)"
 print("4 dispatch   : edge → Studio batch-tts; summary names the engine")
+# 5. Giọng lưu trong preset: preset thắng "auto", chat thắng preset; CapCut mang speaker + email
+P.installed_extensions = lambda: {"tts_vibevoice": True, "capcut_tts": True}
+P._capcut_account = lambda preferred="": preferred or "first@x"
+pre = lambda meta: {"preset": {"name": "T", "fields": {"metadata": meta}}}
+st = {**pre({"tts_engine": "capcut", "tts_voice": "vi_female_01", "tts_email": "a@x.com"}), "_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._tts_engine(st, {}) == "capcut" and st["capcut_email"] == "a@x.com" and st["capcut_speaker"] == "vi_female_01", st
+st = {**pre({"tts_engine": "vibevoice", "tts_voice": "Alice"}), "_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._tts_engine(st, {}) == "edge" and st["tts_batch_engine"] == "vibevoice" and st["tts_voice_pref"] == "Alice", st
+st = {**pre({"tts_engine": "vibevoice", "tts_voice": "Alice"}), "_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._tts_engine(st, {"tts_engine": "edge", "tts_voice": "vi-VN-NamMinhNeural"}) == "edge" and st["tts_voice_pref"] == "vi-VN-NamMinhNeural", "chat wins over preset"
+assert P._preset_voice({}, {}) == ("auto", "", "")
+# batch-tts nhận engine của preset và giọng VibeVoice không bị so ngôn ngữ
+calls.clear()
+P._post = lambda path, payload, timeout=300: calls.append((path, payload)) or {"task_id": "t"}
+P._poll_studio = lambda *a, **k: {"status": "done", "success": 2, "failed": 0}
+st = {"episode_id": 1, "language": "vi", "tts_batch_engine": "vibevoice", "tts_voice_pref": "Alice", "_cancelled": lambda: False, "_say": lambda *a: None}
+P._tts_edge(st, {})
+assert calls[-1][1] == {"voice_id": "Alice", "engine": "vibevoice"} and not st.get("warnings") and st["tts_summary"] == "2 voiced (vibevoice)", (calls[-1], st)
+# _step_studio: preset có giọng → agent_meta không ghi đè; không có → mặc định edge theo ngôn ngữ; "auto" từ chat không lọt vào drama
+bodies = []
+P._post = lambda path, payload, timeout=300: bodies.append((path, payload)) or {"id": 7}
+P._write_checkpoint = lambda *a, **k: None
+P._storyboards = lambda ep_id: [{"id": 1, "narration_text": "x"}]
+P._stream_storyboard = lambda *a, **k: None
+
+
+class _A:
+    id = "a1"
+    name = "MC"
+
+
+for meta, opts, want_engine, want_voice in [
+    ({"tts_engine": "capcut", "tts_voice": "spk", "tts_email": "a@x.com"}, {}, "capcut", "spk"),
+    ({}, {}, "edge", "vi-VN-HoaiMyNeural"),
+    ({}, {"tts_engine": "auto"}, "edge", "vi-VN-HoaiMyNeural"),
+    ({"tts_engine": "vibevoice", "tts_voice": "Alice"}, {"tts_voice": "vi-VN-NamMinhNeural"}, "vibevoice", "vi-VN-NamMinhNeural"),
+]:
+    bodies.clear()
+    st = {"agent": _A(), "language": "vi", "script": "[SHOW: a]\nx", "title": "T", "task_id": "",
+          "preset": {"name": "T", "fields": {"metadata": meta}} if meta else None, "preset_name": "T" if meta else "",
+          "_cancelled": lambda: False, "_say": lambda *a: None}
+    P._step_studio(st, opts)
+    dm = bodies[0][1]["metadata"]
+    assert dm.get("tts_engine") == want_engine and dm.get("tts_voice") == want_voice, (meta, opts, dm)
+    if meta.get("tts_email"):
+        assert dm.get("tts_email") == "a@x.com", dm
+print("5 preset voice: preset thắng auto, chat thắng preset, CapCut mang speaker+email, VibeVoice không bị so ngôn ngữ, 'auto' không lọt vào drama")
 print()
-print("ALL 4 GROUPS PASSED")
+print("ALL 5 GROUPS PASSED")
