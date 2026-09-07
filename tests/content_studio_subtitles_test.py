@@ -105,6 +105,25 @@ S.sidecar_path(mp3).write_text(json.dumps({"engine": "edge", "words": marks}), e
 words, src = S.words_for_shot("Xin chào Việt, Nam!", mp3, 2.0, "vi")
 check("E2 sidecar vỡ vẫn → tts", src == "tts" and len(words) == 4 and words[2]["word"] == "Việt,", (src, words))
 
+# E3. whisper TẮT mặc định (VPS không kham nổi); chỉ chạy khi timing="whisper"; kết quả ghi thành sidecar
+S._cache["whisper"] = True
+calls_w = []
+S.whisper_words = lambda audio_path, language="", model_size="small": calls_w.append(str(audio_path)) or [
+    {"word": "một", "start": 0.0, "end": 0.3}, {"word": "hai", "start": 0.3, "end": 0.6}, {"word": "ba", "start": 0.6, "end": 0.9},
+    {"word": "bốn", "start": 0.9, "end": 1.2}, {"word": "năm", "start": 1.2, "end": 1.5}, {"word": "sáu", "start": 1.5, "end": 1.8},
+    {"word": "bảy", "start": 1.8, "end": 2.1}, {"word": "tám", "start": 2.1, "end": 2.4}, {"word": "chín", "start": 2.4, "end": 2.7},
+    {"word": "mười", "start": 2.7, "end": 3.0}]
+mp3w = Path(TMP) / "shotw.mp3"
+mp3w.write_bytes(b"x")
+words, src = S.words_for_shot(text, mp3w, 3.0)
+check("E3 mặc định không whisper", src == "estimated" and calls_w == [], (src, calls_w))
+words, src = S.words_for_shot(text, mp3w, 3.0, timing="whisper")
+check("E3 whisper khi bật", src == "whisper" and len(words) == 10 and calls_w == [str(mp3w)], (src, calls_w))
+check("E3 sidecar cache", S.sidecar_path(mp3w).exists() and json.loads(S.sidecar_path(mp3w).read_text(encoding="utf-8"))["engine"] == "whisper")
+words, src = S.words_for_shot(text, mp3w, 3.0, timing="whisper")
+check("E3 lần hai đọc sidecar", src == "tts" and len(calls_w) == 1)
+S._cache["whisper"] = False
+
 # F. build_ass: mỗi từ một Dialogue chứa trọn cụm, chỉ từ đang đọc tô màu; ước lượng thì không tô
 w = S.estimate_words("Hôm nay chúng ta nói về ba điều quan trọng", 4.0)
 ass = S.build_ass(w, p, 1920, 1080, language="vi", highlight=True)
@@ -191,7 +210,7 @@ html = (EXT / "static" / "studio.html").read_text(encoding="utf-8")
 check("J WIZ_FIELD_IDS", "'wizSubtitleStyle'" in js.split("const WIZ_CHECKBOX_IDS")[0])
 check("J metadata.subtitle_style", "metadata.subtitle_style = document.getElementById('wizSubtitleStyle')" in js)
 check("J select + preview", 'id="wizSubtitleStyle"' in html and 'id="wizSubtitlePreview"' in html)
-check("J cache-bust", "studio2.js?v=20260907_preset" in html)
+check("J cache-bust", "studio2.js?v=20260907_timing" in html)
 check("J preset save/save-as", "function saveWizPresetAs()" in js and 'onclick="saveWizPresetAs()"' in html
       and "if (!current) return saveWizPresetAs();" in js and "presets[current] = data;" in js)
 check("J voice preset field", "'wizTtsPreset'" in js.split("const WIZ_CHECKBOX_IDS")[0] and 'id="wizTtsPreset"' in html
@@ -200,6 +219,9 @@ check("J languages th/id", 'value="th"' in html.split('id="wizLanguage"')[1][:90
 _wl = html.split('id="wizLanguage"')[1][:1200]
 check("J languages es/de + prompt", 'value="es"' in _wl and 'value="de"' in _wl
       and all(k in open(EXT / "agents" / "base_agent.py", encoding="utf-8").read() for k in ('"es": "CRITICAL', '"de": "CRITICAL')))
+check("J nhãn engine giọng CapCut", "có mốc từ" in js and "không mốc từ" in js and 'data-platform="' in js
+      and "items.sort((x, y) => (marks(y) ? 1 : 0) - (marks(x) ? 1 : 0))" in js)
+check("J không còn ô whisper", 'id="wizSubtitleTiming"' not in html and "'wizSubtitleTiming'" not in js)
 check("J apiFetch parse sẵn", "const data = await apiFetch('/subtitle-styles')" in js and "await r.json()" not in js.split("async function loadSubtitleStyles")[1].split("function renderSubtitlePreview")[0])
 check("J manifest", json.loads((EXT / "tubecli-extension.json").read_text(encoding="utf-8"))["version"] >= "2026.09.06.235000")
 

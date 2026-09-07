@@ -265,11 +265,22 @@ def _capcut_speaker_for(email: str, lang: str) -> Optional[Dict]:
         return None
     items = data if isinstance(data, list) else (
         (data or {}).get("speakers") or (data or {}).get("items") or (data or {}).get("data") or [])
+    # Giọng engine sami (platform rỗng) trả mốc từng từ → phụ đề chạy theo giọng.
+    # Giọng engine ngoài (11labs…, ví dụ Alejandro Durán) không có mốc — chỉ lấy
+    # khi không còn giọng nào khác cho ngôn ngữ này.
+    fallback = None
     for sp in items:
         if isinstance(sp, dict) and sp.get("id"):
             sl = str(sp.get("language") or "").lower()
-            if not sl or sl.startswith(code):
-                return {"id": str(sp["id"]), "name": str(sp.get("name") or "")}
+            if sl and not sl.startswith(code):
+                continue
+            pick = {"id": str(sp["id"]), "name": str(sp.get("name") or ""),
+                    "platform": str(sp.get("platform") or "").strip()}
+            if not pick["platform"]:
+                return pick
+            fallback = fallback or pick
+    if fallback:
+        return fallback
     return None
 # Người đọc thành tiếng khoảng 150 chữ mỗi phút — dùng chung cho mọi ngôn ngữ
 # ở đây, vì sai số của nó nhỏ hơn nhiều so với việc đoán sai cả bậc độ dài.
@@ -2849,6 +2860,8 @@ def subtitles_line(rep: Dict) -> str:
     src = []
     if rep.get("tts"):
         src.append(f"{rep['tts']} timed by TTS")
+    if rep.get("whisper"):
+        src.append(f"{rep['whisper']} timed by whisper")
     if rep.get("estimated"):
         src.append(f"{rep['estimated']} estimated from audio length")
     return (f"- **Subtitles**: {rep.get('name') or rep['style']} · {rep.get('shots', 0)} shot(s)"

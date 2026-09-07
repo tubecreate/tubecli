@@ -139,5 +139,19 @@ notes.clear()
 P._run_steps([("tts", "Voice the narration", "missing_cap", True)], {}, {}, lambda *a: None, lambda: False, notes, skipped)
 assert notes and "skipped" in notes[0] and skipped == ["missing_cap"], (notes, skipped)
 print("6 fail policy : tts chạy mà hỏng → RuntimeError (Retry); publish hỏng → ghi chú; thiếu năng lực → bỏ qua")
+# 7. Tự chọn giọng CapCut theo ngôn ngữ: ưu tiên giọng engine sami (có mốc từ), 11labs chỉ khi hết cách
+P._get = lambda path, timeout=60: [
+    {"id": "es_11", "name": "Alejandro Durán", "language": "es", "platform": "11labs"},
+    {"id": "es_sami", "name": "Enrique", "language": "es", "platform": ""},
+    {"id": "en_sami", "name": "Emma", "language": "en", "platform": ""},
+]
+pick = P._capcut_speaker_for("a@x", "es")
+assert pick["id"] == "es_sami" and pick["platform"] == "", pick
+P._get = lambda path, timeout=60: [{"id": "es_11", "name": "Alejandro Durán", "language": "es", "platform": "11labs"}]
+pick = P._capcut_speaker_for("a@x", "es")
+assert pick["id"] == "es_11" and pick["platform"] == "11labs", pick
+P._get = lambda path, timeout=60: [{"id": "en_sami", "name": "Emma", "language": "en", "platform": ""}]
+assert P._capcut_speaker_for("a@x", "es") is None
+print("7 capcut pick : giọng sami trước, 11labs chỉ khi không còn giọng nào, khác ngôn ngữ → None")
 print()
-print("ALL 6 GROUPS PASSED")
+print("ALL 7 GROUPS PASSED")
