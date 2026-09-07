@@ -150,7 +150,7 @@ st = {"episode_id": 1, "capcut_email": "a@x", "_cancelled": lambda: False, "_say
 P._tts_capcut(st, {})
 assert attempts == {"fine": 1, "flaky once": 2, "always dead": 2}, attempts
 assert st["tts_summary"] == "2 voiced (CapCut), 1 failed", st["tts_summary"]
-assert st["warnings"] and "1 shot(s) got no voice after a retry" in st["warnings"][0], st["warnings"]
+assert any("1 shot(s) got no voice after a retry" in w for w in st["warnings"]) and any("CapCut TTS last error: 500" in w for w in st["warnings"]), st["warnings"]
 print("4 capcut     : failed shots retried once; still-failed → warning naming the 5-second stills")
 
 # 5. edge: a second batch-tts only when something failed; summary from the second pass
