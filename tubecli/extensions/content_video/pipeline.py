@@ -3152,6 +3152,10 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
         "thumbnail_path": str(state.get("thumbnail_path") or ""),
         "thumbnail_set": "1" if (state.get("thumbnail_path") and os.path.isfile(str(state["thumbnail_path"]))) else "0",
     }
+    # Script tự nạp ảnh vào ô thumbnail của Studio (bước t2:thumbnail). Nhớ điều đó,
+    # kẻo lát nữa đường API lại báo "không gắn được, tự làm tay đi" cho một cái ảnh
+    # đã nằm sẵn trên video.
+    state["thumbnail_via_script"] = variables["thumbnail_set"] == "1"
     say("publish", "running",
         "opening YouTube Studio as “%s”%s" % (profile, " · monetised" if monetize == "1" else ""))
     try:
@@ -3455,6 +3459,14 @@ def _attach_thumbnail_after_script(state: Dict, options: Dict, title: str) -> No
     path = str(state.get("thumbnail_path") or "")
     pub = state.get("published") or {}
     if not path:
+        return
+    if state.get("thumbnail_via_script") and (pub.get("video_id") or pub.get("url")):
+        # Ảnh đã đi cùng video lúc tải lên VÀ ta đã cầm được link video: không còn việc
+        # gì cho đường API, mà nó lại đòi token kênh này có thể không có. Nói đúng
+        # chuyện đã xảy ra thay vì báo "không gắn được, tự vào Studio làm tay đi".
+        # Chưa có link thì vẫn tra API (nếu có token) — đó là cách duy nhất lấy id.
+        pub["thumbnail"] = "script"
+        state["_say"]("publish", "running", "thumbnail went up with the video")
         return
     if pub.get("video_id"):
         return _attach_thumbnail(state, _vm_token(str(options.get("publish_token_id") or "")), pub["video_id"])
@@ -3972,7 +3984,9 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if state.get("thumbnail_path"):
         lines.append(f"- **Thumbnail**: `{state['thumbnail_path']}`"
                      + (f" · template {state['thumbnail_template_used']}" if state.get("thumbnail_template_used") else "")
-                     + (" · set on YouTube" if (state.get("published") or {}).get("thumbnail") == "set" else ""))
+                     + {"set": " · set on YouTube",
+                        "script": " · uploaded with the video"}.get(
+                            (state.get("published") or {}).get("thumbnail"), ""))
     if state.get("video_link"):
         lines.append(f"- **Watch**: {state['video_link']}")
     if published.get("title") and published["title"] != state.get("title"):

@@ -208,6 +208,38 @@ P._publish_via_script(st, {"publish_channel_name": "Nope"}, "public")
 assert runs[-1]["thumbnail_set"] == "0" and runs[-1]["thumbnail_path"] == "", "không có thumbnail → nhánh script tắt"
 print("6 đăng      : script → tìm video theo tiêu đề, gắn thumbnail, điền id/link; không token → cảnh báo rõ")
 
+# 6g. Ảnh đại diện đi CÙNG video lúc tải lên: script đã nạp nó (thumbnail_set=1) và
+# ta đã có link video ⇒ không đòi token API, không bảo người dùng vào Studio làm tay
+# (thẻ vừa báo đăng xong mà kèm "could not be attached" là sai người sai việc).
+P._google_tokens = lambda: []
+setmb.clear()
+runs.clear()
+_real_run_upload = P._run_upload_script          # nhóm 6e còn cần bản thật
+
+
+class _ResPub(dict):
+    success = True
+    log = ""
+
+
+P._run_upload_script = lambda state, options, slug, variables, profile: (
+    runs.append(variables) or _ResPub({P.VERIFY_PUBLISH_VAR: {"state": "published", "url": "https://youtu.be/Kk12_ab"}}))
+stg = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png,
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(stg, {"publish_channel_name": "Nope"}, "public")
+assert runs[-1]["thumbnail_set"] == "1" and stg["thumbnail_via_script"] is True, runs[-1]
+assert stg["published"]["thumbnail"] == "script" and stg["published"]["video_id"] == "Kk12_ab", stg["published"]
+assert not any("could not be attached" in w or "by hand" in w for w in stg.get("warnings", [])), stg.get("warnings")
+# không có ảnh → script không nạp gì → cờ tắt, đường API cũ giữ nguyên
+runs.clear()
+P._run_upload_script = lambda state, options, slug, variables, profile: (
+    runs.append(variables) or _ResPub({}))
+stn = {"agent": _A3(), "video_path": "/v.mp4", "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(stn, {"publish_channel_name": "Nope"}, "public")
+assert runs[-1]["thumbnail_set"] == "0" and stn["thumbnail_via_script"] is False
+P._run_upload_script = _real_run_upload
+print("6g thumbnail : ảnh lên cùng video thì báo đúng vậy, không đòi token API")
+
 # 6b. Nhánh thumbnail tự chèn vào script (một lần, sau bước mô tả), là bước condition theo thumbnail_set
 class _Store:
     def __init__(self):
