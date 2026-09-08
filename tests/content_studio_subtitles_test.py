@@ -44,7 +44,33 @@ def check(label, ok, detail=""):
 # A. preset file + lookup
 presets = S.list_presets()
 check("A 16 mẫu", len(presets) == 16, len(presets))
-check("A capcut_bold", S.get_preset("capcut_bold")["font"]["size"] == 58)
+check("A capcut_bold", S.get_preset("capcut_bold")["font"]["size"] == 78)
+
+# ── A2. Cỡ chữ: mặc định phải ĐỌC ĐƯỢC, và ô chọn cỡ phải có tác dụng ───────
+# Bản trước để 46–58 trên khung cao 1080 ⇒ 4,3–5,4% chiều cao; xuất ra xem trên
+# điện thoại thì chữ bé li ti (ảnh chụp của người dùng, 8/9/26). Phụ đề kiểu
+# CapCut/Shorts nằm quanh 6,5–7,5%.
+_cap = S.get_preset("capcut_bold")
+
+
+def _size(preset, w, h, scale=1.0):
+    ass = S.build_ass([{"word": "Xin", "start": 0, "end": 0.4}], preset, w, h,
+                      language="vi", font_scale=scale)
+    style = [ln for ln in ass.splitlines() if ln.startswith("Style:")][0].split(",")
+    return int(style[2])
+
+
+_px = _size(_cap, 1920, 1080)
+check("A2 mặc định 16:9 nằm trong 6–8% chiều cao", 0.06 <= _px / 1080 <= 0.08, f"{_px}px = {_px/1080:.1%}")
+check("A2 720p ra cùng TỈ LỆ (quy đổi theo cạnh ngắn)", abs(_size(_cap, 1280, 720) / 720 - _px / 1080) < 0.003)
+check("A2 khổ dọc giữ nguyên cỡ tuyệt đối", _size(_cap, 1080, 1920) == _px)
+check("A2 hệ số cỡ chữ", (S.size_scale(""), S.size_scale("small"), S.size_scale("large"),
+                          S.size_scale("xlarge"), S.size_scale("KHÔNG CÓ")) == (1.0, 0.85, 1.2, 1.45, 1.0))
+check("A2 chọn 'Rất lớn' thì chữ to thật", _size(_cap, 1920, 1080, S.size_scale("xlarge")) > _px * 1.4)
+check("A2 chọn 'Nhỏ' thì chữ nhỏ lại", _size(_cap, 1920, 1080, S.size_scale("small")) < _px * 0.9)
+check("A2 mọi mẫu đều đã nâng cỡ",
+      all((S.get_preset(i) or {}).get("font", {}).get("size", 0) >= 60
+          for i in ("capcut_bold", "karaoke_yellow", "minimal_mono", "typewriter")))
 check("A id lạ → dự phòng", S.get_preset("no_such")["id"] == "capcut_bold")
 check("A rỗng → None", S.get_preset("") is None and S.get_preset(None) is None)
 ui = S.styles_for_ui()
@@ -131,10 +157,10 @@ lines = [l for l in ass.splitlines() if l.startswith("Dialogue:")]
 check("F một Dialogue mỗi từ", len(lines) == 10, len(lines))
 check("F tô đúng một từ", lines[2].count("\\c&H0015CCFA}") == 1 and "chúng" in lines[2] and "quan trọng" in lines[2], lines[2])
 check("F liền mạch", all(lines[i].split(",")[2] == lines[i + 1].split(",")[1] for i in range(len(lines) - 1)))
-check("F style", "Style: Main,Be Vietnam Pro,58,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6.0,1,5,20,20,20,1" in ass, ass.splitlines()[8])
+check("F style", "Style: Main,Be Vietnam Pro,78,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,6.0,1,5,20,20,20,1" in ass, ass.splitlines()[8])
 check("F PlayRes + pos", "PlayResX: 1920" in ass and "\\pos(960,885)" in ass)
 ass_est = S.build_ass(w, p, 1080, 1920, highlight=False)
-check("F ước lượng không tô", "\\c&H0015CCFA}" not in ass_est and "Style: Main,Be Vietnam Pro,58," in ass_est)
+check("F ước lượng không tô", "\\c&H0015CCFA}" not in ass_est and "Style: Main,Be Vietnam Pro,78," in ass_est)
 ass_box = S.build_ass(w, S.get_preset("boxed_dark"), 1920, 1080)
 check("F hộp nền BorderStyle 3", ",3,0.0,1,5," in ass_box and "&H47000000" in ass_box, [l for l in ass_box.splitlines() if l.startswith("Style")])
 ass_up = S.build_ass(w, S.get_preset("big_impact"), 1920, 1080)
