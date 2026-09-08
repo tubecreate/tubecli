@@ -285,6 +285,7 @@ sent = {}
 
 def _ok(req, timeout=0):
     sent["url"] = req.full_url
+    sent["req"] = req
     sent["body"] = json.loads(req.data.decode())
     return _Resp({"server_id": 41, "domain": "may.tubecreate.com", "tunnel_token": "T0K3N"})
 
@@ -295,6 +296,40 @@ check("gọi đúng endpoint đổi mã", sent["url"].endswith("/api/servers/pai
 check("gửi kèm mã + mật khẩu dashboard",
       sent["body"] == {"code": "B8H4U7", "tubecli_password": "MatKhau#1"}, sent["body"])
 check("trả token tunnel cho vòng canh", info["tunnel_token"] == "T0K3N")
+
+# 3b. CLOUDFLARE CHẶN CLIENT Ở CỬA — 403 "error code: 1010".
+# Đo thật 8/9/26 từ máy người dùng: cùng một URL, cùng một body,
+#     urllib mặc định (UA "Python-urllib/3.12") → 403, thân là "error code: 1010"
+#     UA thường                                 → 410 (câu trả lời THẬT của route)
+# 1010 là Cloudflare chặn theo chữ ký User-Agent: request chết ở edge, không tới
+# Worker. Nên mã còn hạn và mật khẩu đúng cũng vô ích, và D1 không ghi nhận lấy một
+# lượt claim nào. Người dùng chỉ thấy "Cloud trả HTTP 403".
+check("client tự xưng tên riêng", "TubeCLI-Connect" in mod.UA, mod.UA)
+check("KHÔNG để lộ UA mặc định của urllib", "Python-urllib" not in mod.UA)
+check("mọi request lên cloud đều mang UA ấy",
+      sent["req"].get_header("User-agent") == mod.UA, sent["req"].get_header("User-agent"))
+check("opener toàn cục cũng gắn UA (bắt cả urlopen(chuỗi) lúc tải cloudflared)",
+      "_install_ua_opener()" in _src and 'op.addheaders = [("User-Agent", UA)]' in _src)
+check("tải cloudflared đi qua Request có UA, không phải chuỗi trần",
+      "cf_req = urllib.request.Request(CF_URL, headers={\"User-Agent\": UA})" in _src)
+check("đăng nhập node cũng mang UA (node cũng có thể ngồi sau proxy)",
+      _src.count('"User-Agent": UA') >= 2)
+
+
+# Thân lỗi KHÔNG phải JSON (Cloudflare trả text/HTML) thì vẫn phải đọc được: nuốt nó
+# đi là bỏ mất manh mối duy nhất, và "Cloud trả HTTP 403" thì không ai đoán ra 1010.
+def _http403(req, timeout=0):
+    raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {},
+                                 __import__("io").BytesIO(b"error code: 1010\n"))
+
+
+mod.urllib.request.urlopen = _http403
+try:
+    mod.claim("B8H4U7", "x")
+    check("403 phải ném lỗi", False)
+except RuntimeError as e:
+    check("thân lỗi không-JSON vẫn tới người dùng nguyên văn",
+          "1010" in str(e) and "403" in str(e), str(e))
 
 
 def _http410(req, timeout=0):

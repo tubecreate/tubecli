@@ -30,6 +30,11 @@ import urllib.error
 import urllib.request
 
 APP = "TubeCLI Connect"
+# Cloudflare chặn thẳng User-Agent mặc định của urllib ("Python-urllib/3.12") bằng
+# lỗi 1010 — request chết ở edge, không tới Worker, nên mã đúng hay sai cũng ra 403.
+# Đo trên máy người dùng 8/9/26: urllib → 403 "error code: 1010", cùng URL với UA
+# thường → 410 (câu trả lời thật). Mọi cuộc gọi ra ngoài phải tự xưng tên.
+UA = f"TubeCLI-Connect/1.0 (Windows; Python {sys.version_info.major}.{sys.version_info.minor})"
 CLOUD = os.environ.get("TUBECLI_CLOUD", "https://cloud.tubecreate.com")
 PORT = int(os.environ.get("TUBECLI_PORT", "5295"))
 HOME = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "TubeCLI")
@@ -40,6 +45,15 @@ CF_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/clo
 INSTALL_PS1 = "https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1"
 HEALTH = f"http://127.0.0.1:{PORT}/api/v1/health"
 DASH = f"http://127.0.0.1:{PORT}/dashboard"
+
+def _install_ua_opener() -> None:
+    """Gắn UA cho cả những chỗ gọi urlopen(chuỗi) — như lúc tải cloudflared."""
+    op = urllib.request.build_opener()
+    op.addheaders = [("User-Agent", UA)]
+    urllib.request.install_opener(op)
+
+
+_install_ua_opener()
 
 # Nơi install.ps1 đặt TubeCLI. Người dùng có thể đổi, nên còn dò thêm ở dưới.
 DEFAULT_DIRS = [
@@ -208,7 +222,7 @@ def node_login(password: str) -> bool:
         req = urllib.request.Request(
             f"http://127.0.0.1:{PORT}/api/v1/auth/login", method="POST",
             data=json.dumps({"password": password}).encode(),
-            headers={"Content-Type": "application/json"})
+            headers={"Content-Type": "application/json", "User-Agent": UA})
         with urllib.request.urlopen(req, timeout=10) as r:
             return r.status == 200
     except Exception:
@@ -223,7 +237,8 @@ def ensure_cloudflared() -> bool:
     log("tải cloudflared…")
     os.makedirs(HOME, exist_ok=True)
     try:
-        with urllib.request.urlopen(CF_URL, timeout=180) as r, open(CLOUDFLARED + ".part", "wb") as f:
+        cf_req = urllib.request.Request(CF_URL, headers={"User-Agent": UA})
+        with urllib.request.urlopen(cf_req, timeout=180) as r, open(CLOUDFLARED + ".part", "wb") as f:
             while True:
                 chunk = r.read(262144)
                 if not chunk:
@@ -258,16 +273,28 @@ def claim(code: str, password: str) -> dict:
     req = urllib.request.Request(
         f"{CLOUD}/api/servers/pair/claim", method="POST",
         data=json.dumps({"code": code, "tubecli_password": password}).encode(),
-        headers={"Content-Type": "application/json"})
+        headers={"Content-Type": "application/json", "User-Agent": UA})
     try:
         with urllib.request.urlopen(req, timeout=60) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        raw = ""
         try:
-            detail = json.loads(e.read().decode("utf-8")).get("error") or ""
+            raw = e.read().decode("utf-8", "replace")
+        except Exception:
+            pass
+        try:
+            detail = json.loads(raw).get("error") or ""
         except Exception:
             detail = ""
-        raise RuntimeError(detail or f"Cloud trả HTTP {e.code}") from e
+        if not detail:
+            # Cloudflare chặn ở edge thì thân trả về là text/HTML, không phải JSON —
+            # nuốt nó đi là bỏ mất manh mối duy nhất ("error code: 1010").
+            detail = f"HTTP {e.code}"
+            snippet = " ".join(raw.split())[:120]
+            if snippet:
+                detail += f" — {snippet}"
+        raise RuntimeError(detail) from e
     except Exception as e:
         raise RuntimeError(f"Không gọi được cloud: {e}") from e
 
