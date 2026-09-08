@@ -36,6 +36,22 @@ d = cls("làm video từ những gì đã đọc hôm nay").extracted_data
 assert not d.get("publish") and not d.get("no_review") and not d.get("thumbnail"), d
 d = cls("làm video 5 phút từ những gì đã đọc hôm nay và đăng lên kênh \"Góc Nhìn\" nhé").extracted_data
 assert d.get("publish_channel_name") == "Góc Nhìn" and d.get("target_words") == 750, d
+# 1b. Gọi TÊN MẪU THUMBNAIL trong chat → ghim mẫu đó (và tự hiểu là muốn có thumbnail)
+d = cls("làm video từ những gì đã đọc, thumbnail mẫu noal, đăng lên kênh mai le").extracted_data
+assert d.get("thumbnail_template") == "noal" and d.get("thumbnail") and d.get("publish_channel_name") == "mai le", d
+d = cls('tạo video 5 phút từ những gì đã đọc, mẫu thumbnail "Noah flood" nhé').extracted_data
+assert d.get("thumbnail_template") == "Noah flood", d      # nháy giữ khoảng trắng, "nhé" bị cắt
+d = cls("make a video from what I read today and use thumbnail template big_number").extracted_data
+assert d.get("thumbnail_template") == "big_number", d
+d = cls("làm video từ những gì đã đọc, ảnh đại diện mẫu bible_epic").extracted_data
+assert d.get("thumbnail_template") == "bible_epic", d
+# "theo mẫu X" trơ trọi vẫn là PRESET của Content Studio, không phải mẫu thumbnail
+d = cls("làm video từ những gì đã đọc theo mẫu Tin nhanh").extracted_data
+assert d.get("preset") == "Tin nhanh" and not d.get("thumbnail_template"), d
+d = cls("làm video từ những gì đã đọc hôm nay, có thumbnail").extracted_data
+assert d.get("thumbnail") and not d.get("thumbnail_template"), d
+print("1b mẫu thumb : tên mẫu trong chat được ghim; 'theo mẫu X' vẫn là preset Studio")
+
 print("1 chat      : đăng/khỏi duyệt/thumbnail/tên kênh nhận đúng, lệnh thường không dính")
 
 # 2. Handler: có publish/no_review → create_auto_task (không duyệt) với đủ tuỳ chọn; thường → digest
@@ -48,6 +64,10 @@ reply = asyncio.run(H.dispatch(cls("làm video từ những gì đã đọc hôm
 assert reply and "codex:" in reply and len(calls["auto"]) == 1 and not calls["digest"], (reply, calls)
 aid, opts, by, label, srcs = calls["auto"][0]
 assert aid == "a1" and by == "user" and opts["publish"] is True and opts["thumbnail"] is True and opts["publish_channel_name"] == "Cinematic Bible", opts
+calls["auto"].clear()
+asyncio.run(H.dispatch(cls("làm video từ những gì đã đọc, thumbnail mẫu noal, đăng lên kênh mai le"),
+                       {"id": "a1", "name": "CB"}, "vi"))
+assert calls["auto"][0][1].get("thumbnail_template") == "noal", calls["auto"][0][1]
 asyncio.run(H.dispatch(cls("làm video từ những gì đã đọc hôm nay"), {"id": "a1"}, "vi"))
 assert len(calls["digest"]) == 1 and len(calls["auto"]) == 1
 print("2 handler   : đăng/khỏi duyệt → task auto (user); lệnh thường → task duyệt")
@@ -135,7 +155,18 @@ posts, gets = [], []
 P._post = lambda path, payload, timeout=300: posts.append((path, payload)) or {"job_id": "job1"}
 polls = iter([{"status": "running", "steps": [{"name": "background", "state": "running"}]},
               {"status": "done", "variants": [{"file": png, "template": "news"}], "warnings": ["font fallback"]}])
-P._get = lambda path, timeout=60: gets.append(path) or next(polls)
+_TPL_ROWS = [{"id": "bible_epic", "display": "Bible · Epic", "builtin": True},
+             {"id": "noal", "display": "Noah flood", "builtin": False}]
+
+
+def _get_thumb(path, timeout=60):
+    gets.append(path)
+    if path.endswith("/thumbnail/templates"):     # tra tên mẫu người dùng chỉ định
+        return {"templates": _TPL_ROWS}
+    return next(polls)
+
+
+P._get = _get_thumb
 P._checkpoint_merge = lambda state, extra: state.setdefault("_ck", {}).update(extra)
 P.POLL_SEC = 0
 said = []
@@ -147,13 +178,37 @@ P._step_thumbnail(st, {"thumbnail": True})
 assert posts[0][0] == "/api/v1/thumbnail/auto" and posts[0][1]["template_id"] == "bible_epic" and posts[0][1]["n"] == 1
 assert posts[0][1]["channel"] == "Cinematic Bible" and posts[0][1]["lang"] == "es" and posts[0][1]["platform"] == "youtube" and len(posts[0][1]["script"]) <= 2500
 assert st["thumbnail_path"] == png and st["thumbnail_template_used"] == "news" and st["_ck"] == {"thumbnail_path": png}
-assert any("Thumbnail: font fallback" in w for w in st["warnings"]) and gets == ["/api/v1/thumbnail/jobs/job1"] * 2
+assert any("Thumbnail: font fallback" in w for w in st["warnings"]), st.get("warnings")
+assert [g for g in gets if "/jobs/" in g] == ["/api/v1/thumbnail/jobs/job1"] * 2, gets
+assert "/api/v1/thumbnail/templates" in gets, "mẫu chỉ định được tra tên ở Studio"
 posts.clear()
 st3 = {"agent": _A3(), "_say": lambda *a: said.append(a), "_cancelled": lambda: False}
 P._step_thumbnail(st3, {})
 assert posts == [] and said[-1][1] == "skipped", "mặc định tắt"
 assert P.DEFAULTS["thumbnail"] is False and any(s[0] == "thumbnail" for s in P.RENDER_STEPS) and "thumbnail" in P.SOFT_FAIL_STEPS
 assert [s[0] for s in P.RENDER_STEPS][-3:] == ["render", "thumbnail", "publish"]
+# 5b. TÊN mẫu người dùng gõ → id thật, tra ở Thumbnail Studio; sai tên thì cảnh báo
+# kèm tên có thật và để AI chọn (hỏng một cái tên không đáng vứt cả lượt dựng)
+_rows = [{"id": "noal", "display": "Noah flood", "builtin": False},
+         {"id": "bible_epic", "display": "Bible · Epic", "builtin": True},
+         {"id": "big_number", "display": "Big Number", "builtin": True}]
+P._thumb_templates = lambda: _rows
+assert P._resolve_thumb_template({}, "noal") == "noal"
+assert P._resolve_thumb_template({}, "Noah flood") == "noal", "khớp theo tên hiển thị"
+assert P._resolve_thumb_template({}, "noah") == "noal", "khớp khoan dung"
+assert P._resolve_thumb_template({}, "BIG number") == "big_number", "không phân biệt hoa thường/gạch dưới"
+st5 = {}
+assert P._resolve_thumb_template(st5, "khong co mau nay") == "" and any(
+    "No thumbnail template is called" in w and "Noah flood" in w for w in st5["warnings"]), st5
+P._thumb_templates = lambda: []
+assert P._resolve_thumb_template({}, "noal") == "noal", "không hỏi được Studio thì giữ nguyên chuỗi"
+P._thumb_templates = lambda: _rows
+# đường đi trọn vẹn: chat → options → id
+st6 = {"agent": _A3()}
+assert P._thumbnail_template(st6, {"thumbnail_template": "Noah flood"}) == "noal"
+assert P._thumbnail_template(st6, {}) == "", "không ai chỉ định thì để AI chọn"
+print("5b tên mẫu   : tên trong chat → id mẫu; sai tên → cảnh báo có gợi ý, AI vẫn chọn được")
+
 print("5 thumbnail : /auto với mẫu từ preset, chờ job, lấy A, checkpoint, cảnh báo; tắt mặc định; đứng giữa render và publish")
 
 # 6. Đăng qua script: tra kênh, tìm video theo tiêu đề bằng API rồi gắn thumbnail và điền id/link

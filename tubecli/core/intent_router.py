@@ -342,6 +342,17 @@ CONTENT_VIDEO_PRESET_RES = [
     re.compile(r"(?<!\w)(?:theo|dùng|dung|bằng|bang|với|voi)\s+(?:template|mẫu|mau|preset)\s+(.+)", re.I | re.S),
     re.compile(r"(?<!\w)(?:with|using|from|in)\s+(?:the\s+)?(?:template|preset)\s+(.+)", re.I | re.S),
 ]
+# "thumbnail mẫu noal" / "mẫu thumbnail Noah flood" / "thumbnail template big_number"
+# → mẫu của Thumbnail Studio. Phải nói rõ chữ thumbnail/ảnh đại diện, vì "theo mẫu X"
+# trơ trọi đã có nghĩa khác: preset của Content Studio.
+CONTENT_VIDEO_THUMB_TPL_RES = [
+    re.compile(r"(?<!\w)(?:thumbnail|thumb|ảnh đại diện|anh dai dien|ảnh bìa|anh bia)\s*"
+               r"(?:theo|dùng|dung|bằng|bang|với|voi|kiểu|kieu)?\s*"
+               r"(?:mẫu|mau|template|preset)\s+(.+)", re.I | re.S),
+    re.compile(r"(?<!\w)(?:mẫu|mau|template|preset)\s+"
+               r"(?:thumbnail|thumb|ảnh đại diện|anh dai dien|ảnh bìa|anh bia)\s+(.+)", re.I | re.S),
+    re.compile(r"(?<!\w)(?:thumbnail|cover)\s+(?:template|style)\s+(.+)", re.I | re.S),
+]
 _QUOTE_CHARS = "\"'“”‘’«»"
 # Nháy mở nào đóng bằng nháy nấy: "Ben's picks" không được cắt ở dấu nháy đơn.
 _QUOTE_PAIRS = {'"': '"', "'": "'", "“": "”", "‘": "’", "«": "»"}
@@ -942,6 +953,11 @@ class IntentRouter:
             data["no_review"] = True
         if self._kw_hit(text_lower, CONTENT_VIDEO_THUMB_CUES) or "thumb" in text_lower.split()[-1:]:
             data["thumbnail"] = True
+        # Gọi tên một mẫu thumbnail tức là muốn có thumbnail, khỏi phải nói thêm.
+        thumb_tpl = self._content_video_thumb_template(text)
+        if thumb_tpl:
+            data["thumbnail_template"] = thumb_tpl
+            data["thumbnail"] = True
         return IntentResult(
             intent_type="content_video",
             confidence=0.97,
@@ -963,6 +979,11 @@ class IntentRouter:
         return ""
 
     @staticmethod
+    def _content_video_thumb_template(text: str) -> str:
+        """Tên mẫu thumbnail trong "… thumbnail mẫu <tên>", "" khi câu không nói."""
+        return IntentRouter._name_after(text, CONTENT_VIDEO_THUMB_TPL_RES)
+
+    @staticmethod
     def _content_video_preset(text: str) -> str:
         """The template name in "… theo mẫu <name>" / "… with the template <name>",
         "" when the sentence names none.
@@ -971,7 +992,16 @@ class IntentRouter:
         one runs to the end of the sentence, a comma or a period — the user
         types the name the way the wizard shows it, nothing more structured.
         """
-        for rx in CONTENT_VIDEO_PRESET_RES:
+        return IntentRouter._name_after(text, CONTENT_VIDEO_PRESET_RES)
+
+    @staticmethod
+    def _name_after(text: str, regexes) -> str:
+        """Tên đứng sau một trong các mẫu regex, đã cắt sạch đuôi câu chat.
+
+        Dùng chung cho tên preset và tên mẫu thumbnail: cả hai đều được TRA THEO
+        TÊN ở máy chủ, nên một chữ "nhé" dính lại là cả lượt chạy hỏng.
+        """
+        for rx in regexes:
             m = rx.search(text or "")
             if not m:
                 continue

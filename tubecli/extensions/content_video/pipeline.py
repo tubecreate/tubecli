@@ -3360,7 +3360,53 @@ def _commit_autopublish(state: Dict, options: Dict) -> None:
 
 
 def _thumbnail_template(state: Dict, options: Dict) -> str:
-    return str(options.get("thumbnail_template") or _preset_meta(state).get("thumbnail_template") or "")
+    """Mẫu thumbnail phải dùng: người dùng gõ trong chat > preset > rỗng (AI tự chọn).
+
+    Người ta gõ TÊN nhìn thấy trong Thumbnail Studio ("Noah flood", "mẫu noal"),
+    không phải id nội bộ — nên tra lại ở Studio thay vì gửi nguyên chuỗi rồi để
+    nó lặng lẽ rơi về mẫu khác."""
+    want = str(options.get("thumbnail_template") or _preset_meta(state).get("thumbnail_template") or "").strip()
+    if not want:
+        return ""
+    return _resolve_thumb_template(state, want)
+
+
+def _thumb_templates() -> List[Dict]:
+    try:
+        data = _get("/api/v1/thumbnail/templates", timeout=30) or {}
+    except Exception as e:
+        logger.info(f"[ContentVideo] cannot list thumbnail templates: {e}")
+        return []
+    return [t for t in (data.get("templates") or []) if isinstance(t, dict)]
+
+
+def _resolve_thumb_template(state: Dict, want: str) -> str:
+    """Tên người dùng gõ → id mẫu. Không tra được thì trả nguyên chuỗi (Studio còn
+    một lần khớp id nữa); không có mẫu nào tên vậy thì cảnh báo kèm tên có thật và
+    để AI chọn — hỏng một cái tên không đáng vứt cả lượt dựng."""
+    rows = _thumb_templates()
+    if not rows:
+        return want
+    key = _ident_key(want)
+    best, best_score = "", 0
+    for t in rows:
+        tid = str(t.get("id") or "")
+        for label in (tid, str(t.get("display") or ""), str(t.get("label") or "")):
+            k = _ident_key(label)
+            if not k:
+                continue
+            score = 3 if k == key else (2 if (key in k or k in key) and min(len(k), len(key)) >= 4 else 0)
+            # Mẫu người dùng tự vẽ thắng khi điểm ngang nhau: họ đặt tên cho mẫu của họ.
+            score += 0 if t.get("builtin", True) else 1
+            if score > best_score and score > 1:
+                best, best_score = tid, score
+    if best:
+        return best
+    names = ", ".join(str(t.get("display") or t.get("id")) for t in rows[:8])
+    state.setdefault("warnings", []).append(
+        f"No thumbnail template is called “{want}” — letting the AI pick one. "
+        f"Templates here: {names}…")
+    return ""
 
 
 def _step_thumbnail(state: Dict, options: Dict) -> None:

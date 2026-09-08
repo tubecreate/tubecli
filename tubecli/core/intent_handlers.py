@@ -143,7 +143,8 @@ async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
     # này thiếu nó nên lời hẹn độ dài rơi ngay tại đây: pipeline lặng lẽ lấy độ
     # dài của mẫu (hoặc mặc định ~2 phút) và thẻ kết quả ghi "from the template".
     options = {k: data[k] for k in ("day", "aspect_ratio", "preset", "target_words", "language",
-                                    "publish", "publish_channel_name", "thumbnail")
+                                    "publish", "publish_channel_name", "thumbnail",
+                                    "thumbnail_template")
                if data.get(k)}
     sources = list(data.get("sources") or [])
     if data.get("publish") or data.get("no_review"):
