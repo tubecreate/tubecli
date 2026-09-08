@@ -189,7 +189,9 @@ async def list_tasks(status: str = "", limit: int = 50, created_by: str = ""):
     if status and status != "active" and status not in ALL_STATES:
         raise HTTPException(400, f"Unknown status: {status}")
     tasks = codex_manager.list_tasks(status=status, limit=limit, created_by=created_by)
-    return {"tasks": tasks, "count": len(tasks)}
+    # `now` = đồng hồ MÁY CHỦ. Thẻ đếm "mấy phút trước" theo mốc này thay vì đồng hồ
+    # máy người xem, nên máy khách sai giờ cũng không đẻ ra "task vừa tạo, 5h trước".
+    return {"tasks": tasks, "count": len(tasks), "now": codex_manager.server_now()}
 
 
 @router.post("/tasks")

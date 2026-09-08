@@ -62,6 +62,8 @@ const CODEX = (() => {
     filter: 'all',
     search: '',
     expanded: new Set(),  // task ids
+    // Đồng hồ MÁY CHỦ lúc lấy danh sách gần nhất ({iso, at}) — xem serverNow().
+    clock: null,
     events: {},           // taskId -> [event]
     cursor: {},           // taskId -> last event ts
     eventsLoaded: {},     // taskId -> bool
@@ -157,10 +159,21 @@ const CODEX = (() => {
     return isNaN(d.getTime()) ? null : d;
   }
 
+  // "Mấy phút trước" phải đo bằng đồng hồ CỦA MÁY CHỦ: mốc trong task do máy chủ
+  // ghi, nên đo bằng đồng hồ máy người xem là trộn hai đồng hồ khác nhau — máy chủ
+  // ở múi giờ khác (hay máy khách sai giờ) làm task vừa tạo hiện thành "5 h ago".
+  function serverNow() {
+    const c = state.clock;
+    if (!c) return Date.now();
+    const base = parseTs(c.iso);
+    if (!base) return Date.now();
+    return base.getTime() + (Date.now() - c.at);
+  }
+
   function relTime(ts) {
     const d = parseTs(ts);
     if (!d) return '';
-    const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+    const sec = Math.max(0, Math.floor((serverNow() - d.getTime()) / 1000));
     if (sec < 60) return t('codex.time_now');
     if (sec < 3600) return t('codex.time_min', { n: Math.floor(sec / 60) });
     if (sec < 86400) return t('codex.time_hour', { n: Math.floor(sec / 3600) });
@@ -230,7 +243,10 @@ const CODEX = (() => {
 
     if (results[0].status === 'fulfilled') state.stats = results[0].value || {};
     if (results[1].status === 'fulfilled') {
-      const list = (results[1].value && results[1].value.tasks) || [];
+      const payload = results[1].value || {};
+      // Máy chủ bản cũ không gửi `now` → giữ nguyên đồng hồ máy khách như trước.
+      state.clock = payload.now ? { iso: payload.now, at: Date.now() } : null;
+      const list = payload.tasks || [];
       list.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
       state.tasks = list;
       state.loaded = true;
@@ -593,6 +609,14 @@ const CODEX = (() => {
         <div class="cx-events" id="cx-ev-${id}">${eventsHtml(task.id)}</div>
       </div>`);
 
+    // Chi tiết dài hơn màn hình: không có nút này thì phải kéo ngược lên tận đầu
+    // thẻ mới bấm thu lại được.
+    parts.push(`<div class="cx-card-foot">
+        <button type="button" class="cx-btn cx-btn-sm cx-btn-ghost" onclick="CODEX.collapse('${id}')">
+          ${icon('expand_less')}${esc(t('codex.action_collapse'))}
+        </button>
+      </div>`);
+
     return `<div class="cx-card-body">${parts.join('')}</div>`;
   }
 
@@ -614,6 +638,16 @@ const CODEX = (() => {
   }
 
   // ── Interaction ────────────────────────────────────────────────
+  function collapse(taskId) {
+    if (!state.expanded.has(taskId)) return;
+    state.expanded.delete(taskId);
+    renderList(true);
+    // Thu từ dưới lên: chỗ đang nhìn vừa biến mất, nên đưa chính thẻ đó về tầm mắt
+    // thay vì để trang nhảy tới một nơi bất kỳ.
+    const card = $('cx-card-' + taskId);
+    if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest' });
+  }
+
   async function toggle(taskId) {
     if (state.expanded.has(taskId)) {
       state.expanded.delete(taskId);
@@ -923,7 +957,7 @@ const CODEX = (() => {
 
   // ── Public surface (referenced by inline onclick handlers) ─────
   return {
-    init, refresh, toggle, setFilter, onSearch, setAuto, setAutoApprove,
+    init, refresh, toggle, collapse, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, accept, requestChanges,
     confirmNote, copyResult, planTask,
     openNewTask, submitNewTask, planFromModal, closeModal, onBackdrop,

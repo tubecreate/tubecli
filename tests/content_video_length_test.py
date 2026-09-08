@@ -388,8 +388,19 @@ assert P._poll_studio("/x", 5, st, "render", done_statuses=("completed",))["stat
 # (e) render: an export the last attempt started is re-used, no second ffmpeg
 posts, cks = [], []
 P._post = lambda path, payload, timeout=300: posts.append(path) or {"task_id": "new1"}
-P._read_checkpoint = lambda task_id: {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"}
-P._write_checkpoint = lambda task_id, data: cks.append(dict(data))
+# Checkpoint giả có TRÍ NHỚ: bước dựng ghi hai lần (id lượt export trước khi chạy,
+# đường dẫn mp4 sau khi xong), lần sau phải thấy được lần trước.
+ckstore = {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"}
+
+
+def _write_ck(task_id, data):
+    ckstore.clear()
+    ckstore.update(data)
+    cks.append(dict(data))
+
+
+P._read_checkpoint = lambda task_id: dict(ckstore)
+P._write_checkpoint = _write_ck
 P.media_seconds = lambda path: 1200.0
 gets = []
 def _get_render(path, timeout=60):
@@ -419,8 +430,39 @@ st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
       "_cancelled": lambda: False, "_say": lambda *a: None}
 P._step_render(st, {})
 assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
-assert cks[-1] == {"drama_id": 9, "episode_id": 9, "export_task_id": "new1"}, cks[-1]
+assert cks[-1] == {"drama_id": 9, "episode_id": 9, "export_task_id": "new1",
+                   "video_path": "/tmp/ep9.mp4"}, cks[-1]
 assert P.render_max_wait(st) == 4 * 3600, "short video → 4h floor"
+# (f2) Retry sau khi bước ĐĂNG hỏng: mp4 lượt trước còn đó → dùng lại, KHÔNG dựng lại
+# (trên VPS chậm, dựng lại một video y hệt là hàng chục phút ffmpeg).
+import tempfile as _tf
+_mp4 = os.path.join(_tf.mkdtemp(), "ep9.mp4")
+open(_mp4, "wb").write(b"\x00" * 10)
+posts.clear(); gets.clear(); cks.clear()
+P._get = lambda path, timeout=60: {"video_url": _mp4}
+said = []
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "video_path": _mp4},
+      "_cancelled": lambda: False, "_say": lambda *a: said.append(a)}
+P._step_render(st, {})
+assert posts == [] and gets == [], (posts, gets)
+assert st["video_path"] == _mp4 and st["video_link"].endswith("ep9.mp4"), st.get("video_link")
+assert any(a[1] == "skipped" and "already rendered" in str(a[2]) for a in said), said
+# có góp ý = kịch bản/ảnh đã đổi → PHẢI dựng lại
+posts.clear()
+P._get = _get_render2
+st2 = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300), "feedback": ["ngắn quá"],
+       "checkpoint": {"drama_id": 9, "episode_id": 9, "video_path": _mp4},
+       "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st2, {})
+assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+# file đã bị xoá → dựng lại, không báo đã có
+posts.clear(); os.remove(_mp4)
+st3 = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+       "checkpoint": {"drama_id": 9, "episode_id": 9, "video_path": _mp4},
+       "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st3, {})
+assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
 # (g) a stall in render carries the re-attach hint
 P._get = lambda path, timeout=60: ({"status": "running", "done": 1, "total": 100} if "/status/" in path else {})
 P._running_export = lambda tid: ""

@@ -15,6 +15,7 @@ threadpool, the Telegram asyncio loop and the codex worker.
 """
 import datetime
 import json
+import re
 import logging
 import os
 import threading
@@ -76,7 +77,39 @@ MAX_EVENT_LINES = 500
 
 
 def _now() -> str:
-    return datetime.datetime.now().isoformat()
+    """Mốc thời gian CÓ MÚI GIỜ. Bản trước ghi `datetime.now().isoformat()` — giờ địa
+    phương của máy chủ mà không nói là múi nào, nên trình duyệt của người xem hiểu
+    thành giờ của chính họ: task vừa tạo trên VPS khác múi hiện thành "5 tiếng trước"."""
+    return datetime.datetime.now().astimezone().isoformat()
+
+
+# Tên trường mang mốc thời gian, ở mọi tầng của một task (bước, phê duyệt, sự kiện).
+_TIME_KEYS = frozenset((
+    "ts", "created_at", "updated_at", "started_at", "finished_at", "ended_at", "decided_at",
+))
+_TZ_TAIL = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
+
+
+def _local_offset() -> str:
+    """Múi giờ máy chủ đang chạy, dạng "+07:00"."""
+    return datetime.datetime.now().astimezone().isoformat()[-6:]
+
+
+def _aware(ts: Any) -> Any:
+    """Mốc không có múi giờ → gắn múi của MÁY CHỦ (nơi đã ghi ra nó). Mốc đã có thì
+    giữ nguyên. Nhờ vậy những task ghi bằng bản cũ cũng hiện đúng giờ."""
+    if not isinstance(ts, str) or not ts or _TZ_TAIL.search(ts):
+        return ts
+    return ts + _local_offset()
+
+
+def _with_tz(obj: Any) -> Any:
+    """Bản sao của task/sự kiện với mọi mốc thời gian có kèm múi giờ."""
+    if isinstance(obj, dict):
+        return {k: (_aware(v) if k in _TIME_KEYS else _with_tz(v)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_with_tz(x) for x in obj]
+    return obj
 
 
 def _new_id() -> str:
@@ -288,7 +321,7 @@ class CodexManager:
         except Exception as e:
             logger.error(f"[Codex] Failed to read events for {task_id}: {e}")
             return []
-        return out[-limit:] if limit else out
+        return [_with_tz(ev) for ev in (out[-limit:] if limit else out)]
 
     def _prune_events(self, task_id: str):
         """Keep only the last MAX_EVENT_LINES lines once a task settles."""
@@ -362,7 +395,7 @@ class CodexManager:
         self._ensure_loaded()
         with self._lock:
             task = self._tasks.get(task_id)
-            return dict(task) if task else None
+            return _with_tz(dict(task)) if task else None
 
     def resolve_ref(self, ref: Any) -> Optional[Dict[str, Any]]:
         """Resolve a task by full id, seq number ('3', '#3'), id prefix or title."""
@@ -403,7 +436,12 @@ class CodexManager:
         if created_by:
             items = [t for t in items if t.get("created_by") == created_by]
         items.sort(key=lambda t: t.get("created_at", ""), reverse=True)
-        return [dict(t) for t in items[:limit]] if limit else [dict(t) for t in items]
+        picked = items[:limit] if limit else items
+        return [_with_tz(dict(t)) for t in picked]
+
+    def server_now(self) -> str:
+        """Giờ hiện tại của máy chủ, có múi giờ — mốc để giao diện đếm ngược thời gian."""
+        return _now()
 
     def get_stats(self) -> Dict[str, int]:
         self._ensure_loaded()

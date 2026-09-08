@@ -1758,6 +1758,17 @@ def _running_export(task_id: str) -> str:
 
 def _step_render(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
+    # Lượt trước đã dựng xong mp4 rồi hỏng ở bước ĐĂNG: dùng lại đúng file đó.
+    # Dựng lại một video y hệt là hàng chục phút ffmpeg trên máy chậm, và Retry
+    # của người dùng có nghĩa là "đăng lại đi", không phải "làm lại từ đầu".
+    # Có góp ý = kịch bản/ảnh đã đổi ⇒ phải dựng lại (cùng luật với _step_script).
+    if not (state.get("feedback") or []):
+        old_path = str((state.get("checkpoint") or {}).get("video_path") or "")
+        if old_path and os.path.isfile(old_path):
+            _use_video(state, old_path)
+            state["_say"]("render", "skipped",
+                          f"already rendered: {os.path.basename(old_path)}")
+            return
     # Lượt trước hết giờ chờ nhưng ffmpeg vẫn chạy ngầm trong Studio: bám vào
     # nó thay vì khởi động ffmpeg thứ hai trên cùng cái máy đã chậm sẵn.
     old = str((state.get("checkpoint") or {}).get("export_task_id") or "")
@@ -1788,14 +1799,20 @@ def _step_render(state: Dict, options: Dict) -> None:
     path = str((ep or {}).get("video_url") or "")
     if not path:
         raise RuntimeError("Export finished but the episode has no video_url.")
-    state["video_path"] = path
-    state["video_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(path)}"
-    state["video_seconds"] = media_seconds(path)
+    _use_video(state, path)
+    _checkpoint_merge(state, {"video_path": path})
     planned = planned_seconds(state)
     if state["video_seconds"] and planned and state["video_seconds"] < planned * _SHORT_VIDEO_RATIO:
         state.setdefault("warnings", []).append(
             f"The video is {clock(state['video_seconds'])} long but the script was planned for "
             f"~{clock(planned)}. Check the Voice line: shots without a voice play as 5-second stills.")
+
+
+def _use_video(state: Dict, path: str) -> None:
+    """Ghi mp4 vừa dựng (hoặc dùng lại) vào state: đường dẫn, link tải, thời lượng."""
+    state["video_path"] = path
+    state["video_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(path)}"
+    state["video_seconds"] = media_seconds(path)
 
 
 # Video thật ngắn hơn chừng này so với kịch bản = có shot mất tiếng hoặc storyboard
