@@ -49,14 +49,26 @@ DEFAULT_DIRS = [
 
 
 def log(msg: str) -> None:
-    os.makedirs(HOME, exist_ok=True)
+    """Ghi một dòng vào log, và KHÔNG BAO GIỜ được ném ra ngoài.
+
+    print() dưới pythonw là một quả mìn: không có console thì sys.stdout là None và
+    print ném AttributeError — giết cả tiến trình ở đúng chỗ ta chỉ định ghi một dòng
+    nhật ký. Client này chạy bằng pythonw là chính, nên đây là đường chết thật, không
+    phải phòng xa.
+    """
     line = f"{time.strftime('%H:%M:%S')} {msg}"
     try:
+        os.makedirs(HOME, exist_ok=True)
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(line + "\n")
-    except OSError:
+    except Exception:
+        # KHÔNG bắt hẹp: đường dẫn hỏng ném ValueError chứ không phải OSError, và một
+        # hàm ghi nhật ký mà giết được tiến trình thì tệ hơn hẳn việc không có nhật ký.
         pass
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except Exception:
+        pass
 
 
 def conf_read() -> dict:
@@ -330,6 +342,15 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     root = tk.Tk()
     root.title(APP)
     root.resizable(False, False)
+    # Cửa sổ mở sau lưng trình duyệt thì cũng như không mở — người dùng đang nhìn
+    # trang cloud, không ai đi lục thanh tác vụ.
+    root.attributes("-topmost", True)
+    root.after(1200, lambda: root.attributes("-topmost", False))
+    root.lift()
+    try:
+        root.focus_force()
+    except Exception:
+        pass
     frm = ttk.Frame(root, padding=16)
     frm.grid()
     ttk.Label(frm, text="Mã ghép nối (lấy trên cloud → Kết nối máy của tôi)").grid(column=0, row=0, sticky="w")
@@ -479,6 +500,9 @@ def status_window(bridge: "Bridge") -> None:
     root = tk.Tk()
     root.title(APP)
     root.resizable(False, False)
+    root.attributes("-topmost", True)
+    root.after(1500, lambda: root.attributes("-topmost", False))
+    root.lift()
     frm = ttk.Frame(root, padding=14)
     frm.grid()
 
@@ -515,6 +539,10 @@ def status_window(bridge: "Bridge") -> None:
 def main() -> int:
     os.makedirs(HOME, exist_ok=True)
     conf = conf_read()
+    # Dòng đầu tiên của mỗi lượt chạy: log rỗng thì không ai biết client đã khởi động
+    # hay chết trước cả khi kịp mở cửa sổ.
+    log(f"khởi động (pid {os.getpid()}, {os.path.basename(sys.executable)}), "
+        f"đã ghép nối: {bool(conf.get('tunnel_token'))}")
 
     if "--status" in sys.argv:
         print(json.dumps({"tubecli": tubecli_up(), "conf": {k: v for k, v in conf.items()

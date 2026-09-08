@@ -143,6 +143,55 @@ check("xong mới mở nút", 'btn.state(["!disabled"])' in _ask)
 check("main không còn tự cài sau khi hỏi mã",
       "ask_pairing(code, lang=" in _src and "install_tubecli(lang=conf" not in _src)
 
+# 1e. log() KHÔNG ĐƯỢC GIẾT TIẾN TRÌNH.
+# Đo thật ngày 8/9/26: client chạy bằng pythonw chết ngay dòng log đầu tiên —
+#   UnicodeEncodeError('charmap', '20:02:42 thử ghi log dưới pythonw', …)
+# vì pythonw không có console tử tế, print() tiếng Việt vào đó là ném lỗi. Log rỗng,
+# không icon, không cửa sổ: người dùng chỉ thấy "client biến mất".
+class _StdoutHong:
+    def write(self, *a):
+        raise UnicodeEncodeError("charmap", "x", 0, 1, "character maps to <undefined>")
+
+    def flush(self):
+        raise OSError("console đã đóng")
+
+
+# check() cũng in ra màn hình, nên phải TRẢ LẠI stdout trước khi gọi nó — nếu không
+# chính bài test lại ngã vì đúng cái lỗi nó đang đi bắt.
+_stdout = sys.stdout
+_crash = None
+try:
+    sys.stdout = _StdoutHong()
+    try:
+        mod.log("thử ghi log tiếng Việt dưới pythonw")
+    except BaseException as e:      # noqa: BLE001 — đây chính là thứ cần bắt
+        _crash = repr(e)
+finally:
+    sys.stdout = _stdout
+check("stdout hỏng cũng không ném ra ngoài", _crash is None, _crash or "")
+check("dòng log vẫn vào file dù stdout hỏng",
+      "thử ghi log tiếng Việt" in open(mod.LOG, encoding="utf-8").read())
+
+# Thư mục log không ghi được thì cũng chỉ im lặng bỏ qua, không được ngã.
+_home, _log = mod.HOME, mod.LOG
+_crash2 = None
+try:
+    mod.HOME = os.path.join(TMP, "khong_ghi_duoc", "\x00")
+    mod.LOG = os.path.join(mod.HOME, "connect.log")
+    mod.log("thử ghi vào chỗ không hợp lệ")
+except BaseException as e:      # noqa: BLE001
+    _crash2 = repr(e)
+finally:
+    mod.HOME, mod.LOG = _home, _log
+check("đường dẫn log hỏng cũng không ngã", _crash2 is None, _crash2 or "")
+
+# Và phải ghi một dòng NGAY khi khởi động: log rỗng thì không ai biết nó đã chạy chưa.
+_src2 = SRC.read_text(encoding="utf-8")
+_main = _src2[_src2.index("def main("):]
+check("khởi động là ghi log ngay", "khởi động (pid" in _main)
+check("cửa sổ được kéo lên trước (mở sau lưng trình duyệt thì như không mở)",
+      _src2.count('attributes("-topmost", True)') >= 2 and "focus_force" in _src2)
+
 # 2. Cấu hình: ghi rồi đọc lại đúng, và nằm trong thư mục dữ liệu của người dùng
 check("cấu hình nằm trong APPDATA/TubeCLI", mod.CONF.startswith(TMP), mod.CONF)
 check("chưa ghi gì thì đọc ra rỗng", mod.conf_read() == {})
