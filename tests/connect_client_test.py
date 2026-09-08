@@ -90,6 +90,59 @@ check("cửa sổ có nút mở dashboard, log và tuỳ chọn khởi động c
 check("đóng cửa sổ là dừng hẳn cầu nối (không để tiến trình mồ côi)",
       "bridge.shutdown()" in src_text[src_text.index("def status_window("):])
 
+# 1d. Thứ tự khi mở client (đúng như người dùng mong đợi): DÒ trước, hỏi mã sau.
+#   cổng 5295 trả lời        → dùng luôn, không đụng gì
+#   đã cài mà chưa chạy      → tự bật
+#   chưa cài gì              → chạy trình cài rồi bật (mật khẩu khi ấy là mặc định)
+# Bản đầu hỏi mã TRƯỚC rồi mới đi cài, nên người ta gõ mã vào một cái máy mà client
+# còn chưa biết có TubeCLI hay không.
+_up = mod.tubecli_up
+_cmd = mod.server_cmd
+_start = mod.start_tubecli
+_install = mod.install_tubecli
+try:
+    said = []
+    mod.tubecli_up = lambda timeout=2.0: True
+    mod.install_tubecli = lambda lang="vi": (_ for _ in ()).throw(AssertionError("không được cài khi máy đang chạy"))
+    mod.start_tubecli = lambda: (_ for _ in ()).throw(AssertionError("không được bật lại khi máy đang chạy"))
+    check("đang chạy → không cài, không bật lại", mod.prepare_node(said.append) == (True, ""))
+    check("nói đúng trạng thái", said == ["TubeCLI đang chạy ✓"], said)
+
+    said.clear()
+    started = []
+    mod.tubecli_up = lambda timeout=2.0: False
+    mod.server_cmd = lambda: (["pythonw"], r"D:\TubeCLI")
+    mod.start_tubecli = lambda: started.append(1) or True
+    check("đã cài mà chưa chạy → TỰ BẬT, không cài lại", mod.prepare_node(said.append) == (True, "") and started)
+    check("nói rõ đang bật bản đã cài", any("Đã cài sẵn" in m for m in said), said)
+
+    said.clear()
+    installed = []
+    mod.server_cmd = lambda: ([], "")
+    mod.install_tubecli = lambda lang="vi": installed.append(lang) or True
+    ok, suggest = mod.prepare_node(said.append, "vi")
+    check("chưa cài gì → chạy trình cài rồi bật", ok and installed == ["vi"])
+    check("máy mới cài thì gợi ý mật khẩu mặc định", suggest == "123456", suggest)
+    check("báo trước rằng trình cài sẽ HỎI vài câu", any("HỎI" in m for m in said), said)
+
+    said.clear()
+    mod.install_tubecli = lambda lang="vi": False
+    check("trình cài hỏng → trả False, không nói dối là xong", mod.prepare_node(said.append)[0] is False)
+    check("nói rõ hỏng ở đâu", any("Trình cài" in m for m in said), said)
+finally:
+    mod.tubecli_up, mod.server_cmd = _up, _cmd
+    mod.start_tubecli, mod.install_tubecli = _start, _install
+
+# Cửa sổ phải khoá nút Kết nối tới khi máy chủ trả lời, và dò ở LUỒNG NỀN (trình cài
+# mất vài phút; cửa sổ đứng đơ là Windows dán nhãn "Not responding").
+_src = SRC.read_text(encoding="utf-8")
+_ask = _src[_src.index("def ask_pairing("):_src.index("def notify(")]
+check("nút Kết nối khoá lúc đầu", 'btn.state(["disabled"])' in _ask)
+check("dò/bật/cài chạy ở luồng nền", "threading.Thread(target=prepare" in _ask)
+check("xong mới mở nút", 'btn.state(["!disabled"])' in _ask)
+check("main không còn tự cài sau khi hỏi mã",
+      "ask_pairing(code, lang=" in _src and "install_tubecli(lang=conf" not in _src)
+
 # 2. Cấu hình: ghi rồi đọc lại đúng, và nằm trong thư mục dữ liệu của người dùng
 check("cấu hình nằm trong APPDATA/TubeCLI", mod.CONF.startswith(TMP), mod.CONF)
 check("chưa ghi gì thì đọc ra rỗng", mod.conf_read() == {})

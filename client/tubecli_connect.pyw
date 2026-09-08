@@ -289,9 +289,40 @@ def set_autostart(on: bool) -> None:
         log(f"không đặt được khởi động cùng Windows: {e}")
 
 
+def prepare_node(say, lang: str = "vi") -> tuple:
+    """Đưa máy về trạng thái CHẠY ĐƯỢC, kể lại từng bước qua say(). Trả (ok, mật khẩu
+    gợi ý). Ba ngả, theo đúng thứ tự người dùng mong đợi:
+        * cổng 5295 đang trả lời → xong, không đụng gì;
+        * đã cài mà chưa chạy   → tự bật;
+        * chưa cài              → chạy trình cài rồi bật (mật khẩu khi ấy là mặc định).
+    """
+    if tubecli_up():
+        say("TubeCLI đang chạy ✓")
+        return True, ""
+    cmd, d = server_cmd()
+    if cmd:
+        say(f"Đã cài sẵn — đang bật TubeCLI… ({d})")
+        if start_tubecli():
+            say("TubeCLI đang chạy ✓")
+            return True, ""
+        say("Không bật được TubeCLI — xem log.")
+        return False, ""
+    say("Máy chưa có TubeCLI — đang cài. Cửa sổ cài đặt sẽ HỎI vài câu.")
+    if not install_tubecli(lang=lang):
+        say("Trình cài không hoàn tất — xem log.")
+        return False, ""
+    say("Cài xong — đang bật TubeCLI…")
+    if not start_tubecli():
+        say("Cài xong nhưng chưa bật được — mở TubeCLI rồi chạy lại client.")
+        return False, ""
+    say("TubeCLI đang chạy ✓")
+    # Bản vừa cài dùng mật khẩu mặc định; điền sẵn để người dùng khỏi đoán.
+    return True, "123456"
+
+
 # ── Hỏi mã ghép nối (tkinter — có sẵn trong Python, không cài thêm) ─────────
 
-def ask_pairing(default_code: str = "") -> tuple:
+def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     import tkinter as tk
     from tkinter import ttk
 
@@ -312,6 +343,12 @@ def ask_pairing(default_code: str = "") -> tuple:
               foreground="#888").grid(column=0, row=4, sticky="w", pady=(0, 10))
     msg = ttk.Label(frm, text="", foreground="#c33")
     msg.grid(column=0, row=6, sticky="w", pady=(8, 0))
+    state = ttk.Label(frm, text="Đang kiểm tra máy…", foreground="#888")
+    state.grid(column=0, row=7, sticky="w", pady=(6, 0))
+
+    btn = ttk.Button(frm, text="Kết nối")
+    btn.grid(column=0, row=5, sticky="e")
+    btn.state(["disabled"])                 # chỉ mở khi máy chủ đã trả lời
 
     def ok():
         code = e_code.get().strip().upper()
@@ -322,8 +359,26 @@ def ask_pairing(default_code: str = "") -> tuple:
         out["code"], out["password"] = code, pw
         root.destroy()
 
-    ttk.Button(frm, text="Kết nối", command=ok).grid(column=0, row=5, sticky="e")
-    root.bind("<Return>", lambda _e: ok())
+    btn.config(command=ok)
+    root.bind("<Return>", lambda _e: ok() if "disabled" not in btn.state() else None)
+
+    # Dò / bật / cài chạy ở LUỒNG NỀN: trình cài có thể mất vài phút, mà cửa sổ đứng
+    # đơ mấy phút thì Windows dán nhãn "Not responding" và người dùng tắt nó đi.
+    def prepare():
+        ok_node, suggest = prepare_node(lambda m: root.after(0, lambda: state.config(text=m)), lang)
+
+        def done():
+            if ok_node:
+                state.config(text=state.cget("text"), foreground="#2a7")
+                btn.state(["!disabled"])
+                if suggest and not e_pw.get():
+                    e_pw.insert(0, suggest)
+                (e_code if not e_code.get() else e_pw).focus()
+            else:
+                state.config(foreground="#c33")
+        root.after(0, done)
+
+    threading.Thread(target=prepare, daemon=True).start()
     e_code.focus()
     root.mainloop()
     return out["code"], out["password"]
@@ -471,19 +526,13 @@ def main() -> int:
         for arg in sys.argv[1:]:
             if arg.startswith("--code="):
                 code = arg.split("=", 1)[1].strip().upper()
-        code, password = ask_pairing(code)
+        # Cửa sổ tự dò cổng 5295 → bật bản đã cài → cài mới nếu chưa có, rồi mới mở
+        # nút Kết nối. Người dùng chỉ gõ mã khi máy đã sẵn sàng.
+        code, password = ask_pairing(code, lang=conf.get("lang", "vi"))
         if not code:
             return 1
-        if have_tubecli():
-            log("máy đã có TubeCLI — bỏ qua bước cài")
-        else:
-            notify(APP, "Máy chưa có TubeCLI. Cửa sổ cài đặt sẽ mở ra và HỎI vài câu "
-                        "(ngôn ngữ, cổng) — trả lời xong nó tự quay lại đây.")
-            if not install_tubecli(lang=conf.get("lang", "vi")):
-                notify(APP, "Chưa cài được TubeCLI. Mở lại sau khi cài xong nhé.")
-                return 1
-        if not start_tubecli():
-            notify(APP, "TubeCLI chưa bật được — xem log để biết vì sao.")
+        if not tubecli_up():
+            notify(APP, "TubeCLI chưa chạy — xem log để biết nó vướng ở đâu.")
             return 1
         if not node_login(password):
             notify(APP, "Mật khẩu dashboard không đúng, nên cloud sẽ không mở được máy này. "
