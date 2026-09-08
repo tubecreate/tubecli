@@ -192,6 +192,67 @@ check("khởi động là ghi log ngay", "khởi động (pid" in _main)
 check("cửa sổ được kéo lên trước (mở sau lưng trình duyệt thì như không mở)",
       _src2.count('attributes("-topmost", True)') >= 2 and "focus_force" in _src2)
 
+# 1f. BẤM "KẾT NỐI" RỒI CLIENT BIẾN MẤT, LOG IM.
+# Đo thật 8/9/26: cả ba nhánh hỏng (TubeCLI tắt / sai mật khẩu dashboard / cloud từ
+# chối mã) đều làm đúng một việc — notify() rồi `return 1`. notify() vẽ hộp thoại
+# trong thread DAEMON, nên sys.exit() giết tiến trình trước khi hộp thoại kịp hiện,
+# và không nhánh nào ghi log. Người dùng: "tôi nhập mã và mật khẩu xong mất luôn
+# client", server không thấy gì, log không có thêm dòng nào sau lúc khởi động.
+_ask2 = _src[_src.index("def ask_pairing("):_src.index("def notify(")]
+_main = _src[_src.index("def main("):]
+
+check("ghép nối chạy NGAY TRONG cửa sổ",
+      "def connect(code: str, pw: str)" in _ask2
+      and "node_login(pw)" in _ask2 and "claim(code, pw)" in _ask2)
+check("hỏng thì Ở LẠI cửa sổ, mở lại nút để gõ lại",
+      "def fail(text: str)" in _ask2 and 'btn.state(["!disabled"])' in _ask2)
+check("nhánh hỏng KHÔNG đóng cửa sổ",
+      "root.destroy" not in _ask2[_ask2.index("def fail("):_ask2.index("def connect(")])
+check("mọi câu hỏng đều vào log", 'log(f"ghép nối hỏng: {text}")' in _ask2)
+check("ba nguyên nhân được gọi tên riêng, không gộp một câu chung",
+      "cổng 5295" in _ask2 and "Mật khẩu dashboard" in _ask2 and "Cloud không nhận mã" in _ask2)
+check("ghép nối chạy luồng nền để cửa sổ không đơ",
+      "threading.Thread(target=connect" in _ask2)
+check("chỉ thành công mới đóng cửa sổ",
+      'out["info"] = code, pw, info' in _ask2 and "root.after(0, root.destroy)" in _ask2)
+check("cửa sổ trả về cả kết quả ghép nối",
+      'return out["code"], out["password"], out["info"]' in _ask2)
+
+check("main không còn ba nhánh notify-rồi-thoát-câm",
+      "notify(APP, \"TubeCLI chưa chạy" not in _main
+      and "Mật khẩu dashboard không đúng, nên cloud" not in _main
+      and "Ghép nối thất bại" not in _main)
+check("main dùng thẳng kết quả cửa sổ trả về",
+      "code, password, info = ask_pairing(" in _main and "if not info:" in _main)
+check("người dùng tự đóng cửa sổ thì log nói ra",
+      "người dùng đóng cửa sổ" in _main)
+
+# notify(): log TRƯỚC khi vẽ — hộp thoại có thể không hiện được, log thì đọc lại được.
+_notify = _src[_src.index("def notify("):_src.index("class Bridge")]
+check("notify ghi log trước khi vẽ", _notify.index("log(f\"{title}: {body}\")") < _notify.index("def run()"))
+check("notify biết chờ khi đó là lời cuối trước khi thoát",
+      "wait: bool = False" in _notify and "if wait:" in _notify)
+
+
+class _ThreadGia:
+    """Chặn thread thật: test này không được mở hộp thoại lên màn hình người dùng."""
+
+    def __init__(self, *a, **k):
+        pass
+
+    def start(self):
+        pass
+
+
+_th = mod.threading
+try:
+    mod.threading = types.SimpleNamespace(Thread=_ThreadGia)
+    mod.notify("Tiêu đề", "Nội dung cần đọc lại được")
+finally:
+    mod.threading = _th
+check("nội dung notify nằm trong log kể cả khi không vẽ được",
+      "Nội dung cần đọc lại được" in open(mod.LOG, encoding="utf-8").read())
+
 # 2. Cấu hình: ghi rồi đọc lại đúng, và nằm trong thư mục dữ liệu của người dùng
 check("cấu hình nằm trong APPDATA/TubeCLI", mod.CONF.startswith(TMP), mod.CONF)
 check("chưa ghi gì thì đọc ra rỗng", mod.conf_read() == {})

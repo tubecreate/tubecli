@@ -338,7 +338,7 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     import tkinter as tk
     from tkinter import ttk
 
-    out = {"code": "", "password": ""}
+    out = {"code": "", "password": "", "info": None}
     root = tk.Tk()
     root.title(APP)
     root.resizable(False, False)
@@ -371,14 +371,45 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     btn.grid(column=0, row=5, sticky="e")
     btn.state(["disabled"])                 # chỉ mở khi máy chủ đã trả lời
 
+    def fail(text: str):
+        """Hỏng thì Ở LẠI cửa sổ. Mã sống 15 phút; bắt tải lại client rồi gõ lại từ
+        đầu là ép người dùng chạy đua với đồng hồ vì một lỗi đánh máy."""
+        log(f"ghép nối hỏng: {text}")
+
+        def show():
+            msg.config(text=text)
+            state.config(text="Sửa rồi bấm Kết nối lại.", foreground="#c33")
+            btn.state(["!disabled"])
+            e_code.focus()
+        root.after(0, show)
+
+    def connect(code: str, pw: str):
+        """Đăng nhập node rồi đổi mã — chạy ở luồng nền để cửa sổ không đơ."""
+        if not tubecli_up():
+            fail("TubeCLI không còn trả lời ở cổng 5295. Mở TubeCLI rồi thử lại.")
+            return
+        if not node_login(pw):
+            fail("Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này.")
+            return
+        try:
+            info = claim(code, pw)
+        except RuntimeError as e:
+            fail(f"Cloud không nhận mã: {e}")
+            return
+        out["code"], out["password"], out["info"] = code, pw, info
+        log(f"ghép nối xong: {info.get('url')}")
+        root.after(0, root.destroy)
+
     def ok():
         code = e_code.get().strip().upper()
         pw = e_pw.get()
         if len(code) < 4 or not pw:
             msg.config(text="Nhập đủ mã và mật khẩu.")
             return
-        out["code"], out["password"] = code, pw
-        root.destroy()
+        msg.config(text="")
+        btn.state(["disabled"])
+        state.config(text="Đang ghép nối với cloud…", foreground="#888")
+        threading.Thread(target=connect, args=(code, pw), daemon=True).start()
 
     btn.config(command=ok)
     root.bind("<Return>", lambda _e: ok() if "disabled" not in btn.state() else None)
@@ -402,21 +433,34 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     threading.Thread(target=prepare, daemon=True).start()
     e_code.focus()
     root.mainloop()
-    return out["code"], out["password"]
+    return out["code"], out["password"], out["info"]
 
 
-def notify(title: str, body: str) -> None:
-    """Báo một câu cho người dùng mà không chặn luồng."""
+def notify(title: str, body: str, wait: bool = False) -> None:
+    """Báo một câu cho người dùng.
+
+    LUÔN ghi log trước khi vẽ: hộp thoại có thể không hiện được (thiếu màn hình,
+    tkinter hỏng), còn log thì đọc lại được lúc đi tìm nguyên nhân.
+
+    wait=True khi đây là lời cuối trước lúc thoát. Thread daemon + sys.exit ngay
+    sau đó = hộp thoại không bao giờ kịp vẽ, và người dùng chỉ thấy client bốc hơi.
+    """
+    log(f"{title}: {body}")
+
     def run():
         try:
             import tkinter as tk
             from tkinter import messagebox
             r = tk.Tk()
             r.withdraw()
-            messagebox.showinfo(title, body)
+            r.attributes("-topmost", True)
+            messagebox.showinfo(title, body, parent=r)
             r.destroy()
-        except Exception:
-            log(f"{title}: {body}")
+        except Exception as e:
+            log(f"không vẽ được hộp thoại: {e}")
+    if wait:
+        run()
+        return
     threading.Thread(target=run, daemon=True).start()
 
 
@@ -556,27 +600,18 @@ def main() -> int:
                 code = arg.split("=", 1)[1].strip().upper()
         # Cửa sổ tự dò cổng 5295 → bật bản đã cài → cài mới nếu chưa có, rồi mới mở
         # nút Kết nối. Người dùng chỉ gõ mã khi máy đã sẵn sàng.
-        code, password = ask_pairing(code, lang=conf.get("lang", "vi"))
-        if not code:
-            return 1
-        if not tubecli_up():
-            notify(APP, "TubeCLI chưa chạy — xem log để biết nó vướng ở đâu.")
-            return 1
-        if not node_login(password):
-            notify(APP, "Mật khẩu dashboard không đúng, nên cloud sẽ không mở được máy này. "
-                        "Chạy lại và nhập đúng mật khẩu.")
-            return 1
-        try:
-            info = claim(code, password)
-        except RuntimeError as e:
-            notify(APP, f"Ghép nối thất bại: {e}")
+        # Đăng nhập + đổi mã diễn ra BÊN TRONG cửa sổ: sai mật khẩu hay mã hết hạn
+        # thì báo tại chỗ và gõ lại, không thoát. Ra tới đây mà không có info nghĩa
+        # là người dùng tự đóng cửa sổ.
+        code, password, info = ask_pairing(code, lang=conf.get("lang", "vi"))
+        if not info:
+            log("người dùng đóng cửa sổ trước khi ghép nối xong")
             return 1
         conf = {**conf, **info, "password": password}
         conf_write(conf)
         set_autostart(True)
         notify(APP, f"Đã kết nối: {info.get('name')}\n{info.get('url')}\n\n"
                     "Máy này đã hiện trên cloud. Cứ để cửa sổ chạy nền.")
-        log(f"ghép nối xong: {info.get('url')}")
 
     bridge = Bridge(conf)
     threading.Thread(target=bridge.watch, daemon=True).start()
