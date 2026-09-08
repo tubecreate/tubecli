@@ -59,5 +59,18 @@ check('lượt attach gắn cho mọi tab đang mở', /ps\.forEach\(acceptDialo
 check('lỗi nền lẻ chỉ được ghi lại, không làm chết tiến trình',
     /process\.on\('unhandledRejection'/.test(src) && /Bỏ qua lỗi nền/.test(src));
 
+// ── 3. AI Auto-Fix: lượt tự động không được gửi cả trang sang model ──────────
+// Mỗi bước hỏng là 15.000 ký tự DOM + 3.000 ký tự chữ gửi sang /scripts/ai-fix, mà
+// route ấy thử DEEPSEEK trước tiên. Script đăng YouTube từng có ba bước luôn hỏng mỗi
+// lượt (gõ ngày, gõ giờ, bấm Xuất bản) ⇒ ba lượt gọi model cho MỖI lần đăng, không ai
+// ngồi xem, và selector nó đoán ra từng gõ mô tả video vào ô tìm kiếm.
+check('cờ ai_fix mặc định BẬT (nút Chạy thử của người dùng giữ nếp cũ)',
+    /const aiFix = execData\.ai_fix === undefined \? true : !!execData\.ai_fix;/.test(src));
+const phase2 = src.slice(src.indexOf('Phase 2: AI Fix'), src.indexOf('AI Auto-Fix: analyzing page'));
+check('tắt thì chặn TRƯỚC khi gọi model', /if \(!aiFix\)/.test(phase2), phase2.slice(0, 120));
+check('tắt mà bước đó on_error=skip thì vẫn skip như thường',
+    /if \(!aiFix\)[\s\S]{0,220}onError === 'skip'[\s\S]{0,90}return;/.test(src));
+check('tắt mà bước bắt buộc thì vẫn hỏng ra hỏng', /if \(!aiFix\)[\s\S]{0,300}throw err;/.test(src));
+
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

@@ -206,6 +206,9 @@ class RunRequest(BaseModel):
     # phía nhóm in giỏ đó vào câu trả lời, nên bơm bí mật vào đây là đọc mật khẩu
     # thật lên chat. Đường agent cũ (run_script_sync) chưa bao giờ bơm gì cả.
     inject_credentials: bool = True
+    # Cho AI đoán lại selector khi một bước hỏng. Mặc định bật; lượt chạy tự động
+    # (pipeline đăng video) tắt để khỏi gửi cả trang sang model mỗi lần vấp.
+    ai_fix: bool = True
 
 
 # ── Script CRUD ──
@@ -552,6 +555,7 @@ async def run_script(script_id: str, req: RunRequest):
             "profile": req.profile,
             "headless": req.headless,
             "engine": req.engine,
+            "ai_fix": req.ai_fix,
             "attach": req.attach,
             "tab_index": req.tab_index,
             "tab_url": req.tab_url,
@@ -663,7 +667,8 @@ def _kill_run_tree(proc) -> None:
 
 
 def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
-                    headless: bool = True, timeout: float = None) -> dict:
+                    headless: bool = True, timeout: float = None,
+                    ai_fix: bool = True) -> dict:
     """Run a browser script synchronously and return its output variables.
 
     `timeout` (seconds) is the deadline for the whole run. Without one the
@@ -693,6 +698,7 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
             "variables": variables,
             "profile": profile,
             "headless": headless,
+            "ai_fix": ai_fix,
             "engine": "playwright",
             # Lời gọi đồng bộ: không ai ngồi xem cửa sổ, mà người gọi thì đang chờ
             # kết quả. Giữ browser mở ở đây = tiến trình không thoát = timeout cho

@@ -615,9 +615,11 @@ class _RunRes(dict):
         self.log = log
 
 
-def _fake_run_script_sync(slug, variables=None, profile="", headless=True, timeout=None):
+def _fake_run_script_sync(slug, variables=None, profile="", headless=True, timeout=None,
+                          ai_fix=True):
     SCRIPT_CALLS.append({"slug": slug, "variables": dict(variables or {}),
-                         "profile": profile, "headless": headless, "timeout": timeout})
+                         "profile": profile, "headless": headless, "timeout": timeout,
+                         "ai_fix": ai_fix})
     if isinstance(SCRIPT_RESULT.get("raise"), Exception):
         raise SCRIPT_RESULT["raise"]
     return _RunRes(SCRIPT_RESULT["vars"], SCRIPT_RESULT["ok"], SCRIPT_RESULT["log"])
@@ -659,6 +661,8 @@ check("K có tài khoản đăng nhập → hồ sơ của Keychain thắng",
 Agent.login_accounts = []
 call = SCRIPT_CALLS[-1] if SCRIPT_CALLS else call
 v = call.get("variables") or v
+check("K KHÔNG nhờ AI đoán selector — mỗi lần vấp là 15k ký tự DOM gửi sang model",
+      call.get("ai_fix") is False, call.get("ai_fix"))
 check("K PHẢI truyền timeout — nếu không thread gọi bị chặn vô hạn",
       isinstance(call.get("timeout"), (int, float)) and call["timeout"] > 0, call.get("timeout"))
 check("K truyền đúng đường dẫn mp4", v.get("video_path") == MP4, v)

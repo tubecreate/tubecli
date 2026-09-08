@@ -21,6 +21,11 @@ if (!execFile || !fs.existsSync(execFile)) {
 
 const execData = JSON.parse(fs.readFileSync(execFile, 'utf-8'));
 const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id, attach = false, tab_index = -1, tab_url = '' } = execData;
+// Nhờ AI đoán selector khi một bước hỏng. Mặc định BẬT (nút Chạy thử của người dùng
+// giữ nguyên nếp cũ), nhưng lượt tự động tắt: mỗi lần hỏng là 15k ký tự DOM + 3k ký
+// tự chữ gửi sang model (deepseek trước tiên) — không ai ngồi xem thì cái giá ấy chỉ
+// đổi lấy một selector đoán mò, thứ đã từng gõ mô tả video vào ô tìm kiếm.
+const aiFix = execData.ai_fix === undefined ? true : !!execData.ai_fix;
 // Giu cua so lai sau khi xong? Mac dinh theo nep cu (chay co giao dien thi giu),
 // nhung nguoi goi noi ro duoc: run_script_sync dat false vi no dang bi chan cho.
 const keepOpen = execData.keep_open === undefined ? !headless : !!execData.keep_open;
@@ -1558,6 +1563,11 @@ async function executeStepWithRetry(page, step, index) {
                 step.selector = origSelector; // Restore
 
                 // ─── Phase 2: AI Fix (if smart finder failed) ───
+                if (!aiFix) {
+                    stepLog(index, step.type, 'AI Auto-Fix tắt cho lượt chạy này — bỏ qua');
+                    if (onError === 'skip') { stepLog(index, step.type, 'Error handled: skip'); return; }
+                    throw err;
+                }
                 stepLog(index, step.type, '🤖 AI Auto-Fix: analyzing page...');
                 try {
                     // Get FULL DOM including shadow roots

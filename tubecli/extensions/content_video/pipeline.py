@@ -3041,6 +3041,10 @@ def _live_publish(state: Dict, slug: str, variables: Dict, profile: str):
             time.sleep(0.5)
         body = {"profile": profile, "variables": dict(variables), "headless": False, "engine": "playwright",
                 "attach": True, "tab_index": -1, "tab_url": "",
+                # Không nhờ AI đoán selector: lượt này chạy một mình, và một selector
+                # đoán mò trên YouTube Studio từng gõ mô tả vào ô tìm kiếm. Mỗi lần
+                # gọi còn là 15k ký tự DOM gửi sang model.
+                "ai_fix": False,
                 # KHÔNG bơm mật khẩu/2FA đã lưu của hồ sơ vào biến chạy: runner ghi cả
                 # giỏ biến ra file kết quả và thẻ task in nó ra.
                 "inject_credentials": False}
@@ -3099,7 +3103,7 @@ def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, p
 
     state["_say"]("publish", "running", f"uploading in a hidden browser as “{profile}”")
     return run_script_sync(slug, variables=variables, profile=profile,
-                           headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
+                           headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT, ai_fix=False)
 
 
 def _publish_verdict(state: Dict, res) -> Dict[str, str]:
