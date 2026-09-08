@@ -271,6 +271,10 @@ async function humanMove(page, targetX, targetY) {
 }
 
 // ── Human-like Typing ──
+// Trên ngưỡng này thì DÁN chứ không gõ. 200 ký tự ~20 giây đã là dài với một ô
+// nhập; một mô tả YouTube 3000 ký tự sẽ là năm phút, và cả lượt đăng đứng đó.
+const HUMAN_TYPE_MAX = 200;
+
 async function humanType(page, text) {
     for (const char of text) {
         await page.keyboard.type(char, { delay: 0 });
@@ -637,9 +641,13 @@ async function executeStep(page, step, index) {
             }
             await el.click();
             if (params.clear_first) { await el.fill(''); await sleep(200); }
-            // Use human-like typing with random delays
-            await humanType(page, text);
-            stepLog(index, type, `Typed ${text.length} chars into ${selector}`);
+            // Chuỗi dài: chèn một lượt như DÁN. insertText vẫn là sự kiện nhập thật
+            // của trình duyệt (đúng thứ Ctrl+V sinh ra), nên trang nhận đủ như gõ tay
+            // — chỉ khác là không mất 100 ms mỗi ký tự. params.human=true để ép gõ.
+            const paste = params.human !== true && text.length > HUMAN_TYPE_MAX;
+            if (paste) await page.keyboard.insertText(text);
+            else await humanType(page, text);
+            stepLog(index, type, `Typed ${text.length} chars into ${selector}${paste ? ' (dán một lượt)' : ''}`);
             break;
         }
         case 'wait': {

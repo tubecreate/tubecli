@@ -73,5 +73,21 @@ check('smart-fix (dò selector tại chỗ, không tốn token) thì GIỮ',
 check('bước hỏng vẫn theo on_error của chính nó',
     /if \(onError === 'skip'\)[\s\S]{0,120}return;[\s\S]{0,80}if \(onError === 'abort'\) throw err;/.test(src));
 
+// ── 4. Ô nhập dài: DÁN chứ không gõ từng ký tự ──────────────────────────────
+// humanType nghỉ 40–120 ms mỗi ký tự (+ dấu cách + quãng "nghĩ") ⇒ ~100 ms/ký tự.
+// Mô tả video được phép tới 5000 ký tự ⇒ tới ~8 phút cho MỘT ô, và thẻ task chỉ hiện
+// "step 9 type: Điền mô tả" nên trông như treo — đúng thứ người dùng gặp 8/9/26.
+// Người thật cũng dán mô tả chứ không gõ tay.
+const typeStep = src.slice(src.indexOf("case 'type': {"), src.indexOf("case 'wait': {"));
+check('có ngưỡng gõ tay', /const HUMAN_TYPE_MAX = \d+;/.test(src));
+check('dài hơn ngưỡng thì insertText (đúng sự kiện nhập của trình duyệt, như Ctrl+V)',
+    /text\.length > HUMAN_TYPE_MAX/.test(typeStep) && /keyboard\.insertText\(text\)/.test(typeStep));
+check('ngắn thì vẫn giữ nhịp gõ người (ô đăng nhập, ô tìm kiếm)',
+    /else await humanType\(page, text\)/.test(typeStep));
+check('ép gõ tay được bằng params.human', /params\.human !== true/.test(typeStep));
+check('log nói rõ đã dán hay đã gõ', /\(dán một lượt\)/.test(typeStep));
+const cap = /const HUMAN_TYPE_MAX = (\d+);/.exec(src);
+check('ngưỡng đủ nhỏ để mô tả không bao giờ bị gõ tay', cap && Number(cap[1]) <= 400, cap && cap[1]);
+
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);
