@@ -2476,18 +2476,40 @@ def open_upload_step() -> Dict[str, Any]:
 
 
 WAIT_UPLOAD_LABEL = "t2:wait-upload — chờ video tải lên xong rồi mới bấm Xuất bản"
-WAIT_UPLOAD_POLL_MS = 10000
-WAIT_UPLOAD_ROUNDS = 180          # 180 × 10 s = 30 phút cho file lớn trên mạng chậm
+WAIT_UPLOAD_POLL_MS = 5000
+WAIT_UPLOAD_ROUNDS = 360          # 360 × 5 s = 30 phút cho file lớn trên mạng chậm
 # Còn "Đang tải lên 45%" thì chờ; không có thanh tiến độ, không còn số %, hay đã sang
 # "đã tải lên/đang xử lý/kiểm tra" thì đi tiếp. Không rõ thì KHÔNG chặn (hết vòng là đi).
+# Đo thật (mẫu 1 giây/lần): lúc đang tải, chuỗi là "Video uploading 6% uploaded
+# Processing will start after video is uploaded … Uploading 6% ..." — nghĩa là chữ
+# "Processing" CÓ MẶT ngay từ đầu, nên đừng bao giờ lấy nó làm dấu hiệu xong. Dấu
+# hiệu duy nhất chắc chắn và không phụ thuộc ngôn ngữ là KHÔNG CÒN phần trăm nào.
+# Điều kiện thứ hai: nút cuối mang nhãn "Lưu" (tạo NHÁP) cho tới khi chế độ hiển thị
+# được chọn xong — đo được 14 giây sau khi bấm radio. Bấm trong khoảng đó = nháp,
+# đúng thứ đã xảy ra trên VPS. aria-checked của radio nói điều đó mà không cần đọc chữ.
 WAIT_UPLOAD_CHECK = (
-    "(() => { const el = document.querySelector('ytcp-video-upload-progress'); if (!el) return true; "
-    "const t = (el.textContent || '').replace(/\\s+/g, ' ').trim(); "
-    "return !/\\d+\\s*%/.test(t) || /complete|hoàn tất|đã tải lên|xử lý|processing|checks/i.test(t); })()"
+    "(() => { const el = document.querySelector('ytcp-video-upload-progress'); "
+    "const t = el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : ''; "
+    "if (/\\d+\\s*%/.test(t)) return false; "
+    "if ('{{schedule}}' !== '1') { "
+    "const r = document.querySelector(\"tp-yt-paper-radio-button[name='{{visibility_radio}}']\"); "
+    "if (r && r.getAttribute('aria-checked') !== 'true') return false; } "
+    "const b = [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); "
+    "return !!b; })()"
 )
+# Bước trong vòng lặp vừa BÁO tiến độ (Activity thấy "Uploading 45% … | nút: Save")
+# vừa TỰ CHỌN LẠI chế độ hiển thị nếu nó chưa được chọn — chờ suông một thứ không ai
+# sửa thì chỉ tổ hết 30 phút rồi vẫn bấm nhầm.
 WAIT_UPLOAD_PROGRESS = (
     "(() => { const el = document.querySelector('ytcp-video-upload-progress'); "
-    "return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80) : 'no upload progress bar'; })()"
+    "const t = el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 90) : 'no upload progress bar'; "
+    "let fix = ''; "
+    "if ('{{schedule}}' !== '1') { "
+    "const r = document.querySelector(\"tp-yt-paper-radio-button[name='{{visibility_radio}}']\"); "
+    "if (r && r.getAttribute('aria-checked') !== 'true') { (r.querySelector('#radio') || r).click(); "
+    "fix = ' · chọn lại chế độ hiển thị'; } } "
+    "const b = [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); "
+    "return t + (b ? ' | nút: ' + (b.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 20) : ' | chưa có nút') + fix; })()"
 )
 
 
@@ -2547,6 +2569,147 @@ def _before_done(steps: List[Dict]) -> Optional[int]:
     return None
 
 
+CLEAR_OVERLAYS_LABEL = "t2:clear-overlays — gỡ thứ che nút Xuất bản (iframe góp ý Google)"
+# Đo trên máy thật: document.elementFromPoint(giữa nút Xuất bản) trả về <iframe>
+# trong div#google-feedback → Playwright click hết giờ vì "intercepts pointer events".
+# Dọn theo ĐIỂM chứ không theo danh sách selector: thứ che nút hôm nay là hộp góp ý,
+# ngày mai có thể là tooltip khác.
+CLEAR_OVERLAYS_CODE = (
+    "(() => { const find = () => [...document.querySelectorAll('#done-button')]"
+    ".find((e) => e.getBoundingClientRect().width > 0); "
+    "const clear = () => { const btn = find(); if (!btn) return 'no-button'; "
+    "const r = btn.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; "
+    "for (let i = 0; i < 6; i++) { const top = document.elementFromPoint(x, y); "
+    "if (!top || top === btn || btn.contains(top) || top.contains(btn)) return 'clear'; "
+    "if (/^(HTML|BODY)$/.test(top.tagName)) return 'clear'; "
+    "const victim = top.closest('#google-feedback') || top; "
+    "if (victim.contains(btn) || (victim.querySelector && victim.querySelector('#done-button'))) return 'own-dialog'; "
+    "victim.style.setProperty('display', 'none', 'important'); "
+    "victim.setAttribute('data-t2-hidden', '1'); } return 'still-covered'; }; "
+    "const first = clear(); "
+    "if (!window.__t2unblock) window.__t2unblock = setInterval(clear, 700); "
+    "return first; })()"
+)
+
+PUBLISH_CLICK_LABEL = "t2:publish-click — bấm Xuất bản bằng JS nếu chuột không bấm được"
+# Chỉ bấm khi nút VẪN CÒN ở bước Hiển thị của hộp tải lên: nút còn nghĩa là chưa ai
+# bấm được nó. Ở màn khác thì nút ấy là "Lưu" — bấm vào đúng là tự tay tạo bản nháp.
+PUBLISH_CLICK_CODE = (
+    "(() => { const btn = [...document.querySelectorAll('#done-button')]"
+    ".find((e) => e.getBoundingClientRect().width > 0); "
+    "if (!btn) return 'gone'; "
+    "const dlg = btn.closest('ytcp-uploads-dialog'); if (!dlg) return 'no-dialog'; "
+    "if (!dlg.querySelector(\"#privacy-radios, tp-yt-paper-radio-button[name='PUBLIC'], ytcp-video-visibility-select\")) "
+    "return 'not-visibility-step'; "
+    "if (btn.getAttribute('aria-disabled') === 'true') return 'disabled'; "
+    "(btn.querySelector('button') || btn).click(); return 'clicked'; })()"
+)
+
+VERIFY_PUBLISH_LABEL = "t2:verify-publish — đọc trạng thái thật sau khi bấm Xuất bản"
+VERIFY_PUBLISH_VAR = "t2_publish"
+# Studio bấm xong mới hiện hộp "Video đã xuất bản" (có link youtu.be); còn thấy hộp
+# tải lên với nút Xuất bản nghĩa là video mới chỉ được LƯU NHÁP. Chờ tối đa ~25 s.
+VERIFY_PUBLISH_CODE = (
+    "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; "
+    "const look = () => { "
+    "const share = document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog'); "
+    "if (vis(share)) { const a = share.querySelector('a[href*=\"youtu\"]'); "
+    "return {state: 'published', url: a ? a.href : '', "
+    "note: (share.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120)}; } "
+    "const dlg = document.querySelector('ytcp-uploads-dialog'); "
+    "if (!vis(dlg)) return {state: 'closed', url: '', note: ''}; return null; }; "
+    "for (let i = 0; i < 25; i++) { const r = look(); if (r) return r; "
+    "await new Promise((go) => setTimeout(go, 1000)); } "
+    "const dlg = document.querySelector('ytcp-uploads-dialog'); "
+    "const btn = document.querySelector('#done-button'); "
+    "return {state: 'draft', url: '', note: ((btn ? btn.textContent : '') + ' | ' + "
+    "(dlg ? dlg.textContent : '')).replace(/\\s+/g, ' ').trim().slice(0, 160)}; })()"
+)
+
+SCHEDULE_GUARD_LABEL = "t2:schedule-guard — chỉ chạy nhóm bước hẹn giờ khi có hẹn giờ"
+# Dấu nhận biết bước CHỈ có nghĩa khi hẹn giờ. Chúng nằm liền nhau trong script.
+SCHEDULE_MARKERS = ("datepicker-trigger", "data-t2date", "data-t2time",
+                    "schedule_date", "schedule_time", "ytcp-datetime-picker")
+
+
+def clear_overlays_step() -> Dict[str, Any]:
+    return {"type": "evaluate", "label": CLEAR_OVERLAYS_LABEL,
+            "params": {"code": CLEAR_OVERLAYS_CODE, "save_as": "t2_unblock"},
+            "on_error": "skip"}
+
+
+def publish_click_step() -> Dict[str, Any]:
+    return {"type": "evaluate", "label": PUBLISH_CLICK_LABEL,
+            "params": {"code": PUBLISH_CLICK_CODE, "save_as": "t2_publish_click"},
+            "on_error": "skip"}
+
+
+def verify_publish_step() -> Dict[str, Any]:
+    """Không ném lỗi trong trình duyệt (ném là rơi vào smart-fix/AI-fix, thứ đã
+    từng gõ bừa vào ô tìm kiếm) — chỉ ghi kết quả ra biến để pipeline phán xử."""
+    return {"type": "evaluate", "label": VERIFY_PUBLISH_LABEL,
+            "params": {"code": VERIFY_PUBLISH_CODE, "save_as": VERIFY_PUBLISH_VAR},
+            "on_error": "skip"}
+
+
+def _is_schedule_step(step: Dict) -> bool:
+    if not isinstance(step, dict):
+        return False
+    blob = json.dumps({"s": step.get("selector"), "p": step.get("params")}, ensure_ascii=False)
+    return any(m in blob for m in SCHEDULE_MARKERS)
+
+
+def schedule_guard_step(inner: List[Dict]) -> Dict[str, Any]:
+    return {"type": "condition", "label": SCHEDULE_GUARD_LABEL,
+            "params": {"check": "'{{schedule}}' === '1'", "then_steps": inner, "else_steps": []}}
+
+
+def ensure_schedule_guard(steps: List[Dict]) -> bool:
+    """Gom nhóm bước hẹn giờ (mở lịch, gõ ngày, gõ giờ + các bước xen giữa) vào MỘT
+    bước condition theo {{schedule}}. Lượt tự động luôn schedule=0, mà 'Gõ ngày' vẫn
+    chạy: selector không tồn tại → runner gọi smart-fix → nó tìm 'một ô textbox nào
+    đó' rồi gõ vào. True nếu steps đổi."""
+    if any(isinstance(s, dict) and str(s.get("label") or "").startswith("t2:schedule-guard")
+           for s in steps):
+        return False
+    marks = [i for i, s in enumerate(steps) if _is_schedule_step(s)]
+    if not marks:
+        return False
+    first, last = marks[0], marks[-1]
+    # Kéo dài qua các bước phụ ngay sau (Enter xác nhận giờ, nghỉ) — chúng cũng chỉ
+    # có nghĩa trong lúc hẹn giờ, và Enter lạc chỗ thì bấm nhầm nút đang được focus.
+    while last + 1 < len(steps) and isinstance(steps[last + 1], dict) \
+            and steps[last + 1].get("type") in ("keyboard", "sleep"):
+        last += 1
+    inner = [s for s in steps[first:last + 1]]
+    steps[first:last + 1] = [schedule_guard_step(inner)]
+    return True
+
+
+def _before_verify(steps: List[Dict]) -> Optional[int]:
+    """Cú bấm dự phòng phải đứng TRƯỚC bước xác minh — xác minh chạy trước thì nó
+    đọc trạng thái của một cú bấm chưa xảy ra."""
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and str(s.get("label") or "").startswith("t2:verify-publish"):
+            return i
+    return _before_close(steps)
+
+
+def _before_close(steps: List[Dict]) -> Optional[int]:
+    """Trước bước đóng hộp thoại SAU KHI đã bấm Xuất bản; không có thì cuối script.
+    Không lấy bước #close-button đầu tiên: bước "đóng popup chính sách" ở đầu
+    script cũng mang selector ấy, và xác minh đặt ở đó thì chạy trước cả lúc đăng."""
+    done = -1
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and "#done-button" in str(s.get("selector") or ""):
+            done = i
+    for i in range(len(steps) - 1, done, -1):
+        s = steps[i]
+        if isinstance(s, dict) and "#close-button" in str(s.get("selector") or ""):
+            return i
+    return len(steps)
+
+
 SEED_SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
@@ -2596,6 +2759,10 @@ def ensure_thumbnail_branch(slug: str) -> bool:
     changed = _place_step(steps, "t2:open-upload", open_upload_step(), _after_navigate)
     changed = _place_step(steps, "t2:thumbnail", thumbnail_branch_step(), _after_description) or changed
     changed = _place_step(steps, "t2:wait-upload", wait_upload_step(), _before_done) or changed
+    changed = _place_step(steps, "t2:clear-overlays", clear_overlays_step(), _before_done) or changed
+    changed = ensure_schedule_guard(steps) or changed
+    changed = _place_step(steps, "t2:publish-click", publish_click_step(), _before_verify) or changed
+    changed = _place_step(steps, "t2:verify-publish", verify_publish_step(), _before_close) or changed
     if not changed:
         return False
     try:
@@ -2834,6 +3001,36 @@ def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, p
                            headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
 
 
+def _publish_verdict(state: Dict, res) -> Dict[str, str]:
+    """Bước t2:verify-publish nói gì về video vừa đăng. Ném khi Studio giữ lại bản
+    NHÁP: script vẫn "chạy xong" trong ca đó (bấm Lưu lúc file còn đang tải rồi đóng
+    hộp thoại), và báo đã đăng cho một video không ai xem được là dối."""
+    raw = res.get(VERIFY_PUBLISH_VAR) if isinstance(res, dict) else None
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = {"state": raw}
+    if not isinstance(raw, dict):
+        # Script cũ chưa có bước xác minh: không biết thì không kết luận.
+        state.setdefault("warnings", []).append(
+            "The upload script did not report whether YouTube actually published the video — "
+            "open the channel and check it is not sitting in Drafts.")
+        return {}
+    st = str(raw.get("state") or "").strip().lower()
+    note = " ".join(str(raw.get("note") or "").split())[:200]
+    if st == "draft":
+        raise RuntimeError(
+            "YouTube kept the video as a DRAFT — the upload dialog was still open when the "
+            "script finished, which is what happens when Publish is pressed while the file is "
+            "still uploading. Nothing was published" + (f" (dialog said: {note})" if note else "") + ".")
+    if st == "closed":
+        state.setdefault("warnings", []).append(
+            "The upload dialog closed without YouTube's “video published” confirmation — "
+            "check the channel to be sure the video is not a draft.")
+    return {"state": st, "url": str(raw.get("url") or "").strip(), "note": note}
+
+
 def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     """Đăng qua YouTube Studio bằng script trình duyệt của chính người dùng."""
     agent, say = state["agent"], state["_say"]
@@ -2891,10 +3088,14 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
                            + (" — %s" % tail if tail else "")
                            + ". Open the profile in Browser and check the YouTube login.")
 
+    verdict = _publish_verdict(state, res)
     # Script CÓ THỂ trả về id/link nếu người dùng cho nó xuất biến; không có thì
     # cũng không được bịa. Video đã lên, chỉ là ta không cầm được đường dẫn.
     vid = str(res.get("video_id") or res.get("videoId") or "").strip()
-    url = str(res.get("video_url") or res.get("url") or "").strip()
+    url = str(res.get("video_url") or res.get("url") or "").strip() or str(verdict.get("url") or "")
+    if not vid and url:
+        m = re.search(r"(?:youtu\.be/|[?&]v=)([A-Za-z0-9_-]{6,})", url)
+        vid = m.group(1) if m else ""
     if vid and not url:
         url = "https://www.youtube.com/watch?v=%s" % vid
     if not vid and not url:

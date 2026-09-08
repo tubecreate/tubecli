@@ -262,20 +262,28 @@ es = _EmptyStore()
 SR._store = lambda: es
 assert P.ensure_upload_script("youtube_upload") is True and es.created[0]["slug"] == "youtube_upload"
 seeded = es.created[0]["steps"]
-assert len(seeded) >= 40 and seeded[0]["type"] == "navigate" and es.created[0]["target_url"] == "{{upload_url}}", (len(seeded), es.created[0])
+assert len(seeded) >= 30 and seeded[0]["type"] == "navigate" and es.created[0]["target_url"] == "{{upload_url}}", (len(seeded), len(es.created))
 assert any(str(x.get("label", "")).startswith("t2:thumbnail") for x in seeded) and any(str(x.get("label", "")).startswith("t2:open-upload") for x in seeded)
-wu = next(i for i, x in enumerate(seeded) if str(x.get("label", "")).startswith("t2:wait-upload"))
-assert seeded[wu]["type"] == "loop" and "#done-button" in seeded[wu + 1]["selector"] and seeded[wu]["params"]["break_on"].startswith("(() =>"), seeded[wu]
+lab = [str(x.get("label", "")).split(" ")[0] for x in seeded]
+wu = lab.index("t2:wait-upload")
+assert seeded[wu]["type"] == "loop" and seeded[wu]["params"]["break_on"].startswith("(() =>"), seeded[wu]
 assert seeded[wu]["params"]["steps"][0]["type"] == "evaluate", "vòng chờ in tiến độ ra log"
+i_done = next(i for i, x in enumerate(seeded) if "#done-button" in str(x.get("selector") or ""))
+i_close = max(i for i, x in enumerate(seeded) if "#close-button" in str(x.get("selector") or ""))
+assert wu < lab.index("t2:clear-overlays") < i_done < lab.index("t2:publish-click") < lab.index("t2:verify-publish") < i_close, lab
+assert "t2:schedule-guard" in lab and not any(str(x.get("selector") or "").startswith("[data-t2") for x in seeded), \
+    "bước gõ ngày/giờ nằm trong nhánh hẹn giờ, không chạy thẳng"
 assert P.ensure_upload_script("youtube_upload") is False and len(es.created) == 1, "đã có thì không tạo lại"
 assert P.ensure_upload_script("no_such_script") is False
 assert P.ensure_thumbnail_branch("youtube_upload") is False, "bản mẫu đã mang đúng ba bước"
 # script cũ của người dùng (không có wait-upload) → chèn ngay trước nút Xuất bản, một lần
-es.created[0]["steps"] = [x for x in seeded if not str(x.get("label", "")).startswith("t2:wait-upload")]
+es.created[0]["steps"] = [x for x in seeded if not str(x.get("label", "")).startswith(("t2:wait-upload", "t2:clear-overlays"))]
 es.update_script = lambda slug, **kw: es.created[0].update(steps=kw["steps"])
 assert P.ensure_thumbnail_branch("youtube_upload") is True
 s2 = es.created[0]["steps"]
-assert sum(1 for x in s2 if str(x.get("label", "")).startswith("t2:wait-upload")) == 1 and "#done-button" in s2[wu + 1]["selector"]
+l2 = [str(x.get("label", "")).split(" ")[0] for x in s2]
+assert l2.count("t2:wait-upload") == 1 and l2.count("t2:clear-overlays") == 1
+assert l2.index("t2:wait-upload") < l2.index("t2:clear-overlays") < next(i for i, x in enumerate(s2) if "#done-button" in str(x.get("selector") or "")), l2
 assert P.ensure_thumbnail_branch("youtube_upload") is False
 print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upload.json, có sẵn ba bước pipeline; script cũ được chèn bước chờ tải lên")
 
@@ -363,6 +371,93 @@ P._run_upload_script(stl, {"publish_headless": True}, "youtube_upload", {"a": "2
 assert runs[-1] == {"a": "2"}
 P._live_publish = lambda *a, **k: None
 print("6e live view : mở khung Browser → gắn script (không bơm mật khẩu) → log vào Activity → đóng khi xong/giữ khi hỏng; từ chối/409/huỷ xử lý đúng")
+
+# 6f. Chuỗi chống NHÁP: bọc bước hẹn giờ, dọn thứ che nút, bấm dự phòng, xác minh trạng thái thật
+sched = [
+    {"type": "navigate", "params": {"url": "{{upload_url}}"}},
+    {"type": "type", "selector": "#description-textarea #textbox", "params": {"text": "{{description}}"}},
+    {"type": "evaluate", "label": "Chế độ hiển thị", "params": {"code": "'{{schedule}}'==='1'?'skip':'vis'"}},
+    {"type": "loop", "label": "Mở phần Lên lịch", "params": {"break_on": "!!document.querySelector('#datepicker-trigger')", "steps": []}},
+    {"type": "click_if_exists", "selector": "#datepicker-trigger", "params": {}},
+    {"type": "type", "selector": "[data-t2date='1']", "params": {"text": "{{t2_date_str}}"}},
+    {"type": "type", "selector": "[data-t2time='1']", "params": {"text": "{{t2_time_str}}"}},
+    {"type": "keyboard", "params": {"key": "Enter"}},
+    {"type": "sleep", "params": {"ms": 800}},
+    {"type": "click_if_exists", "selector": "#dismiss-button, tp-yt-paper-dialog #close-button", "params": {}},
+    {"type": "wait", "selector": "#done-button", "params": {"timeout": 60000}},
+    {"type": "click", "selector": "#done-button", "params": {}},
+    {"type": "click_if_exists", "selector": "#close-button, ytcp-button#close-button", "params": {}},
+]
+steps6f = list(sched)
+assert P.ensure_schedule_guard(steps6f) is True
+guard = next(x for x in steps6f if str(x.get("label", "")).startswith("t2:schedule-guard"))
+assert guard["type"] == "condition" and guard["params"]["check"] == "'{{schedule}}' === '1'"
+inner = [x["type"] for x in guard["params"]["then_steps"]]
+assert inner == ["loop", "click_if_exists", "type", "type", "keyboard", "sleep"], inner
+assert not any(str(x.get("selector") or "").startswith("[data-t2") for x in steps6f), "bước gõ ngày/giờ không còn chạy thẳng"
+assert [x["type"] for x in steps6f[:3]] == ["navigate", "type", "evaluate"], "bước trước đó giữ nguyên"
+assert P.ensure_schedule_guard(steps6f) is False, "idempotent"
+assert P.ensure_schedule_guard([{"type": "click", "selector": "#done-button"}]) is False, "script không hẹn giờ → không đụng"
+
+# mỏ neo: xác minh đặt TRƯỚC nút đóng CUỐI (không phải nút đóng popup ở đầu), bấm dự phòng trước xác minh
+st6 = list(sched)
+for _pre, _mk, _pos in (("t2:wait-upload", P.wait_upload_step, P._before_done),
+                        ("t2:clear-overlays", P.clear_overlays_step, P._before_done),
+                        ("t2:publish-click", P.publish_click_step, P._before_verify),
+                        ("t2:verify-publish", P.verify_publish_step, P._before_close)):
+    assert P._place_step(st6, _pre, _mk(), _pos) is True, _pre
+order = [str(x.get("label", "")).split(" ")[0] for x in st6]
+i_wait, i_clear = order.index("t2:wait-upload"), order.index("t2:clear-overlays")
+i_click, i_ver = order.index("t2:publish-click"), order.index("t2:verify-publish")
+i_done = next(i for i, x in enumerate(st6) if x.get("selector") == "#done-button" and x["type"] == "wait")
+i_close = len(st6) - 1
+assert i_wait < i_clear < i_done < i_click < i_ver < i_close, order
+assert st6[i_close]["type"] == "click_if_exists", "bước đóng hộp thoại vẫn là bước cuối"
+assert st6[i_clear]["params"]["code"].startswith("(() =>") and "elementFromPoint" in st6[i_clear]["params"]["code"]
+assert st6[i_click]["params"]["save_as"] == "t2_publish_click" and st6[i_ver]["params"]["save_as"] == P.VERIFY_PUBLISH_VAR
+assert st6[i_ver].get("on_error") == "skip" and st6[i_click].get("on_error") == "skip", "ném lỗi trong trình duyệt là rơi vào smart-fix"
+
+# _publish_verdict: nháp → hỏng thật; đăng rồi → lấy link; đóng lặng → cảnh báo; script cũ → cảnh báo
+stv = {"warnings": []}
+try:
+    P._publish_verdict(stv, {P.VERIFY_PUBLISH_VAR: {"state": "draft", "note": "Publish | Saved as private"}})
+    assert False, "phải ném"
+except RuntimeError as e:
+    assert "DRAFT" in str(e) and "Saved as private" in str(e), e
+v = P._publish_verdict(stv, {P.VERIFY_PUBLISH_VAR: {"state": "published", "url": "https://youtu.be/AbC123_x"}})
+assert v["state"] == "published" and v["url"].endswith("AbC123_x") and not stv["warnings"]
+P._publish_verdict(stv, {P.VERIFY_PUBLISH_VAR: '{"state": "closed"}'})
+assert any("without YouTube" in w for w in stv["warnings"]), stv
+stv["warnings"] = []
+P._publish_verdict(stv, {})
+assert any("did not report whether" in w for w in stv["warnings"]), stv
+
+# đăng qua script: link từ bước xác minh → id video (trước đây chỉ có cảnh báo "no video id")
+P._google_tokens = lambda: []
+runs.clear()
+
+
+class _ResV(dict):
+    success = True
+    log = ""
+
+
+P._run_upload_script = lambda state, options, slug, variables, profile: (
+    runs.append(variables) or _ResV({P.VERIFY_PUBLISH_VAR: {"state": "published", "url": "https://youtu.be/Zz9_kk123"}}))
+stp = {"agent": _A3(), "video_path": "/v.mp4", "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(stp, {"publish_channel_name": "Nope"}, "public")
+assert stp["published"]["video_id"] == "Zz9_kk123" and stp["published"]["url"].endswith("Zz9_kk123"), stp["published"]
+assert not any("no video id" in w.lower() for w in stp.get("warnings", [])), stp.get("warnings")
+# nháp → bước đăng HỎNG (thẻ task có Retry), không báo đã đăng
+P._run_upload_script = lambda state, options, slug, variables, profile: _ResV({P.VERIFY_PUBLISH_VAR: {"state": "draft"}})
+stp2 = {"agent": _A3(), "video_path": "/v.mp4", "_say": lambda *a: None, "_cancelled": lambda: False}
+try:
+    P._publish_via_script(stp2, {"publish_channel_name": "Nope"}, "public")
+    assert False, "phải ném"
+except RuntimeError as e:
+    assert "DRAFT" in str(e), e
+assert "published" not in stp2, stp2
+print("6f nháp      : bọc bước hẹn giờ; dọn thứ che nút Xuất bản; bấm dự phòng rồi xác minh; nháp → hỏng thật, có link → id video")
 
 # 6d. Retry của lượt auto: kịch bản đã có trong checkpoint → dùng lại, không gọi model
 from tubecli.core import brain as B

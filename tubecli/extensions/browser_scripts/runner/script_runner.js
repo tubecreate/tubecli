@@ -27,6 +27,25 @@ const keepOpen = execData.keep_open === undefined ? !headless : !!execData.keep_
 const steps = script.steps || [];
 
 function log(msg) { console.log(JSON.stringify({ status: 'log', exec_id, message: msg, time: new Date().toISOString() })); }
+
+// Một lỗi giao thức lẻ KHÔNG được giết cả lượt chạy: nửa chừng một lượt đăng video
+// nghĩa là video treo lại ở trạng thái nháp mà không ai biết. Ghi lại rồi đi tiếp;
+// bước nào hỏng thật thì đã có đường báo lỗi của chính nó.
+process.on('unhandledRejection', (err) => {
+    const msg = String((err && err.message) || err).split('\n')[0];
+    console.log(JSON.stringify({ status: 'log', exec_id, message: `⚠️ Bỏ qua lỗi nền: ${msg}` }));
+});
+
+// Hộp thoại của trình duyệt (beforeunload "Leave site?", alert, confirm) chặn mọi
+// thao tác sau đó. Playwright tự đóng khi KHÔNG ai đăng ký, nhưng lượt attach có
+// hai client CDP cùng nghe (khung Browser và runner) nên client chậm chân nhận
+// "No dialog is showing". Tự nhận và nuốt lỗi là cách duy nhất chắc chắn.
+function acceptDialogs(target) {
+    if (!target || typeof target.on !== 'function') return;
+    target.on('dialog', async (d) => {
+        try { await d.accept(); } catch (e) { /* client kia đóng trước — không sao */ }
+    });
+}
 function stepLog(idx, type, msg) { console.log(JSON.stringify({ status: 'step', exec_id, step_index: idx, step_type: type, message: msg })); }
 
 // Variable interpolation: replace {{var_name}} with values
@@ -516,8 +535,28 @@ async function executeStep(page, step, index) {
             const upSel = selector || "input[type='file']";
             const inp = page.locator(upSel).first();
             await inp.waitFor({ state: 'attached', timeout }).catch(() => {});
-            await inp.setInputFiles(filePath);
-            stepLog(index, type, `Đã nạp file lên input: ${filePath}`);
+            // Lượt GẮN (connectOverCDP): Playwright coi browser là máy khác nên
+            // setInputFiles đọc cả file vào bộ nhớ rồi từ chối quá 50 MB — một video
+            // 10 phút là hỏng. Browser vẫn nằm ở 127.0.0.1, nên đưa ĐƯỜNG DẪN qua
+            // CDP là xong, không giới hạn dung lượng.
+            let loaded = false;
+            if (attach) {
+                let client;
+                try {
+                    client = await page.context().newCDPSession(page);
+                    const doc = await client.send('DOM.getDocument', { depth: -1, pierce: true });
+                    const { nodeId } = await client.send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: upSel });
+                    if (!nodeId) throw new Error(`không thấy ${upSel}`);
+                    await client.send('DOM.setFileInputFiles', { files: [filePath], nodeId });
+                    loaded = true;
+                } catch (e) {
+                    stepLog(index, type, `CDP nạp file không được (${String(e.message).split('\n')[0]}) — dùng cách thường`);
+                } finally {
+                    if (client) await client.detach().catch(() => {});
+                }
+            }
+            if (!loaded) await inp.setInputFiles(filePath);
+            stepLog(index, type, `Đã nạp file lên input${loaded ? ' (CDP)' : ''}: ${filePath}`);
             await sleep(1500);
             break;
         }
@@ -2220,6 +2259,7 @@ function resolveShardxExe(browserVersion) {
     let page;
     if (attached) {
       const ps = context.pages();
+      ps.forEach(acceptDialogs);
       // Ưu tiên URL: khung Browser gửi URL của tab nó đang chiếu, và cùng một tab
       // thì URL giống nhau ở cả hai phía — chỉ số thì không.
       // So URL phải CHỊU ĐƯỢC thay đổi giữa lúc hỏi và lúc nối: trang tự chuyển
@@ -2255,6 +2295,8 @@ function resolveShardxExe(browserVersion) {
     } else {
       page = context.pages()[0] || await context.newPage();
     }
+    acceptDialogs(page);
+    context.on('page', acceptDialogs);
     log('Browser launched.');
 
     // ── CDP WebSocket Preview: start BEFORE execution so frontend sees it live ──

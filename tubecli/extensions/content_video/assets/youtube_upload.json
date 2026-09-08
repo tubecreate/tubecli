@@ -355,113 +355,123 @@
       }
     },
     {
-      "type": "loop",
-      "label": "Mở phần Lên lịch (thử tới khi hiện lịch)",
+      "type": "condition",
+      "label": "t2:schedule-guard — chỉ chạy nhóm bước hẹn giờ khi có hẹn giờ",
       "params": {
-        "count": 8,
-        "delay": 1400,
-        "break_on": "'{{schedule}}'!=='1' || !!document.querySelector('#datepicker-trigger')",
-        "steps": [
+        "check": "'{{schedule}}' === '1'",
+        "then_steps": [
           {
-            "type": "evaluate",
-            "label": "tag Schedule",
+            "type": "loop",
+            "label": "Mở phần Lên lịch (thử tới khi hiện lịch)",
             "params": {
-              "code": "(()=>{if('{{schedule}}'!=='1')return 'x';if(document.querySelector('#datepicker-trigger'))return 'already';const RX=/^(schedule|lên lịch|len lich|planifier|programar|programa|zeitplan|スケジュール|일정)$/i;for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(RX.test(tx)){const r=e.getBoundingClientRect();if(r.width>0&&r.top>240&&r.top<820){let a=e;for(let i=0;i<6&&a&&a.parentElement;i++){a=a.parentElement;const rr=a.getBoundingClientRect();if(rr.width>300&&rr.height>40&&rr.height<130){break}}(a||e).setAttribute('data-t2sched','1');(a||e).scrollIntoView({block:'center'});return 'tagged'}}}}return 'no-row'})()"
+              "count": 8,
+              "delay": 1400,
+              "break_on": "'{{schedule}}'!=='1' || !!document.querySelector('#datepicker-trigger')",
+              "steps": [
+                {
+                  "type": "evaluate",
+                  "label": "tag Schedule",
+                  "params": {
+                    "code": "(()=>{if('{{schedule}}'!=='1')return 'x';if(document.querySelector('#datepicker-trigger'))return 'already';const RX=/^(schedule|lên lịch|len lich|planifier|programar|programa|zeitplan|スケジュール|일정)$/i;for(const e of document.querySelectorAll('*')){if(e.children.length===0){const tx=(e.textContent||'').trim();if(RX.test(tx)){const r=e.getBoundingClientRect();if(r.width>0&&r.top>240&&r.top<820){let a=e;for(let i=0;i<6&&a&&a.parentElement;i++){a=a.parentElement;const rr=a.getBoundingClientRect();if(rr.width>300&&rr.height>40&&rr.height<130){break}}(a||e).setAttribute('data-t2sched','1');(a||e).scrollIntoView({block:'center'});return 'tagged'}}}}return 'no-row'})()"
+                  }
+                },
+                {
+                  "type": "click_if_exists",
+                  "label": "click Schedule (Playwright tap)",
+                  "selector": "[data-t2sched='1']",
+                  "params": {}
+                },
+                {
+                  "type": "sleep",
+                  "params": {
+                    "ms": 1300
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 800
             }
           },
           {
             "type": "click_if_exists",
-            "label": "click Schedule (Playwright tap)",
-            "selector": "[data-t2sched='1']",
+            "label": "Mở lịch (calendar)",
+            "selector": "#datepicker-trigger, #datepicker-trigger #textbox, ytcp-date-picker",
             "params": {}
           },
           {
             "type": "sleep",
             "params": {
-              "ms": 1300
+              "ms": 1400
+            }
+          },
+          {
+            "type": "evaluate",
+            "label": "Dựng ngày theo NGÔN NGỮ YouTube (<html lang> + Intl) + đánh dấu",
+            "params": {
+              "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const EN=[\"Jan\",\"Feb\",\"Mar\",\"Apr\",\"May\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Oct\",\"Nov\",\"Dec\"];const src='{{schedule_date}}';const sm=src.match(/([A-Za-z]{3,})\\s+(\\d{1,2}),?\\s+(\\d{4})/);if(!sm)return 'badsrc:'+src;const M=EN.findIndex(x=>x.toLowerCase()===sm[1].slice(0,3).toLowerCase())+1;const D=parseInt(sm[2],10),Y=parseInt(sm[3],10);if(!M)return 'badmon';const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const dObj=new Date(Y,M-1,D);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=24&&/\\d{4}/.test(v)&&!/:/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-date-picker input, tp-yt-datetime-picker input, #datepicker-trigger input, [id*=datepicker] input\");if(!inp)return 'no-input';const cur=(inp.value||'');let out;if(/thg/i.test(cur))out=D+' thg '+M+', '+Y;else if(/^[A-Za-z]{3}\\.?\\s+\\d{1,2},/.test(cur))out=EN[M-1]+' '+D+', '+Y;else{try{out=new Intl.DateTimeFormat(loc,{year:'numeric',month:'short',day:'numeric'}).format(dObj)}catch(e){out=EN[M-1]+' '+D+', '+Y}}inp.setAttribute('data-t2date','1');return out})()",
+              "save_as": "t2_date_str"
+            }
+          },
+          {
+            "type": "type",
+            "label": "Gõ ngày",
+            "selector": "[data-t2date='1']",
+            "params": {
+              "text": "{{t2_date_str}}",
+              "clear_first": true
+            },
+            "on_error": "skip"
+          },
+          {
+            "type": "keyboard",
+            "params": {
+              "key": "Enter"
+            },
+            "on_error": "skip"
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 1200
+            }
+          },
+          {
+            "type": "evaluate",
+            "label": "Dựng giờ theo NGÔN NGỮ YouTube (Intl, 24h/12h theo ô) + đánh dấu",
+            "params": {
+              "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const src='{{schedule_time}}';const sm=src.match(/(\\d{1,2}):(\\d{2})\\s*([AP]M)?/i);if(!sm)return 'badsrc:'+src;let H=parseInt(sm[1],10);const Mi=parseInt(sm[2],10);const ap=(sm[3]||'').toUpperCase();if(ap==='PM'&&H<12)H+=12;if(ap==='AM'&&H===12)H=0;const mm=(Mi<10?'0':'')+Mi;const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const tObj=new Date(2000,0,1,H,Mi);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=12&&/\\d{1,2}[:.]\\d{2}/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-time-of-day-picker input, [id*=time-of-day] input, [id*=time] input\");if(!inp)return 'no-input';const cur=(inp.value||'');const stripped=cur.replace(/[\\d:.\\s\\u00a0]/g,'');let out;if(stripped.length>0){try{out=new Intl.DateTimeFormat(loc,{hour:'numeric',minute:'2-digit',hour12:true}).format(tObj)}catch(e){const h12=(H%12)||12;out=h12+':'+mm+' '+(H<12?'AM':'PM')}}else{const sep=/\\d[.]\\d/.test(cur)?'.':':';const pad=/^\\d{2}[:.]/.test(cur);out=(pad?((H<10?'0':'')+H):(''+H))+sep+mm}inp.setAttribute('data-t2time','1');return out})()",
+              "save_as": "t2_time_str"
+            }
+          },
+          {
+            "type": "type",
+            "label": "Gõ giờ",
+            "selector": "[data-t2time='1']",
+            "params": {
+              "text": "{{t2_time_str}}",
+              "clear_first": true
+            },
+            "on_error": "skip"
+          },
+          {
+            "type": "keyboard",
+            "params": {
+              "key": "Enter"
+            },
+            "on_error": "skip"
+          },
+          {
+            "type": "sleep",
+            "params": {
+              "ms": 800
             }
           }
-        ]
-      }
-    },
-    {
-      "type": "sleep",
-      "params": {
-        "ms": 800
-      }
-    },
-    {
-      "type": "click_if_exists",
-      "label": "Mở lịch (calendar)",
-      "selector": "#datepicker-trigger, #datepicker-trigger #textbox, ytcp-date-picker",
-      "params": {}
-    },
-    {
-      "type": "sleep",
-      "params": {
-        "ms": 1400
-      }
-    },
-    {
-      "type": "evaluate",
-      "label": "Dựng ngày theo NGÔN NGỮ YouTube (<html lang> + Intl) + đánh dấu",
-      "params": {
-        "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const EN=[\"Jan\",\"Feb\",\"Mar\",\"Apr\",\"May\",\"Jun\",\"Jul\",\"Aug\",\"Sep\",\"Oct\",\"Nov\",\"Dec\"];const src='{{schedule_date}}';const sm=src.match(/([A-Za-z]{3,})\\s+(\\d{1,2}),?\\s+(\\d{4})/);if(!sm)return 'badsrc:'+src;const M=EN.findIndex(x=>x.toLowerCase()===sm[1].slice(0,3).toLowerCase())+1;const D=parseInt(sm[2],10),Y=parseInt(sm[3],10);if(!M)return 'badmon';const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const dObj=new Date(Y,M-1,D);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=24&&/\\d{4}/.test(v)&&!/:/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-date-picker input, tp-yt-datetime-picker input, #datepicker-trigger input, [id*=datepicker] input\");if(!inp)return 'no-input';const cur=(inp.value||'');let out;if(/thg/i.test(cur))out=D+' thg '+M+', '+Y;else if(/^[A-Za-z]{3}\\.?\\s+\\d{1,2},/.test(cur))out=EN[M-1]+' '+D+', '+Y;else{try{out=new Intl.DateTimeFormat(loc,{year:'numeric',month:'short',day:'numeric'}).format(dObj)}catch(e){out=EN[M-1]+' '+D+', '+Y}}inp.setAttribute('data-t2date','1');return out})()",
-        "save_as": "t2_date_str"
-      }
-    },
-    {
-      "type": "type",
-      "label": "Gõ ngày",
-      "selector": "[data-t2date='1']",
-      "params": {
-        "text": "{{t2_date_str}}",
-        "clear_first": true
-      },
-      "on_error": "skip"
-    },
-    {
-      "type": "keyboard",
-      "params": {
-        "key": "Enter"
-      },
-      "on_error": "skip"
-    },
-    {
-      "type": "sleep",
-      "params": {
-        "ms": 1200
-      }
-    },
-    {
-      "type": "evaluate",
-      "label": "Dựng giờ theo NGÔN NGỮ YouTube (Intl, 24h/12h theo ô) + đánh dấu",
-      "params": {
-        "code": "(()=>{if('{{schedule}}'!=='1')return 'x';const src='{{schedule_time}}';const sm=src.match(/(\\d{1,2}):(\\d{2})\\s*([AP]M)?/i);if(!sm)return 'badsrc:'+src;let H=parseInt(sm[1],10);const Mi=parseInt(sm[2],10);const ap=(sm[3]||'').toUpperCase();if(ap==='PM'&&H<12)H+=12;if(ap==='AM'&&H===12)H=0;const mm=(Mi<10?'0':'')+Mi;const loc=(document.documentElement.getAttribute('lang')||navigator.language||'en');const tObj=new Date(2000,0,1,H,Mi);let inp=null;document.querySelectorAll('input').forEach(e=>{const r=e.getBoundingClientRect();const v=(e.value||'');if(r.width>0&&r.top>60&&r.top<900&&v.length<=12&&/\\d{1,2}[:.]\\d{2}/.test(v)){if(!inp)inp=e}});if(!inp)inp=document.querySelector(\"ytcp-time-of-day-picker input, [id*=time-of-day] input, [id*=time] input\");if(!inp)return 'no-input';const cur=(inp.value||'');const stripped=cur.replace(/[\\d:.\\s\\u00a0]/g,'');let out;if(stripped.length>0){try{out=new Intl.DateTimeFormat(loc,{hour:'numeric',minute:'2-digit',hour12:true}).format(tObj)}catch(e){const h12=(H%12)||12;out=h12+':'+mm+' '+(H<12?'AM':'PM')}}else{const sep=/\\d[.]\\d/.test(cur)?'.':':';const pad=/^\\d{2}[:.]/.test(cur);out=(pad?((H<10?'0':'')+H):(''+H))+sep+mm}inp.setAttribute('data-t2time','1');return out})()",
-        "save_as": "t2_time_str"
-      }
-    },
-    {
-      "type": "type",
-      "label": "Gõ giờ",
-      "selector": "[data-t2time='1']",
-      "params": {
-        "text": "{{t2_time_str}}",
-        "clear_first": true
-      },
-      "on_error": "skip"
-    },
-    {
-      "type": "keyboard",
-      "params": {
-        "key": "Enter"
-      },
-      "on_error": "skip"
-    },
-    {
-      "type": "sleep",
-      "params": {
-        "ms": 800
+        ],
+        "else_steps": []
       }
     },
     {
@@ -482,19 +492,28 @@
       "type": "loop",
       "label": "t2:wait-upload — chờ video tải lên xong rồi mới bấm Xuất bản",
       "params": {
-        "count": 180,
-        "delay": 10000,
-        "break_on": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); if (!el) return true; const t = (el.textContent || '').replace(/\\s+/g, ' ').trim(); return !/\\d+\\s*%/.test(t) || /complete|hoàn tất|đã tải lên|xử lý|processing|checks/i.test(t); })()",
+        "count": 360,
+        "delay": 5000,
+        "break_on": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); const t = el ? (el.textContent || '').replace(/\\s+/g, ' ').trim() : ''; if (/\\d+\\s*%/.test(t)) return false; if ('{{schedule}}' !== '1') { const r = document.querySelector(\"tp-yt-paper-radio-button[name='{{visibility_radio}}']\"); if (r && r.getAttribute('aria-checked') !== 'true') return false; } const b = [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); return !!b; })()",
         "steps": [
           {
             "type": "evaluate",
             "label": "Tiến độ tải lên",
             "params": {
-              "code": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80) : 'no upload progress bar'; })()"
+              "code": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); const t = el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 90) : 'no upload progress bar'; let fix = ''; if ('{{schedule}}' !== '1') { const r = document.querySelector(\"tp-yt-paper-radio-button[name='{{visibility_radio}}']\"); if (r && r.getAttribute('aria-checked') !== 'true') { (r.querySelector('#radio') || r).click(); fix = ' · chọn lại chế độ hiển thị'; } } const b = [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); return t + (b ? ' | nút: ' + (b.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 20) : ' | chưa có nút') + fix; })()"
             }
           }
         ]
       }
+    },
+    {
+      "type": "evaluate",
+      "label": "t2:clear-overlays — gỡ thứ che nút Xuất bản (iframe góp ý Google)",
+      "params": {
+        "code": "(() => { const find = () => [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); const clear = () => { const btn = find(); if (!btn) return 'no-button'; const r = btn.getBoundingClientRect(); const x = r.x + r.width / 2, y = r.y + r.height / 2; for (let i = 0; i < 6; i++) { const top = document.elementFromPoint(x, y); if (!top || top === btn || btn.contains(top) || top.contains(btn)) return 'clear'; if (/^(HTML|BODY)$/.test(top.tagName)) return 'clear'; const victim = top.closest('#google-feedback') || top; if (victim.contains(btn) || (victim.querySelector && victim.querySelector('#done-button'))) return 'own-dialog'; victim.style.setProperty('display', 'none', 'important'); victim.setAttribute('data-t2-hidden', '1'); } return 'still-covered'; }; const first = clear(); if (!window.__t2unblock) window.__t2unblock = setInterval(clear, 700); return first; })()",
+        "save_as": "t2_unblock"
+      },
+      "on_error": "skip"
     },
     {
       "type": "wait",
@@ -549,6 +568,24 @@
       "params": {
         "ms": 6000
       }
+    },
+    {
+      "type": "evaluate",
+      "label": "t2:publish-click — bấm Xuất bản bằng JS nếu chuột không bấm được",
+      "params": {
+        "code": "(() => { const btn = [...document.querySelectorAll('#done-button')].find((e) => e.getBoundingClientRect().width > 0); if (!btn) return 'gone'; const dlg = btn.closest('ytcp-uploads-dialog'); if (!dlg) return 'no-dialog'; if (!dlg.querySelector(\"#privacy-radios, tp-yt-paper-radio-button[name='PUBLIC'], ytcp-video-visibility-select\")) return 'not-visibility-step'; if (btn.getAttribute('aria-disabled') === 'true') return 'disabled'; (btn.querySelector('button') || btn).click(); return 'clicked'; })()",
+        "save_as": "t2_publish_click"
+      },
+      "on_error": "skip"
+    },
+    {
+      "type": "evaluate",
+      "label": "t2:verify-publish — đọc trạng thái thật sau khi bấm Xuất bản",
+      "params": {
+        "code": "(async () => { const vis = (e) => !!e && e.getBoundingClientRect().width > 0; const look = () => { const share = document.querySelector('ytcp-video-share-dialog, ytcp-uploads-still-processing-dialog'); if (vis(share)) { const a = share.querySelector('a[href*=\"youtu\"]'); return {state: 'published', url: a ? a.href : '', note: (share.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120)}; } const dlg = document.querySelector('ytcp-uploads-dialog'); if (!vis(dlg)) return {state: 'closed', url: '', note: ''}; return null; }; for (let i = 0; i < 25; i++) { const r = look(); if (r) return r; await new Promise((go) => setTimeout(go, 1000)); } const dlg = document.querySelector('ytcp-uploads-dialog'); const btn = document.querySelector('#done-button'); return {state: 'draft', url: '', note: ((btn ? btn.textContent : '') + ' | ' + (dlg ? dlg.textContent : '')).replace(/\\s+/g, ' ').trim().slice(0, 160)}; })()",
+        "save_as": "t2_publish"
+      },
+      "on_error": "skip"
     },
     {
       "type": "click_if_exists",
