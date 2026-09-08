@@ -56,6 +56,40 @@ check("chuỗi rỗng không làm nó ngã", not mod.is_tubecli_dir(""))
 check("client nằm trong repo thì tự tìm ra chính repo ấy",
       mod.find_install() == str(ROOT), mod.find_install())
 
+# 1b. "Máy đã cài rồi thì sao": ĐANG CHẠY là câu trả lời mạnh nhất và phải hỏi TRƯỚC.
+# Đo trên máy người dùng 8/9/26: TubeCLI đang chạy ở cổng 5295 nhưng nằm ở
+# C:\tubecreate-vue\tubecli (không phải ~/TubeCLI), client thì tải về %TEMP% — nên
+# find_install() rỗng và client gọi trình cài, trình cài kết thúc bằng `tubecli init`
+# (một wizard ĐỢI NGƯỜI GÕ) rồi trả mã 1. Log ghi đúng chuỗi đó.
+mod.tubecli_up = lambda timeout=2.0: True
+mod.find_install = lambda: ""
+mod.shutil.which = lambda name: None
+check("máy chủ đang trả lời → coi như đã có, không cài chồng", mod.have_tubecli())
+mod.tubecli_up = lambda timeout=2.0: False
+check("không chạy, không thư mục, không PATH → mới là chưa có", not mod.have_tubecli())
+mod.shutil.which = lambda name: r"C:\Python\Scripts\tubecli.exe" if name == "tubecli" else None
+check("cài bằng pip (có lệnh trên PATH) cũng là đã có", mod.have_tubecli())
+cmd, cwd = mod.server_cmd()
+check("bật bằng chính lệnh tubecli trên PATH", cmd[:2] == [r"C:\Python\Scripts\tubecli.exe", "serve"], cmd)
+mod.shutil.which = lambda name: None
+mod.find_install = lambda: d_bat
+cmd, cwd = mod.server_cmd()
+check("có thư mục → chạy module trong thư mục ấy",
+      cmd[1:4] == ["-m", "tubecli.main", "serve"] and cwd == d_bat, (cmd, cwd))
+mod.find_install = lambda: str(ROOT)
+mod.tubecli_up = lambda timeout=2.0: True
+
+# 1c. Không có pystray thì phải MỞ CỬA SỔ, không được ngủ im trong nền: pythonw không
+# có cửa sổ, người dùng không thấy gì và tưởng client chết ("không thấy client?").
+src_text = SRC.read_text(encoding="utf-8")
+tray_src = src_text[src_text.index("def tray("):src_text.index("def status_window(")]
+check("thiếu pystray → gọi cửa sổ trạng thái", "status_window(bridge)" in tray_src, tray_src[-200:])
+check("không còn nhánh ngủ im", "wait(3600)" not in src_text)
+check("cửa sổ có nút mở dashboard, log và tuỳ chọn khởi động cùng Windows",
+      all(x in src_text for x in ("Mở dashboard", "Xem log", "Khởi động cùng Windows")))
+check("đóng cửa sổ là dừng hẳn cầu nối (không để tiến trình mồ côi)",
+      "bridge.shutdown()" in src_text[src_text.index("def status_window("):])
+
 # 2. Cấu hình: ghi rồi đọc lại đúng, và nằm trong thư mục dữ liệu của người dùng
 check("cấu hình nằm trong APPDATA/TubeCLI", mod.CONF.startswith(TMP), mod.CONF)
 check("chưa ghi gì thì đọc ra rỗng", mod.conf_read() == {})

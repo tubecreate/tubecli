@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -122,6 +123,32 @@ def find_install() -> str:
     return ""
 
 
+def server_cmd() -> tuple:
+    """(lệnh bật máy chủ, thư mục chạy) — hay ([], "") nếu máy chưa có TubeCLI.
+
+    Hai kiểu cài đều nhận: một thư mục (install.ps1 hoặc bản git) và lệnh `tubecli`
+    trên PATH (cài bằng pip). Thiếu nhánh PATH thì máy cài bằng pip bị coi là chưa
+    cài, và client sẽ cài chồng lên.
+    """
+    d = find_install()
+    if d:
+        py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
+        exe = py if os.path.isfile(py) else "pythonw"
+        return [exe, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
+    exe = shutil.which("tubecli")
+    if exe:
+        return [exe, "serve", "--port", str(PORT)], os.path.dirname(exe)
+    return [], ""
+
+
+def have_tubecli() -> bool:
+    """Máy này đã có TubeCLI chưa. ĐANG CHẠY là câu trả lời mạnh nhất và phải hỏi
+    TRƯỚC: máy người dùng có thể cài ở một thư mục lạ, nhưng cổng 5295 đang trả lời
+    thì chuyện "chưa cài" là sai, và cài chồng lên chỉ tổ mở ra một trình hướng dẫn
+    đứng đợi người gõ."""
+    return tubecli_up() or bool(server_cmd()[0])
+
+
 def install_tubecli(lang: str = "vi") -> bool:
     """Chạy đúng trình cài chính thức (install.ps1). Không tự dựng bản cài riêng:
     một bản thứ hai là một bộ bug thứ hai."""
@@ -144,14 +171,12 @@ def start_tubecli() -> bool:
     """Bật máy chủ TubeCLI, không kèm cửa sổ đen. Trả True khi /health trả lời."""
     if tubecli_up():
         return True
-    d = find_install()
-    if not d:
+    cmd, d = server_cmd()
+    if not cmd:
         return False
-    py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
-    exe = py if os.path.isfile(py) else "pythonw"
     log(f"bật TubeCLI từ {d}")
     try:
-        subprocess.Popen([exe, "-m", "tubecli.main", "serve", "--port", str(PORT)], cwd=d,
+        subprocess.Popen(cmd, cwd=d or None,
                          creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except Exception as e:
         log(f"không bật được TubeCLI: {e}")
@@ -362,9 +387,10 @@ def tray(bridge: Bridge) -> None:
         import pystray
         from PIL import Image, ImageDraw
     except ImportError:
-        log("thiếu pystray/Pillow — chạy nền không icon (pip install pystray pillow để có icon)")
-        while not bridge.stop.wait(3600):
-            pass
+        # KHÔNG được ngủ im trong nền: pythonw không có cửa sổ, không có icon thì
+        # người dùng không có cách nào biết client còn sống hay đã chết.
+        log("thiếu pystray/Pillow — mở cửa sổ trạng thái thay cho icon khay")
+        status_window(bridge)
         return
 
     img = Image.new("RGB", (64, 64), "#111827")
@@ -386,6 +412,51 @@ def tray(bridge: Bridge) -> None:
     pystray.Icon("tubecli", img, APP, menu).run()
 
 
+def status_window(bridge: "Bridge") -> None:
+    """Cửa sổ nhỏ luôn nhìn thấy: trạng thái + đúng những nút người ta cần.
+
+    Đây là đường lui khi máy không có pystray, và nó phải TỰ ĐỦ: đóng cửa sổ là
+    dừng hẳn cầu nối, để không có tiến trình mồ côi giữ cổng 5295 và tunnel.
+    """
+    import tkinter as tk
+    from tkinter import ttk
+
+    root = tk.Tk()
+    root.title(APP)
+    root.resizable(False, False)
+    frm = ttk.Frame(root, padding=14)
+    frm.grid()
+
+    conf = bridge.conf
+    ttk.Label(frm, text=conf.get("name") or APP, font=("Segoe UI", 11, "bold")).grid(column=0, row=0, sticky="w")
+    ttk.Label(frm, text=conf.get("url") or "", foreground="#5276EB").grid(column=0, row=1, sticky="w", pady=(0, 8))
+    state = ttk.Label(frm, text="", font=("Consolas", 9))
+    state.grid(column=0, row=2, sticky="w", pady=(0, 10))
+
+    bar = ttk.Frame(frm)
+    bar.grid(column=0, row=3, sticky="w")
+    ttk.Button(bar, text="Mở dashboard", command=lambda: os.startfile(DASH)).grid(column=0, row=0, padx=(0, 6))
+    ttk.Button(bar, text="Mở cloud", command=lambda: os.startfile(CLOUD + "/dash")).grid(column=1, row=0, padx=(0, 6))
+    ttk.Button(bar, text="Xem log",
+               command=lambda: os.startfile(LOG) if os.path.isfile(LOG) else None).grid(column=2, row=0, padx=(0, 6))
+
+    auto = tk.BooleanVar(value=autostart_on())
+    ttk.Checkbutton(frm, text="Khởi động cùng Windows", variable=auto,
+                    command=lambda: set_autostart(auto.get())).grid(column=0, row=4, sticky="w", pady=(10, 0))
+
+    def tick():
+        state.config(text=bridge.status())
+        root.after(2000, tick)
+
+    def close():
+        bridge.shutdown()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close)
+    tick()
+    root.mainloop()
+
+
 def main() -> int:
     os.makedirs(HOME, exist_ok=True)
     conf = conf_read()
@@ -403,7 +474,11 @@ def main() -> int:
         code, password = ask_pairing(code)
         if not code:
             return 1
-        if not find_install():
+        if have_tubecli():
+            log("máy đã có TubeCLI — bỏ qua bước cài")
+        else:
+            notify(APP, "Máy chưa có TubeCLI. Cửa sổ cài đặt sẽ mở ra và HỎI vài câu "
+                        "(ngôn ngữ, cổng) — trả lời xong nó tự quay lại đây.")
             if not install_tubecli(lang=conf.get("lang", "vi")):
                 notify(APP, "Chưa cài được TubeCLI. Mở lại sau khi cài xong nhé.")
                 return 1
