@@ -456,6 +456,52 @@ st2 = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300), "feedba
        "_cancelled": lambda: False, "_say": lambda *a: None}
 P._step_render(st2, {})
 assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+# (f3) Checkpoint của bản CŨ không có đường dẫn mp4, và Studio quên id lượt export
+# sau khi restart (đúng cảnh vừa cập nhật TubeCLI xong bấm Retry) → hỏi thẳng tập phim.
+posts.clear(); said.clear(); cks.clear()
+_img = os.path.join(os.path.dirname(_mp4), "shot1.png")
+open(_img, "wb").write(b"\x00")
+os.utime(_img, (os.path.getmtime(_mp4) - 60, os.path.getmtime(_mp4) - 60))
+P._storyboards = lambda ep: [{"id": 1, "image_url": _img, "tts_audio_url": ""}]
+P._get = lambda path, timeout=60: {"video_url": _mp4}
+P._running_export = lambda tid: ""
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "export_task_id": "old7"},
+      "_cancelled": lambda: False, "_say": lambda *a: said.append(a)}
+P._step_render(st, {})
+assert posts == [] and st["video_path"] == _mp4, (posts, st.get("video_path"))
+assert cks and cks[-1].get("video_path") == _mp4, "ghi đường dẫn vào checkpoint cho lần sau"
+assert any(a[1] == "skipped" for a in said), said
+
+# (f4) mp4 cũ THIẾU tiếng: lượt này vừa đọc được tiếng cho một shot → phải dựng lại
+posts.clear()
+_aud = os.path.join(os.path.dirname(_mp4), "shot1.mp3")
+open(_aud, "wb").write(b"\x00")
+os.utime(_aud, (os.path.getmtime(_mp4) + 120, os.path.getmtime(_mp4) + 120))
+P._storyboards = lambda ep: [{"id": 1, "image_url": _img, "tts_audio_url": _aud}]
+P._get = _get_render2
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "video_path": _mp4},
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+
+# (f5) Không hỏi được Studio về các shot → thà dựng lại còn hơn đăng bản thiếu
+posts.clear()
+
+
+def _boom(ep):
+    raise RuntimeError("studio down")
+
+
+P._storyboards = _boom
+st = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),
+      "checkpoint": {"drama_id": 9, "episode_id": 9, "video_path": _mp4},
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+P._step_render(st, {})
+assert posts == ["/api/v1/studio/episodes/9/export-ffmpeg"], posts
+P._storyboards = lambda ep: []
+
 # file đã bị xoá → dựng lại, không báo đã có
 posts.clear(); os.remove(_mp4)
 st3 = {"task_id": "t", "episode_id": 9, "script": " ".join(["w"] * 300),

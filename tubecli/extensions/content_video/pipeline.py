@@ -1756,6 +1756,49 @@ def _running_export(task_id: str) -> str:
     return stt if stt in ("starting", "running", "completed") else ""
 
 
+def _finished_video(state: Dict, ep_id: int) -> str:
+    """mp4 của lượt trước còn dùng lại được, hay "".
+
+    Hai nguồn, theo thứ tự: đường dẫn trong checkpoint (bản mới ghi), rồi chính TẬP
+    PHIM trong Studio — checkpoint của bản cũ không có đường dẫn, và id lượt export
+    thì Studio giữ trong RAM nên restart một cái là mất, đúng lúc người dùng vừa cập
+    nhật TubeCLI xong bấm Retry."""
+    path = str((state.get("checkpoint") or {}).get("video_path") or "")
+    if not (path and os.path.isfile(path)):
+        try:
+            path = str((_get(f"/api/v1/studio/episodes/{ep_id}") or {}).get("video_url") or "")
+        except Exception as e:
+            logger.info(f"[ContentVideo] cannot read episode {ep_id}: {e}")
+            return ""
+    if not (path and os.path.isfile(path)):
+        return ""
+    return "" if _assets_newer_than(ep_id, path) else path
+
+
+def _assets_newer_than(ep_id: int, path: str) -> bool:
+    """Có ảnh hay tiếng nào mới hơn mp4 không. Lượt trước dựng xong, lượt này mới đọc
+    được tiếng cho một shot hỏng ⇒ mp4 cũ là bản thiếu tiếng shot đó, không được dùng
+    lại. Không hỏi được Studio thì coi như CÓ: thà dựng lại còn hơn đăng bản thiếu."""
+    try:
+        made = os.path.getmtime(path)
+    except OSError:
+        return True
+    try:
+        shots = _storyboards(int(ep_id))
+    except Exception as e:
+        logger.info(f"[ContentVideo] cannot check assets of episode {ep_id}: {e}")
+        return True
+    for s in shots:
+        for key in ("image_url", "tts_audio_url"):
+            asset = str(s.get(key) or "").strip()
+            try:
+                if asset and os.path.isfile(asset) and os.path.getmtime(asset) > made + 1:
+                    return True
+            except OSError:
+                continue
+    return False
+
+
 def _step_render(state: Dict, options: Dict) -> None:
     ep_id = state["episode_id"]
     # Lượt trước đã dựng xong mp4 rồi hỏng ở bước ĐĂNG: dùng lại đúng file đó.
@@ -1763,9 +1806,10 @@ def _step_render(state: Dict, options: Dict) -> None:
     # của người dùng có nghĩa là "đăng lại đi", không phải "làm lại từ đầu".
     # Có góp ý = kịch bản/ảnh đã đổi ⇒ phải dựng lại (cùng luật với _step_script).
     if not (state.get("feedback") or []):
-        old_path = str((state.get("checkpoint") or {}).get("video_path") or "")
-        if old_path and os.path.isfile(old_path):
+        old_path = _finished_video(state, ep_id)
+        if old_path:
             _use_video(state, old_path)
+            _checkpoint_merge(state, {"video_path": old_path})
             state["_say"]("render", "skipped",
                           f"already rendered: {os.path.basename(old_path)}")
             return
