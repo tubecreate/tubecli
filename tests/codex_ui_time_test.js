@@ -82,6 +82,34 @@ check('thẻ chưa mở thì bấm không làm gì',
     /function collapse\(taskId\) \{\s*if \(!state\.expanded\.has\(taskId\)\) return;/.test(js));
 check('có kiểu cho chân thẻ', /\.cx-card-foot\s*\{/.test(css));
 
+// ── 3. Địa chỉ web trong kết quả phải BẤM ĐƯỢC ──────────────────────────────
+// Đăng xong, dòng "Published: https://youtu.be/..." nằm trong <pre> nên chỉ là chữ:
+// muốn xem video vừa đăng phải bôi đen rồi copy.
+const linkify = new Function(
+    js.slice(js.indexOf('  function linkify('), js.indexOf('  function relTime(')) + '; return linkify;')();
+const esc = (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+const link = (raw) => linkify(esc(raw));
+
+let out = link('- **Published**: https://youtu.be/P7NZiLYEysQ (public)');
+check('link YouTube thành thẻ <a> mở tab mới',
+    out.includes('<a href="https://youtu.be/P7NZiLYEysQ" target="_blank" rel="noopener noreferrer">'), out);
+check('chữ quanh link giữ nguyên', out.startsWith('- **Published**: ') && out.endsWith(' (public)'), out);
+out = link('xem tại https://youtu.be/abc123.');
+check('dấu chấm cuối câu không lọt vào địa chỉ',
+    out.includes('>https://youtu.be/abc123</a>.'), out);
+out = link('link "https://x.test/a?b=1&c=2" trong nháy');
+check('địa chỉ trong ngoặc kép cắt đúng (dấu nháy đã escape thành &quot;)',
+    out.includes('href="https://x.test/a?b=1&amp;c=2"') && out.includes('</a>&quot; trong nháy'), out);
+out = link('(https://a.test/x), rồi');
+check('ngoặc đơn và dấu phẩy nằm ngoài link', out.includes('>https://a.test/x</a>), rồi'), out);
+out = link('javascript:alert(1) và <script>bad</script>');
+check('KHÔNG bọc javascript: và không cho thẻ lọt qua',
+    !out.includes('<a ') && !out.includes('<script>'), out);
+check('kết quả in ra dùng linkify', /<pre class="cx-pre">\$\{linkify\(esc\(task\.result\)\)\}<\/pre>/.test(js));
+check('lỗi cũng dùng linkify', /cx-pre error">\$\{linkify\(esc\(task\.error\)\)\}/.test(js));
+check('có kiểu cho link trong khối kết quả', /\.cx-pre a\s*\{/.test(css));
+
 // ── 3. Nhãn có đủ 9 ngôn ngữ ────────────────────────────────────────────────
 const locales = fs.readdirSync(path.join(dir, 'locales')).filter((f) => f.endsWith('.json'));
 check('có đủ 9 tệp ngôn ngữ', locales.length === 9, locales.length);

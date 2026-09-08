@@ -3036,17 +3036,34 @@ def _live_publish(state: Dict, slug: str, variables: Dict, profile: str):
         say("publish", "running", f"upload script running in the live view of “{profile}” (execution #{exec_id})")
         lines = _follow_script_run(state, int(exec_id))
         res = _script_result(int(exec_id), lines, started_at)
-        if not res.success and opened:
+        if not res.success:
             # Hỏng thì để nguyên cửa sổ cho chủ nhìn nó dừng ở đâu (đăng nhập? captcha?).
             keep_open = True
             say("publish", "running", f"the live view of “{profile}” stays open so you can see where it stopped")
         return res
     finally:
-        if opened and not keep_open:
-            try:
-                _post("/api/v1/browser/preview/stop", {"session_id": opened}, timeout=30)
-            except Exception as e:
-                logger.info(f"[ContentVideo] could not close live view {opened}: {e}")
+        if not keep_open:
+            _close_live(state, profile, opened)
+
+
+def _close_live(state: Dict, profile: str, session_id: str = "") -> None:
+    """Đóng phiên trình duyệt sau khi đăng xong.
+
+    Đóng THEO HỒ SƠ chứ không chỉ theo phiên pipeline tự mở: khung Browser mở sẵn từ
+    trước cũng phải đóng, vì một phiên Chromium ăn 450–800 MB và lượt tự động thì
+    không có ai ngồi xem nó. /browser/stop dọn cả tiến trình browser lẫn preview
+    server của hồ sơ đó."""
+    try:
+        _post("/api/v1/browser/stop", {"profile": profile, "force": False}, timeout=60)
+        state["_say"]("publish", "running", f"closed the browser session of “{profile}”")
+        return
+    except Exception as e:
+        logger.info(f"[ContentVideo] could not close the session of {profile}: {e}")
+    if session_id:                      # máy chủ cũ chưa có /browser/stop theo hồ sơ
+        try:
+            _post("/api/v1/browser/preview/stop", {"session_id": session_id}, timeout=30)
+        except Exception as e:
+            logger.info(f"[ContentVideo] could not close live view {session_id}: {e}")
 
 
 def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, profile: str):

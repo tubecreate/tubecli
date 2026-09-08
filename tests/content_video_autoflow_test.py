@@ -324,19 +324,24 @@ assert launch["profile"] == "test2" and launch["url"] == "https://studio.youtube
 run = next(c for c in calls if c[1].endswith("/youtube_upload/run"))[2]
 assert run["attach"] is True and run["inject_credentials"] is False and run["headless"] is False and run["variables"]["title"] == "t", run
 assert any("step 3 upload: Đã nạp file lên input" in m for m in said) and any("script finished" in m for m in said), said
-assert calls[-1][1].endswith("/preview/stop") and calls[-1][2] == {"session_id": "pv1"}, "xong thì đóng khung mình mở"
+assert calls[-1][1].endswith("/browser/stop") and calls[-1][2] == {"profile": "test2", "force": False}, \
+    "đăng xong thì ĐÓNG PHIÊN (mỗi phiên Chromium ăn 450–800 MB, không ai ngồi xem)"
+assert any("closed the browser session" in m for m in said), said
 assert any("watch it in the Browser node" in m for m in said), said
-# live view có sẵn → không mở, không đóng
+# live view có sẵn → không mở lại, nhưng ĐĂNG XONG VẪN ĐÓNG (phiên của khung mở sẵn
+# cũng là RAM; lượt tự động chạy trên VPS không có ai ngồi xem nó)
 calls.clear(); said.clear(); polls["i"] = 0
 P._preview_port = lambda profile: 5001
 res = P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2")
-assert res.success and not any(c[1].endswith("/preview/launch") or c[1].endswith("/preview/stop") for c in calls), calls
+assert res.success and not any(c[1].endswith("/preview/launch") for c in calls), calls
+assert calls[-1][1].endswith("/browser/stop"), calls[-1]
 # hỏng → giữ khung mình mở để soi
 P._preview_port = lambda profile: None
 calls.clear(); said.clear(); polls["i"] = 0
 LOGS[2] = {"lines": ['{"status":"done","exec_id":7,"success":false,"message":"login"}'], "offset": 2, "running": False}
 res = P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2")
-assert res.success is False and not any(c[1].endswith("/preview/stop") for c in calls) and any("stays open" in m for m in said), (calls, said)
+assert res.success is False and not any(c[1].endswith("/browser/stop") or c[1].endswith("/preview/stop") for c in calls) \
+    and any("stays open" in m for m in said), (calls, said)
 # preflight từ chối (hết RAM…) → None, không chạy gì
 calls.clear(); said.clear()
 P._post = lambda path, payload, timeout=0: {"ok": False, "reason": "low_memory", "message_vi": "Máy chủ sắp hết RAM"}

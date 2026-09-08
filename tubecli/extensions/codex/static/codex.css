@@ -631,3 +631,7 @@ body {
   border-top: 1px solid var(--cx-border, rgba(127, 127, 127, .22));
 }
 .cx-card-foot .cx-btn { min-width: 140px; justify-content: center; }
+
+/* Địa chỉ web trong kết quả: bấm được, và không phá dòng của khối <pre>. */
+.cx-pre a { color: var(--cx-accent, #5276EB); text-decoration: underline; overflow-wrap: anywhere; }
+.cx-pre a:hover { text-decoration: none; }

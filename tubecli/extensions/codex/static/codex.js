@@ -170,6 +170,27 @@ const CODEX = (() => {
     return base.getTime() + (Date.now() - c.at);
   }
 
+  // Kết quả in trong <pre> nên địa chỉ web chỉ là chữ: muốn xem video vừa đăng phải
+  // bôi đen rồi copy. Nhận CHUỖI ĐÃ ESCAPE và chỉ bọc thẻ <a> quanh http/https —
+  // không mở cửa cho javascript: hay thẻ tự chế lọt vào.
+  function linkify(escaped) {
+    return String(escaped).replace(/https?:\/\/[^\s<]+/g, (m) => {
+      let url = m, tail = '';
+      // Cắt đuôi LẶP LẠI: dấu nháy trong chuỗi đã escape ("&quot;", "&#39;") và dấu
+      // câu cuối câu đều không thuộc về địa chỉ, và chúng đứng lẫn nhau — một địa chỉ
+      // trong ngoặc kép kết thúc bằng &quot; mà bên trong đã có sẵn dấu ';'.
+      for (let i = 0; i < 6; i++) {
+        const ent = /(&quot;|&#39;|&gt;)$/.exec(url);
+        if (ent) { tail = ent[0] + tail; url = url.slice(0, -ent[0].length); continue; }
+        const punct = /[.,;:!?)\]}]$/.exec(url);
+        if (punct) { tail = punct[0] + tail; url = url.slice(0, -1); continue; }
+        break;
+      }
+      if (!url) return m;
+      return `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${tail}`;
+    });
+  }
+
   function relTime(ts) {
     const d = parseTs(ts);
     if (!d) return '';
@@ -590,7 +611,7 @@ const CODEX = (() => {
               ${icon('content_copy')}${esc(t('codex.action_copy_result'))}
             </button>
           </div>
-          <pre class="cx-pre">${esc(task.result)}</pre>
+          <pre class="cx-pre">${linkify(esc(task.result))}</pre>
           ${mediaPreviewHtml(task)}
         </div>`);
     }
@@ -599,7 +620,7 @@ const CODEX = (() => {
     if (task.error) {
       parts.push(`<div class="cx-section">
           <div class="cx-section-title">${icon('report')}${esc(t('codex.section_error'))}</div>
-          <pre class="cx-pre error">${esc(task.error)}</pre>
+          <pre class="cx-pre error">${linkify(esc(task.error))}</pre>
         </div>`);
     }
 
