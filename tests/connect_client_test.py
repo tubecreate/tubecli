@@ -371,6 +371,117 @@ check("tắt hai lần không ngã", True)
 check("cổng node theo TUBECLI_PORT", str(mod.PORT) in mod.HEALTH and mod.HEALTH.startswith("http://127.0.0.1:"))
 check("cloud mặc định là cloud.tubecreate.com", mod.CLOUD == "https://cloud.tubecreate.com")
 
+# 9. BA NỀN TẢNG. Client này chạy trên máy của khách, và máy đó có thể là Windows,
+# macOS hay Linux. Bản đầu viết thẳng cho Windows (%APPDATA%, install.ps1,
+# cloudflared .exe, lối tắt Startup, os.startfile) — trên hai hệ kia nó hỏng ngay từ
+# dòng đường dẫn. Test nạp lại chính file ấy với sys.platform giả để soi từng hệ mà
+# không cần ba cái máy.
+def _load(plat, machine="x86_64"):
+    import platform as _pl
+    old_plat, old_machine = sys.platform, _pl.machine
+    try:
+        sys.platform = plat
+        _pl.machine = lambda: machine
+        m = types.ModuleType("tc_" + plat + machine)
+        m.__file__ = str(SRC)
+        exec(compile(SRC.read_text(encoding="utf-8"), str(SRC), "exec"), m.__dict__)
+        return m
+    finally:
+        sys.platform, _pl.machine = old_plat, old_machine
+
+
+_win = _load("win32")
+_mac = _load("darwin")
+_mac_arm = _load("darwin", "arm64")
+_lin = _load("linux")
+_lin_arm = _load("linux", "aarch64")
+
+check("nhận đúng tên hệ", (_win.OS_NAME, _mac.OS_NAME, _lin.OS_NAME) == ("Windows", "macOS", "Linux"))
+
+# Thư mục cấu hình: mỗi hệ một quy ước, và đi ngược quy ước thì công cụ sao lưu của
+# người dùng bỏ sót nó.
+check("Windows cất ở APPDATA/TubeCLI", _win.HOME.replace("\\", "/").endswith("TubeCLI"), _win.HOME)
+check("macOS cất ở Library/Application Support",
+      "Library/Application Support/TubeCLI" in _mac.HOME.replace("\\", "/"), _mac.HOME)
+check("Linux theo XDG (~/.config/tubecli)",
+      _lin.HOME.replace("\\", "/").endswith(".config/tubecli"), _lin.HOME)
+
+# cloudflared: ba hệ ba kiểu đóng gói. macOS phát hành .tgz — tải về chạy thẳng là
+# "Exec format error", nên phải giải nén; POSIX tải về 0644 nên phải chmod.
+check("cloudflared Windows là .exe",
+      _win.CF_URL.endswith("windows-amd64.exe") and _win.CLOUDFLARED.endswith("cloudflared.exe"), _win.CF_URL)
+check("cloudflared macOS Intel là .tgz", _mac.CF_URL.endswith("darwin-amd64.tgz"), _mac.CF_URL)
+check("cloudflared macOS Apple Silicon là bản arm64", _mac_arm.CF_URL.endswith("darwin-arm64.tgz"), _mac_arm.CF_URL)
+check("cloudflared Linux là binary trần", _lin.CF_URL.endswith("linux-amd64"), _lin.CF_URL)
+check("Linux ARM lấy đúng bản arm64", _lin_arm.CF_URL.endswith("linux-arm64"), _lin_arm.CF_URL)
+check("tên file cloudflared trên POSIX không đuôi .exe",
+      os.path.basename(_mac.CLOUDFLARED) == "cloudflared", _mac.CLOUDFLARED)
+_cf_src = _src[_src.index("def ensure_cloudflared"):_src.index("def start_tunnel")]
+check("gói .tgz được giải nén, không chạy thẳng", "tarfile.open(part)" in _cf_src)
+check("POSIX cấp quyền chạy cho cloudflared", "os.chmod(CLOUDFLARED, 0o755)" in _cf_src)
+
+# Trình cài: mỗi hệ gọi đúng trình cài CHÍNH THỨC của nó, không tự dựng bản riêng.
+check("Windows cài bằng install.ps1",
+      _win.install_command("vi")[0] == "powershell" and "install.ps1" in _win.install_command("vi")[-1])
+_sh = _mac.install_command("vi")
+check("macOS/Linux cài bằng install.sh qua bash",
+      _sh[:2] == ["bash", "-lc"] and "install.sh" in _sh[-1], _sh)
+check("truyền ngôn ngữ và không hỏi han (không ai ngồi trước bàn phím)",
+      "--lang vi" in _sh[-1] and "--non-interactive" in _sh[-1], _sh[-1])
+check("Linux cũng đúng lệnh ấy", _lin.install_command("en")[-1].endswith("--lang en --non-interactive"))
+
+# Khởi động cùng máy: ba cơ chế khác hẳn nhau.
+check("Windows dùng thư mục Startup",
+      _win.startup_path().replace("\\", "/").endswith("Startup/TubeCLI Connect.cmd"), _win.startup_path())
+check("macOS dùng LaunchAgent",
+      _mac.startup_path().replace("\\", "/").endswith("Library/LaunchAgents/com.tubecreate.connect.plist"))
+check("Linux dùng autostart .desktop",
+      _lin.startup_path().replace("\\", "/").endswith("autostart/tubecli-connect.desktop"))
+check("nội dung plist chạy lúc đăng nhập",
+      "RunAtLoad" in _mac._autostart_body("/usr/bin/python3", "/x/c.py")
+      and "/x/c.py" in _mac._autostart_body("/usr/bin/python3", "/x/c.py"))
+check("nội dung .desktop đúng chuẩn freedesktop",
+      _lin._autostart_body("/usr/bin/python3", "/x/c.py").startswith("[Desktop Entry]")
+      and "Exec=/usr/bin/python3 /x/c.py" in _lin._autostart_body("/usr/bin/python3", "/x/c.py"))
+
+# Lối tắt phải trỏ vào một file CÒN SỐNG: lệnh cài tải client về %TEMP% (và /tmp),
+# hai chỗ bị dọn định kỳ — trỏ vào đó là hẹn ngày nó trỏ vào hư không.
+check("client tự chép sang thư mục cấu hình trước khi cắm lối tắt",
+      "def script_home()" in _src and "shutil.copyfile(here, dest)" in _src)
+check("set_autostart dùng đường dẫn ổn định ấy",
+      "_autostart_body(runner(), script_home())" in _src)
+
+# Bản cài trên POSIX: install.sh đặt ở ~/tubecli với .venv, launcher ~/.local/bin.
+_pdir = os.path.join(TMP, "posix_tubecli")
+os.makedirs(os.path.join(_pdir, ".venv", "bin"), exist_ok=True)
+open(os.path.join(_pdir, ".venv", "bin", "tubecli"), "w").close()
+check("nhận bản cài bằng install.sh (.venv/bin/tubecli)", _lin.is_tubecli_dir(_pdir))
+_old_find = _lin.find_install
+try:
+    _lin.find_install = lambda: _pdir
+    _cmd, _d = _lin.server_cmd()
+    check("bật bằng lệnh trong venv, không phải python hệ thống",
+          _cmd[0].endswith(os.path.join(".venv", "bin", "tubecli")) and _cmd[1] == "serve", _cmd)
+finally:
+    _lin.find_install = _old_find
+check("~/.local/bin được dò kể cả khi chưa vào PATH", '".local", "bin", "tubecli"' in _src)
+
+# Mở URL: os.startfile CHỈ có trên Windows — gọi nó ở nơi khác là AttributeError
+# giết luôn menu khay.
+check("không còn os.startfile trần ngoài hàm open_url",
+      _src.count("os.startfile") == 2, "còn ở chỗ khác")
+_open_src = _src[_src.index("def open_url"):_src.index("def conf_read")]
+check("macOS mở bằng open, Linux bằng xdg-open",
+      '"open", target' in _open_src and '"xdg-open", target' in _open_src)
+
+# Máy không đồ hoạ: thiếu tkinter thì vẫn phải hỏi được mã và giữ được cầu nối.
+check("thiếu tkinter → hỏi mã ngay trong terminal",
+      "def ask_pairing_console(" in _src and "if not has_tk():" in _src)
+check("thiếu cả pystray lẫn tkinter → vẫn chạy, in trạng thái ra terminal",
+      "chế độ terminal" in _src)
+check("POSIX siết quyền file cấu hình bằng chmod 600",
+      "os.chmod(CONF, 0o600)" in _src)
+
 print("=" * 62)
 print(f"{failures} FAIL / {checks}" if failures else f"{checks}/{checks} PASS")
 sys.exit(1 if failures else 0)

@@ -14,20 +14,35 @@ VÌ SAO PHẢI CÓ TUNNEL, KHÔNG NỐI THẲNG localhost:5295 ĐƯỢC:
   * trang https không gọi được http://localhost kèm cookie: node trả
     Access-Control-Allow-Origin: * và trình duyệt chặn đúng tổ hợp ấy.
 
-Chạy:  pythonw client/tubecli_connect.pyw          (lần đầu sẽ hỏi mã ghép nối)
-       python  client/tubecli_connect.pyw --status  (in trạng thái rồi thoát)
+BA NỀN TẢNG, MỘT FILE:
+  Windows  pythonw tubecli_connect.pyw     (cài bằng install.ps1)
+  macOS    python3 tubecli_connect.py      (cài bằng install.sh, cần Homebrew)
+  Linux    python3 tubecli_connect.py      (cài bằng install.sh)
+Mọi chỗ khác nhau giữa ba hệ (thư mục cấu hình, trình cài, bản cloudflared, cách
+khởi động cùng máy, cách mở URL) gom trong đúng một hàm mỗi thứ — rắc `if
+sys.platform` khắp file thì không còn đọc ra luồng chính nữa.
+
+Chạy:  <python> tubecli_connect.py           (lần đầu sẽ hỏi mã ghép nối)
+       <python> tubecli_connect.py --status  (in trạng thái rồi thoát)
 """
 from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
+import tarfile
 import threading
 import time
 import urllib.error
 import urllib.request
+
+IS_WIN = sys.platform.startswith("win")
+IS_MAC = sys.platform == "darwin"
+IS_LINUX = not IS_WIN and not IS_MAC
+OS_NAME = "Windows" if IS_WIN else ("macOS" if IS_MAC else "Linux")
 
 APP = "TubeCLI Connect"
 # Cloudflare chặn thẳng User-Agent mặc định của urllib ("Python-urllib/3.12") bằng
@@ -37,12 +52,55 @@ APP = "TubeCLI Connect"
 UA = f"TubeCLI-Connect/1.0 (Windows; Python {sys.version_info.major}.{sys.version_info.minor})"
 CLOUD = os.environ.get("TUBECLI_CLOUD", "https://cloud.tubecreate.com")
 PORT = int(os.environ.get("TUBECLI_PORT", "5295"))
-HOME = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "TubeCLI")
+def _home_dir() -> str:
+    """Chỗ mỗi hệ điều hành muốn app cất cấu hình. Không dùng chung ~/.tubecli cho
+    cả ba: trên macOS thư mục ẩn ở $HOME là thứ không ai tìm ra, còn trên Linux nó
+    phá quy ước XDG mà các công cụ sao lưu dựa vào."""
+    if IS_WIN:
+        return os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "TubeCLI")
+    if IS_MAC:
+        return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "TubeCLI")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(base, "tubecli")
+
+
+HOME = _home_dir()
 CONF = os.path.join(HOME, "connect.json")
 LOG = os.path.join(HOME, "connect.log")
-CLOUDFLARED = os.path.join(HOME, "cloudflared.exe")
-CF_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
-INSTALL_PS1 = "https://raw.githubusercontent.com/tubecreate/tubecli/main/install.ps1"
+CLOUDFLARED = os.path.join(HOME, "cloudflared.exe" if IS_WIN else "cloudflared")
+RAW = "https://raw.githubusercontent.com/tubecreate/tubecli/main"
+INSTALL_PS1 = f"{RAW}/install.ps1"
+INSTALL_SH = f"{RAW}/install.sh"
+
+
+def cpu_arch() -> str:
+    """Tên kiến trúc theo cách Cloudflare đặt tên file phát hành."""
+    m = (platform.machine() or "").lower()
+    if m in ("arm64", "aarch64"):
+        return "arm64"
+    if m == "arm" or m.startswith("armv"):
+        return "arm"
+    if m in ("i386", "i686", "x86"):
+        return "386"
+    return "amd64"
+
+
+def cloudflared_url() -> str:
+    """Bản cloudflared đúng cho máy này.
+
+    Ba hệ ba kiểu đóng gói, và đây là chỗ dễ sai âm thầm: macOS phát hành .tgz chứ
+    không phải binary trần, nên tải về rồi chạy thẳng là "Exec format error".
+    """
+    base = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-"
+    a = cpu_arch()
+    if IS_WIN:
+        return f"{base}windows-{'386' if a == '386' else 'amd64'}.exe"
+    if IS_MAC:
+        return f"{base}darwin-{'arm64' if a == 'arm64' else 'amd64'}.tgz"
+    return f"{base}linux-{a}"
+
+
+CF_URL = cloudflared_url()
 HEALTH = f"http://127.0.0.1:{PORT}/api/v1/health"
 DASH = f"http://127.0.0.1:{PORT}/dashboard"
 
@@ -55,11 +113,12 @@ def _install_ua_opener() -> None:
 
 _install_ua_opener()
 
-# Nơi install.ps1 đặt TubeCLI. Người dùng có thể đổi, nên còn dò thêm ở dưới.
-DEFAULT_DIRS = [
-    os.path.join(os.path.expanduser("~"), "TubeCLI"),
-    r"C:\TubeCLI",
-]
+# Nơi trình cài đặt TubeCLI. Người dùng có thể đổi, nên còn dò thêm ở dưới.
+# install.ps1 dùng ~/TubeCLI, install.sh dùng ~/tubecli (chữ thường) — trên Linux
+# hai cái đó là hai thư mục khác nhau, nên phải kể cả hai.
+_H = os.path.expanduser("~")
+DEFAULT_DIRS = ([os.path.join(_H, "TubeCLI"), r"C:\TubeCLI"] if IS_WIN
+                else [os.path.join(_H, "tubecli"), os.path.join(_H, "TubeCLI"), "/opt/tubecli"])
 
 
 def log(msg: str) -> None:
@@ -85,6 +144,20 @@ def log(msg: str) -> None:
         pass
 
 
+def open_url(target: str) -> None:
+    """Mở link hay file bằng trình mặc định của hệ. os.startfile CHỈ có trên
+    Windows — gọi nó ở nơi khác là AttributeError giết luôn menu khay."""
+    try:
+        if IS_WIN:
+            os.startfile(target)          # noqa: S606 — Windows-only API
+        elif IS_MAC:
+            subprocess.Popen(["open", target])
+        else:
+            subprocess.Popen(["xdg-open", target])
+    except Exception as e:
+        log(f"không mở được {target}: {e}")
+
+
 def conf_read() -> dict:
     try:
         with open(CONF, encoding="utf-8") as f:
@@ -101,8 +174,11 @@ def conf_write(data: dict) -> None:
     os.replace(tmp, CONF)
     # Token tunnel nằm trong file này: mở đúng cho chủ máy, không cho người khác.
     try:
-        subprocess.run(["icacls", CONF, "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME')}:F"],
-                       capture_output=True, timeout=10)
+        if IS_WIN:
+            subprocess.run(["icacls", CONF, "/inheritance:r", "/grant:r", f"{os.environ.get('USERNAME')}:F"],
+                           capture_output=True, timeout=10)
+        else:
+            os.chmod(CONF, 0o600)
     except Exception as e:
         log(f"không siết được quyền {CONF}: {e}")
 
@@ -124,8 +200,12 @@ def is_tubecli_dir(d: str) -> bool:
     từ git (có tubecli/main.py) — máy của người phát triển là bản thứ hai, và client
     này nằm ngay trong đó.
     """
-    return bool(d) and (os.path.isfile(os.path.join(d, "TubeCLI.bat"))
-                        or os.path.isfile(os.path.join(d, "tubecli", "main.py")))
+    return bool(d) and any(os.path.isfile(os.path.join(d, *p)) for p in (
+        ("TubeCLI.bat",),                      # install.ps1
+        ("tubecli", "main.py"),                # bản git (máy người phát triển)
+        (".venv", "bin", "tubecli"),           # install.sh
+        ("venv", "bin", "tubecli"),
+    ))
 
 
 def find_install() -> str:
@@ -138,7 +218,7 @@ def find_install() -> str:
         if is_tubecli_dir(d):
             return d
     lnk = os.path.join(os.path.expanduser("~"), "Desktop", "TubeCLI.lnk")
-    if os.path.isfile(lnk):
+    if IS_WIN and os.path.isfile(lnk):
         try:
             raw = open(lnk, "rb").read().decode("latin-1")
             for part in raw.split("\x00"):
@@ -158,10 +238,26 @@ def server_cmd() -> tuple:
     """
     d = find_install()
     if d:
-        py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
-        exe = py if os.path.isfile(py) else "pythonw"
-        return [exe, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
+        if IS_WIN:
+            py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
+            exe = py if os.path.isfile(py) else "pythonw"
+            return [exe, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
+        # POSIX: chạy thẳng lệnh trong venv của bản cài. Gọi `python -m tubecli.main`
+        # bằng python hệ thống thì thiếu sạch phụ thuộc — venv mới là bản có đủ.
+        for rel in ((".venv", "bin", "tubecli"), ("venv", "bin", "tubecli")):
+            p = os.path.join(d, *rel)
+            if os.path.isfile(p):
+                return [p, "serve", "--port", str(PORT)], d
+        for rel in ((".venv", "bin", "python"), ("venv", "bin", "python")):
+            p = os.path.join(d, *rel)
+            if os.path.isfile(p):
+                return [p, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
     exe = shutil.which("tubecli")
+    if not exe and not IS_WIN:
+        # install.sh đặt launcher ở ~/.local/bin — thư mục này thường CHƯA có trong
+        # PATH của phiên hiện tại, nên which() trượt dù máy đã cài xong.
+        cand = os.path.join(os.path.expanduser("~"), ".local", "bin", "tubecli")
+        exe = cand if os.access(cand, os.X_OK) else ""
     if exe:
         return [exe, "serve", "--port", str(PORT)], os.path.dirname(exe)
     return [], ""
@@ -175,22 +271,50 @@ def have_tubecli() -> bool:
     return tubecli_up() or bool(server_cmd()[0])
 
 
+def install_command(lang: str = "vi") -> list:
+    """Lệnh gọi trình cài CHÍNH THỨC của từng hệ. Không tự dựng bản cài riêng: một
+    bản thứ hai là một bộ bug thứ hai."""
+    if IS_WIN:
+        ps = ("$ErrorActionPreference='Stop'; "
+              f"$s = irm {INSTALL_PS1}; "
+              f"& ([scriptblock]::Create($s)) -Lang {lang}")
+        return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps]
+    # bash -s -- truyền tham số cho script đọc từ stdin. --non-interactive vì ở đây
+    # không có ai ngồi trước bàn phím: client đang chạy sau một cửa sổ đồ hoạ.
+    sh = f"curl -fsSL {INSTALL_SH} | bash -s -- --lang {lang} --non-interactive"
+    return ["bash", "-lc", sh]
+
+
 def install_tubecli(lang: str = "vi") -> bool:
-    """Chạy đúng trình cài chính thức (install.ps1). Không tự dựng bản cài riêng:
-    một bản thứ hai là một bộ bug thứ hai."""
-    log("Chưa có TubeCLI — bắt đầu cài (cửa sổ PowerShell sẽ hiện ra)…")
-    cmd = ("$ErrorActionPreference='Stop'; "
-           f"$s = irm {INSTALL_PS1}; "
-           f"& ([scriptblock]::Create($s)) -Lang {lang}")
+    cmd = install_command(lang)
+    if IS_WIN:
+        log("Chưa có TubeCLI — bắt đầu cài (cửa sổ PowerShell sẽ hiện ra)…")
+        try:
+            p = subprocess.run(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
+            ok = p.returncode == 0
+        except Exception as e:
+            log(f"cài thất bại: {e}")
+            return False
+        log("cài xong" if ok else f"trình cài trả mã {p.returncode}")
+        return ok
+
+    # POSIX: không mở cửa sổ terminal mới (mỗi bản phân phối một kiểu, và trên máy
+    # không có màn hình thì chẳng có cái nào). Gom output vào log để lúc hỏng còn
+    # đọc được nó vướng ở đâu — thường là thiếu python3-venv hoặc cần sudo.
+    log(f"Chưa có TubeCLI — chạy trình cài ({OS_NAME}), có thể mất vài phút…")
     try:
-        p = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
-                           creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-        ok = p.returncode == 0
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     except Exception as e:
         log(f"cài thất bại: {e}")
         return False
-    log("cài xong" if ok else f"trình cài trả mã {p.returncode}")
-    return ok
+    tail = [ln for ln in (p.stdout or "").splitlines() + (p.stderr or "").splitlines() if ln.strip()]
+    for ln in tail[-15:]:
+        log(f"  cài| {ln[:200]}")
+    if p.returncode == 0:
+        log("cài xong")
+        return True
+    log(f"trình cài trả mã {p.returncode} — chạy tay để xem đầy đủ: {cmd[-1]}")
+    return False
 
 
 def start_tubecli() -> bool:
@@ -202,8 +326,12 @@ def start_tubecli() -> bool:
         return False
     log(f"bật TubeCLI từ {d}")
     try:
-        subprocess.Popen(cmd, cwd=d or None,
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        extra = ({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN
+                 # start_new_session: tách khỏi nhóm tiến trình của client, để đóng
+                 # client (hoặc Ctrl+C trong terminal) không kéo theo máy chủ.
+                 else {"start_new_session": True,
+                       "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL})
+        subprocess.Popen(cmd, cwd=d or None, **extra)
     except Exception as e:
         log(f"không bật được TubeCLI: {e}")
         return False
@@ -237,15 +365,31 @@ def ensure_cloudflared() -> bool:
     log("tải cloudflared…")
     os.makedirs(HOME, exist_ok=True)
     try:
+        part = CLOUDFLARED + ".part"
         cf_req = urllib.request.Request(CF_URL, headers={"User-Agent": UA})
-        with urllib.request.urlopen(cf_req, timeout=180) as r, open(CLOUDFLARED + ".part", "wb") as f:
+        with urllib.request.urlopen(cf_req, timeout=180) as r, open(part, "wb") as f:
             while True:
                 chunk = r.read(262144)
                 if not chunk:
                     break
                 f.write(chunk)
-        os.replace(CLOUDFLARED + ".part", CLOUDFLARED)
-        log("đã tải cloudflared")
+        if CF_URL.endswith(".tgz"):
+            # macOS phát hành .tgz, bên trong đúng một file `cloudflared`. Chạy thẳng
+            # file vừa tải là "Exec format error" — nó là gói nén, không phải binary.
+            with tarfile.open(part) as tf:
+                member = next((m for m in tf.getmembers()
+                               if m.isfile() and os.path.basename(m.name) == "cloudflared"), None)
+                if member is None:
+                    raise RuntimeError("gói cloudflared không có binary bên trong")
+                src = tf.extractfile(member)
+                with open(CLOUDFLARED, "wb") as out:
+                    shutil.copyfileobj(src, out)
+            os.remove(part)
+        else:
+            os.replace(part, CLOUDFLARED)
+        if not IS_WIN:
+            os.chmod(CLOUDFLARED, 0o755)      # tải về là 0644 → không chạy được
+        log(f"đã tải cloudflared ({OS_NAME}/{cpu_arch()})")
         return True
     except Exception as e:
         log(f"không tải được cloudflared: {e}")
@@ -299,33 +443,99 @@ def claim(code: str, password: str) -> dict:
         raise RuntimeError(f"Không gọi được cloud: {e}") from e
 
 
-# ── Khởi động cùng Windows ──────────────────────────────────────────────────
+# ── Khởi động cùng máy ──────────────────────────────────────────────────────
+
+def script_home() -> str:
+    """Đường dẫn ổn định của chính client này.
+
+    Lệnh cài tải file về thư mục tạm, mà %TEMP% (và /tmp) bị dọn định kỳ — trỏ mục
+    "khởi động cùng máy" vào đó là hẹn ngày nó trỏ vào hư không. Nên lần ghép nối
+    đầu tiên client tự chép mình sang thư mục cấu hình rồi mới cắm lối tắt.
+    """
+    name = "tubecli_connect.pyw" if IS_WIN else "tubecli_connect.py"
+    dest = os.path.join(HOME, name)
+    here = os.path.abspath(__file__)
+    if os.path.normcase(here) == os.path.normcase(dest):
+        return dest
+    try:
+        os.makedirs(HOME, exist_ok=True)
+        shutil.copyfile(here, dest)
+        if not IS_WIN:
+            os.chmod(dest, 0o755)
+        return dest
+    except OSError as e:
+        log(f"không chép được client vào {HOME}: {e}")
+        return here
+
+
+def runner() -> str:
+    """Trình thông dịch dùng để chạy lại client — trên Windows là pythonw để không
+    kèm cửa sổ đen."""
+    if IS_WIN:
+        exe = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
+        return exe if os.path.isfile(exe) else sys.executable
+    return sys.executable or "python3"
+
 
 def startup_path() -> str:
-    return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows",
-                        "Start Menu", "Programs", "Startup", "TubeCLI Connect.cmd")
+    """Chỗ mỗi hệ đọc danh sách "chạy khi đăng nhập"."""
+    h = os.path.expanduser("~")
+    if IS_WIN:
+        return os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows",
+                            "Start Menu", "Programs", "Startup", "TubeCLI Connect.cmd")
+    if IS_MAC:
+        return os.path.join(h, "Library", "LaunchAgents", "com.tubecreate.connect.plist")
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(h, ".config")
+    return os.path.join(base, "autostart", "tubecli-connect.desktop")
 
 
 def autostart_on() -> bool:
     return os.path.isfile(startup_path())
 
 
+def _autostart_body(exe: str, script: str) -> str:
+    if IS_WIN:
+        return f'@echo off\r\nstart "" "{exe}" "{script}"\r\n'
+    if IS_MAC:
+        return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                '<plist version="1.0"><dict>\n'
+                '  <key>Label</key><string>com.tubecreate.connect</string>\n'
+                f'  <key>ProgramArguments</key><array><string>{exe}</string>'
+                f'<string>{script}</string></array>\n'
+                '  <key>RunAtLoad</key><true/>\n'
+                '</dict></plist>\n')
+    return ("[Desktop Entry]\n"
+            "Type=Application\n"
+            f"Name={APP}\n"
+            f"Exec={exe} {script}\n"
+            "X-GNOME-Autostart-enabled=true\n"
+            "Terminal=false\n")
+
+
 def set_autostart(on: bool) -> None:
     p = startup_path()
     if not on:
         try:
+            if IS_MAC:
+                subprocess.run(["launchctl", "unload", p], capture_output=True, timeout=10)
             os.remove(p)
-        except OSError:
+        except (OSError, Exception):
             pass
         return
-    exe = os.path.join(os.path.dirname(sys.executable), "pythonw.exe")
-    exe = exe if os.path.isfile(exe) else sys.executable
     try:
         os.makedirs(os.path.dirname(p), exist_ok=True)
-        with open(p, "w", encoding="utf-8") as f:
-            f.write(f'@echo off\r\nstart "" "{exe}" "{os.path.abspath(__file__)}"\r\n')
+        with open(p, "w", encoding="utf-8", newline="") as f:
+            f.write(_autostart_body(runner(), script_home()))
+        if not IS_WIN:
+            os.chmod(p, 0o644 if IS_MAC else 0o755)
+        if IS_MAC:
+            # launchctl load để nó chạy ngay lần đăng nhập này, không phải đợi
+            # khởi động lại máy.
+            subprocess.run(["launchctl", "load", "-w", p], capture_output=True, timeout=10)
     except OSError as e:
-        log(f"không đặt được khởi động cùng Windows: {e}")
+        log(f"không đặt được khởi động cùng máy: {e}")
 
 
 def prepare_node(say, lang: str = "vi") -> tuple:
@@ -361,7 +571,45 @@ def prepare_node(say, lang: str = "vi") -> tuple:
 
 # ── Hỏi mã ghép nối (tkinter — có sẵn trong Python, không cài thêm) ─────────
 
+def has_tk() -> bool:
+    try:
+        import tkinter                      # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def ask_pairing_console(default_code: str = "", lang: str = "vi") -> tuple:
+    """Hỏi mã ngay trong terminal. Linux tối giản hay thiếu python3-tk, và một
+    client không mở nổi cửa sổ mà cũng không hỏi được gì thì coi như hỏng hẳn."""
+    print(f"\n=== {APP} ({OS_NAME}) ===")
+    print("Thiếu tkinter nên dùng chế độ dòng lệnh "
+          "(cài giao diện: sudo apt install python3-tk).")
+    ok_node, suggest = prepare_node(lambda m: print(f"  {m}"), lang)
+    if not ok_node:
+        return "", "", None
+    import getpass
+    while True:
+        code = (input(f"Mã ghép nối [{default_code}]: ").strip() or default_code).upper()
+        pw = getpass.getpass(f"Mật khẩu dashboard TubeCLI{' [' + suggest + ']' if suggest else ''}: ") or suggest
+        if len(code) < 4 or not pw:
+            print("  Nhập đủ mã và mật khẩu.")
+            continue
+        if not node_login(pw):
+            print("  Mật khẩu dashboard không đúng — thử lại.")
+            continue
+        try:
+            info = claim(code, pw)
+        except RuntimeError as e:
+            print(f"  Cloud không nhận mã: {e}")
+            continue
+        log(f"ghép nối xong: {info.get('url')}")
+        return code, pw, info
+
+
 def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
+    if not has_tk():
+        return ask_pairing_console(default_code, lang)
     import tkinter as tk
     from tkinter import ttk
 
@@ -536,8 +784,20 @@ def tray(bridge: Bridge) -> None:
     except ImportError:
         # KHÔNG được ngủ im trong nền: pythonw không có cửa sổ, không có icon thì
         # người dùng không có cách nào biết client còn sống hay đã chết.
-        log("thiếu pystray/Pillow — mở cửa sổ trạng thái thay cho icon khay")
-        status_window(bridge)
+        if has_tk():
+            log("thiếu pystray/Pillow — mở cửa sổ trạng thái thay cho icon khay")
+            status_window(bridge)
+            return
+        # Máy không đồ hoạ (Linux server, WSL trần): giữ cầu nối sống và IN trạng
+        # thái ra terminal theo nhịp — người dùng đang ngồi ở đó, đó là màn hình
+        # duy nhất họ có.
+        log("không có pystray lẫn tkinter — chạy ở chế độ terminal, Ctrl+C để dừng")
+        try:
+            while True:
+                log(bridge.status())
+                time.sleep(60)
+        except KeyboardInterrupt:
+            log("dừng theo yêu cầu")
         return
 
     img = Image.new("RGB", (64, 64), "#111827")
@@ -549,9 +809,9 @@ def tray(bridge: Bridge) -> None:
 
     menu = pystray.Menu(
         pystray.MenuItem(lambda _i: bridge.status(), None, enabled=False),
-        pystray.MenuItem("Mở dashboard", lambda: os.startfile(DASH)),
-        pystray.MenuItem("Mở cloud", lambda: os.startfile(CLOUD + "/dash")),
-        pystray.MenuItem("Xem log", lambda: os.startfile(LOG) if os.path.isfile(LOG) else None),
+        pystray.MenuItem("Mở dashboard", lambda: open_url(DASH)),
+        pystray.MenuItem("Mở cloud", lambda: open_url(CLOUD + "/dash")),
+        pystray.MenuItem("Xem log", lambda: open_url(LOG) if os.path.isfile(LOG) else None),
         pystray.MenuItem("Khởi động cùng Windows", toggle_autostart,
                          checked=lambda _i: autostart_on()),
         pystray.MenuItem("Thoát", lambda icon: (bridge.shutdown(), icon.stop())),
@@ -585,10 +845,10 @@ def status_window(bridge: "Bridge") -> None:
 
     bar = ttk.Frame(frm)
     bar.grid(column=0, row=3, sticky="w")
-    ttk.Button(bar, text="Mở dashboard", command=lambda: os.startfile(DASH)).grid(column=0, row=0, padx=(0, 6))
-    ttk.Button(bar, text="Mở cloud", command=lambda: os.startfile(CLOUD + "/dash")).grid(column=1, row=0, padx=(0, 6))
+    ttk.Button(bar, text="Mở dashboard", command=lambda: open_url(DASH)).grid(column=0, row=0, padx=(0, 6))
+    ttk.Button(bar, text="Mở cloud", command=lambda: open_url(CLOUD + "/dash")).grid(column=1, row=0, padx=(0, 6))
     ttk.Button(bar, text="Xem log",
-               command=lambda: os.startfile(LOG) if os.path.isfile(LOG) else None).grid(column=2, row=0, padx=(0, 6))
+               command=lambda: open_url(LOG) if os.path.isfile(LOG) else None).grid(column=2, row=0, padx=(0, 6))
 
     auto = tk.BooleanVar(value=autostart_on())
     ttk.Checkbutton(frm, text="Khởi động cùng Windows", variable=auto,
