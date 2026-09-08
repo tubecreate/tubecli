@@ -169,6 +169,8 @@ class _Res(dict):
 
 fake_sr.run_script_sync = lambda slug, variables=None, profile="", headless=True, timeout=None: runs.append(variables) or _Res()
 sys.modules["tubecli.extensions.browser_scripts.script_routes"] = fake_sr
+_real_live_publish = P._live_publish
+P._live_publish = lambda *a, **k: None          # nhóm 6: không có live view → đường ẩn
 P._login_profile = lambda agent, options, state=None: "g_yt"
 P._seo_for = lambda state, options, channel: {"title": "El Dios Invisible", "description": "d", "tags": ["a"]}
 setmb, listed = [], []
@@ -262,10 +264,105 @@ assert P.ensure_upload_script("youtube_upload") is True and es.created[0]["slug"
 seeded = es.created[0]["steps"]
 assert len(seeded) >= 40 and seeded[0]["type"] == "navigate" and es.created[0]["target_url"] == "{{upload_url}}", (len(seeded), es.created[0])
 assert any(str(x.get("label", "")).startswith("t2:thumbnail") for x in seeded) and any(str(x.get("label", "")).startswith("t2:open-upload") for x in seeded)
+wu = next(i for i, x in enumerate(seeded) if str(x.get("label", "")).startswith("t2:wait-upload"))
+assert seeded[wu]["type"] == "loop" and "#done-button" in seeded[wu + 1]["selector"] and seeded[wu]["params"]["break_on"].startswith("(() =>"), seeded[wu]
+assert seeded[wu]["params"]["steps"][0]["type"] == "evaluate", "vòng chờ in tiến độ ra log"
 assert P.ensure_upload_script("youtube_upload") is False and len(es.created) == 1, "đã có thì không tạo lại"
 assert P.ensure_upload_script("no_such_script") is False
-assert P.ensure_thumbnail_branch("youtube_upload") is False, "bản mẫu đã mang đúng hai bước"
-print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upload.json, có sẵn hai bước pipeline")
+assert P.ensure_thumbnail_branch("youtube_upload") is False, "bản mẫu đã mang đúng ba bước"
+# script cũ của người dùng (không có wait-upload) → chèn ngay trước nút Xuất bản, một lần
+es.created[0]["steps"] = [x for x in seeded if not str(x.get("label", "")).startswith("t2:wait-upload")]
+es.update_script = lambda slug, **kw: es.created[0].update(steps=kw["steps"])
+assert P.ensure_thumbnail_branch("youtube_upload") is True
+s2 = es.created[0]["steps"]
+assert sum(1 for x in s2 if str(x.get("label", "")).startswith("t2:wait-upload")) == 1 and "#done-button" in s2[wu + 1]["selector"]
+assert P.ensure_thumbnail_branch("youtube_upload") is False
+print("6c seed      : thiếu script trên VPS → tạo từ assets/youtube_upload.json, có sẵn ba bước pipeline; script cũ được chèn bước chờ tải lên")
+
+# 6e. Đăng TRONG live view: mở khung Browser nếu chưa có, gắn script qua CDP (không bơm mật khẩu),
+# đổ log runner vào Activity, đóng khung khi xong, giữ khung khi hỏng, không mở được thì trả None (đường ẩn)
+P._live_publish = _real_live_publish      # dùng bản thật
+calls, said = [], []
+P.SCRIPT_LOG_POLL = 0.0; P.SCRIPT_APPEAR_WAIT = 0.5; P.LIVE_CDP_WAIT = 2
+P._preview_port = lambda profile: None
+P._cdp_port = lambda profile: 9222
+LOGS = [{"lines": [], "offset": 0, "running": True},
+        {"lines": ['{"status":"step","exec_id":7,"step_index":3,"step_type":"upload","message":"Đã nạp file lên input"}'], "offset": 1, "running": True},
+        {"lines": ['{"status":"log","exec_id":7,"message":"x"}', '{"status":"done","exec_id":7,"success":true}'], "offset": 3, "running": False}]
+polls = {"i": 0}
+
+
+def _fake_post(path, payload, timeout=0):
+    calls.append(("POST", path, payload))
+    if path.endswith("/preview/launch"):
+        return {"status": "launched", "session_id": "pv1", "port": 5001}
+    if path.endswith("/run"):
+        return {"status": "started", "exec_id": 7}
+    return {"status": "stopped"}
+
+
+def _fake_get(path, timeout=0):
+    calls.append(("GET", path, None))
+    i = min(polls["i"], len(LOGS) - 1); polls["i"] += 1
+    return LOGS[i]
+
+
+P._post, P._get = _fake_post, _fake_get
+stl = {"_say": lambda step, status, msg: said.append(msg), "_cancelled": lambda: False}
+res = P._live_publish(stl, "youtube_upload", {"upload_url": "https://studio.youtube.com/x", "title": "t"}, "test2")
+assert res is not None and res.success is True and res.exec_id == 7, (res, getattr(res, "log", ""))
+launch = next(c for c in calls if c[1].endswith("/preview/launch"))[2]
+assert launch["profile"] == "test2" and launch["url"] == "https://studio.youtube.com/x" and launch["opened_by"] == "content_video"
+run = next(c for c in calls if c[1].endswith("/youtube_upload/run"))[2]
+assert run["attach"] is True and run["inject_credentials"] is False and run["headless"] is False and run["variables"]["title"] == "t", run
+assert any("step 3 upload: Đã nạp file lên input" in m for m in said) and any("script finished" in m for m in said), said
+assert calls[-1][1].endswith("/preview/stop") and calls[-1][2] == {"session_id": "pv1"}, "xong thì đóng khung mình mở"
+assert any("watch it in the Browser node" in m for m in said), said
+# live view có sẵn → không mở, không đóng
+calls.clear(); said.clear(); polls["i"] = 0
+P._preview_port = lambda profile: 5001
+res = P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2")
+assert res.success and not any(c[1].endswith("/preview/launch") or c[1].endswith("/preview/stop") for c in calls), calls
+# hỏng → giữ khung mình mở để soi
+P._preview_port = lambda profile: None
+calls.clear(); said.clear(); polls["i"] = 0
+LOGS[2] = {"lines": ['{"status":"done","exec_id":7,"success":false,"message":"login"}'], "offset": 2, "running": False}
+res = P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2")
+assert res.success is False and not any(c[1].endswith("/preview/stop") for c in calls) and any("stays open" in m for m in said), (calls, said)
+# preflight từ chối (hết RAM…) → None, không chạy gì
+calls.clear(); said.clear()
+P._post = lambda path, payload, timeout=0: {"ok": False, "reason": "low_memory", "message_vi": "Máy chủ sắp hết RAM"}
+assert P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2") is None and any("Máy chủ sắp hết RAM" in m for m in said), said
+# hồ sơ đang có script khác chạy (409) → lỗi rõ, không âm thầm chạy ẩn đè lên
+def _busy(path, payload, timeout=0):
+    if path.endswith("/run"):
+        raise RuntimeError(f"{path} → HTTP 409: busy")
+    return {"status": "launched", "session_id": "pv2"}
+P._post = _busy
+try:
+    P._live_publish(stl, "youtube_upload", {"upload_url": "u"}, "test2"); assert False, "phải ném"
+except RuntimeError as e:
+    assert "already running" in str(e), e
+# huỷ task giữa chừng → dừng lượt chạy
+P._post = _fake_post; calls.clear(); polls["i"] = 0
+LOGS[2] = {"lines": [], "offset": 1, "running": True}
+flags = {"n": 0}
+stc = {"_say": lambda *a: None, "_cancelled": lambda: flags.__setitem__("n", flags["n"] + 1) or flags["n"] > 3}
+try:
+    P._follow_script_run(stc, 7); assert False, "phải ném huỷ"
+except Exception as e:
+    assert "Cancelled" in str(e), e
+assert any(c[1].endswith("/execution/7/stop") for c in calls), calls
+# _run_upload_script: live None → run_script_sync (ẩn); publish_headless ép ẩn
+P._live_publish = lambda *a, **k: None
+runs.clear()
+r = P._run_upload_script(stl, {}, "youtube_upload", {"a": "1"}, "test2")
+assert runs and runs[-1] == {"a": "1"} and isinstance(r, _Res)
+P._live_publish = lambda *a, **k: (_ for _ in ()).throw(AssertionError("không được gọi khi publish_headless"))
+P._run_upload_script(stl, {"publish_headless": True}, "youtube_upload", {"a": "2"}, "test2")
+assert runs[-1] == {"a": "2"}
+P._live_publish = lambda *a, **k: None
+print("6e live view : mở khung Browser → gắn script (không bơm mật khẩu) → log vào Activity → đóng khi xong/giữ khi hỏng; từ chối/409/huỷ xử lý đúng")
 
 # 6d. Retry của lượt auto: kịch bản đã có trong checkpoint → dùng lại, không gọi model
 from tubecli.core import brain as B

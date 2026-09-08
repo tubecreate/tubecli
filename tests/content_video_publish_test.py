@@ -625,6 +625,7 @@ def _fake_run_script_sync(slug, variables=None, profile="", headless=True, timeo
 
 _bs.run_script_sync = _fake_run_script_sync
 sys.modules["tubecli.extensions.browser_scripts.script_routes"] = _bs
+P._live_publish = lambda *a, **k: None      # K: không có live view → đường ẩn (run_script_sync)
 
 _kc = _types.ModuleType("tubecli.extensions.keychain.routes")
 _kc.ensure_profile_for_account = lambda acc: {"profile": "kc_" + str(acc), "created": False}

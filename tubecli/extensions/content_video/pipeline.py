@@ -2475,6 +2475,78 @@ def open_upload_step() -> Dict[str, Any]:
     }
 
 
+WAIT_UPLOAD_LABEL = "t2:wait-upload — chờ video tải lên xong rồi mới bấm Xuất bản"
+WAIT_UPLOAD_POLL_MS = 10000
+WAIT_UPLOAD_ROUNDS = 180          # 180 × 10 s = 30 phút cho file lớn trên mạng chậm
+# Còn "Đang tải lên 45%" thì chờ; không có thanh tiến độ, không còn số %, hay đã sang
+# "đã tải lên/đang xử lý/kiểm tra" thì đi tiếp. Không rõ thì KHÔNG chặn (hết vòng là đi).
+WAIT_UPLOAD_CHECK = (
+    "(() => { const el = document.querySelector('ytcp-video-upload-progress'); if (!el) return true; "
+    "const t = (el.textContent || '').replace(/\\s+/g, ' ').trim(); "
+    "return !/\\d+\\s*%/.test(t) || /complete|hoàn tất|đã tải lên|xử lý|processing|checks/i.test(t); })()"
+)
+WAIT_UPLOAD_PROGRESS = (
+    "(() => { const el = document.querySelector('ytcp-video-upload-progress'); "
+    "return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80) : 'no upload progress bar'; })()"
+)
+
+
+def wait_upload_step() -> Dict[str, Any]:
+    """Script của người dùng bấm Xuất bản sau 60 s dù video còn đang tải; lượt tự
+    động thì đóng browser ngay khi script xong — tải dở là mất video. Vòng chờ này
+    đọc thanh tiến độ của Studio mỗi 10 s (in ra log để Activity thấy 'Uploading 45%')."""
+    return {
+        "type": "loop", "label": WAIT_UPLOAD_LABEL,
+        "params": {
+            "count": WAIT_UPLOAD_ROUNDS, "delay": WAIT_UPLOAD_POLL_MS, "break_on": WAIT_UPLOAD_CHECK,
+            "steps": [{"type": "evaluate", "label": "Tiến độ tải lên", "params": {"code": WAIT_UPLOAD_PROGRESS}}],
+        },
+    }
+
+
+def _place_step(steps: List[Dict], prefix: str, fresh: Dict, position: Callable[[List[Dict]], Optional[int]]) -> bool:
+    """Đặt (hoặc làm mới) một bước do pipeline sở hữu — nhãn bắt đầu bằng `prefix`.
+    Có rồi mà khác bản hiện tại thì thay tại chỗ; chưa có thì chèn ở position(steps)
+    (None = script không có chỗ cho nó). True nếu steps đổi."""
+    idx = next((i for i, s in enumerate(steps) if isinstance(s, dict)
+                and str(s.get("label") or "").startswith(prefix)), None)
+    if idx is not None:
+        if steps[idx].get("params") != fresh["params"] or steps[idx].get("type") != fresh["type"]:
+            steps[idx] = fresh
+            return True
+        return False
+    at = position(steps)
+    if at is None:
+        return False
+    steps.insert(at, fresh)
+    return True
+
+
+def _after_navigate(steps: List[Dict]) -> Optional[int]:
+    nav = next((i for i, s in enumerate(steps) if isinstance(s, dict) and s.get("type") == "navigate"), None)
+    return None if nav is None else nav + 1
+
+
+def _after_description(steps: List[Dict]) -> Optional[int]:
+    """Sau bước điền mô tả (ô thumbnail đã hiện ở trang Chi tiết); không thấy thì sau tiêu đề."""
+    for key in ("description", "title"):
+        at = None
+        for i, s in enumerate(steps):
+            if isinstance(s, dict) and s.get("type") == "type" and key in str(s.get("selector") or ""):
+                at = i + 1
+        if at is not None:
+            return at
+    return None
+
+
+def _before_done(steps: List[Dict]) -> Optional[int]:
+    """Trước bước đầu tiên đụng tới nút Xuất bản (#done-button)."""
+    for i, s in enumerate(steps):
+        if isinstance(s, dict) and "#done-button" in str(s.get("selector") or ""):
+            return i
+    return None
+
+
 SEED_SCRIPTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
@@ -2508,9 +2580,9 @@ def ensure_upload_script(slug: str) -> bool:
 
 
 def ensure_thumbnail_branch(slug: str) -> bool:
-    """Chèn (hoặc làm mới) hai bước do pipeline sở hữu trong script `slug`:
-    t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả.
-    True nếu có thay đổi."""
+    """Chèn (hoặc làm mới) các bước do pipeline sở hữu trong script `slug`:
+    t2:open-upload ngay sau bước mở trang, t2:thumbnail sau bước điền mô tả,
+    t2:wait-upload trước nút Xuất bản. True nếu có thay đổi."""
     try:
         from tubecli.extensions.browser_scripts.script_routes import _store
         store = _store()
@@ -2521,57 +2593,249 @@ def ensure_thumbnail_branch(slug: str) -> bool:
     if not script:
         return False
     steps = list(script.get("steps") or [])
-    changed = False
-    # 1. Mở hộp thoại tải lên (ngay sau bước navigate đầu tiên)
-    opener = open_upload_step()
-    idx = next((i for i, s in enumerate(steps) if isinstance(s, dict)
-                and str(s.get("label") or "").startswith("t2:open-upload")), None)
-    if idx is None:
-        nav = next((i for i, s in enumerate(steps) if isinstance(s, dict) and s.get("type") == "navigate"), None)
-        if nav is not None:
-            steps.insert(nav + 1, opener)
-            changed = True
-    elif steps[idx].get("params") != opener["params"]:
-        steps[idx] = opener
-        changed = True
-    # 2. Nhánh thumbnail
-    fresh = thumbnail_branch_step()
-    for i, s in enumerate(steps):
-        if isinstance(s, dict) and str(s.get("label") or "").startswith("t2:thumbnail"):
-            if s.get("params") != fresh["params"]:
-                steps[i] = fresh                  # bản cũ (vd còn bước wait) → thay
-                changed = True
-            if changed:
-                try:
-                    store.update_script(slug, steps=steps)
-                except Exception as e:
-                    logger.warning(f"[ContentVideo] could not refresh the pipeline steps in {slug}: {e}")
-                    return False
-            return changed
-    # Sau bước điền mô tả (ô thumbnail đã hiện ở trang Chi tiết); không thấy thì sau tiêu đề.
-    at = None
-    for i, s in enumerate(steps):
-        if isinstance(s, dict) and s.get("type") == "type" and "description" in str(s.get("selector") or ""):
-            at = i + 1
-    if at is None:
-        for i, s in enumerate(steps):
-            if isinstance(s, dict) and s.get("type") == "type" and "title" in str(s.get("selector") or ""):
-                at = i + 1
-    if at is None:
+    changed = _place_step(steps, "t2:open-upload", open_upload_step(), _after_navigate)
+    changed = _place_step(steps, "t2:thumbnail", thumbnail_branch_step(), _after_description) or changed
+    changed = _place_step(steps, "t2:wait-upload", wait_upload_step(), _before_done) or changed
+    if not changed:
         return False
-    steps.insert(at, thumbnail_branch_step())
     try:
         store.update_script(slug, steps=steps)
     except Exception as e:
-        logger.warning(f"[ContentVideo] could not add the thumbnail branch to {slug}: {e}")
+        logger.warning(f"[ContentVideo] could not refresh the pipeline steps in {slug}: {e}")
         return False
     return True
 
 
-def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
-    """Đăng qua YouTube Studio bằng script trình duyệt của chính người dùng."""
+LIVE_CDP_WAIT = 30            # giây chờ khung Browser công bố cổng CDP sau khi mở
+SCRIPT_LOG_POLL = 2.0         # giây giữa hai lần đọc log runner
+SCRIPT_APPEAR_WAIT = 20       # giây chờ tiến trình runner xuất hiện sau khi /run trả lời
+
+
+class _ScriptRun(dict):
+    """Cùng hình RunResult của script_routes: biến ra + .success/.log/.exec_id."""
+
+    def __init__(self, variables=None, success=False, log="", exec_id=None):
+        super().__init__(variables if isinstance(variables, dict) else {})
+        self.success, self.log, self.exec_id = bool(success), log or "", exec_id
+
+
+def _preview_port(profile: str):
+    """Cổng khung Browser live đang chạy hồ sơ này (bảng tiến trình của server), hay None."""
+    try:
+        from tubecli.extensions.browser.routes import _resolve_port_for_profile
+        return _resolve_port_for_profile(profile)
+    except Exception as e:
+        logger.debug(f"[ContentVideo] preview port of {profile}: {e}")
+        return None
+
+
+def _cdp_port(profile: str):
+    """Cổng CDP còn sống mà khung Browser của hồ sơ công bố (đã kiểm profile/pid), hay None."""
+    try:
+        from tubecli.extensions.browser_scripts.group_scripts import cdp_port_of
+        return cdp_port_of(profile)
+    except Exception as e:
+        logger.debug(f"[ContentVideo] cdp port of {profile}: {e}")
+        return None
+
+
+def _script_progress(lines: List[str]) -> str:
+    """Dòng đáng nói cuối cùng trong một mẻ log runner (JSON lines) — cho Activity."""
+    out = ""
+    for raw in lines:
+        raw = str(raw or "").strip()
+        if not raw:
+            continue
+        if not raw.startswith("{"):
+            out = raw[:160]
+            continue
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(d, dict):
+            continue
+        st = str(d.get("status") or "")
+        if st == "step":
+            out = f"step {d.get('step_index')} {d.get('step_type')}: {str(d.get('message') or '')}"[:160]
+        elif st == "log":
+            out = str(d.get("message") or "")[:160]
+        elif st == "done":
+            out = ("script finished" if d.get("success")
+                   else f"script failed: {str(d.get('message') or d.get('error') or '')[:120]}")
+    return out
+
+
+def _done_verdict(log: str, exec_id) -> bool:
+    """Dòng {"status":"done"} của chính runner nói lượt chạy có xong không (không dò
+    chuỗi success trong log: log chép cả thứ trang web trả về)."""
+    ok = False
+    for raw in str(log or "").splitlines():
+        raw = raw.strip()
+        if not raw.startswith("{"):
+            continue
+        try:
+            d = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(d, dict) and d.get("status") == "done" and str(d.get("exec_id", exec_id)) == str(exec_id):
+            ok = bool(d.get("success"))
+    return ok
+
+
+def _stop_script_run(exec_id: int) -> None:
+    try:
+        _post(f"/api/v1/scripts/execution/{exec_id}/stop", {}, timeout=30)
+    except Exception as e:
+        logger.info(f"[ContentVideo] could not stop script run {exec_id}: {e}")
+
+
+def _follow_script_run(state: Dict, exec_id: int) -> List[str]:
+    """Theo lượt chạy /run tới khi xong: đọc log mới mỗi vài giây, đổ dòng đáng
+    nói vào Activity (bước mấy, tải lên bao nhiêu %), dừng nó khi task bị huỷ
+    hay quá hạn. Trả toàn bộ log."""
+    say, cancelled = state["_say"], state["_cancelled"]
+    lines: List[str] = []
+    offset, last, started = 0, "", False
+    appear = time.time() + SCRIPT_APPEAR_WAIT
+    deadline = time.time() + PUBLISH_SCRIPT_TIMEOUT
+    while True:
+        if cancelled():
+            _stop_script_run(exec_id)
+            raise _cancel_exc()
+        if time.time() > deadline:
+            _stop_script_run(exec_id)
+            raise RuntimeError(f"The upload script did not finish in {PUBLISH_SCRIPT_TIMEOUT // 60} min and was stopped.")
+        try:
+            data = _get(f"/api/v1/scripts/execution/{exec_id}/logs?offset={offset}", timeout=30) or {}
+        except Exception as e:
+            logger.info(f"[ContentVideo] script log read failed: {e}")
+            data = {}
+        new = [str(x) for x in (data.get("lines") or [])]
+        lines.extend(new)
+        try:
+            offset = max(offset, int(data.get("offset") or 0))
+        except (TypeError, ValueError):
+            pass
+        msg = _script_progress(new)
+        if msg and msg != last:
+            say("publish", "running", msg)
+            last = msg
+        if data.get("running"):
+            started = True
+        elif started or time.time() > appear:
+            break
+        time.sleep(SCRIPT_LOG_POLL)
+    return lines
+
+
+def _script_result(exec_id: int, lines: List[str], started_at: float) -> _ScriptRun:
+    """Kết quả lượt chạy: biến ra từ result_<exec_id>.json (runner ghi cả khi hỏng —
+    thành/bại đọc ở cờ success), không có file thì hỏi dòng kết thúc của runner."""
+    log = "\n".join(lines[-500:])
+    ok = _done_verdict(log, exec_id)
+    variables: Dict = {}
+    try:
+        from tubecli.extensions.browser_scripts import script_routes as _sr
+        rf = os.path.join(os.path.dirname(os.path.abspath(str(_sr.__file__))), "runner", "tmp", f"result_{exec_id}.json")
+        if os.path.isfile(rf):
+            # Đường /run không xoá file kết quả; id là AUTOINCREMENT nên một file của
+            # đời DB trước có thể trùng tên — file có trước lúc ta bấm chạy là rác.
+            if os.path.getmtime(rf) + 2 >= started_at:
+                with open(rf, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    variables = data.get("variables") if isinstance(data.get("variables"), dict) else {}
+                    ok = bool(data.get("success"))
+            try:
+                os.remove(rf)
+            except OSError:
+                pass
+    except Exception as e:
+        logger.info(f"[ContentVideo] cannot read script result {exec_id}: {e}")
+    return _ScriptRun(variables, ok, log, exec_id)
+
+
+def _live_publish(state: Dict, slug: str, variables: Dict, profile: str):
+    """Chạy script đăng TRONG khung Browser live của hồ sơ: mở live view nếu chưa
+    có (thẻ Browser trên canvas sáng "đang chạy", chủ xem được từng bước), gắn
+    runner vào đó qua CDP, đổ log vào Activity. Trả kết quả chạy, hay None khi
+    không có live view được (người gọi chạy ẩn như cũ). Chạy ẩn trước đây là mặc
+    định: hồ sơ "im re" suốt lượt đăng, không ai biết nó đang làm gì."""
+    say, cancelled = state["_say"], state["_cancelled"]
+    opened = ""
+    if not _preview_port(profile):
+        try:
+            res = _post("/api/v1/browser/preview/launch",
+                        {"profile": profile, "url": str(variables.get("upload_url") or ""),
+                         "force": True, "opened_by": "content_video"}, timeout=180) or {}
+        except Exception as e:
+            say("publish", "running", f"live view could not start ({str(e)[:120]}) — uploading in a hidden browser")
+            return None
+        if str(res.get("status") or "") != "launched":
+            why = str(res.get("message_vi") or res.get("message") or res.get("reason") or res)[:160]
+            say("publish", "running", f"live view refused: {why} — uploading in a hidden browser")
+            return None
+        opened = str(res.get("session_id") or "")
+        say("publish", "running", f"live view of “{profile}” is opening — watch it in the Browser node on the canvas")
+    keep_open = False
+    try:
+        deadline = time.time() + LIVE_CDP_WAIT
+        while not _cdp_port(profile):
+            if cancelled():
+                raise _cancel_exc()
+            if time.time() > deadline:
+                say("publish", "running", "the live view did not come up in time — uploading in a hidden browser")
+                return None
+            time.sleep(0.5)
+        body = {"profile": profile, "variables": dict(variables), "headless": False, "engine": "playwright",
+                "attach": True, "tab_index": -1, "tab_url": "",
+                # KHÔNG bơm mật khẩu/2FA đã lưu của hồ sơ vào biến chạy: runner ghi cả
+                # giỏ biến ra file kết quả và thẻ task in nó ra.
+                "inject_credentials": False}
+        started_at = time.time()
+        try:
+            run = _post(f"/api/v1/scripts/{slug}/run", body, timeout=60) or {}
+        except Exception as e:
+            if _http_status(e) == 409:
+                raise RuntimeError(f"A script is already running on browser profile “{profile}” — "
+                                   "wait for it to finish, then retry.")
+            say("publish", "running", f"could not attach the upload script to the live view ({str(e)[:120]}) — uploading in a hidden browser")
+            return None
+        exec_id = run.get("exec_id")
+        if exec_id is None:
+            return None
+        say("publish", "running", f"upload script running in the live view of “{profile}” (execution #{exec_id})")
+        lines = _follow_script_run(state, int(exec_id))
+        res = _script_result(int(exec_id), lines, started_at)
+        if not res.success and opened:
+            # Hỏng thì để nguyên cửa sổ cho chủ nhìn nó dừng ở đâu (đăng nhập? captcha?).
+            keep_open = True
+            say("publish", "running", f"the live view of “{profile}” stays open so you can see where it stopped")
+        return res
+    finally:
+        if opened and not keep_open:
+            try:
+                _post("/api/v1/browser/preview/stop", {"session_id": opened}, timeout=30)
+            except Exception as e:
+                logger.info(f"[ContentVideo] could not close live view {opened}: {e}")
+
+
+def _run_upload_script(state: Dict, options: Dict, slug: str, variables: Dict, profile: str):
+    """Live view trước (xem được), ẩn sau (như cũ). publish_headless=True ép chạy ẩn."""
+    if not options.get("publish_headless"):
+        res = _live_publish(state, slug, variables, profile)
+        if res is not None:
+            return res
     from tubecli.extensions.browser_scripts.script_routes import run_script_sync
 
+    state["_say"]("publish", "running", f"uploading in a hidden browser as “{profile}”")
+    return run_script_sync(slug, variables=variables, profile=profile,
+                           headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
+
+
+def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
+    """Đăng qua YouTube Studio bằng script trình duyệt của chính người dùng."""
     agent, say = state["agent"], state["_say"]
     slug = str(options.get("publish_script") or DEFAULTS["publish_script"]).strip()
     if ensure_upload_script(slug):
@@ -2616,9 +2880,10 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
     say("publish", "running",
         "opening YouTube Studio as “%s”%s" % (profile, " · monetised" if monetize == "1" else ""))
     try:
-        res = run_script_sync(slug, variables=variables, profile=profile,
-                              headless=True, timeout=PUBLISH_SCRIPT_TIMEOUT)
+        res = _run_upload_script(state, options, slug, variables, profile)
     except Exception as e:
+        if e.__class__.__name__ == "TaskCancelled":   # huỷ task → để worker xử lý êm
+            raise
         raise RuntimeError("The upload script could not run: %s" % str(e)[:200])
     if not getattr(res, "success", False):
         tail = (getattr(res, "log", "") or "")[-300:].strip()

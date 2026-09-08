@@ -479,6 +479,24 @@
       }
     },
     {
+      "type": "loop",
+      "label": "t2:wait-upload — chờ video tải lên xong rồi mới bấm Xuất bản",
+      "params": {
+        "count": 180,
+        "delay": 10000,
+        "break_on": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); if (!el) return true; const t = (el.textContent || '').replace(/\\s+/g, ' ').trim(); return !/\\d+\\s*%/.test(t) || /complete|hoàn tất|đã tải lên|xử lý|processing|checks/i.test(t); })()",
+        "steps": [
+          {
+            "type": "evaluate",
+            "label": "Tiến độ tải lên",
+            "params": {
+              "code": "(() => { const el = document.querySelector('ytcp-video-upload-progress'); return el ? (el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 80) : 'no upload progress bar'; })()"
+            }
+          }
+        ]
+      }
+    },
+    {
       "type": "wait",
       "label": "Chờ nút Xong/Lên lịch",
       "selector": "#done-button",
