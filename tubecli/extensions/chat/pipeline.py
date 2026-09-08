@@ -485,7 +485,8 @@ async def _run_turn(
                 ui_lang = (get_language() or "vi").strip()
             except Exception:
                 ui_lang = "vi"
-            handled = await intent_handlers.dispatch(intent, agent_dict, ui_lang)
+            handled = await intent_handlers.dispatch(intent, agent_dict, ui_lang,
+                                                     session_id=session_id)
             if handled is not None and handled.strip():
                 # A handler that queued codex work ends with the task marker;
                 # lift it into meta so the chat draws the live card (as the

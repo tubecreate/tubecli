@@ -881,6 +881,41 @@ class CodexManager:
                 data={"step": name, "status": status, "progress": pct},
             )
 
+    CHAT_PREVIEW = 1500
+
+    def post_to_chat(self, task: Dict[str, Any], icon: str, body: str) -> None:
+        """Trả kết quả về ĐÚNG phiên chat đã ra lệnh (origin.chat_session).
+
+        Trước đây kết thúc chỉ bắn Telegram; người ra lệnh trong chat chỉ thấy dòng
+        "đã xếp hàng" rồi im, muốn biết xong hay hỏng phải tự mở bảng Codex.
+
+        Chữ nghĩa gần như không có, y như bản tin lượt chạy: icon + số task + tiêu
+        đề + phần thân (kết quả hay lỗi) — đã là ngôn ngữ của người dùng, khỏi phải
+        dịch. meta.codex_task để giao diện vẽ thẻ task sống như lúc xếp hàng.
+        """
+        sid = str((task.get("origin") or {}).get("chat_session") or "")
+        if not sid:
+            return
+        try:
+            from tubecli.extensions.chat.store import conversation_store
+
+            if not conversation_store.get_session(sid):
+                return                      # phiên đã bị xoá — không đẻ file mồ côi
+            text = f"{icon} Codex #{task.get('seq', '?')} · {str(task.get('title') or '').strip()}"
+            body = (body or "").strip()
+            if body:
+                if len(body) > self.CHAT_PREVIEW:
+                    body = body[:self.CHAT_PREVIEW] + "…"
+                text += "\n\n" + body
+            conversation_store.append_message(sid, "assistant", text, meta={
+                "kind": "codex_result",
+                "codex_task": str(task.get("id") or ""),
+                "seq": task.get("seq"),
+                "status": task.get("status"),
+            })
+        except Exception as e:
+            logger.info(f"[Codex] cannot post the result into chat {sid}: {e}")
+
     def report_result(self, task_id: str, result: str) -> Dict[str, Any]:
         task = self.get_task(task_id)
         seq = task.get("seq") if task else "?"
@@ -903,6 +938,7 @@ class CodexManager:
             _t("codex.notify_done", seq=seq,
                title=_md(updated.get("title", "")), preview=_md(preview)),
         )
+        self.post_to_chat(updated, "✅", result or "")
         return updated
 
     def report_failure(self, task_id: str, error: str) -> Dict[str, Any]:
@@ -922,6 +958,7 @@ class CodexManager:
             _t("codex.notify_failed", seq=seq,
                title=_md(updated.get("title", "")), error=_md(error[:600])),
         )
+        self.post_to_chat(updated, "❌", error or "")
         return updated
 
     def is_cancel_requested(self, task_id: str) -> bool:

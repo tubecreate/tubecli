@@ -19,6 +19,7 @@ Các intent có side-effect riêng kênh (gửi file, plan-&-confirm, đổi kê
 để trong dispatcher tương ứng — registry chỉ gom phần THUẦN VĂN BẢN.
 """
 import asyncio
+import contextvars
 import logging
 from typing import Optional, Callable, Dict, Awaitable
 
@@ -46,18 +47,42 @@ def meta_for(intent_type: str) -> Dict[str, str]:
     return INTENT_META.get(intent_type, {"badge": "", "skill_used": ""})
 
 
-async def dispatch(intent, agent_dict: dict, user_lang: str = "vi") -> Optional[str]:
+# Phiên chat của lượt đang chạy. Contextvar chứ không phải tham số: mọi handler
+# đều mang chữ ký (intent, agent_dict, user_lang), và đổi chữ ký ấy là sửa từng
+# handler một cho một thứ chỉ vài handler cần. Telegram không đặt → rỗng.
+_CHAT_SESSION: contextvars.ContextVar = contextvars.ContextVar("codex_chat_session", default="")
+
+
+def chat_session() -> str:
+    """Phiên chat đã gọi handler này (rỗng nếu đến từ Telegram hay lịch)."""
+    return str(_CHAT_SESSION.get() or "")
+
+
+def task_origin(agent_id: str) -> dict:
+    """`origin` cho một task Codex: ai chạy, và TRẢ KẾT QUẢ VỀ ĐÂU."""
+    origin = {"agent_id": str(agent_id)}
+    sid = chat_session()
+    if sid:
+        origin["chat_session"] = sid
+    return origin
+
+
+async def dispatch(intent, agent_dict: dict, user_lang: str = "vi",
+                   session_id: str = "") -> Optional[str]:
     """Gọi handler đã đăng ký cho intent. Trả None nếu không có handler hoặc
     handler tự bỏ (để dispatcher rơi về LLM)."""
     fn = INTENT_HANDLERS.get(getattr(intent, "intent_type", ""))
     if not fn:
         return None
+    token = _CHAT_SESSION.set(str(session_id or ""))
     try:
         return await fn(intent, agent_dict, user_lang)
     except Exception as e:
         logger.error(f"[IntentHandlers] {getattr(intent,'intent_type','?')} failed: {e}",
                      exc_info=True)
         return None  # rơi về LLM thay vì trả rỗng
+    finally:
+        _CHAT_SESSION.reset(token)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -153,13 +178,13 @@ async def _content_video(intent, agent_dict, user_lang) -> Optional[str]:
         # vừa yêu cầu). Ô review trên bảng chỉ là bản ghi.
         options["publish"] = True
         task = await asyncio.to_thread(
-            create_auto_task, agent_id, options, "user", {"agent_id": agent_id},
+            create_auto_task, agent_id, options, "user", task_origin(agent_id),
             "Content video", None, None, sources,
         )
         return queued_reply(task)
     # created_by="user": the human typed the command verbatim, so the task
     # follows the codex auto-approve policy exactly like a skill command.
     task = await asyncio.to_thread(
-        create_digest_task, agent_id, options, "user", {"agent_id": agent_id}, sources,
+        create_digest_task, agent_id, options, "user", task_origin(agent_id), sources,
     )
     return queued_reply(task)

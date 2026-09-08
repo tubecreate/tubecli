@@ -814,6 +814,29 @@ def _step_capabilities(state: Dict, options: Dict) -> None:
                   " · ".join((caps.get(k) or {}).get("detail", "")[:60] for k in ("text", "image")))
 
 
+def _corpus_note(state: Dict) -> str:
+    """" — kho có 128 bài, mới nhất 2026-09-06", hay "" nếu không đo được.
+
+    Câu lỗi cụt ("hôm nay không có gì") không cho người dùng biết nên gõ "tất cả"
+    hay đi bật thu thập: hai việc khác hẳn nhau, mà khác nhau đúng ở CON SỐ này.
+    """
+    try:
+        rows = scan_window(agent_id=str(state["agent"].id), allowed_profiles=state["profiles"],
+                           hw_prev="", hw_max="", day=None,
+                           with_content=False, only_with_content=False) or []
+    except Exception as e:
+        logger.info(f"[ContentVideo] cannot measure the corpus: {e}")
+        return ""
+    if not rows:
+        return " — the corpus is empty"
+    newest = ""
+    for r in rows[::-1]:
+        newest = str((r or {}).get("scraped_at") or "")[:10]
+        if newest:
+            break
+    return f" — the corpus holds {len(rows)} pages" + (f", newest {newest}" if newest else "")
+
+
 def _step_gather(state: Dict, options: Dict) -> None:
     agent = state["agent"]
     hw_prev = str(options.get("high_water_prev") or "")
@@ -834,9 +857,9 @@ def _step_gather(state: Dict, options: Dict) -> None:
         window = {"today": "collected today", "yesterday": "collected yesterday"}.get(
             str(day or ""), "newer than the last video")
         raise RuntimeError(
-            f"The corpus has nothing {window} for this agent. Say “all” (\"tất cả\") to use "
-            "everything collected so far, run a browsing routine with data collection on, "
-            "or add sources to crawl."
+            f"The corpus has nothing {window} for this agent{_corpus_note(state)}. "
+            "Say “all” (\"tất cả\") to use everything collected so far, run a browsing "
+            "routine with data collection on, or add sources to crawl."
         )
     max_items = int(options.get("max_items") or DEFAULTS["max_items"])
     items = items[-max_items:]                     # ascending → keep the newest

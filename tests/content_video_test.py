@@ -175,6 +175,9 @@ except RuntimeError as e:
     assert "corpus has nothing" in msg, msg
     assert "collected today" in msg, msg
     assert "all" in msg and "tất cả" in msg, msg
+    # ... và ĐO kho luôn: "hôm nay không có gì" với "kho rỗng hẳn" là hai việc khác
+    # nhau, người dùng cần con số ấy mới biết nên gõ "tất cả" hay đi bật thu thập.
+    assert "the corpus is empty" in msg, msg
 print("4 clear errs : missing agent -> 'not found' | kho rỗng -> nói rõ cửa sổ + chỉ lối thoát 'tất cả'")
 
 print()
