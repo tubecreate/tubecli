@@ -2526,13 +2526,26 @@ def thumbnail_branch_step() -> Dict[str, Any]:
             # YouTube Studio là input ẩn → treo rồi rơi vào chuỗi tự sửa rất lâu.
             # Điều kiện kiểm luôn ô upload có trên trang (kênh chưa xác minh thì không
             # có), để bước upload không bao giờ phải "tự sửa" và nạp nhầm ảnh vào ô video.
-            "check": ("'{{thumbnail_set}}' === '1' && !!document.querySelector(" + repr(THUMB_INPUT_SELECTOR) + ")"),
+            # tcQuery (runner cấp) đi xuyên shadow DOM; document.querySelector thì
+            # KHÔNG, mà `input#file-loader` nằm trong shadow root của
+            # `ytcp-thumbnail-uploader`. Dùng nhầm hàm là nhánh này không chạy lần nào
+            # mà cũng không báo gì — đúng chuyện đã xảy ra suốt buổi sáng 9/9/26.
+            "check": ("'{{thumbnail_set}}' === '1' && !!tcQuery(" + repr(THUMB_INPUT_SELECTOR) + ")"),
             "then_steps": [
                 {"type": "upload", "label": "Nạp thumbnail", "selector": THUMB_INPUT_SELECTOR,
                  "on_error": "skip", "params": {"file": "{{thumbnail_path}}"}},
                 {"type": "sleep", "label": "Chờ thumbnail lên", "params": {"ms": 4000}},
+                # Hỏi lại chính ô input xem file đã vào chưa. "Không báo lỗi" KHÔNG
+                # phải bằng chứng là xong: bước upload có on_error=skip.
+                {"type": "evaluate", "label": "Xác nhận thumbnail đã vào ô",
+                 "params": {"code": ("(() => { const i = tcQuery(" + repr(THUMB_INPUT_SELECTOR)
+                                     + "); return (i && i.files && i.files.length) ? '1' : '0'; })()"),
+                            "save_as": "thumbnail_done"}},
             ],
-            "else_steps": [],
+            "else_steps": [
+                {"type": "evaluate", "label": "Không thấy ô thumbnail",
+                 "params": {"code": "'0'", "save_as": "thumbnail_done"}},
+            ],
         },
     }
 
@@ -2547,7 +2560,7 @@ def open_upload_step() -> Dict[str, Any]:
     return {
         "type": "condition", "label": OPEN_UPLOAD_LABEL,
         "params": {
-            "check": "!document.querySelector(\"input[type='file']\")",
+            "check": "!tcQuery(\"input[type='file']\")",
             "then_steps": [
                 {"type": "click_if_exists", "label": "Bấm Tạo (Create)", "selector": "#create-icon, ytcp-button#create-icon", "params": {}},
                 {"type": "sleep", "params": {"ms": 1500}},
@@ -3193,6 +3206,8 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
                            + (" — %s" % tail if tail else "")
                            + ". Open the profile in Browser and check the YouTube login.")
 
+    # Nhánh t2:thumbnail ghi lại kết quả thật vào đây ('1' vào được ô, '0' không).
+    state["thumbnail_script_done"] = str(res.get("thumbnail_done") or "")
     verdict = _publish_verdict(state, res)
     # Script CÓ THỂ trả về id/link nếu người dùng cho nó xuất biến; không có thì
     # cũng không được bịa. Video đã lên, chỉ là ta không cầm được đường dẫn.
@@ -3529,14 +3544,22 @@ def _attach_thumbnail_after_script(state: Dict, options: Dict, title: str) -> No
     pub = state.get("published") or {}
     if not path:
         return
-    if state.get("thumbnail_via_script") and (pub.get("video_id") or pub.get("url")):
-        # Ảnh đã đi cùng video lúc tải lên VÀ ta đã cầm được link video: không còn việc
-        # gì cho đường API, mà nó lại đòi token kênh này có thể không có. Nói đúng
-        # chuyện đã xảy ra thay vì báo "không gắn được, tự vào Studio làm tay đi".
-        # Chưa có link thì vẫn tra API (nếu có token) — đó là cách duy nhất lấy id.
+    # Script tự KHAI BÁO nó có nạp được ảnh hay không (biến thumbnail_done). Trước
+    # đây chỗ này suy ra từ "đã gửi thumbnail_path cho script" rồi báo "thumbnail went
+    # up with the video" — một câu khẳng định về việc chưa hề kiểm chứng, và nó đúng
+    # là sai: nhánh trong script không chạy lần nào mà pipeline vẫn báo đã xong.
+    done = str(state.get("thumbnail_script_done") or "")
+    if state.get("thumbnail_via_script") and done == "1" and (pub.get("video_id") or pub.get("url")):
         pub["thumbnail"] = "script"
         state["_say"]("publish", "running", "thumbnail went up with the video")
         return
+    if state.get("thumbnail_via_script") and done == "0":
+        # Ô thumbnail không có trên trang (kênh chưa xác minh) hoặc file không vào
+        # được. Đường API bên dưới là cơ hội thứ hai; hết cơ hội thì phải NÓI RA.
+        state.setdefault("warnings", []).append(
+            f"The YouTube Studio upload script could not attach `{os.path.basename(path)}` — "
+            "the thumbnail box was not on the page (a channel must be verified to set one). "
+            "Trying the API instead.")
     if pub.get("video_id"):
         return _attach_thumbnail(state, _vm_token(str(options.get("publish_token_id") or "")), pub["video_id"])
     channel = _resolve_channel(state, options)

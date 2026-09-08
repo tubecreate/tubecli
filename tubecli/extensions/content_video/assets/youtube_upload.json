@@ -20,7 +20,7 @@
       "type": "condition",
       "label": "t2:open-upload — bấm Tạo → Tải video lên nếu hộp thoại chưa mở",
       "params": {
-        "check": "!document.querySelector(\"input[type='file']\")",
+        "check": "!tcQuery(\"input[type='file']\")",
         "then_steps": [
           {
             "type": "click_if_exists",
@@ -119,7 +119,7 @@
       "type": "condition",
       "label": "t2:thumbnail — tải ảnh đại diện tuỳ chỉnh (chỉ khi có)",
       "params": {
-        "check": "'{{thumbnail_set}}' === '1' && !!document.querySelector('ytcp-thumbnail-uploader input#file-loader')",
+        "check": "'{{thumbnail_set}}' === '1' && !!tcQuery('ytcp-thumbnail-uploader input#file-loader')",
         "then_steps": [
           {
             "type": "upload",

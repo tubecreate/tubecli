@@ -263,9 +263,15 @@ P._publish_via_script(st, {"publish_channel_name": "Nope"}, "public")
 assert runs[-1]["thumbnail_set"] == "0" and runs[-1]["thumbnail_path"] == "", "không có thumbnail → nhánh script tắt"
 print("6 đăng      : script → tìm video theo tiêu đề, gắn thumbnail, điền id/link; không token → cảnh báo rõ")
 
-# 6g. Ảnh đại diện đi CÙNG video lúc tải lên: script đã nạp nó (thumbnail_set=1) và
-# ta đã có link video ⇒ không đòi token API, không bảo người dùng vào Studio làm tay
-# (thẻ vừa báo đăng xong mà kèm "could not be attached" là sai người sai việc).
+# 6g. "Ảnh đã lên cùng video" phải là ĐIỀU ĐÃ ĐO, không phải điều suy ra.
+#
+# Bản trước suy: đã gửi thumbnail_path cho script ⇒ coi như ảnh đã lên. Suy sai.
+# Nhánh t2:thumbnail trong script hỏi ô upload bằng document.querySelector, mà ô ấy
+# nằm trong shadow DOM của ytcp-thumbnail-uploader — nên nhánh KHÔNG chạy lần nào,
+# else_steps rỗng nên cũng không báo gì, và pipeline vẫn kết luận "thumbnail went up
+# with the video". Người dùng sinh thumbnail cả buổi sáng 9/9/26, không cái nào lên
+# kênh (xem tests/script_shadow_dom_test.py). Giờ script tự khai báo qua biến
+# thumbnail_done, và pipeline chỉ tin con số ấy.
 P._google_tokens = lambda: []
 setmb.clear()
 runs.clear()
@@ -277,14 +283,40 @@ class _ResPub(dict):
     log = ""
 
 
-P._run_upload_script = lambda state, options, slug, variables, profile: (
-    runs.append(variables) or _ResPub({P.VERIFY_PUBLISH_VAR: {"state": "published", "url": "https://youtu.be/Kk12_ab"}}))
+def _pub_res(extra):
+    def run(state, options, slug, variables, profile):
+        runs.append(variables)
+        return _ResPub({P.VERIFY_PUBLISH_VAR: {"state": "published", "url": "https://youtu.be/Kk12_ab"}, **extra})
+    return run
+
+
+# (a) script BÁO đã nạp được ảnh → không đòi token API, không bảo vào Studio làm tay
+P._run_upload_script = _pub_res({"thumbnail_done": "1"})
 stg = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png,
        "_say": lambda *a: None, "_cancelled": lambda: False}
 P._publish_via_script(stg, {"publish_channel_name": "Nope"}, "public")
 assert runs[-1]["thumbnail_set"] == "1" and stg["thumbnail_via_script"] is True, runs[-1]
 assert stg["published"]["thumbnail"] == "script" and stg["published"]["video_id"] == "Kk12_ab", stg["published"]
 assert not any("could not be attached" in w or "by hand" in w for w in stg.get("warnings", [])), stg.get("warnings")
+
+# (b) script báo KHÔNG nạp được → phải nói ra, chứ không im lặng nhận công
+runs.clear()
+P._run_upload_script = _pub_res({"thumbnail_done": "0"})
+stb = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png,
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(stb, {"publish_channel_name": "Nope"}, "public")
+assert stb["published"].get("thumbnail") != "script", stb["published"]
+assert any("could not attach" in w.lower() for w in stb.get("warnings", [])), stb.get("warnings")
+
+# (c) script CŨ chưa có biến ấy (VPS chưa cập nhật) → không được đoán bừa là xong;
+# đi tiếp đường API và nói thẳng là chưa xác minh được.
+runs.clear()
+P._run_upload_script = _pub_res({})
+stc = {"agent": _A3(), "video_path": "/v.mp4", "thumbnail_path": png,
+       "_say": lambda *a: None, "_cancelled": lambda: False}
+P._publish_via_script(stc, {"publish_channel_name": "Nope"}, "public")
+assert stc["published"].get("thumbnail") != "script", stc["published"]
+
 # không có ảnh → script không nạp gì → cờ tắt, đường API cũ giữ nguyên
 runs.clear()
 P._run_upload_script = lambda state, options, slug, variables, profile: (
@@ -293,7 +325,7 @@ stn = {"agent": _A3(), "video_path": "/v.mp4", "_say": lambda *a: None, "_cancel
 P._publish_via_script(stn, {"publish_channel_name": "Nope"}, "public")
 assert runs[-1]["thumbnail_set"] == "0" and stn["thumbnail_via_script"] is False
 P._run_upload_script = _real_run_upload
-print("6g thumbnail : ảnh lên cùng video thì báo đúng vậy, không đòi token API")
+print("6g thumbnail : chỉ tin thumbnail_done từ script, không suy ra từ việc đã gửi ảnh")
 
 # 6b. Nhánh thumbnail tự chèn vào script (một lần, sau bước mô tả), là bước condition theo thumbnail_set
 class _Store:
@@ -317,18 +349,26 @@ SR = sys.modules["tubecli.extensions.browser_scripts.script_routes"]   # module 
 SR._store = lambda: store
 assert P.ensure_thumbnail_branch("youtube_upload") is True and store.saved == ["youtube_upload"]
 steps = store.script["steps"]
-assert steps[1]["label"].startswith("t2:open-upload") and steps[1]["params"]["check"].startswith("!document.querySelector"), steps[1]
+assert steps[1]["label"].startswith("t2:open-upload") and steps[1]["params"]["check"].startswith("!tcQuery"), steps[1]
 assert [t["type"] for t in steps[1]["params"]["then_steps"]] == ["click_if_exists", "sleep", "click_if_exists", "sleep"]
 assert "#create-icon" in steps[1]["params"]["then_steps"][0]["selector"] and "#text-item-0" in steps[1]["params"]["then_steps"][2]["selector"]
 steps[3], steps[4] = steps[4], steps[3]      # thumbnail đứng sau mô tả (giờ ở 4 vì có opener) — sắp lại để các check dưới giữ nguyên
 assert steps[3]["type"] == "condition" and steps[3]["label"].startswith("t2:thumbnail"), steps[3]
-assert steps[3]["params"]["check"].startswith("'{{thumbnail_set}}' === '1' && !!document.querySelector(")
-assert [t["type"] for t in steps[3]["params"]["then_steps"]] == ["upload", "sleep"], "không có bước wait (input ẩn)"
+# tcQuery chứ KHÔNG phải document.querySelector: ô upload nằm trong shadow DOM của
+# ytcp-thumbnail-uploader, nên câu hỏi cũ luôn trả lời "không có" và nhánh không chạy
+# lần nào (tests/script_shadow_dom_test.py chứng minh trên Chromium thật).
+assert steps[3]["params"]["check"].startswith("'{{thumbnail_set}}' === '1' && !!tcQuery(")
+# upload → sleep → evaluate: bước cuối HỎI LẠI chính ô input xem file đã vào chưa.
+# "Không báo lỗi" không phải bằng chứng là xong — bước upload chạy với on_error=skip.
+# Vẫn KHÔNG có bước `wait`: runner chờ phần tử hiển thị, mà input file thì ẩn.
+assert [t["type"] for t in steps[3]["params"]["then_steps"]] == ["upload", "sleep", "evaluate"],     steps[3]["params"]["then_steps"]
+assert steps[3]["params"]["then_steps"][-1]["params"]["save_as"] == "thumbnail_done"
+assert steps[3]["params"]["else_steps"] and steps[3]["params"]["else_steps"][0]["params"]["save_as"] == "thumbnail_done",     "nhánh trượt phải để lại dấu vết, không im lặng"
 assert steps[3]["params"]["then_steps"][0]["selector"] == "ytcp-thumbnail-uploader input#file-loader"
 assert steps[3]["params"]["then_steps"][0]["params"]["file"] == "{{thumbnail_path}}"
 assert P.ensure_thumbnail_branch("youtube_upload") is False and len(store.saved) == 1, "idempotent"
 steps[3]["params"]["then_steps"].insert(0, {"type": "wait"})              # bản cũ trên máy khác
-assert P.ensure_thumbnail_branch("youtube_upload") is True and len(store.saved) == 2 and     [t["type"] for t in store.script["steps"][3]["params"]["then_steps"]] == ["upload", "sleep"], "bản cũ được thay"
+assert P.ensure_thumbnail_branch("youtube_upload") is True and len(store.saved) == 2 and     [t["type"] for t in store.script["steps"][3]["params"]["then_steps"]] == ["upload", "sleep", "evaluate"], "bản cũ được thay"
 assert P.ensure_thumbnail_branch("no_such") is False
 print("6b script   : nhánh condition thumbnail chèn sau bước mô tả, một lần, không có ảnh thì bỏ qua")
 

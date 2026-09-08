@@ -484,6 +484,92 @@ async function checkPageState(page, stepIndex, stepType) {
     }
 }
 
+
+// ── Tìm phần tử XUYÊN SHADOW DOM cho mã chạy trong trang ────────────────────
+// document.querySelector KHÔNG đi vào shadow root, còn locator của Playwright và
+// CDP (pierce:true) thì có. Bất đối xứng đó làm một bước `condition` trả lời "không
+// có phần tử" ngay trước một bước `upload` tìm thấy nó — nhánh im lặng không chạy,
+// không lỗi, không dấu vết. Đo 9/9/26 trên YouTube Studio: `input#file-loader` nằm
+// trong shadow root của `ytcp-thumbnail-uploader`, nên nhánh tải thumbnail không
+// chạy lần nào suốt buổi sáng.
+//
+// KHÔNG vá đè document.querySelector của trang: YouTube Studio tự gọi nó liên tục,
+// đổi ngữ nghĩa dưới chân trang chủ là mở một loại lỗi khác còn khó tìm hơn.
+const DEEP_QUERY_SRC = `
+  // Mọi "gốc cây" nhìn thấy từ đây: chính nó, shadow root của nó, và shadow root
+  // của mọi phần tử con.
+  const __tcRoots = (root) => {
+    const out = [root];
+    if (root && root.shadowRoot) out.push(root.shadowRoot);
+    const walk = (n) => {
+      let all;
+      try { all = n.querySelectorAll('*'); } catch (e) { return; }
+      for (const el of all) {
+        if (el.shadowRoot) { out.push(el.shadowRoot); walk(el.shadowRoot); }
+      }
+    };
+    walk(root && root.shadowRoot ? root.shadowRoot : root);
+    if (root && root.shadowRoot) walk(root);
+    return out;
+  };
+  // Tách selector theo dấu cách CẤP CAO NHẤT (không cắt trong ngoặc hay chuỗi).
+  // Tổ hợp >, + và ~ dính liền với chặng sau: chúng không bắc qua shadow được.
+  const __tcSplit = (sel) => {
+    const parts = [];
+    let buf = '', depth = 0, quote = '';
+    for (const ch of sel) {
+      if (quote) { buf += ch; if (ch === quote) quote = ''; continue; }
+      if (ch === '"' || ch === "'") { quote = ch; buf += ch; continue; }
+      if (ch === '[' || ch === '(') depth++;
+      if (ch === ']' || ch === ')') depth--;
+      if (ch === ' ' && depth === 0) { if (buf.trim()) parts.push(buf.trim()); buf = ''; continue; }
+      buf += ch;
+    }
+    if (buf.trim()) parts.push(buf.trim());
+    const out = [];
+    for (const p of parts) {
+      if (out.length && /^[>+~]$/.test(out[out.length - 1].slice(-1)) === false && /^[>+~]$/.test(p)) {
+        out[out.length - 1] += ' ' + p;
+      } else if (out.length && /[>+~]$/.test(out[out.length - 1])) {
+        out[out.length - 1] += ' ' + p;
+      } else {
+        out.push(p);
+      }
+    }
+    return out;
+  };
+  const tcQueryAll = (sel, root) => {
+    const base = root || document;
+    const hits = [];
+    for (const r of __tcRoots(base)) {
+      try { hits.push(...r.querySelectorAll(sel)); } catch (e) {}
+    }
+    if (hits.length) return hits;
+    // Selector bắc qua ranh giới shadow: đi từng chặng, mỗi chặng được phép bước
+    // qua một shadow root — đúng cách locator của Playwright làm.
+    const parts = __tcSplit(sel);
+    if (parts.length < 2) return [];
+    let scopes = [base];
+    for (const part of parts) {
+      const next = [];
+      for (const sc of scopes) {
+        for (const r of __tcRoots(sc)) {
+          try { for (const el of r.querySelectorAll(part)) if (!next.includes(el)) next.push(el); } catch (e) {}
+        }
+      }
+      if (!next.length) return [];
+      scopes = next;
+    }
+    return scopes;
+  };
+  const tcQuery = (sel, root) => tcQueryAll(sel, root)[0] || null;
+`;
+
+// Chạy một biểu thức của script trong trang, có sẵn tcQuery/tcQueryAll.
+function inPage(code) {
+    return `(() => { ${DEEP_QUERY_SRC}\nreturn (${code}); })()`;
+}
+
 async function executeStep(page, step, index) {
     const type = step.type;
     const params = step.params || {};
@@ -709,7 +795,7 @@ async function executeStep(page, step, index) {
         }
         case 'evaluate': {
             const code = interpolate(params.code || '');
-            const result = await page.evaluate(code);
+            const result = await page.evaluate(inPage(code));
             if (params.save_as) variables[params.save_as] = result;
             stepLog(index, type, `Evaluated, result: ${JSON.stringify(result).slice(0, 200)}`);
             break;
@@ -838,7 +924,7 @@ async function executeStep(page, step, index) {
         }
         case 'condition': {
             const checkCode = interpolate(params.check || 'false');
-            const result = await page.evaluate(checkCode);
+            const result = await page.evaluate(inPage(checkCode));
             const branch = result ? (params.then_steps || []) : (params.else_steps || []);
             for (let i = 0; i < branch.length; i++) {
                 await executeStepWithRetry(page, branch[i], `${index}.${i}`);
@@ -852,7 +938,7 @@ async function executeStep(page, step, index) {
             for (let iter = 0; iter < count; iter++) {
                 variables['_loop_index'] = iter;
                 if (params.break_on) {
-                    const shouldBreak = await page.evaluate(interpolate(params.break_on));
+                    const shouldBreak = await page.evaluate(inPage(interpolate(params.break_on)));
                     if (shouldBreak) { stepLog(index, type, `Loop break at iteration ${iter}`); break; }
                 }
                 for (let i = 0; i < loopSteps.length; i++) {
