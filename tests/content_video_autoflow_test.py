@@ -222,8 +222,7 @@ class _Res(dict):
     log = ""
 
 
-fake_sr.run_script_sync = lambda slug, variables=None, profile="", headless=True, timeout=None, ai_fix=True: (
-    runs.append(variables) or _Res())
+fake_sr.run_script_sync = lambda slug, variables=None, profile="", headless=True, timeout=None: runs.append(variables) or _Res()
 sys.modules["tubecli.extensions.browser_scripts.script_routes"] = fake_sr
 _real_live_publish = P._live_publish
 P._live_publish = lambda *a, **k: None          # nhóm 6: không có live view → đường ẩn
@@ -411,7 +410,6 @@ launch = next(c for c in calls if c[1].endswith("/preview/launch"))[2]
 assert launch["profile"] == "test2" and launch["url"] == "https://studio.youtube.com/x" and launch["opened_by"] == "content_video"
 run = next(c for c in calls if c[1].endswith("/youtube_upload/run"))[2]
 assert run["attach"] is True and run["inject_credentials"] is False and run["headless"] is False and run["variables"]["title"] == "t", run
-assert run["ai_fix"] is False, "lượt đăng tự động không nhờ AI đoán selector (mỗi lần vấp là 15k ký tự DOM gửi sang model)"
 assert any("step 3 upload: Đã nạp file lên input" in m for m in said) and any("script finished" in m for m in said), said
 assert calls[-1][1].endswith("/browser/stop") and calls[-1][2] == {"profile": "test2", "force": False}, \
     "đăng xong thì ĐÓNG PHIÊN (mỗi phiên Chromium ăn 450–800 MB, không ai ngồi xem)"

@@ -620,7 +620,7 @@ let activeStepIndex = -1;
 
 function clearStepStates() {
     document.querySelectorAll('.step-card').forEach(el => {
-        el.classList.remove('running', 'success', 'error', 'ai-fixing');
+        el.classList.remove('running', 'success', 'error');
     });
     activeStepIndex = -1;
 }
@@ -632,7 +632,7 @@ function setStepState(index, state) {
     }
     const card = document.getElementById(`step-${index}`);
     if (!card) return;
-    card.classList.remove('running', 'success', 'error', 'ai-fixing');
+    card.classList.remove('running', 'success', 'error');
     if (state) card.classList.add(state);
     if (state === 'running') {
         activeStepIndex = index;
@@ -670,10 +670,6 @@ function parseStepLog(line) {
                 }
                 finishExecutionUI();
             }
-            // Detect AI fix
-            if (parsed.message && parsed.message.includes('AI Auto-Fix')) {
-                if (activeStepIndex >= 0) setStepState(activeStepIndex, 'ai-fixing');
-            }
             if (parsed.message && parsed.message.includes('✅')) {
                 if (activeStepIndex >= 0) setStepState(activeStepIndex, 'success');
             }
@@ -682,9 +678,7 @@ function parseStepLog(line) {
     }
 
     // Non-JSON fallback: detect step status from text
-    if (line.includes('AI Auto-Fix')) {
-        if (activeStepIndex >= 0) setStepState(activeStepIndex, 'ai-fixing');
-    } else if (line.includes('✅') || line.includes('AI fix worked')) {
+    if (line.includes('✅')) {
         if (activeStepIndex >= 0) setStepState(activeStepIndex, 'success');
     } else if (line.includes('Navigated to') || line.includes('Clicked') || line.includes('Typed') ||
                line.includes('Element visible') || line.includes('Slept') || line.includes('Pressed key') ||

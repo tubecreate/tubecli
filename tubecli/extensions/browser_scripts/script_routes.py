@@ -206,9 +206,6 @@ class RunRequest(BaseModel):
     # phía nhóm in giỏ đó vào câu trả lời, nên bơm bí mật vào đây là đọc mật khẩu
     # thật lên chat. Đường agent cũ (run_script_sync) chưa bao giờ bơm gì cả.
     inject_credentials: bool = True
-    # Cho AI đoán lại selector khi một bước hỏng. Mặc định bật; lượt chạy tự động
-    # (pipeline đăng video) tắt để khỏi gửi cả trang sang model mỗi lần vấp.
-    ai_fix: bool = True
 
 
 # ── Script CRUD ──
@@ -555,7 +552,6 @@ async def run_script(script_id: str, req: RunRequest):
             "profile": req.profile,
             "headless": req.headless,
             "engine": req.engine,
-            "ai_fix": req.ai_fix,
             "attach": req.attach,
             "tab_index": req.tab_index,
             "tab_url": req.tab_url,
@@ -667,8 +663,7 @@ def _kill_run_tree(proc) -> None:
 
 
 def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
-                    headless: bool = True, timeout: float = None,
-                    ai_fix: bool = True) -> dict:
+                    headless: bool = True, timeout: float = None) -> dict:
     """Run a browser script synchronously and return its output variables.
 
     `timeout` (seconds) is the deadline for the whole run. Without one the
@@ -698,7 +693,6 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
             "variables": variables,
             "profile": profile,
             "headless": headless,
-            "ai_fix": ai_fix,
             "engine": "playwright",
             # Lời gọi đồng bộ: không ai ngồi xem cửa sổ, mà người gọi thì đang chờ
             # kết quả. Giữ browser mở ở đây = tiến trình không thoát = timeout cho
@@ -1311,107 +1305,6 @@ User: {message}"""
         logger.error(f"Chat error: {e}")
         return {"reply": f"Lỗi: {str(e)}", "updated_steps": None}
 
-
-# ── AI Auto-Fix Selector ──
-
-@router.post("/ai-fix")
-async def ai_fix_selector(request: Request):
-    """AI analyzes page HTML and suggests correct CSS selector or recovery action."""
-    body = await request.json()
-    failed_selector = body.get("selector", "")
-    step_type = body.get("step_type", "click")
-    step_label = body.get("label", "")
-    error_msg = body.get("error", "")
-    page_html = body.get("page_html", "")[:15000]
-    page_url = body.get("page_url", "")
-    visible_text = body.get("visible_text", "")[:3000]
-
-    prompt = f"""You are a browser automation expert debugging a Playwright script.
-A step FAILED — the element was not visible/found within the timeout.
-
-IMPORTANT: The selector may actually be correct in the HTML, but something is BLOCKING it:
-- Cookie consent dialogs/banners
-- GDPR accept buttons
-- Login/signup modals
-- Age verification popups  
-- "Accept cookies" overlays
-- Any modal/dialog covering the page
-
-Page URL: {page_url}
-Step type: {step_type}
-Step label: {step_label}
-Failed selector: {failed_selector}
-Error: {error_msg}
-
-Visible text on page (what user sees):
-{visible_text}
-
-Page HTML (truncated):
-{page_html[:12000]}
-
-ANALYZE:
-1. Check: is there a consent dialog, cookie banner, overlay, or modal blocking the page?
-2. Look for buttons with text like "Accept all", "Accept", "I agree", "OK", "Continue", "Consent", "Reject all"
-3. If yes: provide CSS selectors to CLICK those buttons via Playwright (not JS evaluate)
-4. Check: is the original selector correct or suggest a better one?
-
-Output ONLY this JSON (no markdown):
-{{
-  "selector": "correct-css-selector-or-same-if-correct",
-  "pre_action_clicks": ["button[aria-label='Accept all']", "button.consent-accept"],
-  "pre_action_js": "optional JS to run after clicking, or empty string",
-  "reason": "brief explanation"
-}}
-
-RULES for pre_action_clicks:
-- Use real CSS selectors from the HTML above
-- These will be clicked using Playwright page.click() which handles web components
-- Include ALL possible selectors for the dismiss button (ordered by most likely)
-- If no overlay, use empty array []
-
-If selector is correct, keep it and focus on dismissing overlays."""
-
-    try:
-        from tubecli.extensions.cloud_api.extension import key_manager
-        from tubecli.core.ai_generator import (
-            call_gemini, call_openai_compatible, extract_json
-        )
-
-        providers = ["deepseek", "gemini", "grok"]
-        raw = None
-        for provider in providers:
-            api_key = key_manager.get_active_key(provider)
-            if not api_key:
-                continue
-            try:
-                if provider == "gemini":
-                    raw = call_gemini("gemini-2.0-flash", api_key, prompt)
-                elif provider == "deepseek":
-                    raw = call_openai_compatible("deepseek-v4-flash", api_key, prompt, base_url="https://api.deepseek.com/v1")
-                elif provider == "grok":
-                    raw = call_openai_compatible("grok-3-mini-fast", api_key, prompt, base_url="https://api.x.ai/v1")
-                if raw and not raw.startswith("[ERROR]"):
-                    break
-            except Exception:
-                continue
-
-        if not raw or raw.startswith("[ERROR]"):
-            return {"status": "no_fix", "reason": "AI unavailable"}
-
-        json_str = extract_json(raw)
-        parsed = json.loads(json_str)
-        return {
-            "status": "fixed",
-            "selector": parsed.get("selector", ""),
-            "pre_action_clicks": parsed.get("pre_action_clicks", []),
-            "pre_action_js": parsed.get("pre_action_js", ""),
-            "reason": parsed.get("reason", ""),
-        }
-    except Exception as e:
-        return {"status": "no_fix", "reason": str(e)}
-
-
-# ── AI Generate Steps at Position ──
 
 @router.post("/{script_id}/ai-generate-steps")
 async def ai_generate_steps_at(script_id: str, request: Request):

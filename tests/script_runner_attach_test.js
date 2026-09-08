@@ -59,18 +59,19 @@ check('lượt attach gắn cho mọi tab đang mở', /ps\.forEach\(acceptDialo
 check('lỗi nền lẻ chỉ được ghi lại, không làm chết tiến trình',
     /process\.on\('unhandledRejection'/.test(src) && /Bỏ qua lỗi nền/.test(src));
 
-// ── 3. AI Auto-Fix: lượt tự động không được gửi cả trang sang model ──────────
-// Mỗi bước hỏng là 15.000 ký tự DOM + 3.000 ký tự chữ gửi sang /scripts/ai-fix, mà
-// route ấy thử DEEPSEEK trước tiên. Script đăng YouTube từng có ba bước luôn hỏng mỗi
-// lượt (gõ ngày, gõ giờ, bấm Xuất bản) ⇒ ba lượt gọi model cho MỖI lần đăng, không ai
-// ngồi xem, và selector nó đoán ra từng gõ mô tả video vào ô tìm kiếm.
-check('cờ ai_fix mặc định BẬT (nút Chạy thử của người dùng giữ nếp cũ)',
-    /const aiFix = execData\.ai_fix === undefined \? true : !!execData\.ai_fix;/.test(src));
-const phase2 = src.slice(src.indexOf('Phase 2: AI Fix'), src.indexOf('AI Auto-Fix: analyzing page'));
-check('tắt thì chặn TRƯỚC khi gọi model', /if \(!aiFix\)/.test(phase2), phase2.slice(0, 120));
-check('tắt mà bước đó on_error=skip thì vẫn skip như thường',
-    /if \(!aiFix\)[\s\S]{0,220}onError === 'skip'[\s\S]{0,90}return;/.test(src));
-check('tắt mà bước bắt buộc thì vẫn hỏng ra hỏng', /if \(!aiFix\)[\s\S]{0,300}throw err;/.test(src));
+// ── 3. Không còn nhờ AI đoán selector ───────────────────────────────────────
+// Bản trước: mỗi bước HỎNG là 15.000 ký tự DOM + 3.000 ký tự chữ gửi sang
+// /api/v1/scripts/ai-fix (thử deepseek trước tiên, không theo model của agent), rồi
+// chạy lại bước bằng selector nó đoán. Đo trên YouTube Studio: chưa sửa được ca nào,
+// mà đã có ca gõ mô tả video vào ô TÌM KIẾM. Bỏ hẳn — script đăng một lượt là ba lần
+// gọi model như thế.
+check('không còn gọi /scripts/ai-fix', !/scripts\/ai-fix/.test(src));
+check('không còn Phase 2', !/AI Auto-Fix|AI fix worked|pre_action_clicks/.test(src));
+check('không còn cờ ai_fix để phải nhớ', !/ai_fix|aiFix/.test(src));
+check('smart-fix (dò selector tại chỗ, không tốn token) thì GIỮ',
+    /Smart fix: probing page for element/.test(src));
+check('bước hỏng vẫn theo on_error của chính nó',
+    /if \(onError === 'skip'\)[\s\S]{0,120}return;[\s\S]{0,80}if \(onError === 'abort'\) throw err;/.test(src));
 
 console.log(failed === 0 ? '\nALL PASSED' : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

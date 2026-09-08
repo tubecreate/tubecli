@@ -21,11 +21,6 @@ if (!execFile || !fs.existsSync(execFile)) {
 
 const execData = JSON.parse(fs.readFileSync(execFile, 'utf-8'));
 const { script, variables = {}, profile = '', headless = false, engine = 'playwright', exec_id, attach = false, tab_index = -1, tab_url = '' } = execData;
-// Nhờ AI đoán selector khi một bước hỏng. Mặc định BẬT (nút Chạy thử của người dùng
-// giữ nguyên nếp cũ), nhưng lượt tự động tắt: mỗi lần hỏng là 15k ký tự DOM + 3k ký
-// tự chữ gửi sang model (deepseek trước tiên) — không ai ngồi xem thì cái giá ấy chỉ
-// đổi lấy một selector đoán mò, thứ đã từng gõ mô tả video vào ô tìm kiếm.
-const aiFix = execData.ai_fix === undefined ? true : !!execData.ai_fix;
 // Giu cua so lai sau khi xong? Mac dinh theo nep cu (chay co giao dien thi giu),
 // nhung nguoi goi noi ro duoc: run_script_sync dat false vi no dang bi chan cho.
 const keepOpen = execData.keep_open === undefined ? !headless : !!execData.keep_open;
@@ -1562,111 +1557,12 @@ async function executeStepWithRetry(page, step, index) {
                 if (smartFixed) return;
                 step.selector = origSelector; // Restore
 
-                // ─── Phase 2: AI Fix (if smart finder failed) ───
-                if (!aiFix) {
-                    stepLog(index, step.type, 'AI Auto-Fix tắt cho lượt chạy này — bỏ qua');
-                    if (onError === 'skip') { stepLog(index, step.type, 'Error handled: skip'); return; }
-                    throw err;
-                }
-                stepLog(index, step.type, '🤖 AI Auto-Fix: analyzing page...');
-                try {
-                    // Get FULL DOM including shadow roots
-                    const pageHtml = await page.evaluate(() => {
-                        function getFullDOM(root, depth = 0) {
-                            if (depth > 3) return '';
-                            let html = '';
-                            for (const child of root.children || []) {
-                                html += child.outerHTML?.slice(0, 500) || '';
-                                if (child.shadowRoot) {
-                                    html += '<!-- SHADOW ROOT -->';
-                                    html += getFullDOM(child.shadowRoot, depth + 1);
-                                }
-                            }
-                            return html;
-                        }
-                        return getFullDOM(document.body).slice(0, 15000);
-                    }).catch(() => '');
-
-                    const pageUrl = page.url() || '';
-                    const visibleText = await page.evaluate(() => {
-                        return document.body ? document.body.innerText.slice(0, 3000) : '';
-                    }).catch(() => '');
-
-                    // Smart selector hints removed (handled in Phase 1 now)
-                    const smartHints = '';
-
-                    const tubecliPort = process.env.TUBECLI_PORT || '5295';
-                    const fixRes = await fetch(`http://localhost:${tubecliPort}/api/v1/scripts/ai-fix`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            selector: step.selector,
-                            step_type: step.type,
-                            label: step.label || `Step ${index}`,
-                            error: err.message,
-                            page_html: pageHtml,
-                            page_url: pageUrl,
-                            visible_text: visibleText + '\n\n--- FOUND ELEMENTS ---\n' + smartHints,
-                        }),
-                    });
-                    const fix = await fixRes.json();
-                    if (fix.status === 'fixed') {
-                        stepLog(index, step.type, `🤖 AI: ${fix.reason}`);
-
-                        // Try pre-action clicks
-                        const clicks = fix.pre_action_clicks || [];
-                        for (const clickSel of clicks) {
-                            try {
-                                stepLog(index, step.type, `🤖 Clicking: ${clickSel}`);
-                                await page.click(clickSel, { force: true, timeout: 5000 });
-                                await sleep(1000);
-                            } catch (clickErr) {
-                                try {
-                                    await page.getByRole('button', { name: clickSel }).first().click({ timeout: 3000 });
-                                    await sleep(1000);
-                                } catch (e2) {}
-                            }
-                        }
-
-                        // Execute pre-action JS
-                        if (fix.pre_action_js) {
-                            stepLog(index, step.type, `🤖 Running JS fix...`);
-                            try {
-                                await page.evaluate(fix.pre_action_js);
-                                await sleep(1000);
-                            } catch (preErr) {}
-                        }
-
-                        // Unblock page
-                        try {
-                            await page.evaluate(() => {
-                                document.body.style.overflow = '';
-                                document.body.style.position = '';
-                                document.documentElement.style.overflow = '';
-                                document.querySelectorAll('[class*="consent"], [class*="overlay"], [class*="backdrop"], [id*="consent"]')
-                                    .forEach(el => { try { el.remove(); } catch(e) {} });
-                            });
-                        } catch (e) {}
-
-                        await sleep(1500);
-                        await page.waitForLoadState('domcontentloaded').catch(() => {});
-
-                        // Retry with AI's selector
-                        if (fix.selector) step.selector = fix.selector;
-                        try {
-                            await executeStep(page, step, index);
-                            stepLog(index, step.type, `✅ AI fix worked!`);
-                            return;
-                        } catch (fixErr) {
-                            stepLog(index, step.type, `❌ AI fix also failed: ${fixErr.message}`);
-                            step.selector = origSelector;
-                        }
-                    } else {
-                        stepLog(index, step.type, `🤖 AI could not fix: ${fix.reason || 'unknown'}`);
-                    }
-                } catch (aiErr) {
-                    stepLog(index, step.type, `🤖 AI fix error: ${aiErr.message}`);
-                }
+                // KHÔNG có Phase 2 (AI đoán selector). Bản trước gửi 15.000 ký tự DOM
+                // + 3.000 ký tự chữ của trang sang model — deepseek trước tiên, không
+                // theo model của agent — để xin một selector khác. Đo trên YouTube
+                // Studio: chưa sửa được ca nào, mà đã có ca nó tìm "một ô textbox nào
+                // đó" rồi gõ mô tả video vào ô TÌM KIẾM. Bước hỏng thì để hỏng;
+                // on_error của chính bước ấy quyết định đi tiếp hay dừng.
             }
 
             if (onError === 'skip') {
