@@ -11,7 +11,28 @@ import platform
 import json
 import subprocess
 
-from tubecli.core import proc as _proc
+try:
+    from tubecli.core import proc as _proc
+except ImportError:                      # bản cài cũ chưa có core/proc.py
+    class _proc:                         # noqa: N801 — thay chỗ, giữ đúng API
+        """Chỗ đứng thay khi hot-patch mang file này tới trước core/proc.py.
+
+        Thiếu module thì hậu quả cũ là CẢ extension chết vì ImportError — nặng hơn
+        hẳn thứ nó đi sửa (cửa sổ đen của node.exe). Không ẩn được thì cứ để hiện.
+        """
+
+        CREATE_NO_WINDOW = 0x08000000
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+
+        @staticmethod
+        def hidden_kwargs(extra_flags=0, windows=None):
+            import os as _os
+            import subprocess as _sp
+            if windows is None:
+                windows = _os.name == "nt"
+            if not windows:
+                return {}
+            return {"creationflags": getattr(_sp, "CREATE_NO_WINDOW", 0x08000000) | extra_flags}
 import threading
 import asyncio
 from pathlib import Path
