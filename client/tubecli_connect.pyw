@@ -613,6 +613,31 @@ def _tail_lines(path: str, n: int) -> list:
         return []
 
 
+def supervisor_beat() -> bool:
+    """Báo cho TubeCLI biết CLIENT NÀY đang canh nó.
+
+    Nút "Cập nhật" trên cloud kéo code mới rồi cần khởi động lại; node chỉ dám tự
+    thoát khi biết chắc có ai dựng nó dậy. Trên Linux đó là systemd — trên Windows
+    và macOS thì không có gì cả, nên trước đây bấm Cập nhật xong máy chủ vẫn chạy
+    bản cũ trong RAM (người dùng hỏi 9/9/2026).
+
+    Vòng canh dưới đây CHÍNH LÀ thứ dựng nó dậy: 20 giây một lần, thấy cổng chết là
+    bật lại. Nhịp tim này chỉ để nói ra điều đó — node hết hạn 90 giây không nghe
+    thấy gì thì lại thôi không dám tự thoát nữa.
+    """
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{PORT}/api/v1/system/supervisor", method="POST",
+            data=json.dumps({"by": APP, "pid": os.getpid()}).encode(),
+            headers={"Content-Type": "application/json", "User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            return r.status == 200
+    except Exception:
+        # Bản TubeCLI cũ chưa có route này (404) — không sao, chỉ là không có
+        # cập nhật một chạm; mọi thứ khác vẫn chạy.
+        return False
+
+
 def node_login(password: str) -> bool:
     """Mật khẩu này có mở được dashboard không — hỏi thẳng node, đừng đoán."""
     try:
@@ -1619,6 +1644,10 @@ class Bridge:
             try:
                 if not tubecli_up():
                     start_tubecli()
+                else:
+                    # Chỉ báo khi máy chủ ĐANG SỐNG: nhịp tim là lời hứa "nếu nó
+                    # chết tôi sẽ dựng lại", và vòng ngay trên đây giữ lời hứa đó.
+                    supervisor_beat()
                 if self.conf.get("tunnel_token") and (self.tunnel is None or self.tunnel.poll() is not None):
                     if self.tunnel is not None:
                         log("cloudflared đã dừng — chạy lại")

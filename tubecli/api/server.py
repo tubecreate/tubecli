@@ -2,7 +2,7 @@
 TubeCLI REST API Server
 FastAPI-based REST API for agents, skills, and workflows.
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
@@ -74,6 +74,9 @@ _AUTH_EXEMPT_EXACT = {"/login", "/api/v1/auth/login", "/api/v1/auth/status",
                       # KHÔNG exempt (chủ-authed).
                       "/api/v1/auth/guest-login",
                       "/api/v1/auth/banner.js", "/favicon.ico",
+                      # Nhip tim bo giam sat: den TRUOC khi co phien dang nhap, va
+                      # da bi chan cung theo loopback ngay trong route.
+                      "/api/v1/system/supervisor",
                       # Health is exempt so "curl http://<ip>:5295/api/v1/health"
                       # works from the user's laptop as the install-check the
                       # summary screen advertises. It returns strictly less than
@@ -4964,6 +4967,47 @@ async def get_extension_skill_mds():
 
 # ── System Version & Update ─────────────────────────────────────────
 
+@app.get("/api/v1/system/stats")
+async def system_stats():
+    """CPU / RAM / ổ đĩa của CHÍNH máy này.
+
+    VÌ SAO CẦN
+        Cloud vẽ thanh CPU/RAM/đĩa bằng cách SSH vào máy rồi đọc /proc — cách đó
+        chỉ dùng được với VPS thuê. Máy của người dùng nối bằng tunnel thì không
+        có IP, không có SSH, nên thanh ấy đứng ở "—" mãi (người dùng gặp
+        9/9/2026). Hỏi thẳng máy qua tunnel thì hệ nào cũng trả lời được.
+
+    Trả về đúng hình dạng mà cloud đang dùng cho VPS, để bên kia không phải viết
+    hai nhánh hiển thị.
+    """
+    import shutil
+
+    import psutil
+
+    # interval=None: đọc mức CPU tích luỹ từ lần gọi trước thay vì CHẶN 1 giây.
+    # Cloud poll mỗi 7 giây nên số vẫn đúng, mà route không giữ event loop.
+    cpu = psutil.cpu_percent(interval=None)
+    mem = psutil.virtual_memory()
+    # Ổ chứa TubeCLI, không phải "/" — trên Windows đó có thể là ổ D:, và cái người
+    # dùng quan tâm là chỗ video/hồ sơ trình duyệt đang ăn đĩa.
+    from tubecli.config import BASE_DIR
+    try:
+        disk = shutil.disk_usage(str(BASE_DIR))
+    except OSError:
+        disk = shutil.disk_usage(os.path.abspath(os.sep))
+    return {
+        "cpu": round(cpu, 1),
+        "cores": psutil.cpu_count(logical=True) or 1,
+        "mem_total_mb": round(mem.total / 1048576),
+        "mem_used_mb": round((mem.total - mem.available) / 1048576),
+        "mem_pct": round(mem.percent, 1),
+        "disk_total_gb": round(disk.total / 1073741824, 1),
+        "disk_used_gb": round((disk.total - disk.free) / 1073741824, 1),
+        "disk_pct": round((disk.total - disk.free) / disk.total * 100, 1) if disk.total else 0,
+        "platform": sys.platform,
+    }
+
+
 @app.get("/api/v1/system/version")
 async def system_version():
     """Get current system version and git info."""
@@ -5072,19 +5116,43 @@ def _under_systemd() -> bool:
     return bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
 
 
+# Bo giam sat NGOAI systemd — tren Windows/macOS do la TubeCLI Connect: vong canh
+# cua no cu 20 giay kiem cong 5295, thay chet la bat lai. No bao nhip tim qua
+# /api/v1/system/supervisor; node chi tu thoat khi nhip tim con TUOI, nghia la co
+# ai do VUA hua se dung no day.
+_SUPERVISOR = {"at": 0.0, "by": "", "pid": 0}
+SUPERVISOR_TTL = 90.0        # giay: rong rai hon chu ky canh 20 giay cua client
+
+
+def _supervised_externally() -> bool:
+    import time as _t
+    return (_t.time() - float(_SUPERVISOR.get("at") or 0)) < SUPERVISOR_TTL
+
+
+def _supervisor_name() -> str:
+    return str(_SUPERVISOR.get("by") or "") if _supervised_externally() else ""
+
+
 def _schedule_restart(delay: float = 2.0) -> bool:
     """Hen khoi dong lai SAU KHI response da gui xong. True = se khoi dong lai.
 
-    Fail-safe: chi tu thoat khi biet chac systemd se dung lai. Khong chac thi
-    thu systemctl; van khong duoc thi KHONG thoat va noi that cho nguoi dung —
-    tha bat ho restart tay con hon de may chet im lim.
+    Fail-safe: chi tu thoat khi BIET CHAC co ai dung day — systemd, hoac mot bo
+    giam sat vua bao nhip tim. Khong chac thi KHONG thoat va noi that cho nguoi
+    dung; tha bat ho restart tay con hon de may chet im lim.
     """
     import threading, subprocess, time as _t
 
+    def _bye():
+        _t.sleep(delay)
+        os._exit(0)
+
     if _under_systemd():
-        def _bye():
-            _t.sleep(delay)
-            os._exit(0)          # systemd RestartSec=5 dung lai
+        threading.Thread(target=_bye, daemon=True).start()
+        return True
+
+    # Windows/macOS: khong co systemd, nhung co the co TubeCLI Connect dang canh.
+    if _supervised_externally():
+        print(f"[Restart] tu thoat — {_supervisor_name() or 'bo giam sat'} se bat lai")
         threading.Thread(target=_bye, daemon=True).start()
         return True
 
@@ -5099,6 +5167,25 @@ def _schedule_restart(delay: float = 2.0) -> bool:
     return False
 
 
+@app.post("/api/v1/system/supervisor")
+async def system_supervisor(request: Request, payload: dict = Body(default=None)):
+    """Bo giam sat bao "toi dang canh may nay".
+
+    CHI nhan tu loopback: day la giay phep cho node TU THOAT, nen phai den tu
+    chinh may do. Khong mang bi mat gi, chi mot loi hua.
+    """
+    import time as _t
+
+    host = (getattr(getattr(request, "client", None), "host", "") or "")
+    if host not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(403, "supervisor heartbeat must come from this machine")
+    data = payload if isinstance(payload, dict) else {}
+    _SUPERVISOR["at"] = _t.time()
+    _SUPERVISOR["by"] = str(data.get("by") or "supervisor")[:60]
+    _SUPERVISOR["pid"] = int(data.get("pid") or 0)
+    return {"status": "ok", "ttl_seconds": SUPERVISOR_TTL}
+
+
 @app.post("/api/v1/system/restart")
 async def system_restart():
     """Khoi dong lai may chu theo yeu cau.
@@ -5107,13 +5194,22 @@ async def system_restart():
     fail-safe giu nguyen: khong chac co ai dung day thi KHONG tu thoat.
     """
     ok = _schedule_restart(delay=1.0)
+    if ok:
+        msg = "The server is restarting — it comes back in a few seconds."
+    elif sys.platform.startswith("win") or sys.platform == "darwin":
+        # Doc lenh systemd cho nguoi dung Windows la vo nghia — chi ho dung cai
+        # ho that su co: TubeCLI Connect, thu dang canh cong 5295 tren may ho.
+        msg = ("Nothing is supervising this process, so it will not restart itself. "
+               "Open TubeCLI Connect and leave it running — it restarts TubeCLI "
+               "automatically — or start TubeCLI again by hand.")
+    else:
+        msg = ("This process is not supervised, so it will not restart itself. "
+               "Run 'systemctl restart tubecli' instead.")
     return {"status": "success" if ok else "error",
             "restarting": ok,
             "restart_seconds": 8 if ok else 0,
-            "message": ("The server is restarting — it comes back in a few seconds."
-                        if ok else
-                        "This process is not supervised, so it will not restart itself. "
-                        "Run 'systemctl restart tubecli' instead.")}
+            "supervisor": _supervisor_name(),
+            "message": msg}
 
 
 @app.post("/api/v1/system/update")
