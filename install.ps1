@@ -7,7 +7,11 @@ param(
     # `tubecli init --lang de` got all the way to the end of the installer and then
     # died on a click Choice error with exit 2, long after the green banners.
     [ValidateSet('zh', 'zh-TW', 'vi', 'en', 'ja', 'ko', 'es', 'tr', 'ru')]
-    [string]$Lang = "en"
+    [string]$Lang = "en",
+    # Cài bằng kịch bản (TubeCLI Connect, provisioning): KHÔNG có ai ngồi trước
+    # bàn phím, nên bảng điều khiển tương tác ở cuối script sẽ đứng đó mãi rồi
+    # kết thúc bằng mã thoát khác 0 — trông y như cài hỏng, dù đã cài xong.
+    [switch]$NonInteractive
 )
 
 $ErrorActionPreference = "Stop"
@@ -601,11 +605,20 @@ Write-Host ""
 # -- Run init LAST (blocks with interactive menu) --
 # These instructions are printed before init on purpose: init does not return, it
 # hands over to the control panel, so anything printed after would never be seen.
-Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
-if ($tubecliCmd) {
-    tubecli init --lang $Lang --port 5295
+$initArgs = @("--lang", $Lang, "--port", "5295")
+if ($NonInteractive) {
+    # --no-menu: dựng workspace rồi thoát, không mở bảng điều khiển.
+    # --no-wizard: bỏ hỏi đáp lần đầu. Hai cờ này có sẵn trong `tubecli init`,
+    # sinh ra đúng cho cài kịch bản/headless.
+    $initArgs += @("--no-menu", "--no-wizard")
+    Write-Host "[*] Setting up TubeCLI (non-interactive)..." -ForegroundColor Yellow
 } else {
-    python -m tubecli.main init --lang $Lang --port 5295
+    Write-Host "[*] Launching TubeCLI..." -ForegroundColor Yellow
+}
+if ($tubecliCmd) {
+    & tubecli init $initArgs
+} else {
+    & python -m tubecli.main init $initArgs
 }
 $initExit = $LASTEXITCODE
 

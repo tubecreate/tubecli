@@ -121,6 +121,11 @@ DEFAULT_DIRS = ([os.path.join(_H, "TubeCLI"), r"C:\TubeCLI"] if IS_WIN
                 else [os.path.join(_H, "tubecli"), os.path.join(_H, "TubeCLI"), "/opt/tubecli"])
 
 
+# Form đăng ký một hàm vào đây để mọi dòng log hiện luôn trong khung nhật ký của
+# nó. Danh sách chứ không phải một biến: cửa sổ trạng thái mở sau cũng nghe được.
+_LOG_SINKS = []
+
+
 def log(msg: str) -> None:
     """Ghi một dòng vào log, và KHÔNG BAO GIỜ được ném ra ngoài.
 
@@ -142,6 +147,11 @@ def log(msg: str) -> None:
         print(line, flush=True)
     except Exception:
         pass
+    for sink in list(_LOG_SINKS):
+        try:
+            sink(line)
+        except Exception:
+            pass
 
 
 def open_url(target: str) -> None:
@@ -277,7 +287,7 @@ def install_command(lang: str = "vi") -> list:
     if IS_WIN:
         ps = ("$ErrorActionPreference='Stop'; "
               f"$s = irm {INSTALL_PS1}; "
-              f"& ([scriptblock]::Create($s)) -Lang {lang}")
+              f"& ([scriptblock]::Create($s)) -Lang {lang} -NonInteractive")
         return ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps]
     # bash -s -- truyền tham số cho script đọc từ stdin. --non-interactive vì ở đây
     # không có ai ngồi trước bàn phím: client đang chạy sau một cửa sổ đồ hoạ.
@@ -285,35 +295,62 @@ def install_command(lang: str = "vi") -> list:
     return ["bash", "-lc", sh]
 
 
-def install_tubecli(lang: str = "vi") -> bool:
-    cmd = install_command(lang)
-    if IS_WIN:
-        log("Chưa có TubeCLI — bắt đầu cài (cửa sổ PowerShell sẽ hiện ra)…")
-        try:
-            p = subprocess.run(cmd, creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
-            ok = p.returncode == 0
-        except Exception as e:
-            log(f"cài thất bại: {e}")
-            return False
-        log("cài xong" if ok else f"trình cài trả mã {p.returncode}")
-        return ok
+def installed_now() -> bool:
+    """TubeCLI đã có mặt trên máy CHƯA — hỏi máy, đừng hỏi mã thoát của trình cài.
 
-    # POSIX: không mở cửa sổ terminal mới (mỗi bản phân phối một kiểu, và trên máy
-    # không có màn hình thì chẳng có cái nào). Gom output vào log để lúc hỏng còn
-    # đọc được nó vướng ở đâu — thường là thiếu python3-venv hoặc cần sudo.
+    install.ps1 kết thúc bằng `tubecli init`, một bảng điều khiển tương tác không
+    bao giờ trả về khi không có ai gõ; nó thoát khác 0 và chính nó in ra
+    "TubeCLI itself is installed". Tin mã thoát ở đây là báo "cài hỏng" cho một
+    máy vừa cài xong — đúng chuyện xảy ra với mọi máy Windows sạch (9/9/2026).
+    """
+    return tubecli_up() or bool(server_cmd()[0])
+
+
+INSTALL_TIMEOUT = 1800        # 30 phút: tải Git + Python + clone trên mạng chậm
+
+
+def install_tubecli(lang: str = "vi") -> bool:
+    """Chạy trình cài CHÍNH THỨC và ĐỔ TỪNG DÒNG của nó vào log.
+
+    Không mở cửa sổ console riêng nữa. Cửa sổ đen thứ hai vừa rối vừa vô dụng:
+    đóng lại là mất sạch dấu vết, và người dùng chỉ còn một câu "Trình cài không
+    hoàn tất" (9/9/2026). Log đi qua log() nên form hiện được ngay trong khung
+    nhật ký của nó, mà file log vẫn giữ đủ để đọc lại sau.
+    """
+    cmd = install_command(lang)
     log(f"Chưa có TubeCLI — chạy trình cài ({OS_NAME}), có thể mất vài phút…")
+    # stdin=DEVNULL: trình cài phải TỰ HỎNG NGAY nếu nó còn định hỏi han, thay vì
+    # treo vô hạn trước một bàn phím không có ai ngồi.
+    extra = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             stdin=subprocess.DEVNULL, text=True,
+                             encoding="utf-8", errors="replace", bufsize=1, **extra)
     except Exception as e:
         log(f"cài thất bại: {e}")
         return False
-    tail = [ln for ln in (p.stdout or "").splitlines() + (p.stderr or "").splitlines() if ln.strip()]
-    for ln in tail[-15:]:
-        log(f"  cài| {ln[:200]}")
-    if p.returncode == 0:
-        log("cài xong")
+
+    deadline = time.time() + INSTALL_TIMEOUT
+    try:
+        for line in p.stdout:
+            line = line.rstrip()
+            if line:
+                log(f"  cài| {line[:200]}")
+            if time.time() > deadline:
+                p.kill()
+                log(f"trình cài quá {INSTALL_TIMEOUT // 60} phút — đã dừng")
+                break
+        rc = p.wait(timeout=60)
+    except Exception as e:
+        log(f"trình cài đứt giữa chừng: {e}")
+        rc = -1
+
+    # Hỏi lại chính cái máy, đừng hỏi mã thoát: install.ps1 kết thúc bằng
+    # `tubecli init` và tự trả mã khác 0 dù đã cài xong.
+    if installed_now():
+        log("cài xong" if rc == 0 else f"cài xong (trình cài trả mã {rc}, nhưng TubeCLI đã có mặt)")
         return True
-    log(f"trình cài trả mã {p.returncode} — chạy tay để xem đầy đủ: {cmd[-1]}")
+    log(f"trình cài trả mã {rc} — TubeCLI vẫn chưa có mặt")
     return False
 
 
@@ -550,7 +587,7 @@ def prepare_node(say, lang: str = "vi") -> tuple:
         return True, ""
     cmd, d = server_cmd()
     if cmd:
-        say(f"Đã cài sẵn — đang bật TubeCLI… ({d})")
+        say("Đã cài sẵn — đang bật TubeCLI…")      # đường dẫn đã có trong log
         if start_tubecli():
             say("TubeCLI đang chạy ✓")
             return True, ""
@@ -607,6 +644,123 @@ def ask_pairing_console(default_code: str = "", lang: str = "vi") -> tuple:
         return code, pw, info
 
 
+# ── Giao diện: bảng màu và những mảnh vẽ tay ───────────────────────────────
+# Lấy đúng token của dashboard TubeCLI (webui/static/style.css) để client không
+# trông như một phần mềm khác dán vào.
+UI = {
+    "bg": "#0e0e11", "panel": "#16161b", "panel2": "#1c1c22",
+    "line": "#2a2a33", "text": "#f4f4f5", "muted": "#a1a1aa", "dim": "#71717a",
+    "violet": "#7c3aed", "violet_hi": "#8b5cf6", "cyan": "#38bdf8",
+    "green": "#22c55e", "red": "#f87171", "amber": "#f59e0b",
+}
+FONT = "Segoe UI" if IS_WIN else ("SF Pro Text" if IS_MAC else "DejaVu Sans")
+MONO = "Consolas" if IS_WIN else ("Menlo" if IS_MAC else "DejaVu Sans Mono")
+
+
+# Logo TubeCLI THẬT (tubecli-cloud/public/logo.svg) đã rasterize sẵn 40px.
+# Nhúng base64 chứ không vẽ tay: hình thật là một path Bézier phức tạp — tam giác
+# play với con chip "AI" bên trong — vẽ gần đúng bằng Canvas thì ra một logo KHÁC,
+# và logo gần đúng còn tệ hơn không có logo.
+LOGO_PNG_B64 = (
+    "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"
+)
+
+
+def _round_rect(cv, x1, y1, x2, y2, r, **kw):
+    """Tkinter không có hình chữ nhật bo góc; polygon smooth là cách chuẩn."""
+    pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r, x2, y2 - r, x2, y2,
+           x2 - r, y2, x1 + r, y2, x1, y2, x1, y2 - r, x1, y1 + r, x1, y1]
+    return cv.create_polygon(pts, smooth=True, **kw)
+
+
+def _logo(parent, size=40):
+    """Ô logo cho đầu cửa sổ.
+
+    PhotoImage phải được GIỮ THAM CHIẾU, nếu không Python thu gom nó và tkinter vẽ
+    ra một ô trống — cái bẫy kinh điển của tkinter, và nó im lặng.
+    """
+    import tkinter as tk
+    cv = tk.Canvas(parent, width=size, height=size, bg=UI["panel"],
+                   highlightthickness=0, bd=0)
+    try:
+        img = tk.PhotoImage(data=LOGO_PNG_B64)
+        cv.create_image(size // 2, size // 2, image=img)
+        cv.image = img                      # giữ tham chiếu
+        return cv
+    except Exception:
+        pass
+    # Tk quá cũ (chưa đọc được PNG) thì vẽ một dấu tối giản, còn hơn ô trống.
+    k = size / 64.0
+    _round_rect(cv, 1, 1, size - 1, size - 1, 12 * k, fill="#131318", outline=UI["line"])
+    cv.create_polygon(22 * k, 14 * k, 50 * k, 32 * k, 22 * k, 50 * k,
+                      fill="#5276EB", outline="")
+    return cv
+
+
+def _set_icon(root):
+    """Icon cửa sổ + thanh tác vụ. Không đặt thì Tk dùng con lông vũ mặc định của
+    nó — một cửa sổ hỏi mật khẩu mang icon lạ trông y như phần mềm giả mạo."""
+    import tkinter as tk
+    try:
+        img = tk.PhotoImage(data=LOGO_PNG_B64)
+        root.iconphoto(True, img)
+        root._tc_icon = img            # giữ tham chiếu, nếu không tkinter xoá trắng
+    except Exception:
+        pass
+
+
+def _theme(root):
+    """ttk mặc định trên Windows không cho đổi màu nền ô nhập; 'clam' thì cho."""
+    from tkinter import ttk
+    st = ttk.Style(root)
+    try:
+        st.theme_use("clam")
+    except Exception:
+        pass
+    st.configure("TC.TEntry", fieldbackground=UI["panel2"], foreground=UI["text"],
+                 bordercolor=UI["line"], lightcolor=UI["line"], darkcolor=UI["line"],
+                 insertcolor=UI["text"], borderwidth=1, padding=9)
+    st.map("TC.TEntry", bordercolor=[("focus", UI["violet"])],
+           lightcolor=[("focus", UI["violet"])], darkcolor=[("focus", UI["violet"])])
+    st.configure("TC.TButton", background=UI["violet"], foreground="#ffffff",
+                 borderwidth=0, focusthickness=0, padding=(14, 10),
+                 font=(FONT, 10, "bold"))
+    st.map("TC.TButton",
+           background=[("disabled", "#2a2233"), ("pressed", "#6d28d9"),
+                       ("active", UI["violet_hi"])],
+           foreground=[("disabled", UI["dim"])])
+    # Thanh cuộn mặc định của 'clam' là màu sáng — một vệt trắng cạnh khung nhật ký
+    # tối trông như lỗi hiển thị.
+    st.configure("TC.Vertical.TScrollbar", background=UI["line"], troughcolor="#0a0a0d",
+                 bordercolor="#0a0a0d", arrowcolor=UI["dim"], borderwidth=0)
+    st.map("TC.Vertical.TScrollbar", background=[("active", UI["dim"])])
+    st.configure("TC.Horizontal.TProgressbar", troughcolor=UI["panel2"],
+                 background=UI["violet"], borderwidth=0, thickness=4,
+                 lightcolor=UI["violet"], darkcolor=UI["violet"])
+    return st
+
+
 def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     if not has_tk():
         return ask_pairing_console(default_code, lang)
@@ -616,7 +770,9 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     out = {"code": "", "password": "", "info": None}
     root = tk.Tk()
     root.title(APP)
+    root.configure(bg=UI["bg"])
     root.resizable(False, False)
+    _set_icon(root)
     # Cửa sổ mở sau lưng trình duyệt thì cũng như không mở — người dùng đang nhìn
     # trang cloud, không ai đi lục thanh tác vụ.
     root.attributes("-topmost", True)
@@ -626,25 +782,137 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
         root.focus_force()
     except Exception:
         pass
-    frm = ttk.Frame(root, padding=16)
-    frm.grid()
-    ttk.Label(frm, text="Mã ghép nối (lấy trên cloud → Kết nối máy của tôi)").grid(column=0, row=0, sticky="w")
-    e_code = ttk.Entry(frm, width=24, font=("Consolas", 14))
-    e_code.grid(column=0, row=1, sticky="we", pady=(2, 10))
-    e_code.insert(0, default_code)
-    ttk.Label(frm, text="Mật khẩu dashboard TubeCLI").grid(column=0, row=2, sticky="w")
-    e_pw = ttk.Entry(frm, width=24, show="•")
-    e_pw.grid(column=0, row=3, sticky="we", pady=(2, 4))
-    ttk.Label(frm, text="Máy chưa cài TubeCLI thì để 123456 — cài xong dùng mật khẩu đó.",
-              foreground="#888").grid(column=0, row=4, sticky="w", pady=(0, 10))
-    msg = ttk.Label(frm, text="", foreground="#c33")
-    msg.grid(column=0, row=6, sticky="w", pady=(8, 0))
-    state = ttk.Label(frm, text="Đang kiểm tra máy…", foreground="#888")
-    state.grid(column=0, row=7, sticky="w", pady=(6, 0))
+    _theme(root)
 
-    btn = ttk.Button(frm, text="Kết nối")
-    btn.grid(column=0, row=5, sticky="e")
+    wrap = tk.Frame(root, bg=UI["bg"])
+    wrap.pack(fill="both", expand=True)
+
+    # ── Đầu trang: logo + tên + hệ điều hành ──────────────────────────────
+    head = tk.Frame(wrap, bg=UI["panel"])
+    head.pack(fill="x")
+    inner = tk.Frame(head, bg=UI["panel"])
+    inner.pack(fill="x", padx=18, pady=14)
+    _logo(inner, 40).pack(side="left")
+    tit = tk.Frame(inner, bg=UI["panel"])
+    tit.pack(side="left", padx=12)
+    tk.Label(tit, text=APP, bg=UI["panel"], fg=UI["text"],
+             font=(FONT, 13, "bold")).pack(anchor="w")
+    tk.Label(tit, text="Nối máy này với cloud.tubecreate.com", bg=UI["panel"],
+             fg=UI["muted"], font=(FONT, 9)).pack(anchor="w")
+    tk.Label(inner, text=f" {OS_NAME} ", bg=UI["panel2"], fg=UI["dim"],
+             font=(FONT, 8), padx=6, pady=3).pack(side="right")
+    tk.Frame(wrap, bg=UI["line"], height=1).pack(fill="x")
+
+    body = tk.Frame(wrap, bg=UI["bg"])
+    body.pack(fill="both", expand=True, padx=18, pady=16)
+
+    # ── Bước 1: chuẩn bị máy ──────────────────────────────────────────────
+    srow = tk.Frame(body, bg=UI["bg"])
+    srow.pack(fill="x")
+    dot = tk.Canvas(srow, width=10, height=10, bg=UI["bg"], highlightthickness=0)
+    dot.pack(side="left", pady=(4, 0))
+    dot_id = dot.create_oval(1, 1, 9, 9, fill=UI["dim"], outline="")
+    state = tk.Label(srow, text="Đang kiểm tra máy…", bg=UI["bg"], fg=UI["muted"],
+                     font=(FONT, 9), anchor="w", justify="left", wraplength=380)
+    state.pack(side="left", padx=8)
+
+    bar = ttk.Progressbar(body, style="TC.Horizontal.TProgressbar", mode="indeterminate")
+    bar.pack(fill="x", pady=(9, 0))
+    bar.start(14)
+
+    # ── Nhật ký NGAY TRONG FORM ───────────────────────────────────────────
+    # Trước đây trình cài mở một cửa sổ PowerShell riêng: đóng lại là mất sạch dấu
+    # vết, và người dùng chỉ còn đúng một câu "Trình cài không hoàn tất".
+    logbox = tk.Frame(body, bg=UI["bg"])
+    txt = tk.Text(logbox, height=7, bg="#0a0a0d", fg=UI["muted"], bd=0,
+                  font=(MONO, 8), wrap="none", padx=10, pady=8,
+                  insertbackground=UI["text"], highlightthickness=1,
+                  highlightbackground=UI["line"], highlightcolor=UI["line"])
+    sb = ttk.Scrollbar(logbox, orient="vertical", command=txt.yview,
+                       style="TC.Vertical.TScrollbar")
+    txt.configure(yscrollcommand=sb.set, state="disabled")
+    txt.pack(side="left", fill="both", expand=True)
+    sb.pack(side="right", fill="y")
+
+    def add_line(line: str):
+        def put():
+            txt.configure(state="normal")
+            txt.insert("end", line + "\n")
+            # Giữ 400 dòng cuối: trình cài Windows in rất nhiều, không cắt thì
+            # widget phình ra và cuộn giật.
+            if int(txt.index("end-1c").split(".")[0]) > 400:
+                txt.delete("1.0", "100.0")
+            txt.see("end")
+            txt.configure(state="disabled")
+        try:
+            root.after(0, put)
+        except Exception:
+            pass
+
+    _LOG_SINKS.append(add_line)
+
+    shown = {"on": False}
+
+    def toggle_log(force=None):
+        want = (not shown["on"]) if force is None else force
+        if want == shown["on"]:
+            return
+        shown["on"] = want
+        if want:
+            logbox.pack(fill="both", expand=True, pady=(10, 0), before=sep)
+            more.config(text="Ẩn nhật ký ▴")
+        else:
+            logbox.pack_forget()
+            more.config(text="Xem nhật ký ▾")
+
+    more = tk.Label(body, text="Xem nhật ký ▾", bg=UI["bg"], fg=UI["dim"],
+                    font=(FONT, 8), cursor="hand2")
+    more.pack(anchor="e", pady=(7, 0))
+    more.bind("<Button-1>", lambda _e: toggle_log())
+
+    sep = tk.Frame(body, bg=UI["line"], height=1)
+    sep.pack(fill="x", pady=12)
+
+    # ── Bước 2: mã ghép nối ───────────────────────────────────────────────
+    def field_label(parent, text):
+        return tk.Label(parent, text=text, bg=UI["bg"], fg=UI["dim"],
+                        font=(FONT, 8, "bold"), anchor="w")
+
+    field_label(body, "MÃ GHÉP NỐI").pack(fill="x")
+    e_code = ttk.Entry(body, style="TC.TEntry", font=(MONO, 15, "bold"), justify="center")
+    e_code.pack(fill="x", pady=(4, 3))
+    e_code.insert(0, default_code)
+    tk.Label(body, text="Lấy trên cloud → Kết nối máy của tôi", bg=UI["bg"],
+             fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x", pady=(0, 12))
+
+    field_label(body, "MẬT KHẨU DASHBOARD TUBECLI").pack(fill="x")
+    e_pw = ttk.Entry(body, style="TC.TEntry", show="•", font=(FONT, 11))
+    e_pw.pack(fill="x", pady=(4, 3))
+    tk.Label(body, text="Máy vừa cài xong thì để 123456.", bg=UI["bg"],
+             fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x")
+
+    msg = tk.Label(body, text="", bg=UI["bg"], fg=UI["red"], font=(FONT, 9),
+                   anchor="w", justify="left", wraplength=400)
+    msg.pack(fill="x", pady=(10, 0))
+
+    btn = ttk.Button(body, text="Kết nối", style="TC.TButton")
+    btn.pack(fill="x", pady=(12, 0))
     btn.state(["disabled"])                 # chỉ mở khi máy chủ đã trả lời
+
+    foot = tk.Frame(wrap, bg=UI["bg"])
+    foot.pack(fill="x", padx=18, pady=(0, 12))
+    flog = tk.Label(foot, text="Mở tệp nhật ký", bg=UI["bg"], fg=UI["dim"],
+                    font=(FONT, 8), cursor="hand2")
+    flog.pack(side="left")
+    flog.bind("<Button-1>", lambda _e: open_url(LOG) if os.path.isfile(LOG) else None)
+    tk.Label(foot, text=CLOUD.replace("https://", ""), bg=UI["bg"], fg=UI["dim"],
+             font=(FONT, 8)).pack(side="right")
+
+    def set_dot(color):
+        try:
+            dot.itemconfig(dot_id, fill=color)
+        except Exception:
+            pass
 
     def fail(text: str):
         """Hỏng thì Ở LẠI cửa sổ. Mã sống 15 phút; bắt tải lại client rồi gõ lại từ
@@ -653,8 +921,12 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
 
         def show():
             msg.config(text=text)
-            state.config(text="Sửa rồi bấm Kết nối lại.", foreground="#c33")
+            state.config(text="Sửa rồi bấm Kết nối lại.", fg=UI["red"])
+            set_dot(UI["red"])
+            bar.stop()
+            bar.pack_forget()
             btn.state(["!disabled"])
+            toggle_log(True)
             e_code.focus()
         root.after(0, show)
 
@@ -683,7 +955,10 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
             return
         msg.config(text="")
         btn.state(["disabled"])
-        state.config(text="Đang ghép nối với cloud…", foreground="#888")
+        state.config(text="Đang ghép nối với cloud…", fg=UI["muted"])
+        set_dot(UI["amber"])
+        bar.pack(fill="x", pady=(9, 0), after=srow)
+        bar.start(14)
         threading.Thread(target=connect, args=(code, pw), daemon=True).start()
 
     btn.config(command=ok)
@@ -692,22 +967,37 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     # Dò / bật / cài chạy ở LUỒNG NỀN: trình cài có thể mất vài phút, mà cửa sổ đứng
     # đơ mấy phút thì Windows dán nhãn "Not responding" và người dùng tắt nó đi.
     def prepare():
+        # Mở sẵn: người dùng phải THẤY máy đang làm gì, nhất là lúc trình cài chạy
+        # vài phút. Trước đây phần này nằm ở một cửa sổ PowerShell riêng.
+        root.after(0, lambda: toggle_log(True))
         ok_node, suggest = prepare_node(lambda m: root.after(0, lambda: state.config(text=m)), lang)
 
         def done():
+            bar.stop()
+            bar.pack_forget()
             if ok_node:
-                state.config(text=state.cget("text"), foreground="#2a7")
+                state.config(fg=UI["green"])
+                set_dot(UI["green"])
                 btn.state(["!disabled"])
+                toggle_log(False)
                 if suggest and not e_pw.get():
                     e_pw.insert(0, suggest)
                 (e_code if not e_code.get() else e_pw).focus()
             else:
-                state.config(foreground="#c33")
+                state.config(fg=UI["red"])
+                set_dot(UI["red"])
+                toggle_log(True)
         root.after(0, done)
 
     threading.Thread(target=prepare, daemon=True).start()
     e_code.focus()
+    root.update_idletasks()
+    root.minsize(root.winfo_reqwidth(), root.winfo_reqheight())
     root.mainloop()
+    try:
+        _LOG_SINKS.remove(add_line)
+    except ValueError:
+        pass
     return out["code"], out["password"], out["info"]
 
 
@@ -831,6 +1121,7 @@ def status_window(bridge: "Bridge") -> None:
     root = tk.Tk()
     root.title(APP)
     root.resizable(False, False)
+    _set_icon(root)
     root.attributes("-topmost", True)
     root.after(1500, lambda: root.attributes("-topmost", False))
     root.lift()
