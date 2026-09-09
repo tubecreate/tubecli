@@ -89,6 +89,33 @@ function Get-Installer([string]$Url, [string]$FileName) {
     return $dest
 }
 
+function Test-IsAdmin {
+    try {
+        return ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { return $false }
+}
+
+# Extract a zip into $Dest (replacing it). Returns $true on success.
+function Expand-ZipTo([string]$Zip, [string]$Dest) {
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        if (Test-Path $Dest) { Remove-Item -Recurse -Force $Dest -ErrorAction Stop }
+        $null = New-Item -ItemType Directory -Force -Path $Dest
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($Zip, $Dest)
+        return $true
+    } catch {
+        Write-Host "  [!] Could not extract $Zip : $($_.Exception.Message)" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+# Per-user program root - no elevation needed, survives on locked-down machines.
+function Get-UserProgramsDir {
+    $d = Join-Path $env:LOCALAPPDATA "Programs"
+    $null = New-Item -ItemType Directory -Force -Path $d
+    return $d
+}
+
 function Get-WingetOk {
     # winget can exist yet be unusable (App Installer not updated, source agreements,
     # LTSC/Server builds). Treat "runs and prints a version" as usable.
@@ -245,22 +272,46 @@ function Install-Git {
         Write-Host "  winget not available, using the official Git for Windows installer..." -ForegroundColor Gray
     }
 
-    # Direct download: latest Git for Windows 64-bit installer from its GitHub release.
-    $gitUrl = $null
+    # Latest Git for Windows release: MinGit (portable zip, per-user, no UAC) first -
+    # the full Inno installer wants elevation and dies with exit code 2 in a plain
+    # console. MinGit has everything `git clone` / `git pull` need.
+    $assets = @()
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing -TimeoutSec 60 -Headers @{ "User-Agent" = "tubecli-installer" }
-        $asset = $rel.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
-        if ($asset) { $gitUrl = $asset.browser_download_url }
+        $assets = @($rel.assets)
     } catch {
         Write-Host "  [!] Could not query the Git release list: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-    if ($gitUrl) {
-        $exe = Get-Installer $gitUrl "git-for-windows-64-bit.exe"
+    $garch = "64-bit"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $garch = "arm64" }
+    $mingit = $assets | Where-Object { $_.name -match "^MinGit-[\d.]+-$garch\.zip$" } | Select-Object -First 1
+    if ($mingit) {
+        $zip = Get-Installer $mingit.browser_download_url "mingit.zip"
+        if ($zip) {
+            $dest = Join-Path (Get-UserProgramsDir) "Git"
+            Write-Host "  Installing Git (portable, current user) to $dest ..." -ForegroundColor Gray
+            $ok = Expand-ZipTo $zip $dest
+            Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            if ($ok -and (Test-Path (Join-Path $dest "cmd\git.exe"))) {
+                Add-ToProcessPath (Join-Path $dest "cmd")
+                Add-ToUserPath (Join-Path $dest "cmd")
+                if (Check-Git) {
+                    Write-Host "[OK] Git installed (portable)" -ForegroundColor Green
+                    return $true
+                }
+            }
+        }
+    }
+
+    # Elevated console: the full installer works there.
+    $full = $assets | Where-Object { $_.name -match "^Git-[\d.]+-$garch\.exe$" } | Select-Object -First 1
+    if ($full -and (Test-IsAdmin)) {
+        $exe = Get-Installer $full.browser_download_url "git-for-windows.exe"
         if ($exe) {
             Write-Host "  Installing Git (silent)..." -ForegroundColor Gray
             try {
-                $p = Start-Process -FilePath $exe -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh" -Wait -PassThru
+                $p = Start-Process -FilePath $exe -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS" -Wait -PassThru
                 if ($p.ExitCode -ne 0) { Write-Host "  [!] Git installer exit code $($p.ExitCode)" -ForegroundColor Yellow }
             } catch {
                 Write-Host "  [!] Could not run the Git installer: $($_.Exception.Message)" -ForegroundColor Yellow
@@ -324,22 +375,24 @@ function Install-Node {
         Write-Host "  winget not available, using the official nodejs.org installer..." -ForegroundColor Gray
     }
 
-    # Direct download: current LTS MSI from nodejs.org (index.json lists releases newest first).
-    $nodeUrl = $null
+    # Current LTS from nodejs.org (index.json lists releases newest first).
+    # Elevated console: the MSI (per-machine). Plain console: the zip build into the
+    # per-user Programs folder - the MSI needs UAC and just fails silently without it.
+    $ltsVer = $null
     try {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
         $idx = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json" -UseBasicParsing -TimeoutSec 60
         $lts = $idx | Where-Object { $_.lts } | Select-Object -First 1
-        $narch = "x64"
-        if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $narch = "arm64" }
-        if ($lts) { $nodeUrl = "https://nodejs.org/dist/$($lts.version)/node-$($lts.version)-$narch.msi" }
+        if ($lts) { $ltsVer = $lts.version }
     } catch {
         Write-Host "  [!] Could not query the Node.js release list: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-    if ($nodeUrl) {
-        $msi = Get-Installer $nodeUrl "node-lts.msi"
+    $narch = "x64"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $narch = "arm64" }
+    if ($ltsVer -and (Test-IsAdmin)) {
+        $msi = Get-Installer "https://nodejs.org/dist/$ltsVer/node-$ltsVer-$narch.msi" "node-lts.msi"
         if ($msi) {
-            Write-Host "  Installing Node.js LTS (silent)..." -ForegroundColor Gray
+            Write-Host "  Installing Node.js $ltsVer (silent)..." -ForegroundColor Gray
             try {
                 $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
                 if ($p.ExitCode -ne 0) { Write-Host "  [!] Node.js installer exit code $($p.ExitCode)" -ForegroundColor Yellow }
@@ -352,6 +405,33 @@ function Install-Node {
             if (Check-Node) {
                 Write-Host "[OK] Node.js installed" -ForegroundColor Green
                 return $true
+            }
+        }
+    }
+    if ($ltsVer) {
+        $zip = Get-Installer "https://nodejs.org/dist/$ltsVer/node-$ltsVer-win-$narch.zip" "node-lts.zip"
+        if ($zip) {
+            $stage = Join-Path (Get-UserProgramsDir) "nodejs.tmp"
+            $dest = Join-Path (Get-UserProgramsDir) "nodejs"
+            Write-Host "  Installing Node.js $ltsVer (portable, current user) to $dest ..." -ForegroundColor Gray
+            $ok = Expand-ZipTo $zip $stage
+            Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            if ($ok) {
+                # the zip wraps everything in one folder: node-vX-win-x64\
+                $inner = Get-ChildItem -Path $stage -Directory | Select-Object -First 1
+                if ($inner -and (Test-Path (Join-Path $inner.FullName "node.exe"))) {
+                    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest -ErrorAction SilentlyContinue }
+                    Move-Item -Path $inner.FullName -Destination $dest -Force
+                }
+                Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+            }
+            if (Test-Path (Join-Path $dest "node.exe")) {
+                Add-ToProcessPath $dest
+                Add-ToUserPath $dest
+                if (Check-Node) {
+                    Write-Host "[OK] Node.js installed (portable)" -ForegroundColor Green
+                    return $true
+                }
             }
         }
     }
