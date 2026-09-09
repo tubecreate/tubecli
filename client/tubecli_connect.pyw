@@ -245,6 +245,81 @@ def find_install() -> str:
 SERVE_ARGS = ["api", "start", "--port", str(PORT), "--quiet"]
 
 
+def refresh_path_win() -> None:
+    """Nạp lại PATH từ registry.
+
+    install.ps1 thêm thư mục Scripts vào PATH của NGƯỜI DÙNG, nhưng tiến trình đang
+    chạy giữ nguyên bản sao PATH lúc nó khởi động — nên ngay sau khi cài xong,
+    chính client vẫn không nhìn thấy `tubecli` vừa được cài.
+    """
+    if not IS_WIN:
+        return
+    try:
+        import winreg
+        parts = []
+        for root, key in ((winreg.HKEY_LOCAL_MACHINE,
+                           r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+                          (winreg.HKEY_CURRENT_USER, "Environment")):
+            try:
+                with winreg.OpenKey(root, key) as k:
+                    val, _ = winreg.QueryValueEx(k, "Path")
+                    parts.append(os.path.expandvars(val))
+            except OSError:
+                pass
+        if parts:
+            merged = os.pathsep.join(parts + [os.environ.get("PATH", "")])
+            seen, keep = set(), []
+            for p in merged.split(os.pathsep):
+                q = p.strip().rstrip("\\").lower()
+                if p.strip() and q not in seen:
+                    seen.add(q)
+                    keep.append(p.strip())
+            os.environ["PATH"] = os.pathsep.join(keep)
+    except Exception as e:
+        log(f"không nạp lại được PATH: {e}")
+
+
+def _can_import_tubecli(py: str) -> bool:
+    """Trình thông dịch này có THẬT SỰ chạy được TubeCLI không — hỏi nó, đừng đoán."""
+    if not py or not os.path.isfile(py):
+        return False
+    try:
+        r = subprocess.run([py, "-c", "import tubecli, click"], capture_output=True, timeout=40,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def python_with_tubecli(install_dir: str = "") -> str:
+    """Đường dẫn tới trình thông dịch chạy được TubeCLI, hay "".
+
+    Thứ tự: venv của bản cài → trình thông dịch NẰM CẠNH launcher `tubecli` (pip đặt
+    launcher vào Scripts của đúng Python đã cài gói) → python trên PATH → python
+    đang chạy client. Mỗi ứng viên đều bị thử `import tubecli, click` trước khi dùng.
+    """
+    exe = "pythonw.exe" if IS_WIN else "python"
+    cands = []
+    for d in ([install_dir] if install_dir else []):
+        for venv in ("venv", ".venv"):
+            cands.append(os.path.join(d, venv, "Scripts" if IS_WIN else "bin", exe))
+    launcher = shutil.which("tubecli")
+    if launcher:
+        # …\PythonXX\Scripts\tubecli.exe → …\PythonXX\pythonw.exe
+        base = os.path.dirname(os.path.dirname(launcher))
+        cands.append(os.path.join(base, exe))
+        cands.append(os.path.join(os.path.dirname(launcher), exe))
+    cands += [shutil.which(exe), shutil.which("python3"), sys.executable]
+    seen = set()
+    for c in cands:
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        if _can_import_tubecli(c):
+            return c
+    return ""
+
+
 def server_cmd() -> tuple:
     """(lệnh bật máy chủ, thư mục chạy) — hay ([], "") nếu máy chưa có TubeCLI.
 
@@ -255,9 +330,20 @@ def server_cmd() -> tuple:
     d = find_install()
     if d:
         if IS_WIN:
-            py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
-            exe = py if os.path.isfile(py) else "pythonw"
-            return [exe, "-m", "tubecli.main"] + SERVE_ARGS, d
+            for venv in ("venv", ".venv"):
+                py = os.path.join(d, venv, "Scripts", "pythonw.exe")
+                if os.path.isfile(py):
+                    return [py, "-m", "tubecli.main"] + SERVE_ARGS, d
+            # install.ps1 không dựng venv trên Windows: nó pip install vào một Python
+            # nào đó rồi để launcher `tubecli.exe` trong Scripts của Python ấy.
+            # Launcher biết đúng trình thông dịch, còn `pythonw` trần thì không.
+            launcher = shutil.which("tubecli")
+            if launcher:
+                return [launcher] + SERVE_ARGS, d
+            py = python_with_tubecli(d)
+            if py:
+                return [py, "-m", "tubecli.main"] + SERVE_ARGS, d
+            return ["pythonw", "-m", "tubecli.main"] + SERVE_ARGS, d
         # POSIX: chạy thẳng lệnh trong venv của bản cài. Gọi `python -m tubecli.main`
         # bằng python hệ thống thì thiếu sạch phụ thuộc — venv mới là bản có đủ.
         for rel in ((".venv", "bin", "tubecli"), ("venv", "bin", "tubecli")):
@@ -616,6 +702,7 @@ def prepare_node(say, lang: str = "vi") -> tuple:
     if tubecli_up():
         say("TubeCLI đang chạy ✓")
         return True, ""
+    refresh_path_win()          # bản cài từ lượt trước có thể vừa thêm vào PATH
     cmd, d = server_cmd()
     if cmd:
         say("Đã cài sẵn — đang bật TubeCLI…")      # đường dẫn đã có trong log
@@ -628,6 +715,9 @@ def prepare_node(say, lang: str = "vi") -> tuple:
     if not install_tubecli(lang=lang):
         say("Trình cài không hoàn tất — xem log.")
         return False, ""
+    # PATH của tiến trình này vẫn là bản chụp lúc khởi động: không nạp lại thì
+    # `tubecli` vừa cài xong vẫn "không tồn tại" với chính client.
+    refresh_path_win()
     say("Cài xong — đang bật TubeCLI…")
     if not start_tubecli():
         say("Cài xong nhưng chưa bật được — mở TubeCLI rồi chạy lại client.")

@@ -488,6 +488,55 @@ check("thiếu cả pystray lẫn tkinter → vẫn chạy, in trạng thái ra 
 check("POSIX siết quyền file cấu hình bằng chmod 600",
       "os.chmod(CONF, 0o600)" in _src)
 
+# 10. TRÌNH THÔNG DỊCH NÀO chạy được TubeCLI — phải kiểm chứng, không được đoán.
+# Đo trên máy người dùng 9/9/2026 (server.log vừa thêm nói thẳng ra):
+#   pythonw -m tubecli.main api start … → ModuleNotFoundError: No module named 'click'
+# install.ps1 trên Windows KHÔNG dựng venv: nó pip install vào đúng cái `python` nó
+# tìm được rồi thêm Scripts vào PATH của NGƯỜI DÙNG. Client đang chạy giữ PATH cũ,
+# nên `pythonw` trần phân giải sang một Python khác, không có phụ thuộc nào.
+_win2 = _load("win32")
+_dir = os.path.join(TMP, "win_install")
+os.makedirs(_dir, exist_ok=True)
+open(os.path.join(_dir, "TubeCLI.bat"), "w").close()
+_win2.find_install = lambda: _dir
+
+# Có launcher trên PATH → dùng THẲNG launcher: pip đặt nó vào Scripts của đúng
+# Python đã cài gói, nên nó biết trình thông dịch, còn ta thì không.
+_win2.shutil.which = lambda name: r"C:\Py\Scripts\tubecli.exe" if name == "tubecli" else None
+_cmd2, _d2 = _win2.server_cmd()
+check("thư mục cài + có launcher → chạy launcher, KHÔNG phải pythonw trần",
+      _cmd2[:3] == [r"C:\Py\Scripts\tubecli.exe", "api", "start"], _cmd2)
+check("vẫn chạy trong thư mục cài", _d2 == _dir)
+
+# Có venv thì venv thắng launcher (bản cài kiểu POSIX/thủ công).
+_venv = os.path.join(_dir, "venv", "Scripts")
+os.makedirs(_venv, exist_ok=True)
+open(os.path.join(_venv, "pythonw.exe"), "w").close()
+_cmd3, _ = _win2.server_cmd()
+check("có venv thì ưu tiên trình thông dịch trong venv",
+      _cmd3[0] == os.path.join(_venv, "pythonw.exe") and _cmd3[1:3] == ["-m", "tubecli.main"], _cmd3)
+
+# Ứng viên không import được thì bị loại — đây chính là bài kiểm mà `pythonw` trần
+# trên máy người dùng đã trượt.
+check("trình thông dịch không import nổi tubecli thì bị loại",
+      _win2._can_import_tubecli(r"C:\khong\ton\tai\pythonw.exe") is False)
+check("đường dẫn rỗng cũng không làm nó ngã", _win2._can_import_tubecli("") is False)
+check("python đang chạy bài test này thì import được", mod._can_import_tubecli(sys.executable))
+
+# PATH phải được NẠP LẠI sau khi cài: tiến trình đang chạy giữ bản chụp PATH lúc
+# khởi động, nên `tubecli` vừa cài xong vẫn "không tồn tại" với chính client.
+check("có hàm nạp lại PATH từ registry", "def refresh_path_win()" in _src and "winreg" in _src)
+check("gọi nó sau khi cài xong", _src.index("refresh_path_win()\n    say(\"Cài xong") > 0
+      if 'refresh_path_win()\n    say("Cài xong' in _src else
+      _src.count("refresh_path_win()") >= 3, _src.count("refresh_path_win()"))
+check("và gọi trước khi dò bản cài", "refresh_path_win()          # bản cài từ lượt trước" in _src)
+
+# Máy chủ chết ngay thì phải NÓI RA, không đếm hết 60 giây rồi báo chung chung.
+check("hứng output máy chủ vào server.log", '"server.log"' in _src)
+check("phát hiện tiến trình con thoát sớm", "proc.poll() is not None" in _src
+      and "máy chủ TubeCLI thoát ngay" in _src)
+check("và in mấy dòng cuối của nó ra log", "_tail_lines(out, 8)" in _src)
+
 print("=" * 62)
 print(f"{failures} FAIL / {checks}" if failures else f"{checks}/{checks} PASS")
 sys.exit(1 if failures else 0)
