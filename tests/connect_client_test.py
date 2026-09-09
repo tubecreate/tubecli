@@ -537,6 +537,68 @@ check("phát hiện tiến trình con thoát sớm", "proc.poll() is not None" i
       and "máy chủ TubeCLI thoát ngay" in _src)
 check("và in mấy dòng cuối của nó ra log", "_tail_lines(out, 8)" in _src)
 
+# 11. CÓ MÃ NGUỒN KHÔNG PHẢI LÀ CÀI ĐƯỢC.
+# Đo trên máy khách 9/9/2026: C:\Users\PC\TubeCLI có đủ mã nguồn nhưng không Python
+# nào import nổi `click` — `pip install -e .` của install.ps1 chưa từng chạy xong.
+# Client cũ thấy tubecli/main.py là kết luận "đã cài sẵn", bật máy chủ, máy chủ chết
+# vì thiếu thư viện, rồi lặp lại y hệt ở mọi lượt chạy sau. Không có đường thoát.
+_r = _load("win32")
+_rdir = os.path.join(TMP, "broken_install")
+os.makedirs(_rdir, exist_ok=True)
+
+check("không có pyproject.toml thì không tự ý pip install", _r.repair_deps(_rdir) is False)
+
+open(os.path.join(_rdir, "pyproject.toml"), "w").close()
+open(os.path.join(_rdir, "requirements.txt"), "w").close()
+_r.python_for_pip = lambda: ""
+check("không có Python nào có pip → chịu, nhưng không ngã", _r.repair_deps(_rdir) is False)
+
+# Chạy thật lệnh pip nào, ở thư mục nào — bắt bằng Popen giả.
+_ran = []
+
+
+class _FakeP:
+    returncode = 0
+
+    def __init__(self, cmd, cwd=None, **kw):
+        _ran.append((cmd, cwd))
+        self.stdout = iter(["Successfully installed click-8.1.7\n"])
+
+    def wait(self, timeout=None):
+        return 0
+
+
+_r.python_for_pip = lambda: sys.executable
+_r.subprocess.Popen = _FakeP
+_r._can_import_tubecli = lambda py: True
+check("sửa chữa = pip install -e . NGAY TRONG thư mục ấy", _r.repair_deps(_rdir) is True)
+check("gọi đúng lệnh và đúng cwd",
+      _ran and _ran[0][0][1:4] == ["-m", "pip", "install"] and _ran[0][0][4:6] == ["-e", "."]
+      and _ran[0][1] == _rdir, _ran)
+
+# `-e .` hỏng thì lùi về requirements.txt: máy chủ chạy với cwd là chính thư mục mã
+# nguồn, nên chỉ cần thư viện bên thứ ba là nó sống được.
+_ran.clear()
+_state = {"n": 0}
+
+
+def _imp(py):
+    _state["n"] += 1
+    return _state["n"] > 1          # lượt đầu (sau -e .) vẫn hỏng
+
+
+_r._can_import_tubecli = _imp
+_r.shutil.which = lambda name: None
+check("`-e .` hỏng thì thử tiếp requirements.txt", _r.repair_deps(_rdir) is True)
+check("đúng là hai lượt, lượt sau dùng -r requirements.txt",
+      len(_ran) == 2 and _ran[1][0][4:6] == ["-r", "requirements.txt"], _ran)
+
+check("bước sửa chữa nằm trong luồng chuẩn bị máy",
+      "if repair_deps(d, say) and start_tubecli():" in _src)
+check("nói cho người dùng biết nó đang cài thư viện, không im lặng",
+      "Thiếu thư viện — đang cài phụ thuộc TubeCLI…" in _src)
+check("từng dòng pip vào nhật ký của form", '"  pip| ' in _src)
+
 print("=" * 62)
 print(f"{failures} FAIL / {checks}" if failures else f"{checks}/{checks} PASS")
 sys.exit(1 if failures else 0)

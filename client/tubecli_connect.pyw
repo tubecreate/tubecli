@@ -373,6 +373,78 @@ def have_tubecli() -> bool:
     return tubecli_up() or bool(server_cmd()[0])
 
 
+def python_for_pip() -> str:
+    """Một Python CÓ PIP để cài phụ thuộc. Không đòi nó import được tubecli — đó
+    chính là thứ ta sắp đi cài."""
+    cands = [shutil.which("python"), shutil.which("python3"), sys.executable]
+    if IS_WIN:
+        local = os.environ.get("LOCALAPPDATA", "")
+        for ver in ("Python313", "Python312", "Python311", "Python310"):
+            cands.append(os.path.join(local, "Programs", "Python", ver, "python.exe"))
+    seen = set()
+    for c in cands:
+        if not c or c in seen or not os.path.isfile(c):
+            continue
+        seen.add(c)
+        try:
+            r = subprocess.run([c, "-m", "pip", "--version"], capture_output=True, timeout=60,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0)
+            if r.returncode == 0:
+                return c
+        except Exception:
+            continue
+    return ""
+
+
+def repair_deps(d: str, say=None) -> bool:
+    """Cài phụ thuộc cho một thư mục TubeCLI đã có mã nguồn nhưng chưa chạy được.
+
+    Đo trên máy khách 9/9/2026: thư mục đủ mã nguồn mà không Python nào import nổi
+    `click` — `pip install -e .` chưa từng chạy xong. Client cũ coi "thấy
+    tubecli/main.py" là "đã cài", nên nó bật máy chủ, máy chủ chết vì thiếu phụ
+    thuộc, và vòng đó lặp lại mãi. Có mã nguồn KHÔNG phải là cài được.
+    """
+    if not d or not os.path.isfile(os.path.join(d, "pyproject.toml")):
+        return False
+    py = python_for_pip()
+    if not py:
+        log("không tìm thấy Python nào có pip để cài phụ thuộc")
+        return False
+    msg = "Thiếu thư viện — đang cài phụ thuộc TubeCLI…"
+    log(f"{msg} ({py})")
+    if say:
+        say(msg)
+    # `-e .` là đường chính: nó cài phụ thuộc VÀ đặt luôn launcher `tubecli`.
+    # Hỏng thì lùi về requirements.txt — máy chủ chạy với cwd là chính thư mục mã
+    # nguồn, nên chỉ cần thư viện bên thứ ba là đủ để nó sống.
+    attempts = [["-e", "."]]
+    if os.path.isfile(os.path.join(d, "requirements.txt")):
+        attempts.append(["-r", "requirements.txt"])
+    rc = -1
+    for args in attempts:
+        cmd = [py, "-m", "pip", "install"] + args
+        log("  pip| $ " + " ".join(args))
+        try:
+            p = subprocess.Popen(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                 stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
+                                 errors="replace", bufsize=1,
+                                 **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
+            for line in p.stdout:
+                line = line.rstrip()
+                if line:
+                    log(f"  pip| {line[:200]}")
+            rc = p.wait(timeout=900)
+        except Exception as e:
+            log(f"cài phụ thuộc hỏng: {e}")
+            continue
+        refresh_path_win()
+        if _can_import_tubecli(py) or shutil.which("tubecli"):
+            log("cài phụ thuộc xong")
+            return True
+    log(f"pip trả mã {rc} — vẫn chưa import được tubecli")
+    return False
+
+
 def install_command(lang: str = "vi") -> list:
     """Lệnh gọi trình cài CHÍNH THỨC của từng hệ. Không tự dựng bản cài riêng: một
     bản thứ hai là một bộ bug thứ hai."""
@@ -707,6 +779,12 @@ def prepare_node(say, lang: str = "vi") -> tuple:
     if cmd:
         say("Đã cài sẵn — đang bật TubeCLI…")      # đường dẫn đã có trong log
         if start_tubecli():
+            say("TubeCLI đang chạy ✓")
+            return True, ""
+        # Bật hỏng ở đây gần như luôn là THIẾU PHỤ THUỘC: thư mục có mã nguồn nhưng
+        # `pip install -e .` chưa chạy xong. Sửa tại chỗ rồi thử lại, thay vì báo
+        # "không bật được" cho một máy chỉ thiếu đúng một lệnh pip.
+        if repair_deps(d, say) and start_tubecli():
             say("TubeCLI đang chạy ✓")
             return True, ""
         say("Không bật được TubeCLI — xem log.")
