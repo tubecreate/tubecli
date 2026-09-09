@@ -57,7 +57,72 @@ if ([string]::IsNullOrWhiteSpace($InstallDir)) {
     $InstallDir = (Join-Path $userHome "tubecli")
 }
 
+# --- Download helper (fallback when winget is missing or broken) ---
+
+function Refresh-Path {
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+}
+
+# Download an official installer to %TEMP%. Returns the file path, or $null on failure.
+# Windows 10 builds without winget also tend to default to TLS 1.0 - force 1.2 or every
+# python.org / github.com download fails with "Could not create SSL/TLS secure channel".
+function Get-Installer([string]$Url, [string]$FileName) {
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    } catch {}
+    $dest = Join-Path $env:TEMP $FileName
+    Write-Host "  Downloading $Url" -ForegroundColor Gray
+    $old = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'   # progress bar makes Invoke-WebRequest 10x slower
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $dest -UseBasicParsing -TimeoutSec 600
+    } catch {
+        Write-Host "  [!] Download failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        $ProgressPreference = $old
+        return $null
+    }
+    $ProgressPreference = $old
+    if (-not (Test-Path $dest) -or (Get-Item $dest).Length -lt 1MB) {
+        Write-Host "  [!] Download incomplete" -ForegroundColor Yellow
+        return $null
+    }
+    return $dest
+}
+
+function Get-WingetOk {
+    # winget can exist yet be unusable (App Installer not updated, source agreements,
+    # LTSC/Server builds). Treat "runs and prints a version" as usable.
+    $w = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $w) { return $false }
+    try { $null = (winget --version 2>$null); return ($LASTEXITCODE -eq 0) } catch { return $false }
+}
+
 # --- Python Checking and Installation ---
+
+# Put a real Python on the process PATH when `python` is missing or is only the
+# Microsoft Store alias stub (which prints nothing and exits without an error).
+# Looks at common install locations (newest first) and then asks the py launcher,
+# which knows every registered Python even when python.exe is not on PATH.
+function Add-KnownPythonToPath {
+    foreach ($ver in @("313", "312", "311", "310")) {
+        foreach ($base in @("$env:LOCALAPPDATA\Programs\Python\Python$ver", "$env:ProgramFiles\Python$ver", "${env:ProgramFiles(x86)}\Python$ver")) {
+            if ($base -and (Test-Path (Join-Path $base "python.exe"))) {
+                Add-ToProcessPath $base
+                Add-ToProcessPath (Join-Path $base "Scripts")
+                return $true
+            }
+        }
+    }
+    try {
+        $pyHome = (py -3 -c "import sys,os;print(os.path.dirname(sys.executable))" 2>$null)
+        if ($pyHome -and (Test-Path (Join-Path $pyHome "python.exe"))) {
+            Add-ToProcessPath $pyHome
+            Add-ToProcessPath (Join-Path $pyHome "Scripts")
+            return $true
+        }
+    } catch {}
+    return $false
+}
 
 function Check-Python {
     param([int]$Depth = 0)
@@ -65,30 +130,23 @@ function Check-Python {
         Write-Host "[!] Python found at known location but not working correctly" -ForegroundColor Yellow
         return $false
     }
-    try {
-        $pythonVersion = (python --version 2>$null)
-        if ($pythonVersion -match "Python (\d+)\.(\d+)") {
-            $major = [int]$matches[1]
-            $minor = [int]$matches[2]
-            if ($major -eq 3 -and $minor -ge 10) {
-                Write-Host "[OK] $pythonVersion found" -ForegroundColor Green
-                return $true
-            } else {
-                Write-Host "[!] $pythonVersion found, but v3.10+ required" -ForegroundColor Yellow
-                return $false
-            }
+    $pythonVersion = $null
+    try { $pythonVersion = (python --version 2>$null) } catch { $pythonVersion = $null }
+    if ($pythonVersion -match "Python (\d+)\.(\d+)") {
+        $major = [int]$matches[1]
+        $minor = [int]$matches[2]
+        if ($major -eq 3 -and $minor -ge 10) {
+            Write-Host "[OK] $pythonVersion found" -ForegroundColor Green
+            return $true
         }
-    } catch {
-        # Check if python is in another common location but not on PATH
-        $localPython = "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
-        if (Test-Path $localPython) {
-            Add-ToProcessPath (Split-Path $localPython)
-            Add-ToProcessPath (Join-Path (Split-Path $localPython) "Scripts")
-            return (Check-Python -Depth ($Depth + 1))
-        }
-        Write-Host "[!] Python not found on PATH" -ForegroundColor Yellow
+        Write-Host "[!] $pythonVersion found, but v3.10+ required" -ForegroundColor Yellow
+        # An old python shadows a newer one? Prepend a known 3.10+ and look again.
+        if ((Add-KnownPythonToPath) -and $Depth -eq 0) { return (Check-Python -Depth ($Depth + 1)) }
         return $false
     }
+    # Not found, or the Store alias stub answered with nothing.
+    if (Add-KnownPythonToPath) { return (Check-Python -Depth ($Depth + 1)) }
+    Write-Host "[!] Python not found on PATH" -ForegroundColor Yellow
     return $false
 }
 
@@ -103,30 +161,51 @@ function Install-Python {
     # was therefore never true and the failure branch never ran.
     # Out-Host rather than Out-Null on purpose: it still shows winget's progress,
     # it just keeps it out of the pipeline.
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
+    if (Get-WingetOk) {
         Write-Host "  Using winget..." -ForegroundColor Gray
         winget install --id Python.Python.3.11 --source winget --accept-package-agreements --accept-source-agreements --override "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0" | Out-Host
 
-        # Refresh PATH
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
+        Refresh-Path
         if (Check-Python) {
             Write-Host "[OK] Python installed via winget" -ForegroundColor Green
             return $true
         }
+        Write-Host "  [!] winget did not produce a working Python, trying the official installer..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  winget not available, using the official python.org installer..." -ForegroundColor Gray
     }
 
-    # Fallback: guide user to install manually (avoids antivirus false positives)
+    # Direct download from python.org: same silent switches winget would pass.
+    $pyVer = "3.11.9"
+    $arch = "amd64"
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
+    $exe = Get-Installer "https://www.python.org/ftp/python/$pyVer/python-$pyVer-$arch.exe" "python-$pyVer-$arch.exe"
+    if ($exe) {
+        Write-Host "  Installing Python $pyVer (silent, adds to PATH)..." -ForegroundColor Gray
+        try {
+            $p = Start-Process -FilePath $exe -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=1" -Wait -PassThru
+            if ($p.ExitCode -ne 0) { Write-Host "  [!] Python installer exit code $($p.ExitCode)" -ForegroundColor Yellow }
+        } catch {
+            Write-Host "  [!] Could not run the Python installer: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+        Remove-Item $exe -Force -ErrorAction SilentlyContinue
+        Refresh-Path
+        if (Check-Python) {
+            Write-Host "[OK] Python $pyVer installed" -ForegroundColor Green
+            return $true
+        }
+    }
+
+    # Last resort: guide user to install manually
     Write-Host ""
-    Write-Host "  [!] winget not available. Please install Python 3.11+ manually:" -ForegroundColor Yellow
+    Write-Host "  [!] Automatic install failed. Please install Python 3.11+ manually:" -ForegroundColor Yellow
     Write-Host "      https://www.python.org/downloads/" -ForegroundColor Cyan
     Write-Host "  IMPORTANT: Check 'Add Python to PATH' during installation!" -ForegroundColor Yellow
     Write-Host ""
     try { Start-Process "https://www.python.org/downloads/" } catch {}
     $null = Read-Host "  Press Enter after installing Python..."
 
-    # Refresh PATH
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Refresh-Path
 
     if (Check-Python) {
         Write-Host "[OK] Python detected after manual install" -ForegroundColor Green
@@ -152,27 +231,59 @@ function Check-Git {
 function Install-Git {
     Write-Host "[*] Installing Git..." -ForegroundColor Yellow
 
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
+    if (Get-WingetOk) {
         Write-Host "  Using winget..." -ForegroundColor Gray
         winget install --id Git.Git -e --source winget --accept-package-agreements --accept-source-agreements | Out-Host
 
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
+        Refresh-Path
         if (Check-Git) {
             Write-Host "[OK] Git installed via winget" -ForegroundColor Green
             return $true
         }
+        Write-Host "  [!] winget did not produce a working Git, trying the official installer..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  winget not available, using the official Git for Windows installer..." -ForegroundColor Gray
     }
 
-    # Fallback: guide user to install manually (avoids antivirus false positives)
+    # Direct download: latest Git for Windows 64-bit installer from its GitHub release.
+    $gitUrl = $null
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing -TimeoutSec 60 -Headers @{ "User-Agent" = "tubecli-installer" }
+        $asset = $rel.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
+        if ($asset) { $gitUrl = $asset.browser_download_url }
+    } catch {
+        Write-Host "  [!] Could not query the Git release list: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    if ($gitUrl) {
+        $exe = Get-Installer $gitUrl "git-for-windows-64-bit.exe"
+        if ($exe) {
+            Write-Host "  Installing Git (silent)..." -ForegroundColor Gray
+            try {
+                $p = Start-Process -FilePath $exe -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP- /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /COMPONENTS=icons,ext\reg\shellhere,assoc,assoc_sh" -Wait -PassThru
+                if ($p.ExitCode -ne 0) { Write-Host "  [!] Git installer exit code $($p.ExitCode)" -ForegroundColor Yellow }
+            } catch {
+                Write-Host "  [!] Could not run the Git installer: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+            Remove-Item $exe -Force -ErrorAction SilentlyContinue
+            Refresh-Path
+            Add-ToProcessPath "$env:ProgramFiles\Git\cmd"
+            if (Check-Git) {
+                Write-Host "[OK] Git installed" -ForegroundColor Green
+                return $true
+            }
+        }
+    }
+
+    # Last resort: guide user to install manually
     Write-Host ""
-    Write-Host "  [!] winget not available. Please install Git manually:" -ForegroundColor Yellow
+    Write-Host "  [!] Automatic install failed. Please install Git manually:" -ForegroundColor Yellow
     Write-Host "      https://git-scm.com/download/win" -ForegroundColor Cyan
     Write-Host ""
     try { Start-Process "https://git-scm.com/download/win" } catch {}
     $null = Read-Host "  Press Enter after installing Git..."
 
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Refresh-Path
 
     if (Check-Git) {
         Write-Host "[OK] Git detected after manual install" -ForegroundColor Green
@@ -199,27 +310,61 @@ function Check-Node {
 function Install-Node {
     Write-Host "[*] Installing Node.js..." -ForegroundColor Yellow
 
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
+    if (Get-WingetOk) {
         Write-Host "  Using winget..." -ForegroundColor Gray
         winget install --id OpenJS.NodeJS --source winget --accept-package-agreements --accept-source-agreements | Out-Host
 
-        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
-        
+        Refresh-Path
         if (Check-Node) {
             Write-Host "[OK] Node.js installed via winget" -ForegroundColor Green
             return $true
         }
+        Write-Host "  [!] winget did not produce a working Node.js, trying the official installer..." -ForegroundColor Yellow
+    } else {
+        Write-Host "  winget not available, using the official nodejs.org installer..." -ForegroundColor Gray
     }
 
-    # Fallback: guide user to install manually (avoids antivirus false positives)
+    # Direct download: current LTS MSI from nodejs.org (index.json lists releases newest first).
+    $nodeUrl = $null
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        $idx = Invoke-RestMethod -Uri "https://nodejs.org/dist/index.json" -UseBasicParsing -TimeoutSec 60
+        $lts = $idx | Where-Object { $_.lts } | Select-Object -First 1
+        $narch = "x64"
+        if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $narch = "arm64" }
+        if ($lts) { $nodeUrl = "https://nodejs.org/dist/$($lts.version)/node-$($lts.version)-$narch.msi" }
+    } catch {
+        Write-Host "  [!] Could not query the Node.js release list: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    if ($nodeUrl) {
+        $msi = Get-Installer $nodeUrl "node-lts.msi"
+        if ($msi) {
+            Write-Host "  Installing Node.js LTS (silent)..." -ForegroundColor Gray
+            try {
+                $p = Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" /qn /norestart" -Wait -PassThru
+                if ($p.ExitCode -ne 0) { Write-Host "  [!] Node.js installer exit code $($p.ExitCode)" -ForegroundColor Yellow }
+            } catch {
+                Write-Host "  [!] Could not run the Node.js installer: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+            Remove-Item $msi -Force -ErrorAction SilentlyContinue
+            Refresh-Path
+            Add-ToProcessPath "$env:ProgramFiles\nodejs"
+            if (Check-Node) {
+                Write-Host "[OK] Node.js installed" -ForegroundColor Green
+                return $true
+            }
+        }
+    }
+
+    # Last resort: guide user to install manually
     Write-Host ""
-    Write-Host "  [!] winget not available. Please install Node.js LTS manually:" -ForegroundColor Yellow
+    Write-Host "  [!] Automatic install failed. Please install Node.js LTS manually:" -ForegroundColor Yellow
     Write-Host "      https://nodejs.org/" -ForegroundColor Cyan
     Write-Host ""
     try { Start-Process "https://nodejs.org/" } catch {}
     $null = Read-Host "  Press Enter after installing Node.js (or press Enter to skip)..."
 
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+    Refresh-Path
 
     if (Check-Node) {
         Write-Host "[OK] Node.js detected after manual install" -ForegroundColor Green
@@ -254,13 +399,13 @@ function Ensure-PythonScriptsInPath {
     if ($pythonCmd -and $pythonCmd.Source) {
         $pythonDir = Split-Path $pythonCmd.Source
         $scriptsDir = Join-Path $pythonDir "Scripts"
-        
+
         if (Test-Path $scriptsDir) {
             Add-ToProcessPath $scriptsDir
             Add-ToUserPath $scriptsDir
         }
     }
-    
+
     # Also check roaming appdata Python paths (often where pip installs user scripts)
     $appdataScripts = Join-Path $env:APPDATA "Python\Python311\Scripts" # Adjust based on version if needed
     if (Test-Path $appdataScripts) {
@@ -479,9 +624,9 @@ if !ALREADY_RUNNING! EQU 1 (
     echo  ==================================================
     echo.
     set /p opt="  Select an option: "
-    
+
     if "!opt!"=="" set opt=1
-    
+
     if "!opt!"=="1" (
         start http://localhost:5295/dashboard
         exit
