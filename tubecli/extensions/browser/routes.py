@@ -10,6 +10,8 @@ import sys
 import platform
 import json
 import subprocess
+
+from tubecli.core import proc as _proc
 import threading
 import asyncio
 from pathlib import Path
@@ -304,6 +306,7 @@ def _read_live_cookies(name):
     tool = os.path.join(os.path.dirname(__file__), "cookie_tool.cjs")
     try:
         r = subprocess.run(["node", tool, "--cdp", str(port), "--action", "export"],
+                           **_proc.hidden_kwargs(),
                            capture_output=True, text=True, timeout=25)
     except Exception as e:
         return None, str(e)
@@ -374,6 +377,7 @@ async def api_cookie_import(name: str, req: CookieImportRequest):
         _json.dump(cks, tf, ensure_ascii=False)
         tf.close()
         r = subprocess.run(["node", tool, "--cdp", str(port), "--action", "import", "--file", tf.name],
+                           **_proc.hidden_kwargs(),
                            capture_output=True, text=True, timeout=25)
         out = r.stdout or ""
         i, j = out.find("__COOKIE_RESULT__"), out.find("__COOKIE_END__")
@@ -2648,7 +2652,8 @@ async def _spawn_preview_server(profile, url, extra_args=()):
     # server with "Playwright requires Node.js 20 or higher" — visible only in
     # its own log, while the page showed a spinner. Say it here instead.
     try:
-        _nv = subprocess.run(["node", "-v"], capture_output=True, text=True, timeout=10).stdout
+        _nv = subprocess.run(["node", "-v"], capture_output=True, text=True, timeout=10,
+                             **_proc.hidden_kwargs()).stdout
         _major = int(_nv.strip().lstrip("v").split(".")[0])
     except Exception:
         _major = 0

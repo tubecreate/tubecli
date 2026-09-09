@@ -42,6 +42,15 @@ if os.name == "nt":
 import click
 from tubecli import __version__
 
+# Cửa sổ đen của tiến trình con: node.exe, git, cmd… đều là chương trình console,
+# nên Windows cấp cho mỗi cái một khung đen nháy giữa màn hình (người dùng gặp
+# 9/9/2026 khi mở trình duyệt). Đặt mặc định NGAY TỪ ĐẦU, trước khi bất cứ thứ gì
+# kịp sinh tiến trình con — vá 111 chỗ gọi lẻ thì vừa sót vừa hỏng lại ở dòng tiếp theo.
+from tubecli.core import proc as _tc_proc
+
+_tc_proc.install_no_window_default()
+
+
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="tubecli")

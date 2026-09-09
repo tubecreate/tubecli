@@ -9,6 +9,8 @@ import os
 import json
 import logging
 import subprocess
+
+from tubecli.core import proc as _proc
 import threading
 import time
 
@@ -581,7 +583,7 @@ async def run_script(script_id: str, req: RunRequest):
                 ["node", runner_path, "--exec-file", tmp_file],
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 cwd=ext_dir, encoding="utf-8", errors="replace",
-                env=env,
+                env=env, **_proc.hidden_kwargs(),
             )
             _running_processes[exec_id] = proc
             for line in proc.stdout:
@@ -712,7 +714,7 @@ def run_script_sync(script_id: str, variables: dict = None, profile: str = "",
             ["node", runner_path, "--exec-file", tmp_file],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
-            cwd=ext_dir, env=env,
+            cwd=ext_dir, env=env, **_proc.hidden_kwargs(),
         )
         try:
             out, _err = proc.communicate(timeout=timeout)
@@ -841,7 +843,7 @@ async def launch_preview(request: Request):
          "--profiles-dir", profiles_dir],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         cwd=ext_dir, encoding="utf-8", errors="replace",
-        env=env,
+        env=env, **_proc.hidden_kwargs(),
     )
     session_id = f"preview_{int(time.time())}"
     _preview_processes[session_id] = {"proc": proc, "port": port, "profile": profile}

@@ -10,6 +10,15 @@ import os, sys
 import mimetypes
 import random  # module-level for the schedule behavior helpers below
 
+# Cửa sổ đen của tiến trình con: node.exe, git, cmd… đều là chương trình console,
+# nên Windows cấp cho mỗi cái một khung đen nháy giữa màn hình (người dùng gặp
+# 9/9/2026 khi mở trình duyệt). Đặt mặc định NGAY TỪ ĐẦU, trước khi bất cứ thứ gì
+# kịp sinh tiến trình con — vá 111 chỗ gọi lẻ thì vừa sót vừa hỏng lại ở dòng tiếp theo.
+from tubecli.core import proc as _tc_proc
+
+_tc_proc.install_no_window_default()
+
+
 _BUILD_ETAG = "306d3aa214be205cb2f9d9e3ee8dae2f"  # release build etag
 
 # Fix Windows registry MIME type bug for CSS/JS/SVG files

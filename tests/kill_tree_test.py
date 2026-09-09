@@ -331,9 +331,16 @@ def main():
     check("_process_group_kwargs(Windows) = creationflags",
           list(win_kw) == ["creationflags"], str(win_kw))
     if not posix:
-        check("  dung co CREATE_NEW_PROCESS_GROUP",
-              win_kw["creationflags"] == subprocess.CREATE_NEW_PROCESS_GROUP,
-              str(win_kw))
+        # Hai co, khong phai mot. CREATE_NEW_PROCESS_GROUP de Ctrl+C o console may
+        # chu khong giat mat trinh duyet; CREATE_NO_WINDOW de node.exe khong bat
+        # len mot cua so den truoc mat nguoi dung (gap 9/9/2026 — mo mot phien
+        # trinh duyet la vai khung den nam do toi het phien).
+        check("  co CREATE_NEW_PROCESS_GROUP",
+              bool(win_kw["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP), str(win_kw))
+        check("  va CREATE_NO_WINDOW (khong nha cua so den)",
+              bool(win_kw["creationflags"] & subprocess.CREATE_NO_WINDOW), str(win_kw))
+        check("  khong lan sang CREATE_NEW_CONSOLE (xung khac voi NO_WINDOW)",
+              not (win_kw["creationflags"] & subprocess.CREATE_NEW_CONSOLE), str(win_kw))
     src = open(PM_SRC, encoding="utf-8").read()
     check("spawn() that su truyen co do vao Popen",
           "**_process_group_kwargs()," in src)

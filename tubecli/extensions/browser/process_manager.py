@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import subprocess
+
+from tubecli.core import proc as _proc
 import threading
 import uuid
 import logging
@@ -34,8 +36,11 @@ def _process_group_kwargs(windows: Optional[bool] = None) -> Dict[str, Any]:
     if windows is None:
         windows = os.name == "nt"
     if windows:
-        # getattr: hằng số này chỉ tồn tại trên Windows.
-        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+        # CREATE_NO_WINDOW: không có nó thì Windows cấp cho mỗi tiến trình console
+        # một cửa sổ đen, và mở một phiên trình duyệt là vài khung đen nhảy lên che
+        # màn hình rồi nằm đó tới hết phiên (người dùng gặp 9/9/2026).
+        # Ghép được với CREATE_NEW_PROCESS_GROUP; chỉ CREATE_NEW_CONSOLE mới xung khắc.
+        return {"creationflags": _proc.CREATE_NO_WINDOW | _proc.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
 
 
