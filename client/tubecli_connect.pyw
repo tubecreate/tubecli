@@ -168,6 +168,24 @@ def open_url(target: str) -> None:
         log(f"không mở được {target}: {e}")
 
 
+def client_build() -> str:
+    """Vân tay của CHÍNH file này.
+
+    Raw GitHub cache khoảng 5 phút, nên "tải lại rồi mà vẫn lỗi y hệt" là chuyện
+    thường gặp — và không có cách nào nhìn log mà biết được đang chạy bản nào.
+    Băm nội dung file thì không bao giờ lệch với thực tế, khỏi phải nhớ tăng số.
+    """
+    try:
+        import hashlib
+        with open(os.path.abspath(__file__), "rb") as f:
+            # Chuẩn hoá xuống dòng: git trả bản LF, Windows giữ bản CRLF — không bỏ
+            # qua khác biệt đó thì hai bên ra hai mã khác nhau và vân tay vô dụng.
+            data = f.read().replace(b"\r\n", b"\n")
+        return hashlib.sha256(data).hexdigest()[:8]
+    except Exception:
+        return "?"
+
+
 def conf_read() -> dict:
     try:
         with open(CONF, encoding="utf-8") as f:
@@ -285,6 +303,7 @@ def _can_import_tubecli(py: str) -> bool:
         return False
     try:
         r = subprocess.run([py, "-c", "import tubecli, click"], capture_output=True, timeout=40,
+                           env=clean_env(),
                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0)
         return r.returncode == 0
     except Exception:
@@ -373,6 +392,29 @@ def have_tubecli() -> bool:
     return tubecli_up() or bool(server_cmd()[0])
 
 
+# Biến môi trường CA trỏ vào một đường dẫn không tồn tại làm HỎNG MỌI kết nối TLS
+# của tiến trình Python con. Đo trên máy khách 9/9/2026: SSL_CERT_FILE trỏ vào
+# D:\T2Render\_internal\certifi\cacert.pem — rác còn lại của một app đóng gói bằng
+# PyInstaller — nên pip không tải nổi gói nào, `pip install -e .` chưa bao giờ xong,
+# thiếu `click`, và máy chủ chết ở mọi lượt chạy.
+CA_VARS = ("SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+
+
+def clean_env() -> dict:
+    """Bản sao môi trường đã gỡ những biến CA trỏ vào chỗ không còn tồn tại.
+
+    Chỉ gỡ khi đường dẫn SAI: máy nào cố tình dùng CA riêng (proxy doanh nghiệp)
+    thì vẫn phải được tôn trọng.
+    """
+    env = dict(os.environ)
+    for k in CA_VARS:
+        v = env.get(k)
+        if v and not os.path.exists(v):
+            log(f"bỏ {k} vì trỏ vào chỗ không tồn tại: {v}")
+            env.pop(k, None)
+    return env
+
+
 def python_for_pip() -> str:
     """Một Python CÓ PIP để cài phụ thuộc. Không đòi nó import được tubecli — đó
     chính là thứ ta sắp đi cài."""
@@ -388,6 +430,7 @@ def python_for_pip() -> str:
         seen.add(c)
         try:
             r = subprocess.run([c, "-m", "pip", "--version"], capture_output=True, timeout=60,
+                               env=clean_env(),
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if IS_WIN else 0)
             if r.returncode == 0:
                 return c
@@ -427,7 +470,7 @@ def repair_deps(d: str, say=None) -> bool:
         try:
             p = subprocess.Popen(cmd, cwd=d, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  stdin=subprocess.DEVNULL, text=True, encoding="utf-8",
-                                 errors="replace", bufsize=1,
+                                 errors="replace", bufsize=1, env=clean_env(),
                                  **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
             for line in p.stdout:
                 line = line.rstrip()
@@ -488,7 +531,7 @@ def install_tubecli(lang: str = "vi") -> bool:
     extra = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}
     try:
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             stdin=subprocess.DEVNULL, text=True,
+                             stdin=subprocess.DEVNULL, text=True, env=clean_env(),
                              encoding="utf-8", errors="replace", bufsize=1, **extra)
     except Exception as e:
         log(f"cài thất bại: {e}")
@@ -542,7 +585,7 @@ def start_tubecli() -> bool:
             # start_new_session: tách khỏi nhóm tiến trình của client, để đóng
             # client (hoặc Ctrl+C trong terminal) không kéo theo máy chủ.
             "start_new_session": True}
-        proc = subprocess.Popen(cmd, cwd=d or None,
+        proc = subprocess.Popen(cmd, cwd=d or None, env=clean_env(),
                                 stdout=fh or subprocess.DEVNULL,
                                 stderr=subprocess.STDOUT, **extra)
     except Exception as e:
@@ -1689,8 +1732,8 @@ def main() -> int:
     conf = conf_read()
     # Dòng đầu tiên của mỗi lượt chạy: log rỗng thì không ai biết client đã khởi động
     # hay chết trước cả khi kịp mở cửa sổ.
-    log(f"khởi động (pid {os.getpid()}, {os.path.basename(sys.executable)}), "
-        f"đã ghép nối: {bool(conf.get('tunnel_token'))}")
+    log(f"khởi động (pid {os.getpid()}, {os.path.basename(sys.executable)}, "
+        f"bản {client_build()}), đã ghép nối: {bool(conf.get('tunnel_token'))}")
 
     if "--status" in sys.argv:
         print(json.dumps({"tubecli": tubecli_up(), "conf": {k: v for k, v in conf.items()

@@ -599,6 +599,38 @@ check("nói cho người dùng biết nó đang cài thư viện, không im lặ
       "Thiếu thư viện — đang cài phụ thuộc TubeCLI…" in _src)
 check("từng dòng pip vào nhật ký của form", '"  pip| ' in _src)
 
+# 12. BIẾN CA HỎNG LÀM CHẾT MỌI KẾT NỐI TLS CỦA TIẾN TRÌNH CON.
+# Ảnh chụp máy khách 9/9/2026:
+#   ERROR: Could not install packages due to an OSError: Could not find a suitable
+#   TLS CA certificate bundle, invalid path: D:\T2Render\_internal\certifi\cacert.pem
+# SSL_CERT_FILE còn sót lại từ một app PyInstaller đã bị xoá. pip không tải nổi gói
+# nào ⇒ `pip install -e .` không bao giờ xong ⇒ thiếu click ⇒ máy chủ chết. Cả chuỗi
+# lỗi sáng hôm ấy quy về đúng một dòng biến môi trường.
+_old_env = dict(os.environ)
+try:
+    os.environ["SSL_CERT_FILE"] = r"D:\T2Render\_internal\certifi\cacert.pem"
+    os.environ["REQUESTS_CA_BUNDLE"] = os.path.join(TMP, "khong_co_that.pem")
+    _clean = mod.clean_env()
+    check("gỡ biến CA trỏ vào chỗ không tồn tại",
+          "SSL_CERT_FILE" not in _clean and "REQUESTS_CA_BUNDLE" not in _clean, sorted(_clean)[:3])
+    # CA thật (proxy doanh nghiệp) thì PHẢI giữ — gỡ bừa là làm hỏng máy người khác.
+    _real = os.path.join(TMP, "that.pem")
+    open(_real, "w").close()
+    os.environ["SSL_CERT_FILE"] = _real
+    check("CA có thật thì giữ nguyên", mod.clean_env().get("SSL_CERT_FILE") == _real)
+    os.environ.pop("SSL_CERT_FILE", None)
+    check("không có biến nào thì cũng không thêm gì", "SSL_CERT_FILE" not in mod.clean_env())
+finally:
+    os.environ.clear()
+    os.environ.update(_old_env)
+
+check("pip chạy với môi trường sạch", "env=clean_env()" in _src)
+check("trình cài, máy chủ và bài thử import cũng vậy",
+      _src.count("env=clean_env()") >= 5, _src.count("env=clean_env()"))
+check("log nói ra biến nào bị gỡ", "bỏ {k} vì trỏ vào chỗ không tồn tại" in _src)
+check("client tự khai vân tay bản dựng trong log",
+      "def client_build()" in _src and "bản {client_build()}" in _src)
+
 print("=" * 62)
 print(f"{failures} FAIL / {checks}" if failures else f"{checks}/{checks} PASS")
 sys.exit(1 if failures else 0)
