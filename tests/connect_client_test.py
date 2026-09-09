@@ -70,12 +70,18 @@ check("không chạy, không thư mục, không PATH → mới là chưa có", n
 mod.shutil.which = lambda name: r"C:\Python\Scripts\tubecli.exe" if name == "tubecli" else None
 check("cài bằng pip (có lệnh trên PATH) cũng là đã có", mod.have_tubecli())
 cmd, cwd = mod.server_cmd()
-check("bật bằng chính lệnh tubecli trên PATH", cmd[:2] == [r"C:\Python\Scripts\tubecli.exe", "serve"], cmd)
+# `serve` không phải lệnh của TubeCLI — CLI chỉ có `api start`. Bản trước đoán tên
+# lệnh, tiến trình con chết ngay với "No such command 'serve'" và vì nó chạy dưới
+# pythonw nên không ai thấy; client chỉ báo "không trả lời sau 60 giây" (9/9/2026).
+check("bật bằng chính lệnh tubecli trên PATH",
+      cmd[:3] == [r"C:\Python\Scripts\tubecli.exe", "api", "start"], cmd)
+check("cổng đi kèm và chạy im (không log truy cập)",
+      "--port" in cmd and str(mod.PORT) in cmd and "--quiet" in cmd, cmd)
 mod.shutil.which = lambda name: None
 mod.find_install = lambda: d_bat
 cmd, cwd = mod.server_cmd()
 check("có thư mục → chạy module trong thư mục ấy",
-      cmd[1:4] == ["-m", "tubecli.main", "serve"] and cwd == d_bat, (cmd, cwd))
+      cmd[1:5] == ["-m", "tubecli.main", "api", "start"] and cwd == d_bat, (cmd, cwd))
 mod.find_install = lambda: str(ROOT)
 mod.tubecli_up = lambda timeout=2.0: True
 
@@ -461,7 +467,7 @@ try:
     _lin.find_install = lambda: _pdir
     _cmd, _d = _lin.server_cmd()
     check("bật bằng lệnh trong venv, không phải python hệ thống",
-          _cmd[0].endswith(os.path.join(".venv", "bin", "tubecli")) and _cmd[1] == "serve", _cmd)
+          _cmd[0].endswith(os.path.join(".venv", "bin", "tubecli")) and _cmd[1:3] == ["api", "start"], _cmd)
 finally:
     _lin.find_install = _old_find
 check("~/.local/bin được dò kể cả khi chưa vào PATH", '".local", "bin", "tubecli"' in _src)

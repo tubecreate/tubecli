@@ -239,6 +239,12 @@ def find_install() -> str:
     return ""
 
 
+# `tubecli serve` KHÔNG TỒN TẠI — CLI chỉ có `api start`. Bản trước đoán tên lệnh
+# và tiến trình con chết ngay với "No such command 'serve'" (đo 9/9/2026).
+# --quiet: chạy nền thì log truy cập HTTP chỉ tổ làm phình tệp.
+SERVE_ARGS = ["api", "start", "--port", str(PORT), "--quiet"]
+
+
 def server_cmd() -> tuple:
     """(lệnh bật máy chủ, thư mục chạy) — hay ([], "") nếu máy chưa có TubeCLI.
 
@@ -251,17 +257,17 @@ def server_cmd() -> tuple:
         if IS_WIN:
             py = os.path.join(d, "venv", "Scripts", "pythonw.exe")
             exe = py if os.path.isfile(py) else "pythonw"
-            return [exe, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
+            return [exe, "-m", "tubecli.main"] + SERVE_ARGS, d
         # POSIX: chạy thẳng lệnh trong venv của bản cài. Gọi `python -m tubecli.main`
         # bằng python hệ thống thì thiếu sạch phụ thuộc — venv mới là bản có đủ.
         for rel in ((".venv", "bin", "tubecli"), ("venv", "bin", "tubecli")):
             p = os.path.join(d, *rel)
             if os.path.isfile(p):
-                return [p, "serve", "--port", str(PORT)], d
+                return [p] + SERVE_ARGS, d
         for rel in ((".venv", "bin", "python"), ("venv", "bin", "python")):
             p = os.path.join(d, *rel)
             if os.path.isfile(p):
-                return [p, "-m", "tubecli.main", "serve", "--port", str(PORT)], d
+                return [p, "-m", "tubecli.main"] + SERVE_ARGS, d
     exe = shutil.which("tubecli")
     if not exe and not IS_WIN:
         # install.sh đặt launcher ở ~/.local/bin — thư mục này thường CHƯA có trong
@@ -269,7 +275,7 @@ def server_cmd() -> tuple:
         cand = os.path.join(os.path.expanduser("~"), ".local", "bin", "tubecli")
         exe = cand if os.access(cand, os.X_OK) else ""
     if exe:
-        return [exe, "serve", "--port", str(PORT)], os.path.dirname(exe)
+        return [exe] + SERVE_ARGS, os.path.dirname(exe)
     return [], ""
 
 
@@ -362,13 +368,25 @@ def start_tubecli() -> bool:
     if not cmd:
         return False
     log(f"bật TubeCLI từ {d}")
+    # Máy chủ chạy nền không có console, nên nếu KHÔNG hứng output thì mọi lỗi khởi
+    # động biến mất và tất cả những gì ta biết là "60 giây không trả lời". Chính
+    # cái đó giấu mất "No such command 'serve'" suốt.
+    out = os.path.join(HOME, "server.log")
     try:
-        extra = ({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN
-                 # start_new_session: tách khỏi nhóm tiến trình của client, để đóng
-                 # client (hoặc Ctrl+C trong terminal) không kéo theo máy chủ.
-                 else {"start_new_session": True,
-                       "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL})
-        subprocess.Popen(cmd, cwd=d or None, **extra)
+        os.makedirs(HOME, exist_ok=True)
+        fh = open(out, "a", encoding="utf-8", errors="replace")
+        fh.write(f"\n==== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)} (cwd={d})\n")
+        fh.flush()
+    except OSError:
+        fh = None
+    try:
+        extra = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {
+            # start_new_session: tách khỏi nhóm tiến trình của client, để đóng
+            # client (hoặc Ctrl+C trong terminal) không kéo theo máy chủ.
+            "start_new_session": True}
+        proc = subprocess.Popen(cmd, cwd=d or None,
+                                stdout=fh or subprocess.DEVNULL,
+                                stderr=subprocess.STDOUT, **extra)
     except Exception as e:
         log(f"không bật được TubeCLI: {e}")
         return False
@@ -376,9 +394,22 @@ def start_tubecli() -> bool:
         if tubecli_up():
             log("TubeCLI đã sẵn sàng")
             return True
+        if proc.poll() is not None:
+            log(f"máy chủ TubeCLI thoát ngay (mã {proc.returncode}) — xem {out}")
+            for ln in _tail_lines(out, 8):
+                log(f"  máy chủ| {ln[:200]}")
+            return False
         time.sleep(1)
-    log("TubeCLI không trả lời sau 60 giây")
+    log(f"TubeCLI không trả lời sau 60 giây — xem {out}")
     return False
+
+
+def _tail_lines(path: str, n: int) -> list:
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return [ln.rstrip() for ln in f.read().splitlines() if ln.strip()][-n:]
+    except OSError:
+        return []
 
 
 def node_login(password: str) -> bool:
@@ -718,6 +749,305 @@ def _logo(parent, size=40):
     return cv
 
 
+def win_app_id() -> None:
+    """Tách nút thanh tác vụ ra khỏi pythonw.exe.
+
+    Windows gộp cửa sổ theo AppUserModelID, và tiến trình này mặc định mang id của
+    trình thông dịch — nên dù cửa sổ đã có icon TubeCLI, nút dưới thanh tác vụ vẫn
+    là con rắn Python và nằm chung nhóm với mọi script Python khác đang mở.
+    PHẢI gọi TRƯỚC khi dựng cửa sổ đầu tiên.
+    """
+    if not IS_WIN:
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TubeCreate.TubeCLI.Connect")
+    except Exception as e:
+        log(f"không đặt được AppUserModelID: {e}")
+
+
+# Icon Windows: ICO cổ điển (mục BMP 16/24/32/48), KHÔNG phải ICO nhồi PNG.
+# Đo thật 9/9/2026: gói PNG vào ICO thì Tk 8.6 lặng lẽ bỏ qua và nút thanh tác vụ
+# giữ nguyên icon pythonw.exe — người dùng chụp ảnh hỏi "chưa được". PIL cũng chỉ
+# xuất mục PNG, nên tệp này được mã hoá tay lúc dựng.
+LOGO_ICO_B64 = (
+    "AAABAAQAEBAAAAEAIABoBAAARgAAABgYAAABACAAiAkAAK4EAAAgIAAAAQAgAKgQAAA2DgAAMDAAAAEAIACoJQAA3h4A"
+    "ACgAAAAQAAAAIAAAAAEAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/////q6al/zMnJf8eEAz/HA8L/x4QDP8eEAz/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Micl/6unpf//////q6ak/xMFAv8WCQX/EwsI/xwPC/8SCgj/EgoI/x8QDP8e"
+    "EAz/HA8L/xwPC/8cDwv/HRAM/xYJBf8TBQL/q6al/zImI/8XCQX/GA8M/4BALf/Ta0r/qlY8/0ckGv8MBwb/FgwJ/yAR"
+    "DP8dDwv/HA8L/xwPC/8fEg7/FgkF/zImI/8eEAz/FQwJ/0AhF//1e1X/83pV//d8Vv/weFT/qlU8/zUcFP8MBwb/GQ4K"
+    "/yARDP8cDwv/HA8L/x0QDP8cDwv/HxAM/xAJB/9ZLiD/9HpV/+d0UP/odFH/6nZS/8hlRv/lc1D/iUUw/yUUDv8NCAb/"
+    "HRAL/x0QC/8cDwv/HA8L/x8QDP8QCQf/WC0g//V7Vv/mdFD/7nhT/95wTv9xOSj/3W9N//+AWf/Wa0v/bDcm/xYMCf8Z"
+    "Dgr/HQ8L/xwPC/8fEAz/EAkH/1gtIP/0elX//X9Y/8FhQ/+VTDP/rFc6/5JLMv+3XED//4Na//t+WP+tVz3/HxAM/xsP"
+    "C/8dDwv/HxAM/xAJB/9YLSD/8npV/7ldQf+USzT/o1Q3/6FTN/+iUzb/lUs0/7ldQf/hcU7//4BZ/2w3Jv8OCAb/HxEM"
+    "/x8QDP8QCQf/WS0g//J6Vf+fUDj/jEcx/7RdPf+dUTf/rVg6/4lGMP+eUDj/33BO//+BWf9yOij/DggG/yARDP8fEAz/"
+    "EAkH/1ktIP/zelX//4BZ/7teQv+UTDL/s1s9/5ZNM/+xWT7//4Nb//x+WP+3XED/IxIN/xoOCv8dDwv/HxAM/xAJB/9Y"
+    "LSD/9XtW/+Z0UP/rdlL/1GpK/3E5KP/RaUn/+35X/9tuTP93PCr/GQ4K/xgNCv8dEAv/HA8L/yAQDP8QCQf/XC8h//V6"
+    "Vv/ndFD/6XVR/+13U/+/YEP/6XVR/45IMv8pFQ//DQgG/xwPC/8dEAv/HA8L/xwPC/8eEAz/FAsJ/0YkGf/4fFb/8XlU"
+    "//d8Vv/weVT/rVc9/zgdFP8MBwb/GQ0K/yARDP8cDwv/HA8L/x0QDP8cDwv/MiYj/xcJBf8ZDwz/jEcx/9htTP+qVjz/"
+    "SCUa/wwHBv8VCwn/IBEM/x0QC/8cDwv/HA8L/x8SDv8WCQX/MiYj/6ynpf8TBgL/FQkF/xQLCf8fEQz/EgoH/xIKCP8f"
+    "EAz/HhAM/xwPC/8cDwv/HA8L/x0QDP8WCQX/EwUC/6ynpv//////qaSj/zInJf8eEAz/Gw8L/x4QDP8eEAz/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwz/Micl/6qlo///////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACgAAAAYAAAAMAAAAAEAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8/Pz/"
+    "/////8jFxP9WTEr/JBgV/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/JBgV/1ZMSv/IxcT///////z8/P//////pqGf/xcKCP8SBQH/Gw4K/x8QDP8dDwv/HRAL/x8RDP8dDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gw4K/xIFAf8XCgj/pqGf///////IxMT/FQgE/xkLCP8gEw7/HA8L"
+    "/w8JB/8XDAn/FQsJ/w0IBv8aDgr/HxEM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8SDv8ZCwj/"
+    "FQgE/8jFxP9WTEn/EgUB/yATD/8cDwv/FwwJ/3k+K//EYkX/ul1B/3U7Kv8iEg3/DggG/x0PC/8fEAz/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8fEw//EgUB/1ZMSf8kGBT/Gw4K/x8RDP8PCQf/dDsp//+BWv/zelX/9XtV//p+"
+    "V//SaUn/ajUl/xcMCf8QCQf/HhAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gw4K/yUYFP8cDwv/HA8L"
+    "/x0PC/8XDAn/w2JE//N6Vf/mdFD/6XVR/+d0Uf/xeVT/+n1X/8RjRf9SKh3/EQoH/xQLCP8fEQz/HRAL/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8hEg3/0WlJ//F5VP/qdVL/63ZS/+t2Uv/qdlL/5HNQ/+p1Uv/1"
+    "e1b/rVc9/0AhF/8NCAb/GA0K/yARDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8iEg3/0mpK//F5"
+    "VP/qdVL/63ZS/+d0Uf/3fFb/rFc8/0MiGP/sdlL/9nxW/+t2Uv+WTDX/LBcQ/w0HBv8cDwv/HhAM/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HQ8L/xoOCv8iEg3/02pK//F5VP/qdVL/6nZS//B5VP/0elX/y2ZH/4NCLv/0elX/7XdT/+53U//6fVf/"
+    "33BO/3c8Kv8YDQr/FwwJ/x4QDP8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8iEg3/02pK//F5VP/lc1D/8XlU/7NaP/9z"
+    "Oyj/eT4q/2s2Jf99QCz/fD8r/99wTv/ndFH/7HdS//t+WP+/YEP/LhgR/xcMCf8dEAv/HA8L/xwPC/8cDwv/HQ8L/xoO"
+    "Cv8iEg3/02pK//B5VP/0e1b//4Jb/39ALf+2XT3/63hO/9lvSf/eckr/gkIs/7teQv//hFz/7nhT/+RzUP/+f1n/uV1B"
+    "/xcMCf8dDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8iEg3/0mpK//V7Vv+XTDX/sVk+/3s+K/+pVzn/ekAs/39CLP+YTjP/"
+    "j0kw/55POP+bTjb/xGNE//J5VP/odFH/7XdT/z4gF/8UCwj/HhAM/xwPC/8cDwv/HQ8L/xoOCv8iEg3/0mpJ//d8Vv9n"
+    "NSX/hEMv/2U0JP/Xbkf/ZTYn/5VNNP+bTzT/ikcv/4FBLv9iMiP/rFc8//Z8Vv/mdFH/73hT/0MiGP8TCwj/HhAM/xwP"
+    "C/8cDwv/HQ8L/xoOCv8iEg3/02pK//F5VP/yeVX//4Nb/39ALf/VbUf/3HBJ/+FzS//pd07/jUgw/7peQf//hFv/7ndT"
+    "/+RzUP/7flf/xmRG/xsPC/8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8iEg3/02pK//F5VP/mc1D/83pV/6FROf9qNyX/"
+    "g0Mt/3Y8Kf+FRC3/bzgn/9RrSv/qdVL/6nZR//x+WP/MZ0f/OB0V/xUMCf8eEAz/HA8L/xwPC/8cDwv/HQ8L/xoOCv8i"
+    "Eg3/02pK//F5VP/qdVL/63ZS/+54U//hcU//vmBD/4NCL//eb03/4HBO/+94U//4fVf/53RR/4ZEL/8fEAz/FQsI/x4Q"
+    "DP8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8iEg3/02pK//F5VP/qdVL/63ZS/+h0Uf/8flj/r1k9/0AhF//yeVT/+H1X"
+    "/+53U/+eUDf/NhwU/w0HBv8bDgv/HhAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HQ8L/xoOCv8kEw7/1WtK//B5VP/qdVL/"
+    "63ZS/+t2Uv/rdlL/3W9N/9hsS//2fFb/s1o//0UjGf8OCAb/FgwJ/yARDP8dDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8bDgv/ymZH//F5VP/ndFH/6XVR/+d0Uf/weVT//H5Y/8tmR/9YLR//EwoI/xMKCP8fEQz/HhAM/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8kGBT/Gw4K/x8RDP8OCAb/gEEt//+CWv/weFT/9XtV//p+V//Takr/bDcm"
+    "/xgNCv8QCQf/HhAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gw4K/yUYFP9VTEn/EgQB/yATD/8bDgr/"
+    "HA8L/4xHMf/OZ0j/u15C/3Y8Kv8iEg3/DQgG/xwPC/8fEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8f"
+    "Ew//EgQB/1VMSf/IxcX/FgkF/xkMCP8gEw//Gw8L/xAJB/8cDwv/FgwJ/w0IBv8aDgr/HxEM/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8SDv8ZDAj/FgkF/8nGxf//////pqGf/xUJB/8SBQH/Gw4K/x8QDP8cDwv/HRAL"
+    "/x8RDP8dDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gw4K/xIFAf8VCQf/pqGf///////8/Pz/"
+    "/////8XCwP9VS0n/JBgV/xwPC/8dEAv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/JBgV/1VMSv/FwsH///////z8/P8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAoAAAAIAAAAEAAAAABACAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAA//////z8/P//////5ePj/312dP85Liv/HxMP/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8TD/85LSv/fXZ0/+Xj4v//"
+    "/////Pz8///////8/Pz//////7Gtq/8pHRv/DwEA/xcKBv8bDgr/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gw4K/xcKBv8PAQD/KR0b/7Ktq////////Pz8"
+    "//////+vqqn/DAAA/xcKBv8gEw//HRAM/xwPC/8fEAz/HhAM/x0QC/8fEQz/HhAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HRAM/yATD/8XCgb/DAAA/7Crqv//////4+Lh/ycbF/8X"
+    "Cgf/HxIO/xwPC/8cDwv/HQ8L/w8JB/8SCgf/FQsJ/w4IBv8TCwj/HxAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8SDv8XCgf/JxsX/+Ti4f99dnP/DwEA/yATD/8cDwv/HA8L"
+    "/xwPC/8WDAn/bTcn/7JaP/+6XUH/kkkz/0MiGP8PCQf/FQwJ/yARDP8dEAv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/yATD/8PAQD/fnZ0/zgtKf8XCgb/HRAM/xwPC/8eEAz/EgoI/45IMv//"
+    "gFn/9ntW//V7Vf/6fVf/73hT/6JSOf84HRX/DQgG/xgNCv8gEQz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HRAM/xcKBv84LSr/IBMP/xwOCv8cDwv/HhAM/xQLCP9DIhj/83pV/+l1Uf/odFH/6XVR"
+    "/+d0Uf/qdlL/+X1X/+l1Uf+PSDL/KRUP/w0HBv8bDwv/HxEM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA4K/yATD/8cDwv/HA8L/xwPC/8fEQz/DQgG/3g9K//5fVf/53RR/+t2Uv/rdlL/63ZS/+t2Uv/o"
+    "dFH/7HdS//h8Vv/abUz/djwq/x0QC/8PCQb/HhAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8NCAb/jkgy//p9V//odFH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/qdlL/8npV"
+    "//t+V//6flf/zWdH/2EyI/8UCwj/EgoI/x8QDP8eEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HxEM/w4IBv+RSTP/+n1X/+h0Uf/rdlL/63ZS/+t2Uv/rdlL/6XVR//N6Vf+DQi7/djwq/+13U//y"
+    "eVT/+HxW/7ldQf9KJhv/DwkH/xYMCf8gEQz/HQ8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8fEQz/DggG/5FJM//6fVf/6HRR/+t2Uv/rdlL/63ZS/+l1Uf/ndFH/9HtV/1UsHv9BIhj/8HlU/+VzUP/mc1D/9ntW"
+    "//J5VP+hUTj/MhoT/w0HBv8bDwv/HhAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8OCAb/"
+    "kkkz//p9V//odFH/63ZS/+t2Uv/qdVL/83pV//V7Vf//g1v/s1o//6hUO///hVz/9nxW//V7Vf/ndFH/6nVS//l9V//l"
+    "c1D/gUEu/xsPC/8UCwj/HxAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HxEM/w4IBv+SSTP/+n1X/+h0"
+    "Uf/rdlL/6XVR//N6Vf+4XUH/XTAh/2o2Jv9OJxz/SSUa/2g1Jf9fMSL/rlc9//N6Vf/pdVH/6HRR/+13U//6flf/ymVG"
+    "/z0gFv8SCgj/HxAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8fEQz/DggG/5JJM//6fVf/6HRR/+l1Uf/ndFH/"
+    "8XlU/1YsH/+mVTj/0GpF/8RkQv/NaUX/yGdD/65ZOv9LJxv/6HRR/+l1Uf/pdVH/6nZS/+Z0UP/3fFb/33BO/zQbE/8W"
+    "DAn/HRAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8OCAb/kkkz//p9V//odFH/9nxW//p9V//4fFb/XzAi/8to"
+    "RP/BY0H/9HxR/7tgP/+9YD//3nFK/1ouIP/rdlL/+35Y//h8Vv/rdlL/63ZS/+VzUP/8flj/nE83/w4IBv8fEQz/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HxEM/w4IBv+SSjP/+HxW//B4VP+RSTP/fT8s/8NiRf9MJxv/z2pF/14xIf9oOCj/"
+    "dDwo/3I7J/+/YkD/Viwe/8BgQ/+IRDD/h0Qw//F5VP/qdlL/6XVR//F5VP/LZkf/HQ8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8fEQz/DggG/5JKM//4fFb/8nlU/1YsH/8zGxP/iEUw/zoeFf/kdUz/qVc6/z4lHv/GZUL/dTwo/8Rk"
+    "Qv9LJhr/hUMv/0EhF/9FIxn/8XlU/+p2Uv/pdVH/8HlU/9BoSf8gEQz/Gw4L/x0PC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/x8RDP8OCAb/kkoz//p9V//qdVL/6HVR/+p2Uv//gFn/XS8h/9huSP/ecUr/czsm/+96UP+aTzT/0GpG/1wvIP/ueFP/"
+    "73hT/+Z0Uf/td1P/63ZS/+Z0UP/5fVf/q1Y8/xAJB/8eEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HxEM/w4IBv+S"
+    "SjP/+n1X/+h0Uf/sd1L/63ZS/+13U/9TKx7/xWVC/+t4T//velD/5HRM/+x5T//ab0n/TCcb/+BxT//ud1P/7HdT/+p2"
+    "Uv/ndFH/8nlV/+13U/9DIhj/FAsI/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8fEQz/DggG/5JKM//6fVf/6HRR"
+    "/+p2Uv/odVH/9XtV/5dMNf9MJxv/Wy4g/0wnG/9MJxv/XC8g/1EqHf+JRTD/83pV/+l1Uf/ndFH/6nZS//p+V//ZbUz/"
+    "TScc/xIKB/8eEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8OCAb/kkoz//p9V//odFH/63ZS/+t2Uv/r"
+    "dlL/83pV/+JxT//td1P/p1Q7/5xPN//vd1P/3nBO//N6Vf/pdVH/6XVR//d8Vv/ud1P/lks1/ycUD/8RCgf/HxAM/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HxEM/w4IBv+SSjP/+n1X/+h0Uf/rdlL/63ZS/+t2Uv/pdVH/63ZS"
+    "//t+V/9rNib/WS4g//h9V//rdlL/5nRQ//R7Vf/0e1X/slk+/0MiGf8NCAb/GQ0K/x8QDP8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8fEQz/DggG/5NKNP/5fVf/6HRR/+t2Uv/rdlL/63ZS/+t2Uv/pdVH/9HtV/2g1Jf9Y"
+    "LR//7XdT//B4VP/5fVf/wWFE/1MqHv8SCgf/EwsI/x8RDP8dEAv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/x8RDP8OCAb/lks1//l9V//odFH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/7XdT//R6Vf/8flj/02pK"
+    "/2k1Jf8XDQn/EAkH/x4QDP8eEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HxEM/w0IBv+GRC//+n1X/+h0Uf/rdlL/63ZS/+t2Uv/rdlL/6HRR/+t2Uv/5fVf/33BO/3w/LP8hEg3/DggG/x0PC/8f"
+    "EAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8gEw//Gw4K/xwPC/8eEAz/EgoI/00n"
+    "HP/2e1b/53RR/+l1Uf/pdVH/53RR/+p2Uv/5fVf/6nVS/5NKNP8sFxH/DQgG/xoOCv8fEQz/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDgr/IBMQ/zgtKf8XCgb/HRAM/xwPC/8dEAz/FAsI/6VTOv//gVr/"
+    "8npV//R6Vf/6fVf/73hT/6RTOv87Hhb/DQgG/xgNCv8gEQz/HQ8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HRAM/xcKBv84LSn/fXZz/w8BAP8gEw//HA8L/x0PC/8aDgr/HhAM/4VDL//DYkT/v2BD/5NK"
+    "NP9EIxn/DwkH/xULCf8fEQz/HRAL/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8gEw//DwEA/312c//k4+L/KBwY/xcKB/8fEg7/HA8L/x0PC/8bDgv/DggG/xgNCf8XDQn/DQgG/xMLCP8fEAz/"
+    "HhAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HxIO/xcKB/8o"
+    "HBj/5ePj//////+xraz/DAAA/xcKB/8gEw//HRAM/x0PC/8fEQz/HQ8L/x0PC/8fEQz/HhAM/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HRAM/yATD/8XCgf/DAAA/7KurP///////Pz8"
+    "//////+vqqj/JxsY/w8BAP8XCgb/Gw4K/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xsOCv8XCgb/DwIA/ycbGP+vqqn///////z8/P///////Pz8///////h"
+    "39//e3Ry/zktK/8fEw//HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HxMP/zkuK/98dHP/4uDf///////8/Pz//////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAKAAAADAAAABgAAAAAQAgAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAP////////////////z8/P///////////8nGxf96cnH/PjMx/yUZFf8dEAz/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8dEAz/JRkV/z4zMf96cnH/ycbF/////////////Pz8////////////////////////////"
+    "/Pz8///////e3Nz/Y1pY/xoNCf8QAgD/FgkF/xoNCf8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/Gg0J/xYJBf8QAgD/Gg0J/2NaWP/e3Nz///////z8/P/////////////////8/Pz//////7ezsf8hFRL/DAAA"
+    "/x0QC/8fEg7/HRAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0QDP8f"
+    "Eg7/HRAL/wwAAP8iFRP/uLSy///////8/Pz///////z8/P//////s66s/xMGA/8YCwf/IBQQ/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/yAUEP8YCwf/"
+    "EwYD/7Svrv///////Pz8//7+/v/c2tn/HREO/xkMCP8fEg7/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HhAM/x8RDP8f"
+    "EAz/HxAM/x8RDP8dEAv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8fEg7/GQwI/x4RD//c2tn//v7+"
+    "//////9fVlP/DQAA/yAUEP8cDwv/HA8L/xwPC/8cDwv/HA8L/x0PC/8eEAz/EgoH/w0HBv8QCQf/DwgH/w0IBv8WDAn/"
+    "HxAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/IBQQ/w0AAP9fVlP//////8vIx/8ZDAj/HRAL/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HRAL/xsPC/8SCgj/Tygc/4tGMf+lUzr/oFA4/3U7Kf81GxP/DwgH/xULCP8fEQz/HRAL"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0QC/8ZDAj/zMjI/3dvbf8QAgD/HxIO/xwPC/8cDwv/HA8L/xwPC/8d"
+    "Dwv/Gw8L/xgNCv+XTDX/9nxW//p9V//4fFb/+H1X//p9V//mdFD/n1A4/zsfFv8NCAb/GA0K/yARDP8dDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/x8SDv8QAgD/eHBu/z80Mf8WCQT/HRAM/xwPC/8cDwv/HA8L/xwPC/8fEAz/EAkH/49IMv//gFn/"
+    "6HRR/+d0Uf/odVH/6HRR/+h0Uf/sd1P/+X1X/+p1Uf+PSDL/LRcR/w0HBv8aDgr/HxEM/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0Q"
+    "DP8WCQT/PzQx/yUZFf8aDQn/HA8L/xwPC/8cDwv/HA8L/x4QDP8UCwj/QiIY//B5VP/qdVL/6nZS/+t2Uv/rdlL/63ZS"
+    "/+t2Uv/qdlL/6HRR/+x2Uv/6flf/4HFO/39ALf8gEQz/DggG/x0QC/8fEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8aDQn/JRkV/x0QDP8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8NCAb/hEMv//p9V//ndFH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+p2"
+    "Uv/ndFH/7nhT//p+V//RaUn/ZDMk/xYMCf8RCgf/HxAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HRAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/x4QDP8RCgf/rVc9//d8Vv/odVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6nZS/+d0Uf/w"
+    "eVT/+HxW/71fQv9PKBz/EAkH/xQLCP8fEQz/HRAL/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0PC/8YDQr/wGBD"
+    "//R6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/veFP/6HRR//V7Vf/zelT/"
+    "qlU8/z8gF/8NCAb/GA0K/yARDP8dDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/xmRF//N6Vf/pdVH/63ZS/+t2"
+    "Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/7HZS/+94U//Ua0r/7ndT/+p2Uv/pdVH/+HxW/+x2Uv+TSjT/LBcQ"
+    "/w0HBv8bDgv/HxEM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/xmRF//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/r"
+    "dlL/63ZS/+t2Uv/pdVH/9nxW/4pGMf8RCQf/dDsp//N6Vf/pdVL/6HRR/+t2Uv/6flf/3W9N/3k9Kv8gEQz/DwkH/x4Q"
+    "DP8eEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8bDwv/x2RF//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/odVH/"
+    "93xW/2QzJP8AAQH/SiYa//B4VP/qdVL/63ZS/+t2Uv/ndFH/73hT//p+V//PaEj/XjAi/xIKCP8TCwj/HxEM/x0PC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8bDwv/x2RF//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6nVR/+h0Uf/ndFH/7HdS/9ptTP8zGhL/wmJE"
+    "//F5VP/mc1H/53RR/+l1Uf/rdlL/6nVS/+d0Uf/yelT/93xW/7JaPv9FIxn/DggG/xkOCv8fEQz/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/x2RF//N6Vf/p"
+    "dVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/qdVL/8XlU//1/WP/8f1j//oBZ//d8Vv9QKR3/6XVR//+CWv/8flj//X9Y//N6"
+    "Vf/qdVL/63ZS/+t2Uv/pdVH/6HVR//Z8Vv/weFT/lEs0/yUTDv8PCQf/HxAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/x2RF//N6Vf/pdVH/63ZS/+t2Uv/rdlL/"
+    "63ZS/+p1Uv/xeVT/0GhJ/3o9K/9yOin/fD4s/3M6Kf8iEg3/bzgn/30/LP96Piv/gEEt/8NiRP/zelX/6XVR/+t2Uv/r"
+    "dlL/63ZS/+h1Uf/qdlL/+n1X/9dsS/9aLiD/EAkH/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/x2RF//N6Vf/pdVH/63ZS/+t2Uv/rdlL/6nZS/+13U//kc1D/NhwU"
+    "/0IjF/9bLx//Viwd/1guHv9jMyL/VCsd/0wnGv9PKRv/RSQY/ycUD//RaUn/8XlU/+l1Uf/rdlL/63ZS/+t2Uv/rdlL/"
+    "53RR//F5VP/4fFb/cDko/w8IBv8fEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/x2RF//N6Vf/pdVH/63ZS/+t2Uv/qdlL/6XVR//R7Vf/CYkT/JBMN/+V1Tf//hVb/+4BU//Z+"
+    "Uv/3flP//4JV//2BVf/+gVX/935T/y4YEP+eTzf/+n1X/+h1Uf/qdlL/63ZS/+t2Uv/rdlL/63ZS/+l1Uf/qdlL/9ntW"
+    "/1csH/8RCgf/HxAM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8bDwv/"
+    "x2RF//N6Vf/pdVH/63ZS/+p1Uv/td1P/6HRQ//N6VP+9X0L/JhQO/9twSf/PakX/2G9J//N9Uv/ldU3/yWdD/9FrRv/R"
+    "a0b/7XlP/zIaEv+cTjf/+HxW/+Z0UP/td1P/6nVS/+t2Uv/rdlL/63ZS/+t2Uv/odFH/9XtV/8RiRP8ZDQr/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RF//N6Vf/pdVH/63ZS"
+    "//J5VP/ick//8XlU//+CWv/GZEX/IRIN/+x4T/+BQiz/Viwe/9hxSf+FRC3/ZTQj/39BK/9vOSb//4JV/y8ZEf+lUzr/"
+    "/4Nb//J6VP/ick//8nlU/+x2Uv/rdlL/63ZS/+t2Uv/rdlL/6nVS/+54U/9EIxj/EwsI/x4QDP8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6Vf/ndFD/9XtW/51PN/8lEw7/ez4r/8Rj"
+    "Rf+PSDL/JBMN/+JzTP/TbEf/JRQO/2s7LP8lFBD/t109/4JCLP9vOSb//4JV/zMbEv+AQS3/zGhJ/4tGMf8mFA7/iEQw"
+    "//N6Vf/pdVH/63ZS/+t2Uv/rdlL/6HVR//d8Vv9kMyP/DwgG/x8QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6Vf/mdFH/+H1W/1ouIP8AAAD/IxIN/1EpHf84HRX/KBUP/9lvSf/6"
+    "gFT/YzMi/5pYQ/9VLSD/8HpP/3k+Kf9zOyf//oFV/zsfFf8vGRH/Wi8h/y4YEf8AAAD/PyAX//F5VP/qdVL/63ZS/+t2"
+    "Uv/rdlL/6HVR//h8Vv9pNib/DggG/x8RDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/x2RG//N6Vf/odFH/8HlU/9BpSf95PSv/x2RF//+DW//AYEP/JRQO/9lvSf/5f1P/rlk7/wYEBf95Pin/"
+    "/4hZ/2g2JP9pNiT//4RW/zEaEv+WSzX//4Vc/9JpSf95PSv/xmNF//J5VP/qdVH/63ZS/+t2Uv/rdlL/6XVR//R6Vf9S"
+    "Kh3/EQkH/x8QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6"
+    "Vf/pdVH/6nZS//B5VP/8flj/73hT//J6VP+/YEP/JxQO/9lvSf/seE//4XNL/3k+Kf/JZ0T/8n1S/6dVOP+nVTj/9X5S"
+    "/zQbE/+WTDX/+H1W/+12U//7flj/8nlU/+p1Uv/rdlL/63ZS/+t2Uv/pdVH/8HhU/9dsS/8kEw3/Gg4K/x0PC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6Vf/pdVH/63ZS/+p1Uv/n"
+    "dFH/53RQ//R7Vf/AYUP/KhYQ/+p3T//7gFT/939T//+GWP/6gFT/9n1S//+CVf/+glX/+4BU/zoeFP+YTTX/+n5X/+d0"
+    "Uf/ndFH/6XVR/+t2Uv/rdlL/63ZS/+p1Uv/ndFH//oBZ/3I6KP8PCAb/HxEM/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6Vf/pdVH/63ZS/+t2Uv/rdlL/6nVR//F5VP/Uakr/"
+    "HhAM/4dFLv+mVTj/n1I2/51RNf+lVTj/oVM2/6BSNv+qVzn/oFI2/xsPC/+2XED/9ntW/+l1Uf/rdlL/63ZS/+t2Uv/r"
+    "dlL/6HRR/+x3Uv/7flj/lEs0/xULCf8dDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/x2RG//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+l1Uv/yelX/l0w1/zUbFP80GhP/MxoT"
+    "/zUbFP8aDgv/MRkS/zUbE/83HBT/MxoT/4FBLv/veFP/6nZS/+t2Uv/rdlL/63ZS/+l1Uf/odVH/93xW/+p1Uf92PCr/"
+    "EQkH/xwPC/8dDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/x2RG//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/9ntW//N6Vf/ud1P/73hU/+t2Uv9QKR3/2W1M//J6"
+    "Vf/sd1P/8HhU//d8Vv/sdlL/63ZS/+t2Uv/qdVL/53RR//J6VP/3fFb/s1o//zwfFv8OBwb/HhAM/x0PC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/yGRG//N6Vf/pdVH/"
+    "63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6XVR/+p2Uv/rdlL/7nhT/+h0Uf8/IBf/1mxL//J6Vf/qdlL/63ZS/+h1Uf/r"
+    "dlL/6nZS/+d0Uf/veFP/+n5X/85nSP9fMCL/EwsI/xQLCP8gEQz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/yGRG//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS"
+    "/+t2Uv/rdlL/63ZS/+t2Uv/odFH/9ntW/4NCLv8KBgX/ajUl//J6Vf/pdVH/63ZS/+t2Uv/odFH/7XdT//p+V//bbkz/"
+    "fD4s/x8RDP8PCAb/HhAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/yGVG//N6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2"
+    "Uv/odVH/93xW/2w3Jv8AAAD/Uiod//J5VP/qdVL/6HVR/+p1Uv/5fVf/5XNQ/4lFMP8oFQ//DQcG/xsOC/8fEQz/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xsPC/8eEAz/zGZH//J6VP/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/qdlL/7ndT/+NyT/+k"
+    "Ujr/3G5N/+13U//ndFH/9ntW//B4VP+gUTj/NhwU/w0HBv8ZDQr/IBEM/x0PC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xsPC/8dEAv/ymVH"
+    "//J6Vf/pdVH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6nZS/+13U//3fFb/63ZS//N6Vf/2fFb/"
+    "t1xA/0glGv8OCAb/FgwJ/yARDP8dEAv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0PC/8YDQr/wGFD//R7Vf/pdVH/63ZS/+t2"
+    "Uv/rdlL/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6nZS/+d0UP/ud1P/+X1X/8VjRf9ZLSD/FAsI/xIKCP8fEQz/HhAM"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/x0QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/x8RDP8OCAb/l0w1//l9V//odFH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/r"
+    "dlL/63ZS/+t2Uv/ndFH/7ndT//t+V//Ua0r/bzgn/xoOCv8PCQf/HhAM/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HRAM/yYZFf8aDQn/HA8L"
+    "/xwPC/8cDwv/HA8L/x4QDP8SCgf/UCkc//V7Vf/odFH/63ZS/+t2Uv/rdlL/63ZS/+t2Uv/rdlL/6HRR/+t2Uv/6fVf/"
+    "4XFP/4ZDL/8jEw7/DQgG/xwPC/8fEQz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8aDQn/JhoW/z80Mf8WCQT/HRAM/xwPC/8cDwv/HA8L/xwP"
+    "C/8eEAz/EwsI/65XPf/+f1n/5XNQ/+h1Uf/pdVH/6HVR/+h0Uf/sd1L/+X1X/+t2Uv+VSzT/LxgS/w0HBv8aDgr/IBEM"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/x0QDP8WCQT/PzQx/3ZubP8QAwD/HxIO/xwPC/8cDwv/HA8L/xwPC/8dEAv/GA0K/ykWD/++"
+    "YEL//H9Y//d8Vv/1e1b/+HxW//p9V//odVH/n1A4/zwfFv8OCAb/FwwJ/yARDP8dDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/x8SDv8QAgD/dm5s/8vIx/8ZDAj/HRAL/xwPC/8cDwv/HA8L/xwPC/8cDwv/HhAM/xcMCf8cDwv/bjgn/6pWPP+4XED/"
+    "pVM5/3Y8Kv84HRX/DwgH/xQLCP8fEQz/HRAL/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0QC/8ZDAj/zMnI////"
+    "//9hWFX/DQAA/yAUEP8cDwv/HA8L/xwPC/8cDwv/HA8L/x4QDP8bDwv/DggG/xEJB/8VCwn/EAkH/w0IBv8WDAn/HxAM"
+    "/x4QDP8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/IBQQ/w0AAP9iWVb///////7+/v/e3Nv/HxMQ/xgLCP8f"
+    "Eg7/HA8L/xwPC/8cDwv/HA8L/xwPC/8dDwv/HxEM/x4QDP8dEAv/HxAM/x8RDP8eEAz/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8fEg7/GAsI/x8TEf/e3dz//v7+//z8/P//////t7Kx/xMGA/8ZCwj/IBMP/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/yAU"
+    "D/8YCwj/EwYD/7ezsv///////Pz8///////8/Pz//////7Ovrf8fEhD/DQAA/x0QDP8fEg7/HRAM/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/"
+    "HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/x0QDP8fEg7/HRAM/w0AAP8fEhD/tK+u///////8"
+    "/Pz//////////////////Pz8///////a2Nj/W1JQ/xkMCf8QAwD/FgkE/xoNCf8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L"
+    "/xwPC/8cDwv/HA8L/xwPC/8cDwv/Gg0J/xYJBP8QAwD/GQwJ/1xTUf/b2dj///////z8/P//////////////////////"
+    "//////z8/P///////////8fDw/95cnD/PjMx/yUYFf8dEAz/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8c"
+    "Dwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwPC/8cDwv/HA8L/xwP"
+    "C/8dEAz/JRkV/z8zMf96cnH/x8TD/////////////Pz8/////////////////wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    "AAAAAAAAAAAAAAAAAAAAAA=="
+)
+
+
+def _ico_path() -> str:
+    """Ghi tệp .ico ra đĩa và trả đường dẫn (hay ""). Windows lấy icon thanh tác vụ
+    từ .ico chứ không từ iconphoto, và Tk chỉ nhận đường dẫn tệp."""
+    if not IS_WIN:
+        return ""
+    try:
+        import base64
+        path = os.path.join(HOME, "tubecli.ico")
+        os.makedirs(HOME, exist_ok=True)
+        data = base64.b64decode(LOGO_ICO_B64)
+        if not (os.path.isfile(path) and os.path.getsize(path) == len(data)):
+            with open(path, "wb") as f:
+                f.write(data)
+        return path
+    except Exception as e:
+        log(f"không dựng được .ico: {e}")
+        return ""
+
+
 def _set_icon(root):
     """Icon cửa sổ + thanh tác vụ. Không đặt thì Tk dùng con lông vũ mặc định của
     nó — một cửa sổ hỏi mật khẩu mang icon lạ trông y như phần mềm giả mạo."""
@@ -728,6 +1058,29 @@ def _set_icon(root):
         root._tc_icon = img            # giữ tham chiếu, nếu không tkinter xoá trắng
     except Exception:
         pass
+    ico = _ico_path()
+    if not ico:
+        return
+    try:
+        root.iconbitmap(default=ico)
+    except Exception:
+        pass
+    # `iconphoto`/`iconbitmap` của Tk chỉ đặt được icon NHỎ (thanh tiêu đề); nút
+    # trên thanh tác vụ đọc icon LỚN, nên nó giữ nguyên icon của pythonw.exe.
+    # Đo thật 9/9/2026: tiêu đề đã ra logo TubeCLI mà thanh tác vụ vẫn là con rắn.
+    # Nạp HICON từ chính tệp .ico rồi gửi WM_SETICON cho cả hai cỡ.
+    try:
+        import ctypes
+        root.update_idletasks()            # phải có HWND thật rồi mới gửi được
+        hwnd = int(root.wm_frame(), 16)
+        u32 = ctypes.windll.user32
+        WM_SETICON, IMAGE_ICON, LR_LOADFROMFILE = 0x0080, 1, 0x0010
+        for size, which in ((32, 1), (16, 0)):          # ICON_BIG = 1, ICON_SMALL = 0
+            h = u32.LoadImageW(None, ico, IMAGE_ICON, size, size, LR_LOADFROMFILE)
+            if h:
+                u32.SendMessageW(hwnd, WM_SETICON, which, h)
+    except Exception as e:
+        log(f"không đặt được icon thanh tác vụ: {e}")
 
 
 def _theme(root):
@@ -987,6 +1340,10 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
                 state.config(fg=UI["red"])
                 set_dot(UI["red"])
                 toggle_log(True)
+                # VẪN mở nút: có thể máy chủ đang chạy mà client dò trượt, và một
+                # cái nút mờ vĩnh viễn thì không chừa cho người dùng đường nào.
+                # Bấm mà thật sự chưa chạy thì connect() nói rõ lý do.
+                btn.state(["!disabled"])
         root.after(0, done)
 
     threading.Thread(target=prepare, daemon=True).start()
@@ -1160,6 +1517,7 @@ def status_window(bridge: "Bridge") -> None:
 
 def main() -> int:
     os.makedirs(HOME, exist_ok=True)
+    win_app_id()                      # trước mọi cửa sổ, nếu không thanh tác vụ giữ icon Python
     conf = conf_read()
     # Dòng đầu tiên của mỗi lượt chạy: log rỗng thì không ai biết client đã khởi động
     # hay chết trước cả khi kịp mở cửa sổ.
