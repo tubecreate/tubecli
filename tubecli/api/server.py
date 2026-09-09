@@ -15,6 +15,7 @@ import random  # module-level for the schedule behavior helpers below
 # 9/9/2026 khi mở trình duyệt). Đặt mặc định NGAY TỪ ĐẦU, trước khi bất cứ thứ gì
 # kịp sinh tiến trình con — vá 111 chỗ gọi lẻ thì vừa sót vừa hỏng lại ở dòng tiếp theo.
 from tubecli.core import proc as _tc_proc
+from tubecli.core import query_templates as _qt
 
 _tc_proc.install_no_window_default()
 
@@ -1334,9 +1335,12 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     seed_int = int(hashlib.md5(seed_str.encode()).hexdigest(), 16)
     rng = random.Random(seed_int)
     
-    # Occasionally add a natural time marker (not a forced year number)
-    _time_hints = ["", "", "", "latest", "recently", "this year", "new", "trending"]
-    _time_hint = rng.choice(_time_hints).strip()
+    # Ngôn ngữ của agent quyết định TOÀN BỘ câu tìm kiếm: mẫu câu, dấu thời gian,
+    # và cả câu dự phòng khi chưa khai chủ đề. Trước đây mọi thứ cứng bằng tiếng
+    # Anh nên agent tiếng Việt vẫn gõ "learn X from scratch" rồi lạc vào kết quả
+    # tiếng Anh — có lượt rơi hẳn vào learningresources.com, một cửa hàng đồ chơi.
+    _agent_lang = _qt.normalize_lang(getattr(agent, "language", "") or "en")
+    _time_hint = rng.choice(_qt.time_hints_for(_agent_lang)).strip()
 
     def _with_hint(template: str) -> str:
         """Randomly sprinkle a natural time hint into a template, or leave as-is."""
@@ -1344,62 +1348,15 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             return template.replace("{topic}", f"{_time_hint} {{topic}}")
         return template
 
-    fmt_templates = {
-        "work": [
-            "how to {topic}",
-            "{topic} best practices",
-            "latest {topic} news",
-            "{topic} tutorial for professionals",
-            "{topic} tips and tricks",
-            "top {topic} tools",
-            "{topic} case study",
-        ],
-        "research": [
-            "latest research on {topic}",
-            "{topic} future trends",
-            "what is {topic} explained",
-            "{topic} in-depth analysis",
-            "breakthroughs in {topic}",
-        ],
-        "study": [
-            "learn {topic} from scratch",
-            "{topic} for beginners",
-            "{topic} complete guide",
-            "{topic} online course free",
-            "how to master {topic}",
-        ],
-        "morningCheck": [
-            "{topic} news today",
-            "breaking {topic} updates",
-            "latest {topic} headlines",
-        ],
-        "entertainment": [
-            "top {topic}",
-            "{topic} highlights",
-            "best {topic} videos",
-        ],
-        "watchVideos": [
-            # Gõ trong ô tìm kiếm CỦA YouTube (prompt vào thẳng youtube.com)
-            # nên không cần đuôi "youtube" nữa.
-            "best {topic}",
-            "{topic} video review",
-            "{topic} documentary",
-        ],
-        "relax": [
-            "{topic} life style tips",
-            "{topic} wellness guide",
-        ],
-        "checkEmails": [
-            "gmail", "outlook mail", "email inbox",
-        ],
-    }
-    # Apply natural time hints to templates
-    fmt_templates = {
-        k: [_with_hint(t) for t in v]
-        for k, v in fmt_templates.items()
-    }
-    
-    fmts = fmt_templates.get(behavior, ["{topic} news", "about {topic}"])
+    # Mẫu câu nằm ở tubecli/core/query_templates.py, tra theo ngôn ngữ agent với
+    # đường lùi zh-TW → zh → en. Mỗi hành vi chỉ là một lớp tiền tố/hậu tố quấn
+    # quanh chủ đề: học thì "học … từ đầu", tin thì "tin tức … hôm nay".
+    fmt_templates = {b: [_with_hint(t) for t in _qt.templates_for(b, _agent_lang)]
+                     for b in ("work", "research", "study", "morningCheck",
+                               "entertainment", "watchVideos", "relax")}
+    fmt_templates["checkEmails"] = ["gmail", "outlook mail", "email inbox"]
+
+    fmts = fmt_templates.get(behavior) or [_with_hint(t) for t in _qt.templates_for(behavior, _agent_lang)]
     
     base_query = ""
     today_keywords = daily_keywords.get(time_period, []) if isinstance(daily_keywords, dict) else []
@@ -1432,15 +1389,23 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
             period_used = []
             available = list(today_keywords)
 
-        base_query = available[0] if available else ""
-        print(f"[Scheduler Callback] Selected evolved query for period '{time_period}': '{base_query}'")
+        base_topic = available[0] if available else ""
+        # Từ khoá của người dùng là CHỦ ĐỀ, không phải câu tìm kiếm hoàn chỉnh.
+        # Hành vi quyết định lớp vỏ quanh nó: "học" → "học X từ đầu", "lướt tin" →
+        # "tin tức X hôm nay". Bản trước gõ trần từ khoá nên học, nghiên cứu và
+        # lướt tin ra y hệt một câu (người dùng yêu cầu sửa 9/9/2026).
+        base_query = rng.choice(fmts).replace("{topic}", base_topic) if base_topic else ""
+        print(f"[Scheduler Callback] Chu de '{base_topic}' + hanh vi '{behavior}' "
+              f"({_agent_lang}) -> '{base_query}'")
 
         # Mark as used and persist — CHỈ cho hành vi thật sự SEARCH từ khoá.
         # morningCheck/email giờ vào thẳng trang đích, không gõ base_query;
         # đốt keyword ở đó là mất lượt của các hành vi search thật.
-        if base_query and behavior not in ("morningCheck", "checkEmails",
-                                           "replyEmail", "sendReport"):
-            period_used.append(base_query)
+        # morningCheck GIỜ CÓ gõ chủ đề (tìm ngay trong trang báo), nên nó cũng
+        # đốt một lượt từ khoá như các hành vi search khác. Chỉ nhóm email là
+        # không: chúng vào thẳng hộp thư, không tìm kiếm gì.
+        if base_topic and behavior not in ("checkEmails", "replyEmail", "sendReport"):
+            period_used.append(base_topic)
             if "used" not in used_meta:
                 used_meta["used"] = {}
             used_meta["used"][time_period] = period_used
@@ -1449,7 +1414,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 from tubecli.core.agent import agent_manager
                 agent.routine = routine_data
                 agent_manager.update(agent.id, routine=routine_data)
-                print(f"[Scheduler Callback] Marked '{base_query}' as used for '{time_period}'. "
+                print(f"[Scheduler Callback] Marked '{base_topic}' as used for '{time_period}'. "
                       f"Remaining: {[kw for kw in today_keywords if kw not in period_used]}")
             except Exception as _e:
                 print(f"[Scheduler Callback] Warning: could not persist used_keywords_today: {_e}")
@@ -1465,15 +1430,10 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
         else:
             base_query = rng.choice(fmts).replace("{topic}", topic)
     else:
-        fallbacks = {
-            "checkEmails": ["gmail", "outlook"],
-            "morningCheck": ["breaking news today", "world news"],
-            "work": ["github trending", "technology news"],
-            "research": ["AI advancements", "science news", "latest research"],
-            "study": ["free coding tutorials", "learning resources"],
-            "watchVideos": ["youtube trending", "interesting tech videos"],
-        }
-        choices = fallbacks.get(behavior, ["latest news", "technology trends"])
+        # Chưa khai chủ đề nào thì vẫn phải hỏi bằng tiếng của agent. Danh sách cũ
+        # cứng tiếng Anh và có nguyên chuỗi "learning resources" — chính nó đưa
+        # agent vào learningresources.com, một cửa hàng đồ chơi (ảnh 9/9/2026).
+        choices = _qt.no_topic_queries(behavior, _agent_lang)
         base_query = choices[seed_int % len(choices)]
         
     # Estimate browsing time based on keywords
@@ -1514,13 +1474,21 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                   f"then click a video result, then watch for {watch_secs} seconds. "
                   f"Do NOT search again.")
     elif behavior == "morningCheck":
-        _lang = (str(getattr(agent, "language", "") or "").split("-")[0].lower())
-        _sites = NEWS_SITES.get(_lang) or NEWS_SITES["en"]
+        _sites = NEWS_SITES.get(_agent_lang) or NEWS_SITES.get(_agent_lang.split("-")[0]) or NEWS_SITES["en"]
         news_site = rng.choice(_sites)
-        prompt = (f"Navigate to {news_site}, then click a result, "
-                  f"then browse for {read_time} seconds, "
-                  f"then click an internal link within the SAME site, "
-                  f"then browse for {read_time // 2} seconds. Do NOT search.")
+        # Có chủ đề thì tìm ĐÚNG chủ đề ấy trong ô tìm kiếm CỦA tờ báo — search.js
+        # dùng ô tìm kiếm của site khi đã ở trong site, nên vẫn không đi vòng qua
+        # Google. Trước đây hành vi này bỏ qua chủ đề, nên mọi agent đọc y hệt
+        # nhau bất kể quan tâm cái gì (người dùng hỏi 9/9/2026).
+        if base_query:
+            prompt = (f"Navigate to {news_site}, then search for '{base_query}', "
+                      f"then click the most relevant result, "
+                      f"then browse for {read_time} seconds. Do NOT use Google.")
+        else:
+            prompt = (f"Navigate to {news_site}, then click a result, "
+                      f"then browse for {read_time} seconds, "
+                      f"then click an internal link within the SAME site, "
+                      f"then browse for {read_time // 2} seconds. Do NOT search.")
     else:
         prompt = f"Search for '{base_query}'" + random.choice(suffix_options)
     print(f"[Scheduler Callback] Generated prompt: \"{prompt}\"")
