@@ -390,14 +390,6 @@ a.btn { text-decoration: none; }
 /* «1 kho rỗng» — câu tóm tắt duy nhất ở đầu cột, chỉ hiện khi thật sự có kho
    rỗng. Tệp trong kho DÙNG LẠI mãi mãi (mỗi thumbnail khác nhau ở phần chữ),
    nên không có chuyện kho «sắp cạn»: hoặc có tệp, hoặc rỗng. */
-.rail-warn {
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--red);
-}
-
 .rail-list { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 6px 6px; }
 
 /* Một dòng trong cột trái CŨNG là một .pcard: cùng dữ liệu, cùng cách bấm, chỉ
@@ -480,14 +472,6 @@ a.btn { text-decoration: none; }
 
 /* Chấm đỏ CHỈ cho kho rỗng — một trạng thái hỏng duy nhất. Kho có tệp không
    đeo chấm nào: chấm xanh cho mọi kho bình thường chỉ là nhiễu. */
-.hdot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--red);
-}
-
 .rail-new {
   display: flex;
   align-items: center;
@@ -1113,6 +1097,18 @@ code.mono {
   object-fit: contain;
   background: var(--bg3);
 }
+
+/* Âm thanh: biểu tượng + thanh phát xếp dọc, không bó theo tỉ lệ ảnh. */
+.prevbox-audio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-height: 0;
+}
+
+.prevbox-audio .pcard-empty { min-height: 56px; }
+.prevbox-audio audio { width: 100%; height: 32px; }
 
 .prevbox .ftile-play { width: 38px; height: 38px; font-size: 14px; }
 

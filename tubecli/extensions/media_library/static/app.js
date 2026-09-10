@@ -34,7 +34,8 @@ const API = '/api/v1/media';
 
 /* Loại tệp máy chủ trả về → khoá i18n. Ba bản đồ vì ba chỗ đọc khác nhau:
    câu văn xuôi, nhãn chip trên ô, và câu đếm «12 ảnh». */
-const KIND_KEY = { image: 'media.kind.image', gif: 'media.kind.gif', video: 'media.kind.video' };
+const KIND_KEY = { image: 'media.kind.image', gif: 'media.kind.gif', video: 'media.kind.video',
+  audio: 'media.kind.audio' };   // thiếu audio là câu văn xuôi in ra chữ 'audio' chưa dịch
 const KIND_TAG_KEY = { image: 'media.kindtag.image', gif: 'media.kindtag.gif', video: 'media.kindtag.video', audio: 'media.kindtag.audio' };
 // Kho audio/video không có ảnh nào để làm bìa, nên ô bìa trước đây là một khung xám
 // trống — nhìn như kho lỗi. Cho mỗi loại một biểu tượng riêng.
@@ -238,13 +239,16 @@ function cssq(s) { return String(s).replace(/["\\]/g, '\\$&'); }
 
 /* Một câu trạng thái, đổ ra CẢ HAI màn hình: lỗi xoá kho xảy ra ở lưới kho,
    lỗi tải tệp xảy ra ở trong kho, mà chỉ có một hàm để gọi. */
-function msg(text, kind) {
+function msg(text, kind, tag) {
   const cls = 'msg' + (kind ? ' ' + kind : '');
   ['#listStatusMsg', '#colStatusMsg'].forEach(function (id) {
     const n = $(id);
     if (!n) return;
     n.textContent = text || '';
     n.className = cls;
+    // `tag` để chỗ khác biết câu đang hiện là câu nào mà dọn đúng câu đó — xem
+    // openCollection: câu "chưa mở kho nào" phải tắt ngay khi kho đã mở.
+    n.dataset.tag = tag || '';
   });
 }
 
@@ -367,6 +371,14 @@ function kindGlyph(c) {
   return '▦';
 }
 
+/* Ô chỉ có biểu tượng loại, không câu chữ: dùng cho tệp vốn KHÔNG có hình (âm
+   thanh). Loại đã nằm ở chip trên ô và ở bảng phải, nhắc lại là chữ chồng chữ. */
+function glyphBox(kind) {
+  const d = el('div', 'pcard-empty');
+  d.appendChild(el('div', 'glyph', KIND_GLYPH[kind] || '▦'));
+  return d;
+}
+
 function coverPlaceholder(text, c) {
   const d = el('div', 'pcard-empty');
   d.appendChild(el('div', 'glyph', kindGlyph(c)));
@@ -413,16 +425,11 @@ function renderRail() {
 
     const m = el('div', 'rail-m');
     const n = Number(c.count) || 0;
-    // Chấm đỏ CHỈ khi kho rỗng. Kho có tệp là kho bình thường, dù có một tấm:
-    // tệp được dùng đi dùng lại nên một tấm cũng chạy được mãi.
-    if (!n) {
-      const dot = el('span', 'hdot');
-      dot.title = T('media.collection.empty_badge');
-      m.appendChild(dot);
-    }
-    m.appendChild(el('span', null, n
-      ? (kindsLine(c.kinds) || T('media.count.files', { n: n }))
-      : T('media.collection.empty_short')));
+    // Kho rỗng là chuyện bình thường của một kho vừa tạo, KHÔNG phải sự cố: chỉ
+    // ghi con số. Chấm đỏ + chữ "empty" trước đây làm cả cột trái trông như đang
+    // lỗi, mà đỏ dùng sai một lần thì lần sau không ai đọc màu đỏ nữa.
+    m.appendChild(el('span', null,
+      (n ? kindsLine(c.kinds) : '') || T('media.count.files', { n: n })));
     t.appendChild(m);
     item.appendChild(t);
 
@@ -435,17 +442,6 @@ function renderRail() {
     none.style.borderTop = '0';
     list.appendChild(none);
   }
-
-  // Câu tóm tắt: chỉ nói khi có kho RỖNG, vì đó là trạng thái duy nhất làm
-  // hỏng việc — mẫu trỏ vào kho rỗng thì lớp ảnh ra trống trơn.
-  const empty = state.collections.filter(function (c) { return !Number(c.count); });
-  const warn = $('#railWarn');
-  warn.hidden = !empty.length;
-  warn.textContent = empty.length
-    ? T(empty.length === 1 ? 'media.rail.empty_warn_one' : 'media.rail.empty_warn_many',
-        { n: empty.length })
-    : '';
-  warn.title = empty.map(function (c) { return c.name || c.id; }).join(', ');
 
   renderRailFoot();
 }
@@ -591,15 +587,9 @@ function colCard(c) {
   body.appendChild(desc);
 
   const meta = el('div', 'pcard-meta muted');
-  if (!Number(c.count)) {
-    const dot = el('span', 'hdot');
-    dot.title = T('media.collection.empty_badge');
-    meta.appendChild(dot);
-  }
+  const cn = Number(c.count) || 0;
   meta.appendChild(el('span', null,
-    [Number(c.count)
-       ? (kindsLine(c.kinds) || T('media.count.files', { n: c.count }))
-       : T('media.collection.empty_short'),
+    [(cn ? kindsLine(c.kinds) : '') || T('media.count.files', { n: cn }),
      relTime(c.updated_at)]
       .filter(function (x) { return x; }).join(' · ')));
   body.appendChild(meta);
@@ -727,6 +717,10 @@ function beginCardRename(card, c) {
 /* ── Màn hình 2: bên trong một kho ───────────────────────────────────── */
 
 async function openCollection(cid) {
+  // "Chưa mở kho nào — mở một kho rồi thả lại" là lời nhắc CHO LÚC ĐÓ. Người dùng
+  // vừa làm đúng lời nhắc mà câu vàng vẫn nằm đó thì đọc như một lỗi chưa xử lý.
+  const _st = $('#colStatusMsg');
+  if (_st && _st.dataset.tag === 'nocol') msg('');
   // Tệp kéo từ canvas lúc còn đứng ở lưới kho: giờ đã biết kho, chép vào ngay.
   const pending = state.pendingDrop;
   if (pending) { state.pendingDrop = ''; setTimeout(function () { importPath(pending); }, 300); }
@@ -1019,6 +1013,10 @@ function fileTile(f) {
     const play = el('div', 'ftile-play');
     play.innerHTML = ICO.play;
     t.appendChild(play);
+  } else if (f.kind === 'audio') {
+    // Âm thanh KHÔNG có hình — đó là bản chất, không phải lỗi. Trước đây nó rơi
+    // vào nhánh <img> dưới đây, thẻ ảnh nạp hỏng và ô ghi "cannot be read".
+    t.appendChild(glyphBox('audio'));
   } else {
     const img = el('img');
     img.loading = 'lazy';
@@ -1199,24 +1197,6 @@ function libraryPanel() {
   if (s.dir) head.appendChild(pathBox(s.dir, T('media.label.folder')));
   wrap.appendChild(head);
 
-  const empty = state.collections.filter(function (c) { return !Number(c.count); });
-  const st = inspSection(T('media.insp.empty_collections'),
-                         empty.length ? String(empty.length) : T('media.insp.none'));
-  if (!empty.length) {
-    st.appendChild(el('div', 'state', T('media.insp.all_have_files')));
-  } else {
-    empty.forEach(function (c) {
-      const row = el('div', 'state');
-      row.style.marginBottom = '6px';
-      row.appendChild(el('span', 'hdot'));
-      row.appendChild(el('span', null, T('media.insp.empty_row', { name: c.name || c.id })));
-      row.addEventListener('click', function () { goCollection(c.id); });
-      row.style.cursor = 'pointer';
-      st.appendChild(row);
-    });
-  }
-  wrap.appendChild(st);
-
   const how = inspSection(T('media.insp.how_title'));
   how.appendChild(el('div', 'desc-note', T('media.insp.how_body')));
   wrap.appendChild(how);
@@ -1391,6 +1371,18 @@ function filePanel(insp, f) {
     v.src = src;
     v.addEventListener('loadedmetadata', function () { noteRatio(f.name, v.videoWidth, v.videoHeight); });
     box.appendChild(v);
+  } else if (f.kind === 'audio') {
+    // Khung theo tỉ lệ ảnh là vô nghĩa với âm thanh: cho một dải ngang vừa đủ
+    // thanh phát, và nghe được ngay tại đây thay vì phải tải về mới biết là gì.
+    box.style.aspectRatio = '';
+    box.style.width = '100%';
+    box.classList.add('prevbox-audio');
+    box.appendChild(glyphBox('audio'));
+    const a = el('audio');
+    a.controls = true;
+    a.preload = 'metadata';
+    a.src = src;
+    box.appendChild(a);
   } else {
     const img = el('img');
     img.alt = f.name;
@@ -1415,7 +1407,10 @@ function filePanel(insp, f) {
   head.appendChild(kvBox([
     [T('media.insp.kind'), kindName(f.kind)],
     [T('media.insp.size'), fmtBytes(f.bytes)],
-    [T('media.insp.dimensions'), state.dim[arKey(f.name)] || T('media.insp.measuring')],
+    // Âm thanh không có kích thước điểm ảnh: "đang đo…" ở đó sẽ đứng mãi, đọc như
+    // một việc chưa xong. Một dấu gạch là câu trả lời đúng.
+    [T('media.insp.dimensions'), f.kind === 'audio'
+      ? '—' : (state.dim[arKey(f.name)] || T('media.insp.measuring'))],
     [T('media.insp.collection'), c.name || c.id]
   ]));
   head.appendChild(pathBox('media/' + c.id + '/' + f.name, T('media.label.path')));
@@ -1560,7 +1555,7 @@ function bindDropZone() {
     const dt = ev.dataTransfer;
     if (!dt) return;
     if (!state.col) {
-      msg(T('media.msg.drop_no_collection'), 'warn');
+      msg(T('media.msg.drop_no_collection'), 'warn', 'nocol');
       return;
     }
     if (dt.files && dt.files.length) { uploadFiles(dt.files); return; }
