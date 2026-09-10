@@ -5238,6 +5238,48 @@ def _supervisor_name() -> str:
     return str(_SUPERVISOR.get("by") or "") if _supervised_externally() else ""
 
 
+def _spawn_relauncher(delay: float) -> bool:
+    """Sinh MỘT tiến trình rời: đợi rồi chạy lại chính dòng lệnh đang chạy.
+
+    VÌ SAO CẦN: máy Windows chạy TubeCLI bằng TubeCLI.bat (một cửa sổ console) thì
+    KHÔNG có systemd, và có thể cũng KHÔNG có TubeCLI Connect canh nhịp tim. Khi ấy
+    `_schedule_restart` trả False: nút cập nhật `git pull` được xuống đĩa nhưng tiến
+    trình vẫn giữ mã cũ trong RAM, nên người dùng bấm cập nhật, máy báo xong, mà số
+    phiên bản không đổi (người dùng báo 10/9/2026).
+
+    CÁCH LÀM: chạy `python -c` trong một tiến trình RỜI để nó sống sót khi tiến trình
+    này thoát, rồi chính nó Popen lại lệnh gốc. Tham số truyền qua repr của list nên
+    không phải lo trích dẫn của cmd.exe.
+    """
+    import subprocess
+    import sys
+
+    if not sys.executable or not sys.argv:
+        return False
+    argv = [sys.executable] + list(sys.argv)
+    cwd = os.getcwd()
+    # +1.5s so với lúc tiến trình này thoát: đủ để cổng 5295 được nhả ra.
+    helper = (
+        "import subprocess, time\n"
+        "time.sleep(%r)\n"
+        "subprocess.Popen(%r, cwd=%r, close_fds=True)\n"
+    ) % (float(delay) + 1.5, argv, cwd)
+    kwargs = {"cwd": cwd, "close_fds": True}
+    if os.name == "nt":
+        # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP — không chết theo cửa sổ
+        # console của tiến trình cha.
+        kwargs["creationflags"] = 0x00000008 | 0x00000200
+    else:
+        kwargs["start_new_session"] = True
+    try:
+        subprocess.Popen([sys.executable, "-c", helper], **kwargs)
+    except Exception as e:      # noqa: BLE001
+        print(f"[Restart] khong sinh duoc tien trinh khoi dong lai: {e}")
+        return False
+    print(f"[Restart] da sinh tien trinh khoi dong lai ({argv[1] if len(argv) > 1 else argv[0]})")
+    return True
+
+
 def _schedule_restart(delay: float = 2.0) -> bool:
     """Hen khoi dong lai SAU KHI response da gui xong. True = se khoi dong lai.
 
@@ -5269,6 +5311,13 @@ def _schedule_restart(delay: float = 2.0) -> bool:
                 return True
         except Exception:
             continue
+
+    # Không ai dựng lại hộ → TỰ dựng lại. Vẫn fail-safe: chỉ thoát khi đã sinh
+    # được tiến trình khởi động lại; sinh không được thì trả False như trước, tức
+    # là nói thật để người dùng tự restart.
+    if _spawn_relauncher(delay):
+        threading.Thread(target=_bye, daemon=True).start()
+        return True
     return False
 
 
