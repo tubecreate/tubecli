@@ -1493,7 +1493,14 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                       f"then click an internal link within the SAME site, "
                       f"then browse for {read_time // 2} seconds. Do NOT search.")
     else:
-        prompt = f"Search for '{base_query}'" + random.choice(suffix_options)
+        # PHẢI nói rõ "vào google.com" trước. Phiên dùng lại TAB CÒN SÓT của hồ sơ
+        # (open.js chỉ tự vào Google khi tab đang là about:blank), nên "Search for X"
+        # trơ trọi đem câu tìm gõ vào ô tìm kiếm của TRANG ĐANG MỞ — hồ sơ vừa chạy
+        # hành vi email thì đó là ô TÌM THƯ của Gmail (người dùng báo 10/9/2026).
+        # search.js đã chặn ở tầng dưới, nhưng ý định thuộc về câu lệnh: hai hành vi
+        # có nhà riêng (youtube.com, trang báo) cũng khai bước Navigate y như vậy.
+        prompt = (f"Navigate to google.com, then search for '{base_query}'"
+                  + random.choice(suffix_options))
     print(f"[Scheduler Callback] Generated prompt: \"{prompt}\"")
 
     # --- REAL email actions: reply_email / send_report ---

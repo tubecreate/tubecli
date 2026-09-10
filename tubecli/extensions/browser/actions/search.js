@@ -13,6 +13,58 @@ async function handleCaptcha(page, isRetry) {
   }
 }
 
+// ── Trang đang mở là gì? So theo TÊN MIỀN, không phải chuỗi con của cả URL ──
+//
+// VÌ SAO: 'mail.google.com'.includes('google.com') là ĐÚNG. Bản trước dùng đúng
+// phép thử ấy ở HAI chỗ (cờ máy-tìm-kiếm, và "chưa ở Google thì mới goto"), nên
+// khi phiên mở lại trúng tab Gmail còn sót của hồ sơ — open.js chỉ tự vào Google
+// khi tab đang là about:blank — thì cả hai đều tưởng đang ở Google: không mở
+// www.google.com, rồi gõ câu tìm vào input[name="q"], mà trên Gmail đó là ô TÌM
+// THƯ. Lượt chạy vẫn báo thành công vì mã chỉ chờ #search rồi in cảnh báo khi
+// không thấy. Người dùng báo 10/9/2026: agent tìm chủ đề ngay trong hộp thư.
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+  } catch (_) {
+    return '';
+  }
+}
+
+const SEARCH_HOSTS = new Set([
+  'google.com', 'bing.com', 'duckduckgo.com', 'search.yahoo.com',
+  'search.brave.com', 'startpage.com', 'ecosia.org', 'baidu.com', 'yandex.com',
+]);
+
+export function isSearchEngineHost(host) {
+  if (!host) return false;
+  if (SEARCH_HOSTS.has(host)) return true;
+  // Tên miền quốc gia: google.de, google.co.uk, google.com.vn
+  if (/^google\.[a-z]{2,3}(\.[a-z]{2,3})?$/.test(host)) return true;
+  if (/^search\.yahoo\.[a-z]{2,3}(\.[a-z]{2,3})?$/.test(host)) return true;
+  return false;
+}
+
+// Trang ỨNG DỤNG, không phải trang nội dung: ô tìm ở đây tìm THƯ / TỆP / LỊCH /
+// tin nhắn, không bao giờ là thứ một lượt "đọc web theo chủ đề" cần. Chỉ sửa cờ
+// máy-tìm-kiếm là CHƯA ĐỦ: Gmail khi đó rơi vào nhánh tìm-trong-site và vẫn gõ
+// đúng vào ô tìm thư. Gặp mấy host này thì đi thẳng ra máy tìm kiếm.
+const APP_HOSTS = new Set([
+  'mail.google.com', 'drive.google.com', 'docs.google.com', 'sheets.google.com',
+  'slides.google.com', 'calendar.google.com', 'contacts.google.com', 'keep.google.com',
+  'photos.google.com', 'chat.google.com', 'meet.google.com', 'groups.google.com',
+  'accounts.google.com', 'myaccount.google.com', 'admin.google.com', 'takeout.google.com',
+  'outlook.live.com', 'outlook.office.com', 'outlook.office365.com',
+  'mail.yahoo.com', 'mail.proton.me', 'mail.zoho.com',
+  'web.whatsapp.com', 'web.telegram.org', 'teams.microsoft.com', 'discord.com',
+]);
+
+export function isAppHost(host) {
+  if (!host) return false;
+  if (APP_HOSTS.has(host)) return true;
+  if (host === 'slack.com' || host.endsWith('.slack.com')) return true;
+  return false;
+}
+
 /**
  * Action: Search for a keyword on Google
  * @param {import('playwright').Page} page
@@ -49,11 +101,17 @@ export async function search(page, params) {
   }
 
   // STRATEGY 2: Contextual Search (Search ON the current site)
-  // If we are NOT on Google/Bing/Yahoo, try to find an internal search bar first
+  // Chỉ làm khi trang đang mở là trang NỘI DUNG: không phải máy tìm kiếm (đã có
+  // đường riêng ở STRATEGY 3) và không phải ứng dụng (ô tìm thư/tệp/lịch).
   const currentUrl = page.url();
-  const isSearchEngine = currentUrl.includes('google.com') || currentUrl.includes('bing.com') || currentUrl.includes('search.yahoo');
-  
-  if (!isSearchEngine && currentUrl !== 'about:blank') {
+  const currentHost = hostOf(currentUrl);
+  const onSearchEngine = isSearchEngineHost(currentHost);
+  const onAppSite = isAppHost(currentHost);
+  if (onAppSite) {
+    console.log(`On app site ${currentHost}: its search box searches mail/files, not the web. Going to a search engine.`);
+  }
+
+  if (!onSearchEngine && !onAppSite && currentUrl !== 'about:blank') {
       console.log(`Attempting internal search on ${new URL(currentUrl).hostname}...`);
       try {
           // Comprehensive internal search selectors (covers most websites)
@@ -165,8 +223,10 @@ export async function search(page, params) {
   // STRATEGY 3: Google Search (Fallback)
   console.log('Performing Google Search...');
   
-  // Navigate to Google if not already there
-  if (!page.url().includes('google.com')) {
+  // Navigate to Google if not already there — theo TÊN MIỀN. Phép thử chuỗi con
+  // cũ ('mail.google.com'.includes('google.com') === true) khiến bước này KHÔNG
+  // BAO GIỜ chạy khi tab đang ở Gmail, và câu tìm rơi vào ô tìm thư ngay dưới đây.
+  if (!isSearchEngineHost(hostOf(page.url()))) {
     await page.goto('https://www.google.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
     try {
       await page.waitForSelector('textarea[name="q"], input[name="q"]', { timeout: 10000 });
