@@ -35,7 +35,10 @@ const API = '/api/v1/media';
 /* Loại tệp máy chủ trả về → khoá i18n. Ba bản đồ vì ba chỗ đọc khác nhau:
    câu văn xuôi, nhãn chip trên ô, và câu đếm «12 ảnh». */
 const KIND_KEY = { image: 'media.kind.image', gif: 'media.kind.gif', video: 'media.kind.video' };
-const KIND_TAG_KEY = { image: 'media.kindtag.image', gif: 'media.kindtag.gif', video: 'media.kindtag.video' };
+const KIND_TAG_KEY = { image: 'media.kindtag.image', gif: 'media.kindtag.gif', video: 'media.kindtag.video', audio: 'media.kindtag.audio' };
+// Kho audio/video không có ảnh nào để làm bìa, nên ô bìa trước đây là một khung xám
+// trống — nhìn như kho lỗi. Cho mỗi loại một biểu tượng riêng.
+const KIND_GLYPH = { image: '🖼', gif: '🎞', video: '🎬', audio: '🎵' };
 const KIND_COUNT_KEY = { image: 'media.count.image', gif: 'media.count.gif', video: 'media.count.video' };
 const KIND_ORDER = ['image', 'gif', 'video'];
 
@@ -355,9 +358,18 @@ function fileUrl(cid, name, ver) {
 
 /* ── Cột trái: mọi kho, luôn nhìn thấy ───────────────────────────────── */
 
-function coverPlaceholder(text) {
+function kindGlyph(c) {
+  // Chỉ đoán khi kho THUẦN một loại; kho trộn thì để ký hiệu chung, đoán bừa còn
+  // tệ hơn không đoán. Kho rỗng thì lấy theo id của ba kho mặc định.
+  const ks = Object.keys((c && c.kinds) || {});
+  if (ks.length === 1 && KIND_GLYPH[ks[0]]) return KIND_GLYPH[ks[0]];
+  if (!ks.length && c && KIND_GLYPH[c.id]) return KIND_GLYPH[c.id];
+  return '▦';
+}
+
+function coverPlaceholder(text, c) {
   const d = el('div', 'pcard-empty');
-  d.appendChild(el('div', 'glyph', '▦'));
+  d.appendChild(el('div', 'glyph', kindGlyph(c)));
   d.appendChild(el('div', null, text || T('media.cover.empty')));
   return d;
 }
@@ -386,8 +398,13 @@ function renderRail() {
       const img = coverImg(c, '');
       // Bìa là tệp ĐẦU TIÊN theo tên, có thể là video: thẻ <img> không dựng nổi
       // video nên rơi về ô trống thay vì để một khung vỡ.
-      img.addEventListener('error', function () { img.remove(); });
+      img.addEventListener('error', function () {
+        img.remove();
+        shot.appendChild(el('div', 'rail-glyph', kindGlyph(c)));
+      });
       shot.appendChild(img);
+    } else {
+      shot.appendChild(el('div', 'rail-glyph', kindGlyph(c)));
     }
     item.appendChild(shot);
 
@@ -544,11 +561,11 @@ function colCard(c) {
     const img = coverImg(c, T('media.card.cover_alt', { name: c.name || c.id }));
     img.addEventListener('error', function () {
       img.remove();
-      shot.appendChild(coverPlaceholder(T('media.cover.no_preview')));
+      shot.appendChild(coverPlaceholder(T('media.cover.no_preview'), c));
     });
     shot.appendChild(img);
   } else {
-    shot.appendChild(coverPlaceholder());
+    shot.appendChild(coverPlaceholder(null, c));
   }
   shot.addEventListener('click', function () { goCollection(c.id); });
   card.appendChild(shot);

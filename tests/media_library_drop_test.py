@@ -14,6 +14,7 @@
 #        nội bộ của extension — đoán sai thì node hiện ô trống, không báo gì.
 import asyncio
 import io
+import re as _re2
 import os
 import shutil
 import sys
@@ -64,6 +65,21 @@ made = L.ensure_defaults()
 check("B tạo đủ ba kho", sorted(c["id"] for c in made) == ["audio", "image", "video"],
       [c["id"] for c in made])
 check("B kho có tên người đọc được", all(c.get("name") for c in made), [c.get("name") for c in made])
+# Tên kho phải theo NGÔN NGỮ máy chủ. Ghi cứng một thứ tiếng là sai với sản phẩm 9
+# ngôn ngữ: người để giao diện tiếng Nhật vẫn thấy kho tên "Âm thanh".
+import json as _json  # noqa: E402
+_locdir = ROOT / "tubecli" / "extensions" / "media_library" / "locales"
+for _lang in ("en", "vi", "zh", "zh-TW", "ja", "ko", "es", "tr", "ru"):
+    _d = _json.load(io.open(_locdir / f"{_lang}.json", encoding="utf-8-sig"))
+    _miss = [c for c in L.DEFAULT_COLLECTION_IDS
+             if not _d.get(f"media.default.{c}.name") or not _d.get(f"media.default.{c}.desc")]
+    check(f"B locale {_lang} có tên+mô tả ba kho", not _miss, _miss)
+cfg.get_language = lambda: "ja"
+check("B tên kho theo ngôn ngữ máy chủ", L._default_labels()["audio"][0] == "音声",
+      L._default_labels()["audio"][0])
+cfg.get_language = lambda: "vi"
+# Thiếu câu dịch thì VẪN tạo được kho, không ném — id làm tên tạm.
+check("B thiếu câu dịch vẫn có tên tạm", all(L._default_labels()[c][0] for c in L.DEFAULT_COLLECTION_IDS))
 # Gọi lại KHÔNG được ghi đè: Chợ gọi on_enable mỗi lần cài, ghi đè một lần là mất
 # tên kho khách đã sửa.
 L.rename("image", name="Ảnh của tôi")
@@ -117,6 +133,20 @@ allext = {e for v in d["ext"].values() for e in v}
 check("D bảng đuôi phủ hết loại được nhận", set(L.ALL_EXT) == allext,
       sorted(set(L.ALL_EXT) ^ allext))
 
+# ── D2. chữ nhắc loại file phải nói cả AUDIO ─────────────────────────────
+# Kho nhận audio rồi mà câu nhắc vẫn ghi "ảnh, GIF hoặc video" thì người dùng đọc
+# xong không dám kéo file mp3 vào — tính năng có mà như không.
+for _lang in ("en", "vi", "zh", "zh-TW", "ja", "ko", "es", "tr", "ru"):
+    _d = _json.load(io.open(_locdir / f"{_lang}.json", encoding="utf-8-sig"))
+    for _k in ("media.count.audio", "media.kind.audio", "media.kindtag.audio"):
+        check(f"D2 {_lang} có {_k}", _k in _d)
+_app = io.open(ROOT / "tubecli" / "extensions" / "media_library" / "static" / "app.js", encoding="utf-8").read()
+check("D2 nhãn loại có audio", "audio: 'media.kindtag.audio'" in _app)
+check("D2 kho chưa có bìa hiện biểu tượng theo loại", "function kindGlyph(" in _app
+      and "rail-glyph" in _app)
+_css = io.open(ROOT / "tubecli" / "extensions" / "media_library" / "static" / "app.css", encoding="utf-8").read()
+check("D2 có CSS cho biểu tượng đó", ".rail-glyph" in _css)
+
 # ── E. on_enable tạo kho, và không ném khi kho đã có ─────────────────────
 src = io.open(ROOT / "tubecli" / "extensions" / "media_library" / "extension.py", encoding="utf-8").read()
 check("E on_enable gọi ensure_defaults", "library.ensure_defaults()" in src)
@@ -141,8 +171,17 @@ else:
     check("F đọc toạ độ TRƯỚC khi await", fb.index("const at = rf.screenToFlowPosition")
           < fb.index("await uploadToLibrary"))
     check("F xem được ngay tại chỗ (mode open)", "mode: 'open'" in fb)
-    check("F hỏi kho mặc định của máy chủ", "'/api/v1/media-library/defaults'" in fb)
-    check("F tải lên kho theo loại", "/api/v1/media-library/collections/${encodeURIComponent(cid)}/files" in fb)
+    # Tiền tố route THẬT là /api/v1/media (không phải /api/v1/media-library) —
+    # đoán sai tiền tố là 404 và node hiện "Not Found" mà không ai biết vì sao.
+    _prefix = _re2.search(r'APIRouter\(prefix="([^"]+)"',
+                          io.open(ROOT / "tubecli" / "extensions" / "media_library" / "routes.py",
+                                  encoding="utf-8").read()).group(1)
+    check("F tiền tố route đọc được", _prefix == "/api/v1/media", _prefix)
+    check("F cloud gọi ĐÚNG tiền tố", f"'{_prefix}/defaults'" in fb, _prefix)
+    check("F cloud tải lên ĐÚNG tiền tố",
+          _prefix + "/collections/${encodeURIComponent(cid)}/files" in fb, _prefix)
+    check("F không còn tiền tố đoán sai", "/api/v1/media-library/" not in fb,
+          [l.strip() for l in fb.split(chr(10)) if "/api/v1/media-library/" in l])
     check("F chưa có tunnel thì nói rõ", "flow.drop.noServer" in fb)
     # Node đặt NGAY lúc thả, TRƯỚC khi tải lên: thấy chỗ mình vừa thả có gì.
     check("F đặt node trước khi tải lên",

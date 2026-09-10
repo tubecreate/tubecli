@@ -43,11 +43,7 @@ KIND_IMAGE, KIND_GIF, KIND_VIDEO, KIND_AUDIO = "image", "gif", "video", "audio"
 # để rơi vào NGAY lần đầu — bắt người dùng tự tạo kho trước khi kéo được file đầu
 # tiên là một bước không ai đoán ra. Tạo theo kiểu "thiếu thì thêm", KHÔNG ghi đè:
 # Chợ gọi lại on_enable mỗi lần cài, ghi đè một lần là mất tên kho khách đã sửa.
-DEFAULT_COLLECTIONS = (
-    ("image", "Ảnh", "Ảnh tĩnh: png, jpg, webp, bmp"),
-    ("video", "Video", "Video: mp4, webm, mov, mkv"),
-    ("audio", "Âm thanh", "Âm thanh: mp3, wav, m4a, flac"),
-)
+DEFAULT_COLLECTION_IDS = ("image", "video", "audio")
 
 _lock = threading.RLock()
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -101,14 +97,50 @@ def default_collection_for(filename: str) -> str:
     return KIND_IMAGE if k == KIND_GIF else k
 
 
+def _default_labels() -> Dict[str, tuple]:
+    """Tên/mô tả ba kho mặc định THEO NGÔN NGỮ máy chủ.
+
+    Ghi cứng một thứ tiếng là sai với sản phẩm 9 ngôn ngữ: người dùng để giao diện
+    tiếng Nhật vẫn thấy kho tên "Âm thanh". Đọc thẳng file locale của extension —
+    `tubecli.i18n.t()` chỉ thấy catalogue của lõi, không thấy khoá của extension.
+    """
+    try:
+        from tubecli.config import get_language
+        lang = (get_language() or "en").strip()
+    except Exception:      # noqa: BLE001
+        lang = "en"
+    here = os.path.dirname(os.path.abspath(__file__))
+    out: Dict[str, tuple] = {}
+    for try_lang in ("en", lang):     # en làm nền, ngôn ngữ máy chủ đè lên
+        p = os.path.join(here, "locales", f"{try_lang}.json")
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8-sig") as f:
+                d = json.load(f)
+        except Exception:              # noqa: BLE001
+            continue
+        for cid in DEFAULT_COLLECTION_IDS:
+            name = d.get(f"media.default.{cid}.name")
+            desc = d.get(f"media.default.{cid}.desc")
+            if name:
+                out[cid] = (name, desc or out.get(cid, ("", ""))[1])
+    # Thiếu câu dịch thì vẫn phải tạo được kho: id làm tên tạm.
+    for cid in DEFAULT_COLLECTION_IDS:
+        out.setdefault(cid, (cid, ""))
+    return out
+
+
 def ensure_defaults() -> List[dict]:
     """Tạo ba kho mặc định nếu thiếu. Idempotent, không đụng kho đã có."""
+    labels = _default_labels()
     out = []
-    for cid, name, desc in DEFAULT_COLLECTIONS:
+    for cid in DEFAULT_COLLECTION_IDS:
         cur = get(cid)
         if cur:
             out.append(cur)
             continue
+        name, desc = labels[cid]
         out.append(create(name, description=desc, cid=cid))
     return out
 
@@ -408,5 +440,5 @@ __all__ = ["create", "rename", "delete", "get", "list_all", "list_files",
            "peek_cycle", "collection_dir", "data_dir", "safe_id", "kind_of",
            "stats", "ALL_EXT", "IMAGE_EXT", "VIDEO_EXT", "GIF_EXT", "AUDIO_EXT",
            "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO", "KIND_AUDIO",
-           "DEFAULT_COLLECTIONS", "ensure_defaults", "default_collection_for",
+           "DEFAULT_COLLECTION_IDS", "ensure_defaults", "default_collection_for",
            "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO"]
