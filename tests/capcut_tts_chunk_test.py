@@ -180,7 +180,11 @@ check("E nhả tay là lưu mặc định", "addEventListener('change', saveSynS
 check("E nạp mặc định lúc mở trang", "loadSynSettings" in html and ".then(loadSynSettings)" in html)
 check("E đọc header số đoạn", "X-CapCut-Chunks" in html)
 check("E có CSS cho range", "input[type=range]::-webkit-slider-thumb" in html)
-for key in ("syn.slider_hint", "syn.default_saved", "syn.done_chunks"):
+# Lý do giọng bị ẩn: sidecar Node ghi cứng TIẾNG ANH và giao diện trước đây in
+# nguyên văn ra, nên người dùng tiếng Việt đọc một câu tiếng Anh giữa trang Việt.
+check("E lý do giọng ẩn tra qua khoá dịch", "'syn.broken_' + String(h.language" in html)
+check("E thiếu câu dịch thì vẫn dùng nguyên văn sidecar", "msg === key ? (h.reason || '')" in html)
+for key in ("syn.slider_hint", "syn.default_saved", "syn.done_chunks", "syn.broken_vi_11labs"):
     # Đếm CÓ dấu hai chấm: bản thân mã JS cũng gọi t('syn.…') nên đếm trơ trọi ra 10.
     check(f"E khoá {key} đủ 9 ngôn ngữ", html.count(f"'{key}':") == 9, html.count(f"'{key}':"))
 
