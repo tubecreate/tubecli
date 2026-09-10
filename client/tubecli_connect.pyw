@@ -591,6 +591,7 @@ def start_tubecli() -> bool:
     except Exception as e:
         log(f"không bật được TubeCLI: {e}")
         return False
+    _write_pid(proc.pid)
     for _ in range(60):
         if tubecli_up():
             log("TubeCLI đã sẵn sàng")
@@ -603,6 +604,106 @@ def start_tubecli() -> bool:
         time.sleep(1)
     log(f"TubeCLI không trả lời sau 60 giây — xem {out}")
     return False
+
+
+PIDFILE = os.path.join(HOME, "server.pid")
+
+
+def _write_pid(pid: int) -> None:
+    """Nhớ pid máy chủ để nút «Khởi động lại» tắt ĐÚNG tiến trình.
+
+    Không có file này thì cách duy nhất là dò ai đang giữ cổng 5295 — mà trên
+    máy người dùng, cổng ấy có thể là một bản TubeCLI khác họ tự bật, và tắt
+    nhầm nó là mất việc đang chạy dở.
+    """
+    try:
+        with open(PIDFILE, "w", encoding="utf-8") as f:
+            f.write(str(int(pid)))
+    except OSError:
+        pass
+
+
+def _pid_of_port(port: int) -> int:
+    """Ai đang nghe cổng này. 0 nếu không rõ — đường lui khi mất file pid."""
+    try:
+        if IS_WIN:
+            out = subprocess.run(["netstat", "-ano", "-p", "TCP"], capture_output=True,
+                                 text=True, timeout=10,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout
+            for line in out.splitlines():
+                p = line.split()
+                if len(p) >= 5 and p[3].upper() == "LISTENING" and p[1].endswith(f":{port}"):
+                    return int(p[4])
+        else:
+            out = subprocess.run(["lsof", "-ti", f"tcp:{port}", "-sTCP:LISTEN"],
+                                 capture_output=True, text=True, timeout=10).stdout
+            for line in out.split():
+                return int(line)
+    except Exception:      # noqa: BLE001 — thiếu netstat/lsof, timeout, gì cũng vậy
+        pass
+    return 0
+
+
+def node_stop(timeout: float = 12.0) -> bool:
+    """Tắt máy chủ TubeCLI. True khi cổng đã im.
+
+    Tắt CẢ CÂY tiến trình: máy chủ đẻ ra Chromium, ffmpeg, cloudflared con — giết
+    mỗi tiến trình cha thì đám con thành mồ côi, vẫn giữ cổng và vẫn ăn RAM, và
+    lần bật sau báo «cổng đang bận» mà không ai hiểu vì sao.
+    """
+    pid = 0
+    try:
+        with open(PIDFILE, encoding="utf-8") as f:
+            pid = int((f.read() or "0").strip() or 0)
+    except (OSError, ValueError):
+        pid = 0
+    if not pid:
+        pid = _pid_of_port(PORT)
+    if not pid:
+        return not tubecli_up()
+    log(f"tắt máy chủ TubeCLI (pid {pid})")
+    try:
+        if IS_WIN:
+            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           capture_output=True, timeout=20,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            import signal
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, AttributeError):
+                os.kill(pid, signal.SIGTERM)
+    except Exception as e:      # noqa: BLE001
+        log(f"tắt máy chủ hỏng: {e}")
+    end = time.time() + timeout
+    while time.time() < end:
+        if not tubecli_up():
+            try:
+                os.remove(PIDFILE)
+            except OSError:
+                pass
+            return True
+        time.sleep(0.4)
+    log("máy chủ vẫn trả lời sau khi đã bảo tắt")
+    return False
+
+
+def node_restart(say=None) -> bool:
+    """Tắt rồi bật lại máy chủ. Đây là thứ người dùng cần sau mỗi lần cập nhật
+    extension: mã Python nằm trong RAM, sửa file trên đĩa xong vẫn chạy bản cũ."""
+    def _s(m):
+        log(m)
+        if say:
+            try:
+                say(m)
+            except Exception:      # noqa: BLE001
+                pass
+    _s("đang tắt máy chủ…")
+    node_stop()
+    _s("đang bật lại…")
+    ok = start_tubecli()
+    _s("máy chủ đã chạy lại" if ok else "bật lại KHÔNG thành công — xem log")
+    return ok
 
 
 def _tail_lines(path: str, n: int) -> list:
@@ -1633,8 +1734,17 @@ class Bridge:
         self.conf = conf
         self.tunnel = None
         self.stop = threading.Event()
+        # Người dùng CHỦ ĐỘNG ngắt thì vòng canh phải im. Không có cờ này thì
+        # bấm «Ngắt kết nối» xong 20 giây sau vòng canh dựng lại tất cả, và
+        # trông như nút bị hỏng.
+        self.paused = threading.Event()
+        self.busy = ""
 
     def status(self) -> str:
+        if self.busy:
+            return self.busy
+        if self.paused.is_set():
+            return "ĐÃ NGẮT KẾT NỐI — bấm «Kết nối lại» để bật lại"
         node = "đang chạy" if tubecli_up() else "TẮT"
         tun = "đang chạy" if (self.tunnel and self.tunnel.poll() is None) else "TẮT"
         return f"TubeCLI: {node} · Tunnel: {tun} · {self.conf.get('url', '')}"
@@ -1642,6 +1752,9 @@ class Bridge:
     def watch(self) -> None:
         while not self.stop.is_set():
             try:
+                if self.paused.is_set() or self.busy:
+                    self.stop.wait(2)
+                    continue
                 if not tubecli_up():
                     start_tubecli()
                 else:
@@ -1658,59 +1771,317 @@ class Bridge:
 
     def shutdown(self) -> None:
         self.stop.set()
+        self._kill_tunnel()
+
+    def _kill_tunnel(self) -> None:
         if self.tunnel and self.tunnel.poll() is None:
-            self.tunnel.terminate()
+            try:
+                self.tunnel.terminate()
+            except Exception:      # noqa: BLE001
+                pass
+        self.tunnel = None
+
+    def reset(self, say=None) -> None:
+        """Khởi động lại máy chủ, GIỮ nguyên tunnel.
+
+        Đây là việc hay cần nhất: cài/cập nhật extension xong, mã Python vẫn nằm
+        trong RAM nên máy chủ chạy bản cũ. Tunnel không liên quan nên đừng đụng
+        vào — dựng lại nó là địa chỉ công khai chớp tắt vài giây.
+        """
+        if self.busy:
+            return
+        self.busy = "đang khởi động lại máy chủ…"
+        try:
+            node_restart(say)
+        finally:
+            self.busy = ""
+
+    def disconnect(self, say=None) -> None:
+        """Ngắt hẳn: tắt tunnel VÀ máy chủ, rồi im. Máy biến khỏi cloud."""
+        if self.busy:
+            return
+        self.busy = "đang ngắt kết nối…"
+        try:
+            self.paused.set()
+            self._kill_tunnel()
+            node_stop()
+            log("người dùng ngắt kết nối")
+        finally:
+            self.busy = ""
+
+    def reconnect(self, say=None) -> None:
+        """Bật lại. Vòng canh lo phần còn lại — nó vốn đã biết dựng cả hai."""
+        if self.busy:
+            return
+        self.busy = "đang kết nối lại…"
+        try:
+            self.paused.clear()
+            start_tubecli()
+            if self.conf.get("tunnel_token"):
+                self.tunnel = start_tunnel(self.conf["tunnel_token"])
+            log("người dùng kết nối lại")
+        finally:
+            self.busy = ""
 
 
 def tray(bridge: Bridge) -> None:
-    """Icon khay hệ thống. Không có pystray thì vẫn chạy nền, chỉ là không có icon —
-    cầu nối mới là việc chính, cái icon chỉ để bấm."""
-    try:
-        import pystray
-        from PIL import Image, ImageDraw
-    except ImportError:
-        # KHÔNG được ngủ im trong nền: pythonw không có cửa sổ, không có icon thì
-        # người dùng không có cách nào biết client còn sống hay đã chết.
-        if has_tk():
-            log("thiếu pystray/Pillow — mở cửa sổ trạng thái thay cho icon khay")
-            status_window(bridge)
-            return
-        # Máy không đồ hoạ (Linux server, WSL trần): giữ cầu nối sống và IN trạng
-        # thái ra terminal theo nhịp — người dùng đang ngồi ở đó, đó là màn hình
-        # duy nhất họ có.
-        log("không có pystray lẫn tkinter — chạy ở chế độ terminal, Ctrl+C để dừng")
-        try:
-            while True:
-                log(bridge.status())
-                time.sleep(60)
-        except KeyboardInterrupt:
-            log("dừng theo yêu cầu")
+    """Giao diện nền: cửa sổ trạng thái, và icon khay do chính cửa sổ dựng.
+
+    Khay giờ là `WinTray` viết bằng ctypes, nên nhánh pystray cũ đã BỎ HẲN —
+    giữ hai đường làm cùng một việc là cách chắc chắn nhất để chúng lệch nhau,
+    và pystray lại kéo theo Pillow trên máy trần.
+
+    Còn đúng một đường lui: máy không có tkinter (Linux server, WSL trần) thì in
+    trạng thái ra terminal, vì đó là màn hình duy nhất người dùng có ở đó.
+    """
+    if has_tk():
+        status_window(bridge)
         return
+    log("không có tkinter — chạy ở chế độ terminal, Ctrl+C để dừng")
+    try:
+        while True:
+            log(bridge.status())
+            time.sleep(60)
+    except KeyboardInterrupt:
+        log("dừng theo yêu cầu")
 
-    img = Image.new("RGB", (64, 64), "#111827")
-    d = ImageDraw.Draw(img)
-    d.ellipse((14, 14, 50, 50), fill="#5276EB")
 
-    def toggle_autostart(icon, item):
-        set_autostart(not autostart_on())
 
-    menu = pystray.Menu(
-        pystray.MenuItem(lambda _i: bridge.status(), None, enabled=False),
-        pystray.MenuItem("Mở dashboard", lambda: open_url(DASH)),
-        pystray.MenuItem("Mở cloud", lambda: open_url(CLOUD + "/dash")),
-        pystray.MenuItem("Xem log", lambda: open_url(LOG) if os.path.isfile(LOG) else None),
-        pystray.MenuItem("Khởi động cùng Windows", toggle_autostart,
-                         checked=lambda _i: autostart_on()),
-        pystray.MenuItem("Thoát", lambda icon: (bridge.shutdown(), icon.stop())),
-    )
-    pystray.Icon("tubecli", img, APP, menu).run()
+
+# ── Khay hệ thống, viết bằng ctypes ───────────────────────────────────────
+# VÌ SAO KHÔNG DÙNG pystray
+#   Client phải chạy được trên MÁY TRẦN: người dùng tải một file về, bấm, xong.
+#   pystray kéo theo Pillow, và trên máy chưa có pip lành lặn thì cài được hay
+#   không là chuyện hên xui — đúng cái đã làm hỏng mấy lần cài đầu tiên. Phần
+#   icon thanh tác vụ trong file này vốn đã gọi Win32 qua ctypes, nên khay đi
+#   cùng đường ấy là nhất quán và không thêm phụ thuộc nào.
+#
+# VÌ SAO CÓ CỬA SỔ ẨN RIÊNG VÀ LUỒNG RIÊNG
+#   Icon khay gửi sự kiện chuột bằng thông điệp Windows, mà thông điệp thì phải
+#   có cửa sổ để nhận và một vòng lặp để bơm. tkinter có vòng lặp riêng và không
+#   cho ta chen thông điệp lạ vào, nên khay tự nuôi cửa sổ ẩn + vòng lặp của nó
+#   trong một luồng, rồi đẩy hành động sang tkinter qua hàng đợi. Cách khác là
+#   thay window proc của tkinter — làm được, nhưng một lỗi nhỏ ở đó là sập cả
+#   tiến trình chứ không phải mất cái icon.
+
+TRAY_ITEMS = [
+    ("show",       "Hiện cửa sổ"),
+    ("dashboard",  "Mở dashboard"),
+    ("cloud",      "Mở cloud"),
+    ("log",        "Xem log"),
+    ("-",          ""),
+    ("reset",      "Khởi động lại máy chủ"),
+    ("toggle",     "Ngắt kết nối"),
+    ("-",          ""),
+    ("quit",       "Thoát hẳn"),
+]
+
+
+class WinTray:
+    """Icon khay. `on_action(tên)` được gọi TRONG luồng khay — người gọi tự đẩy
+    về luồng giao diện của mình."""
+
+    def __init__(self, on_action, tip: str = APP):
+        self.on_action = on_action
+        self.tip = tip
+        self.hwnd = None
+        self._thread = None
+        self._alive = False
+        self._label = {k: v for k, v in TRAY_ITEMS}
+
+    # -- công khai ---------------------------------------------------------
+    def start(self) -> bool:
+        if not IS_WIN:
+            return False
+        try:
+            import ctypes
+            from ctypes import wintypes      # noqa: F401  (kiểm có sẵn)
+        except Exception:      # noqa: BLE001
+            return False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+        for _ in range(40):                  # chờ cửa sổ ẩn dựng xong
+            if self._alive:
+                return True
+            time.sleep(0.05)
+        return self._alive
+
+    def set_label(self, key: str, text: str) -> None:
+        """Đổi chữ một mục. Menu dựng lại mỗi lần bấm chuột phải nên chỉ cần
+        sửa bảng chữ, không phải sờ vào Win32."""
+        self._label[key] = text
+
+    def stop(self) -> None:
+        if not self._alive or self.hwnd is None:
+            return
+        try:
+            import ctypes
+            ctypes.windll.user32.PostMessageW(self.hwnd, 0x0002, 0, 0)   # WM_DESTROY
+        except Exception:      # noqa: BLE001
+            pass
+
+    # -- bên trong ---------------------------------------------------------
+    def _run(self) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        u32 = ctypes.windll.user32
+        shell = ctypes.windll.shell32
+        k32 = ctypes.windll.kernel32
+
+        # KHAI KIỂU CHO TỪNG HÀM. Không khai thì ctypes đoán `int` 32 bit, và
+        # trên Windows 64 bit chuyện đó hỏng hai kiểu:
+        #   · CreateWindowExW trả handle bị CẮT CỤT — máy nào cấp handle nhỏ thì
+        #     chạy tốt, máy nào cấp handle lớn thì im lặng sai;
+        #   · DefWindowProcW nhận lParam lớn hơn 2^31 và ném OverflowError, mỗi
+        #     lần chuột đi qua icon lại một dòng traceback (đo thật 10/9/2026).
+        LRESULT = ctypes.c_ssize_t
+        u32.DefWindowProcW.argtypes = [wintypes.HWND, wintypes.UINT,
+                                       ctypes.c_size_t, LRESULT]
+        u32.DefWindowProcW.restype = LRESULT
+        u32.CreateWindowExW.restype = wintypes.HWND
+        u32.CreateWindowExW.argtypes = [wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR,
+                                        wintypes.DWORD, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_int, ctypes.c_int, wintypes.HWND,
+                                        wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID]
+        u32.LoadImageW.restype = wintypes.HANDLE
+        u32.LoadIconW.restype = wintypes.HICON
+        u32.CreatePopupMenu.restype = wintypes.HMENU
+        u32.TrackPopupMenu.restype = ctypes.c_int
+        u32.GetMessageW.argtypes = [ctypes.POINTER(wintypes.MSG), wintypes.HWND,
+                                    wintypes.UINT, wintypes.UINT]
+        k32.GetModuleHandleW.restype = wintypes.HMODULE
+
+        WM_DESTROY, WM_COMMAND, WM_TRAY = 0x0002, 0x0111, 0x0400 + 17
+        WM_RBUTTONUP, WM_LBUTTONDBLCLK, WM_LBUTTONUP = 0x0205, 0x0203, 0x0202
+        NIM_ADD, NIM_DELETE = 0x0, 0x2
+        NIF_MESSAGE, NIF_ICON, NIF_TIP = 0x1, 0x2, 0x4
+        MF_STRING, MF_SEPARATOR = 0x0, 0x800
+        TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x2, 0x100
+
+        class NOTIFYICONDATA(ctypes.Structure):
+            _fields_ = [("cbSize", wintypes.DWORD), ("hWnd", wintypes.HWND),
+                        ("uID", wintypes.UINT), ("uFlags", wintypes.UINT),
+                        ("uCallbackMessage", wintypes.UINT), ("hIcon", wintypes.HICON),
+                        ("szTip", wintypes.WCHAR * 128)]
+
+        WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, wintypes.HWND, wintypes.UINT,
+                                     ctypes.c_size_t, ctypes.c_ssize_t)
+
+        def proc(hwnd, msg, wp, lp):
+            if msg == WM_TRAY:
+                low = lp & 0xFFFF
+                if low == WM_RBUTTONUP:
+                    self._popup(hwnd, u32)
+                elif low in (WM_LBUTTONDBLCLK, WM_LBUTTONUP):
+                    self._fire("show")
+                return 0
+            if msg == WM_DESTROY:
+                u32.PostQuitMessage(0)
+                return 0
+            return u32.DefWindowProcW(hwnd, msg, wp, lp)
+
+        self._proc = WNDPROC(proc)           # GIỮ tham chiếu, mất là sập ngay
+
+        class WNDCLASS(ctypes.Structure):
+            _fields_ = [("style", wintypes.UINT), ("lpfnWndProc", WNDPROC),
+                        ("cbClsExtra", ctypes.c_int), ("cbWndExtra", ctypes.c_int),
+                        ("hInstance", wintypes.HINSTANCE), ("hIcon", wintypes.HICON),
+                        ("hCursor", wintypes.HANDLE), ("hbrBackground", wintypes.HBRUSH),
+                        ("lpszMenuName", wintypes.LPCWSTR), ("lpszClassName", wintypes.LPCWSTR)]
+
+        hinst = k32.GetModuleHandleW(None)
+        cls = WNDCLASS()
+        cls.lpfnWndProc = self._proc
+        cls.hInstance = hinst
+        cls.lpszClassName = "TubeCliConnectTray"
+        try:
+            u32.RegisterClassW(ctypes.byref(cls))
+        except Exception:      # noqa: BLE001
+            return
+        hwnd = u32.CreateWindowExW(0, "TubeCliConnectTray", APP, 0,
+                                   0, 0, 0, 0, None, None, hinst, None)
+        if not hwnd:
+            log("khay: không dựng được cửa sổ ẩn")
+            return
+        self.hwnd = hwnd
+
+        hicon = 0
+        try:
+            p = _ico_path()
+            if p:
+                # LR_LOADFROMFILE | LR_DEFAULTSIZE | LR_SHARED
+                hicon = u32.LoadImageW(None, p, 1, 0, 0, 0x10 | 0x40 | 0x8000)
+        except Exception:      # noqa: BLE001
+            hicon = 0
+        if not hicon:
+            hicon = u32.LoadIconW(None, wintypes.LPCWSTR(32512))       # IDI_APPLICATION
+
+        nid = NOTIFYICONDATA()
+        nid.cbSize = ctypes.sizeof(NOTIFYICONDATA)
+        nid.hWnd = hwnd
+        nid.uID = 1
+        nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP
+        nid.uCallbackMessage = WM_TRAY
+        nid.hIcon = hicon
+        nid.szTip = self.tip[:127]
+        if not shell.Shell_NotifyIconW(NIM_ADD, ctypes.byref(nid)):
+            log("khay: Shell_NotifyIconW từ chối")
+            return
+        self._nid = nid
+        self._alive = True
+        log("khay hệ thống đã bật")
+
+        msg = wintypes.MSG()
+        while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            u32.TranslateMessage(ctypes.byref(msg))
+            u32.DispatchMessageW(ctypes.byref(msg))
+        try:
+            shell.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(nid))
+        except Exception:      # noqa: BLE001
+            pass
+        self._alive = False
+
+    def _popup(self, hwnd, u32) -> None:
+        import ctypes
+        MF_STRING, MF_SEPARATOR = 0x0, 0x800
+        TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x2, 0x100
+        menu = u32.CreatePopupMenu()
+        ids = {}
+        for i, (key, _default) in enumerate(TRAY_ITEMS, start=1):
+            if key == "-":
+                u32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+                continue
+            ids[i] = key
+            u32.AppendMenuW(menu, MF_STRING, i, self._label.get(key, key))
+        from ctypes import wintypes      # noqa: WPS433 — POINT nằm ở đây
+        pt = wintypes.POINT()
+        u32.GetCursorPos(ctypes.byref(pt))
+        # SetForegroundWindow trước TrackPopupMenu: thiếu nó thì menu không tự
+        # đóng khi bấm ra ngoài và treo lại giữa màn hình — lỗi kinh điển của
+        # menu khay, và nó chỉ lộ ra khi người dùng bấm nhầm chỗ.
+        u32.SetForegroundWindow(hwnd)
+        cmd = u32.TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                                 pt.x, pt.y, 0, hwnd, None)
+        u32.PostMessageW(hwnd, 0x0000, 0, 0)
+        u32.DestroyMenu(menu)
+        if cmd in ids:
+            self._fire(ids[cmd])
+
+    def _fire(self, name: str) -> None:
+        try:
+            self.on_action(name)
+        except Exception as e:      # noqa: BLE001
+            log(f"khay: {name} hỏng: {e}")
 
 
 def status_window(bridge: "Bridge") -> None:
     """Cửa sổ nhỏ luôn nhìn thấy: trạng thái + đúng những nút người ta cần.
 
-    Đây là đường lui khi máy không có pystray, và nó phải TỰ ĐỦ: đóng cửa sổ là
-    dừng hẳn cầu nối, để không có tiến trình mồ côi giữ cổng 5295 và tunnel.
+    Bấm X là ẨN xuống khay chứ không dừng — muốn dừng thì «Thoát hẳn» trong menu
+    khay. Nhưng khi KHÔNG dựng được khay thì X quay lại nghĩa dừng hẳn, vì lúc ấy
+    ẩn đi là không còn đường nào mở lại, và tiến trình mồ côi sẽ giữ cổng 5295
+    lẫn tunnel mà không ai thấy nó ở đâu.
     """
     import tkinter as tk
     from tkinter import ttk
@@ -1738,21 +2109,113 @@ def status_window(bridge: "Bridge") -> None:
     ttk.Button(bar, text="Xem log",
                command=lambda: open_url(LOG) if os.path.isfile(LOG) else None).grid(column=2, row=0, padx=(0, 6))
 
+    bar2 = ttk.Frame(frm)
+    bar2.grid(column=0, row=4, sticky="w", pady=(6, 0))
+    btn_reset = ttk.Button(bar2, text="Khởi động lại")
+    btn_reset.grid(column=0, row=0, padx=(0, 6))
+    btn_conn = ttk.Button(bar2, text="Ngắt kết nối")
+    btn_conn.grid(column=1, row=0, padx=(0, 6))
+    btn_hide = ttk.Button(bar2, text="Ẩn")
+    btn_hide.grid(column=2, row=0, padx=(0, 6))
+
     auto = tk.BooleanVar(value=autostart_on())
     ttk.Checkbutton(frm, text="Khởi động cùng Windows", variable=auto,
-                    command=lambda: set_autostart(auto.get())).grid(column=0, row=4, sticky="w", pady=(10, 0))
+                    command=lambda: set_autostart(auto.get())).grid(column=0, row=5, sticky="w", pady=(10, 0))
+
+    tray_box = {"t": None}
+    quitting = {"v": False}
+
+    def run_bg(fn):
+        """Việc nặng chạy ở LUỒNG KHÁC. Gọi thẳng trong tay bấm là cửa sổ đứng
+        hình mấy giây, người dùng bấm tiếp, rồi hai lượt khởi động lại chồng
+        nhau. `bridge.busy` chặn lượt thứ hai, `tick` hiện tiến độ."""
+        threading.Thread(target=fn, daemon=True).start()
+
+    def do_reset():
+        run_bg(bridge.reset)
+
+    def do_toggle():
+        run_bg(bridge.reconnect if bridge.paused.is_set() else bridge.disconnect)
+
+    def do_hide():
+        """Ẩn xuống khay. KHÔNG có khay thì chỉ thu nhỏ — ẩn hẳn một cửa sổ mà
+        không chừa đường quay lại là làm mất luôn client."""
+        if tray_box["t"]:
+            root.withdraw()
+        else:
+            root.iconify()
+
+    def do_show():
+        root.deiconify()
+        root.lift()
+        root.focus_force()
+
+    def quit_all():
+        quitting["v"] = True
+        if tray_box["t"]:
+            tray_box["t"].stop()
+        bridge.shutdown()
+        root.destroy()
+
+    btn_reset.config(command=do_reset)
+    btn_conn.config(command=do_toggle)
+    btn_hide.config(command=do_hide)
+
+    def tray_action(name):
+        """Chạy trong LUỒNG KHAY. Mọi thứ đụng tới tkinter phải nhảy về luồng
+        giao diện bằng `after` — gọi thẳng từ luồng khác là tkinter sập, và nó
+        sập kiểu ngẫu nhiên chứ không phải lần nào cũng sập."""
+        if name == "show":
+            root.after(0, do_show)
+        elif name == "dashboard":
+            open_url(DASH)
+        elif name == "cloud":
+            open_url(CLOUD + "/dash")
+        elif name == "log":
+            if os.path.isfile(LOG):
+                open_url(LOG)
+        elif name == "reset":
+            root.after(0, do_reset)
+        elif name == "toggle":
+            root.after(0, do_toggle)
+        elif name == "quit":
+            root.after(0, quit_all)
 
     def tick():
         state.config(text=bridge.status())
-        root.after(2000, tick)
+        paused = bridge.paused.is_set()
+        busy = bool(bridge.busy)
+        btn_conn.config(text="Kết nối lại" if paused else "Ngắt kết nối",
+                        state="disabled" if busy else "normal")
+        btn_reset.config(state="disabled" if (busy or paused) else "normal")
+        if tray_box["t"]:
+            tray_box["t"].set_label("toggle", "Kết nối lại" if paused else "Ngắt kết nối")
+        root.after(1200, tick)
 
     def close():
-        bridge.shutdown()
-        root.destroy()
+        """Bấm X = ẩn xuống khay, KHÔNG tắt cầu nối.
+
+        Trước đây X là dừng hẳn, và đó là cái bẫy: người dùng đóng cửa sổ cho
+        gọn màn hình, mấy tiếng sau mới phát hiện máy đã biến khỏi cloud. Muốn
+        dừng thật thì có «Thoát hẳn» trong menu khay, nói đúng điều nó làm.
+        """
+        if tray_box["t"]:
+            root.withdraw()
+        else:
+            quit_all()
+
+    if IS_WIN:
+        _t = WinTray(tray_action, tip=(APP + " — " + str(conf.get("name") or "")).strip(" —"))
+        if _t.start():
+            tray_box["t"] = _t
+        else:
+            log("khay hệ thống không bật được — cửa sổ sẽ đóng là thoát hẳn")
 
     root.protocol("WM_DELETE_WINDOW", close)
     tick()
     root.mainloop()
+    if tray_box["t"] and not quitting["v"]:
+        tray_box["t"].stop()
 
 
 def main() -> int:
