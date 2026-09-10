@@ -87,6 +87,30 @@ if rk:
         loc = io.open(CLOUD / "lib" / "locales" / f"{lang}.js", encoding="utf-8").read()
         check(f"D {lang} có {rk.group(1)}", f"'{rk.group(1)}':" in loc)
 
+# ── E. đường dò của dashboard phải đọc ĐÚNG file khai phiên bản ───────────
+# Bệnh đã đo: pyproject.toml khai `dynamic = ["version"]` (số thật chỉ ở
+# tubecli/__init__.py), nhưng hàm dò vẫn tải pyproject rồi tìm `version = "..."`.
+# Không khớp → "Could not parse version" + has_update=False, dò bao nhiêu lần cũng
+# không ra bản mới. Không ai thấy vì nó KHÔNG lỗi, chỉ trả lời sai.
+srv = io.open(ROOT / "tubecli" / "api" / "server.py", encoding="utf-8").read()
+check("E dò phiên bản tải tubecli/__init__.py", "main/tubecli/__init__.py" in srv)
+check("E KHÔNG còn tải pyproject.toml để lấy phiên bản",
+      "main/pyproject.toml" not in srv, [l.strip() for l in srv.split("\n") if "main/pyproject.toml" in l])
+check("E tìm __version__ chứ không tìm version =", "^__version__" in srv)
+
+pyproj = io.open(ROOT / "pyproject.toml", encoding="utf-8").read()
+# Nếu ai đó khai lại version tĩnh trong pyproject thì hai nơi lại trôi lệch nhau —
+# đúng lý do nó được chuyển sang dynamic. Test này giữ lời hứa đó.
+check("E pyproject vẫn khai dynamic", 'dynamic = ["version"]' in pyproj)
+check("E pyproject KHÔNG có version tĩnh dưới [project]",
+      re.search(r'^\[project\].*?^version\s*=\s*"', pyproj, re.M | re.S) is None)
+
+# Regex thật phải tách được số thật.
+mv = re.search(r"""^__version__\s*=\s*['"]([^'"]+)['"]""",
+               io.open(ROOT / "tubecli" / "__init__.py", encoding="utf-8").read(), re.M)
+check("E tách được phiên bản từ __init__.py", mv is not None and mv.group(1) == core_version,
+      mv and mv.group(1))
+
 print("=" * 70)
 if failures:
     print(f"{len(failures)} FAIL / {checks}")

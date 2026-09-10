@@ -2524,7 +2524,14 @@ async def check_for_updates(force: bool = False):
     from tubecli import __version__
     print(f"[VersionCheck] Local version: {__version__}")
     try:
-        raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/pyproject.toml"
+        # Số phiên bản nằm ở tubecli/__init__.py, KHÔNG ở pyproject.toml: file đó
+        # khai `dynamic = ["version"]` và trỏ về `{attr = "tubecli.__version__"}`
+        # (làm vậy vì trước đây số nằm hai nơi rồi trôi lệch nhau). Hàm này vẫn đi
+        # đọc pyproject nên regex `version = "..."` không bao giờ khớp: mọi lượt dò
+        # đều trả "Could not parse version" + has_update=False, và trang Cài đặt kẹt
+        # ở "Checking..." mãi mãi (người dùng báo 10/9/2026, máy ở .73 trong khi
+        # origin/main đã .74).
+        raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/tubecli/__init__.py"
         # Our own 30-minute cache is not the only one in the way: raw.github
         # serves through a CDN with its own max-age, so a release published a
         # minute ago can still read as "up to date". On an explicit check, ask
@@ -2542,14 +2549,11 @@ async def check_for_updates(force: bool = False):
                 VERSION_CHECK_CACHE["last_check"] = now
                 return res
             text = resp.text
-            # Match version specifically under [project] section to avoid false matches
-            m = re.search(r'^\[project\].*?^version\s*=\s*"([^"]+)"', text, re.MULTILINE | re.DOTALL)
+            # __version__ = "2026.08.09.74" — nháy đơn hay nháy kép đều nhận.
+            m = re.search(r"""^__version__\s*=\s*['"]([^'"]+)['"]""", text, re.MULTILINE)
             if not m:
-                # Fallback: match first version = "..." in file
-                m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
-            if not m:
-                print("[VersionCheck] Could not parse version from GitHub pyproject.toml")
-                res = {"has_update": False, "error": "Could not parse version"}
+                print("[VersionCheck] Could not parse __version__ from GitHub tubecli/__init__.py")
+                res = {"has_update": False, "error": "Could not parse __version__ from the repository"}
                 VERSION_CHECK_CACHE["data"] = res
                 VERSION_CHECK_CACHE["last_check"] = now
                 return res
