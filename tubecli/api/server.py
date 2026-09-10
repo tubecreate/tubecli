@@ -4652,8 +4652,16 @@ async def list_extensions():
 @app.post("/api/v1/extensions/{name}/enable")
 async def enable_extension(name: str):
     from tubecli.core.extension_manager import extension_manager
+    # Trước đó đã bật hay chưa: bên gọi cần biết để phân biệt "vừa bật, khởi động
+    # lại là xong" với "vốn đã bật mà route vẫn thiếu ⇒ lõi cũ, phải cập nhật".
+    _ext = extension_manager.get(name)
+    was_enabled = bool(_ext and getattr(_ext, "enabled", False))
     if extension_manager.enable(name):
-        return {"status": "enabled", "extension": name}
+        # routes_live=False ⇒ client phải khởi động lại server mới hết 404; nói ra
+        # để bên gọi khỏi thử lại vô ích rồi báo một lỗi vô nghĩa.
+        return {"status": "enabled", "extension": name,
+                "was_enabled": was_enabled,
+                "routes_live": extension_manager.routes_live(name)}
     raise HTTPException(404, f"Extension '{name}' not found")
 
 @app.post("/api/v1/extensions/{name}/disable")

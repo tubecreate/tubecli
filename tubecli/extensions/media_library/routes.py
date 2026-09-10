@@ -78,7 +78,7 @@ async def upload_file(cid: str, file: UploadFile = File(...)):
         raise HTTPException(413, f"the file is larger than {MAX_UPLOAD // (1024 * 1024)} MB")
     name = file.filename or "file"
     if not name.lower().endswith(library.ALL_EXT):
-        raise HTTPException(400, "only images, GIFs or videos are accepted")
+        raise HTTPException(400, "only images, GIFs, videos or audio are accepted")
     saved = library.add_file(cid, name, blob)
     # Trả cả ĐƯỜNG DẪN: canvas cần nó để xem trước ngay tại chỗ vừa thả (node đọc
     # qua /media?path=). Không có nó thì client phải tự đoán đường dẫn nội bộ.

@@ -206,6 +206,46 @@ else:
         miss = [k for k in KEYS if f"'{k}':" not in loc]
         check(f"F locale {lang} đủ khoá", not miss, miss)
 
+# ── H. FILE ĐÃ LÊN SERVER THÌ NODE PHẢI ĐỌC ĐƯỢC ────────────────────────────
+#
+# Upload trả `path` chưa phải là xong: node xem trước gọi
+# /api/servers/<id>/media?path= → /api/v1/file-manager/raw, và đường đó có hai cửa
+# riêng — BLOCKED_PATHS của user_file_service, và bảng _MEDIA_TYPES (định dạng nào
+# mới được phục vụ). Kho audio mới thêm là chỗ dễ trượt nhất: thiếu .mp3 trong bảng
+# là node hiện thanh phát rỗng mà không ai biết vì sao.
+print("\n== H. đọc lại file từ server (đường xem trước)")
+
+from tubecli.extensions.file_manager import routes as FMR  # noqa: E402
+
+_svc = FMR._get_service()
+L.ensure_defaults()
+for _cid, _fname in (("image", "anh_h.png"), ("video", "clip_h.mp4"), ("audio", "loi_h.mp3")):
+    _saved = L.add_file(_cid, _fname, b"x" * 32)
+    _p = L.file_path(_cid, _saved)
+    check(f"H {_cid}: upload trả path thật", bool(_p) and os.path.isfile(_p or ""), _p)
+    # Cửa của File Manager phải xét theo BỐ CỤC CÀI ĐẶT THẬT (<cài đặt>/data/...),
+    # không phải thư mục tạm của test: thư mục tạm trên Windows nằm trong
+    # ~/AppData/Local, mà đó là một mục trong BLOCKED_PATHS — trượt ở đây là tại
+    # chỗ chạy test, không phải tại đường xem trước.
+    _real = str(ROOT / "data" / "extensions_data" / "media_library" / _cid / _saved)
+    try:
+        _v, _allowed = _svc._validate_path(_real), True
+    except Exception as _e:      # noqa: BLE001
+        _v, _allowed = str(_e), False
+    check(f"H {_cid}: File Manager cho đọc path trong kho", _allowed,
+          f"BLOCKED_PATHS/sandbox chặn ⇒ node hiện Not Found: {_v}")
+    _ext = os.path.splitext(_saved)[1].lower()
+    check(f"H {_cid}: định dạng {_ext} nằm trong bảng phục vụ",
+          _ext in FMR._MEDIA_TYPES,
+          "thiếu trong _MEDIA_TYPES ⇒ /raw trả 415, node không xem được")
+
+# Câu từ chối phải kể đủ loại đang nhận: người dùng thả mp3 rồi đọc "only images,
+# GIFs or videos" thì tưởng kho không nhận audio.
+_up = io.open(ROOT / "tubecli" / "extensions" / "media_library" / "routes.py",
+              encoding="utf-8").read()
+check("H câu từ chối kể cả audio", "audio" in _up.split("ALL_EXT")[1][:300].lower(),
+      "route nhận audio nhưng câu lỗi vẫn chỉ nói ảnh/GIF/video")
+
 shutil.rmtree(TMP, ignore_errors=True)
 print("=" * 70)
 if failures:

@@ -410,6 +410,10 @@ class ExtensionManager:
     def __init__(self):
         self._extensions: Dict[str, Extension] = {}
         self._config: Dict[str, Any] = {}
+        # App FastAPI đang chạy + tên các extension ĐÃ gắn route, để bật extension
+        # lúc đang chạy cũng gắn được route ngay (xem _mount_routes).
+        self._app = None
+        self._routed: set = set()
         self._load_config()
 
     def _load_config(self):
@@ -591,6 +595,23 @@ class ExtensionManager:
 
     # ── Registration ─────────────────────────────────────────
 
+    def _default_on(self, extension: Extension) -> bool:
+        """Extension CÀI SẴN mà người dùng CHƯA có ý kiến ⇒ bật.
+
+        Chỉ `tubecli init` bật extension hệ thống, còn register() coi "không có
+        trong extensions.json" là tắt. Nghĩa là mọi extension cài sẵn RA SAU ngày
+        người dùng init đều nằm im: nó vẫn hiện trong sidebar (đối tượng đã nạp)
+        nhưng register_api_routes() bỏ qua vì chưa bật, nên MỌI URL của nó trả 404
+        — Kho nguyên liệu là ca vừa gặp: kéo file vào canvas báo "Not Found" vì
+        /api/v1/media/* không tồn tại. Người dùng không có cách nào đoán ra rằng
+        phải chạy lại init.
+
+        Chỉ tính khi THIẾU HẲN khoá "enabled": ai tự tay tắt thì vẫn tắt.
+        """
+        if extension.extension_type != "system":
+            return False
+        return "enabled" not in self._config.get(extension.name, {})
+
     def register(self, extension: Extension):
         """Register a extension instance."""
         self._extensions[extension.name] = extension
@@ -600,13 +621,23 @@ class ExtensionManager:
         if "port" in cfg:
             extension.current_port = cfg["port"]
 
-        if cfg.get("enabled", False):
+        want = bool(cfg.get("enabled", False))
+        if not want and self._default_on(extension):
+            want = True
+            self._config.setdefault(extension.name, {})["enabled"] = True
+            try:
+                self._save_config()
+            except Exception as e:      # noqa: BLE001
+                # Ghi được hay không thì lượt chạy này vẫn phải bật, đừng vì lỗi ghi
+                # file mà để extension cài sẵn tiếp tục 404.
+                logger.warning(f"Could not persist default-on for {extension.name}: {e}")
+        if want:
             extension.enabled = True
             try:
                 extension.on_enable()
             except Exception as e:
                 logger.error(f"Error enabling extension {extension.name}: {e}")
-        self._sync_group_kinds(extension, bool(cfg.get("enabled", False)))
+        self._sync_group_kinds(extension, want)
 
     # ── Enable / Disable ─────────────────────────────────────
 
@@ -625,6 +656,8 @@ class ExtensionManager:
         self._sync_group_kinds(extension, True)
         self._config.setdefault(name, {})["enabled"] = True
         self._save_config()
+        # Gắn route NGAY, đừng để người dùng bật xong rồi gặp 404 tới lần restart.
+        self._mount_routes(extension)
         return True
 
     def disable(self, name: str) -> bool:
@@ -748,49 +781,78 @@ class ExtensionManager:
 
     def register_api_routes(self, app):
         """Register all enabled extension API routes to the FastAPI app."""
+        # Giữ app lại: bật extension lúc server ĐANG CHẠY cũng phải gắn được route
+        # thay vì đợi restart (xem _mount_routes).
+        self._app = app
         for extension in self.get_enabled():
-            try:
-                # Ensure extension dir is in sys.path so local imports work
-                # (e.g. `from routes import router` inside extension.py)
-                ext_dir = getattr(extension, 'extension_dir', None)
-                if ext_dir and ext_dir not in sys.path:
-                    sys.path.insert(0, ext_dir)
+            self._mount_routes(extension, app)
 
-                # Auto-install missing dependencies from manifest before loading
-                self._ensure_extension_deps(extension)
+    def routes_live(self, name: str) -> bool:
+        """Route của extension này đã nằm trong app đang chạy chưa."""
+        return name in self._routed
 
-                router = extension.get_routes()
-                # Reached here → get_routes imported fine. Clear any earlier
-                # failure so a fixed dependency stops showing as broken.
-                extension.route_error = None
-                if router:
-                    # Support extensions returning a list of routers
-                    routers = router if isinstance(router, list) else [router]
-                    for r in routers:
-                        app.include_router(r)
-                    logger.info(f"Registered API routes for extension '{extension.name}'")
-                    # Duplicated the logger line above, and no flag reached it — so
-                    # `api start --quiet` still printed 17 lines of routine startup
-                    # chatter. Backgrounded with `&`, that reads as the server having
-                    # hung rather than having started.
-                    if not os.environ.get("TUBECLI_QUIET"):
-                        print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
-            except Exception as e:
-                import traceback
-                # Remember WHY, on the extension itself. Until now this failure
-                # was swallowed here: the extension still appeared in the sidebar
-                # (its object had loaded) while every one of its URLs 404'd, and
-                # the only trace was a line in a server log the user never sees.
-                # to_dict exposes route_error, and the dashboard shows it in
-                # place of the dead iframe.
-                deps_note = getattr(extension, "deps_error", None)
-                extension.route_error = f"{type(e).__name__}: {e}" + (f" (pip: {deps_note})" if deps_note else "")
-                # Failures are always shown: quiet is about routine noise, not about
-                # hiding something that went wrong.
-                logger.error(f"Failed to register API routes for extension '{extension.name}': {e}")
-                print(f"FAILED to register API routes for extension '{extension.name}': {e}",
-                      file=sys.stderr)
-                traceback.print_exc()
+    def _mount_routes(self, extension: Extension, app=None) -> bool:
+        """Gắn router của MỘT extension vào FastAPI. Trả về gắn được hay không.
+
+        Route trước đây chỉ được gắn một lần lúc khởi động, nên bật extension từ
+        bảng điều khiển xong nó hiện "đang bật" mà mọi URL vẫn 404 cho tới lần
+        restart — trạng thái giao diện nói dối. Gắn ngay tại đây; `_routed` chặn
+        gắn hai lần khi bật/tắt/bật lại.
+        """
+        app = app if app is not None else self._app
+        if app is None or extension.name in self._routed:
+            return extension.name in self._routed
+        try:
+            # Ensure extension dir is in sys.path so local imports work
+            # (e.g. `from routes import router` inside extension.py)
+            ext_dir = getattr(extension, 'extension_dir', None)
+            if ext_dir and ext_dir not in sys.path:
+                sys.path.insert(0, ext_dir)
+
+            # Auto-install missing dependencies from manifest before loading
+            self._ensure_extension_deps(extension)
+
+            router = extension.get_routes()
+            # Reached here → get_routes imported fine. Clear any earlier
+            # failure so a fixed dependency stops showing as broken.
+            extension.route_error = None
+            if router:
+                # Support extensions returning a list of routers
+                routers = router if isinstance(router, list) else [router]
+                for r in routers:
+                    app.include_router(r)
+                logger.info(f"Registered API routes for extension '{extension.name}'")
+                # Duplicated the logger line above, and no flag reached it — so
+                # `api start --quiet` still printed 17 lines of routine startup
+                # chatter. Backgrounded with `&`, that reads as the server having
+                # hung rather than having started.
+                if not os.environ.get("TUBECLI_QUIET"):
+                    print(f"SUCCESS registering {extension.name} routes ({len(routers)} router(s))")
+                # Gắn lúc đang chạy thì bảng openapi đã dựng sẵn phải bỏ đi,
+                # kẻo /docs vẫn thiếu route vừa thêm.
+                try:
+                    app.openapi_schema = None
+                except Exception:      # noqa: BLE001
+                    pass
+            self._routed.add(extension.name)
+            return True
+        except Exception as e:
+            import traceback
+            # Remember WHY, on the extension itself. Until now this failure
+            # was swallowed here: the extension still appeared in the sidebar
+            # (its object had loaded) while every one of its URLs 404'd, and
+            # the only trace was a line in a server log the user never sees.
+            # to_dict exposes route_error, and the dashboard shows it in
+            # place of the dead iframe.
+            deps_note = getattr(extension, "deps_error", None)
+            extension.route_error = f"{type(e).__name__}: {e}" + (f" (pip: {deps_note})" if deps_note else "")
+            # Failures are always shown: quiet is about routine noise, not about
+            # hiding something that went wrong.
+            logger.error(f"Failed to register API routes for extension '{extension.name}': {e}")
+            print(f"FAILED to register API routes for extension '{extension.name}': {e}",
+                  file=sys.stderr)
+            traceback.print_exc()
+            return False
 
     # ── Extension Nodes Registration ────────────────────────────
 
