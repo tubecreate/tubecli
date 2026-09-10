@@ -53,7 +53,11 @@ P._put = lambda path, payload, timeout=60: puts.append((path, payload)) or {}
 reports = []
 state = {"episode_id": 34, "capcut_email": "a@x.com", "_cancelled": lambda: False, "_say": lambda *a: reports.append(a)}
 P._tts_capcut(state, {"capcut_speaker": "vi_female_01"})
-assert posts == [{"email": "a@x.com", "text": "Xin chào các bạn hôm nay", "speed": 10, "volume": 10, "speaker": "vi_female_01", "timestamps": True}], posts
+# KHÔNG có speed/volume trong thân request: bỏ trống thì CapCut TTS lấy mặc định
+# người dùng đã kéo trên giao diện. Ghi cứng 10/10 như trước nghĩa là thanh tốc độ
+# ấy không bao giờ áp cho video do agent dựng, mà không có gì nói ra điều đó.
+assert posts == [{"email": "a@x.com", "text": "Xin chào các bạn hôm nay", "speaker": "vi_female_01", "timestamps": True}], posts
+assert "speed" not in posts[0] and "volume" not in posts[0], posts[0]
 assert len(puts) == 1 and puts[0][0] == "/api/v1/studio/storyboards/1"
 path = puts[0][1]["tts_audio_url"]
 import os

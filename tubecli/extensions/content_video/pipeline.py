@@ -1480,6 +1480,18 @@ def _step_images(state: Dict, options: Dict) -> None:
     if not res.get("task_id"):
         raise RuntimeError(f"gen-images did not start: {str(res)[:200]}")
     if not res.get("total"):
+        # "Không có gì để vẽ" có HAI nghĩa trái ngược. Nghĩa thứ hai — không
+        # shot nào có `image_prompt` — trước đây cũng được báo là "every shot
+        # already has an image", rồi khâu dựng hỏng với "None of the shots have
+        # valid videos or images", một câu chỉ vào đúng chỗ KHÔNG có lỗi. Đo
+        # thật 10/9/2026 (tập 298): 0/14 shot có prompt, vì model đặt tên trường
+        # khác schema — xem json_store.normalize_shot_fields().
+        if res.get("no_prompt"):
+            raise RuntimeError(
+                f"{res['no_prompt']}/{res.get('shots', '?')} shots have no image prompt, "
+                "so there is nothing to draw. The storyboard step produced shots without "
+                "an `image_prompt` field — re-run the storyboard, or fill the prompts in "
+                "Content Studio before rendering.")
         state["_say"]("images", "running", "every shot already has an image")
         return
     data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
@@ -1592,21 +1604,50 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
     last_pct = -1
     speaker = options.get("capcut_speaker") or state.get("capcut_speaker")
 
+    def _capcut_timeout(text: str) -> int:
+        """Timeout NGOÀI phải lớn hơn tổng các timeout TRONG.
+
+        Chuỗi gọi có ba tầng, mỗi tầng một cái đồng hồ:
+            pipeline  --HTTP--> TubeCLI /capcut-tts/synthesize
+                      --HTTP--> dịch vụ Node cục bộ /v2/synthesize
+        Khi xin mốc từ, tầng giữa CẮT câu thành các đoạn ≤90 ký tự và gọi tầng
+        trong MỘT LƯỢT MỖI ĐOẠN, mỗi lượt cho tới 180 giây. Một shot ~257 ký tự
+        là 3 đoạn ⇒ tầng trong được phép tiêu tới 540 giây, trong khi tầng ngoài
+        viết cứng 180. Vòng ngoài bỏ cuộc trước khi vòng trong kịp xong, và lỗi
+        hiện ra là "Read timed out" — trông y như mạng hỏng.
+
+        Đo thật 10/9/2026: hỏng cả khi máy rỗi (RAM 57%, CPU 21%), nên KHÔNG
+        phải do tải. Trên VPS CapCut trả nhanh hơn nên 3 đoạn lọt dưới 180s và
+        lỗi này không bao giờ lộ ra — đúng kiểu bug chỉ nổ ở máy chậm hơn.
+
+        Ước lượng theo số đoạn, có sàn và trần: đủ rộng cho ca thật, mà một
+        shot hỏng vẫn không giữ cả lượt dựng hàng chục phút.
+        """
+        chunks = max(1, (len(text or "") + 89) // 90)
+        return int(min(900, max(300, 120 * chunks)))
+
     def voice(shot: Dict, i: int) -> None:
         # timestamps=True: bản CapCut TTS ≥ 1.3.0 trả JSON kèm mốc từng từ →
         # ghi sidecar <mp3>.words.json để Studio đốt phụ đề chạy theo giọng.
         # Bản cũ lờ trường này và trả mp3 thô như trước.
-        body = {"email": email, "text": _shot_narration(shot), "speed": 10, "volume": 10, "timestamps": True}
+        # KHÔNG ghi cứng speed/volume: bỏ trống thì CapCut TTS lấy mặc định người
+        # dùng đã kéo trên giao diện extension. Ghi 10/10 như trước nghĩa là thanh
+        # tốc độ ấy không bao giờ có tác dụng cho video do agent dựng.
+        body = {"email": email, "text": _shot_narration(shot), "timestamps": True}
         if speaker:
             body["speaker"] = str(speaker)
         try:
-            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
+            _to = _capcut_timeout(body["text"])
+            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=_to)
         except RuntimeError as e:
             # Bản CapCut TTS 1.3.0 báo 502 khi giọng không có mốc từ; đọc thường.
             if "timestamps" not in str(e) and "mốc" not in str(e):
                 raise
             body.pop("timestamps", None)
-            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=180)
+            # Không xin mốc thì extension VẪN cắt đoạn (đọc lần lượt rồi ghép), nên
+            # khoảng chờ phải theo độ dài văn bản y như lượt xin mốc — 300 giây cố
+            # định sẽ hết giờ giữa chừng với kịch bản dài.
+            audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=_to)
         if not audio or len(audio) < 1000:
             raise RuntimeError("CapCut returned no audio")
         num = shot.get("storyboard_number") or shot.get("id") or i
@@ -1635,7 +1676,14 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
         pct = int(min(99, i * 100 / max(1, total)))
         if pct != last_pct:
-            state["_say"]("tts", "running", f"{i}/{total} · CapCut", pct)
+            # `i` là SỐ THỨ TỰ VÒNG LẶP, không phải số shot đọc được. Thẻ từng
+            # hiện "14/14 · CapCut" cho một lượt chỉ đọc nổi 4 shot: 10 shot có
+            # lời rỗng bị `continue` bỏ qua mà vẫn làm `i` chạy tiếp. Đếm cái
+            # đã làm được, và nói ra số bị bỏ.
+            done = f"{ok}/{total} · CapCut"
+            if skipped:
+                done += f" · {skipped} shot khong co loi"
+            state["_say"]("tts", "running", done, pct)
             last_pct = pct
     # Một shot không có giọng KHÔNG làm lượt chạy hỏng: khâu dựng gán cho nó 5
     # giây ảnh tĩnh và video lặng lẽ ngắn đi. CapCut hay rớt lẻ tẻ, nên thử lại

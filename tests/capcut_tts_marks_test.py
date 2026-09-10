@@ -22,6 +22,10 @@ sys.path.insert(0, str(EXT))
 TMP = tempfile.mkdtemp(prefix="capcut_marks_")
 import tubecli.config as cfg  # noqa: E402
 cfg.DATA_DIR = Path(TMP)
+# ext_data_path() đọc EXTENSIONS_DATA_DIR (hằng của module, tính lúc import), nên
+# đổi DATA_DIR là CHƯA đủ — thiếu dòng này thì mp3 giả của test rơi vào Lịch sử
+# thật của người dùng.
+cfg.EXTENSIONS_DATA_DIR = Path(TMP) / "extensions_data"
 import capcut_routes as R  # noqa: E402
 
 failures, checks = [], 0
@@ -37,14 +41,14 @@ def check(label, ok, detail=""):
 # A. cắt câu: mọi đoạn ≤ 90 ký tự, cắt ở ranh giới câu trước, không mất chữ
 text = ("El vicepresidente Vance sostiene que esto no es una guerra. Pero en el golfo hay barcos ardiendo, "
         "y un golfo entero al borde de algo que nadie quiere nombrar. ¿Qué pasará mañana? Nadie lo sabe.")
-ch = R.split_for_marks(text)
+ch = R.split_text(text)
 check("A ≤90", all(len(c) <= 90 for c in ch), [len(c) for c in ch])
 check("A không mất chữ", " ".join(ch).split() == text.split())
 check("A cắt ở câu", ch[0].endswith("guerra.") , ch[0])
 long_sentence = " ".join(["palabra"] * 40)                    # 319 ký tự, không dấu câu
-ch2 = R.split_for_marks(long_sentence)
+ch2 = R.split_text(long_sentence)
 check("A câu quá dài cắt ở khoảng trắng", all(len(c) <= 90 for c in ch2) and " ".join(ch2).split() == long_sentence.split(), [len(c) for c in ch2])
-check("A rỗng", R.split_for_marks("   ") == [])
+check("A rỗng", R.split_text("   ") == [])
 check("A ngưỡng < 100 (CapCut cắt mốc ở ~100)", R.MARK_CHUNK_CHARS < 100)
 
 # B. cộng dồn mốc theo độ dài THẬT từng đoạn; đoạn không đo được → mốc cuối + 0.15
@@ -109,7 +113,7 @@ R.account_store.record_use = lambda *a, **k: None
 req = R.SynthesizeRequest(email="a@x", text=text, speaker="Chispa", timestamps=True)
 import asyncio
 res = asyncio.run(R.synthesize(req))
-check("D nhiều đoạn", isinstance(res, dict) and res["chunks"] == len(R.split_for_marks(text)) and len(calls) == res["chunks"], (type(res), calls))
+check("D nhiều đoạn", isinstance(res, dict) and res["chunks"] == len(R.split_text(text)) and len(calls) == res["chunks"], (type(res), calls))
 check("D đủ mốc", len(res["words"]) == len(text.split()), (len(res["words"]), len(text.split())))
 starts = [w["start"] for w in res["words"]]
 check("D mốc tăng dần và dời sang đoạn sau", starts == sorted(starts) and starts[-1] > 1.0, starts[-3:])
