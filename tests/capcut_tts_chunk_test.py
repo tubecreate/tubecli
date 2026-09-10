@@ -48,6 +48,21 @@ import asyncio  # noqa: E402
 failures, checks = [], 0
 
 
+def _wait_task(task_id: str, secs: float = 30.0) -> dict:
+    """Chờ lượt đọc nền xong. POST chỉ khởi động rồi trả về ngay (tránh HTTP 524),
+    nên mọi phép kiểm về KẾT QUẢ phải đi qua route tiến độ."""
+    import time as _tt
+    import asyncio as _aio
+    end = _tt.time() + secs
+    st = {}
+    while _tt.time() < end:
+        st = _aio.run(R.synthesize_chunks_status(task_id))
+        if st.get("status") != "running":
+            return st
+        _tt.sleep(0.2)
+    return st
+
+
 def _raises(fn) -> int:
     """Mã lỗi HTTP mà fn() ném ra, 0 nếu nó không ném."""
     try:
@@ -231,7 +246,9 @@ R.requests.post = flaky_post
 # Đoạn 2 hỏng 1 lượt (vòng thử lại đầu phải cứu được), đoạn 3 hỏng mãi.
 calls.clear()
 state["fail_until"] = {2: 1, 3: 99}
-res = asyncio.run(R.synthesize_chunks(R.SynthesizeRequest(email="a@x", text=LONG)))
+_start = asyncio.run(R.synthesize_chunks(R.SynthesizeRequest(email="a@x", text=LONG)))
+res = _wait_task(_start["task_id"])
+check("F lượt nền chạy xong", res.get("status") == "completed", res.get("status"))
 rows = {c["index"]: c for c in res["chunks"]}
 check("F không chết cả lượt vì một đoạn hỏng", res["success"] is True and res["total"] == len(plain), res.get("total"))
 check("F đoạn hỏng tạm được cứu ở vòng thử lại", rows[2]["ok"] is True and rows[2]["attempts"] == 2, rows[2])
@@ -276,6 +293,61 @@ check("G đoạn ngoài phạm vi → lỗi rõ",
 state["fail_until"] = {3: 99}
 code = _raises(lambda: asyncio.run(R.synthesize(R.SynthesizeRequest(email="a@x", text=LONG))))
 check("H /synthesize thiếu đoạn → 502", code == 502, code)
+
+# ── I. chạy NỀN: POST trả ngay, tiến độ tăng dần ──────────────────────────
+# HTTP 524: tunnel Cloudflare cắt request quá ~100 giây, mà 30 đoạn đọc lần lượt
+# thì luôn vượt (người dùng báo 10/9/2026). Kèm bệnh nặng hơn: hàm async gọi
+# requests.post ĐỒNG BỘ sẽ chặn event loop, mọi route khác của máy chủ đứng theo
+# — đó là loạt 502 từ codex/stats/browser-status trong console lúc đang đọc.
+import threading as _th
+import time as _t
+
+state["fail_until"] = {}
+R.requests.post = flaky_post
+gate = _th.Event()
+orig_post = R.requests.post
+
+
+def slow_post(url, headers=None, json=None, timeout=180):
+    gate.wait(5)                      # giữ đoạn đầu lại để đo "trả về ngay"
+    return orig_post(url, headers=headers, json=json, timeout=timeout)
+
+
+R.requests.post = slow_post
+t0 = _t.time()
+start = asyncio.run(R.synthesize_chunks(R.SynthesizeRequest(email="a@x", text=LONG)))
+elapsed = _t.time() - t0
+check("I POST trả về NGAY, không chờ đọc xong", elapsed < 1.0, f"{elapsed:.2f}s")
+check("I trả mã lượt + trạng thái running",
+      start.get("task_id") and start.get("status") == "running" and start["total"] == len(plain), start.get("status"))
+check("I lúc mới bắt đầu chưa đoạn nào xong", start["done"] == 0, start["done"])
+
+st = asyncio.run(R.synthesize_chunks_status(start["task_id"]))
+check("I hỏi được tiến độ", st["status"] == "running" and st["total"] == len(plain), st["status"])
+gate.set()                            # thả cho luồng nền chạy
+deadline = _t.time() + 30
+while _t.time() < deadline:
+    st = asyncio.run(R.synthesize_chunks_status(start["task_id"]))
+    if st["status"] != "running":
+        break
+    _t.sleep(0.2)
+check("I chạy xong trong luồng nền", st["status"] == "completed", st["status"])
+check("I đếm đủ đoạn", st["done"] == len(plain) and st["failed"] == 0, (st["done"], st["failed"]))
+check("I ghép được file cuối", st["joined"] and (R._output_dir() / st["joined"]).is_file(), st["joined"])
+check("I mã lượt lạ → 404", _raises(lambda: asyncio.run(R.synthesize_chunks_status("khong-co"))) == 404)
+R.requests.post = orig_post
+
+# Bảng lượt không được phình mãi: máy chủ chạy nhiều ngày.
+check("I có chặn trần bảng lượt", R._CHUNK_TASKS_MAX <= 50 and len(R._CHUNK_TASKS) <= R._CHUNK_TASKS_MAX,
+      (R._CHUNK_TASKS_MAX, len(R._CHUNK_TASKS)))
+
+# Giao diện phải HỎI TIẾN ĐỘ, không chờ một request.
+check("I giao diện hỏi tiến độ", "async function pollChunks(" in html
+      and "'/synthesize/chunks/' + encodeURIComponent(taskId)" in html)
+check("I mất bảng lượt giữa đường thì nói thật, không hỏi vô hạn",
+      "if (last) return last;" in html and "throw e;" in html)
+check("I đường agent không chặn event loop", "await asyncio.to_thread(_run_chunks" in
+      io.open(EXT / "capcut_routes.py", encoding="utf-8").read())
 
 print("=" * 70)
 if failures:
