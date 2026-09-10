@@ -651,14 +651,19 @@ def node_stop(timeout: float = 12.0) -> bool:
     mỗi tiến trình cha thì đám con thành mồ côi, vẫn giữ cổng và vẫn ăn RAM, và
     lần bật sau báo «cổng đang bận» mà không ai hiểu vì sao.
     """
-    pid = 0
-    try:
-        with open(PIDFILE, encoding="utf-8") as f:
-            pid = int((f.read() or "0").strip() or 0)
-    except (OSError, ValueError):
-        pid = 0
+    # AI ĐANG GIỮ CỔNG mới là máy chủ — hỏi hệ điều hành TRƯỚC, file pid chỉ là
+    # đường lui. Bản đầu làm ngược lại và đã giết nhầm: máy này có HAI bản cài
+    # TubeCLI, `server.pid` giữ pid của lượt bật sau (đã chết), còn cổng 5295 thì
+    # do lượt bật trước nắm. Giết pid trong file xong cổng vẫn kêu, hàm chờ hết
+    # 12 giây rồi báo "vẫn trả lời sau khi đã bảo tắt" — mà thủ phạm là chính
+    # cái file sinh ra để tránh giết nhầm. Đo thật 10/9/2026.
+    pid = _pid_of_port(PORT)
     if not pid:
-        pid = _pid_of_port(PORT)
+        try:
+            with open(PIDFILE, encoding="utf-8") as f:
+                pid = int((f.read() or "0").strip() or 0)
+        except (OSError, ValueError):
+            pid = 0
     if not pid:
         return not tubecli_up()
     log(f"tắt máy chủ TubeCLI (pid {pid})")
