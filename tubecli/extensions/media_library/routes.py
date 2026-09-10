@@ -80,7 +80,11 @@ async def upload_file(cid: str, file: UploadFile = File(...)):
     if not name.lower().endswith(library.ALL_EXT):
         raise HTTPException(400, "only images, GIFs or videos are accepted")
     saved = library.add_file(cid, name, blob)
-    return {"ok": True, "name": saved, "kind": library.kind_of(saved)}
+    # Trả cả ĐƯỜNG DẪN: canvas cần nó để xem trước ngay tại chỗ vừa thả (node đọc
+    # qua /media?path=). Không có nó thì client phải tự đoán đường dẫn nội bộ.
+    return {"ok": True, "name": saved, "kind": library.kind_of(saved),
+            "collection": cid, "path": library.file_path(cid, saved) or "",
+            "bytes": len(blob)}
 
 
 @router.post("/collections/{cid}/import")
@@ -92,7 +96,8 @@ def import_file(cid: str, body: Dict[str, Any] = Body(...)):
     name = library.import_path(cid, src)
     if not name:
         raise HTTPException(400, f"could not read the file: {src}")
-    return {"ok": True, "name": name}
+    return {"ok": True, "name": name, "kind": library.kind_of(name),
+            "collection": cid, "path": library.file_path(cid, name) or ""}
 
 
 @router.delete("/collections/{cid}/files/{filename}")
@@ -123,6 +128,21 @@ def pick_file(cid: str, body: Dict[str, Any] = Body(default={})):
                              kind=str(body.get("kind") or ""))
     return {"file": os.path.basename(path) if path else "", "why": why,
             "path": path, "collection": cid}
+
+
+@router.get("/defaults")
+def defaults():
+    """Ba kho mặc định (tạo nếu thiếu) + bảng đuôi file cho từng loại.
+
+    Canvas gọi route này TRƯỚC khi tải file lên: nó cần biết file mp3 thì rơi vào
+    kho nào, và kho ấy phải tồn tại sẵn chứ không bắt người dùng tạo tay.
+    """
+    cols = library.ensure_defaults()
+    return {"ok": True, "collections": cols,
+            "map": {"image": library.KIND_IMAGE, "gif": library.KIND_IMAGE,
+                    "video": library.KIND_VIDEO, "audio": library.KIND_AUDIO},
+            "ext": {"image": list(library.IMAGE_EXT), "gif": list(library.GIF_EXT),
+                    "video": list(library.VIDEO_EXT), "audio": list(library.AUDIO_EXT)}}
 
 
 @router.get("/health")

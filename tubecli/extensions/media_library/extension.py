@@ -26,6 +26,13 @@ class MediaLibraryExtension(Extension):
     def on_enable(self):
         from . import library
         os.makedirs(library.data_dir(), exist_ok=True)
+        # Ba kho mặc định phải có NGAY: đường kéo-thả từ canvas cần chỗ để rơi vào
+        # lần đầu. "Thiếu thì thêm", không ghi đè — Chợ gọi lại on_enable mỗi lần
+        # cài, ghi đè một lần là mất tên kho khách đã sửa.
+        try:
+            library.ensure_defaults()
+        except Exception as e:      # noqa: BLE001
+            logger.warning("media_library: khong tao duoc kho mac dinh: %s", e)
         s = library.stats()
         logger.info("Media Library enabled — %s kho, %s tệp, tại %s",
                     s["collections"], s["files"], s["dir"])

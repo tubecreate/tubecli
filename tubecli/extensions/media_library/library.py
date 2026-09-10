@@ -32,9 +32,22 @@ logger = logging.getLogger("MediaLibrary")
 IMAGE_EXT = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
 GIF_EXT = (".gif",)
 VIDEO_EXT = (".mp4", ".webm", ".mov", ".mkv", ".m4v")
-ALL_EXT = IMAGE_EXT + GIF_EXT + VIDEO_EXT
+# Audio: thiếu nó thì kéo một file mp3 vào kho là bị từ chối, mà lời đọc chính là
+# nguyên liệu hay dùng nhất sau ảnh.
+AUDIO_EXT = (".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".opus")
+ALL_EXT = IMAGE_EXT + GIF_EXT + VIDEO_EXT + AUDIO_EXT
 
-KIND_IMAGE, KIND_GIF, KIND_VIDEO = "image", "gif", "video"
+KIND_IMAGE, KIND_GIF, KIND_VIDEO, KIND_AUDIO = "image", "gif", "video", "audio"
+
+# Ba kho có sẵn, một kho một loại. Vì sao cần: đường kéo-thả từ canvas phải có chỗ
+# để rơi vào NGAY lần đầu — bắt người dùng tự tạo kho trước khi kéo được file đầu
+# tiên là một bước không ai đoán ra. Tạo theo kiểu "thiếu thì thêm", KHÔNG ghi đè:
+# Chợ gọi lại on_enable mỗi lần cài, ghi đè một lần là mất tên kho khách đã sửa.
+DEFAULT_COLLECTIONS = (
+    ("image", "Ảnh", "Ảnh tĩnh: png, jpg, webp, bmp"),
+    ("video", "Video", "Video: mp4, webm, mov, mkv"),
+    ("audio", "Âm thanh", "Âm thanh: mp3, wav, m4a, flac"),
+)
 
 _lock = threading.RLock()
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -77,7 +90,27 @@ def kind_of(filename: str) -> str:
         return KIND_GIF
     if ext in VIDEO_EXT:
         return KIND_VIDEO
+    if ext in AUDIO_EXT:
+        return KIND_AUDIO
     return KIND_IMAGE
+
+
+def default_collection_for(filename: str) -> str:
+    """Kho mặc định cho một file. GIF về kho ảnh — người dùng nghĩ nó là ảnh."""
+    k = kind_of(filename)
+    return KIND_IMAGE if k == KIND_GIF else k
+
+
+def ensure_defaults() -> List[dict]:
+    """Tạo ba kho mặc định nếu thiếu. Idempotent, không đụng kho đã có."""
+    out = []
+    for cid, name, desc in DEFAULT_COLLECTIONS:
+        cur = get(cid)
+        if cur:
+            out.append(cur)
+            continue
+        out.append(create(name, description=desc, cid=cid))
+    return out
 
 
 def _load_meta() -> Dict[str, dict]:
@@ -373,5 +406,7 @@ def stats() -> dict:
 __all__ = ["create", "rename", "delete", "get", "list_all", "list_files",
            "add_file", "import_path", "delete_file", "file_path", "pick",
            "peek_cycle", "collection_dir", "data_dir", "safe_id", "kind_of",
-           "stats", "ALL_EXT", "IMAGE_EXT", "VIDEO_EXT", "GIF_EXT",
+           "stats", "ALL_EXT", "IMAGE_EXT", "VIDEO_EXT", "GIF_EXT", "AUDIO_EXT",
+           "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO", "KIND_AUDIO",
+           "DEFAULT_COLLECTIONS", "ensure_defaults", "default_collection_for",
            "KIND_IMAGE", "KIND_GIF", "KIND_VIDEO"]
