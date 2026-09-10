@@ -125,9 +125,9 @@ async def check_updates():
 
     # The git scan shells out per extension; on the event loop a single slow
     # fetch would stall every other request in the process.
-    updates, local_extensions = await asyncio.to_thread(_scan_git_extensions)
+    updates, local_extensions, git_updated = await asyncio.to_thread(_scan_git_extensions)
 
-    return await _merge_marketplace_updates(updates, local_extensions)
+    return await _merge_marketplace_updates(updates, local_extensions, git_updated)
 
 
 def _scan_git_extensions():
@@ -142,8 +142,9 @@ def _scan_git_extensions():
     )
 
     ext_dir = str(EXTENSIONS_EXTERNAL_DIR)
-    local_extensions = {}       # name -> info (for non-git marketplace fallback)
+    local_extensions = {}       # name -> info, để bước sau so với Chợ
     updates = []                # final list of updates
+    git_updated = set()         # tên đã có bản mới theo git → đừng báo trùng từ Chợ
 
     if os.path.isdir(ext_dir):
         for entry in os.listdir(ext_dir):
@@ -220,34 +221,50 @@ def _scan_git_extensions():
                             "git_url": git_url,
                             "is_git": True,
                         })
-                else:
-                    # Non-git marketplace based extension
-                    local_extensions[key] = {
-                        "name": name,
-                        "display_name": manifest.get("display_name", name),
-                        "version": manifest.get("version", "0.0.0"),
-                        "icon": manifest.get("icon", "📦"),
-                        "path": local_path,
-                    }
+                        git_updated.add(key)
+
+                # MỌI extension đều vào bảng so với Chợ, kể cả bản có .git.
+                # Trước đây chỉ nhánh else (không .git) được ghi vào bảng, nên một
+                # extension từng cài bằng git URL vĩnh viễn báo "đã mới nhất" dù Chợ
+                # có bản mới hơn: git remote không có commit mới, mà đường Chợ thì
+                # không bao giờ được hỏi tới. Đã có bản mới theo git thì bỏ qua ở
+                # bước sau (git_updated) để không báo hai lần cùng một extension.
+                local_extensions[key] = {
+                    "name": name,
+                    "display_name": manifest.get("display_name", name),
+                    "version": manifest.get("version", "0.0.0"),
+                    "icon": manifest.get("icon", "📦"),
+                    "path": local_path,
+                }
             except Exception:
                 continue
 
-    return updates, local_extensions
+    return updates, local_extensions, git_updated
 
 
-async def _merge_marketplace_updates(updates, local_extensions):
-    """Step 2: ask the marketplace about the extensions that are not git repos."""
+async def _merge_marketplace_updates(updates, local_extensions, git_updated=frozenset()):
+    """Bước 2: hỏi Chợ về phiên bản của các extension đã cài.
+
+    `error` trong kết quả là thứ QUAN TRỌNG: dò hỏng và "không có gì mới" trước
+    đây trả về y hệt nhau (danh sách rỗng), nên giao diện ghi "mọi extension đã ở
+    bản mới nhất" cả khi nó chưa hỏi được Chợ lần nào — người dùng chờ mãi một bản
+    cập nhật đã phát hành rồi (báo 10/9/2026).
+    """
     from tubecli.core.extension_manager import compare_versions
 
+    error = ""
     if local_extensions:
         try:
             market_data = await market_service.list_items(category="extension", limit=100)
-            market_items = market_data.get("data", [])
+            market_items = market_data.get("data") or []
+            if not market_items:
+                error = str(market_data.get("message") or market_data.get("error")
+                            or "Chợ không trả về danh sách extension")
             for item in market_items:
                 item_title = (item.get("title") or "").strip().lower().replace(" ", "_")
                 market_version = item.get("version", "0.0.0")
 
-                if item_title in local_extensions:
+                if item_title in local_extensions and item_title not in git_updated:
                     local = local_extensions[item_title]
                     local_version = local["version"]
 
@@ -264,9 +281,10 @@ async def _merge_marketplace_updates(updates, local_extensions):
                             "is_git": False,
                         })
         except Exception as e:
+            error = str(e)
             print(f"[Market check-updates] Error fetching marketplace items: {e}")
 
-    return {"updates": updates, "total": len(updates)}
+    return {"updates": updates, "total": len(updates), "error": error}
 
 
 

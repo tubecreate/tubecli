@@ -1872,6 +1872,52 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
     threading.Thread(target=_do_launch, daemon=True).start()
 
 
+def _widen_thread_pool() -> None:
+    """Nới bể luồng mặc định của asyncio.
+
+    VÌ SAO
+        Nhiều dây chuyền nặng (content_video, reup…) chạy bằng `asyncio.to_thread`,
+        và trong lúc chạy chúng còn GỌI HTTP NGƯỢC vào chính máy chủ này
+        (pipeline.py::_base_url → 127.0.0.1). Handler phục vụ lời gọi ấy cũng cần
+        một slot trong CÙNG cái bể. Bể đầy ⇒ lời gọi nội bộ không ai phục vụ ⇒
+        dây chuyền đợi chính mình tới hết giờ.
+
+        Đo thật 10/9/2026 trên máy 20 lõi (bể mặc định 24 slot) đang chạy 60 agent
+        + Telegram polling + browser: `/health` mất **39,5 giây** trong lúc dựng
+        video, và bước CapCut TTS chết với "Read timed out (read timeout=180)" —
+        timeout vào đúng máy chủ đang chạy nó. Sau khi lượt dựng chết, `/health`
+        về **0,0024 giây**. Chênh 16.000 lần, và không có gì trong log nói rằng
+        thủ phạm là cái bể.
+
+    ĐÂY KHÔNG PHẢI CHỮA GỐC
+        Gốc là những lời gọi HTTP vòng lại chính mình; bỏ hẳn chúng mới hết bệnh.
+        Nới bể chỉ đẩy ngưỡng ra xa, và tải đủ cao thì vẫn đói. Giữ nguyên con số
+        này khi sửa gốc thì cũng không hại gì.
+    """
+    import asyncio
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    try:
+        want = int(os.environ.get("TUBECLI_THREADS", "0") or 0)
+    except ValueError:
+        want = 0
+    if want <= 0:
+        want = max(32, (os.cpu_count() or 4) * 4)
+    want = min(want, 256)          # trần: mỗi luồng vẫn tốn stack thật
+    try:
+        asyncio.get_running_loop().set_default_executor(
+            ThreadPoolExecutor(max_workers=want, thread_name_prefix="tubecli"))
+        print(f"[Startup] thread pool = {want} (mặc định của Python là "
+              f"{min(32, (os.cpu_count() or 4) + 4)})", flush=True)
+    except Exception as e:      # noqa: BLE001 — không nới được thì vẫn phải chạy
+        # `print`, KHÔNG phải `logger`: file này không có `logger` ở phạm vi
+        # module, nên bản đầu của tôi ném NameError NGAY TRONG khối except —
+        # lưới an toàn thành thủ phạm, và máy chủ chết ở startup với
+        # "Application startup failed. Exiting." Đo thật 10/9/2026.
+        print(f"[Startup] could not widen the thread pool: {e}", flush=True)
+
+
 @app.on_event("startup")
 async def startup_event():
     import sys
@@ -1880,6 +1926,7 @@ async def startup_event():
         sys.stderr.reconfigure(encoding='utf-8')
     except Exception:
         pass
+    _widen_thread_pool()
     from tubecli.core.telegram_listener import telegram_listener
     telegram_listener.start()
 
@@ -5062,12 +5109,20 @@ async def system_check_update():
 
     project_root = str(BASE_DIR)
 
+    # Fetch HỎNG mà không ai xem returncode: origin/main đứng im ở lần fetch cuối,
+    # rev-list đếm ra 0, và giao diện nói "đã mới nhất" — y hệt khi thật sự mới nhất.
+    # Người dùng chờ mãi một bản đã phát hành rồi mà không có gì chỉ ra chỗ hỏng
+    # (báo 10/9/2026: máy chạy lõi cũ nhưng badge cập nhật không hiện).
+    check_error = ""
     try:
         # Fetch latest from remote
-        subprocess.run(
+        fetch = subprocess.run(
             ["git", "fetch", "origin"],
             cwd=project_root, capture_output=True, text=True, timeout=30,
         )
+        if fetch.returncode != 0:
+            check_error = ("git fetch origin: "
+                           + (fetch.stderr or fetch.stdout or f"mã lỗi {fetch.returncode}").strip())[:300]
 
         # Get current hash
         r_local = subprocess.run(
@@ -5089,6 +5144,9 @@ async def system_check_update():
             cwd=project_root, capture_output=True, text=True, timeout=10,
         )
         commits_behind = int(r_count.stdout.strip()) if r_count.returncode == 0 else 0
+        if r_count.returncode != 0 and not check_error:
+            check_error = ("git rev-list HEAD..origin/main: "
+                           + (r_count.stderr or f"mã lỗi {r_count.returncode}").strip())[:300]
 
         # Get changelog (commit messages)
         changelog = []
@@ -5107,6 +5165,17 @@ async def system_check_update():
             "latest_hash": latest_hash,
             "commits_behind": commits_behind,
             "changelog": changelog[:20],
+            # "" = đã hỏi được máy chủ git; có chữ = KHÔNG kết luận được, đừng hiểu
+            # commits_behind=0 là "đã mới nhất".
+            "check_error": check_error,
+        }
+    except FileNotFoundError:
+        # Không có git trên PATH (hay gặp trên Windows sau một lượt cài hỏng): nói
+        # thẳng thay vì để 500 rơi vào nhánh "unknown" rồi ẩn luôn nút cập nhật.
+        return {
+            "has_update": False, "current_version": __version__, "current_hash": "",
+            "latest_hash": "", "commits_behind": 0, "changelog": [],
+            "check_error": "Không tìm thấy git trên máy chủ — không dò được bản mới.",
         }
     except Exception as e:
         raise HTTPException(500, f"Failed to check for updates: {e}")
