@@ -2526,11 +2526,20 @@ async def check_for_updates(force: bool = False):
     try:
         # Số phiên bản nằm ở tubecli/__init__.py, KHÔNG ở pyproject.toml: file đó
         # khai `dynamic = ["version"]` và trỏ về `{attr = "tubecli.__version__"}`
-        # (làm vậy vì trước đây số nằm hai nơi rồi trôi lệch nhau). Hàm này vẫn đi
+        # (làm vậy vì trước đây số nằm hai nơi rồi trôi lệch nhau). Hàm này từng đi
         # đọc pyproject nên regex `version = "..."` không bao giờ khớp: mọi lượt dò
         # đều trả "Could not parse version" + has_update=False, và trang Cài đặt kẹt
         # ở "Checking..." mãi mãi (người dùng báo 10/9/2026, máy ở .73 trong khi
         # origin/main đã .74).
+        #
+        # NGUỒN: GitHub API trước, raw.githubusercontent làm đường lui. Đo hôm nay:
+        # sau khi đẩy .75 lên, raw vẫn trả .74 qua BA lượt gọi có ?cb= ngẫu nhiên và
+        # Cache-Control: no-cache — CDN của raw giữ bản cũ lâu hơn mức phá cache làm
+        # được. API contents trả .75 ngay. Vẫn giữ raw làm đường lui vì API có hạn
+        # mức 60 lượt/giờ mỗi IP, còn hàm này chỉ chạy tối đa 2 lượt/giờ (TTL 30
+        # phút) nên bình thường không tới ngưỡng.
+        api_url = ("https://api.github.com/repos/tubecreate/tubecli/contents/"
+                   "tubecli/__init__.py?ref=main")
         raw_url = "https://raw.githubusercontent.com/tubecreate/tubecli/main/tubecli/__init__.py"
         # Our own 30-minute cache is not the only one in the way: raw.github
         # serves through a CDN with its own max-age, so a release published a
@@ -2541,14 +2550,30 @@ async def check_for_updates(force: bool = False):
             headers = {"Cache-Control": "no-cache", "Pragma": "no-cache"}
             raw_url += f"?t={int(now)}"
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(raw_url, headers=headers)
-            if resp.status_code != 200:
-                print(f"[VersionCheck] GitHub returned {resp.status_code}")
-                res = {"has_update": False, "error": f"GitHub returned {resp.status_code}"}
-                VERSION_CHECK_CACHE["data"] = res
-                VERSION_CHECK_CACHE["last_check"] = now
-                return res
-            text = resp.text
+            text, source, status = "", "", 0
+            try:
+                # Accept: raw → API trả thẳng nội dung file, khỏi giải base64.
+                r_api = await client.get(api_url, headers={
+                    **headers, "Accept": "application/vnd.github.raw",
+                    "User-Agent": "tubecli-version-check"})
+                if r_api.status_code == 200 and "__version__" in r_api.text:
+                    text, source = r_api.text, "api"
+                else:
+                    status = r_api.status_code
+                    print(f"[VersionCheck] GitHub API returned {r_api.status_code}, falling back to raw")
+            except Exception as api_err:      # noqa: BLE001
+                print(f"[VersionCheck] GitHub API error ({api_err}), falling back to raw")
+            if not text:
+                resp = await client.get(raw_url, headers=headers)
+                if resp.status_code != 200:
+                    print(f"[VersionCheck] GitHub returned {resp.status_code}")
+                    res = {"has_update": False,
+                           "error": f"GitHub returned {resp.status_code or status}"}
+                    VERSION_CHECK_CACHE["data"] = res
+                    VERSION_CHECK_CACHE["last_check"] = now
+                    return res
+                text, source = resp.text, "raw"
+            print(f"[VersionCheck] source={source}")
             # __version__ = "2026.08.09.74" — nháy đơn hay nháy kép đều nhận.
             m = re.search(r"""^__version__\s*=\s*['"]([^'"]+)['"]""", text, re.MULTILINE)
             if not m:
