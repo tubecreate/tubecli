@@ -516,7 +516,7 @@ def installed_now() -> bool:
 INSTALL_TIMEOUT = 1800        # 30 phút: tải Git + Python + clone trên mạng chậm
 
 
-def install_tubecli(lang: str = "vi") -> bool:
+def install_tubecli(lang: str = "vi", reason: str = "") -> bool:
     """Chạy trình cài CHÍNH THỨC và ĐỔ TỪNG DÒNG của nó vào log.
 
     Không mở cửa sổ console riêng nữa. Cửa sổ đen thứ hai vừa rối vừa vô dụng:
@@ -525,7 +525,7 @@ def install_tubecli(lang: str = "vi") -> bool:
     nhật ký của nó, mà file log vẫn giữ đủ để đọc lại sau.
     """
     cmd = install_command(lang)
-    log(f"Chưa có TubeCLI — chạy trình cài ({OS_NAME}), có thể mất vài phút…")
+    log(f"{reason or 'Chưa có TubeCLI'} — chạy trình cài ({OS_NAME}), có thể mất vài phút…")
     # stdin=DEVNULL: trình cài phải TỰ HỎNG NGAY nếu nó còn định hỏi han, thay vì
     # treo vô hạn trước một bàn phím không có ai ngồi.
     extra = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}
@@ -561,9 +561,49 @@ def install_tubecli(lang: str = "vi") -> bool:
     return False
 
 
+# Một lượt bật đang chạy dở. Vòng canh quay 20 giây một lần, còn máy chủ mất
+# ~40 giây mới trả lời /health — không có cờ này thì vòng canh bắn phát thứ hai
+# TRONG LÚC phát thứ nhất còn đang lên, và máy có HAI máy chủ. Cái thứ hai không
+# giữ được cổng nên gần như vô hình, nhưng nó vẫn chạy worker: đo thật 10/9/2026,
+# một lượt dựng video đang chạy bị giết giữa chừng với câu
+# "Task was interrupted by a server restart."
+# Bao nhiêu lượt dò trượt LIÊN TIẾP mới coi là chết. Vòng canh quay 20 giây,
+# nên 3 lượt ≈ 1 phút im lặng — dài hơn mọi lúc bận thường gặp, ngắn hơn mức
+# người dùng kịp nhận ra máy đã biến khỏi cloud.
+DEAD_AFTER = 3
+
+_STARTING = threading.Lock()
+
+
 def start_tubecli() -> bool:
-    """Bật máy chủ TubeCLI, không kèm cửa sổ đen. Trả True khi /health trả lời."""
+    """Bật máy chủ TubeCLI, không kèm cửa sổ đen. Trả True khi /health trả lời.
+
+    Không bao giờ chạy hai lượt song song: lượt thứ hai thấy khoá đang giữ thì
+    quay về ngay, để vòng canh đợi thêm một nhịp thay vì đẻ ra máy chủ thứ hai.
+    """
     if tubecli_up():
+        return True
+    if not _STARTING.acquire(blocking=False):
+        log("đã có một lượt bật đang chạy — bỏ qua lượt này")
+        return False
+    try:
+        return _start_tubecli_locked()
+    finally:
+        _STARTING.release()
+
+
+def _start_tubecli_locked() -> bool:
+    if tubecli_up():
+        return True
+    # Cổng ĐANG BỊ GIỮ = có máy chủ sống, chỉ là đang bận: /health chờ có 2 giây,
+    # còn lúc CapCut đọc hay ffmpeg dựng nó im lâu hơn thế nhiều. Phép chặn này
+    # trước đây chỉ nằm trong watch(); ba đường khác (khởi động lại, tự bật, kết nối
+    # lại) gọi thẳng vào đây và đẻ máy chủ ma. Đo thật 11/9/2026: 5 bản trong 3
+    # phút, mỗi bản nạp toàn bộ extension rồi đánh dấu task đang dựng video của máy
+    # chủ thật là "Orphaned by server restart" trước khi tự chết vì cổng bận.
+    held = _pid_of_port(PORT)
+    if held:
+        log(f"cổng {PORT} đang do pid {held} giữ — máy chủ vẫn sống (đang bận), không bật thêm")
         return True
     cmd, d = server_cmd()
     if not cmd:
@@ -704,7 +744,11 @@ def node_restart(say=None) -> bool:
             except Exception:      # noqa: BLE001
                 pass
     _s("đang tắt máy chủ…")
-    node_stop()
+    if not node_stop() and _pid_of_port(PORT):
+        # Máy chủ cũ chưa nhả cổng. Bật lúc này thì start_tubecli coi "cổng bị giữ"
+        # là "đang chạy" và báo thành công cho một lượt khởi động lại chưa hề xảy ra.
+        _s("máy chủ cũ chưa chịu tắt — KHÔNG bật chồng lên; thử lại sau ít phút")
+        return False
     _s("đang bật lại…")
     ok = start_tubecli()
     _s("máy chủ đã chạy lại" if ok else "bật lại KHÔNG thành công — xem log")
@@ -755,6 +799,108 @@ def node_login(password: str) -> bool:
             return r.status == 200
     except Exception:
         return False
+
+
+def password_problem(new_pw: str, again: str) -> str:
+    """Câu báo lỗi cho ô mật khẩu mới, hay "" nếu dùng được — cùng luật với lõi."""
+    if len(new_pw or "") < 6:
+        return "Mật khẩu phải có ít nhất 6 ký tự."
+    if new_pw != again:
+        return "Hai lần nhập không khớp."
+    if new_pw == "123456":
+        return "Không đặt lại đúng mật khẩu mặc định 123456."
+    return ""
+
+
+def _http_detail(e) -> str:
+    """Câu lỗi mà máy chủ/cloud gửi kèm một HTTPError, hay "" nếu không đọc được."""
+    try:
+        body = json.loads(e.read().decode("utf-8", "replace") or "{}")
+        return str(body.get("detail") or body.get("error") or "")
+    except Exception:
+        return ""
+
+
+def change_node_password(new_pw: str, current: str = "") -> tuple:
+    """Đổi mật khẩu dashboard. Trả (ok, câu người đọc được, "api" | "cli").
+
+    Hai đường, thử theo thứ tự:
+      1. /api/v1/auth/password với mật khẩu ĐANG DÙNG (Connect nhớ nó từ lúc ghép
+         nối). Đổi BÊN TRONG máy chủ nên huỷ luôn mọi phiên đang mở — đúng nghĩa
+         "đổi mật khẩu".
+      2. `tubecli password --new` khi mật khẩu đã nhớ không còn đúng (đổi ở chỗ
+         khác, hoặc quên). Cùng quyền với việc chủ máy mở terminal gõ lệnh ấy —
+         Connect chạy trên chính máy đó. Máy chủ đọc lại auth.json ở MỖI lần đăng
+         nhập nên mật khẩu mới có hiệu lực ngay; nhưng phiên đang mở nằm trong RAM
+         của máy chủ nên còn sống tới lần khởi động lại, và câu trả về nói rõ thế.
+
+    Mật khẩu KHÔNG bao giờ vào log.
+    """
+    if current:
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{PORT}/api/v1/auth/password", method="POST",
+                data=json.dumps({"current_password": current, "new_password": new_pw}).encode(),
+                headers={"Content-Type": "application/json", "User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                if r.status == 200:
+                    return True, "Đã đổi mật khẩu.", "api"
+        except urllib.error.HTTPError as e:
+            if e.code != 401:           # 401 = mật khẩu đã nhớ không còn đúng → đường 2
+                return False, _http_detail(e) or f"máy chủ trả HTTP {e.code}", "api"
+        except Exception:
+            pass                        # máy chủ không trả lời → đường 2 vẫn ghi được tệp
+
+    cmd, d = server_cmd()
+    if not cmd:
+        return False, "Máy chưa có TubeCLI.", "cli"
+    base = list(cmd[:-len(SERVE_ARGS)] if cmd[-len(SERVE_ARGS):] == SERVE_ARGS else cmd)
+    # pythonw không có stdout: rich in lời xác nhận vào hư không rồi ngã, và một lần
+    # đổi mật khẩu THÀNH CÔNG bị báo là hỏng. python.exe cạnh nó + CREATE_NO_WINDOW
+    # thì vẫn không có cửa sổ đen nào hiện ra.
+    if base and os.path.basename(base[0]).lower() == "pythonw.exe":
+        py = os.path.join(os.path.dirname(base[0]), "python.exe")
+        if os.path.isfile(py):
+            base[0] = py
+    # `--new` nằm trên dòng lệnh trong vài giây lệnh chạy: chấp nhận được trên máy
+    # một người dùng, và là đường duy nhất chạy được khi không có console để hỏi.
+    try:
+        r = subprocess.run(base + ["password", "--new", new_pw], cwd=d or None, env=clean_env(),
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
+                           timeout=120, stdin=subprocess.DEVNULL,
+                           **({"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if IS_WIN else {}))
+    except Exception as e:
+        return False, f"Không chạy được lệnh đổi mật khẩu: {e}", "cli"
+    if r.returncode != 0:
+        tail = " ".join((r.stdout or "").split())[-200:]
+        return False, tail or f"lệnh đổi mật khẩu trả mã {r.returncode}", "cli"
+    return True, ("Đã đặt mật khẩu mới. Trình duyệt nào đang đăng nhập sẵn vẫn giữ phiên "
+                  "tới lần khởi động lại máy chủ."), "cli"
+
+
+def sync_cloud_password(conf: dict, new_pw: str) -> tuple:
+    """Báo cloud mật khẩu mới, để cloud còn đăng nhập hộ được (live view, Flow).
+
+    Không có nó thì cloud vẫn cầm mật khẩu cũ và mọi nút «Open TubeCLI» trên cloud
+    hỏng với "TubeCLI login thất bại". Chứng minh danh tính bằng tunnel token — thứ
+    chỉ máy này và cloud biết — và cloud tự đăng nhập thử vào máy bằng mật khẩu ấy
+    trước khi lưu, nên không ai ghi đè được bằng một mật khẩu sai.
+    """
+    token = conf.get("tunnel_token") or ""
+    if not token:
+        return False, "máy chưa ghép nối với cloud"
+    req = urllib.request.Request(
+        f"{CLOUD}/api/servers/pair/password", method="POST",
+        data=json.dumps({"tunnel_token": token, "tubecli_password": new_pw}).encode(),
+        headers={"Content-Type": "application/json", "User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            r.read()
+        return True, "cloud đã nhận mật khẩu mới"
+    except urllib.error.HTTPError as e:
+        return False, _http_detail(e) or f"cloud trả HTTP {e.code}"
+    except Exception as e:
+        return False, f"không gọi được cloud: {e}"
 
 
 # ── Tunnel ──────────────────────────────────────────────────────────────────
@@ -1744,6 +1890,7 @@ class Bridge:
         # trông như nút bị hỏng.
         self.paused = threading.Event()
         self.busy = ""
+        self.miss = 0
 
     def status(self) -> str:
         if self.busy:
@@ -1761,8 +1908,35 @@ class Bridge:
                     self.stop.wait(2)
                     continue
                 if not tubecli_up():
-                    start_tubecli()
+                    # MỘT lượt dò trượt KHÔNG có nghĩa là máy chủ chết. Lúc đang
+                    # dựng video nó bận tới mức /health mất ~40 giây (đo thật
+                    # 10/9/2026), mà `tubecli_up` chỉ chờ 2 giây. Bật lại ngay là
+                    # đẻ ra một máy chủ ma: nó không bind được cổng nên tự thoát,
+                    # nhưng trước khi thoát đã kịp nạp toàn bộ extension — càng
+                    # làm máy chủ thật đói thêm, và cứ 70 giây lại một lần.
+                    self.miss += 1
+                    # AI ĐANG GIỮ CỔNG mới là câu hỏi đúng. `/health` chờ 2 giây,
+                    # nhưng lúc dựng video máy chủ bận tới mức im hàng PHÚT — đo
+                    # thật 10/9/2026: /health mất 39,5s, và bộ đếm 3 lượt vẫn
+                    # không đủ. Máy chủ BẬN thì vẫn giữ cổng; máy chủ CHẾT thì
+                    # nhả. Bật thêm một cái trong lúc cổng còn bị giữ chỉ đẻ ra
+                    # máy chủ ma: nó không bind được nên tự thoát, nhưng trước
+                    # khi thoát đã nạp xong toàn bộ extension và ăn mất một phần
+                    # tài nguyên của chính lượt dựng đang chạy.
+                    held = _pid_of_port(PORT)
+                    if held:
+                        if self.miss in (1, DEAD_AFTER) or self.miss % 15 == 0:
+                            log(f"máy chủ chưa trả lời ({self.miss}) nhưng pid {held} "
+                                f"vẫn giữ cổng {PORT} — đang bận, KHÔNG bật lại")
+                    elif self.miss >= DEAD_AFTER:
+                        log(f"máy chủ không trả lời {self.miss} lượt và cổng {PORT} "
+                            f"đã trống — bật lại")
+                        if start_tubecli():
+                            self.miss = 0
+                    else:
+                        log(f"máy chủ chưa trả lời ({self.miss}/{DEAD_AFTER}) — chờ thêm")
                 else:
+                    self.miss = 0
                     # Chỉ báo khi máy chủ ĐANG SỐNG: nhịp tim là lời hứa "nếu nó
                     # chết tôi sẽ dựng lại", và vòng ngay trên đây giữ lời hứa đó.
                     supervisor_beat()
@@ -1828,6 +2002,53 @@ class Bridge:
         finally:
             self.busy = ""
 
+    def change_password(self, new_pw: str, done=None) -> None:
+        """Đổi mật khẩu TubeCLI rồi báo cloud. `done(ok, câu)` chạy ở luồng này."""
+        if self.busy:
+            if done:
+                done(False, "Đang bận việc khác — thử lại sau.")
+            return
+        self.busy = "đang đổi mật khẩu…"
+        ok, msg = False, ""
+        try:
+            ok, msg, how = change_node_password(new_pw, self.conf.get("password") or "")
+            if ok:
+                # Nhớ ngay: lần đổi sau đi được đường 1 (đổi trong máy chủ, huỷ phiên).
+                self.conf = {**self.conf, "password": new_pw}
+                conf_write(self.conf)
+                c_ok, c_msg = sync_cloud_password(self.conf, new_pw)
+                log(f"đổi mật khẩu TubeCLI ({how}) — cloud: {'đã cập nhật' if c_ok else c_msg}")
+                msg += " Cloud đã nhận mật khẩu mới." if c_ok else (
+                    f" Nhưng cloud CHƯA nhận ({c_msg}) — bấm đổi lại lần nữa để báo lại.")
+            else:
+                log(f"đổi mật khẩu TubeCLI hỏng: {msg}")
+        finally:
+            self.busy = ""
+            if done:
+                done(ok, msg)
+
+    def reinstall(self, say=None) -> None:
+        """Cài lại TubeCLI bằng trình cài CHÍNH THỨC: tắt máy chủ → cài → bật lại.
+
+        `busy` giữ suốt lượt cài (có thể vài phút) để vòng canh không coi cái máy
+        chủ đang tắt có chủ ý là "chết" rồi bật chen vào giữa trình cài.
+        """
+        if self.busy:
+            return
+        self.busy = "đang cài lại TubeCLI… (vài phút)"
+        try:
+            log("người dùng bấm «Cài lại»")
+            node_stop()
+            ok = install_tubecli(lang=self.conf.get("lang", "vi"), reason="Cài lại theo yêu cầu")
+            started = start_tubecli()
+            msg = ("Đã cài lại xong, TubeCLI đang chạy." if ok and started else
+                   "Cài xong nhưng TubeCLI chưa bật lên — xem log." if ok else
+                   "Cài lại KHÔNG thành công — xem log.")
+            log(msg)
+            notify(APP, msg)
+        finally:
+            self.busy = ""
+
 
 def tray(bridge: Bridge) -> None:
     """Giao diện nền: cửa sổ trạng thái, và icon khay do chính cửa sổ dựng.
@@ -1877,6 +2098,8 @@ TRAY_ITEMS = [
     ("-",          ""),
     ("reset",      "Khởi động lại máy chủ"),
     ("toggle",     "Ngắt kết nối"),
+    ("password",   "Đổi mật khẩu TubeCLI…"),
+    ("reinstall",  "Cài lại TubeCLI…"),
     ("-",          ""),
     ("quit",       "Thoát hẳn"),
 ]
@@ -2123,9 +2346,16 @@ def status_window(bridge: "Bridge") -> None:
     btn_hide = ttk.Button(bar2, text="Ẩn")
     btn_hide.grid(column=2, row=0, padx=(0, 6))
 
+    bar3 = ttk.Frame(frm)
+    bar3.grid(column=0, row=5, sticky="w", pady=(6, 0))
+    btn_pw = ttk.Button(bar3, text="Đổi mật khẩu")
+    btn_pw.grid(column=0, row=0, padx=(0, 6))
+    btn_reinstall = ttk.Button(bar3, text="Cài lại")
+    btn_reinstall.grid(column=1, row=0, padx=(0, 6))
+
     auto = tk.BooleanVar(value=autostart_on())
     ttk.Checkbutton(frm, text="Khởi động cùng Windows", variable=auto,
-                    command=lambda: set_autostart(auto.get())).grid(column=0, row=5, sticky="w", pady=(10, 0))
+                    command=lambda: set_autostart(auto.get())).grid(column=0, row=6, sticky="w", pady=(10, 0))
 
     tray_box = {"t": None}
     quitting = {"v": False}
@@ -2162,7 +2392,80 @@ def status_window(bridge: "Bridge") -> None:
         bridge.shutdown()
         root.destroy()
 
+    def do_password():
+        """Hộp đổi mật khẩu. Không hỏi mật khẩu cũ: Connect chạy trên CHÍNH máy chủ
+        nhân, cùng quyền với việc mở terminal gõ `tubecli password`."""
+        if bridge.busy:
+            return
+        do_show()
+        dlg = tk.Toplevel(root)
+        dlg.title("Đổi mật khẩu TubeCLI")
+        dlg.resizable(False, False)
+        dlg.transient(root)
+        _set_icon(dlg)
+        box = ttk.Frame(dlg, padding=14)
+        box.grid()
+        ttk.Label(box, text="Mật khẩu mới (ít nhất 6 ký tự)").grid(column=0, row=0, sticky="w")
+        e1 = ttk.Entry(box, show="•", width=34)
+        e1.grid(column=0, row=1, sticky="we", pady=(2, 8))
+        ttk.Label(box, text="Nhập lại").grid(column=0, row=2, sticky="w")
+        e2 = ttk.Entry(box, show="•", width=34)
+        e2.grid(column=0, row=3, sticky="we", pady=(2, 8))
+        note = ttk.Label(box, text="Cloud sẽ được báo mật khẩu mới để vẫn mở được TubeCLI hộ bạn.",
+                         foreground="#666666", wraplength=300, justify="left")
+        note.grid(column=0, row=4, sticky="w", pady=(0, 10))
+        row = ttk.Frame(box)
+        row.grid(column=0, row=5, sticky="e")
+        b_ok = ttk.Button(row, text="Đổi")
+        b_ok.grid(column=0, row=0, padx=(0, 6))
+        b_cancel = ttk.Button(row, text="Huỷ", command=dlg.destroy)
+        b_cancel.grid(column=1, row=0)
+
+        def finish(ok, msg):
+            if not dlg.winfo_exists():
+                return
+            note.config(text=msg, foreground="#15803d" if ok else "#b91c1c")
+            b_ok.config(state="normal")
+            if ok:
+                b_ok.grid_remove()
+                b_cancel.config(text="Đóng")
+
+        def submit(_evt=None):
+            a, b = e1.get(), e2.get()
+            err = password_problem(a, b)
+            if err:
+                note.config(text=err, foreground="#b91c1c")
+                return
+            b_ok.config(state="disabled")
+            note.config(text="Đang đổi…", foreground="#666666")
+            run_bg(lambda: bridge.change_password(
+                a, done=lambda ok, msg: root.after(0, finish, ok, msg)))
+
+        b_ok.config(command=submit)
+        dlg.bind("<Return>", submit)
+        e1.focus_set()
+
+    def do_reinstall():
+        """Hỏi rõ trước khi cài lại: máy chủ tắt vài phút và việc đang chạy sẽ dừng."""
+        if bridge.busy:
+            return
+        from tkinter import messagebox
+        do_show()
+        where = find_install() or "thư mục cài mặc định"
+        if not messagebox.askyesno(
+                "Cài lại TubeCLI",
+                "Cài lại TubeCLI bằng trình cài chính thức?\n\n"
+                f"• Thư mục: {where}\n"
+                "• Máy chủ tắt trong lúc cài (thường vài phút) — việc đang chạy sẽ dừng.\n"
+                "• Dữ liệu (agent, cài đặt, mật khẩu, kho) nằm trong thư mục data, "
+                "trình cài không xoá.\n\n"
+                "Theo dõi tiến độ bằng «Xem log».", parent=root):
+            return
+        run_bg(bridge.reinstall)
+
     btn_reset.config(command=do_reset)
+    btn_pw.config(command=do_password)
+    btn_reinstall.config(command=do_reinstall)
     btn_conn.config(command=do_toggle)
     btn_hide.config(command=do_hide)
 
@@ -2183,6 +2486,10 @@ def status_window(bridge: "Bridge") -> None:
             root.after(0, do_reset)
         elif name == "toggle":
             root.after(0, do_toggle)
+        elif name == "password":
+            root.after(0, do_password)
+        elif name == "reinstall":
+            root.after(0, do_reinstall)
         elif name == "quit":
             root.after(0, quit_all)
 
@@ -2193,6 +2500,8 @@ def status_window(bridge: "Bridge") -> None:
         btn_conn.config(text="Kết nối lại" if paused else "Ngắt kết nối",
                         state="disabled" if busy else "normal")
         btn_reset.config(state="disabled" if (busy or paused) else "normal")
+        btn_pw.config(state="disabled" if busy else "normal")
+        btn_reinstall.config(state="disabled" if (busy or paused) else "normal")
         if tray_box["t"]:
             tray_box["t"].set_label("toggle", "Kết nối lại" if paused else "Ngắt kết nối")
         root.after(1200, tick)
