@@ -45,6 +45,11 @@ class RunRequest(BaseModel):
     options: Dict[str, Any] = {}
     created_by: str = ""
     origin: Optional[Dict[str, Any]] = None
+    # Nội dung DÁN TAY từ cửa sổ "Nhiệm vụ mới" của Codex — thay cho kho đã
+    # đọc/đã xem của agent. Có nó thì agent chỉ còn là "ai viết": model của nó.
+    content: str = ""
+    # True: dừng ở kịch bản cho người duyệt (hai chặng). False: chạy thẳng tới mp4.
+    review: bool = True
 
 
 @router.get("/capabilities")
@@ -75,6 +80,11 @@ async def run_route(req: RunRequest, request: Request):
     """
     _deny_guests(request)
     agent_id = (req.agent_id or "").strip()
+    content = (req.content or "").strip()
+    if content and not agent_id:
+        # Nội dung dán tay KHÔNG cần kho của agent, nhưng vẫn cần một agent để
+        # VIẾT — câu "chạy từ khung chat của agent" bên dưới sẽ chỉ sai đường.
+        raise HTTPException(400, "Choose the agent whose AI model writes the script.")
     if not agent_id:
         # Câu trả lời phải là câu NGƯỜI đọc được: brain chuyển nguyên trường
         # `report` vào chat, còn 400 thì chỉ thành một dòng lỗi kỹ thuật.
@@ -82,9 +92,13 @@ async def run_route(req: RunRequest, request: Request):
                 "report": ("Kỹ năng này làm video từ kho đã đọc/đã xem của CHÍNH agent, nên "
                            "phải chạy từ khung chat của một agent. Mở agent rồi nhắc lại giúp tôi.")}
     try:
-        from tubecli.extensions.content_video.pipeline import create_digest_task, queued_reply
+        from tubecli.extensions.content_video.pipeline import (
+            SOURCE_TEXT_MAX, create_auto_task, create_digest_task, create_plan_task, queued_reply)
     except ImportError:
         raise HTTPException(400, "The codex extension is required to run pipelines.")
+    if len(content) > SOURCE_TEXT_MAX:
+        raise HTTPException(400, f"The content is {len(content):,} characters; the limit is "
+                                 f"{SOURCE_TEXT_MAX:,}. Split it into several videos.")
 
     # Link nằm lẫn trong câu người dùng gõ → thành nguồn cào thêm.
     sources = list(req.sources or [])
@@ -99,9 +113,30 @@ async def run_route(req: RunRequest, request: Request):
     # luật duyệt của codex ("AI đề xuất, người duyệt"). Canvas gửi created_by
     # tường minh thì giữ nguyên.
     created_by = (req.created_by or "").strip() or ("brain" if req.input else "user")
+    options = dict(req.options or {})
+    if content:
+        options["source_text"] = content
+    # Người bấm "Tạo video" trong cửa sổ Codex CHÍNH LÀ lời duyệt để bắt đầu:
+    # cổng duyệt-trước-khi-chạy chỉ bắt họ bấm thêm lần nữa cho cùng một ý. Cổng
+    # có nghĩa là cổng SAU kịch bản (review=True). Lời gọi từ skill/brain thì
+    # vẫn theo luật duyệt của codex như cũ.
+    label = "Video from content"
+    approval = False if created_by == "user" else None
     try:
-        task = await asyncio.to_thread(
-            create_digest_task, agent_id, req.options, created_by, origin, sources)
+        if not content:
+            # Đường cũ, GIỮ NGUYÊN tên hàm và từng đối số. Skill, canvas và test
+            # vẫn chặn đúng cái tên create_digest_task: gọi sang tên khác là lọt
+            # qua mock của họ và tạo task THẬT trên bảng Codex đang chạy.
+            task = await asyncio.to_thread(
+                create_digest_task, agent_id, req.options, created_by, origin, sources)
+        elif not req.review:
+            task = await asyncio.to_thread(lambda: create_auto_task(
+                agent_id, options, created_by=created_by, origin=origin,
+                job_label=label, sources=sources))
+        else:
+            task = await asyncio.to_thread(lambda: create_plan_task(
+                agent_id, options, created_by=created_by, origin=origin, sources=sources,
+                job_label=label, approval_required=approval))
     except Exception as e:
         logger.error(f"[ContentVideo] queueing failed: {e}", exc_info=True)
         raise HTTPException(500, str(e))
