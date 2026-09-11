@@ -667,6 +667,10 @@ body {
     text-align: right; font-variant-numeric: tabular-nums;
 }
 .cx-field-meta.warn { color: var(--cx-red); font-weight: 600; }
+/* Gợi ý dưới ô Độ dài là câu văn, không phải bộ đếm: canh trái. "Sẽ bị nén" là
+   lưu ý chứ không phải lỗi — cam, không đỏ. */
+.cx-len-hint { text-align: left; line-height: 1.45; }
+.cx-len-hint.warn { color: var(--cx-orange); }
 
 /* Thẻ tóm tắt mẫu: ngôn ngữ to nhất, vì đó là thứ AI viết lại theo. */
 .cx-tpl {

@@ -147,6 +147,7 @@ _EDGE_VOICES = {
 }
 _LEN_FROM = {
     "asked for": "you asked for this length",
+    "content": "matches the pasted content",
     "template": "from the template's Video Length",
     "default": "default — say “video 5 phút” or set Video Length in the template",
 }
@@ -313,17 +314,44 @@ DEFAULT_WORDS = 260
 # Trần dưới/trên. Dưới 120 chữ không thành một video có đầu đuôi; trên 4000 chữ
 # thì số cảnh (mỗi cảnh một ảnh) vượt xa mức một lượt chạy kham nổi.
 _WORDS_MIN, _WORDS_MAX = 120, 4000
-# Mỗi cảnh là MỘT ẢNH phải sinh ra, nên số cảnh vừa quyết định nhịp vừa quyết
-# định chi phí. ~60 chữ/cảnh cho lời dẫn thở được mà không vụn.
+# ~60 chữ/cảnh cho lời dẫn thở được mà không vụn. Trần cũ 26 cảnh tính cho video
+# ≤10 phút; khi độ dài theo bài dán (tới 4000 chữ) mà vẫn 26 cảnh thì mỗi cảnh
+# 115-150 chữ — gần một phút trên cùng một ý hình, và storyboard phải băm mỗi cảnh
+# ra ba bốn shot. Trần 60 giữ ~67 chữ/cảnh ngay ở 4000 chữ. Số ẢNH do storyboard
+# quyết (mỗi shot ≤15 giây), không phải số cảnh.
 _WORDS_PER_SCENE = 60
-_SCENES_MIN, _SCENES_MAX = 6, 26
+_SCENES_MIN, _SCENES_MAX = 6, 60
+
+
+# Chữ Hán, kana và chữ Thái không cách nhau bằng dấu cách: `split()` đếm cả câu
+# là MỘT chữ, và bài dán 3000 chữ tiếng Trung sẽ thành video một phút. Quy về số
+# chữ ĐỌC ở nhịp WORDS_PER_MINUTE: ~2 ký tự Hán/kana, ~5 ký tự Thái một chữ.
+# codex.js (cvWords) đếm y hệt — sửa bên này là phải sửa bên kia.
+_CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]")
+_THAI_RE = re.compile(r"[\u0e00-\u0e7f]")
+
+
+def content_words(text: str) -> int:
+    """Số chữ đọc thành tiếng của một bài, kể cả ngôn ngữ không có dấu cách."""
+    text = str(text or "")
+    cjk = len(_CJK_RE.findall(text))
+    thai = len(_THAI_RE.findall(text))
+    rest = _THAI_RE.sub(" ", _CJK_RE.sub(" ", text))
+    # Dấu câu đứng riêng ("—", "，") không phải chữ.
+    words = sum(1 for w in rest.split() if any(ch.isalnum() for ch in w))
+    return words + (cjk + 1) // 2 + (thai + 2) // 5
 
 
 def resolve_words(options: Dict, preset: Optional[Dict]) -> Tuple[int, str]:
-    """(số chữ kịch bản, vì sao). Thứ tự: lệnh nói rõ → mẫu → mặc định.
+    """(số chữ kịch bản, vì sao). Thứ tự: lệnh nói rõ → bài dán → mẫu → mặc định.
 
     Trả về cả lý do để bản kế hoạch nói được "dài chừng này, vì bạn chọn thế",
     thay vì để người dùng đoán tại sao video ra ngắn.
+
+    Nội dung DÁN TAY đi theo độ dài của CHÍNH nó: dán 3000 chữ là muốn video kể
+    đủ 3000 chữ, không phải bản tóm 800 chữ vì mẫu ghi "Standard" — trước đây dán
+    dài hay ngắn cũng ra ~13 cảnh / 14 shot (user hỏi 11/9/2026). Chọn
+    `length_mode="template"` thì mẫu quyết như cũ.
     """
     want = options.get("target_words")
     try:
@@ -332,6 +360,9 @@ def resolve_words(options: Dict, preset: Optional[Dict]) -> Tuple[int, str]:
         want = 0
     if want > 0:
         return max(_WORDS_MIN, min(_WORDS_MAX, want)), "asked for"
+    pasted = str(options.get("source_text") or "")
+    if pasted.strip() and str(options.get("length_mode") or "").strip().lower() != "template":
+        return max(_WORDS_MIN, min(_WORDS_MAX, content_words(pasted))), "content"
     length = str((((preset or {}).get("fields") or {}).get("metadata") or {})
                  .get("video_length") or "").strip()
     if length in _VIDEO_LENGTH_WORDS:
@@ -1035,6 +1066,10 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
     pasted = any(c.get("source") == "pasted" for c in (state.get("corpus") or []))
     material = (_PASTED_HEAD if pasted else _CORPUS_HEAD) + "\n".join(blocks)
     per = max(1, words // scenes_n)
+    # Bài dán giữ nguyên độ dài: dàn ý phải phủ HẾT bài, theo thứ tự — nếu không
+    # model chọn vài ý như với kho, và đợt nào cũng chỉ kể lại chúng.
+    keep = (" Cover ALL of the content, in its order — this is a rewrite at the same "
+            "length, not a summary." if pasted and state.get("keep_all") else "")
     scene_fmt = (
         "Format, exactly, for EACH scene:\n"
         "[SHOW: <one sentence describing what is on screen — concrete, filmable, no on-screen text>]\n"
@@ -1066,7 +1101,7 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
     say("script", "running", f"outline · {scenes_n} scenes")
     outline_prompt = (
         material + f"\n\nPlan a {style} video of about {words} words (~{minutes_of(words)} minutes "
-        f"read aloud) in exactly {scenes_n} scenes. {write_in}\n"
+        f"read aloud) in exactly {scenes_n} scenes.{keep} {write_in}\n"
         "Output, exactly:\nTITLE: <a punchy title>\n"
         "then one line per scene:\n[SHOW: <what is on screen — concrete, filmable, no on-screen text>] — "
         "<one sentence: what the narration of this scene says>\n"
@@ -1152,9 +1187,28 @@ def _step_script(state: Dict, options: Dict) -> None:
             # vài cảnh — đúng những cảnh nó chép gần nguyên văn.
             write_in += (f" The content below is in {language_name(src)}: translate and adapt "
                          f"it into {lang} — no {language_name(src)} sentences in the script.")
-    words, words_from = resolve_words(options, state.get("preset"))
+    # Lượt dán tay mà options không mang source_text (người gọi chỉ đưa corpus):
+    # đo trên chính khối đã dán, để độ dài vẫn theo bài.
+    opts_len = options
+    if pasted and not str(options.get("source_text") or "").strip():
+        opts_len = {**options, "source_text": "\n".join(blocks)}
+    words, words_from = resolve_words(opts_len, state.get("preset"))
     scenes_n, sent_lo, sent_hi = scene_budget(words)
     state["target_words"], state["words_from"] = words, words_from
+    keep_all = ""
+    if words_from == "content":
+        have = content_words(opts_len.get("source_text"))
+        if have > _WORDS_MAX:
+            state.setdefault("warnings", []).append(
+                f"The pasted content is ~{have:,} words; one video holds up to {_WORDS_MAX:,} "
+                f"(~{minutes_of(_WORDS_MAX)} min), so the script condenses it. Split it into "
+                "several videos to keep everything.")
+        else:
+            # Cùng độ dài thì phải là VIẾT LẠI, không phải tóm tắt: model quen tay
+            # chọn vài ý "hay nhất" như với kho, bỏ phần còn lại.
+            keep_all = (" Keep all of it — every point, in its order: this is a rewrite at "
+                        "the same length, not a summary.")
+    state["keep_all"] = bool(keep_all)
     # Retry của một lượt đã viết xong kịch bản (hỏng ở bước sau, vd đăng): dùng lại,
     # không tốn lượt model và không đổi nội dung đã dựng ảnh/giọng theo nó.
     ck_prev = state.get("checkpoint") or {}
@@ -1202,7 +1256,7 @@ def _step_script(state: Dict, options: Dict) -> None:
         user_prompt = (
             (_PASTED_HEAD if pasted else _CORPUS_HEAD) + "\n".join(blocks) +
             (f"\n\nRewrite this content as the narration script for a {style} video of about "
-             f"{words} words.\n" if pasted else
+             f"{words} words.{keep_all}\n" if pasted else
              f"\n\nWrite the narration script for a {style} video of about {words} words.\n") + fmt
         )
     if words > CHUNK_WORDS:
@@ -3844,7 +3898,7 @@ def describe_plan(options: Dict[str, Any]) -> str:
     if options.get("preset"):
         lines.append(f"- Template: {options['preset']}")
     if options.get("source_text"):
-        lines.append(f"- Source: pasted content (~{len(str(options['source_text']).split())} words)")
+        lines.append(f"- Source: pasted content (~{content_words(options['source_text'])} words)")
     for r in rows:
         if r["will_run"]:
             mark, note = "✅", ""
@@ -4166,7 +4220,7 @@ def _source_counts(state: Dict) -> Dict[str, int]:
 
 
 def _pasted_words(state: Dict) -> int:
-    return sum(len(str(c.get("content") or "").split())
+    return sum(content_words(c.get("content"))
                for c in (state.get("corpus") or []) if c.get("source") == "pasted")
 
 

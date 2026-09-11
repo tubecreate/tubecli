@@ -840,6 +840,8 @@ const CODEX = (() => {
     $('cx-v-review').checked = true;
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
+    $('cx-v-length').innerHTML = '';          // rỗng → renderVideoLength lấy lựa chọn đã nhớ
+    $('cx-v-minutes').value = String(clampMinutes(lsGet(CV_MINUTES_KEY) || 10));
     onVideoContent();
     renderVideoSummary();
     const btn = $('cx-create-btn');
@@ -998,6 +1000,7 @@ const CODEX = (() => {
 
   /** Thẻ tóm tắt mẫu: NGÔN NGỮ đứng đầu — đó là thứ AI sẽ viết lại theo. */
   function renderVideoSummary() {
+    renderVideoLength();          // nhãn "Theo mẫu · …" đổi theo mẫu đang chọn
     const box = $('cx-v-summary');
     const show = (warn, html) => { box.className = 'cx-tpl' + (warn ? ' warn' : ''); box.innerHTML = html; };
     if (state.presets === false) {
@@ -1015,7 +1018,8 @@ const CODEX = (() => {
     const fixed = lang && lang !== 'auto';
     const meta = [];
     if (p.wizAspectRatio) meta.push(p.wizAspectRatio);
-    if (p.wizVideoLength) meta.push(CV_LEN_KEYS[p.wizVideoLength] ? t(CV_LEN_KEYS[p.wizVideoLength]) : p.wizVideoLength);
+    // Độ dài có ô riêng bên dưới: "Standard" trong thẻ này từng làm người dùng
+    // tưởng nó chỉ là nhãn, trong khi nó quyết độ dài video.
     if (p.wizTtsEngine) meta.push(CV_ENGINES[p.wizTtsEngine] || p.wizTtsEngine);
     if (p.wizVideoLayout) meta.push(t('codex.cv_layout', { id: p.wizVideoLayout }));
     show(false,
@@ -1033,15 +1037,100 @@ const CODEX = (() => {
     lsSet(CV_AGENT_KEY, $('cx-v-agent').value || '');
   }
 
+  // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
+  const CV_LENGTH_KEY = 'codex.cvLength';
+  const CV_MINUTES_KEY = 'codex.cvMinutes';
+  // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
+  // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
+  // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
+  const CV_WPM = 150;
+  const CV_WORDS_MIN = 120;
+  const CV_WORDS_MAX = 4000;
+  const CV_DEFAULT_WORDS = 260;
+  const CV_LEN_WORDS = { short_60s: 150, short_3m: 450, standard: 800, long_10m: 1600 };
+  const CV_CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/g;
+  const CV_THAI_RE = /[\u0e00-\u0e7f]/g;
+
+  /** Số chữ ĐỌC của một bài — y hệt content_words() bên pipeline: chữ Hán/kana
+   *  ~2 ký tự một chữ, chữ Thái ~5, dấu câu đứng riêng không tính. */
+  function cvWords(txt) {
+    const s = String(txt || '');
+    const cjk = (s.match(CV_CJK_RE) || []).length;
+    const thai = (s.match(CV_THAI_RE) || []).length;
+    const rest = s.replace(CV_CJK_RE, ' ').replace(CV_THAI_RE, ' ')
+      .split(/\s+/).filter(w => /[\p{L}\p{N}]/u.test(w)).length;
+    return rest + Math.floor((cjk + 1) / 2) + Math.floor((thai + 2) / 5);
+  }
+
+  /** Số phút đọc của `words` chữ: "20" từ 10 phút trở lên, "5.3" dưới đó. */
+  function fmtMin(words) {
+    const m = words / CV_WPM;
+    return (m >= 10 ? Math.round(m) : Math.round(m * 10) / 10).toLocaleString();
+  }
+
+  function clampMinutes(v) {
+    const n = Math.round(Number(v));
+    const max = Math.floor(CV_WORDS_MAX / CV_WPM);
+    return Number.isFinite(n) && n > 0 ? Math.min(max, n) : 10;
+  }
+
+  /** Ô "Độ dài video". Mặc định THEO BÀI DÁN: trước đây độ dài lấy từ ô Video
+   *  Length của mẫu, nên dán dài hay ngắn cũng ra ~14 shot (11/9/2026). */
+  function renderVideoLength() {
+    const sel = $('cx-v-length');
+    if (!sel) return;
+    const have = cvWords($('cx-v-content').value || '');
+    const name = $('cx-v-preset').value;
+    const p = (name && state.presets) ? state.presets[name] : null;
+    const lenKey = (p && p.wizVideoLength) || '';
+    const tplWords = CV_LEN_WORDS[lenKey] || CV_DEFAULT_WORDS;
+    const tplLabel = lenKey ? (CV_LEN_KEYS[lenKey] ? t(CV_LEN_KEYS[lenKey]) : lenKey) : t('codex.cv_len_default');
+    const fit = Math.max(CV_WORDS_MIN, Math.min(CV_WORDS_MAX, have));
+    const want = sel.value || lsGet(CV_LENGTH_KEY) || 'content';
+    sel.innerHTML =
+      `<option value="content">${esc(have ? t('codex.cv_len_mode_content', { min: fmtMin(fit) })
+                                          : t('codex.cv_len_mode_content_empty'))}</option>` +
+      `<option value="template">${esc(t('codex.cv_len_mode_template', { len: tplLabel, min: fmtMin(tplWords) }))}</option>` +
+      `<option value="minutes">${esc(t('codex.cv_len_mode_minutes'))}</option>`;
+    sel.value = ['content', 'template', 'minutes'].includes(want) ? want : 'content';
+    const mode = sel.value;
+    $('cx-v-minutes-wrap').classList.toggle('hidden', mode !== 'minutes');
+    let msg;
+    let warn = false;
+    if (mode === 'content' && have > CV_WORDS_MAX) {
+      msg = t('codex.cv_len_hint_capped', {
+        words: have.toLocaleString(), max: CV_WORDS_MAX.toLocaleString(), min: fmtMin(CV_WORDS_MAX),
+      });
+      warn = true;
+    } else if (mode === 'content') {
+      msg = t('codex.cv_len_hint_content');
+    } else {
+      const words = mode === 'template' ? tplWords : clampMinutes($('cx-v-minutes').value) * CV_WPM;
+      msg = t('codex.cv_len_hint_fit', { min: fmtMin(words) });
+      // Bài dán dài hơn hẳn độ dài đã chọn → nói trước là sẽ bị NÉN.
+      warn = have > words * 1.3;
+    }
+    const hint = $('cx-v-length-hint');
+    hint.textContent = msg;
+    hint.classList.toggle('warn', warn);
+  }
+
+  function onVideoLength() {
+    lsSet(CV_LENGTH_KEY, $('cx-v-length').value || 'content');
+    lsSet(CV_MINUTES_KEY, String(clampMinutes($('cx-v-minutes').value)));
+    renderVideoLength();
+  }
+
   function onVideoContent() {
     const txt = ($('cx-v-content').value || '').trim();
     const chars = txt.length;
-    const words = txt ? txt.split(/\s+/).length : 0;
+    const words = cvWords(txt);
     const box = $('cx-v-count');
     box.textContent = chars
       ? t('codex.cv_count', { words: words.toLocaleString(), chars: chars.toLocaleString() })
       : '';
     box.classList.toggle('warn', chars > CV_MAX_CHARS);
+    renderVideoLength();
   }
 
   async function submitVideo() {
@@ -1073,6 +1162,9 @@ const CODEX = (() => {
     const title = ($('cx-v-title').value || '').trim();
     const options = { preset: preset };
     if (title) options.title = title;
+    const lengthMode = $('cx-v-length').value || 'content';
+    options.length_mode = lengthMode;
+    if (lengthMode === 'minutes') options.target_words = clampMinutes($('cx-v-minutes').value) * CV_WPM;
 
     const btn = $('cx-create-btn');
     btn.disabled = true;
@@ -1192,6 +1284,6 @@ const CODEX = (() => {
     init, refresh, toggle, collapse, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, accept, requestChanges,
     confirmNote, copyResult, planTask,
-    openNewTask, submitNewTask, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, planFromModal, closeModal, onBackdrop,
   };
 })();

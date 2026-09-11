@@ -194,6 +194,19 @@
           </div>
           <div class="cx-tpl hidden" id="cx-v-summary"></div>
 
+          <div class="cx-field-row">
+            <div class="cx-field">
+              <label for="cx-v-length" data-i18n="codex.field_video_length">Video length</label>
+              <select id="cx-v-length" onchange="CODEX.onVideoLength()"></select>
+              <div class="cx-field-meta cx-len-hint" id="cx-v-length-hint" aria-live="polite"></div>
+            </div>
+            <div class="cx-field cx-field-narrow hidden" id="cx-v-minutes-wrap">
+              <label for="cx-v-minutes" data-i18n="codex.field_video_minutes">Minutes</label>
+              <input type="number" id="cx-v-minutes" min="1" max="26" step="1" value="10"
+                     oninput="CODEX.onVideoLength()">
+            </div>
+          </div>
+
           <label class="cx-check">
             <input type="checkbox" id="cx-v-review" checked>
             <span>

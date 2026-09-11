@@ -316,7 +316,10 @@ st = {"task_id": "t", "agent": A(), "corpus": [{"title": "x", "url": "u", "conte
       "_say": lambda *a: None, "_cancelled": lambda: False}
 P._step_script(st, {"target_words": 3000})
 assert len(calls) == 1 + 5, [c[0][:40] for c in calls]                      # 26 scenes → 5 batches of ≤6
-assert calls[0][1] == 4096 and all(c[1] == 4096 for c in calls[1:]), "each call small enough for a 4096 budget"
+# Dàn ý co giãn theo số cảnh (3000 chữ → 50 cảnh, ~40 chữ mỗi dòng); các ĐỢT thì
+# luôn nhỏ — đó mới là chỗ model suy luận từng nghẹn ở một lượt 3000 chữ.
+assert calls[0][1] == P.script_token_budget(P.scene_budget(3000)[0] * 40), calls[0][1]
+assert all(c[1] == 4096 for c in calls[1:]), "each batch small enough for a 4096 budget"
 assert st["title"] == "Twenty Minutes" and st["scene_count"] == 26, (st["title"], st["scene_count"])
 assert "scenes 1-6 ONLY" in calls[1][0] and "start with a hook" in calls[1][0]
 assert "scenes 25-26 ONLY" in calls[5][0] and "Close the video" in calls[5][0] and "previous scene ended with" in calls[5][0]
