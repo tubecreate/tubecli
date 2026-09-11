@@ -742,19 +742,28 @@ def scan_window(*, agent_id: str, allowed_profiles: List[str], hw_prev: str = ""
 
 
 def _read_checkpoint(task_id: str) -> Dict[str, Any]:
+    """Checkpoint của task = GỘP mọi sự kiện checkpoint theo thứ tự, bản sau thắng.
+
+    Trước đây chỉ đọc sự kiện MỚI NHẤT, mà mỗi lần ghi chỉ mang vài khoá: task auto
+    ghi {script…} ở bước kịch bản rồi {drama_id, episode_id…} ở bước studio — kịch
+    bản rơi khỏi sổ. Dựng lỗi xong bấm Retry là VIẾT LẠI kịch bản từ đầu, rồi lần
+    xuống storyboard, ảnh, giọng (máy PC của user, 11/9/2026). Gộp thì cả những
+    task đã lỡ ghi kiểu thay-thế cũng được cứu.
+    """
     if not task_id:
         return {}
+    ck: Dict[str, Any] = {}
     try:
         from tubecli.extensions.codex.manager import codex_manager
 
         # 1000 > the 500-line cap the event file is pruned to: read everything.
-        for ev in reversed(codex_manager.get_events(task_id, limit=1000)):
+        for ev in codex_manager.get_events(task_id, limit=1000):
             data = ev.get("data") or {}
             if isinstance(data.get("checkpoint"), dict):
-                return dict(data["checkpoint"])
+                ck.update(data["checkpoint"])
     except Exception as e:
         logger.debug(f"[ContentVideo] no checkpoint: {e}")
-    return {}
+    return ck
 
 
 def _write_checkpoint(task_id: str, data: Dict[str, Any]) -> None:
@@ -1224,6 +1233,18 @@ def _step_script(state: Dict, options: Dict) -> None:
     # Retry của một lượt đã viết xong kịch bản (hỏng ở bước sau, vd đăng): dùng lại,
     # không tốn lượt model và không đổi nội dung đã dựng ảnh/giọng theo nó.
     ck_prev = state.get("checkpoint") or {}
+    if (not ck_prev.get("script") and ck_prev.get("episode_id")
+            and not (state.get("feedback") or [])):
+        # Sổ còn tập Studio mà mất kịch bản (sự kiện cũ đã bị cắt bớt): kịch bản ĐÃ
+        # dựng storyboard nằm ngay trong tập — lấy lại, đừng viết bài mới rồi đem
+        # ghép với ảnh và giọng của bài cũ.
+        try:
+            _ep = _get(f"/api/v1/studio/episodes/{ck_prev['episode_id']}")
+            _sc = str((_ep or {}).get("script_content") or "")
+            if _sc.strip():
+                ck_prev = {**ck_prev, "script": _sc}
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ContentVideo] could not read the episode's script back: {e}")
     if ck_prev.get("script") and not (state.get("feedback") or []):
         state["script"] = str(ck_prev["script"])
         state["title"] = str(ck_prev.get("title") or state.get("title") or f"{agent.name} · {time.strftime('%Y-%m-%d')}")[:120]
@@ -1307,11 +1328,13 @@ def _step_script(state: Dict, options: Dict) -> None:
     # The render task is built from this checkpoint: the template name rides
     # along so the video keeps the vibe the script was planned with, even when
     # the chat options are gone or the agent's setting changed meanwhile.
-    _write_checkpoint(state["task_id"], {"script": text, "title": state["title"],
-                                         "high_water": state.get("high_water", ""),
-                                         "language": state.get("language", ""),
-                                         "preset": state.get("preset_name", ""),
-                                         "seo_sources": _checkpoint_sources(state)})
+    # GỘP chứ không thay: task auto đi tiếp tới studio/dựng, và lượt Retry cần cả
+    # kịch bản LẪN tập Studio trong cùng một bản sổ.
+    _checkpoint_merge(state, {"script": text, "title": state["title"],
+                              "high_water": state.get("high_water", ""),
+                              "language": state.get("language", ""),
+                              "preset": state.get("preset_name", ""),
+                              "seo_sources": _checkpoint_sources(state)})
     n = _publish_plan(state["task_id"], str(agent.name), state["title"], text)
     state["scene_count"] = n
     # Studio băm theo [SHOW]; kịch bản dài mà chỉ vài thẻ thì mỗi "cảnh" là cả
@@ -1417,8 +1440,9 @@ def _step_studio(state: Dict, options: Dict) -> None:
         ep_id = ep.get("id")
         if ep_id is None:
             raise RuntimeError(f"Content Studio did not return an episode id: {str(ep)[:200]}")
-        _write_checkpoint(state["task_id"], {"drama_id": drama_id, "episode_id": ep_id, "title": title,
-                                             "preset": state.get("preset_name", "")})
+        # GỘP: ghi đè ở đây từng làm rơi kịch bản khỏi sổ — xem _read_checkpoint().
+        _checkpoint_merge(state, {"drama_id": drama_id, "episode_id": ep_id, "title": title,
+                                  "preset": state.get("preset_name", "")})
     state["drama_id"], state["episode_id"], state["title"] = drama_id, ep_id, title
 
     shots = _storyboards(ep_id)
