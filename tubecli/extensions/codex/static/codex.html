@@ -114,6 +114,30 @@
     <!-- Step 1 — the form -->
     <div id="cx-new-step-form">
       <div class="cx-modal-body">
+        <!-- Loại việc: quyết định form bên dưới. Nhớ lựa chọn lần trước. -->
+        <div class="cx-kind">
+          <span class="cx-kind-label" id="cx-kind-label" data-i18n="codex.kind_label">What kind of work?</span>
+          <div class="cx-kind-row" role="radiogroup" aria-labelledby="cx-kind-label">
+            <button type="button" class="cx-kind-opt" role="radio" aria-checked="true" data-kind="general"
+                    onclick="CODEX.setNewKind('general')">
+              <span class="material-symbols-outlined" aria-hidden="true">task_alt</span>
+              <span class="cx-kind-text">
+                <strong data-i18n="codex.kind_general">General task</strong>
+                <em data-i18n="codex.kind_general_hint">Describe a goal; an agent or the AI plans the steps</em>
+              </span>
+            </button>
+            <button type="button" class="cx-kind-opt" role="radio" aria-checked="false" data-kind="video"
+                    onclick="CODEX.setNewKind('video')">
+              <span class="material-symbols-outlined" aria-hidden="true">movie</span>
+              <span class="cx-kind-text">
+                <strong data-i18n="codex.kind_video">Video from content</strong>
+                <em data-i18n="codex.kind_video_hint">Paste the content and pick a Content Studio template — the AI rewrites it and renders the video</em>
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div id="cx-new-general">
         <div class="cx-field">
           <label for="cx-f-goal" data-i18n="codex.field_goal">Goal</label>
           <textarea id="cx-f-goal" rows="5"
@@ -146,12 +170,51 @@
             <em data-i18n="codex.field_approval_hint">The task waits for your approval before it runs</em>
           </span>
         </label>
+        </div>
+
+        <!-- Tạo video từ nội dung dán tay -->
+        <div id="cx-new-video" class="hidden">
+          <div class="cx-field">
+            <label for="cx-v-content" data-i18n="codex.field_video_content">Video content</label>
+            <textarea id="cx-v-content" rows="5" oninput="CODEX.onVideoContent()"
+                      data-i18n-placeholder="codex.field_video_content_placeholder"
+                      placeholder="Paste the article, notes or outline the video should tell…"></textarea>
+            <div class="cx-field-meta" id="cx-v-count" aria-live="polite"></div>
+          </div>
+
+          <div class="cx-field-row">
+            <div class="cx-field">
+              <label for="cx-v-preset" data-i18n="codex.field_video_template">Content Studio template</label>
+              <select id="cx-v-preset" onchange="CODEX.onVideoPreset()"></select>
+            </div>
+            <div class="cx-field">
+              <label for="cx-v-agent" data-i18n="codex.field_video_agent">Agent that writes the script</label>
+              <select id="cx-v-agent" onchange="CODEX.onVideoAgent()"></select>
+            </div>
+          </div>
+          <div class="cx-tpl hidden" id="cx-v-summary"></div>
+
+          <label class="cx-check">
+            <input type="checkbox" id="cx-v-review" checked>
+            <span>
+              <strong data-i18n="codex.field_video_review">Review the script before rendering</strong>
+              <em data-i18n="codex.field_video_review_hint">Untick to go straight to the finished video, with no stop in between</em>
+            </span>
+          </label>
+
+          <div class="cx-field">
+            <label for="cx-v-title" data-i18n="codex.field_title">Title (optional)</label>
+            <input type="text" id="cx-v-title"
+                   data-i18n-placeholder="codex.field_video_title_placeholder"
+                   placeholder="Leave empty and the AI names the video">
+          </div>
+        </div>
       </div>
       <div class="cx-modal-foot">
         <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
                 data-i18n="codex.btn_cancel">Cancel</button>
         <button type="button" class="cx-btn cx-btn-primary" id="cx-create-btn" onclick="CODEX.submitNewTask()">
-          <span data-i18n="codex.btn_create">Create task</span>
+          <span id="cx-create-label" data-i18n="codex.btn_create">Create task</span>
         </button>
       </div>
     </div>
@@ -163,7 +226,7 @@
           <span class="material-symbols-outlined cx-created-icon">check_circle</span>
           <div>
             <div class="cx-created-title" id="cx-created-title"></div>
-            <div class="cx-created-desc" data-i18n="codex.created_desc">Want the AI to break this goal into steps? It takes 10–60 seconds.</div>
+            <div class="cx-created-desc" id="cx-created-desc" data-i18n="codex.created_desc">Want the AI to break this goal into steps? It takes 10–60 seconds.</div>
           </div>
         </div>
         <div id="cx-plan-preview"></div>

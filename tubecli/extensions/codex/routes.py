@@ -360,7 +360,10 @@ async def list_assignees():
         from tubecli.core.agent import agent_manager
 
         agents = [
-            {"id": a.id, "name": a.name, "role": a.role or "general"}
+            # `model` để cửa sổ "Tạo video" nói được AI NÀO viết kịch bản — chuỗi
+            # lỗi định tuyến 9Router/OpenRouter đều bắt đầu từ chỗ không ai thấy nó.
+            {"id": a.id, "name": a.name, "role": a.role or "general",
+             "model": str(getattr(a, "model", "") or "")}
             for a in agent_manager.get_all()
         ]
     except Exception as e:

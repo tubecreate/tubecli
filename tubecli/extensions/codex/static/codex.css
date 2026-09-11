@@ -635,3 +635,57 @@ body {
 /* Địa chỉ web trong kết quả: bấm được, và không phá dòng của khối <pre>. */
 .cx-pre a { color: var(--cx-accent, #5276EB); text-decoration: underline; overflow-wrap: anywhere; }
 .cx-pre a:hover { text-decoration: none; }
+
+/* ─── New task: chọn loại việc + "Tạo video từ nội dung" ───────── */
+.cx-kind { margin-bottom: 18px; }
+.cx-kind-label {
+    display: block; font-size: 0.8rem; font-weight: 600; color: var(--text2); margin-bottom: 8px;
+}
+.cx-kind-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cx-kind-opt {
+    display: flex; align-items: flex-start; gap: 10px; text-align: left;
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font: inherit; cursor: pointer;
+    transition: border-color 0.18s, background 0.18s;
+}
+.cx-kind-opt:hover { border-color: var(--primary); }
+.cx-kind-opt:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.cx-kind-opt[aria-checked="true"] {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 10%, var(--bg));
+}
+.cx-kind-opt .material-symbols-outlined { font-size: 22px; color: var(--text-muted); margin-top: 1px; }
+.cx-kind-opt[aria-checked="true"] .material-symbols-outlined { color: var(--primary); }
+.cx-kind-text strong { display: block; font-size: 0.87rem; font-weight: 600; }
+.cx-kind-text em {
+    display: block; font-style: normal; font-size: 0.74rem; line-height: 1.45;
+    color: var(--text-muted); margin-top: 3px;
+}
+
+.cx-field-meta {
+    margin-top: 5px; font-size: 0.74rem; color: var(--text-muted);
+    text-align: right; font-variant-numeric: tabular-nums;
+}
+.cx-field-meta.warn { color: var(--cx-red); font-weight: 600; }
+
+/* Thẻ tóm tắt mẫu: ngôn ngữ to nhất, vì đó là thứ AI viết lại theo. */
+.cx-tpl {
+    margin: -4px 0 14px; padding: 12px 14px; border-radius: 8px;
+    background: var(--bg3); border: 1px solid var(--border);
+}
+.cx-tpl-lang { display: flex; align-items: center; gap: 8px; font-size: 0.92rem; font-weight: 600; }
+.cx-tpl-lang .material-symbols-outlined { font-size: 18px; color: var(--primary); }
+.cx-tpl-hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 3px; line-height: 1.5; }
+.cx-tpl-meta { font-size: 0.78rem; color: var(--text2); margin-top: 8px; }
+.cx-tpl.warn { border-color: color-mix(in srgb, var(--cx-orange) 45%, var(--border)); }
+.cx-tpl.warn .cx-tpl-hint { color: var(--cx-orange); margin-top: 0; }
+
+/* .cx-check không có lề dưới (vốn là phần tử cuối form): ở đây tiêu đề đứng sau nó. */
+#cx-new-video .cx-check { margin-bottom: 14px; }
+/* Cửa sổ Codex nằm trong khung dashboard nên thấp: nhường thêm chiều cao cho
+   hộp này để ô "Duyệt kịch bản" không khuất dưới mép. */
+#cx-modal-new .cx-modal-box { max-height: 92vh; }
+
+@media (max-width: 640px) {
+    .cx-kind-row { grid-template-columns: 1fr; }
+}

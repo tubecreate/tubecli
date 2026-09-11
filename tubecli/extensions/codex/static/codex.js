@@ -231,9 +231,11 @@ const CODEX = (() => {
   }
 
   // ── HTTP ───────────────────────────────────────────────────────
-  async function api(path, opts) {
+  /** fetch → JSON → lỗi đọc được. Dùng chung cho route của Codex và route ngoài
+      (Content Studio, content-video) để cả hai báo lỗi cùng một kiểu. */
+  async function request(url, opts) {
     const options = Object.assign({ headers: { 'Content-Type': 'application/json' } }, opts || {});
-    const resp = await fetch(API + path, options);
+    const resp = await fetch(url, options);
     const text = await resp.text();
     let data = null;
     if (text) {
@@ -246,6 +248,8 @@ const CODEX = (() => {
     }
     return data || {};
   }
+
+  function api(path, opts) { return request(API + path, opts); }
 
   function taskUrl(id, suffix) {
     return '/tasks/' + encodeURIComponent(id) + (suffix || '');
@@ -829,9 +833,22 @@ const CODEX = (() => {
     $('cx-f-priority').value = '0';
     $('cx-f-approval').checked = true;
     $('cx-plan-preview').innerHTML = '';
+    $('cx-plan-btn').classList.remove('hidden');
+    $('cx-created-desc').textContent = t('codex.created_desc');
+    $('cx-v-content').value = '';
+    $('cx-v-title').value = '';
+    $('cx-v-review').checked = true;
+    $('cx-v-preset').innerHTML = '<option value="">…</option>';
+    $('cx-v-preset').disabled = true;
+    onVideoContent();
+    renderVideoSummary();
     const btn = $('cx-create-btn');
     btn.disabled = false;
     $('cx-modal-new').classList.remove('hidden');
+    setNewKind(lsGet(NEW_KIND_KEY) || 'general');
+    // Mẫu và agent là hai lời gọi độc lập — nạp song song, đừng bắt người dùng
+    // chờ cái này xong mới thấy cái kia.
+    const presetsReady = loadPresets();
 
     const sel = $('cx-f-assignee');
     sel.innerHTML = `<option value="">${esc(t('codex.assignee_auto_option'))}</option>`;
@@ -848,10 +865,12 @@ const CODEX = (() => {
       ).join('') + '</optgroup>');
     }
     sel.innerHTML += groups.join('');
-    setTimeout(() => $('cx-f-goal').focus(), 50);
+    fillVideoAgents(data.agents);
+    presetsReady.then(fillVideoPresets);
   }
 
   async function submitNewTask() {
+    if (state.newKind === 'video') return submitVideo();
     const goal = ($('cx-f-goal').value || '').trim();
     if (!goal) {
       toast(t('codex.toast_goal_required'), 'error');
@@ -886,6 +905,198 @@ const CODEX = (() => {
       $('cx-new-step-done').classList.remove('hidden');
       const planBtn = $('cx-plan-btn');
       planBtn.disabled = false;
+      await refresh(false);
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // ── New task: loại việc + "Tạo video từ nội dung" ──────────────
+  const NEW_KIND_KEY = 'codex.newKind';
+  const CV_PRESET_KEY = 'codex.cvPreset';
+  const CV_AGENT_KEY = 'codex.cvAgent';
+  // PHẢI khớp SOURCE_TEXT_MAX trong content_video/pipeline.py — lệch nhau thì
+  // ô đếm cho qua mà máy chủ lại từ chối, hoặc ngược lại.
+  const CV_MAX_CHARS = 60000;
+  const CV_LEN_KEYS = {
+    short_60s: 'codex.cv_len_short_60s', short_3m: 'codex.cv_len_short_3m',
+    standard: 'codex.cv_len_standard', long_10m: 'codex.cv_len_long_10m',
+  };
+  const CV_ENGINES = { capcut: 'CapCut', edge: 'Edge TTS', vibevoice: 'VibeVoice' };
+
+  function lsGet(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* chế độ riêng tư */ } }
+
+  /** Tên ngôn ngữ theo NGÔN NGỮ GIAO DIỆN ("es" → "Tiếng Tây Ban Nha" / "Spanish"). */
+  function langName(code) {
+    if (!code) return '';
+    try {
+      const dn = new Intl.DisplayNames([document.documentElement.lang || 'en'], { type: 'language' });
+      return dn.of(code) || code;
+    } catch (e) {
+      return code;
+    }
+  }
+
+  function setNewKind(kind) {
+    state.newKind = kind === 'video' ? 'video' : 'general';
+    lsSet(NEW_KIND_KEY, state.newKind);
+    const video = state.newKind === 'video';
+    document.querySelectorAll('#cx-modal-new .cx-kind-opt').forEach(b =>
+      b.setAttribute('aria-checked', String(b.dataset.kind === state.newKind)));
+    $('cx-new-general').classList.toggle('hidden', video);
+    $('cx-new-video').classList.toggle('hidden', !video);
+    const label = $('cx-create-label');
+    const key = video ? 'codex.btn_create_video' : 'codex.btn_create';
+    label.setAttribute('data-i18n', key);
+    label.textContent = t(key);
+    setTimeout(() => $(video ? 'cx-v-content' : 'cx-f-goal').focus(), 30);
+  }
+
+  /** {tên: preset} của Content Studio; `false` khi Studio chưa cài / đang tắt. */
+  async function loadPresets() {
+    try {
+      const data = await request('/api/v1/studio/presets');
+      const p = data && data.presets;
+      state.presets = (p && typeof p === 'object' && !Array.isArray(p)) ? p : {};
+    } catch (e) {
+      state.presets = false;
+    }
+    return state.presets;
+  }
+
+  function fillVideoPresets() {
+    const sel = $('cx-v-preset');
+    const names = state.presets ? Object.keys(state.presets).sort((a, b) => a.localeCompare(b)) : [];
+    sel.innerHTML = `<option value="">${esc(t('codex.cv_pick_template'))}</option>` +
+      names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+    sel.disabled = !names.length;
+    const saved = lsGet(CV_PRESET_KEY);
+    if (saved && names.includes(saved)) sel.value = saved;
+    else if (names.length === 1) sel.value = names[0];
+    renderVideoSummary();
+  }
+
+  function fillVideoAgents(agents) {
+    const sel = $('cx-v-agent');
+    if (!agents.length) {
+      sel.innerHTML = `<option value="">${esc(t('codex.cv_no_agents'))}</option>`;
+      sel.disabled = true;
+      return;
+    }
+    sel.disabled = false;
+    // Hiện model ngay trong tên: agent là "ai viết", và model của nó quyết định
+    // kịch bản ra sao — người dùng phải thấy được trước khi bấm.
+    sel.innerHTML = agents.map(a =>
+      `<option value="${esc(a.id)}">${esc(a.name || a.id)} · ${esc(a.model || t('codex.cv_default_model'))}</option>`
+    ).join('');
+    const saved = lsGet(CV_AGENT_KEY);
+    if (saved && agents.some(a => a.id === saved)) sel.value = saved;
+  }
+
+  /** Thẻ tóm tắt mẫu: NGÔN NGỮ đứng đầu — đó là thứ AI sẽ viết lại theo. */
+  function renderVideoSummary() {
+    const box = $('cx-v-summary');
+    const show = (warn, html) => { box.className = 'cx-tpl' + (warn ? ' warn' : ''); box.innerHTML = html; };
+    if (state.presets === false) {
+      show(true, `<div class="cx-tpl-hint">${esc(t('codex.cv_studio_missing'))}</div>`);
+      return;
+    }
+    if (state.presets && !Object.keys(state.presets).length) {
+      show(true, `<div class="cx-tpl-hint">${esc(t('codex.cv_templates_none'))}</div>`);
+      return;
+    }
+    const name = $('cx-v-preset').value;
+    const p = (name && state.presets) ? state.presets[name] : null;
+    if (!p) { box.className = 'cx-tpl hidden'; box.innerHTML = ''; return; }
+    const lang = String(p.wizLanguage || '').trim();
+    const fixed = lang && lang !== 'auto';
+    const meta = [];
+    if (p.wizAspectRatio) meta.push(p.wizAspectRatio);
+    if (p.wizVideoLength) meta.push(CV_LEN_KEYS[p.wizVideoLength] ? t(CV_LEN_KEYS[p.wizVideoLength]) : p.wizVideoLength);
+    if (p.wizTtsEngine) meta.push(CV_ENGINES[p.wizTtsEngine] || p.wizTtsEngine);
+    if (p.wizVideoLayout) meta.push(t('codex.cv_layout', { id: p.wizVideoLayout }));
+    show(false,
+      `<div class="cx-tpl-lang">${icon('translate')}<span>${esc(fixed ? langName(lang) : t('codex.cv_lang_auto'))}</span></div>
+       <div class="cx-tpl-hint">${esc(t(fixed ? 'codex.cv_writes_hint' : 'codex.cv_lang_auto_hint'))}</div>` +
+      (meta.length ? `<div class="cx-tpl-meta">${esc(meta.join(' · '))}</div>` : ''));
+  }
+
+  function onVideoPreset() {
+    lsSet(CV_PRESET_KEY, $('cx-v-preset').value || '');
+    renderVideoSummary();
+  }
+
+  function onVideoAgent() {
+    lsSet(CV_AGENT_KEY, $('cx-v-agent').value || '');
+  }
+
+  function onVideoContent() {
+    const txt = ($('cx-v-content').value || '').trim();
+    const chars = txt.length;
+    const words = txt ? txt.split(/\s+/).length : 0;
+    const box = $('cx-v-count');
+    box.textContent = chars
+      ? t('codex.cv_count', { words: words.toLocaleString(), chars: chars.toLocaleString() })
+      : '';
+    box.classList.toggle('warn', chars > CV_MAX_CHARS);
+  }
+
+  async function submitVideo() {
+    const content = ($('cx-v-content').value || '').trim();
+    const preset = $('cx-v-preset').value || '';
+    const agentId = $('cx-v-agent').value || '';
+    if (!content) {
+      toast(t('codex.toast_video_content_required'), 'error');
+      $('cx-v-content').focus();
+      return;
+    }
+    if (content.length > CV_MAX_CHARS) {
+      toast(t('codex.toast_video_content_too_long', {
+        n: content.length.toLocaleString(), max: CV_MAX_CHARS.toLocaleString(),
+      }), 'error');
+      $('cx-v-content').focus();
+      return;
+    }
+    if (!preset) {
+      toast(t(state.presets === false ? 'codex.cv_studio_missing' : 'codex.toast_video_template_required'), 'error');
+      $('cx-v-preset').focus();
+      return;
+    }
+    if (!agentId) {
+      toast(t('codex.toast_video_agent_required'), 'error');
+      return;
+    }
+    const review = !!$('cx-v-review').checked;
+    const title = ($('cx-v-title').value || '').trim();
+    const options = { preset: preset };
+    if (title) options.title = title;
+
+    const btn = $('cx-create-btn');
+    btn.disabled = true;
+    try {
+      const data = await request('/api/v1/content-video/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          agent_id: agentId, content: content, review: review,
+          options: options, created_by: 'user',
+        }),
+      });
+      if (!data || data.status !== 'queued') {
+        throw new Error((data && (data.report || data.detail)) || 'not queued');
+      }
+      const task = data.task || {};
+      state.createdTask = task;
+      toast(t('codex.toast_video_queued', { seq: task.seq || '?' }), 'success');
+      $('cx-created-title').textContent = t('codex.created_video_title', { seq: task.seq || '?' });
+      $('cx-created-desc').textContent = t(review ? 'codex.created_video_desc_review'
+                                                  : 'codex.created_video_desc_auto');
+      // "Lên kế hoạch bằng AI" là của việc chung; dây chuyền video đã có sẵn các bước.
+      $('cx-plan-btn').classList.add('hidden');
+      $('cx-new-step-form').classList.add('hidden');
+      $('cx-new-step-done').classList.remove('hidden');
       await refresh(false);
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
@@ -981,6 +1192,6 @@ const CODEX = (() => {
     init, refresh, toggle, collapse, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, accept, requestChanges,
     confirmNote, copyResult, planTask,
-    openNewTask, submitNewTask, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, planFromModal, closeModal, onBackdrop,
   };
 })();
