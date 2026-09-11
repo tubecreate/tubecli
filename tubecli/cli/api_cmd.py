@@ -9,6 +9,28 @@ from tubecli.config import SUPPORTED_LANGUAGES
 console = Console()
 
 
+def _port_taken(host: str, port: int) -> bool:
+    """Would uvicorn fail to bind (host, port)? Answered by binding it ourselves.
+
+    Mirrors uvicorn's socket options so the two agree: SO_REUSEADDR on POSIX (a
+    port still in TIME_WAIT right after a restart is NOT taken), and nothing on
+    Windows, where SO_REUSEADDR would let the bind succeed over a live listener
+    and answer "free" for a port that is not.
+    """
+    import socket
+    family = socket.AF_INET6 if ":" in (host or "") else socket.AF_INET
+    s = socket.socket(family, socket.SOCK_STREAM)
+    try:
+        if os.name != "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind((host or "127.0.0.1", int(port)))
+        return False
+    except OSError:
+        return True
+    finally:
+        s.close()
+
+
 @click.group("api")
 def api_cmd():
     """Manage the REST API server."""
@@ -64,6 +86,16 @@ def start(port, host, lang, quiet):
         from tubecli.i18n import load_language
         set_language(lang)
         load_language(lang)
+
+    # Stop HERE, before the app is imported. uvicorn notices a held port too — but
+    # only when it binds, AFTER the app has loaded every extension, started the
+    # scheduler and Telegram polling, and run recover_orphans() on the SHARED task
+    # store. Measured 11/9/2026: five such second instances in three minutes, each
+    # one marking the real server's running video render "Orphaned by server restart".
+    if _port_taken(host, actual_port):
+        console.print(f"[yellow]Port {actual_port} is already held by another process "
+                      f"(most likely a running TubeCLI) — not starting a second one.[/yellow]")
+        raise SystemExit(1)
 
     if not quiet:
         console.print(f"\n[bold cyan]Starting TubeCLI API Server[/bold cyan]")

@@ -182,11 +182,21 @@ def ensure_on_path() -> Optional[str]:
         return None
     current = os.environ.get("PATH", "")
     parts = [p for p in current.split(os.pathsep) if p]
-    if any(os.path.normcase(os.path.normpath(p)) == os.path.normcase(os.path.normpath(directory))
-           for p in parts):
+
+    def same(p: str) -> bool:
+        return (os.path.normcase(os.path.normpath(p.strip().strip('"')))
+                == os.path.normcase(os.path.normpath(directory)))
+
+    # "Đã có trên PATH" CHƯA đủ — phải là bản ĐẦU TIÊN mà một lời gọi "ffmpeg"
+    # trần gặp. Đo thật 11/9/2026: máy chủ chạy bằng Python miniconda có
+    # miniconda3\Library\bin (ffmpeg chết lúc nạp, 0xC0000139) đứng TRƯỚC thư mục
+    # bản tốt. Bản cũ thấy thư mục tốt "đã có" nên thoát, rồi Content Studio gọi
+    # tên trần và 9/9 shot hỏng với stderr rỗng. Đưa nó lên ĐẦU, bỏ chỗ cũ.
+    first = _path_candidates("ffmpeg")[:1]
+    if first and same(os.path.dirname(first[0])):
         return directory
-    os.environ["PATH"] = directory + os.pathsep + current
-    logger.info(f"[VideoStudio] added {directory} to PATH so ffmpeg is discoverable")
+    os.environ["PATH"] = os.pathsep.join([directory] + [p for p in parts if not same(p)])
+    logger.info(f"[VideoStudio] put {directory} first on PATH so a bare 'ffmpeg' finds a working copy")
     return directory
 
 
