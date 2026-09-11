@@ -40,6 +40,9 @@ except AttributeError:
     pass
 
 from tubecli.extensions.content_video import pipeline as P  # noqa: E402
+# Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
+# tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
+P._put = lambda path, payload=None, timeout=60, **k: {}
 from tubecli.core.agent import Agent as RealAgent, AgentManager  # noqa: E402
 
 failures = []

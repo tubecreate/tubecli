@@ -18,6 +18,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tubecli.extensions.content_video import pipeline as P
+# Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
+# tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
+P._put = lambda path, payload=None, timeout=60, **k: {}
 
 # 1. plan/describe_plan on the REAL check_job (extension manager)
 # 10 = 5 bước kế hoạch + 5 bước dựng (RENDER_STEPS[0] trùng 'capabilities'),

@@ -832,7 +832,15 @@ def _step_capabilities(state: Dict, options: Dict) -> None:
     """Fail on what THIS stage needs; only warn about the rest."""
     caps = studio_capabilities()
     state["studio_caps"] = caps
-    need = state["_needs"]                         # ("text",) for plan, ("text","image","assembly") for render
+    need = list(state["_needs"])                   # () for plan, ("text","image","assembly") for render
+    # AI văn bản của STUDIO chỉ cần khi chính Studio phải gọi AI. Kịch bản do
+    # model của AGENT viết, và Studio mới (cờ agent_model) vẽ storyboard bằng
+    # model của agent luôn — khi ấy "text" của Studio không được chặn gì. Trước
+    # đây nó chặn cả bước kế hoạch: agent chọn Gemini qua 9Router mà task vẫn
+    # chết vì Studio tự cấu hình "deepseek-chat" (máy PC của user, 11/9/2026).
+    agent_text = bool((caps.get("text") or {}).get("agent_model"))
+    if agent_text:
+        need = [k for k in need if k != "text"]
     bad = [k for k in need if not (caps.get(k) or {}).get("ok")]
     if bad:
         why = "; ".join(
@@ -846,8 +854,12 @@ def _step_capabilities(state: Dict, options: Dict) -> None:
             "⚠️ Not ready for rendering yet: " + "; ".join(
                 f"{(caps.get(k) or {}).get('label', k)} — {(caps.get(k) or {}).get('fix') or (caps.get(k) or {}).get('detail', '')}"
                 for k in warn) + ". Fix it before accepting the script.")
+    text = (caps.get("text") or {}).get("detail", "")
+    if agent_text or "text" not in state["_needs"]:
+        # Nói đúng model sẽ viết: của agent, không phải của Studio.
+        text = f"{getattr(state.get('agent'), 'model', '') or 'agent model'} (agent)"
     state["_say"]("capabilities", "running",
-                  " · ".join((caps.get(k) or {}).get("detail", "")[:60] for k in ("text", "image")))
+                  " · ".join(x[:60] for x in (text, (caps.get("image") or {}).get("detail", ""))))
 
 
 def _corpus_note(state: Dict) -> str:
@@ -1325,8 +1337,11 @@ def _stream_storyboard(ep_id: int, state: Dict, append: bool = False) -> None:
     append=True continues after the last saved shot instead of clearing."""
     import requests
 
+    # agent_id: Studio (≥ 2026.09.11.170000) vẽ storyboard bằng model của CHÍNH
+    # agent viết kịch bản; Studio cũ bỏ qua khoá này và dùng model của nó như trước.
+    agent_id = str(getattr(state.get("agent"), "id", "") or "")
     with requests.post(f"{_base_url()}/api/v1/studio/episodes/{ep_id}/storyboard",
-                       json={"append": append}, stream=True,
+                       json={"append": append, "agent_id": agent_id}, stream=True,
                        timeout=(30, TIMEOUTS["storyboard"])) as r:
         if r.status_code >= 400:
             raise RuntimeError(f"storyboard → HTTP {r.status_code}: {r.text[:300]}")
@@ -1412,6 +1427,23 @@ def _step_studio(state: Dict, options: Dict) -> None:
         shots = _storyboards(ep_id)
     if not shots:
         raise RuntimeError("Content Studio produced no storyboard shots.")
+    # Vỏ rỗng (Studio cũ lưu nguyên một đợt model trả khuôn lạ): lấp bằng đúng
+    # những cảnh bị rơi, TRƯỚC khi đo độ phủ — xem fill_empty_shots(). Studio mới
+    # đã tự bỏ vỏ và hỏi lại model, nên ở đó khối này thường không có việc gì.
+    empty = [sh for sh in shots if _is_empty_shot(sh)]
+    if empty and str(state.get("script") or "").strip():
+        filled = fill_empty_shots(shots, str(state["script"]), _template_style(state))
+        for sb_id, payload in filled:
+            _put(f"/api/v1/studio/storyboards/{sb_id}", payload)
+        if filled:
+            shots = _storyboards(ep_id)
+            state["storyboard_filled"] = len(filled)
+            state["_say"]("studio", "running",
+                          f"{len(empty)} empty shot(s) from the storyboard — filled {len(filled)} from the script")
+        if len(filled) < len(empty):
+            state.setdefault("warnings", []).append(
+                f"{len(empty) - len(filled)} storyboard shot(s) came back empty (no narration, no image "
+                "prompt) and match no scene of the script — they will be missing from the video.")
     # Storyboard là bước AI của Studio và nó có thể LÀM RƠI kịch bản mà không
     # báo: một kịch bản 3000 chữ / 26 cảnh từng ra 3 shot và video 40 giây,
     # thẻ vẫn "success". Đo phần kịch bản còn lại trong lời thoại của các shot;
@@ -1563,6 +1595,66 @@ def restore_narration(shots: List[Dict], script: str) -> List[Tuple[Any, str]]:
         i = groups[prev[-1]][-1] if prev else groups[nxt[0]][0]
         text[i] = (text[i] + " " + narr).strip()
     return [(sh.get("id"), text[i]) for i, sh in enumerate(shots)]
+
+
+def _is_empty_shot(sh: Dict) -> bool:
+    """Vỏ rỗng: không lời, không prompt ảnh, và cũng KHÔNG có sẵn ảnh/video/tiếng.
+
+    Shot người dùng tự tải ảnh hay video lên (upload-media) mà không kèm lời là
+    shot CỐ Ý — không phải vỏ, không được đè.
+    """
+    if _shot_narration(sh) or str(sh.get("image_prompt") or "").strip():
+        return False
+    return not any(str(sh.get(k) or "").strip()
+                   for k in ("composed_image", "image_url", "video_url", "tts_audio_url"))
+
+
+def fill_empty_shots(shots: List[Dict], script: str, style: str = "") -> List[Tuple[Any, Dict]]:
+    """[(shot id, payload)] lấp các VỎ RỖNG bằng đúng những cảnh storyboard làm rơi.
+
+    Một đợt storyboard ra khuôn lạ thì Studio (trước 2026.09.11.180000) lưu cả đợt
+    thành vỏ: 6 shot không lời, không prompt — video mất ~3 phút mà thẻ vẫn xanh vì
+    độ phủ còn trên ngưỡng (tập 308 và máy PC của user, 11/9/2026). Vỏ nằm ĐÚNG chỗ
+    những cảnh bị rơi, nên lấp theo vị trí: cảnh chưa shot thật nào nhận, nằm giữa
+    hai shot thật kẹp quanh nhóm vỏ, trao cho nhóm vỏ ấy theo thứ tự. Lời = nguyên
+    văn cảnh; ảnh = dòng [SHOW] của chính cảnh (câu tả hình, không chữ trên hình)
+    + phong cách của mẫu — KHÔNG lấy lời thoại làm prompt, kẻo Flux vẽ luôn chữ.
+    Cảnh thừa dồn vào vỏ cuối nhóm; vỏ thừa để nguyên (không có gì để lấp).
+    """
+    scenes = [sc for sc in scenes_of(script) if sc[1]]
+    if not shots or not scenes:
+        return []
+    ordered = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None,
+                                            sh.get("storyboard_number") or 0, sh.get("id") or 0))
+    real_at = [i for i, sh in enumerate(ordered) if not _is_empty_shot(sh)]
+    if len(real_at) == len(ordered):
+        return []
+    owner_at = (dict(zip(real_at, align_shots_to_scenes([ordered[i] for i in real_at], scenes)))
+                if real_at else {})
+    covered = set(owner_at.values())
+    lead = (style.rstrip(". ") + ". ") if style else ""
+    out: List[Tuple[Any, Dict]] = []
+    i, n = 0, len(ordered)
+    while i < n:
+        if i in owner_at:
+            i += 1
+            continue
+        j = i
+        while j < n and j not in owner_at:
+            j += 1
+        lo = owner_at.get(i - 1, -1)
+        hi = owner_at.get(j, len(scenes))
+        cand = [k for k in range(lo + 1, hi) if k not in covered]
+        group = list(range(i, j))
+        for g, pos in enumerate(group[:len(cand)]):
+            show, narr = scenes[cand[g]]
+            if g == len(group) - 1 and len(cand) > len(group):
+                narr = " ".join([narr] + [scenes[k][1] for k in cand[len(group):]])
+            out.append((ordered[pos].get("id"), {
+                "narration_text": narr, "image_prompt": lead + (show or narr[:300]),
+                "title": (show or narr)[:60], "tts_audio_url": ""}))
+        i = j
+    return out
 
 
 def coverage_error(shots: List[Dict], script: str, cov: float) -> str:
@@ -4067,7 +4159,8 @@ def run_plan(payload: Dict[str, Any],
     Ends in REVIEW. Accept → the on_accept hook queues stage 2. Request
     changes → this runs again and revises the script per the feedback.
     """
-    ctx = _prepare(payload, report, is_cancelled, needs=("text",))
+    # Kế hoạch chỉ viết kịch bản — bằng model của agent, không cần AI của Studio.
+    ctx = _prepare(payload, report, is_cancelled, needs=())
     options, state, say, cancelled = ctx["options"], ctx["state"], ctx["say"], ctx["cancelled"]
     state["feedback"] = _task_feedback(state["task_id"])
     notes: List[str] = []
@@ -4312,7 +4405,9 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if state.get("storyboard_coverage") is not None:
         lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
                      f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script"
-                     + (" · narration restored from the script" if state.get("storyboard_restored") else ""))
+                     + (" · narration restored from the script" if state.get("storyboard_restored") else "")
+                     + (f" · {state['storyboard_filled']} empty shot(s) filled from the script"
+                        if state.get("storyboard_filled") else ""))
     if state.get("subtitles"):
         lines.append(subtitles_line(state["subtitles"]))
     if state.get("tts_summary"):

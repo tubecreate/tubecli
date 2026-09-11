@@ -37,6 +37,9 @@ print("A manager    : set_plan writes task.plan | on_accept fires (task, actor) 
 
 # ── B. pipeline: scenes parser ─────────────────────────────────────────
 from tubecli.extensions.content_video import pipeline as P
+# Bước dựng có gọi _put (lấp prompt/vỏ rỗng). KHÔNG giả lập là test gửi PUT THẬT
+# tới máy chủ đang chạy và đè shot có cùng id — đã đè shot #1, #2 của tập 9 ngày 11/9/2026.
+P._put = lambda path, payload=None, timeout=60, **k: {}
 
 sc = P.scenes_of("[SHOW: city at dawn]\nHook line. Second.\n[SHOW: phone]\nClose.")
 assert sc == [("city at dawn", "Hook line. Second."), ("phone", "Close.")], sc
@@ -145,7 +148,8 @@ def fake_post(path, payload, timeout=300):
 def fake_get(path, timeout=60):
     if path == "/api/v1/studio/episodes/34/storyboards":
         sb["n"] += 1
-        return [] if sb["n"] == 1 else [{"id": 1}, {"id": 2}]
+        return [] if sb["n"] == 1 else [{"id": 1, "narration_text": "y", "image_prompt": "x"},
+                                       {"id": 2, "narration_text": "y", "image_prompt": "x"}]
     if "gen-images/status" in path:
         return {"status": "completed", "done": 2, "total": 2, "errors": []}
     if "batch-tts/" in path:

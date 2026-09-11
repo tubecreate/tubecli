@@ -49,6 +49,18 @@ _9R_PREFER = ("ag/gemini-3.8-flash", "kr/claude-sonnet", "cx/gpt-5.6", "xai/grok
 
 _9R_CACHE = {"at": 0.0, "ids": []}
 
+# Địa chỉ chuẩn OpenAI của từng provider, cho nơi tự stream bằng client OpenAI
+# mà vẫn phải dùng ĐÚNG model của agent (AgentBrain.openai_compat_params).
+# Gemini và Claude có lớp tương thích OpenAI riêng; 9Router và Ollama xử lý riêng.
+_OPENAI_COMPAT_BASES = {
+    "openai": "https://api.openai.com/v1",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "claude": "https://api.anthropic.com/v1",
+    "deepseek": "https://api.deepseek.com/v1",
+    "grok": "https://api.x.ai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
 
 def is_9router_model(model: str) -> bool:
     """Model này của 9Router? Nhận theo TÊN nên không cần nó đang chạy.
@@ -1090,6 +1102,64 @@ Rules:
             yield
         finally:
             _OUTPUT_TOKENS.reset(token)
+
+    @staticmethod
+    def openai_compat_params(agent: Dict) -> Optional[tuple]:
+        """(base_url, api_key, model) để gọi model của agent qua API chuẩn OpenAI.
+
+        Cho nơi tự stream bằng client OpenAI mà vẫn phải dùng ĐÚNG model agent đã
+        chọn — storyboard của Content Studio trong «Tạo video từ nội dung». Trước
+        đây nó luôn gọi model riêng của Studio: agent chọn Gemini qua 9Router mà
+        storyboard lại gọi "deepseek-chat" rồi hỏng (máy PC của user, 11/9/2026).
+        Định tuyến y như _call_llm: provider nói rõ thắng, rồi mới nhận theo tên.
+
+        None khi không gọi được theo lối ấy (Cloudflare, provider lạ) hoặc thiếu
+        khoá — người gọi tự lui về cấu hình riêng của nó.
+        """
+        from tubecli.config import resolve_browser_ai_model
+        model = str(agent.get("model") or resolve_browser_ai_model(agent) or "").strip()
+        if not model or model.startswith("@cf/"):
+            return None
+        keys = dict(agent.get("cloud_api_keys", {}) or {})
+        try:
+            from tubecli.extensions.cloud_api.extension import key_manager
+            for name in ("gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"):
+                if not keys.get(name):
+                    keys[name] = key_manager.get_active_key(name) or ""
+        except Exception:
+            pass
+        provider = str(agent.get("provider") or "").strip().lower()
+        if provider == "chatgpt":
+            provider = "openai"
+        if not provider:
+            low = model.lower()
+            if is_9router_model(model):
+                provider = "9router"
+            elif "/" in model and not model.startswith("http"):
+                provider = "9router" if model in list_9router_models() else "openrouter"
+            elif ":" in model:
+                provider = "ollama"
+            elif any(k in low for k in ("gemini", "gemma")):
+                provider = "gemini"
+            elif any(k in low for k in ("gpt", "chatgpt", "o1", "o3")):
+                provider = "openai"
+            elif "claude" in low:
+                provider = "claude"
+            elif "deepseek" in low:
+                provider = "deepseek"
+            elif "grok" in low:
+                provider = "grok"
+            else:
+                provider = "ollama"
+        if provider == "9router":
+            return (_9R_BASE, keys.get("9router") or "9router", model)
+        if provider == "ollama":
+            return ("http://localhost:11434/v1", "ollama", model)
+        base = _OPENAI_COMPAT_BASES.get(provider)
+        key = str(keys.get(provider) or "")
+        if not base or not key:
+            return None
+        return (base, key, model)
 
     @staticmethod
     def _call_llm(agent: Dict, messages: List[Dict], temperature: float = 0.7,
