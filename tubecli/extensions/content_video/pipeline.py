@@ -1454,7 +1454,9 @@ def _step_studio(state: Dict, options: Dict) -> None:
     # Vỏ rỗng (Studio cũ lưu nguyên một đợt model trả khuôn lạ): lấp bằng đúng
     # những cảnh bị rơi, TRƯỚC khi đo độ phủ — xem fill_empty_shots(). Studio mới
     # đã tự bỏ vỏ và hỏi lại model, nên ở đó khối này thường không có việc gì.
-    empty = [sh for sh in shots if _is_empty_shot(sh)]
+    # Mọi shot KHÔNG LỜI, kể cả shot có prompt ảnh (tập 330: #25–#30 đủ prompt mà
+    # mất lời — video 6 shot câm).
+    empty = [sh for sh in shots if not _shot_narration(sh)]
     if empty and str(state.get("script") or "").strip():
         filled = fill_empty_shots(shots, str(state["script"]), _template_style(state))
         for sb_id, payload in filled:
@@ -1463,11 +1465,12 @@ def _step_studio(state: Dict, options: Dict) -> None:
             shots = _storyboards(ep_id)
             state["storyboard_filled"] = len(filled)
             state["_say"]("studio", "running",
-                          f"{len(empty)} empty shot(s) from the storyboard — filled {len(filled)} from the script")
+                          f"{len(empty)} shot(s) without narration from the storyboard — "
+                          f"filled {len(filled)} from the script")
         if len(filled) < len(empty):
             state.setdefault("warnings", []).append(
-                f"{len(empty) - len(filled)} storyboard shot(s) came back empty (no narration, no image "
-                "prompt) and match no scene of the script — they will be missing from the video.")
+                f"{len(empty) - len(filled)} storyboard shot(s) came back without narration and match "
+                "no scene of the script — they will be silent in the video.")
     # Storyboard là bước AI của Studio và nó có thể LÀM RƠI kịch bản mà không
     # báo: một kịch bản 3000 chữ / 26 cảnh từng ra 3 shot và video 40 giây,
     # thẻ vẫn "success". Đo phần kịch bản còn lại trong lời thoại của các shot;
@@ -1644,13 +1647,21 @@ def fill_empty_shots(shots: List[Dict], script: str, style: str = "") -> List[Tu
     văn cảnh; ảnh = dòng [SHOW] của chính cảnh (câu tả hình, không chữ trên hình)
     + phong cách của mẫu — KHÔNG lấy lời thoại làm prompt, kẻo Flux vẽ luôn chữ.
     Cảnh thừa dồn vào vỏ cuối nhóm; vỏ thừa để nguyên (không có gì để lấp).
+
+    Shot CÓ prompt ảnh (hay đã có ảnh) mà MẤT LỜI cũng là chỗ hổng: tập 330 (máy
+    này, 11/9/2026) ra #25–#30 đủ góc máy, prompt, scene_001…006 mà không một chữ
+    lời — trước đây lọt vì chỉ vỏ trần mới bị coi là rỗng: video 6 shot câm, mất
+    12% kịch bản, thẻ vẫn xanh. Nay mọi shot KHÔNG LỜI đều vào nhóm cần lấp; shot
+    đã có prompt/ảnh chỉ nhận LỜI, hình của nó giữ nguyên (model đã vẽ đúng cảnh ấy).
+    Shot người dùng tự tải lên không kèm lời vẫn an toàn: quanh nó không có cảnh
+    nào bị rơi thì không có gì để trao.
     """
     scenes = [sc for sc in scenes_of(script) if sc[1]]
     if not shots or not scenes:
         return []
     ordered = sorted(shots, key=lambda sh: (sh.get("storyboard_number") is None,
                                             sh.get("storyboard_number") or 0, sh.get("id") or 0))
-    real_at = [i for i, sh in enumerate(ordered) if not _is_empty_shot(sh)]
+    real_at = [i for i, sh in enumerate(ordered) if _shot_narration(sh)]
     if len(real_at) == len(ordered):
         return []
     owner_at = (dict(zip(real_at, align_shots_to_scenes([ordered[i] for i in real_at], scenes)))
@@ -1674,9 +1685,12 @@ def fill_empty_shots(shots: List[Dict], script: str, style: str = "") -> List[Tu
             show, narr = scenes[cand[g]]
             if g == len(group) - 1 and len(cand) > len(group):
                 narr = " ".join([narr] + [scenes[k][1] for k in cand[len(group):]])
-            out.append((ordered[pos].get("id"), {
-                "narration_text": narr, "image_prompt": lead + (show or narr[:300]),
-                "title": (show or narr)[:60], "tts_audio_url": ""}))
+            payload = {"narration_text": narr, "tts_audio_url": ""}
+            if _is_empty_shot(ordered[pos]):
+                # Vỏ trần: dựng luôn prompt ảnh + tiêu đề từ dòng [SHOW].
+                payload.update({"image_prompt": lead + (show or narr[:300]),
+                                "title": (show or narr)[:60]})
+            out.append((ordered[pos].get("id"), payload))
         i = j
     return out
 
@@ -2186,6 +2200,13 @@ def _step_render(state: Dict, options: Dict) -> None:
         # Studio ≥ 2026.09.06 báo phụ đề đã đốt thế nào (mẫu, số shot, nguồn mốc).
         if isinstance(done, dict) and isinstance(done.get("subtitles"), dict):
             state["subtitles"] = done["subtitles"]
+            # Cảnh báo CỦA KHÂU DỰNG (MC bị bỏ ở một đoạn, lớp phủ hỏng, shot không
+            # dựng được) nằm trong báo cáo của Studio mà không lên thẻ: tập 330
+            # (11/9/2026) mất MC trọn 5 phút đầu, thẻ vẫn xanh, không một dòng nào.
+            for w in done["subtitles"].get("warnings") or []:
+                w = f"Render: {w}"
+                if w not in state.setdefault("warnings", []):
+                    state["warnings"].append(w)
     except RuntimeError as e:
         msg = str(e)
         if msg.startswith(("No progress", "Gave up")):
@@ -4430,7 +4451,7 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
                      f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script"
                      + (" · narration restored from the script" if state.get("storyboard_restored") else "")
-                     + (f" · {state['storyboard_filled']} empty shot(s) filled from the script"
+                     + (f" · {state['storyboard_filled']} shot(s) without narration filled from the script"
                         if state.get("storyboard_filled") else ""))
     if state.get("subtitles"):
         lines.append(subtitles_line(state["subtitles"]))

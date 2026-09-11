@@ -86,6 +86,33 @@ fixed4 = P.fill_empty_shots([shell(n) for n in (1, 2, 3)], SCRIPT, "")
 ok(len(fixed4) == 3 and fixed4[2][1]["narration_text"].startswith(SCENES[2][1])
    and fixed4[0][1]["image_prompt"] == "frame 0 of topic0", "toàn vỏ: chia cả kịch bản; không có phong cách thì chỉ dòng [SHOW]")
 
+print("── shot CÓ prompt ảnh mà mất LỜI (tập 330, 11/9/2026) ────────")
+
+
+def mute(num, with_img=False):
+    d = {"id": 100 + num, "storyboard_number": num, "narration_text": "",
+         "image_prompt": f"model prompt {num}", "scene_id": f"scene_00{num}", "angle": "Medium Shot"}
+    if with_img:
+        d["composed_image"] = f"C:/x/ep330_shot{num:03d}.jpg"
+    return d
+
+
+MUTED = [real(0, 1), real(1, 2), real(2, 3)] + [mute(n) for n in range(4, 10)] + \
+        [real(9, 10), real(10, 11), real(11, 12)]
+fixed5 = P.fill_empty_shots(MUTED, SCRIPT, STYLE)
+ok([sid for sid, _ in fixed5] == [104, 105, 106, 107, 108, 109]
+   and [p["narration_text"] for _, p in fixed5] == [SCENES[k][1] for k in range(3, 9)],
+   "6 shot có prompt mà mất lời: nhận ĐÚNG lời 6 cảnh bị rơi (bệnh cũ: bỏ qua vì 'có prompt')",
+   [sid for sid, _ in fixed5])
+ok(all(set(p) == {"narration_text", "tts_audio_url"} for _, p in fixed5),
+   "giữ nguyên prompt ảnh của model — chỉ nhận lời", [sorted(p) for _, p in fixed5][:1])
+fixed6 = P.fill_empty_shots([dict(s, **({"composed_image": "x.jpg"} if not s["narration_text"] else {}))
+                             for s in MUTED], SCRIPT, STYLE)
+ok(len(fixed6) == 6 and all("image_prompt" not in p for _, p in fixed6),
+   "Retry sau khi đã vẽ ảnh: vẫn lấp lời, không đụng tới ảnh", len(fixed6))
+ok(P.fill_empty_shots([real(i, i + 1) for i in range(12)] + [mute(13, True)], SCRIPT, STYLE) == [],
+   "shot không lời mà KHÔNG có cảnh nào bị rơi quanh nó (ảnh tự tải lên) → để nguyên")
+
 print("── _step_studio ──────────────────────────────────────────────")
 
 
@@ -121,12 +148,20 @@ ok(not st["warnings"], "lấp đủ → không cảnh báo", st["warnings"])
 ok(st.get("storyboard_coverage", 0) > 0.9, "độ phủ đo SAU khi lấp (bệnh cũ: 69–88% mà không ai cứu)", st.get("storyboard_coverage"))
 ok(any("filled 6 from the script" in str(a) for a in said), "thẻ bước nói đã lấp", said)
 out = P._render_result(st, {}, [], [], 1.0)
-ok("6 empty shot(s) filled from the script" in out, "thẻ kết quả nói đã lấp",
+ok("6 shot(s) without narration filled from the script" in out, "thẻ kết quả nói đã lấp",
    [l for l in out.splitlines() if "Storyboard" in l])
 
 st, puts, said = run_studio([real(i, i + 1) for i in range(12)] + [shell(13), shell(14)])
-ok(st.get("storyboard_filled") is None and any("2 storyboard shot(s) came back empty" in w for w in st["warnings"]),
+ok(st.get("storyboard_filled") is None
+   and any("2 storyboard shot(s) came back without narration" in w for w in st["warnings"]),
    "vỏ không khớp cảnh nào → để nguyên và CẢNH BÁO (không im lặng)", st["warnings"])
+
+st, puts, said = run_studio(MUTED)
+ok(st.get("storyboard_filled") == 6 and st.get("storyboard_coverage", 0) > 0.9 and not st["warnings"],
+   "_step_studio: 6 shot có prompt mà mất lời được lấp, độ phủ đo SAU khi lấp",
+   (st.get("storyboard_filled"), st.get("storyboard_coverage"), st["warnings"]))
+ok(all(set(p) == {"narration_text", "tts_audio_url"} for _, p in puts), "…PUT chỉ gửi lời, không đè prompt ảnh",
+   [sorted(p) for _, p in puts][:1])
 
 print()
 print("=" * 62)
