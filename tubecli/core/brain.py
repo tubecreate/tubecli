@@ -32,6 +32,81 @@ def _output_budget(default: int) -> int:
 # rev: 28455a7d6e3a
 
 
+# ── 9Router đứng TRƯỚC OpenRouter ─────────────────────────────────────────
+# Luật nhận diện trước đây bị CHÉP ra hai bản (định tuyến chính + đường
+# failover), và bản ở failover kẹt lại ở "cx/" sau khi bản chính đã biết cả bốn
+# namespace — nên cùng một model `ag/…` được coi là 9Router lúc gọi lần đầu và
+# là OpenRouter lúc thử lại. Một hàm, một sự thật.
+_9R_NS = ("cx/", "ag/", "kr/", "xai/")
+_9R_BASE = "http://localhost:20128/v1"
+
+# Hạng ưu tiên khi phải CHỌN HỘ một model 9Router (các đường failover). Đây là
+# TIỀN TỐ chứ không phải tên đầy đủ: 9Router đổi phiên bản liên tục
+# (gemini-3.8 hôm nay, 3.9 tuần sau), ghim tên đầy đủ là hẹn ngày hỏng. Ưu tiên
+# bản KHÔNG suy luận — failover là lúc cần một câu trả lời chắc, không phải câu
+# hay nhất, và model suy luận còn có thói tiêu hết ngân sách vào phần nghĩ.
+_9R_PREFER = ("ag/gemini-3.8-flash", "kr/claude-sonnet", "cx/gpt-5.6", "xai/grok-4")
+
+_9R_CACHE = {"at": 0.0, "ids": []}
+
+
+def is_9router_model(model: str) -> bool:
+    """Model này của 9Router? Nhận theo TÊN nên không cần nó đang chạy.
+
+    `ag/ kr/ cx/ xai/` không đụng cách đặt tên của OpenRouter (`anthropic/`,
+    `google/`, `x-ai/`…), nên đây là nhận dạng chắc chứ không phải đoán.
+    """
+    lower = str(model or "").lower()
+    return ("9router" in lower or "antigravity" in lower
+            or lower.startswith(_9R_NS))
+
+
+def list_9router_models(ttl: float = 60.0) -> List[str]:
+    """Danh mục model 9Router đang phục vụ THẬT; rỗng nếu nó không chạy.
+
+    PROVIDERS["9router"]["models"] là danh sách RỖNG, và đúng là phải rỗng:
+    9Router là proxy, danh mục của nó khác nhau theo từng máy. Nhưng mọi vòng
+    failover đều `if not prov_models: continue`, nên 9Router bị bỏ qua vĩnh
+    viễn dù có xếp nó đứng đầu thứ tự. Hỏi thẳng máy chủ là cách duy nhất đúng.
+
+    Nó nằm ở localhost: lúc tắt thì "connection refused" trả về tức thì, không
+    treo vòng failover. Thất bại KHÔNG được nhớ (chỉ nhớ kết quả có model), để
+    9Router vừa bật lên là dùng được ngay.
+    """
+    import time
+    now = time.time()
+    if _9R_CACHE["ids"] and (now - _9R_CACHE["at"]) < ttl:
+        return list(_9R_CACHE["ids"])
+    try:
+        import urllib.request
+        with urllib.request.urlopen(_9R_BASE + "/models", timeout=3) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+        ids = [str(m.get("id") or "") for m in (data.get("data") or []) if m.get("id")]
+    except Exception:      # noqa: BLE001 — không chạy là chuyện thường
+        return []
+    _9R_CACHE["at"] = now
+    _9R_CACHE["ids"] = ids
+    return list(ids)
+
+
+def pick_9router_model() -> str:
+    """Một model 9Router dùng được; "" nếu 9Router không chạy."""
+    ids = list_9router_models()
+    for pre in _9R_PREFER:
+        # KHỚP ĐÚNG trước rồi mới tới tiền tố. 9Router bày cùng một model thành
+        # nhiều mức nghĩ — `ag/gemini-3.8-flash` đi kèm `-low/-medium/-high` —
+        # và chúng đứng trước bản trần trong danh mục, nên so tiền tố không thôi
+        # sẽ bốc đúng bản `-high`: bản nghĩ nhiều nhất, tức bản dễ tiêu hết ngân
+        # sách vào phần nghĩ, đúng cái ta đang chạy trốn.
+        if pre in ids:
+            return pre
+    for pre in _9R_PREFER:
+        for i in ids:
+            if i.startswith(pre):
+                return i
+    return ids[0] if ids else ""
+
+
 def is_skill_runnable(s) -> bool:
     """Whether run_skill can actually execute this skill (dict or Skill object).
 
@@ -1074,10 +1149,30 @@ Rules:
         if model.startswith("@cf/"):
             return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
 
-        if "9router" in lower_model or "antigravity" in lower_model or "cx/" in lower_model:
+        # 9Router đặt tên model theo NAMESPACE, và nó có bốn cái, không phải một.
+        # Đo trên máy thật 10/9/2026 (85 model): kr 44 · ag 20 · cx 15 · xai 6.
+        # Luật cũ chỉ biết "cx/", nên 70/85 model rơi xuống nhánh dưới.
+        #
+        # Nhánh dưới ĐÁNG LẼ đỡ được, nhưng nó hỏng: điều kiện đòi "có khoá
+        # 9router VÀ KHÔNG có khoá openrouter", trong khi khối ngay trên đây
+        # (dòng ~1035) vừa điền khoá THIẾU từ kho chung — kể cả openrouter. Máy
+        # nào có khoá OpenRouter là điều kiện ấy vĩnh viễn sai, và mọi model
+        # `ag/…` đi thẳng sang OpenRouter rồi nhận
+        #   "ag/gemini-3.8-flash-medium is not a valid model ID"
+        # — một câu lỗi không nhắc gì tới 9Router, nên rất khó lần ngược về đây.
+        #
+        # Nhận theo TÊN là cách chắc: `ag/`, `kr/`, `xai/` không đụng tên của
+        # OpenRouter (ở đó là `anthropic/`, `google/`, `x-ai/`…).
+        if is_9router_model(model):
             is_9router = True
         elif "/" in model and not model.startswith("http"):
-            if cloud_keys.get("9router") and not cloud_keys.get("openrouter"):
+            # Tên nhập nhằng kiểu `vendor/model`: HỎI 9Router có phục vụ đúng
+            # cái tên ấy không, rồi mới tính tới OpenRouter. Luật cũ hỏi khoá
+            # ("có khoá 9router VÀ KHÔNG có khoá openrouter") nên không bao giờ
+            # đúng — khối điền khoá ở trên vừa lấp khoá openrouter từ kho chung.
+            # Hỏi danh mục thì trả lời được cả khi hai bên trùng tên, và 9Router
+            # ở localhost nên câu hỏi này rẻ.
+            if model in list_9router_models():
                 is_9router = True
             else:
                 is_openrouter = True
@@ -1239,7 +1334,7 @@ Rules:
         if p == "openrouter":
             return AgentBrain._call_openai(model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
         if p == "9router":
-            return AgentBrain._call_openai(model, key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+            return AgentBrain._call_openai(model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
         if p == "cloudflare":
             return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
 
@@ -1265,14 +1360,21 @@ Rules:
         lower = str(failed_model or "").lower()
         failed = next((p for p in ("deepseek", "gemini", "openai", "grok", "claude", "openrouter", "9router")
                        if p in lower), "")
-        for provider in ["gemini", "openai", "grok", "claude", "openrouter", "deepseek"]:
+        for provider in ["9router", "gemini", "openai", "grok", "claude", "openrouter", "deepseek"]:
             if provider == failed:
                 continue
             key = cloud_keys.get(provider, "")
-            prov_models = PROVIDERS.get(provider, {}).get("models", []) if key else []
-            if not prov_models:
-                continue
-            alt_model = prov_models[0]
+            if provider == "9router":
+                # Chạy nội bộ: không cần khoá, và danh mục phải HỎI chứ
+                # PROVIDERS để rỗng — xem list_9router_models().
+                alt_model = pick_9router_model()
+                if not alt_model:
+                    continue
+            else:
+                prov_models = PROVIDERS.get(provider, {}).get("models", []) if key else []
+                if not prov_models:
+                    continue
+                alt_model = prov_models[0]
             print(f"[Brain] 🔄 {failed_model} spent its budget on reasoning → trying {provider}/{alt_model}")
             try:
                 if provider == "gemini":
@@ -1285,6 +1387,8 @@ Rules:
                     result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.x.ai/v1", temperature=temperature)
                 elif provider == "deepseek":
                     result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
+                elif provider == "9router":
+                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
                 else:
                     result = AgentBrain._call_openai(alt_model, key, messages, temperature=temperature)
             except Exception as e:
@@ -1308,14 +1412,21 @@ Rules:
         except Exception:
             return None
 
-        for provider in ["gemini", "deepseek", "openai", "grok", "openrouter", "claude", "9router"]:
+        for provider in ["9router", "gemini", "deepseek", "openai", "grok", "openrouter", "claude"]:
             key = cloud_keys.get(provider, "")
-            if not key:
-                continue
-            prov_models = PROVIDERS.get(provider, {}).get("models", [])
-            if not prov_models:
-                continue
-            alt_model = prov_models[0]
+            if provider == "9router":
+                # Không đòi khoá: 9Router chạy nội bộ. Nó đứng đầu vì không tốn
+                # tiền và không có hạn mức — đúng thứ cần khi đang phải đi cứu.
+                alt_model = pick_9router_model()
+                if not alt_model:
+                    continue
+            else:
+                if not key:
+                    continue
+                prov_models = PROVIDERS.get(provider, {}).get("models", [])
+                if not prov_models:
+                    continue
+                alt_model = prov_models[0]
             print(f"[Brain] 🔄 Ollama missing → trying {provider}/{alt_model}...")
             try:
                 if provider == "gemini":
@@ -1331,7 +1442,7 @@ Rules:
                 elif provider == "openrouter":
                     result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                 else:  # 9router
-                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
             except Exception as e:
                 print(f"[Brain] Cloud fallback {provider} raised: {e}")
                 continue
@@ -1357,7 +1468,10 @@ Rules:
             # Detect which provider failed
             failed_provider = None
             lower_failed = failed_model.lower()
-            is_9router = "9router" in lower_failed or "antigravity" in lower_failed or "cx/" in lower_failed
+            # Bản chép tay ở đây từng chỉ biết "cx/", nên một model `ag/…` hỏng
+            # bị ghi sổ là "openrouter hỏng" — báo sai khoá hỏng cho KeyManager
+            # và loại nhầm provider khỏi vòng thử lại.
+            is_9router = is_9router_model(failed_model)
             is_openrouter = "/" in failed_model and not failed_model.startswith("http") and not is_9router
             
             if is_9router:
@@ -1409,7 +1523,7 @@ Rules:
                         return result
             
             # Step 3: Try a DIFFERENT cloud provider
-            fallback_order = ["openrouter", "gemini", "deepseek", "openai", "grok", "claude", "9router"]
+            fallback_order = ["9router", "openrouter", "gemini", "deepseek", "openai", "grok", "claude"]
             for provider in fallback_order:
                 if provider == failed_provider:
                     continue
@@ -1418,7 +1532,12 @@ Rules:
                     prov_models = PROVIDERS.get(provider, {}).get("models", [])
                     alt_model = prov_models[0] if prov_models else None
                     if not alt_model and provider == "9router":
-                        alt_model = "deepseek-chat"
+                        # "deepseek-chat" là tên ĐOÁN và nó sai: đo trên máy
+                        # thật 10/9/2026, cả 85 model của 9Router đều có tiền tố
+                        # namespace, không có cái tên trần nào. Nhánh này vì thế
+                        # chưa bao giờ cứu được ai — nó chỉ đổi lỗi này lấy lỗi
+                        # "model không tồn tại".
+                        alt_model = pick_9router_model()
                     if not alt_model:
                         continue
                     
@@ -1436,7 +1555,7 @@ Rules:
                     elif provider == "openrouter":
                         result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                     elif provider == "9router":
-                        result = AgentBrain._call_openai(alt_model, alt_key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+                        result = AgentBrain._call_openai(alt_model, alt_key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
                     else:
                         continue
                     
