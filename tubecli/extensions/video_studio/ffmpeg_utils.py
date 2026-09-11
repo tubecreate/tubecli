@@ -4,6 +4,7 @@ ffmpeg/ffprobe helpers for video_studio.
 Kept separate so the engines never shell out ad hoc, and so a missing ffmpeg
 produces one clear message instead of a raw OSError deep in a filter chain.
 """
+import glob
 import logging
 import os
 import subprocess
@@ -55,6 +56,14 @@ def _known_dirs() -> List[str]:
             os.path.join(program_files, "ffmpeg", "bin"),
             os.path.join(local, "Microsoft", "WinGet", "Links"),
         ]
+        # winget cài gói "portable" (Gyan.FFmpeg) vào Packages\<gói>\<bản>\bin, và
+        # chỉ tạo lối tắt ở Links khi được phép tạo symlink — không thì nó thêm
+        # thẳng thư mục bin vào PATH NGƯỜI DÙNG, mà máy chủ bật từ Connect không
+        # thấy PATH mới đó (máy PC của user 11/9/2026: `where ffmpeg` →
+        # …\WinGet\Packages\Gyan.FFmpeg_…\ffmpeg-9.0.1-full_build\bin).
+        if local:
+            pk = os.path.join(local, "Microsoft", "WinGet", "Packages")
+            dirs += sorted(glob.glob(os.path.join(pk, "*FFmpeg*", "*", "bin")), reverse=True)
         # Versioned unzip-anywhere builds: C:\ffmpeg-7.1.1-essentials_build\bin
         try:
             for entry in os.listdir("C:\\"):
@@ -91,15 +100,18 @@ def _runs(exe: str) -> bool:
     return r.returncode == 0 and b"version" in (r.stdout or b"").lower()
 
 
-# name -> resolved path, or None once every candidate has been rejected.
+# name -> resolved path. Chỉ nhớ khi THẤY: nhớ cả "không có" thì cài ffmpeg xong
+# vẫn phải khởi động lại TubeCLI mới hết báo thiếu — bấm Retry không ăn thua (máy
+# PC của user, 11/9/2026). Chưa thấy thì dò lại: vài phép isfile, rẻ.
 _RESOLVED: dict = {}
 
 
 def _which(name: str) -> Optional[str]:
-    if name in _RESOLVED:
+    if _RESOLVED.get(name):
         return _RESOLVED[name]
     result = _which_uncached(name)
-    _RESOLVED[name] = result
+    if result:
+        _RESOLVED[name] = result
     return result
 
 
