@@ -41,6 +41,9 @@ def ok(cond, label, detail=""):
 
 KEYS = {}
 CA.key_manager.get_active_key = lambda name: KEYS.get(name, "")
+# Endpoint 9Router cũng giả lập: máy chạy test có thể đã trỏ 9Router sang máy khác (Cloud API
+# Keys), và kho thật ấy không được lọt vào phép so địa chỉ bên dưới (13/9/2026).
+CA.key_manager.get_base_url = lambda name: CA._DEFAULT_BASE_URLS.get(name, "")
 B.list_9router_models = lambda ttl=60.0: ["ag/gemini-3.8-flash", "openai/gpt-oss-120b"]
 R = B.AgentBrain.openai_compat_params
 R9 = B._9R_BASE
