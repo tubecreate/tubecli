@@ -343,6 +343,8 @@ body {
 
 /* Status accents */
 .cx-card.st-pending_approval, .cx-stat.st-pending_approval, .cx-chip.st-pending_approval { --cx-accent: var(--cx-orange); }
+/* Hàng đợi = xanh của "Sắp chạy" pha xám: đã giao nhưng chưa tới lượt. */
+.cx-card.st-backlog, .cx-stat.st-backlog, .cx-chip.st-backlog { --cx-accent: color-mix(in srgb, var(--cx-blue) 55%, var(--text-muted)); }
 .cx-card.st-queued,  .cx-stat.st-queued,  .cx-chip.st-queued  { --cx-accent: var(--cx-blue); }
 .cx-card.st-running, .cx-stat.st-running, .cx-chip.st-running { --cx-accent: var(--cx-purple); }
 .cx-card.st-review,  .cx-stat.st-review,  .cx-chip.st-review  { --cx-accent: var(--cx-pink); }
@@ -351,6 +353,7 @@ body {
 .cx-card.st-rejected,  .cx-chip.st-rejected  { --cx-accent: var(--text-muted); }
 .cx-card.st-cancelled, .cx-chip.st-cancelled { --cx-accent: var(--text-muted); }
 .cx-card.st-running .cx-badge .material-symbols-outlined { animation: cx-spin 1.4s linear infinite; }
+.cx-card-meta .cx-meta-pos { color: var(--cx-accent); font-weight: 600; }
 
 /* Step progress strip */
 .cx-strip { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
@@ -509,7 +512,7 @@ body {
 .cx-modal-head h2 { font-size: 1.02rem; font-weight: 700; }
 .cx-modal-body { padding: 20px; overflow-y: auto; flex: 1; min-height: 0; }
 .cx-modal-foot {
-    display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+    display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px;
     padding: 14px 20px; border-top: 1px solid var(--border); flex-shrink: 0;
 }
 

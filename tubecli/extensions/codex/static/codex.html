@@ -226,6 +226,13 @@
       <div class="cx-modal-foot">
         <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-new')"
                 data-i18n="codex.btn_cancel">Cancel</button>
+        <!-- Chỉ hiện với "Tạo video": chờ tới lượt trong hàng đợi thay vì chạy liền. -->
+        <button type="button" class="cx-btn cx-btn-ghost hidden" id="cx-queue-btn" onclick="CODEX.queueVideo()"
+                data-i18n-title="codex.btn_queue_video_hint"
+                title="Waits its turn: Codex makes backlog videos one at a time, whenever no other video is being made">
+          <span class="material-symbols-outlined">playlist_add</span>
+          <span data-i18n="codex.btn_queue_video">Add to backlog</span>
+        </button>
         <button type="button" class="cx-btn cx-btn-primary" id="cx-create-btn" onclick="CODEX.submitNewTask()">
           <span id="cx-create-label" data-i18n="codex.btn_create">Create task</span>
         </button>

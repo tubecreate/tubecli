@@ -50,6 +50,9 @@ class RunRequest(BaseModel):
     content: str = ""
     # True: dừng ở kịch bản cho người duyệt (hai chặng). False: chạy thẳng tới mp4.
     review: bool = True
+    # True: nút "Đưa vào hàng đợi" của cửa sổ Codex — task vào hàng đợi, Codex tự
+    # chạy khi không còn video nào đang làm. False: chạy liền, chen trước hàng đợi.
+    queue: bool = False
 
 
 @router.get("/capabilities")
@@ -122,22 +125,32 @@ async def run_route(req: RunRequest, request: Request):
     # vẫn theo luật duyệt của codex như cũ.
     label = "Video from content"
     approval = False if created_by == "user" else None
+    # `hold` chỉ gửi khi xin hàng đợi: lời gọi thường giữ nguyên từng đối số như cũ.
+    hold = {"hold": True} if req.queue else {}
     try:
         if not content:
             # Đường cũ, GIỮ NGUYÊN tên hàm và từng đối số. Skill, canvas và test
             # vẫn chặn đúng cái tên create_digest_task: gọi sang tên khác là lọt
             # qua mock của họ và tạo task THẬT trên bảng Codex đang chạy.
             task = await asyncio.to_thread(
-                create_digest_task, agent_id, req.options, created_by, origin, sources)
+                create_digest_task, agent_id, req.options, created_by, origin, sources, **hold)
         elif not req.review:
             task = await asyncio.to_thread(lambda: create_auto_task(
                 agent_id, options, created_by=created_by, origin=origin,
-                job_label=label, sources=sources))
+                job_label=label, sources=sources, **hold))
         else:
             task = await asyncio.to_thread(lambda: create_plan_task(
                 agent_id, options, created_by=created_by, origin=origin, sources=sources,
-                job_label=label, approval_required=approval))
+                job_label=label, approval_required=approval, **hold))
     except Exception as e:
         logger.error(f"[ContentVideo] queueing failed: {e}", exc_info=True)
         raise HTTPException(500, str(e))
-    return {"status": "queued", "task": task, "report": queued_reply(task)}
+    out = {"status": "queued", "task": task, "report": queued_reply(task)}
+    if (task or {}).get("status") == "backlog":
+        # Cửa sổ Codex nói "thứ N trong hàng đợi" ngay lúc tạo.
+        try:
+            from tubecli.extensions.codex.manager import codex_manager
+            out["position"] = codex_manager.backlog_position(task["id"])
+        except Exception:
+            out["position"] = 0
+    return out

@@ -29,6 +29,7 @@ logger = logging.getLogger("Codex")
 
 STATUS_ICON = {
     "pending_approval": "🟡",
+    "backlog": "📥",
     "queued": "⏳",
     "running": "⚙️",
     "review": "🔍",

@@ -74,7 +74,7 @@ OK_OUTCOMES = ("completed", "partial", "timeout_killed")
 # Hai lượt kết thúc sát nhau (agent chạy nhiều hồ sơ) không được thành hai video.
 DEBOUNCE_SEC = 10 * 60
 # Trạng thái codex nghĩa là "việc trước còn dở" — còn dở thì đừng xếp thêm.
-UNFINISHED = ("pending_approval", "queued", "running", "review")
+UNFINISHED = ("pending_approval", "backlog", "queued", "running", "review")
 JOB_LABEL = "Auto publish"
 ACTOR = "autopublish"
 

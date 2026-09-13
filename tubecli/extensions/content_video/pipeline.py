@@ -50,6 +50,10 @@ KIND_RENDER = "content_video.render"
 KIND_AUTO = "content_video.auto"
 KIND = KIND_PLAN          # what the entry points queue
 ACTOR = "content_video"
+# Làn trên Codex của MỌI task video (kịch bản, tự động, dựng). Hàng đợi của Codex
+# thả video kế tiếp khi làn này không còn task queued/running — xem
+# codex/manager.py _release_backlog.
+CODEX_LANE = "video"
 
 # step id, board label, capability job, whether a full run may skip it
 PLAN_STEPS = [
@@ -4491,11 +4495,14 @@ def create_plan_task(agent_id: str, options: Optional[Dict] = None,
                      approval_required: Optional[bool] = None,
                      high_water_prev: Optional[str] = None,
                      high_water: Optional[str] = None,
-                     tracker_id: Optional[str] = None) -> Dict:
+                     tracker_id: Optional[str] = None,
+                     hold: bool = False) -> Dict:
     """Queue stage 1 (the script for review) as a codex task and stamp its kind.
 
     `approval_required=None` follows the codex auto-approve policy (what a chat
-    turn gets); a scheduler passes an explicit value.
+    turn gets); a scheduler passes an explicit value. `hold=True` = nút "Đưa vào
+    hàng đợi": task chờ trong hàng đợi của Codex, tự chạy khi không còn video nào
+    đang làm.
     """
     from tubecli.core.agent import agent_manager
     from tubecli.extensions.codex.manager import codex_manager
@@ -4517,6 +4524,8 @@ def create_plan_task(agent_id: str, options: Optional[Dict] = None,
         assignee_id=str(agent_id),
         assignee_name=name,
         approval_required=approval_required,
+        lane=CODEX_LANE,
+        hold=hold,
     )
     # The whole data dict becomes the executor's payload; keep it small.
     codex_manager.append_event(
@@ -4538,11 +4547,13 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
                      job_label: str = "Auto publish",
                      high_water_prev: Optional[str] = None,
                      high_water: Optional[str] = None,
-                     sources: Optional[List[str]] = None) -> Dict:
+                     sources: Optional[List[str]] = None,
+                     hold: bool = False) -> Dict:
     """Xếp MỘT task chạy trọn chuỗi rồi đăng. Không ô duyệt ở giữa.
 
     approval_required=False: cổng duyệt TRƯỚC khi chạy cũng bỏ luôn, vì lượt
-    này do lịch kích hoạt chứ không do ai gõ lệnh.
+    này do lịch kích hoạt chứ không do ai gõ lệnh. hold=True: vào hàng đợi của
+    Codex, như create_plan_task.
     """
     from tubecli.core.agent import agent_manager
     from tubecli.extensions.codex.manager import codex_manager
@@ -4573,6 +4584,8 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
         assignee_id=str(agent_id),
         assignee_name=name,
         approval_required=False,
+        lane=CODEX_LANE,
+        hold=hold,
     )
     codex_manager.append_event(
         task["id"], "log", f"{job_label} queued (runs straight through)", actor=ACTOR,
@@ -4623,6 +4636,7 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
         assignee_id=agent_id,
         assignee_name=str(plan_task.get("assignee_name") or ""),
         approval_required=False,          # the script IS the approval
+        lane=CODEX_LANE,                  # dựng cũng chiếm làn: hàng đợi chờ nó xong
     )
     codex_manager.append_event(
         task["id"], "log", f"Render queued from accepted plan #{plan_task.get('seq')}", actor=ACTOR,
@@ -4642,7 +4656,11 @@ def queued_reply(task: Dict, job_label: str = "Content video") -> str:
     draws one live card for a task no matter where it was queued from."""
     from tubecli.core.bot_i18n import t
 
-    queued = task.get("status") == "queued"
-    head = (t("vs.queued_job", job=job_label, seq=task.get("seq"))
-            + t("vs.starting_now" if queued else "vs.awaiting_approval"))
+    status = task.get("status")
+    head = t("vs.queued_job", job=job_label, seq=task.get("seq"))
+    if status == "queued":
+        head += t("vs.starting_now")
+    elif status != "backlog":
+        # Trong hàng đợi thì không "bắt đầu ngay" mà cũng không "chờ bạn duyệt".
+        head += t("vs.awaiting_approval")
     return f"{head}\n\n<!--codex:{task['id']}:{task['seq']}:{task.get('status', '')}-->"

@@ -11,6 +11,7 @@ console = Console()
 
 _ICON = {
     "pending_approval": "🟡",
+    "backlog": "📥",
     "queued": "⏳",
     "running": "⚙️",
     "review": "🔍",

@@ -18,13 +18,14 @@ const CODEX = (() => {
   const ERR_TOAST_COOLDOWN = 20000;
 
   const STATES = [
-    'pending_approval', 'queued', 'running', 'review',
+    'pending_approval', 'backlog', 'queued', 'running', 'review',
     'done', 'failed', 'rejected', 'cancelled',
   ];
-  const ACTIVE_STATES = new Set(['pending_approval', 'queued', 'running', 'review']);
+  const ACTIVE_STATES = new Set(['pending_approval', 'backlog', 'queued', 'running', 'review']);
 
   const STATUS_ICON = {
     pending_approval: 'pending_actions',
+    backlog: 'stacks',
     queued: 'schedule',
     running: 'progress_activity',
     review: 'rate_review',
@@ -47,6 +48,7 @@ const CODEX = (() => {
   const STAT_TILES = [
     { key: 'total', filter: 'all', icon: 'inbox', label: 'codex.stat_total' },
     { key: 'pending_approval', filter: 'pending_approval', icon: 'pending_actions', label: 'codex.stat_pending_approval' },
+    { key: 'backlog', filter: 'backlog', icon: 'stacks', label: 'codex.stat_backlog' },
     { key: 'queued', filter: 'queued', icon: 'schedule', label: 'codex.stat_queued' },
     { key: 'running', filter: 'running', icon: 'bolt', label: 'codex.stat_running' },
     { key: 'review', filter: 'review', icon: 'rate_review', label: 'codex.stat_review' },
@@ -469,6 +471,8 @@ const CODEX = (() => {
     const assigneeIcon = task.assignee_type === 'team' ? 'groups' : 'smart_toy';
 
     const meta = [];
+    const pos = task.status === 'backlog' ? backlogPosition(task) : 0;
+    if (pos) meta.push(`<span class="cx-meta-pos">${icon('format_list_numbered')}${esc(t('codex.meta_backlog_pos', { n: pos }))}</span>`);
     meta.push(`<span title="${esc(assignee)}">${icon(assigneeIcon)}${esc(assignee)}</span>`);
     meta.push(`<span>${icon('schedule')}${esc(relTime(task.created_at))}</span>`);
     if (task.created_by) meta.push(`<span>${icon('person')}${esc(t('codex.meta_created_by', { actor: task.created_by }))}</span>`);
@@ -494,6 +498,19 @@ const CODEX = (() => {
       </article>`;
   }
 
+  /** Thứ tự (từ 1) của task trong hàng đợi của làn nó — sắp y hệt _backlog_key bên
+      manager.py: ưu tiên cao trước, rồi tạo trước, rồi số task. */
+  function backlogPosition(task) {
+    const lane = task.lane || '';
+    const cmp = (a, b) => (a < b ? -1 : (a > b ? 1 : 0));
+    const line = state.tasks
+      .filter(x => x.status === 'backlog' && (x.lane || '') === lane)
+      .sort((a, b) => (Number(b.priority || 0) - Number(a.priority || 0)) ||
+        cmp(String(a.created_at || ''), String(b.created_at || '')) ||
+        (Number(a.seq || 0) - Number(b.seq || 0)));
+    return line.findIndex(x => x.id === task.id) + 1;
+  }
+
   function stripHtml(task) {
     const steps = Array.isArray(task.steps) ? task.steps : [];
     if (!steps.length) return '';
@@ -515,6 +532,9 @@ const CODEX = (() => {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
                b('cx-btn-danger', 'reject', 'close', 'codex.action_reject');
+      case 'backlog':
+        return b('cx-btn-ghost', 'runNow', 'play_arrow', 'codex.action_run_now') +
+               b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
       case 'queued':
       case 'running':
         return b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
@@ -551,7 +571,7 @@ const CODEX = (() => {
 
     // AI plan
     const plan = Array.isArray(task.plan) ? task.plan : [];
-    const canPlan = ['pending_approval', 'queued', 'rejected', 'failed'].indexOf(task.status) >= 0;
+    const canPlan = ['pending_approval', 'backlog', 'queued', 'rejected', 'failed'].indexOf(task.status) >= 0;
     if (plan.length) {
       parts.push(`<div class="cx-section">
           <div class="cx-section-title">${icon('lightbulb')}${esc(t('codex.section_plan'))}</div>
@@ -759,6 +779,7 @@ const CODEX = (() => {
   function approve(id) { act(id, '/approve', { actor: ACTOR, note: '' }, 'codex.toast_approved'); }
   function cancel(id) { act(id, '/cancel', { actor: ACTOR }, 'codex.toast_cancelled'); }
   function retry(id) { act(id, '/retry', { actor: ACTOR }, 'codex.toast_retried'); }
+  function runNow(id) { act(id, '/run-now', { actor: ACTOR }, 'codex.toast_run_now'); }
   function accept(id) { act(id, '/review', { accepted: true, actor: ACTOR, feedback: '' }, 'codex.toast_accepted'); }
 
   function reject(id) { openNote('reject', id); }
@@ -846,6 +867,7 @@ const CODEX = (() => {
     renderVideoSummary();
     const btn = $('cx-create-btn');
     btn.disabled = false;
+    $('cx-queue-btn').disabled = false;
     $('cx-modal-new').classList.remove('hidden');
     setNewKind(lsGet(NEW_KIND_KEY) || 'general');
     // Mẫu và agent là hai lời gọi độc lập — nạp song song, đừng bắt người dùng
@@ -950,6 +972,8 @@ const CODEX = (() => {
       b.setAttribute('aria-checked', String(b.dataset.kind === state.newKind)));
     $('cx-new-general').classList.toggle('hidden', video);
     $('cx-new-video').classList.toggle('hidden', !video);
+    // "Đưa vào hàng đợi" chỉ có với video: việc chung không có làn để chờ tới lượt.
+    $('cx-queue-btn').classList.toggle('hidden', !video);
     const label = $('cx-create-label');
     const key = video ? 'codex.btn_create_video' : 'codex.btn_create';
     label.setAttribute('data-i18n', key);
@@ -1133,7 +1157,13 @@ const CODEX = (() => {
     renderVideoLength();
   }
 
-  async function submitVideo() {
+  /** Nút "Đưa vào hàng đợi": như "Tạo video", nhưng task chờ tới lượt trong hàng đợi. */
+  function queueVideo() { return submitVideo(true); }
+
+  /** queue=true: vào hàng đợi — Codex tự chạy khi không còn video nào đang làm.
+      Bỏ trống (nút "Tạo video"): chạy liền, chen trước hàng đợi. */
+  async function submitVideo(queue) {
+    const hold = queue === true;
     const content = ($('cx-v-content').value || '').trim();
     const preset = $('cx-v-preset').value || '';
     const agentId = $('cx-v-agent').value || '';
@@ -1166,14 +1196,14 @@ const CODEX = (() => {
     options.length_mode = lengthMode;
     if (lengthMode === 'minutes') options.target_words = clampMinutes($('cx-v-minutes').value) * CV_WPM;
 
-    const btn = $('cx-create-btn');
-    btn.disabled = true;
+    const btns = [$('cx-create-btn'), $('cx-queue-btn')];
+    btns.forEach(b => { b.disabled = true; });
     try {
       const data = await request('/api/v1/content-video/run', {
         method: 'POST',
         body: JSON.stringify({
           agent_id: agentId, content: content, review: review,
-          options: options, created_by: 'user',
+          options: options, created_by: 'user', queue: hold,
         }),
       });
       if (!data || data.status !== 'queued') {
@@ -1181,10 +1211,21 @@ const CODEX = (() => {
       }
       const task = data.task || {};
       state.createdTask = task;
-      toast(t('codex.toast_video_queued', { seq: task.seq || '?' }), 'success');
-      $('cx-created-title').textContent = t('codex.created_video_title', { seq: task.seq || '?' });
-      $('cx-created-desc').textContent = t(review ? 'codex.created_video_desc_review'
-                                                  : 'codex.created_video_desc_auto');
+      const seq = task.seq || '?';
+      // Nói theo trạng thái THẬT của task: máy chủ bản cũ không biết `queue` và cho
+      // chạy liền — khi đó đừng báo "đã vào hàng đợi".
+      if (task.status === 'backlog') {
+        const pos = Math.max(1, Number(data.position) || 1);
+        toast(t('codex.toast_video_backlog', { seq: seq, pos: pos }), 'success');
+        $('cx-created-title').textContent = t('codex.created_backlog_title', { seq: seq, pos: pos });
+        $('cx-created-desc').textContent = t(review ? 'codex.created_backlog_desc_review'
+                                                    : 'codex.created_backlog_desc_auto');
+      } else {
+        toast(t('codex.toast_video_queued', { seq: seq }), 'success');
+        $('cx-created-title').textContent = t('codex.created_video_title', { seq: seq });
+        $('cx-created-desc').textContent = t(review ? 'codex.created_video_desc_review'
+                                                    : 'codex.created_video_desc_auto');
+      }
       // "Lên kế hoạch bằng AI" là của việc chung; dây chuyền video đã có sẵn các bước.
       $('cx-plan-btn').classList.add('hidden');
       $('cx-new-step-form').classList.add('hidden');
@@ -1193,7 +1234,7 @@ const CODEX = (() => {
     } catch (e) {
       toast(t('codex.toast_action_failed', { error: e.message }), 'error');
     } finally {
-      btn.disabled = false;
+      btns.forEach(b => { b.disabled = false; });
     }
   }
 
@@ -1282,8 +1323,8 @@ const CODEX = (() => {
   // ── Public surface (referenced by inline onclick handlers) ─────
   return {
     init, refresh, toggle, collapse, setFilter, onSearch, setAuto, setAutoApprove,
-    approve, reject, cancel, retry, accept, requestChanges,
+    approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, copyResult, planTask,
-    openNewTask, submitNewTask, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, planFromModal, closeModal, onBackdrop,
   };
 })();

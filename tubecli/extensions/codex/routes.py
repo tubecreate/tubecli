@@ -107,6 +107,9 @@ class CreateTaskRequest(BaseModel):
     priority: int = 0
     created_by: str = "user"
     origin: Optional[Dict[str, Any]] = None
+    # "Đưa vào hàng đợi": vào backlog, chờ tới lượt trong làn `lane`.
+    lane: str = ""
+    hold: bool = False
 
 
 class UpdateTaskRequest(BaseModel):
@@ -208,6 +211,8 @@ async def create_task(req: CreateTaskRequest):
         skill_name=req.skill_name,
         approval_required=req.approval_required,
         priority=req.priority,
+        lane=req.lane,
+        hold=req.hold,
     )
     return {"status": "created", "task": task}
 
@@ -325,6 +330,15 @@ async def retry_task(task_id: str, req: DecisionRequest = DecisionRequest()):
     task = _require(task_id)
     return {"status": "queued", "task": _guard(
         codex_manager.retry, task["id"], actor=req.actor
+    )}
+
+
+@router.post("/tasks/{task_id}/run-now")
+async def run_now_task(task_id: str, req: DecisionRequest = DecisionRequest()):
+    """Task trong hàng đợi chạy ngay, không chờ tới lượt."""
+    task = _require(task_id)
+    return {"status": "queued", "task": _guard(
+        codex_manager.run_now, task["id"], actor=req.actor
     )}
 
 

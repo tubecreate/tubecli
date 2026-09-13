@@ -40,6 +40,9 @@ EVENTS_DIR = os.path.join(CODEX_DATA_DIR, "events")
 
 # ── States ───────────────────────────────────────────────────────────
 PENDING_APPROVAL = "pending_approval"
+# Hàng đợi: đã giao nhưng CHỜ TỚI LƯỢT. Worker không nhận thẳng từ đây — claim_next
+# thả từng task sang queued khi làn (lane) của nó không còn gì queued/running.
+BACKLOG = "backlog"
 QUEUED = "queued"
 RUNNING = "running"
 REVIEW = "review"
@@ -49,12 +52,13 @@ REJECTED = "rejected"
 CANCELLED = "cancelled"
 
 ALL_STATES = [
-    PENDING_APPROVAL, QUEUED, RUNNING, REVIEW, DONE, FAILED, REJECTED, CANCELLED,
+    PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW, DONE, FAILED, REJECTED, CANCELLED,
 ]
 
 # Allowed transitions. Anything not listed here is refused by _transition().
 TRANSITIONS: Dict[str, set] = {
-    PENDING_APPROVAL: {QUEUED, REJECTED, CANCELLED},
+    PENDING_APPROVAL: {BACKLOG, QUEUED, REJECTED, CANCELLED},
+    BACKLOG: {QUEUED, CANCELLED},
     QUEUED: {RUNNING, CANCELLED},
     RUNNING: {REVIEW, DONE, FAILED, CANCELLED},
     REVIEW: {DONE, QUEUED, CANCELLED},
@@ -64,7 +68,12 @@ TRANSITIONS: Dict[str, set] = {
     CANCELLED: set(),
 }
 
-ACTIVE_STATES = {PENDING_APPROVAL, QUEUED, RUNNING, REVIEW}
+ACTIVE_STATES = {PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW}
+
+# Trạng thái GIỮ LÀN: còn một task như vậy thì hàng đợi của làn đó chưa thả cái kế
+# tiếp. Review không giữ — video nằm chờ nghiệm thu thì video sau vẫn chạy; chờ
+# duyệt và lỗi cũng không (chúng chờ người, không chiếm máy).
+LANE_BUSY = (QUEUED, RUNNING)
 
 # Step status vocabulary — identical to PipelineStep (core/pipeline_tracker.py)
 STEP_PENDING = "pending"
@@ -470,9 +479,16 @@ class CodexManager:
         skill_name: str = "",
         approval_required: Optional[bool] = None,
         priority: int = 0,
+        lane: str = "",
+        hold: bool = False,
     ) -> Dict[str, Any]:
         """Create a task. Tasks created by the AI always require human approval
-        unless the `codex_brain_auto_approve` setting says otherwise."""
+        unless the `codex_brain_auto_approve` setting says otherwise.
+
+        `hold=True` = "Đưa vào hàng đợi": task vào backlog thay vì queued và chờ tới
+        lượt trong làn `lane` (content_video dùng làn "video"). Task cần duyệt thì
+        duyệt xong mới vào hàng đợi.
+        """
         self._ensure_loaded()
         goal = (goal or "").strip()
         if not goal:
@@ -508,12 +524,17 @@ class CodexManager:
                 assignee_name=assignee_name,
                 skill_ref=skill_ref,
                 priority=priority,
-                status=PENDING_APPROVAL if approval_required else QUEUED,
+                status=PENDING_APPROVAL if approval_required else (BACKLOG if hold else QUEUED),
             )
             task.approval["required"] = bool(approval_required)
             if not approval_required:
                 task.approval.update({"decided_by": created_by, "decided_at": _now()})
             data = task.to_dict()
+            # Chỉ ghi khi có: task của mọi extension khác giữ nguyên hình dạng cũ.
+            if lane:
+                data["lane"] = str(lane)
+            if hold:
+                data["hold"] = True
             self._tasks[task.id] = data
             self._save()
 
@@ -531,7 +552,7 @@ class CodexManager:
                    title=_md(task.title), goal=_md(goal[:400])),
             )
         else:
-            self.append_event(task.id, "state", f"→ {QUEUED}", actor=created_by)
+            self.append_event(task.id, "state", f"→ {data['status']}", actor=created_by)
         return data
 
     # ── State machine ────────────────────────────────────────────
@@ -616,15 +637,17 @@ class CodexManager:
             raise ValueError("The AI is not allowed to approve its own tasks")
         approval = dict(task.get("approval") or {})
         approval.update({"decided_by": actor, "decided_at": _now(), "note": note})
+        # Task xin vào hàng đợi thì duyệt xong vẫn phải chờ tới lượt, không chạy liền.
+        target = BACKLOG if task.get("hold") else QUEUED
         updated, changed = self._settle(
-            task_id, QUEUED, actor,
+            task_id, target, actor,
             message=f"Approved by {actor}" + (f": {note}" if note else ""),
             updates={"approval": approval, "error": ""},
         )
         if not changed:
             # Already queued: a second click must not restamp the approval nor
             # ping the owner again.
-            logger.info(f"[Codex] approve ignored, task {task_id} is already queued")
+            logger.info(f"[Codex] approve ignored, task {task_id} is already {target}")
             return updated
         self.append_event(task_id, "approval", f"✅ Approved by {actor}", actor=actor)
         return updated
@@ -657,6 +680,21 @@ class CodexManager:
             task_id, CANCELLED, actor,
             message=f"Cancelled by {actor}",
             updates={"finished_at": _now()},
+        )
+        return updated
+
+    def run_now(self, task_id: str, actor: str = "user") -> Dict[str, Any]:
+        """Nút "Chạy ngay" của task trong hàng đợi: sang queued liền, không chờ tới
+        lượt. Bấm hai lần (hay task vừa được thả đúng lúc đó) là no-op."""
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+        if task.get("status") not in (BACKLOG, QUEUED):
+            raise ValueError(
+                f"Task #{task.get('seq')} is not waiting in the backlog (it is {task.get('status')})"
+            )
+        updated, _changed = self._settle(
+            task_id, QUEUED, actor, message=f"Started ahead of the backlog by {actor}",
         )
         return updated
 
@@ -786,7 +824,7 @@ class CodexManager:
             task = self._tasks.get(task_id)
             if not task:
                 return None
-            if task.get("status") not in (PENDING_APPROVAL, QUEUED, REJECTED):
+            if task.get("status") not in (PENDING_APPROVAL, BACKLOG, QUEUED, REJECTED):
                 raise ValueError("Only tasks that have not started can be edited")
             for k, v in updates.items():
                 if k in editable and v is not None:
@@ -797,22 +835,72 @@ class CodexManager:
 
     # ── Worker-facing ────────────────────────────────────────────
 
-    def claim_next(self) -> Optional[Dict[str, Any]]:
-        """Atomically move the highest-priority queued task to running."""
+    def backlog_position(self, task_id: str) -> int:
+        """Thứ tự (từ 1) của task trong hàng đợi của làn nó; 0 = không nằm trong hàng đợi."""
         self._ensure_loaded()
         with self._lock:
-            candidates = [t for t in self._tasks.values() if t.get("status") == QUEUED]
-            if not candidates:
-                return None
-            candidates.sort(
-                key=lambda t: (-int(t.get("priority") or 0), t.get("created_at", ""))
+            task = self._tasks.get(task_id)
+            if not task or task.get("status") != BACKLOG:
+                return 0
+            lane = task.get("lane") or ""
+            line = sorted(
+                (t for t in self._tasks.values()
+                 if t.get("status") == BACKLOG and (t.get("lane") or "") == lane),
+                key=_backlog_key,
             )
-            chosen = candidates[0]
-            chosen["status"] = RUNNING
-            chosen["started_at"] = _now()
-            chosen["updated_at"] = chosen["started_at"]
+        return next((i for i, t in enumerate(line, 1) if t.get("id") == task_id), 0)
+
+    def _release_backlog(self) -> List[Dict[str, Any]]:
+        """Thả hàng đợi: mỗi làn đang rảnh nhận MỘT task (ưu tiên cao, rồi tạo trước)
+        sang queued. MUST be called while holding self._lock.
+
+        Làn rảnh = không có task nào của làn ở LANE_BUSY. Task "Tạo video" (queued
+        thẳng) cũng chiếm làn, nên nó chạy trước còn hàng đợi chờ nó xong.
+        """
+        busy = {t.get("lane") or "" for t in self._tasks.values() if t.get("status") in LANE_BUSY}
+        released = []
+        for t in sorted((t for t in self._tasks.values() if t.get("status") == BACKLOG),
+                        key=_backlog_key):
+            lane = t.get("lane") or ""
+            if lane in busy:
+                continue
+            busy.add(lane)
+            t["status"] = QUEUED
+            t["updated_at"] = _now()
+            released.append(dict(t))
+        if released:
             self._save()
-            snapshot = dict(chosen)
+        return released
+
+    def claim_next(self) -> Optional[Dict[str, Any]]:
+        """Atomically move the highest-priority queued task to running.
+
+        Thả hàng đợi TRƯỚC khi chọn: worker gọi hàm này mỗi lần có luồng rảnh (và
+        mỗi IDLE_POLL_SEC khi rảnh hẳn), nên đây là nhịp để video kế tiếp vào chạy
+        mà không cần vòng lặp riêng.
+        """
+        self._ensure_loaded()
+        with self._lock:
+            released = self._release_backlog()
+            candidates = [t for t in self._tasks.values() if t.get("status") == QUEUED]
+            snapshot = None
+            if candidates:
+                candidates.sort(
+                    key=lambda t: (-int(t.get("priority") or 0), t.get("created_at", ""))
+                )
+                chosen = candidates[0]
+                chosen["status"] = RUNNING
+                chosen["started_at"] = _now()
+                chosen["updated_at"] = chosen["started_at"]
+                self._save()
+                snapshot = dict(chosen)
+        for r in released:
+            self.append_event(
+                r["id"], "state", f"{BACKLOG} → {QUEUED}: its turn came up in the backlog",
+                actor="codex", data={"from": BACKLOG, "to": QUEUED},
+            )
+        if snapshot is None:
+            return None
         self._cancel_requested.discard(snapshot["id"])
         self.append_event(
             snapshot["id"], "state", f"{QUEUED} → {RUNNING}", actor="worker",
@@ -1051,6 +1139,13 @@ class CodexManager:
 
 
 # ── Module helpers ───────────────────────────────────────────────────
+
+def _backlog_key(task: Dict[str, Any]):
+    """Thứ tự trong hàng đợi: ưu tiên cao trước, rồi tạo trước; seq phá hoà khi hai
+    task trùng mốc (đồng hồ Windows nhảy theo bước ~1 ms). codex.js backlogPosition
+    sắp y hệt."""
+    return (-int(task.get("priority") or 0), str(task.get("created_at") or ""), int(task.get("seq") or 0))
+
 
 def _md(text: str) -> str:
     """Neutralise Telegram Markdown control characters in interpolated text."""
