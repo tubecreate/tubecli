@@ -30,6 +30,7 @@ Retry after a restart is cheap: the drama/episode ids are checkpointed on the
 task's event log, gen-images (overwrite=false) and batch-tts skip finished
 shots, and the export just overwrites.
 """
+import glob
 import json
 import logging
 import os
@@ -647,6 +648,18 @@ def _put(path: str, payload: Dict, timeout: int = 60) -> Dict:
     import requests
 
     r = requests.put(_base_url() + path, json=payload, timeout=timeout)
+    if r.status_code >= 400:
+        raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
+    try:
+        return r.json()
+    except Exception:
+        return {"raw": r.text[:2000]}
+
+
+def _delete(path: str, timeout: int = 60) -> Dict:
+    import requests
+
+    r = requests.delete(_base_url() + path, timeout=timeout)
     if r.status_code >= 400:
         raise RuntimeError(f"{path} → HTTP {r.status_code}: {r.text[:300]}")
     try:
@@ -3008,10 +3021,46 @@ def _step_render(state: Dict, options: Dict) -> None:
 
 
 def _use_video(state: Dict, path: str) -> None:
-    """Ghi mp4 vừa dựng (hoặc dùng lại) vào state: đường dẫn, link tải, thời lượng."""
+    """Ghi mp4 vừa dựng (hoặc dùng lại) vào state: đường dẫn, link tải, thời lượng,
+    bản CHÍNH (ảnh + tiếng, chưa phủ bố cục — Studio ≥ 2026.09.13.20 giữ cạnh bản xuất)
+    và link chia sẻ công khai của cả hai."""
     state["video_path"] = path
     state["video_link"] = f"{_base_url()}/api/v1/studio/export-video/{os.path.basename(path)}"
     state["video_seconds"] = media_seconds(path)
+    main = re.sub(r"_pipeline_export(\.[A-Za-z0-9]+)$", r"_pipeline_main\1", path)
+    state["video_main_path"] = main if main != path and os.path.isfile(main) else ""
+    state["share_links"] = share_links(state)
+
+
+def _share_link(path: str, name: str) -> str:
+    """Link công khai /s/<token> của File Manager cho một file (tạo mới hay lấy lại link cũ),
+    tuyệt đối khi máy đã biết địa chỉ công khai của mình; "" khi File Manager không có."""
+    try:
+        res = _post("/api/v1/files/share", {"path": path, "name": name, "expires_days": 0}, timeout=30)
+    except Exception as e:      # noqa: BLE001 — không có File Manager thì kết quả chỉ thiếu link
+        logger.info(f"[ContentVideo] no share link for {os.path.basename(path)}: {e}")
+        return ""
+    rel = str(((res or {}).get("share") or {}).get("url_path") or "")
+    if not rel:
+        return ""
+    from tubecli.core.public_host import absolute
+
+    return absolute(rel)
+
+
+def share_links(state: Dict) -> Dict[str, Any]:
+    """{"final": link, "main": link, "relative": bool} — link xem được từ Telegram/điện thoại.
+    Link http://127.0.0.1:5295/… chỉ máy này mở được (user, 13/9/2026)."""
+    out: Dict[str, Any] = {}
+    title = str(state.get("title") or "video")[:80]
+    if state.get("video_path"):
+        out["final"] = _share_link(str(state["video_path"]), f"{title} (final)")
+    if state.get("video_main_path"):
+        out["main"] = _share_link(str(state["video_main_path"]), f"{title} (main, no layout)")
+    out = {k: v for k, v in out.items() if v}
+    if out and not all(v.startswith("http") for v in out.values()):
+        out["relative"] = True
+    return out
 
 
 # Video thật ngắn hơn chừng này so với kịch bản = có shot mất tiếng hoặc storyboard
@@ -4888,6 +4937,96 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
         say(sid, "success", "")
 
 
+# ── Xoá file của một task (nút Xoá của Codex → "xoá cả file") ──────────────────
+_SHOT_FILE_KEYS = ("composed_image", "image_url", "video_url", "tts_audio_url", "subtitle_url",
+                   "first_frame_image", "last_frame_image")
+
+
+def _inside(path: str, root: str) -> bool:
+    try:
+        return os.path.commonpath([os.path.abspath(path), root]) == root
+    except ValueError:
+        return False
+
+
+def purge_task_files(task: Dict[str, Any]) -> Dict[str, Any]:
+    """Xoá mọi thứ lượt chạy này để lại: ảnh/giọng/phụ đề của từng shot, thư mục giọng,
+    video xuất (bản chính + bản hoàn chỉnh), link chia sẻ trỏ vào chúng, và ẩn tập trong
+    Content Studio (chỉ phim do CHÍNH pipeline tạo). Chỉ đụng file trong DATA_DIR.
+
+    Trả {"files", "bytes", "episode", "drama", "drama_hidden", "shares", "errors"} cho
+    thẻ báo; lỗi lẻ (một file đang bị giữ) ghi vào errors, không chặn phần còn lại."""
+    from tubecli.config import DATA_DIR
+
+    task_id = str((task or {}).get("id") or "")
+    ck = _read_checkpoint(task_id) or {}
+    ep_id, drama_id = ck.get("episode_id"), ck.get("drama_id")
+    out: Dict[str, Any] = {"files": 0, "bytes": 0, "episode": ep_id, "drama": drama_id,
+                           "drama_hidden": False, "shares": 0, "errors": []}
+    if not ep_id:
+        return out                                  # chưa tới bước Studio: chưa có file nào
+    root = os.path.abspath(str(DATA_DIR))
+    paths = set()
+    try:
+        for sh in _storyboards(int(ep_id)):
+            for k in _SHOT_FILE_KEYS:
+                v = str(sh.get(k) or "").strip()
+                if v and os.path.isabs(v):
+                    paths.add(v)
+                    paths.add(v + ".words.json")
+    except Exception as e:      # noqa: BLE001
+        out["errors"].append(f"storyboards: {str(e)[:120]}")
+    cs = os.path.join(root, "content_studio")
+    for pat in (os.path.join(cs, "grok_images", f"ep{ep_id}_*"),
+                os.path.join(cs, "outputs", "exports", f"episode_{ep_id}_*"),
+                os.path.join(cs, "outputs", "exports", f"temp_concat_{ep_id}.mp4"),
+                os.path.join(cs, "subtitles", f"ep{ep_id}_*"),
+                os.path.join(root, "content_video", "audio", f"ep{ep_id}", "*")):
+        paths.update(glob.glob(pat))
+    if ck.get("video_path"):
+        paths.add(str(ck["video_path"]))
+    keys = {os.path.normcase(os.path.abspath(p)) for p in paths}
+    # Link chia sẻ trỏ vào file sắp xoá: thu hồi trước, kẻo link chết mà vẫn nằm trong danh sách.
+    try:
+        for it in ((_get("/api/v1/files/shares", timeout=30) or {}).get("shares") or []):
+            if os.path.normcase(os.path.abspath(str(it.get("path") or ""))) in keys and it.get("token"):
+                _delete(f"/api/v1/files/share/{it['token']}", timeout=30)
+                out["shares"] += 1
+    except Exception as e:      # noqa: BLE001 — không có File Manager thì không có link nào để thu
+        logger.info(f"[ContentVideo] shares not revoked: {e}")
+    for p in sorted(paths):
+        if not _inside(p, root) or not os.path.isfile(p):
+            continue
+        try:
+            size = os.path.getsize(p)
+            os.remove(p)
+            out["files"] += 1
+            out["bytes"] += size
+        except OSError as e:
+            out["errors"].append(f"{os.path.basename(p)}: {e.strerror or e}")
+    for d in (os.path.join(root, "content_video", "audio", f"ep{ep_id}"),
+              os.path.join(cs, "outputs", "exports", f"temp_{ep_id}")):
+        try:
+            if os.path.isdir(d) and not os.listdir(d):
+                os.rmdir(d)
+        except OSError:
+            pass
+    if drama_id:
+        try:
+            d = _get(f"/api/v1/studio/dramas/{drama_id}", timeout=30) or {}
+            meta = d.get("metadata") or {}
+            if isinstance(meta, str):
+                meta = json.loads(meta or "{}")
+            if str(meta.get("source") or "") == ACTOR:
+                _delete(f"/api/v1/studio/dramas/{drama_id}", timeout=30)
+                out["drama_hidden"] = True
+            else:
+                out["errors"].append(f"drama {drama_id} was not created by this pipeline — left alone")
+        except Exception as e:      # noqa: BLE001
+            out["errors"].append(f"drama {drama_id}: {str(e)[:120]}")
+    return out
+
+
 def _prepare(payload: Dict[str, Any], report, is_cancelled, needs: tuple) -> Dict[str, Any]:
     """Shared setup for both stages: options, agent, callbacks, state."""
     options: Dict[str, Any] = {**DEFAULTS, **(payload.get("options") or {})}
@@ -5112,7 +5251,15 @@ def _bulletin(state: Dict, outcome: str, duration: float, error: str, stage: str
         title = str(state.get("title") or "")
         # build_text cắt query ở 60 ký tự: link đứng TRƯỚC tiêu đề để không bao
         # giờ bị cắt mất — bản tin của một lượt đăng mà thiếu link thì vô dụng.
-        query = f"{_short_youtube(published.get('url') or '')} · {title}" if published.get("url") else title
+        # Không đăng YouTube thì link chia sẻ công khai đứng đầu: bản tin Telegram là nơi
+        # người dùng bấm xem video, và link 127.0.0.1 ở đó vô dụng.
+        share = str((state.get("share_links") or {}).get("final") or "")
+        if published.get("url"):
+            query = f"{_short_youtube(published.get('url') or '')} · {title}"
+        elif share.startswith("http"):
+            query = f"{share} · {title}"
+        else:
+            query = title
         run_log.launch(run_id, str(agent.id), behavior=f"content_video_{stage}",
                        profile=",".join(state.get("profiles") or [])[:200],
                        query=query[:200])
@@ -5122,6 +5269,8 @@ def _bulletin(state: Dict, outcome: str, duration: float, error: str, stage: str
             work["error"] = error
         if published.get("url"):
             work["url"] = str(published["url"])
+        elif share.startswith("http"):
+            work["url"] = share
         # Cảnh báo (đăng hỏng, SEO câm…) đổi icon bản tin thành ⚠️ — "xong" mà
         # không sạch phải trông khác "xong".
         warns = [str(w) for w in (state.get("warnings") or [])] or None
@@ -5231,6 +5380,15 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
                             (state.get("published") or {}).get("thumbnail"), ""))
     if state.get("video_link"):
         lines.append(f"- **Watch**: {state['video_link']}")
+    sl = state.get("share_links") or {}
+    if sl.get("final"):
+        lines.append(f"- **Share** (final video, with layout): {sl['final']}")
+    if sl.get("main"):
+        lines.append(f"- **Main video** (images + voice, no layout): {sl['main']}")
+    if sl.get("relative"):
+        lines.append("- ℹ️ Share links are relative: TubeCLI does not know this server's public address yet. "
+                     "Open the dashboard once through its public domain (or set TUBECLI_PUBLIC_URL) "
+                     "and the next run prints full links.")
     if published.get("title") and published["title"] != state.get("title"):
         lines.append(f"- **Title on YouTube**: {published['title']}")
     if state.get("title"):

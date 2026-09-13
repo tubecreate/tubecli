@@ -405,6 +405,7 @@ def _write_ck(task_id, data):
 P._read_checkpoint = lambda task_id: dict(ckstore)
 P._write_checkpoint = _write_ck
 P.media_seconds = lambda path: 1200.0
+P._share_link = lambda path, name: ""      # link chia sẻ có test riêng (content_video_share_purge_test)
 gets = []
 def _get_render(path, timeout=60):
     gets.append(path)

@@ -706,3 +706,10 @@ body {
 @media (max-width: 640px) {
     .cx-kind-row { grid-template-columns: 1fr; }
 }
+
+/* Bước bị Huỷ giữa chừng: dừng, không phải lỗi — Chạy lại tiếp từ đây */
+.cx-seg.cancelled { background: var(--cx-orange); opacity: .5; }
+.cx-step.cancelled .cx-step-dot { border-color: var(--cx-orange); background: transparent; }
+.cx-step.cancelled .cx-step-status { color: var(--cx-orange); }
+/* Hộp Xoá: ba nút xếp được xuống dòng trên khung hẹp */
+.cx-modal-foot-wrap { flex-wrap: wrap; justify-content: flex-end; }

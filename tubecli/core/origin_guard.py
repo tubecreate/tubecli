@@ -139,6 +139,14 @@ def remember_host(origin: str, host_header: str) -> None:
         _learned_hosts.add(h)
         if o not in _LOOPBACK_HOSTS:
             _learned_hosts.add(o)  # trang vừa chứng minh mật khẩu — fetch tiếp theo từ nó cũng hợp lệ
+        # Cùng bằng chứng ấy: đây là địa chỉ công khai người dùng đang dùng để tới máy
+        # này — ghi lại để link chia sẻ trong kết quả (Telegram) mở được từ ngoài.
+        try:
+            from tubecli.core import public_host
+
+            public_host.remember(origin, host_header)
+        except Exception:
+            pass
 
 
 def _allowed_hosts() -> set:

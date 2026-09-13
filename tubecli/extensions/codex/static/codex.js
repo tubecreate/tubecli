@@ -40,6 +40,7 @@ const CODEX = (() => {
     success: 'check_circle',
     error: 'cancel',
     skipped: 'remove_circle',
+    cancelled: 'stop_circle',
   };
   const EVENT_ICON = {
     created: 'add_circle', state: 'swap_horiz', step: 'list_alt', log: 'chat',
@@ -530,13 +531,15 @@ const CODEX = (() => {
     const b = (cls, fn, ic, label) =>
       `<button type="button" class="cx-btn cx-btn-sm ${cls}" onclick="CODEX.${fn}('${id}')"${dis}>${icon(ic)}${esc(t(label))}</button>`;
 
+    // Xoá: mọi task không còn chạy/chờ chạy. Nút hỏi trước (chỉ Codex hay cả file).
+    const del = b('cx-btn-ghost cx-btn-del', 'confirmDelete', 'delete', 'codex.action_delete');
     switch (task.status) {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
-               b('cx-btn-danger', 'reject', 'close', 'codex.action_reject');
+               b('cx-btn-danger', 'reject', 'close', 'codex.action_reject') + del;
       case 'backlog':
         return b('cx-btn-ghost', 'runNow', 'play_arrow', 'codex.action_run_now') +
-               b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
+               b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel') + del;
       case 'queued':
       case 'running':
         return b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
@@ -545,7 +548,11 @@ const CODEX = (() => {
                b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes');
       case 'failed':
       case 'rejected':
-        return b('cx-btn-ghost', 'retry', 'replay', 'codex.action_retry');
+      case 'cancelled':
+        // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint).
+        return b('cx-btn-ghost', 'retry', 'replay', 'codex.action_retry') + del;
+      case 'done':
+        return del;
       default:
         return '';
     }
@@ -802,6 +809,48 @@ const CODEX = (() => {
 
   function reject(id) { openNote('reject', id); }
   function requestChanges(id) { openNote('changes', id); }
+
+  /** Nút Xoá hỏi trước: chỉ bỏ khỏi bảng, hay xoá cả file (tập Studio, ảnh, giọng, video)
+   *  của task video. Bấm nhầm là mất hàng trăm MB không lấy lại được (13/9/2026). */
+  function confirmDelete(id) {
+    const task = state.tasks.find(x => x.id === id);
+    if (!task) return;
+    state.deleteTaskId = id;
+    const video = task.lane === 'video';
+    $('cx-del-title').textContent = t('codex.modal_delete_title', { seq: task.seq });
+    $('cx-del-hint').textContent = t(video ? 'codex.modal_delete_hint_video' : 'codex.modal_delete_hint');
+    $('cx-del-files').classList.toggle('hidden', !video);
+    $('cx-modal-delete').classList.remove('hidden');
+  }
+
+  async function doDelete(purge) {
+    const id = state.deleteTaskId;
+    if (!id || state.busy[id]) return;
+    closeModal('cx-modal-delete');
+    state.busy[id] = true;
+    renderList(true);
+    try {
+      const data = await api(taskUrl(id, purge ? '?purge=1' : ''), { method: 'DELETE' });
+      const task = (data && data.task) || {};
+      const p = (data && data.purge) || null;
+      state.expanded.delete(id);
+      state.tasks = state.tasks.filter(x => x.id !== id);
+      if (p && p.error) {
+        toast(t('codex.toast_deleted_purge_error', { seq: task.seq, error: p.error }), 'error');
+      } else if (p && p.files !== undefined) {
+        toast(t('codex.toast_deleted_files', { seq: task.seq, n: p.files, mb: Math.round((p.bytes || 0) / 1048576) }), 'success');
+      } else {
+        toast(t('codex.toast_deleted', { seq: task.seq }), 'success');
+      }
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+    } finally {
+      delete state.busy[id];
+      state.deleteTaskId = '';
+      await refresh(false);
+      renderList(true);
+    }
+  }
 
   function openNote(mode, taskId) {
     state.noteMode = mode;
@@ -1379,7 +1428,7 @@ const CODEX = (() => {
   return {
     init, refresh, toggle, collapse, togglePlan, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, runNow, accept, requestChanges,
-    confirmNote, copyResult, planTask,
+    confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, planFromModal, closeModal, onBackdrop,
   };
 })();

@@ -60,6 +60,16 @@ class ContentVideoExtension(Extension):
         except Exception as e:
             logger.warning(f"[ContentVideo] could not register the accept hook: {e}")
 
+        # Nút Xoá của Codex chọn "xoá cả file": chỉ pipeline biết tập Studio, ảnh, giọng,
+        # video của lượt chạy nằm đâu — Codex chỉ giữ checkpoint.
+        try:
+            from tubecli.extensions.codex.manager import codex_manager
+            from tubecli.extensions.content_video.pipeline import purge_task_files
+
+            codex_manager.on_delete("content_video.", purge_task_files)
+        except Exception as e:
+            logger.warning(f"[ContentVideo] could not register the delete hook: {e}")
+
         # Một chip trong tab Kỹ năng của agent. Verb thì vô hình — nó nổ khi model
         # quyết định, nên chủ máy không nhìn thấy agent có khả năng này và cũng
         # không tắt được. Skill là một dòng trong kho: hiện thành chip, chủ tự tick

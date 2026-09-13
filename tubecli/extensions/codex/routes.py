@@ -325,6 +325,15 @@ async def cancel_task(task_id: str, req: DecisionRequest = DecisionRequest()):
     )}
 
 
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str, purge: bool = False, actor: str = "user"):
+    """Xoá hẳn task. purge=1 → xoá cả file của lượt chạy (tập Content Studio, ảnh, giọng,
+    video, link chia sẻ) qua hook của extension đã tạo task."""
+    task = _require(task_id)
+    out = _guard(codex_manager.delete, task["id"], purge=purge, actor=actor)
+    return {"status": "deleted", "task": out["task"], "purge": out["purge"]}
+
+
 @router.post("/tasks/{task_id}/retry")
 async def retry_task(task_id: str, req: DecisionRequest = DecisionRequest()):
     task = _require(task_id)

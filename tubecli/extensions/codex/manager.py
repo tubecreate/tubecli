@@ -65,7 +65,9 @@ TRANSITIONS: Dict[str, set] = {
     FAILED: {QUEUED, CANCELLED},
     REJECTED: {QUEUED},
     DONE: set(),
-    CANCELLED: set(),
+    # Huỷ rồi vẫn Chạy lại được: pipeline có checkpoint nên chạy tiếp từ bước đã dừng,
+    # không làm lại từ đầu (người dùng bấm Huỷ lúc đang dựng rồi muốn làm tiếp, 13/9/2026).
+    CANCELLED: {QUEUED},
 }
 
 ACTIVE_STATES = {PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW}
@@ -81,6 +83,8 @@ STEP_RUNNING = "running"
 STEP_SUCCESS = "success"
 STEP_ERROR = "error"
 STEP_SKIPPED = "skipped"
+# Bước đang làm dở lúc người dùng bấm Huỷ: dừng, giữ dấu vết, Chạy lại tiếp từ đây.
+STEP_CANCELLED = "cancelled"
 
 MAX_EVENT_LINES = 500
 
@@ -230,6 +234,7 @@ class CodexManager:
         # that kind. A multi-stage pipeline queues its next stage here (content
         # video: script accepted → render) without codex knowing the stages.
         self._on_accept: Dict[str, Callable[..., Any]] = {}
+        self._on_delete: Dict[str, Callable[..., Any]] = {}
 
     # ── Persistence ──────────────────────────────────────────────
 
@@ -676,12 +681,76 @@ class CodexManager:
         if task.get("status") == RUNNING:
             # The worker checks this flag between steps.
             self._cancel_requested.add(task_id)
-        updated, _changed = self._settle(
+        updated, changed = self._settle(
             task_id, CANCELLED, actor,
             message=f"Cancelled by {actor}",
             updates={"finished_at": _now()},
         )
+        if changed:
+            # Bước đang làm dở không được nằm "running" mãi trên thẻ: đánh dấu đã dừng và
+            # nói rõ Chạy lại tiếp từ đây (pipeline có checkpoint, không làm lại từ đầu).
+            updated = self._stop_running_steps(task_id) or updated
         return updated
+
+    def _stop_running_steps(self, task_id: str) -> Optional[Dict[str, Any]]:
+        hit = 0
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            for s in task.get("steps") or []:
+                if s.get("status") in (STEP_RUNNING, STEP_PENDING):
+                    s["status"] = STEP_CANCELLED
+                    s["message"] = "stopped by cancel — Retry continues from this step"
+                    s["ended_at"] = _now()
+                    hit += 1
+            if hit:
+                task["updated_at"] = _now()
+                self._save()
+            snapshot = dict(task)
+        if hit:
+            self.append_event(task_id, "step", f"{hit} step(s) stopped by cancel — Retry continues from there",
+                              actor="codex")
+        return snapshot
+
+    def on_delete(self, kind_prefix: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]]) -> None:
+        """Đăng ký fn(task) -> tóm tắt {files, bytes, …}, chạy khi xoá task có `kind` bắt đầu
+        bằng `kind_prefix` KÈM file. Idempotent — đăng ký sau thắng."""
+        self._on_delete[str(kind_prefix)] = fn
+
+    def delete(self, task_id: str, purge: bool = False, actor: str = "user") -> Dict[str, Any]:
+        """Xoá hẳn task khỏi bảng và sổ sự kiện. purge=True → gọi hook xoá file của loại task
+        (tập Content Studio, ảnh, giọng, video) TRƯỚC khi mất sổ — hook đọc checkpoint từ sổ.
+        Task đang chạy thì từ chối: phải Huỷ trước (tiến trình còn ghi vào sổ)."""
+        self._ensure_loaded()
+        task = self.get_task(task_id)
+        if not task:
+            raise ValueError(f"Task not found: {task_id}")
+        if task.get("status") == RUNNING:
+            raise ValueError(f"Task #{task.get('seq')} is still running — cancel it first, then delete")
+        summary: Optional[Dict[str, Any]] = None
+        if purge:
+            kind = self.kind_of(task_id) or ""
+            fn = next((cand for prefix, cand in sorted(self._on_delete.items(), key=lambda kv: -len(kv[0]))
+                       if kind.startswith(prefix)), None)
+            if fn is None:
+                summary = {"skipped": "no files are tracked for this kind of task"}
+            else:
+                try:
+                    summary = dict(fn(task) or {})
+                except Exception as e:
+                    logger.error(f"[Codex] delete hook failed for {task_id}: {e}", exc_info=True)
+                    summary = {"error": str(e)[:300]}
+        with self._lock:
+            self._tasks.pop(task_id, None)
+            self._cancel_requested.discard(task_id)
+            self._save()
+        try:
+            os.remove(self._events_path(task_id))
+        except OSError:
+            pass
+        logger.info(f"[Codex] task {task_id} deleted by {actor} (purge={purge}, {summary})")
+        return {"task": task, "purge": summary}
 
     def run_now(self, task_id: str, actor: str = "user") -> Dict[str, Any]:
         """Nút "Chạy ngay" của task trong hàng đợi: sang queued liền, không chờ tới
@@ -933,6 +1002,10 @@ class CodexManager:
             task = self._tasks.get(task_id)
             if not task:
                 return
+            if task.get("status") == CANCELLED and status != STEP_CANCELLED:
+                # Tiến trình còn chạy vài giây sau khi Huỷ (đang chờ Studio): tiến độ muộn
+                # không được dựng lại "running" đè lên dấu đã dừng.
+                return
             steps = task.setdefault("steps", [])
             existing = next((s for s in steps if s.get("name") == name), None)
             if existing is None:
@@ -956,7 +1029,7 @@ class CodexManager:
                     existing["label"] = label
                 if pct is not None:
                     existing["progress"] = pct
-            if status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED):
+            if status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED):
                 existing["ended_at"] = _now()
                 existing["progress"] = 100.0 if status == STEP_SUCCESS else existing.get("progress")
             task["updated_at"] = _now()
