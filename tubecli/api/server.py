@@ -2335,6 +2335,8 @@ async def perform_git_update():
     try:
         repo = str(BASE_DIR)
 
+        from tubecli.core import update_deps
+        head_before = update_deps.git_head(repo)
         # Step 1: git pull — stash-aware, and the failure message carries the
         # real reason (stderr) plus the files involved, not just "Updating abc".
         pr = _git_pull_safe(repo, ("git", "pull"))
@@ -2346,7 +2348,9 @@ async def perform_git_update():
         changed_files = []
         try:
             r_diff = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
+                # KHOẢNG commit vừa kéo về, không chỉ commit cuối: thay đổi thư viện
+                # ở một commit giữa từng bị bỏ sót.
+                ["git", "diff", "--name-only", f"{head_before}..HEAD" if head_before else "HEAD~1..HEAD"],
                 capture_output=True, text=True, cwd=repo, timeout=10,
             )
             if r_diff.returncode == 0:
@@ -5400,7 +5404,8 @@ async def system_update(restart: bool = True):
     pull thanh cong -> hen thoat -> systemd dung lai. Chi restart khi pull
     THANH CONG; pull hong thi giu nguyen may dang chay.
     """
-    import subprocess, sys
+    import subprocess, sys, threading
+    from tubecli.core import update_deps
     from tubecli import __version__
     from tubecli.config import BASE_DIR
 
@@ -5408,6 +5413,8 @@ async def system_update(restart: bool = True):
     old_version = __version__
 
     try:
+        # Commit TRƯỚC khi kéo: để biết khoảng commit vừa về có đổi file khai thư viện.
+        head_before = update_deps.git_head(project_root)
         # Git pull — stash-aware (see _git_pull_safe)
         pr = _git_pull_safe(project_root, ("git", "pull", "origin", "main"))
         if not pr["ok"]:
@@ -5415,11 +5422,32 @@ async def system_update(restart: bool = True):
                     "error": pr["message"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else ""),
                     "dirty_files": pr["dirty"]}
 
-        # Reinstall (update dependencies)
-        r_install = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-e", ".", "--quiet"],
-            cwd=project_root, capture_output=True, text=True, timeout=120,
-        )
+        # Thư viện: KHÔNG `pip install -e .` nữa (xem tubecli/core/update_deps.py).
+        # 13/9/2026 máy Windows chạy miniconda timeout 120s ở đúng bước đó: git pull
+        # đã xong mà máy không khởi động lại, và lần bấm sau lại chạy đúng mã cũ ấy.
+        # Chỉ cài thư viện khi file khai thư viện ĐỔI giữa commit cũ và mới.
+        deps_installing = False
+        deps_note = ""
+        head_after = update_deps.git_head(project_root)
+        if update_deps.dep_files_changed(project_root, head_before, head_after):
+            specs = update_deps.declared_dependencies(project_root)
+            if restart:
+                # Cài có thể lâu hơn giới hạn ~100s của tunnel: chạy NỀN, cài XONG mới
+                # khởi động lại. Cài hỏng thì GIỮ máy đang chạy — khởi động lại vào mã
+                # thiếu thư viện là máy không lên được nữa.
+                def _deps_then_restart():
+                    res = update_deps.install_dependencies(project_root, specs)
+                    if res.get("ok"):
+                        _schedule_restart(delay=1.0)
+                    else:
+                        print(f"[system_update] dependencies failed, NOT restarting: "
+                              f"{res.get('error')} — run: {res.get('command')}", file=sys.stderr)
+                threading.Thread(target=_deps_then_restart, daemon=True).start()
+                deps_installing = True
+            else:
+                res = update_deps.install_dependencies(project_root, specs)
+                if not res.get("ok"):
+                    deps_note = f" Dependencies failed: {res.get('error')} — run: {res.get('command')}"
 
         # Read new version from file (since module cache still has old value)
         new_version = old_version
@@ -5435,16 +5463,22 @@ async def system_update(restart: bool = True):
 
         # Buoc cuoi: khoi dong lai de code moi co hieu luc. Hen SAU khi
         # response roi khoi day, neu khong client chi nhan mot cu ngat.
-        will_restart = _schedule_restart() if restart else False
+        if deps_installing:
+            will_restart = True             # khởi động lại khi cài thư viện xong (luồng nền)
+        else:
+            will_restart = _schedule_restart() if restart else False
         return {
             "status": "success",
             "old_version": old_version,
             "new_version": new_version,
             "git_output": (pr["output"] + ("\n" + "\n".join(pr["notes"]) if pr["notes"] else ""))[:500],
             "restarting": will_restart,
-            "restart_seconds": 8 if will_restart else 0,
-            "message": ("Updated. The server is restarting..." if will_restart
-                        else "Updated. Restart the server to apply the changes."),
+            # Cài thư viện nền thì lâu hơn: đừng để trang tự tải lại khi máy chưa kịp lên.
+            "restart_seconds": (180 if deps_installing else 8) if will_restart else 0,
+            "deps_installing": deps_installing,
+            "message": ((("Updated. Installing new dependencies, then restarting..." if deps_installing
+                          else "Updated. The server is restarting...") if will_restart
+                         else "Updated. Restart the server to apply the changes.") + deps_note),
         }
     except Exception as e:
         raise HTTPException(500, f"Update failed: {e}")
