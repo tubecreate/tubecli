@@ -2367,12 +2367,13 @@ def _step_images(state: Dict, options: Dict) -> None:
     filled = _fill_missing_prompts(state)
     if filled:
         state["_say"]("images", "running", f"built {filled} missing image prompt(s) from the shot text")
-    res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", {
+    body = {
         "engine": "api", "overwrite": False,
         # Same value the drama was created with (_resolve_aspect), so shots
         # match the frame the template asked for.
         "aspect_ratio": state.get("aspect_ratio") or options.get("aspect_ratio") or DEFAULTS["aspect_ratio"],
-    }, timeout=60)
+    }
+    res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", body, timeout=60)
     if not res.get("task_id"):
         raise RuntimeError(f"gen-images did not start: {str(res)[:200]}")
     # Shot vẫn không có prompt sau khi đã lấp = shot không có lấy một chữ nào. Nó sẽ
@@ -2400,12 +2401,70 @@ def _step_images(state: Dict, options: Dict) -> None:
                 "Content Studio before rendering.")
         state["_say"]("images", "running", "every shot already has an image")
         return
-    data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
-                        TIMEOUTS["images"], state, "images", done_statuses=("completed",))
+    try:
+        data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
+                            TIMEOUTS["images"], state, "images", done_statuses=("completed",))
+    except RuntimeError as e:
+        if not _lost_job(e):
+            raise
+        # Studio quên việc (cập nhật extension nạp nóng / khởi động lại giữa chừng) — việc
+        # cũ có thể vẫn đang vẽ. Chờ số shot có ảnh ngừng tăng rồi xin vẽ tiếp MỘT lần:
+        # gen-images bỏ qua shot đã có ảnh nên không vẽ đôi, không tốn thêm tiền.
+        state["_say"]("images", "running",
+                      "the Studio forgot this job (extension reloaded or restarted) — waiting for it to settle, then continuing")
+        _settle_images(state, ep_id)
+        res = _post(f"/api/v1/studio/episodes/{ep_id}/gen-images", body, timeout=60)
+        if not res.get("task_id"):
+            raise RuntimeError(f"gen-images did not restart: {str(res)[:200]}")
+        if res.get("total"):
+            data = _poll_studio(f"/api/v1/studio/gen-images/status/{res['task_id']}",
+                                TIMEOUTS["images"], state, "images", done_statuses=("completed",))
+        else:
+            data = {"errors": []}
     errors = data.get("errors") or []
     state["image_errors"] = len(errors)
     if errors:
         state["_say"]("images", "running", f"{len(errors)} shot(s) without image")
+
+
+# Studio "quên" việc nền: chờ số shot có ảnh ngừng tăng chừng này giây (việc cũ đã dừng hẳn)
+# rồi mới xin vẽ tiếp; nhịp hỏi lại giữa hai lần đếm.
+IMAGES_SETTLE_SEC = 90
+IMAGES_SETTLE_POLL = 5.0
+
+
+def _lost_job(e: BaseException) -> bool:
+    return "no longer knows this task" in str(e)
+
+
+def _images_done(ep_id: int) -> Tuple[int, int]:
+    """(số shot đã có ảnh, tổng số shot) của tập."""
+    shots = _storyboards(int(ep_id))
+    have = sum(1 for sh in shots if str(sh.get("composed_image") or sh.get("image_url") or "").strip())
+    return have, len(shots)
+
+
+def _settle_images(state: Dict, ep_id: int) -> None:
+    """Chờ tới khi việc vẽ cũ (không còn hỏi được) dừng hẳn: số shot có ảnh không tăng
+    IMAGES_SETTLE_SEC giây, hoặc đã đủ ảnh. Có trần chung của bước ảnh."""
+    last, since, started = -1, time.time(), time.time()
+    while time.time() - started < TIMEOUTS["images"]:
+        if state["_cancelled"]():
+            raise _cancel_exc()
+        try:
+            have, total = _images_done(ep_id)
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ContentVideo] cannot count images of episode {ep_id}: {e}")
+            have, total = last, 0
+        if total and have >= total:
+            return
+        if have != last:
+            last, since = have, time.time()
+            state["_say"]("images", "running", f"{have}/{total} · the old job is still drawing",
+                          int(min(99, have * 100 / max(1, total))))
+        elif time.time() - since >= IMAGES_SETTLE_SEC:
+            return
+        time.sleep(IMAGES_SETTLE_POLL)
 
 
 _CUE_RE = re.compile(r"\[.*?\]")   # stage directions in brackets are not spoken
