@@ -138,7 +138,7 @@ _LANGUAGE_NAMES = {
     "vi": "Vietnamese", "en": "English", "zh": "Chinese (Simplified)",
     "zh-TW": "Chinese (Traditional)", "ja": "Japanese", "ko": "Korean", "es": "Spanish",
     "tr": "Turkish", "ru": "Russian", "fr": "French", "de": "German", "pt": "Portuguese",
-    "ar": "Arabic", "th": "Thai", "id": "Indonesian",
+    "ar": "Arabic", "th": "Thai", "id": "Indonesian", "it": "Italian",
 }
 # Giọng edge-tts theo ngôn ngữ kịch bản. Trước đây tts_voice ghi cứng vi-VN cho MỌI
 # ngôn ngữ, nên một kịch bản tiếng Anh bị đọc bằng giọng Việt.
@@ -148,6 +148,7 @@ _EDGE_VOICES = {
     "es": "es-ES-ElviraNeural", "tr": "tr-TR-EmelNeural", "ru": "ru-RU-SvetlanaNeural",
     "fr": "fr-FR-DeniseNeural", "de": "de-DE-KatjaNeural", "pt": "pt-BR-FranciscaNeural",
     "ar": "ar-EG-SalmaNeural", "th": "th-TH-PremwadeeNeural", "id": "id-ID-GadisNeural",
+    "it": "it-IT-ElsaNeural",
 }
 _LEN_FROM = {
     "asked for": "you asked for this length",
@@ -162,28 +163,169 @@ _LANG_FROM_NOTE = {
     "preset": " — from the template",
     "dashboard": " — the dashboard language (nothing to detect from)",
 }
-_VI_MARKS = set("ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ")
-_VI_WORDS = ("và", "của", "không", "những", "được", "cho", "là", "có", "này", "với", "người", "trong")
+# ── Nhận diện ngôn ngữ, không gọi model ─────────────────────────────────────
+# Chữ Latinh có dấu KHÔNG đủ để kết luận: bài tiếng Tây Ban Nha «¿Qué ocupa el
+# primer lugar?» đầy á é í ó ú — bản cũ đếm những dấu ấy là dấu tiếng Việt và bảo
+# bài Tây Ban Nha nhiều dấu là tiếng Việt, bài ít dấu là tiếng Anh (13/9/2026, tập
+# 336/337: đề bài bị chèn "translate into Spanish" cho một bài vốn đã là tiếng Tây
+# Ban Nha). Nay chấm theo TỪ NỐI của từng ngôn ngữ (ai viết cũng phải dùng «và/của»,
+# «the/of», «el/de», «und/ist»…), cộng điểm cho chữ cái chỉ ngôn ngữ ấy mới có
+# (ă ơ ư ạ ả… Việt; ı ğ ş Thổ; ñ ¿ ¡ Tây Ban Nha; ã õ Bồ; ß Đức). Chữ không phải
+# Latinh thì bảng chữ nói hết: kana → ja, hangul → ko, Hán → zh/zh-TW (so bảng cặp
+# giản–phồn), Cyrillic → ru, Thái → th, Ả Rập → ar; bảng chữ lạ → "".
+_LATIN_WORDS: Dict[str, frozenset] = {k: frozenset(v.split()) for k, v in {
+    "en": "the and of to in is that it for you with on as are this was be have not or by from at but "
+          "they we an your which their will can all there what when more about if has one would so "
+          "her his she he them its into than our been who some out up do how my me just like get make "
+          "because these those were had does did then also only very over most other could should where "
+          "why any every each being through before after while",
+    "vi": "và của không những được cho là có này với người trong một các để khi đã sẽ cũng như thì mà "
+          "nhưng về từ ra vào lại còn rất nhiều bạn tôi chúng gì đó đây nào làm nói biết đi đến hay "
+          "hoặc nếu vì bởi theo trên dưới giữa sau trước cả mỗi đều chỉ đang bị bằng họ nó mình ông "
+          "bà anh chị cái việc điều cách lúc ngày năm hơn nhất thế vậy rồi đâu sao tại phải cần muốn "
+          "thể thật chưa lên xuống qua nên "
+          # không dấu: chỉ giữ cách viết không trùng ngôn ngữ khác
+          "khong nhung duoc cua nguoi trong mot cac khi cung nhu thi nhieu chung lam biet hoac neu "
+          "theo tren duoi giua truoc deu dang bang rat vao lai nay voi toi minh viec dieu cach hon "
+          "nhat roi dau phai muon chua xuong nen ong va",
+    "es": "el la los las de del que y en un una unos unas es son por para con sin no se su sus al lo "
+          "como más pero le les ya o u este esta esto estos estas ese esa eso esos esas sí porque "
+          "entre cuando muy sobre también hasta hay donde quien quienes desde todo toda todos todas "
+          "nos durante uno ni contra otros otro otra otras ante ellos ellas él ella mí ti antes "
+          "algunos algunas qué cuál yo tú usted ustedes nosotros tanto mucho mucha muchos muchas nada "
+          "algo poco cada aquí allí ahora siempre nunca tiene tienen está están ser estar hacer puede "
+          "pueden tu mi tus mis",
+    "pt": "o a os as de do da dos das que e em um uma uns umas é são não para com por se na no nas "
+          "nos mais como mas ao aos à às ele ela eles elas seu sua seus suas ou quando muito muita "
+          "muitos muitas já eu tu você vocês também só pelo pela pelos pelas até isso isto aquilo "
+          "entre depois sem mesmo mesma quem me te esse essa esses essas este esta estes estas num "
+          "numa nem meu minha meus minhas nosso nossa nossos nossas dele dela deles delas lhe lhes "
+          "qual quais onde porque então ainda sempre nunca tudo nada cada aqui ali agora está estão "
+          "tem têm ser estar fazer pode podem",
+    "fr": "le la les de des du un une et est en que qui dans pour pas sur avec ce cet cette ces il "
+          "elle ils elles nous vous je tu on ne se au aux par plus mais ou où sont ont été être avoir "
+          "son sa ses leur leurs comme tout tous toute toutes très aussi bien même votre vos notre nos "
+          "mon ma mes ton ta tes y à ça cela ceci dont donc alors ainsi encore déjà jamais toujours "
+          "ici là quand si sans sous entre chez vers depuis pendant après avant peut peuvent fait "
+          "faire c'est n'est qu'il qu'elle d'un d'une l'on j'ai s'il",
+    "de": "der die das und ist nicht ein eine einen einem einer eines zu den dem des mit auf für von "
+          "sich auch wird werden sind war waren wie oder aber wenn nur noch nach bei aus über hat "
+          "haben kann können ich wir sie er es ihr ihre ihren sein seine seinen dass als um im am zum "
+          "zur vom beim durch gegen ohne unter zwischen diese dieser dieses diesen jetzt hier mehr sehr "
+          "schon dann so man mich dich uns euch was wer wo warum weil damit doch ja nein kein keine "
+          "alle alles immer nie heute morgen gibt muss soll will",
+    "it": "il lo la i gli le di del della dei delle dello un una uno e è che non per con come ma se "
+          "anche più sono sei siamo siete hanno ha ho hai abbiamo nel nella nei nelle nello sul sulla "
+          "sui sulle dal dalla dai dalle al alla ai alle questo questa questi queste quello quella "
+          "quelli quelle chi cosa dove quando perché tutto tutti tutte molto molti molta molte ogni "
+          "ancora già mai sempre qui lì ora poi essere avere fare può possono così però quindi mentre "
+          "io tu lui lei noi voi loro mio mia tuo tua suo sua nostro nostra vostro vostra",
+    "tr": "ve bir bu için ile çok olarak gibi daha var yok mı mu mü ben sen biz siz onlar bana sana ona "
+          "bize size benim senin onun bizim sizin onların şu hiç ama fakat ancak çünkü eğer ki kadar "
+          "sonra önce şimdi burada orada nasıl neden niçin hangi kim nerede zaman değil evet hayır "
+          "ise veya yani artık hem bile sadece hep hepsi tüm bütün kendi olan olduğu oldu olur olmak "
+          "etmek yapmak demek gelmek gitmek üzere doğru karşı göre rağmen dolayı beri boyunca ilgili "
+          "bunu bunun şey şeyler",
+    "id": "yang dan di ini itu dengan untuk tidak dari akan pada adalah ke juga bisa kita kami mereka "
+          "saya anda kamu ada dalam sudah telah oleh karena seperti atau jika kalau lebih harus hanya "
+          "bagi saat ketika sebagai tentang setiap semua banyak sangat hal orang bahwa agar namun "
+          "tetapi tapi belum masih sedang pernah selalu sering kemudian lalu maka sehingga supaya "
+          "hingga sampai antara sebelum sesudah setelah sementara walaupun meskipun apakah siapa apa "
+          "mengapa bagaimana dimana kapan mana bukan sini situ sana punya mempunyai memiliki membuat "
+          "menjadi dapat boleh mau ingin perlu",
+}.items()}
+# Chữ cái/ký hiệu chỉ một ngôn ngữ mới có (à á é í ó ú â ê ô dùng chung nhiều tiếng, không tính).
+_LATIN_MARKS = {
+    "vi": frozenset("ăđơưảẳẩẵẫẻểễỉỏổỡỷỹạặậẹệịọộợụựỵắằấầếềốồớờứừỳĩũĂĐƠƯẢẲẨẴẪẺỂỄỈỎỔỠỶỸẠẶẬẸỆỊỌỘỢỤỰỴẮẰẤẦẾỀỐỒỚỜỨỪỲĨŨ"),
+    "tr": frozenset("ığşİĞŞ"),
+    "es": frozenset("ñÑ¿¡"),
+    "pt": frozenset("ãõÃÕ"),
+    "de": frozenset("ßẞ"),
+    "fr": frozenset("œŒ"),
+}
+# Tiếng Pháp nuốt nguyên âm: l'ordre, d'abord, qu'il, c'est, j'ai, n'est, s'il, m'a, t'es.
+_FR_ELISION = frozenset("l d qu n j c s m t".split())
+_LATIN_TOKEN_RE = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)?", re.U)
+# Điểm tối thiểu để kết luận: 4 % (một từ nối trong 25 chữ) khi cần một câu trả lời
+# bằng mọi giá; 12 % khi cần CHẮC (kết tội một shot/kịch bản là sai ngôn ngữ).
+_LATIN_ANY, _LATIN_SURE = 0.04, 0.12
+# Cặp giản–phồn của những chữ thường gặp (giản, phồn) — chữ giống nhau hai bên không kể.
+_ZH_PAIRS = (
+    "这這 个個 说說 对對 时時 会會 来來 学學 发發 国國 们們 为為 经經 过過 后後 还還 没沒 样樣 见見 现現 "
+    "长長 问問 话話 开開 关關 电電 动動 业業 产產 应應 该該 让讓 种種 头頭 边邊 点點 门門 马馬 车車 书書 "
+    "东東 员員 网網 认認 识識 记記 语語 议議 论論 变變 体體 军軍 义義 观觀 实實 据據 术術 处處 备備 报報 "
+    "亲親 声聲 医醫 齐齊 争爭 万萬 与與 专專 丰豐 临臨 丽麗 举舉 乐樂 习習 乡鄉 买買 乱亂 于於 亚亞 亿億 "
+    "仅僅 从從 众眾 优優 传傳 伤傷 价價 儿兒 党黨 兰蘭 兴興 养養 内內 写寫 农農 决決 况況 净淨 凤鳳 几幾 "
+    "划劃 刘劉 则則 刚剛 创創 别別 剧劇 办辦 务務 劳勞 势勢 区區 华華 协協 单單 卖賣 卫衛 厂廠 历歷 厅廳 "
+    "压壓 县縣 参參 双雙 叶葉 号號 吗嗎 听聽 启啟 响響 团團 园園 围圍 图圖 圣聖 场場 坏壞 块塊 坚堅 复復 "
+    "够夠 夹夾 夺奪 奋奮 奖獎 妇婦 妈媽 孙孫 宁寧 宝寶 审審 宽寬 寻尋 导導 层層 属屬 岁歲 岛島 币幣 师師 "
+    "带帶 帮幫 广廣 庆慶 库庫 异異 弃棄 张張 弹彈 归歸 当當 录錄 忆憶 态態 总總 恶惡 怀懷 惊驚 惯慣 战戰 "
+    "户戶 扩擴 执執 扫掃 择擇 护護 担擔 拟擬 挥揮 损損 换換 挤擠 摆擺 数數 断斷 无無 显顯 权權 条條 极極 "
+    "构構 标標 树樹 检檢 欢歡 欧歐 气氣 汉漢 沟溝 泪淚 洁潔 济濟 浅淺 测測 温溫 湾灣 满滿 灭滅 灯燈 灵靈 "
+    "热熱 爱愛 爷爺 牵牽 犹猶 独獨 狮獅 猫貓 献獻 环環 画畫 疗療 监監 盘盤 确確 础礎 离離 积積 称稱 稳穩 "
+    "穷窮 笔筆 筑築 简簡 签簽 类類 粮糧 紧緊 红紅 约約 级級 纪紀 纯純 纳納 纵縱 纷紛 纸紙 线線 练練 组組 "
+    "细細 织織 终終 结結 绍紹 给給 络絡 绝絕 统統 绩績 续續 维維 综綜 绿綠 缓緩 编編 缘緣 缩縮 罗羅 罚罰 "
+    "罢罷 联聯 聪聰 职職 肃肅 肤膚 肠腸 肾腎 胁脅 胜勝 脏髒 脑腦 脸臉 艺藝 节節 芦蘆 苏蘇 药藥 营營 萨薩 "
+    "蓝藍 虏虜 虽雖 虾蝦 蚀蝕 蚁蟻 补補 衬襯 袜襪 装裝 规規 视視 览覽 觉覺 触觸 计計 订訂 讨討 训訓 讯訊 "
+    "讲講 许許 设設 访訪 证證 评評 诉訴 词詞 译譯 试試 诗詩 诚誠 详詳 误誤 请請 诸諸 读讀 课課 谁誰 调調 "
+    "谈談 谊誼 谋謀 谐諧 谓謂 谢謝 谱譜 贝貝 负負 贡貢 财財 责責 贤賢 败敗 货貨 质質 贩販 贫貧 购購 贯貫 "
+    "贱賤 贴貼 贵貴 贸貿 费費 贺賀 资資 赏賞 赖賴 赛賽 赞贊 赠贈 赢贏 赵趙 轨軌 转轉 轮輪 软軟 轻輕 载載 "
+    "较較 辅輔 辆輛 辈輩 辉輝 输輸 辞辭 达達 迁遷 运運 进進 远遠 违違 连連 迟遲 选選 递遞 逻邏 遗遺 邓鄧 "
+    "邮郵 邻鄰 郑鄭 释釋 针針 钉釘 钓釣 钟鐘 钢鋼 钥鑰 钱錢 铁鐵 铃鈴 铅鉛 铜銅 银銀 铺鋪 链鏈 销銷 锁鎖 "
+    "锅鍋 锋鋒 错錯 锦錦 键鍵 镇鎮 镜鏡 闪閃 闭閉 闲閒 间間 闹鬧 闻聞 阅閱 队隊 阳陽 阴陰 阵陣 阶階 际際 "
+    "陆陸 陈陳 险險 随隨 隐隱 难難 雏雛 雾霧 静靜 韩韓 顶頂 项項 顺順 须須 顾顧 顿頓 颁頒 颂頌 预預 领領 "
+    "颇頗 颈頸 频頻 颗顆 题題 颜顏 额額 风風 飘飄 飞飛 饭飯 饮飲 饰飾 饱飽 饼餅 馆館 驱驅 驶駛 驾駕 验驗 "
+    "骂罵 骑騎 骗騙 鱼魚 鲁魯 鲜鮮 鸟鳥 鸡雞 鸣鳴 鸭鴨 鹅鵝 麦麥 黄黃 龙龍 龟龜 么麼 尽盡 冲沖 两兩"
+).split()
+_ZH_SIMP = frozenset(pair[0] for pair in _ZH_PAIRS)
+_ZH_TRAD = frozenset(pair[1] for pair in _ZH_PAIRS)
 
 
-def detect_language(text: str) -> str:
-    """Ngôn ngữ của một đoạn văn, theo bảng chữ — không gọi model.
+def _zh_variant(text: str) -> str:
+    """zh (giản thể) hay zh-TW (phồn thể) theo bảng cặp chữ; không phân được → zh."""
+    simp = sum(1 for ch in text if ch in _ZH_SIMP)
+    trad = sum(1 for ch in text if ch in _ZH_TRAD)
+    return "zh-TW" if trad > simp else "zh"
 
-    Đủ để phân biệt các ngôn ngữ TubeCLI hỗ trợ: kana → ja, hangul → ko, chữ Hán
-    → zh, Cyrillic → ru, Thái, Ả Rập; chữ Latinh có dấu Việt hoặc nhiều từ nối
-    tiếng Việt → vi; còn lại → en. Trả "" khi không có gì để đoán.
-    """
+
+def _latin_language(text: str, latin_letters: int, strict: bool) -> str:
+    """Chấm điểm từ nối + chữ cái đặc trưng cho các ngôn ngữ viết chữ Latinh."""
+    toks = _LATIN_TOKEN_RE.findall(text.replace("’", "'").lower())
+    if not toks:
+        return "" if strict else "en"
+    n = float(len(toks))
+    marks = {code: 0 for code in _LATIN_MARKS}
+    for ch in text:
+        for code, chars in _LATIN_MARKS.items():
+            if ch in chars:
+                marks[code] += 1
+    best, best_score = "", 0.0
+    for code, words in _LATIN_WORDS.items():
+        hits = sum(1 for w in toks if w in words)
+        if code == "fr":
+            hits += sum(1 for w in toks if "'" in w and w.split("'", 1)[0] in _FR_ELISION)
+        score = hits / n
+        if marks.get(code):
+            score += min(0.6, 0.03 + 8.0 * marks[code] / max(1, latin_letters))
+        if score > best_score:
+            best, best_score = code, score
+    if best_score >= (_LATIN_SURE if strict else _LATIN_ANY):
+        return best
+    return "" if strict else "en"
+
+
+def _detect_language(text: str, strict: bool) -> str:
     t = (text or "")[:8000]
     if not t.strip():
         return ""
-    c = {"cjk": 0, "kana": 0, "hangul": 0, "cyr": 0, "thai": 0, "arab": 0, "latin": 0, "vi": 0}
+    c = {"cjk": 0, "kana": 0, "hangul": 0, "cyr": 0, "thai": 0, "arab": 0, "latin": 0, "other": 0}
     for ch in t:
         o = ord(ch)
         if 0x3040 <= o <= 0x30FF:
             c["kana"] += 1
         elif 0xAC00 <= o <= 0xD7AF:
             c["hangul"] += 1
-        elif 0x4E00 <= o <= 0x9FFF:
+        elif 0x4E00 <= o <= 0x9FFF or 0x3400 <= o <= 0x4DBF:
             c["cjk"] += 1
         elif 0x0400 <= o <= 0x04FF:
             c["cyr"] += 1
@@ -192,10 +334,8 @@ def detect_language(text: str) -> str:
         elif 0x0600 <= o <= 0x06FF:
             c["arab"] += 1
         elif ch.isalpha():
-            c["latin"] += 1
-            if ch.lower() in _VI_MARKS:
-                c["vi"] += 1
-    letters = c["cjk"] + c["kana"] + c["hangul"] + c["cyr"] + c["thai"] + c["arab"] + c["latin"]
+            c["latin" if (o < 0x0250 or 0x1E00 <= o <= 0x1EFF) else "other"] += 1
+    letters = sum(c.values())
     if letters == 0:
         return ""
     if c["kana"] > letters * 0.05:
@@ -203,18 +343,32 @@ def detect_language(text: str) -> str:
     if c["hangul"] > letters * 0.2:
         return "ko"
     if c["cjk"] > letters * 0.2:
-        return "zh"
+        return _zh_variant(t)
     if c["cyr"] > letters * 0.3:
         return "ru"
     if c["thai"] > letters * 0.3:
         return "th"
     if c["arab"] > letters * 0.3:
         return "ar"
-    low = " " + " ".join(t.lower().split()) + " "
-    vi_words = sum(low.count(f" {w} ") for w in _VI_WORDS)
-    if c["vi"] > letters * 0.02 or vi_words >= 4:
-        return "vi"
-    return "en"
+    if c["other"] > letters * 0.3:
+        return ""                          # Devanagari, Hy Lạp, Hebrew…: không hỗ trợ, đừng đoán bừa
+    return _latin_language(t, c["latin"], strict)
+
+
+def detect_language(text: str) -> str:
+    """Mã ngôn ngữ của một đoạn văn, không gọi model; "" khi không có gì để đoán.
+
+    Chữ Latinh không có bằng chứng nào (vài tên riêng, một tiêu đề) → "en" như trước:
+    hàm này dùng khi CẦN một câu trả lời (ngôn ngữ của tài liệu để viết kịch bản).
+    """
+    return _detect_language(text, strict=False)
+
+
+def detect_language_sure(text: str) -> str:
+    """Như detect_language nhưng chỉ trả lời khi CHẮC (≥ 12 % từ nối / chữ đặc trưng),
+    không thì "". Dùng để kết tội một kịch bản hay một shot là sai ngôn ngữ — một
+    shot toàn tên riêng và số không được bị đổ là "tiếng Anh"."""
+    return _detect_language(text, strict=True)
 
 
 def resolve_language(options: Dict, agent, material: str = "", preset_lang: str = "") -> tuple:
@@ -248,6 +402,33 @@ def resolve_language(options: Dict, agent, material: str = "", preset_lang: str 
 def language_name(code: str) -> str:
     code = str(code or "")
     return _LANGUAGE_NAMES.get(code) or _LANGUAGE_NAMES.get(code.split("-")[0]) or code
+
+
+def _lang_base(code: str) -> str:
+    """"zh-TW" → "zh": giản/phồn thể, vùng miền là một ngôn ngữ khi so lời với kịch bản."""
+    return str(code or "").split("-")[0].lower()
+
+
+# Lời dẫn dưới chừng này chữ thì không kết luận ngôn ngữ (một câu mở đầu không đủ).
+_LANG_CHECK_MIN_WORDS = 30
+
+
+def script_language_mismatch(text: str, lang_code: str) -> str:
+    """Mã ngôn ngữ THỰC của lời dẫn trong `text` nếu khác `lang_code` (so mã gốc), else "".
+
+    Model hay lờ "Write in Spanish." mà trả tiếng Anh, nhất là khi tài liệu là tiếng
+    Anh. Chỉ xét phần LỜI (bỏ dòng [SHOW]), và chỉ khi bộ dò chắc."""
+    narr = " ".join(n for _, n in scenes_of(text) if n)
+    if not lang_code or content_words(narr) < _LANG_CHECK_MIN_WORDS:
+        return ""
+    got = detect_language_sure(narr)
+    return got if got and _lang_base(got) != _lang_base(lang_code) else ""
+
+
+def language_retry_note(wrong: str, lang: str) -> str:
+    """Dòng thêm vào system prompt khi hỏi lại vì bản nháp sai ngôn ngữ."""
+    return (f"\nIMPORTANT: the previous draft came back in {language_name(wrong)}. Write every line "
+            f"of narration in {lang} only — not a single {language_name(wrong)} sentence.")
 
 
 def _edge_voice(lang: str, explicit: str = "") -> str:
@@ -1098,11 +1279,13 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
     cancelled = state.get("_cancelled") or (lambda: False)
     pasted = any(c.get("source") == "pasted" for c in (state.get("corpus") or []))
     material = (_PASTED_HEAD if pasted else _CORPUS_HEAD) + "\n".join(blocks)
+    lang_code = str(state.get("language") or "")
     per = max(1, words // scenes_n)
     # Bài dán giữ nguyên độ dài: dàn ý phải phủ HẾT bài, theo thứ tự — nếu không
     # model chọn vài ý như với kho, và đợt nào cũng chỉ kể lại chúng.
     keep = (" Cover ALL of the content, in its order — this is a rewrite at the same "
-            "length, not a summary." if pasted and state.get("keep_all") else "")
+            "length, not a summary. Keep the author's own sentences wherever they already read "
+            "well aloud; rephrase only what narration needs." if pasted and state.get("keep_all") else "")
     scene_fmt = (
         "Format, exactly, for EACH scene:\n"
         "[SHOW: <one sentence describing what is on screen — concrete, filmable, no on-screen text>]\n"
@@ -1127,7 +1310,14 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
                 "\n\nThe reviewer asked for these changes (apply the ones that concern these scenes, "
                 "keep everything else as it is):\n" + "\n".join(f"- {f}" for f in feedback) +
                 "\n\n" + material + f"\n\nRewrite ONLY these {len(chunk)} scenes in {lang}. " + scene_fmt)
-            out.append(_ask_model(agent, system_prompt, prompt, per * len(chunk)))
+            piece = _ask_model(agent, system_prompt, prompt, per * len(chunk))
+            wrong = script_language_mismatch(piece, lang_code)
+            if wrong:
+                say("script", "running", f"scenes {a + 1}-{a + len(chunk)} came back in "
+                                         f"{language_name(wrong)} — asking again in {lang}")
+                piece = _ask_model(agent, system_prompt + language_retry_note(wrong, lang), prompt,
+                                   per * len(chunk))
+            out.append(piece)
         return f"TITLE: {title}\n\n" + "\n\n".join(out)
 
     # ── Viết mới: dàn ý rồi từng đợt ──
@@ -1169,6 +1359,15 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
             # Đợt này về quá ít cảnh (model tóm tắt hoặc cụt): thử lại một lần.
             say("script", "running", f"scenes {a + 1}-{a + len(chunk)}: only {len(got)} came back — retrying")
             piece = _ask_model(agent, system_prompt, prompt, per * len(chunk))
+            got = [sc for sc in scenes_of(piece) if sc[1]]
+        wrong = script_language_mismatch(piece, lang_code)
+        if wrong:
+            # Đợt này về SAI NGÔN NGỮ (model lờ "Write in Spanish"): hỏi lại một lần với
+            # câu nhắc thẳng, kẻo cả đợt tiếng Anh đi vào một video tiếng Tây Ban Nha.
+            say("script", "running", f"scenes {a + 1}-{a + len(chunk)} came back in "
+                                     f"{language_name(wrong)} — asking again in {lang}")
+            piece = _ask_model(agent, system_prompt + language_retry_note(wrong, lang), prompt,
+                               per * len(chunk))
             got = [sc for sc in scenes_of(piece) if sc[1]]
         out.append(piece.strip())
         if got:
@@ -1240,7 +1439,8 @@ def _step_script(state: Dict, options: Dict) -> None:
             # Cùng độ dài thì phải là VIẾT LẠI, không phải tóm tắt: model quen tay
             # chọn vài ý "hay nhất" như với kho, bỏ phần còn lại.
             keep_all = (" Keep all of it — every point, in its order: this is a rewrite at "
-                        "the same length, not a summary.")
+                        "the same length, not a summary. Keep the author's own sentences wherever "
+                        "they already read well aloud; rephrase only what narration needs.")
     state["keep_all"] = bool(keep_all)
     # Retry của một lượt đã viết xong kịch bản (hỏng ở bước sau, vd đăng): dùng lại,
     # không tốn lượt model và không đổi nội dung đã dựng ảnh/giọng theo nó.
@@ -1314,6 +1514,13 @@ def _step_script(state: Dict, options: Dict) -> None:
     else:
         try:
             text = _ask_model(agent, system_prompt, user_prompt, words)
+            wrong = script_language_mismatch(text, lang_code)
+            if wrong:
+                # Model lờ câu "Write in Spanish" và trả tiếng Anh (hay ngược lại): hỏi lại
+                # MỘT lần với câu nhắc thẳng, thay vì đem kịch bản sai ngôn ngữ đi dựng.
+                state["_say"]("script", "running",
+                              f"draft came back in {language_name(wrong)} — asking again in {lang}")
+                text = _ask_model(agent, system_prompt + language_retry_note(wrong, lang), user_prompt, words)
         except RuntimeError as e:
             # Model suy luận nghĩ hết ngân sách ở một lượt 800 chữ, thử lại bao
             # nhiêu lần cũng thế. Viết theo đợt: mỗi lượt vài trăm chữ, ít phải nghĩ.
@@ -1322,6 +1529,14 @@ def _step_script(state: Dict, options: Dict) -> None:
             state["_say"]("script", "running", "reasoning model stalled — writing in batches instead")
             text = write_script_chunked(state, agent, system_prompt, blocks, style, words, scenes_n,
                                         sent_lo, sent_hi, lang, write_in, feedback, previous)
+    wrong = script_language_mismatch(text, lang_code)
+    if wrong:
+        # Hỏi lại rồi vẫn sai: nói ra ở bản kế hoạch / kết quả, đừng để người duyệt
+        # phát hiện khi video đã đọc xong bằng giọng của ngôn ngữ khác.
+        state.setdefault("warnings", []).append(
+            f"The script came back in {language_name(wrong)} although {lang} was asked, even after "
+            f"a retry — this model ignores the language instruction. Request changes with "
+            f"\"write in {lang}\", or pick another model for this agent.")
     short = short_script_warning(len(text.split()), words)
     if short:
         state.setdefault("warnings", []).append(short)
@@ -1483,40 +1698,76 @@ def _step_studio(state: Dict, options: Dict) -> None:
             state.setdefault("warnings", []).append(
                 f"{len(empty) - len(filled)} storyboard shot(s) came back without narration and match "
                 "no scene of the script — they will be silent in the video.")
-    # Storyboard là bước AI của Studio và nó có thể LÀM RƠI kịch bản mà không
-    # báo: một kịch bản 3000 chữ / 26 cảnh từng ra 3 shot và video 40 giây,
-    # thẻ vẫn "success". Đo phần kịch bản còn lại trong lời thoại của các shot;
-    # mất quá nửa thì dựng lại một lần (route xoá shot cũ), vẫn mất thì dừng
-    # với lý do rõ — đừng đốt ảnh + giọng cho một video cụt.
+    # Storyboard là bước AI của Studio và nó có thể LÀM HỎNG lời thoại mà không báo:
+    #   - làm rơi kịch bản: 3000 chữ / 26 cảnh từng ra 3 shot và video 40 giây;
+    #   - DỊCH sang tiếng Anh: tập 337 (13/9/2026) kịch bản Tây Ban Nha mà 69/69 shot
+    #     tiếng Anh, thẻ vẫn "covers 100%" vì bản cũ chỉ đếm SỐ CHỮ;
+    #   - bỏ lửng vài cảnh giữa chừng (tập 337 mất cảnh 35–36);
+    #   - dán nhãn người nói "VO:" vào đầu lời, rồi giọng đọc luôn cả nhãn.
+    # Nay đo theo NỘI DUNG từng cảnh (chữ của cảnh có nằm trong shot gióng với nó
+    # không) và ngôn ngữ từng shot. Lời thoại đúng chính là kịch bản chép lại, nên
+    # sai ở đâu thì chép kịch bản vào shot (giữ ảnh, xoá tiếng cũ) — không dựng lại.
     script = str(state.get("script") or "")
-    judged = len(script.split()) >= STORYBOARD_COVERAGE_MIN_WORDS
-    cov = storyboard_coverage(shots, script) if judged else None
-    if judged and cov < STORYBOARD_COVERAGE_MIN:
-        # Sửa tại chỗ chứ KHÔNG dựng lại: 32 shot đã có prompt ảnh (và có thể
-        # cả ảnh) — thứ mất chỉ là lời thoại bị model Studio viết ngắn lại.
-        scenes = [sc for sc in scenes_of(script) if sc[1]]
-        state["_say"]("studio", "running",
-                      f"storyboard kept only {int(cov * 100)}% of the script "
-                      f"({len(shots)} shots for {len(scenes)} scenes) — restoring the script's narration")
-        if storyboard_stopped_early(shots, scenes):
-            # Studio dừng giữa chừng (ít shot hơn cảnh và đuôi kịch bản không có
-            # shot nào): bảo nó LÀM TIẾP từ shot cuối, không xoá gì.
-            state["_say"]("studio", "running", "storyboard stopped early — continuing from the last shot")
-            _stream_storyboard(ep_id, state, append=True)
-            shots = _storyboards(ep_id)
-        fixed = restore_narration(shots, script)
-        for sb_id, text in fixed:
-            _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+    labelled = strip_shot_labels(shots)
+    for sb_id, text in labelled:
+        _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+    if labelled:
         shots = _storyboards(ep_id)
+        state["storyboard_labels"] = len(labelled)
+        state["_say"]("studio", "running",
+                      f"removed speaker labels (VO:, Narrator:) from {len(labelled)} shot(s)")
+    judged = len(script.split()) >= STORYBOARD_COVERAGE_MIN_WORDS
+    cov = None
+    if judged:
+        scenes = [sc for sc in scenes_of(script) if sc[1]]
+        # Lời phải theo ngôn ngữ THẬT của kịch bản (nếu dò chắc được), rồi mới tới
+        # ngôn ngữ đã chọn: kịch bản lỡ sai ngôn ngữ đã có cảnh báo ở bước viết.
+        lang_code = detect_language_sure(" ".join(n for _, n in scenes)) or str(state.get("language") or "")
+        foreign = foreign_shots(shots, lang_code)
+        missing = missing_scenes(shots, script)
         cov = storyboard_coverage(shots, script)
-        state["storyboard_restored"] = len(fixed)
-        if not shots or cov < STORYBOARD_COVERAGE_MIN:
-            raise RuntimeError(coverage_error(shots, script, cov))
+        if foreign or missing or cov < STORYBOARD_COVERAGE_MIN:
+            # Sửa tại chỗ chứ KHÔNG dựng lại: các shot đã có prompt ảnh (và có thể cả
+            # ảnh) — thứ hỏng chỉ là lời thoại, và lời đúng nằm sẵn trong kịch bản.
+            if foreign:
+                langs = ", ".join(sorted({language_name(code) for _, code in foreign}))
+                state["storyboard_foreign"] = [len(foreign), langs]
+                state["_say"]("studio", "running",
+                              f"{len(foreign)}/{len(shots)} shots came back in {langs} instead of "
+                              f"{language_name(lang_code)} — restoring the script's narration")
+            elif missing and len(missing) <= len(scenes) // 2:
+                state["storyboard_missing"] = [j + 1 for j in missing]
+                state["_say"]("studio", "running",
+                              f"storyboard skipped scene(s) {_scene_list(missing)} of {len(scenes)} "
+                              "— restoring the script's narration")
+            else:
+                state["_say"]("studio", "running",
+                              f"storyboard kept only {int(cov * 100)}% of the script "
+                              f"({len(shots)} shots for {len(scenes)} scenes) — restoring the script's narration")
+            if storyboard_stopped_early(shots, scenes):
+                # Studio dừng giữa chừng (ít shot hơn cảnh và đuôi kịch bản không có
+                # shot nào): bảo nó LÀM TIẾP từ shot cuối, không xoá gì.
+                state["_say"]("studio", "running", "storyboard stopped early — continuing from the last shot")
+                _stream_storyboard(ep_id, state, append=True)
+                shots = _storyboards(ep_id)
+            fixed = restore_narration(shots, script)
+            for sb_id, text in fixed:
+                _put(f"/api/v1/studio/storyboards/{sb_id}", {"narration_text": text, "tts_audio_url": ""})
+            shots = _storyboards(ep_id)
+            cov = storyboard_coverage(shots, script)
+            state["storyboard_restored"] = len(fixed)
+            if not shots or cov < STORYBOARD_COVERAGE_MIN:
+                raise RuntimeError(coverage_error(shots, script, cov))
     state["shot_count"] = len(shots)
     if judged:
         state["storyboard_coverage"] = cov
     state["_say"]("studio", "running",
                   f"{len(shots)} shots" + (f" · covers {int(cov * 100)}% of the script" if judged else ""))
+
+
+def _scene_list(idx: List[int]) -> str:
+    """"35, 36" (số cảnh 1-based) — tối đa 8 số."""
+    return ", ".join(str(j + 1) for j in idx[:8]) + ("…" if len(idx) > 8 else "")
 
 
 # Dưới mức này, storyboard đã rút bớt kịch bản chứ không phải chỉ gọt vài chữ.
@@ -1526,41 +1777,72 @@ STORYBOARD_COVERAGE_MIN = 0.6
 STORYBOARD_COVERAGE_MIN_WORDS = 200
 
 
-def storyboard_coverage(shots: List[Dict], script: str) -> float:
-    """Tỷ lệ chữ của kịch bản còn nằm trong lời thoại các shot (0..1).
-    Lời thoại của Studio là kịch bản chép lại, nên số chữ gần bằng nhau khi nó
-    giữ đủ; cắt cụt thì tỷ lệ rơi hẳn."""
-    want = len(" ".join(_CUE_RE.sub(" ", script or "").split()).split())
-    if not want:
-        return 1.0
-    got = sum(len(_shot_narration(sh).split()) for sh in shots or [])
-    return min(1.0, got / want)
-
-
+# Đo độ phủ theo NỘI DUNG, không theo số chữ: lời thoại DỊCH sang tiếng Anh cũng có
+# ngần ấy chữ, mà bản cũ vẫn báo "covers 100%" (tập 337, 13/9/2026).
 _WORD_RE = re.compile(r"[\w']+", re.U)
 _SENT_RE = re.compile(r"(?<=[.!?…。！？])\s+")
+_RUN_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u0e00-\u0e7f]+")
+
+
+def _token_counts(text: str) -> Dict[str, int]:
+    """Số lần xuất hiện của từng "chữ": từ ≥ 3 ký tự với ngôn ngữ có dấu cách; CẶP ký
+    tự liền nhau với chữ Hán/kana/Thái (không có dấu cách, `\\w+` gom cả câu làm một —
+    trước đây một kịch bản tiếng Trung chép đúng vẫn "không trùng chữ nào")."""
+    out: Dict[str, int] = {}
+    for w in _WORD_RE.findall((text or "").lower()):
+        if _RUN_RE.search(w):
+            for part in _RUN_RE.split(w):
+                if len(part) >= 3:
+                    out[part] = out.get(part, 0) + 1
+            for run in _RUN_RE.findall(w):
+                for g in ([run[i:i + 2] for i in range(len(run) - 1)] or [run]):
+                    out[g] = out.get(g, 0) + 1
+        elif len(w) >= 3:
+            out[w] = out.get(w, 0) + 1
+    return out
 
 
 def _tokens(text: str) -> set:
-    return {w.lower() for w in _WORD_RE.findall(text or "") if len(w) >= 3}
+    return set(_token_counts(text))
+
+
+def _spans(lengths: List[int]) -> List[Tuple[float, float]]:
+    """Khoảng [đầu, cuối) của từng phần trên trục 0..1, theo số chữ."""
+    total = float(sum(lengths)) or 1.0
+    out, acc = [], 0.0
+    for n in lengths:
+        out.append((acc / total, (acc + n) / total))
+        acc += n
+    return out
+
+
+# Trọng số của VỊ TRÍ so với chữ trùng khi gióng shot vào cảnh. Chữ trùng của một shot
+# chép đúng ~0,6–0,9; vị trí chỉ đủ phân xử khi chữ không nói được gì (lời bị dịch).
+_ALIGN_POS_WEIGHT = 0.35
 
 
 def align_shots_to_scenes(shots: List[Dict], scenes: List[tuple]) -> List[int]:
     """Cảnh (chỉ số) của từng shot, KHÔNG LÙI theo thứ tự shot.
 
     Studio tạo shot theo thứ tự kịch bản, nhưng một cảnh có thể thành nhiều shot
-    và một cảnh có thể bị bỏ. Quy hoạch động: tổng điểm trùng chữ lớn nhất với
-    ràng buộc đơn điệu; hoà thì ở lại cảnh hiện tại (shot "(Part 2)" đi theo
-    Part 1 chứ không nhảy sang cảnh sau)."""
+    và một cảnh có thể bị bỏ. Quy hoạch động: tổng điểm lớn nhất với ràng buộc đơn
+    điệu; hoà thì ở lại cảnh hiện tại (shot "(Part 2)" đi theo Part 1 chứ không
+    nhảy sang cảnh sau). Điểm = chữ trùng + VỊ TRÍ tương đối theo số chữ: lời bị
+    DỊCH thì không còn chữ nào trùng, chỉ vị trí còn nói được shot thuộc cảnh nào."""
     if not shots or not scenes:
         return [0] * len(shots)
     sc_tok = [_tokens(f"{show} {narr}") for show, narr in scenes]
+    sh_sp = _spans([max(1, content_words(_shot_narration(sh))) for sh in shots])
+    sc_sp = _spans([max(1, content_words(narr)) for _, narr in scenes])
     m, n = len(shots), len(scenes)
     score = [[0.0] * n for _ in range(m)]
     for i, sh in enumerate(shots):
         st = _tokens(f"{sh.get('title') or ''} {_shot_narration(sh)} {sh.get('description') or ''}")
+        a, b = sh_sp[i]
         for j in range(n):
-            score[i][j] = (len(st & sc_tok[j]) / len(st)) if st else 0.0
+            c, d = sc_sp[j]
+            pos = max(0.0, min(b, d) - max(a, c)) / max(1e-9, b - a)
+            score[i][j] = ((len(st & sc_tok[j]) / len(st)) if st else 0.0) + _ALIGN_POS_WEIGHT * pos
     NEG = float("-inf")
     best = [[NEG] * n for _ in range(m)]
     back = [[0] * n for _ in range(m)]
@@ -1578,6 +1860,94 @@ def align_shots_to_scenes(shots: List[Dict], scenes: List[tuple]) -> List[int]:
     for i in range(m - 1, -1, -1):
         out[i] = j
         j = back[i][j]
+    return out
+
+
+# Dưới mức này một cảnh coi như bị storyboard BỎ (chữ đặc trưng của nó không còn trong
+# shot nào gióng với nó); cảnh dưới 6 chữ đặc trưng thì không xét (quá ít để đo).
+_SCENE_MISSING_BELOW = 0.3
+_SCENE_JUDGE_MIN_TOKENS = 6
+
+
+def scene_coverage(shots: List[Dict], script: str) -> List[Tuple[float, int]]:
+    """[(độ phủ 0..1, số chữ đặc trưng)] cho từng cảnh có lời của kịch bản.
+
+    Chữ đặc trưng = chữ của cảnh KHÔNG có mặt ở quá 1/3 số cảnh (từ nối, tên kênh…
+    không nói lên cảnh nào còn hay mất). Cảnh được so với lời của các shot gióng với
+    nó; cảnh không có shot nào thì so với shot cuối của cảnh trước và shot đầu của
+    cảnh sau — đúng hai chỗ restore_narration dồn lời của cảnh bị rơi vào.
+    """
+    scenes = [sc for sc in scenes_of(script) if sc[1]]
+    if not scenes:
+        return []
+    counts = [_token_counts(narr) for _, narr in scenes]
+    df: Dict[str, int] = {}
+    for ct in counts:
+        for tok in ct:
+            df[tok] = df.get(tok, 0) + 1
+    limit = max(2, len(scenes) // 3)
+    content = [{t: c for t, c in ct.items() if df[t] <= limit} for ct in counts]
+    owner = align_shots_to_scenes(shots, scenes) if shots else []
+    groups: Dict[int, List[int]] = {}
+    for i, j in enumerate(owner):
+        groups.setdefault(j, []).append(i)
+    covered = sorted(groups)
+    sh_tok = [_tokens(_shot_narration(sh)) for sh in shots]
+    out: List[Tuple[float, int]] = []
+    for j, ct in enumerate(content):
+        total = sum(ct.values())
+        if not total:
+            out.append((1.0, 0))
+            continue
+        if j in groups:
+            idxs = groups[j]
+        else:
+            prev = [k for k in covered if k < j]
+            nxt = [k for k in covered if k > j]
+            idxs = ([groups[prev[-1]][-1]] if prev else []) + ([groups[nxt[0]][0]] if nxt else [])
+        have: set = set()
+        for i in idxs:
+            have |= sh_tok[i]
+        out.append((sum(c for t, c in ct.items() if t in have) / float(total), total))
+    return out
+
+
+def storyboard_coverage(shots: List[Dict], script: str) -> float:
+    """Phần NỘI DUNG kịch bản còn nằm trong lời thoại các shot (0..1), cân theo số chữ
+    từng cảnh. Chép đúng ~1; tóm tắt ~0,3; DỊCH sang ngôn ngữ khác ~0."""
+    scenes = [sc for sc in scenes_of(script) if sc[1]]
+    if not scenes:
+        return 1.0
+    cov = scene_coverage(shots, script)
+    weights = [max(1, content_words(narr)) for _, narr in scenes]
+    return min(1.0, sum(c * w for (c, _), w in zip(cov, weights)) / float(sum(weights)))
+
+
+def missing_scenes(shots: List[Dict], script: str) -> List[int]:
+    """Chỉ số (0-based) các cảnh mà lời của nó không còn trong shot nào — storyboard
+    bỏ lửng giữa chừng (tập 337: cảnh 35–36), không phải cắt đuôi."""
+    return [j for j, (c, total) in enumerate(scene_coverage(shots, script))
+            if total >= _SCENE_JUDGE_MIN_TOKENS and c < _SCENE_MISSING_BELOW]
+
+
+# Shot dưới chừng này chữ thì không kết luận ngôn ngữ ("Reino primero. Carácter primero.").
+_SHOT_LANG_MIN_WORDS = 8
+
+
+def foreign_shots(shots: List[Dict], lang_code: str) -> List[Tuple[Any, str]]:
+    """[(shot id, mã ngôn ngữ dò được)] cho shot có lời ≥ 8 chữ mà KHÁC ngôn ngữ kịch
+    bản (so mã gốc: zh và zh-TW là một). Không dò chắc được thì không kết tội."""
+    base = _lang_base(lang_code)
+    if not base:
+        return []
+    out: List[Tuple[Any, str]] = []
+    for sh in shots:
+        text = _shot_narration(sh)
+        if content_words(text) < _SHOT_LANG_MIN_WORDS:
+            continue
+        got = detect_language_sure(text)
+        if got and _lang_base(got) != base:
+            out.append((sh.get("id"), got))
     return out
 
 
@@ -1811,6 +2181,31 @@ def _step_images(state: Dict, options: Dict) -> None:
 
 
 _CUE_RE = re.compile(r"\[.*?\]")   # stage directions in brackets are not spoken
+# Nhãn người nói ở ĐẦU lời thoại ("VO:", "Narrator —", "(V.O.)", "Người dẫn:"…): model
+# storyboard hay dán vào, và giọng đọc đọc luôn cả nhãn (tập 337: 69/69 shot "VO: …").
+# Nhãn trần phải có dấu hai chấm/gạch theo sau, nên "Os dias…" (tiếng Bồ) không bị cắt.
+_SPEAKER_LABELS = (r"v\.?\s?o\.?|o\.?\s?s\.?|voice[\s-]?over|narrator|narración|narrador|narrateur"
+                   r"|erzähler|sprecher|anlatıcı|narasi|voz en off|người dẫn(?: chuyện)?|lời dẫn|dẫn chuyện"
+                   r"|ナレーション|ナレーター|내레이션|나레이션|해설|旁白|解说|解說|рассказчик|закадровый голос")
+_SPEAKER_LABEL_RE = re.compile(
+    r"^\s*(?:(?:\(\s*(?:" + _SPEAKER_LABELS + r")\s*\)\s*[:：\-–—]?"
+    r"|(?:" + _SPEAKER_LABELS + r")(?:\s*\([^)]{0,40}\))?\s*[:：\-–—])\s*)+", re.I | re.U)
+
+
+def _strip_label(text: str) -> str:
+    return _SPEAKER_LABEL_RE.sub("", text or "", count=1)
+
+
+def strip_shot_labels(shots: List[Dict]) -> List[Tuple[Any, str]]:
+    """[(shot id, lời đã bỏ nhãn)] cho shot có nhãn người nói ở đầu narration_text —
+    ghi lại vào Studio để phụ đề (đốt từ narration_text) cũng không hiện "VO:"."""
+    out: List[Tuple[Any, str]] = []
+    for sh in shots:
+        raw = str(sh.get("narration_text") or "")
+        clean = _strip_label(raw)
+        if raw.strip() and clean != raw:
+            out.append((sh.get("id"), clean.strip()))
+    return out
 
 
 def _capcut_account(preferred: str = "") -> str:
@@ -1903,7 +2298,7 @@ def _warn_voiceless(state: Dict, failed: int) -> None:
 def _shot_narration(shot: Dict) -> str:
     text = (shot.get("narration_text") or shot.get("dialogue") or shot.get("description")
             or shot.get("action") or "")
-    return _CUE_RE.sub("", str(text)).strip()
+    return _strip_label(_CUE_RE.sub("", str(text))).strip()
 
 
 # Đọc theo ĐỢT cho giọng CapCut KHÔNG có mốc từ (engine 11labs…): một lượt gọi CapCut
@@ -4619,9 +5014,15 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     if state.get("drama_id") is not None:
         lines.append(f"- **Content Studio**: drama {state['drama_id']} · episode {state.get('episode_id')}")
     if state.get("storyboard_coverage") is not None:
+        fo = state.get("storyboard_foreign") or []
         lines.append(f"- **Storyboard**: {state.get('shot_count', 0)} shots · "
                      f"covers {int(float(state['storyboard_coverage']) * 100)}% of the script"
                      + (" · narration restored from the script" if state.get("storyboard_restored") else "")
+                     + (f" · {fo[0]} shot(s) came back in {fo[1]} — replaced with the script" if fo else "")
+                     + (f" · scene(s) {', '.join(str(x) for x in state['storyboard_missing'])} were skipped — put back"
+                        if state.get("storyboard_missing") else "")
+                     + (f" · speaker labels removed from {state['storyboard_labels']} shot(s)"
+                        if state.get("storyboard_labels") else "")
                      + (f" · {state['storyboard_filled']} shot(s) without narration filled from the script"
                         if state.get("storyboard_filled") else ""))
     if state.get("subtitles"):

@@ -62,7 +62,46 @@ check("A tiếng Nhật", P.detect_language("これはクリエイターのス�
 check("A tiếng Hàn", P.detect_language("이것은 크리에이터 스폰서십 가격에 관한 영상 대본입니다.") == "ko")
 check("A tiếng Nga", P.detect_language("Это сценарий видео о ценах на спонсорство для авторов.") == "ru")
 check("A rỗng / chỉ ký hiệu → ''", P.detect_language("") == "" and P.detect_language("123 ... !!! 456") == "")
-print("A nhan dien  : vi có dấu | vi không dấu (từ nối) | en | zh/ja/ko/ru | rỗng → ''")
+# 13/9/2026: bài Tây Ban Nha nhiều dấu (á é í ó ú) từng bị nhận là TIẾNG VIỆT, ít dấu thành tiếng Anh.
+ES = ("¿Qué ocupa el primer lugar en tu vida? Porque aquello que ocupa el primer lugar termina "
+      "organizando muchas de las cosas que vienen después. Tu prioridad dirige tu atención, y tus "
+      "decisiones forman tus hábitos. Jesús dijo: buscad primeramente el reino de Dios y su justicia. ") * 2
+ES_PLAIN = ("Antes de salir de casa hoy, antes de comenzar tus responsabilidades, quiero invitarte a hacer "
+            "algo muy sencillo: entrega este dia a Dios. No se como despertaste esta manana. ") * 2
+PT = ("Antes de sair de casa hoje, entregue este dia a Deus. Não sei como você acordou esta manhã, "
+      "mas há uma nova oportunidade para caminhar com Ele. As coisas que colocamos em primeiro lugar "
+      "acabam organizando tudo o que vem depois. ") * 2
+FR = ("Avant de sortir de chez toi aujourd'hui, confie cette journée à Dieu. Je ne sais pas comment tu "
+      "t'es réveillé ce matin, mais c'est une nouvelle occasion de marcher avec lui. Ce que nous mettons "
+      "en premier finit par organiser tout le reste. ") * 2
+DE = ("Bevor du heute das Haus verlässt, übergib diesen Tag Gott. Ich weiß nicht, wie du aufgewacht bist, "
+      "aber es ist eine neue Gelegenheit, mit ihm zu gehen. Was wir an die erste Stelle setzen, ordnet "
+      "am Ende alles andere. ") * 2
+IT = ("Prima di uscire di casa oggi, affida questa giornata a Dio. Non so come ti sei svegliato stamattina, "
+      "ma è una nuova occasione per camminare con lui. Ciò che mettiamo al primo posto finisce per ordinare "
+      "tutto il resto. ") * 2
+TR = ("Bugün evden çıkmadan önce bu günü Tanrı'ya teslim et. Bu sabah nasıl uyandığını bilmiyorum ama bu, "
+      "O'nunla yürümek için yeni bir fırsat. İlk sıraya koyduğumuz şey sonunda geri kalan her şeyi düzenler. ") * 2
+ID = ("Sebelum kamu keluar rumah hari ini, serahkan hari ini kepada Tuhan. Saya tidak tahu bagaimana kamu "
+      "bangun pagi ini, tetapi ini adalah kesempatan baru untuk berjalan bersama-Nya. Apa yang kita "
+      "letakkan di tempat pertama akhirnya mengatur segala sesuatu yang lain. ") * 2
+ZH_TW = "這是一個關於創作者贊助定價的影片腳本，內容來自代理收集的資料。我們會談到時間、金錢與關係。"
+TH = "นี่คือสคริปต์วิดีโอเกี่ยวกับการกำหนดราคาสปอนเซอร์สำหรับครีเอเตอร์ และเราจะพูดถึงเวลา เงิน และความสัมพันธ์"
+AR = "هذا نص فيديو حول تسعير الرعاية لصانعي المحتوى وسنتحدث عن الوقت والمال والعلاقات"
+HI = "यह रचनाकारों के लिए प्रायोजन मूल्य निर्धारण के बारे में एक वीडियो स्क्रिप्ट है"
+for label, text, want in (("Tây Ban Nha nhiều dấu (bệnh cũ → vi)", ES, "es"), ("Tây Ban Nha không dấu (bệnh cũ → en)", ES_PLAIN, "es"),
+                          ("Bồ Đào Nha", PT, "pt"), ("Pháp", FR, "fr"), ("Đức", DE, "de"), ("Ý", IT, "it"),
+                          ("Thổ", TR, "tr"), ("Indonesia", ID, "id"), ("Trung phồn thể", ZH_TW, "zh-TW"),
+                          ("Thái", TH, "th"), ("Ả Rập", AR, "ar")):
+    check(f"A {label} → {want}", P.detect_language(text) == want, P.detect_language(text))
+check("A Devanagari (không hỗ trợ) → '' chứ không đoán bừa", P.detect_language(HI) == "", P.detect_language(HI))
+check("A tiếng Anh có vài tên riêng có dấu → vẫn en",
+      P.detect_language("José and Zoë launched Café Río's channel; the team says it is the best way to grow.") == "en")
+check("A detect_language_sure: toàn tên riêng + số → '' (không kết tội)",
+      P.detect_language_sure("Alejandro Durán · Chispa · Mateo 6:33 · Lucas 10") == "" and P.detect_language_sure(ES) == "es"
+      and P.detect_language_sure(VI) == "vi", (P.detect_language_sure("Alejandro Durán · Chispa · Mateo 6:33"), P.detect_language_sure(ES)))
+check("A _edge_voice có giọng Ý", P._edge_voice("it") == "it-IT-ElsaNeural")
+print("A nhan dien  : vi có/không dấu | en | es pt fr de it tr id | zh zh-TW ja ko ru th ar | lạ → ''")
 
 # ── B. resolve_language ─────────────────────────────────────────────────────
 
