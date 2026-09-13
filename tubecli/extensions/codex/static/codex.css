@@ -383,6 +383,16 @@ body {
     color: var(--text-muted);
 }
 .cx-section-title .material-symbols-outlined { font-size: 15px; }
+/* Tiêu đề bấm được — AI plan thu gọn mặc định */
+.cx-section-toggle {
+    width: 100%; margin-bottom: 0; padding: 4px 0; border: 0; background: none;
+    font-family: inherit; text-align: left; cursor: pointer;
+}
+.cx-section-toggle[aria-expanded="true"] { margin-bottom: 9px; }
+.cx-section-toggle:hover, .cx-section-toggle:focus-visible { color: var(--text); }
+.cx-section-toggle:focus-visible { outline: 2px solid color-mix(in srgb, var(--cx-purple) 60%, transparent); outline-offset: 2px; border-radius: 4px; }
+.cx-section-count { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--text-subtle); }
+.cx-section-chev { margin-left: auto; }
 
 .cx-goal {
     padding: 12px 14px; border-radius: var(--radius-sm);

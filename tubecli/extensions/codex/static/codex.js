@@ -71,6 +71,7 @@ const CODEX = (() => {
     eventsLoaded: {},     // taskId -> bool
     busy: {},             // taskId -> bool (action in flight)
     planning: {},         // taskId -> bool
+    planOpen: new Set(),  // task ids whose AI plan is expanded — collapsed by default
     assignees: null,
     auto: true,
     loaded: false,
@@ -307,6 +308,7 @@ const CODEX = (() => {
         state.expanded.delete(id);
       }
     });
+    state.planOpen.forEach(id => { if (!alive.has(id)) state.planOpen.delete(id); });
   }
 
   async function loadEvents(id, initial) {
@@ -573,9 +575,18 @@ const CODEX = (() => {
     const plan = Array.isArray(task.plan) ? task.plan : [];
     const canPlan = ['pending_approval', 'backlog', 'queued', 'rejected', 'failed'].indexOf(task.status) >= 0;
     if (plan.length) {
+      // Thu gọn MẶC ĐỊNH: kế hoạch của «Tạo video từ nội dung» là cả kịch bản (hàng chục cảnh),
+      // mở thẻ ra là phải kéo qua cả trang mới tới các bước và nhật ký. Bấm tiêu đề để mở; trạng
+      // thái nằm trong state.planOpen nên lượt tự làm mới không đóng lại (13/9/2026).
+      const open = state.planOpen.has(task.id);
       parts.push(`<div class="cx-section">
-          <div class="cx-section-title">${icon('lightbulb')}${esc(t('codex.section_plan'))}</div>
-          <div class="cx-plan">${plan.map((p, i) => {
+          <button type="button" class="cx-section-title cx-section-toggle" aria-expanded="${open ? 'true' : 'false'}"
+            title="${esc(t(open ? 'codex.plan_hide' : 'codex.plan_show'))}" onclick="CODEX.togglePlan('${id}')">
+            ${icon('lightbulb')}${esc(t('codex.section_plan'))}
+            <span class="cx-section-count">${esc(t('codex.plan_count', { n: plan.length }))}</span>
+            ${icon(open ? 'expand_less' : 'expand_more', 'cx-section-chev')}
+          </button>
+          ${open ? `<div class="cx-plan">${plan.map((p, i) => {
             const agent = p.agent_name || p.agent_id || t('codex.plan_unassigned');
             return `<div class="cx-plan-item">
                 <span class="cx-plan-n">${esc(p.step || (i + 1))}</span>
@@ -584,7 +595,7 @@ const CODEX = (() => {
                   <div class="cx-plan-agent">${icon('smart_toy')}${esc(agent)}</div>
                 </div>
               </div>`;
-          }).join('')}</div>
+          }).join('')}</div>` : ''}
         </div>`);
     } else if (canPlan) {
       const planning = !!state.planning[task.id];
@@ -691,6 +702,13 @@ const CODEX = (() => {
     // thay vì để trang nhảy tới một nơi bất kỳ.
     const card = $('cx-card-' + taskId);
     if (card && card.scrollIntoView) card.scrollIntoView({ block: 'nearest' });
+  }
+
+  // AI plan thu gọn mặc định (xem bodyHtml): bấm tiêu đề mở/đóng, giữ qua các lượt tự làm mới.
+  function togglePlan(taskId) {
+    if (state.planOpen.has(taskId)) state.planOpen.delete(taskId);
+    else state.planOpen.add(taskId);
+    renderList(true);
   }
 
   async function toggle(taskId) {
@@ -1322,7 +1340,7 @@ const CODEX = (() => {
 
   // ── Public surface (referenced by inline onclick handlers) ─────
   return {
-    init, refresh, toggle, collapse, setFilter, onSearch, setAuto, setAutoApprove,
+    init, refresh, toggle, collapse, togglePlan, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, planFromModal, closeModal, onBackdrop,
