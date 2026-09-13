@@ -227,7 +227,9 @@ check("F1 nhận ra 503 của CapCut TTS",
       PL._capcut_machine_wide(RuntimeError('/api/v1/capcut-tts/synthesize → HTTP 503: {"detail":"Tất cả tài khoản..."}')))
 check("F2 không nhầm lỗi của MỘT shot", not PL._capcut_machine_wide(RuntimeError("/api/v1/capcut-tts/synthesize → HTTP 502: x")))
 src = io.open(ROOT / "tubecli" / "extensions" / "content_video" / "pipeline.py", encoding="utf-8").read()
-check("F3 vòng đọc + vòng thử lại đều dừng khi gặp nó", src.count("if _capcut_machine_wide(e):") == 2)
+# Ba vòng: đọc theo đợt (giọng không có mốc từ), đọc từng shot, thử lại shot hỏng.
+check("F3 vòng đọc theo đợt + vòng từng shot + vòng thử lại đều dừng khi gặp nó",
+      src.count("if _capcut_machine_wide(e):") == 3, src.count("if _capcut_machine_wide(e):"))
 
 print("=" * 70)
 if failures:

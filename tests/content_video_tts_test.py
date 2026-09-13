@@ -162,5 +162,138 @@ assert pick["id"] == "es_11" and pick["platform"] == "11labs", pick
 P._get = lambda path, timeout=60: [{"id": "en_sami", "name": "Emma", "language": "en", "platform": ""}]
 assert P._capcut_speaker_for("a@x", "es") is None
 print("7 capcut pick : giọng sami trước, 11labs chỉ khi không còn giọng nào, khác ngôn ngữ → None")
+# 8. Giọng KHÔNG có mốc (11labs) → đọc theo ĐỢT: một lượt CapCut cho nhiều shot, audio riêng từng shot
+import base64 as _b64
+tmp8 = tempfile.mkdtemp(prefix="cv-batch-")
+CFG.DATA_DIR = tmp8
+out8 = os.path.join(tmp8, "content_video", "audio", "ep8")
+os.makedirs(out8, exist_ok=True)
+with open(os.path.join(out8, "shot001.mp3.words.json"), "w", encoding="utf-8") as f:
+    f.write('{"engine": "capcut", "words": [{"word": "viejo", "start": 0, "end": 1}]}')
+shots8 = [{"id": 100 + n, "storyboard_number": n, "narration_text": f"Escena {n}. " + "palabra " * 20}
+          for n in range(1, 21)]
+shots8[4]["narration_text"] = "[música]"
+P._storyboards = lambda ep_id: shots8
+ELEVEN = [{"id": "es_11", "name": "Alejandro Durán", "language": "es", "platform": "11labs"}]
+P._get = lambda path, timeout=60: ELEVEN
+batch_calls, single_calls, puts8 = [], [], []
+
+
+def batch_resp(payload):
+    items = []
+    for k, t in enumerate(payload["texts"]):
+        good = not t.startswith("Escena 7.")
+        items.append({"index": k, "ok": good, "error": "" if good else "CapCut trả audio rỗng (0 byte)",
+                      "audio_b64": _b64.b64encode(b"ID3" + t.encode("utf-8") + b"\x00" * 2000).decode() if good else ""})
+    return {"success": True, "account": "a@x.com", "items": items}
+
+
+def fake_batch(path, payload, timeout=300):
+    assert path == "/api/v1/capcut-tts/synthesize/batch", path
+    batch_calls.append((payload, timeout))
+    return batch_resp(payload)
+
+
+def st_new(ep):
+    return {"episode_id": ep, "capcut_email": "a@x.com", "_cancelled": lambda: False, "_say": lambda *a: None}
+
+
+P._post = fake_batch
+P._post_audio_marks = lambda path, payload, timeout=180: (single_calls.append(payload) or (b"ID3" + b"\x01" * 2000), [])
+P._put = lambda path, payload, timeout=60: puts8.append((path, payload)) or {}
+st8 = st_new(8)
+P._tts_capcut(st8, {"capcut_speaker": "es_11"})
+texts8 = [t for c in batch_calls for t in c[0]["texts"]]
+assert len(texts8) == 19 and len(batch_calls) == 2, [len(c[0]["texts"]) for c in batch_calls]
+assert all(len(c[0]["texts"]) <= P.CAPCUT_BATCH_SHOTS and sum(map(len, c[0]["texts"])) <= P.CAPCUT_BATCH_CHARS
+           for c in batch_calls), [sum(map(len, c[0]["texts"])) for c in batch_calls]
+assert all(c[0]["speaker"] == "es_11" and c[0]["email"] == "a@x.com" and "timestamps" not in c[0]
+           for c in batch_calls), batch_calls[0][0]
+assert all(c[1] >= 120 + 2 * 180 for c in batch_calls), [c[1] for c in batch_calls]
+assert [p["text"][:9] for p in single_calls] == ["Escena 7."], single_calls
+assert single_calls[0]["timestamps"] is True and single_calls[0]["speaker"] == "es_11", single_calls[0]
+assert len(puts8) == 19 and {p[0] for p in puts8} == {f"/api/v1/studio/storyboards/{100 + n}" for n in range(1, 21) if n != 5}
+p7 = next(p[1]["tts_audio_url"] for p in puts8 if p[0].endswith("/107"))
+assert open(p7, "rb").read().startswith(b"ID3\x01"), "shot 7 phải là audio đọc riêng"
+p3 = next(p[1]["tts_audio_url"] for p in puts8 if p[0].endswith("/103"))
+assert b"Escena 3." in open(p3, "rb").read(), "audio của đợt phải vào ĐÚNG shot"
+assert not os.path.exists(os.path.join(out8, "shot001.mp3.words.json")), "đọc lại không có mốc → bỏ mốc cũ"
+assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
+
+# 8b. extension cũ chưa có route đợt (404) → thử ĐÚNG MỘT lần rồi đọc từng shot
+batch_calls.clear(); single_calls.clear(); puts8.clear()
+
+
+def batch_404(path, payload, timeout=300):
+    batch_calls.append((payload, timeout))
+    raise RuntimeError(f"{path} → HTTP 404: Not Found")
+
+
+P._post = batch_404
+st8 = st_new(81)
+P._tts_capcut(st8, {"capcut_speaker": "es_11"})
+assert len(batch_calls) == 1 and len(single_calls) == 19, (len(batch_calls), len(single_calls))
+assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
+
+# 8c. mọi tài khoản đang nghỉ (503) → dừng cả bước, không đọc từng shot
+batch_calls.clear(); single_calls.clear()
+
+
+def batch_503(path, payload, timeout=300):
+    batch_calls.append((payload, timeout))
+    raise RuntimeError(f"{path} → HTTP 503: Tất cả tài khoản CapCut đang nghỉ")
+
+
+P._post = batch_503
+try:
+    P._tts_capcut(st_new(82), {"capcut_speaker": "es_11"})
+    raise SystemExit("503 của cả máy phải dừng bước giọng đọc")
+except RuntimeError as e:
+    assert "stopped at shot" in str(e) and single_calls == [] and len(batch_calls) == 1, (e, single_calls)
+
+# 8d. một đợt hỏng (502) → chỉ shot của đợt đó đọc từng cái, đợt sau vẫn theo đợt
+batch_calls.clear(); single_calls.clear()
+
+
+def first_batch_fails(path, payload, timeout=300):
+    batch_calls.append((payload, timeout))
+    if len(batch_calls) == 1:
+        raise RuntimeError(f"{path} → HTTP 502: CapCut không đọc được đợt này")
+    return batch_resp(payload)
+
+
+P._post = first_batch_fails
+st8 = st_new(83)
+P._tts_capcut(st8, {"capcut_speaker": "es_11"})
+assert len(batch_calls) == 2 and len(single_calls) == len(batch_calls[0][0]["texts"]), (len(batch_calls), len(single_calls))
+assert st8["tts_summary"] == "19 voiced (CapCut), 1 silent", st8["tts_summary"]
+
+# 8e. giọng sami (có mốc từng từ) và 8f. không tra được engine → giữ đường từng shot
+for label, getter, spk in (
+    ("sami", lambda path, timeout=60: [{"id": "es_sami", "name": "Enrique", "language": "es", "platform": ""}], "es_sami"),
+    ("lookup down", lambda path, timeout=60: (_ for _ in ()).throw(RuntimeError("speakers → HTTP 502: down")), "es_11"),
+):
+    batch_calls.clear(); single_calls.clear()
+    P._get = getter
+    P._post = fake_batch
+    st8 = st_new(84)
+    P._tts_capcut(st8, {"capcut_speaker": spk})
+    assert batch_calls == [] and len(single_calls) == 19, (label, len(batch_calls), len(single_calls))
+
+# 8g. gom đợt: trần số shot, trần ký tự, shot quá dài đứng riêng
+items = [(1, {}, "a" * 50), (2, {}, "b" * 2000), (3, {}, "c" * 50)] + [(k, {}, "d") for k in range(4, 40)]
+assert [len(g) for g in P._capcut_batches(items, max_shots=16, max_chars=1800)] == [1, 1, 16, 16, 5]
+
+# 8h. tự chọn giọng ghi luôn engine → không phải tra lại
+seen_state = {}
+orig_tts_capcut = P._tts_capcut
+P._tts_capcut = lambda st, opt: seen_state.update(st)
+P.installed_extensions = lambda: {"capcut_tts": True}
+P._capcut_account = lambda preferred="": "a@x.com"
+P._get = lambda path, timeout=60: ELEVEN
+P._step_tts({"language": "es", "_cancelled": lambda: False, "_say": lambda *a: None}, {"tts_engine": "capcut"})
+P._tts_capcut = orig_tts_capcut
+assert seen_state.get("capcut_speaker") == "es_11" and seen_state.get("capcut_platform") == "11labs", seen_state
+print("8 capcut batch: giọng 11labs đọc theo đợt (≤16 shot/≤1800 ký tự), shot hỏng đọc riêng, route cũ → từng shot, 503 dừng, sami giữ mốc")
 print()
-print("ALL 7 GROUPS PASSED")
+print("ALL 8 GROUPS PASSED")

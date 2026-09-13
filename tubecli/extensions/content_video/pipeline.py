@@ -1896,9 +1896,67 @@ def _shot_narration(shot: Dict) -> str:
     return _CUE_RE.sub("", str(text)).strip()
 
 
+# Đọc theo ĐỢT cho giọng CapCut KHÔNG có mốc từ (engine 11labs…): một lượt gọi CapCut
+# cho nhiều shot, audio về RIÊNG từng shot — không phải cắt. Đo 13/9/2026, giọng
+# Alejandro Durán, shot ~100 ký tự: 16 shot một lượt 23 giây; gọi từng shot ~93 giây
+# (chưa kể nhịp nghỉ giữa các lượt của bể tài khoản). Trần theo SỐ SHOT và SỐ KÝ TỰ:
+# một đợt hỏng thì chỉ chừng ấy shot phải đọc lại từng cái.
+CAPCUT_BATCH_SHOTS = 16
+CAPCUT_BATCH_CHARS = 1800
+
+
+def _capcut_batches(items: List[Tuple[int, Dict, str]], max_shots: int = CAPCUT_BATCH_SHOTS,
+                    max_chars: int = CAPCUT_BATCH_CHARS) -> List[List[Tuple[int, Dict, str]]]:
+    """Gom (thứ tự, shot, lời) liền nhau thành đợt ≤ max_shots shot và ≤ max_chars ký
+    tự. Một shot dài hơn max_chars đứng riêng một đợt."""
+    groups: List[List[Tuple[int, Dict, str]]] = []
+    cur: List[Tuple[int, Dict, str]] = []
+    size = 0
+    for item in items:
+        n = len(item[2])
+        if cur and (len(cur) >= max_shots or size + n > max_chars):
+            groups.append(cur)
+            cur, size = [], 0
+        cur.append(item)
+        size += n
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def _capcut_batch_timeout(chars: int) -> int:
+    """Timeout NGOÀI cho một đợt — lớn hơn tổng các timeout TRONG (cùng lý do với
+    _capcut_timeout): chờ tới lượt tài khoản (≤90 giây) + một lượt đợt + một lượt đối
+    chứng bằng tài khoản khác khi CapCut lỗi chung chung. Lượt trong tính như
+    capcut_routes.batch_timeout."""
+    inner = min(900, max(180, 60 + max(0, int(chars)) // 10))
+    return int(120 + 2 * inner)
+
+
+def _capcut_voice_platform(email: str, speaker: str) -> Optional[str]:
+    """Engine của một giọng CapCut: "" = sami (có mốc từng từ), "11labs"… = không có
+    mốc; None = không tra được — khi đó giữ đường đọc từng shot, chậm mà chắc."""
+    from urllib.parse import quote
+    if not email or not speaker:
+        return None
+    try:
+        data = _get(f"/api/v1/capcut-tts/speakers?email={quote(email)}", timeout=30)
+    except Exception as e:
+        logger.warning(f"[ContentVideo] capcut speakers unavailable: {e}")
+        return None
+    items = data if isinstance(data, list) else (
+        (data or {}).get("speakers") or (data or {}).get("items") or (data or {}).get("data") or [])
+    for sp in items:
+        if isinstance(sp, dict) and str(sp.get("id") or "") == str(speaker):
+            return str(sp.get("platform") or "").strip().lower()
+    return None
+
+
 def _tts_capcut(state: Dict, options: Dict) -> None:
     """Voice every shot that has none yet with CapCut, and write the absolute
     mp3 path onto the shot — build_ffmpeg_video accepts absolute paths as-is."""
+    import base64
+
     from tubecli.config import DATA_DIR
 
     ep_id = state["episode_id"]
@@ -1958,23 +2016,116 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             audio, words = _post_audio_marks("/api/v1/capcut-tts/synthesize", body, timeout=_to)
         if not audio or len(audio) < 1000:
             raise RuntimeError("CapCut returned no audio")
+        save(shot, i, audio, words)
+
+    def save(shot: Dict, i: int, audio: bytes, words: List[Dict]) -> None:
         num = shot.get("storyboard_number") or shot.get("id") or i
         path = os.path.join(out_dir, f"shot{int(num):03d}.mp3")
         with open(path, "wb") as f:
             f.write(audio)
+        side = path + ".words.json"
         if words:
-            with open(path + ".words.json", "w", encoding="utf-8") as f:
+            with open(side, "w", encoding="utf-8") as f:
                 json.dump({"engine": "capcut", "words": words}, f, ensure_ascii=False)
+        elif os.path.exists(side):
+            # Mốc của lần đọc TRƯỚC (lời cũ, giọng cũ) nằm lại cạnh mp3 mới thì phụ đề
+            # chạy theo một câu không còn nữa. Không có mốc mới → bỏ mốc cũ.
+            try:
+                os.remove(side)
+            except OSError:
+                pass
         _put(f"/api/v1/studio/storyboards/{shot['id']}", {"tts_audio_url": path})
 
     failed_shots: List[Tuple[int, Dict]] = []
     last_err = ""
+    use_batch = False
+
+    def report() -> None:
+        nonlocal last_pct
+        # Đếm cái đã XONG (đọc được + hỏng + không có lời), không phải số thứ tự vòng
+        # lặp: thẻ từng hiện "14/14 · CapCut" cho một lượt chỉ đọc nổi 4 shot.
+        pct = int(min(99, (ok + len(failed_shots) + skipped) * 100 / max(1, total)))
+        if pct != last_pct:
+            done = f"{ok}/{total} · CapCut" + (" · batch" if use_batch else "")
+            if skipped:
+                done += f" · {skipped} shot khong co loi"
+            state["_say"]("tts", "running", done, pct)
+            last_pct = pct
+
+    speakable: List[Tuple[int, Dict, str]] = []
     for i, shot in enumerate(todo, 1):
+        text = _shot_narration(shot)
+        if len(text) < 3:
+            skipped += 1
+        else:
+            speakable.append((i, shot, text))
+
+    # Giọng KHÔNG có mốc từ (engine 11labs…) → đọc theo ĐỢT. Giọng sami giữ đường từng
+    # shot vì nó trả mốc từng từ cho phụ đề chạy chữ; không tra được engine thì cũng giữ
+    # đường cũ. Engine biết được lúc tự chọn giọng chỉ dùng khi vẫn là đúng giọng đó.
+    same_voice = str(state.get("capcut_speaker") or "") == str(speaker or "")
+    platform = state.get("capcut_platform") if same_voice else None
+    if platform is None and speaker:
+        platform = _capcut_voice_platform(email, str(speaker))
+    use_batch = bool(platform) and platform != "sami" and len(speakable) > 1
+    per_shot: List[Tuple[int, Dict]] = []
+    if use_batch:
+        groups = _capcut_batches(speakable)
+        for g, group in enumerate(groups):
+            if state["_cancelled"]():
+                raise _cancel_exc()
+            body = {"email": email, "texts": [t for _, _, t in group]}
+            if speaker:
+                body["speaker"] = str(speaker)
+            try:
+                res = _post("/api/v1/capcut-tts/synthesize/batch", body,
+                            timeout=_capcut_batch_timeout(sum(len(t) for t in body["texts"])))
+            except Exception as e:
+                if _capcut_machine_wide(e):
+                    raise RuntimeError(f"CapCut TTS stopped at shot {group[0][0]}/{total}: {e}") from e
+                if _http_status(e) in (404, 405, 501):
+                    # CapCut TTS cũ chưa có đọc theo đợt, hoặc server Node của nó chưa khởi
+                    # động lại sau khi cập nhật: phần còn lại đọc từng shot như trước.
+                    logger.info(f"[ContentVideo] capcut batch unavailable, reading shot by shot: {e}")
+                    use_batch = False
+                    for rest in groups[g:]:
+                        per_shot.extend((n, sh) for n, sh, _ in rest)
+                    break
+                # Cả đợt hỏng (bể tài khoản đã đối chứng bằng tài khoản khác rồi): đọc riêng
+                # từng shot của đợt này — một lời CapCut từ chối không kéo cả đợt mất tiếng.
+                last_err = str(e)[:200]
+                logger.warning(f"[ContentVideo] capcut batch of {len(group)} failed, reading one by one: {e}")
+                per_shot.extend((n, sh) for n, sh, _ in group)
+                continue
+            items = res.get("items") if isinstance(res, dict) else None
+            by_index = {it.get("index"): it for it in (items or []) if isinstance(it, dict)}
+            for pos, (i, shot, _text) in enumerate(group):
+                it = by_index.get(pos) or {}
+                audio = b""
+                if it.get("ok"):
+                    try:
+                        audio = base64.b64decode(it.get("audio_b64") or "")
+                    except (ValueError, TypeError):
+                        audio = b""
+                if len(audio) < 1000:
+                    # CapCut không trả audio cho riêng shot này: đọc lại một mình nó.
+                    last_err = str(it.get("error") or "CapCut returned no audio")[:200]
+                    per_shot.append((i, shot))
+                    continue
+                try:
+                    save(shot, i, audio, [])
+                    ok += 1
+                except Exception as e:
+                    failed_shots.append((i, shot))
+                    last_err = str(e)[:200]
+                    logger.warning(f"[ContentVideo] saving capcut audio failed for shot {shot.get('id')}: {e}")
+            report()
+    else:
+        per_shot = [(i, shot) for i, shot, _ in speakable]
+
+    for i, shot in per_shot:
         if state["_cancelled"]():
             raise _cancel_exc()
-        if len(_shot_narration(shot)) < 3:
-            skipped += 1
-            continue
         try:
             voice(shot, i)
             ok += 1
@@ -1986,17 +2137,7 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             failed_shots.append((i, shot))
             last_err = str(e)[:200]
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
-        pct = int(min(99, i * 100 / max(1, total)))
-        if pct != last_pct:
-            # `i` là SỐ THỨ TỰ VÒNG LẶP, không phải số shot đọc được. Thẻ từng
-            # hiện "14/14 · CapCut" cho một lượt chỉ đọc nổi 4 shot: 10 shot có
-            # lời rỗng bị `continue` bỏ qua mà vẫn làm `i` chạy tiếp. Đếm cái
-            # đã làm được, và nói ra số bị bỏ.
-            done = f"{ok}/{total} · CapCut"
-            if skipped:
-                done += f" · {skipped} shot khong co loi"
-            state["_say"]("tts", "running", done, pct)
-            last_pct = pct
+        report()
     # Một shot không có giọng KHÔNG làm lượt chạy hỏng: khâu dựng gán cho nó 5
     # giây ảnh tĩnh và video lặng lẽ ngắn đi. CapCut hay rớt lẻ tẻ, nên thử lại
     # đúng những shot hỏng một lần nữa trước khi chấp nhận mất tiếng.
@@ -2082,6 +2223,8 @@ def _step_tts(state: Dict, options: Dict) -> None:
             spk = _capcut_speaker_for(str(state.get("capcut_email") or ""), lang)
             if spk:
                 state["capcut_speaker"] = spk["id"]
+                # Engine của giọng: giọng không có mốc từ (11labs…) được đọc theo đợt.
+                state["capcut_platform"] = str(spk.get("platform") or "")
                 state["tts_voice_used"] = f"CapCut · {spk.get('name') or spk['id']} · {language_name(lang)}"
             else:
                 want = str(options.get("tts_engine") or "auto").lower()

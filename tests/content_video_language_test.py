@@ -213,12 +213,15 @@ try:
     check("E ép capcut, không giọng → lỗi rõ", False, "không ném")
 except RuntimeError as e:
     check("E ép capcut, không giọng → lỗi rõ", "no voice for Vietnamese" in str(e), str(e))
-# chỉ định speaker → không hỏi, dùng luôn
+# chỉ định speaker → không chọn lại theo ngôn ngữ, dùng luôn. Được phép tra ENGINE của
+# đúng giọng đó (danh sách KHÔNG lọc ngôn ngữ): giọng không có mốc từ (11labs…) được
+# đọc theo đợt — tra hỏng hay không thấy thì vẫn đọc từng shot bằng giọng đã chọn.
 gets.clear()
 st = {"episode_id": 34, "language": "vi", "warnings": [], "_cancelled": lambda: False, "_say": lambda *a: None}
 P._step_tts(st, {"tts_engine": "capcut", "capcut_speaker": "vi_custom"})
-check("E chỉ định speaker → không hỏi danh sách, dùng luôn",
-      not any("speakers" in g for g in gets) and posts[-1].get("speaker") == "vi_custom", (gets, posts[-1:]))
+check("E chỉ định speaker → không chọn lại theo ngôn ngữ, dùng luôn",
+      not any("speakers" in g and "language=" in g for g in gets) and posts[-1].get("speaker") == "vi_custom",
+      (gets, posts[-1:]))
 print("E giong capcut: speaker theo ngôn ngữ | không có → edge + lý do | ép capcut → lỗi rõ | chỉ định → dùng luôn")
 
 # ── F. run_render: ngôn ngữ đi vào drama ────────────────────────────────────
