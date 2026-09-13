@@ -480,6 +480,14 @@ def _post_bytes(path: str, payload: Dict, timeout: int = 180) -> bytes:
     return r.content
 
 
+def _capcut_machine_wide(err: BaseException) -> bool:
+    """Lỗi CapCut TTS của CẢ MÁY, không phải của một shot: extension trả HTTP 503 khi
+    mọi tài khoản đang nghỉ, hoặc khi dịch vụ CapCut cục bộ không khởi động được.
+    Đọc tiếp các shot sau chỉ nhận lại đúng câu đó."""
+    text = str(err)
+    return "/capcut-tts/" in text and "HTTP 503" in text
+
+
 def _post_audio_marks(path: str, payload: Dict, timeout: int = 180) -> Tuple[bytes, List[Dict]]:
     """POST mà đầu ra có thể là mp3 thô (bản cũ) hoặc JSON {audio_b64, words}
     (bản có mốc từ). Trả (bytes mp3, mốc từ hoặc [])."""
@@ -1971,6 +1979,10 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
             voice(shot, i)
             ok += 1
         except Exception as e:
+            if _capcut_machine_wide(e):
+                # Cả máy không đọc được lúc này — đi tiếp 127 shot rồi còn chờ thử lại
+                # từng cái chỉ tốn hơn 6 phút để nhận lại đúng câu này (13/9/2026).
+                raise RuntimeError(f"CapCut TTS stopped at shot {i}/{total}: {e}") from e
             failed_shots.append((i, shot))
             last_err = str(e)[:200]
             logger.warning(f"[ContentVideo] capcut tts failed for shot {shot.get('id')}: {e}")
@@ -1999,6 +2011,8 @@ def _tts_capcut(state: Dict, options: Dict) -> None:
                 voice(shot, i)
                 ok += 1
             except Exception as e:
+                if _capcut_machine_wide(e):
+                    raise RuntimeError(f"CapCut TTS stopped while retrying shot {i}: {e}") from e
                 still.append((i, shot))
                 last_err = str(e)[:200]
                 logger.warning(f"[ContentVideo] capcut tts failed again for shot {shot.get('id')}: {e}")
