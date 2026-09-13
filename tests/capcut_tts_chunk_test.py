@@ -44,6 +44,11 @@ cfg.GLOBAL_SETTINGS_FILE = Path(TMP) / "global_settings.json"
 cfg.EXTENSIONS_DATA_DIR = Path(TMP) / "extensions_data"
 import capcut_routes as R  # noqa: E402
 import asyncio  # noqa: E402
+# Mọi lượt giờ đi qua bể tài khoản, mặc định nghỉ 4 giây giữa hai lượt: test này
+# gọi hàng chục lượt, để nguyên thì chạy hàng phút. Nhịp có test riêng
+# (capcut_tts_pool_test.py).
+cfg.set_global_setting("capcut_min_gap", 0)
+cfg.set_global_setting("capcut_hourly_cap", 0)
 
 failures, checks = [], 0
 
@@ -420,7 +425,10 @@ _fn = next(n for n in _ast.walk(_ast.parse(_routes))
 _body = _ast.get_source_segment(_routes, _fn) or ""
 check("I đường API KHÔNG tự cắt đoạn", "split_text(req.text, PLAIN_CHUNK_CHARS)" not in _body,
       [l.strip() for l in _body.split("\n") if "PLAIN_CHUNK_CHARS" in l])
-check("I đường API vẫn cắt cho ĐƯỜNG MỐC TỪ", "split_text(req.text, MARK_CHUNK_CHARS)" in _body)
+# Đường mốc từ (dựng video) chia theo CÂU từ 13/9/2026 — cắt cứng 90 ký tự làm
+# giọng ngắt giữa câu. Chi tiết cách chia ở capcut_tts_marks_test.py nhóm E–G.
+check("I đường mốc từ chia theo CÂU", "split_sentences(req.text)" in _body)
+check("I đường mốc từ KHÔNG còn cắt cứng 90 ký tự", "split_text(req.text, MARK_CHUNK_CHARS)" not in _body)
 
 print("=" * 70)
 if failures:
