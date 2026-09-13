@@ -1833,9 +1833,19 @@ def _preset_meta(state: Dict) -> Dict:
 
 
 def _preset_voice(state: Dict, options: Dict) -> Tuple[str, str, str]:
-    """(engine, voice, email) người dùng muốn: chat > preset > auto/rỗng."""
+    """(engine, voice, email) người dùng muốn: chat > preset > auto/rỗng.
+
+    "auto" trong options KHÔNG phải lựa chọn của người dùng: DEFAULTS luôn mang nó, nên task
+    nào cũng có options.tts_engine = "auto". Để nó thắng preset là giọng lưu trong mẫu bị bỏ
+    qua hoàn toàn — 13/9/2026 tập 336 (mẫu "nguoi que", giọng Alejandro Durán 11labs) được đọc
+    bằng một giọng sami tự chọn, từng shot một, thay vì giọng của mẫu đọc theo đợt.
+    _step_studio coi "auto" là "không chọn" từ trước; ở đây phải giống vậy.
+    """
     pm = _preset_meta(state)
-    engine = str(options.get("tts_engine") or pm.get("tts_engine") or "auto").lower()
+    opt_engine = str(options.get("tts_engine") or "").lower()
+    if opt_engine == "auto":
+        opt_engine = ""
+    engine = str(opt_engine or pm.get("tts_engine") or "auto").lower()
     voice = str(options.get("tts_voice") or pm.get("tts_voice") or "")
     email = str(options.get("capcut_email") or pm.get("tts_email") or "")
     return engine, voice, email

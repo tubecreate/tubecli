@@ -89,6 +89,20 @@ assert P._tts_engine(st, {}) == "edge" and st["tts_batch_engine"] == "vibevoice"
 st = {**pre({"tts_engine": "vibevoice", "tts_voice": "Alice"}), "_cancelled": lambda: False, "_say": lambda *a: None}
 assert P._tts_engine(st, {"tts_engine": "edge", "tts_voice": "vi-VN-NamMinhNeural"}) == "edge" and st["tts_voice_pref"] == "vi-VN-NamMinhNeural", "chat wins over preset"
 assert P._preset_voice({}, {}) == ("auto", "", "")
+# Options THẬT của task luôn là {**DEFAULTS, …} ⇒ luôn có tts_engine="auto". Giọng của mẫu vẫn
+# phải thắng (tập 336, 13/9/2026: "auto" đè "capcut" của mẫu → tự chọn giọng sami, đọc từng shot).
+real_opts = dict(P.DEFAULTS)
+assert real_opts.get("tts_engine") == "auto", "DEFAULTS đổi — xem lại ca này"
+st = {**pre({"tts_engine": "capcut", "tts_voice": "sKgg4MPUDBy69X7iv3fA", "tts_email": "a@x.com"}),
+      "_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._preset_voice(st, real_opts) == ("capcut", "sKgg4MPUDBy69X7iv3fA", "a@x.com"), P._preset_voice(st, real_opts)
+assert P._tts_engine(st, real_opts) == "capcut" and st["capcut_speaker"] == "sKgg4MPUDBy69X7iv3fA" \
+    and st["capcut_email"] == "a@x.com", st
+st = {**pre({"tts_engine": "capcut", "tts_voice": "sKgg4MPUDBy69X7iv3fA"}), "_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._tts_engine(st, {**real_opts, "tts_engine": "edge"}) == "edge", "chat nói rõ edge vẫn thắng mẫu"
+st = {"_cancelled": lambda: False, "_say": lambda *a: None}
+assert P._tts_engine(st, real_opts) == "capcut" and not st.get("capcut_speaker"), \
+    "không mẫu: auto giữ nguyên (CapCut có tài khoản, giọng tự chọn theo ngôn ngữ)"
 # batch-tts nhận engine của preset và giọng VibeVoice không bị so ngôn ngữ
 calls.clear()
 P._post = lambda path, payload, timeout=300: calls.append((path, payload)) or {"task_id": "t"}
