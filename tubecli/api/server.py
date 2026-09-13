@@ -4664,6 +4664,23 @@ async def enable_extension(name: str):
                 "routes_live": extension_manager.routes_live(name)}
     raise HTTPException(404, f"Extension '{name}' not found")
 
+@app.post("/api/v1/extensions/{name}/reload")
+async def reload_extension(name: str):
+    """Nạp lại mã MỘT extension tại chỗ — không khởi động lại TubeCLI.
+
+    Gọi đồng bộ ngay trên event loop CÓ CHỦ Ý: hot_reload thay bảng định tuyến, mà
+    việc so khớp route cũng chạy trên event loop — làm ở luồng khác thì một request
+    có thể thấy bảng đang thay dở.
+    """
+    from tubecli.core.extension_manager import extension_manager
+    if not extension_manager.get(name):
+        raise HTTPException(404, f"Extension '{name}' not found")
+    res = extension_manager.hot_reload(name)
+    if not res.get("reloaded"):
+        raise HTTPException(409, res.get("reason") or "reload failed")
+    return {"status": "success", **res}
+
+
 @app.post("/api/v1/extensions/{name}/disable")
 async def disable_extension(name: str):
     from tubecli.core.extension_manager import extension_manager

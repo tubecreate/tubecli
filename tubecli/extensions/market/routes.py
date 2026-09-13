@@ -696,9 +696,12 @@ async def update_local_extension(item_name: str):
     result = extension_manager.update_extension(ext.name)
     if result.get("status") == "error":
         raise HTTPException(400, result.get("message", "Update failed"))
-    # Cập nhật một extension ĐANG CHẠY thì bắt buộc khởi động lại: route bản cũ
-    # đã nằm trước trong bảng định tuyến và luôn thắng route vừa nạp.
-    result.update(_maybe_restart_after_install(True, False, True))
+    # update_extension đã NẠP NÓNG (gỡ route cũ, quên module cũ, nạp mã mới) thì
+    # KHÔNG khởi động lại cả TubeCLI. Chỉ khi nạp nóng không được mới hẹn restart.
+    if result.get("reloaded"):
+        result.update({"restart_required": False, "restarting": False, "restart_seconds": 0})
+    else:
+        result.update(_maybe_restart_after_install(True, False, True))
     if result.get("restarting"):
         result["message"] = (result.get("message") or "Updated.") +             " The server is restarting — the page will come back on its own."
     elif result.get("restart_required"):
@@ -823,7 +826,7 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         # CÓ SẴN hay chưa phải xem TRƯỚC khi tạo thư mục: đây là dấu hiệu duy
         # nhất phân biệt "cài mới" với "cập nhật", mà hai ca ấy khác nhau ở chỗ
         # sống còn — cập nhật thì route bản cũ đã nằm sẵn trong bảng định tuyến
-        # và luôn thắng route vừa nạp, nên bắt buộc phải khởi động lại.
+        # và luôn thắng route vừa nạp: phải NẠP NÓNG (gỡ route cũ) hoặc khởi động lại.
         was_installed = os.path.isdir(ext_dir) and bool(os.listdir(ext_dir))
         os.makedirs(ext_dir, exist_ok=True)
 
@@ -1008,6 +1011,32 @@ async def install_from_market(public_id: str, req: MarketInstallRequest):
         # Register with ExtensionManager and auto-enable
         from tubecli.core.extension_manager import extension_manager
         hot_mount_error = None
+
+        # Cập nhật ĐÈ lên extension đang chạy: nạp nóng thay vì khởi động lại CẢ
+        # TubeCLI. Người dùng báo 13/9/2026: "update phiên bản extension thì nó
+        # reset cả hệ thống". Nạp nóng không được thì đi tiếp đường cũ bên dưới
+        # (vẫn hẹn khởi động lại) — bản cập nhật không bao giờ bị bỏ lửng.
+        if was_installed:
+            hr_target = extension_manager.get(name) or extension_manager.get(install_id)
+            if hr_target is None:
+                for hr_name, hr_ext in extension_manager._extensions.items():
+                    if name in hr_name.lower().replace(" ", "_") or install_id in hr_name:
+                        hr_target = hr_ext
+                        break
+            if hr_target is not None and hr_target.enabled:
+                hr_result = extension_manager.hot_reload(hr_target.name)
+                if hr_result.get("reloaded"):
+                    hr_out = {"status": "success", "type": "extension", "reloaded": True,
+                              "restart_required": False, "restarting": False, "restart_seconds": 0,
+                              "version": hr_result.get("version"), "reload": hr_result,
+                              "message": (f"Extension '{req.item_name}' updated to v{hr_result.get('version')} "
+                                          f"and reloaded in place — no restart.")}
+                    if hr_result.get("setup_error"):
+                        hr_out["setup_error"] = hr_result["setup_error"]
+                    return hr_out
+                print(f"[Market] Hot reload not possible for {hr_target.name}: "
+                      f"{hr_result.get('reason')} — falling back to a restart")
+
         extension_manager.discover_external_extensions()
 
         # Auto-enable: try by name, install_id, or partial match

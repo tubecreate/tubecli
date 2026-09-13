@@ -414,6 +414,8 @@ class ExtensionManager:
         # lúc đang chạy cũng gắn được route ngay (xem _mount_routes).
         self._app = None
         self._routed: set = set()
+        # Route mà MỖI extension đã gắn vào app — nạp lại nóng phải gỡ đúng chúng.
+        self._route_objs: Dict[str, list] = {}
         self._load_config()
 
     def _load_config(self):
@@ -791,6 +793,202 @@ class ExtensionManager:
         """Route của extension này đã nằm trong app đang chạy chưa."""
         return name in self._routed
 
+    def _owned_routes(self, extension: Extension, app) -> list:
+        """Route thuộc extension: cái đã ghi lúc gắn, cộng cái có endpoint nằm trong
+        thư mục extension (route gắn nóng bằng đường khác, ví dụ Chợ cài mới).
+
+        PHẢI gọi trước khi xoá module khỏi sys.modules — sau đó không tra ngược
+        endpoint về file được nữa.
+        """
+        table = getattr(getattr(app, "router", None), "routes", None)
+        if table is None:
+            return []
+        owned = list(self._route_objs.get(extension.name) or [])
+        ids = {id(r) for r in owned}
+        ext_dir = os.path.abspath(extension.extension_dir) if extension.extension_dir else ""
+        if ext_dir:
+            prefix = ext_dir + os.sep
+            for r in table:
+                if id(r) in ids:
+                    continue
+                ep = getattr(r, "endpoint", None)
+                # File mã của CHÍNH hàm endpoint trước: vẫn đúng sau khi module của nó
+                # đã bị xoá khỏi sys.modules (một lượt nạp nóng hỏng trước đó). Tra
+                # theo sys.modules thì lúc ấy ra None và route cũ nằm lại chặn đường.
+                f = getattr(getattr(ep, "__code__", None), "co_filename", None)
+                if not f:
+                    mod = sys.modules.get(getattr(ep, "__module__", "") or "")
+                    f = getattr(mod, "__file__", None)
+                try:
+                    if f and os.path.abspath(f).startswith(prefix):
+                        owned.append(r)
+                        ids.add(id(r))
+                except Exception:           # noqa: BLE001
+                    continue
+        return owned
+
+    def hot_reload(self, name: str, app=None) -> dict:
+        """Nạp lại mã MỘT extension ngay trong tiến trình đang chạy.
+
+        Trước đây cập nhật một extension là khởi động lại CẢ TubeCLI: mọi phiên
+        đăng nhập, lượt chạy, trình duyệt đang mở đều rớt vì một extension. Hai thứ
+        bắt buộc restart đều gỡ được tại chỗ:
+          1. route bản cũ nằm TRƯỚC trong bảng định tuyến và luôn thắng route mới
+             → gắn route mới rồi gỡ route cũ trong MỘT lần gán (không có khoảng 404);
+          2. module con của extension nằm trong sys.modules nên nạp lại vẫn ra mã cũ
+             → xoá mọi module có file nằm trong thư mục extension.
+
+        Không đổi cờ bật/tắt đã lưu. Hỏng ở bất kỳ bước nào thì route CŨ vẫn chạy
+        như trước và trả reloaded=False kèm lý do — bên gọi tự lùi về khởi động lại.
+        Extension tự khai `"hot_reload": false` trong manifest thì không nạp nóng.
+        """
+        app = app if app is not None else self._app
+        old = self._extensions.get(name)
+        if old is None:
+            return {"reloaded": False, "reason": f"Extension '{name}' not found."}
+        if old.extension_type != "external":
+            return {"reloaded": False,
+                    "reason": "built-in extensions ship with the TubeCLI core — update TubeCLI instead"}
+        table = getattr(getattr(app, "router", None), "routes", None) if app is not None else None
+        if table is None:
+            return {"reloaded": False, "reason": "no running API server to reload into"}
+        ext_dir = os.path.abspath(old.extension_dir or "")
+        try:
+            with open(os.path.join(ext_dir, "tubecli-extension.json"), "r", encoding="utf-8-sig") as f:
+                manifest = json.load(f)
+        except Exception as e:              # noqa: BLE001
+            return {"reloaded": False, "reason": f"manifest unreadable: {e}"}
+        if manifest.get("hot_reload") is False:
+            return {"reloaded": False, "reason": "this extension asks for a full restart on update"}
+
+        old_version = old.version
+        was_enabled = old.enabled
+        old_owned = self._owned_routes(old, app)
+        old_ids = {id(r) for r in old_owned}
+        try:
+            old_nodes = dict(old.get_nodes() or {}) if was_enabled else {}
+        except Exception:                   # noqa: BLE001
+            old_nodes = {}
+
+        # 1. Dừng bản cũ: tiến trình/luồng nền (CapCut dừng sidecar Node ở đây).
+        if was_enabled:
+            try:
+                old.on_disable()
+            except Exception as e:          # noqa: BLE001
+                logger.warning(f"hot_reload {name}: on_disable of the old build failed: {e}")
+            self._sync_group_kinds(old, False)
+
+        # 2. Quên mã cũ: mọi module có file nằm trong thư mục extension.
+        prefix = ext_dir + os.sep
+        purged = 0
+        for mod_name, mod in list(sys.modules.items()):
+            f = getattr(mod, "__file__", None)
+            try:
+                if f and os.path.abspath(f).startswith(prefix):
+                    del sys.modules[mod_name]
+                    purged += 1
+            except Exception:               # noqa: BLE001
+                continue
+        sys.modules.pop(f"tubecli_ext_{manifest.get('name', name)}", None)
+        # Bytecode cũ: Python tin .pyc khi mtime (tính theo GIÂY) và kích thước file
+        # .py khớp. Bản cập nhật ghi đè file trong cùng giây với cùng độ dài (chỉ đổi
+        # "old" thành "new") là nạp lại vẫn ra MÃ CŨ — test bắt được đúng ca này.
+        for root, dirs, _files in os.walk(ext_dir):
+            for skip in ("node_modules", ".git"):
+                if skip in dirs:
+                    dirs.remove(skip)
+            if "__pycache__" in dirs:
+                shutil.rmtree(os.path.join(root, "__pycache__"), ignore_errors=True)
+                dirs.remove("__pycache__")
+        importlib.invalidate_caches()
+
+        def _keep_old(reason: str) -> dict:
+            # Route cũ còn nguyên và endpoint cũ vẫn giữ module cũ trong bộ nhớ, nên
+            # máy chạy tiếp bản cũ; chỉ cần bật lại phần nền vừa dừng.
+            if was_enabled:
+                try:
+                    old.on_enable()
+                except Exception:           # noqa: BLE001
+                    pass
+                self._sync_group_kinds(old, True)
+            self._extensions[name] = old
+            # Trả lại danh sách route bản cũ: lượt nạp SAU phải biết mà gỡ chúng.
+            self._route_objs[name] = list(old_owned)
+            if was_enabled:
+                self._routed.add(name)
+            logger.warning(f"hot_reload {name} failed, old build kept: {reason}")
+            return {"reloaded": False, "reason": reason, "old_version": old_version}
+
+        # 3. Nạp bản mới.
+        try:
+            new = self._load_external_extension(ext_dir, manifest)
+        except Exception as e:              # noqa: BLE001
+            new = None
+            load_error = f"{type(e).__name__}: {e}"
+        else:
+            load_error = "the extension module could not be loaded (see server log)"
+        if new is None:
+            return _keep_old(load_error)
+
+        cfg = self._config.get(new.name, {})
+        if "port" in cfg:
+            new.current_port = cfg["port"]
+        new.enabled = was_enabled
+        self._extensions[new.name] = new
+        setup_error = None
+        if was_enabled:
+            try:
+                new.on_enable()
+            except Exception as e:          # noqa: BLE001
+                setup_error = f"{type(e).__name__}: {e}"
+            self._sync_group_kinds(new, True)
+
+        # 4. Gắn route mới TRƯỚC, gỡ route cũ SAU trong một lần gán: giữa hai bước
+        #    route cũ vẫn thắng nên không request nào rơi vào 404.
+        new_count = 0
+        if was_enabled:
+            self._routed.discard(new.name)
+            self._route_objs.pop(new.name, None)
+            if not self._mount_routes(new, app):
+                # Mã mới gắn route không được: gỡ phần đã lỡ gắn, giữ bản cũ.
+                stray = {id(r) for r in self._route_objs.pop(new.name, [])}
+                if stray:
+                    table[:] = [r for r in table if id(r) not in stray]
+                try:
+                    new.on_disable()
+                except Exception:           # noqa: BLE001
+                    pass
+                return _keep_old(f"new routes failed: {new.route_error}")
+            new_count = len(self._route_objs.get(new.name, []))
+        table[:] = [r for r in table if id(r) not in old_ids]
+        try:
+            app.openapi_schema = None
+        except Exception:                   # noqa: BLE001
+            pass
+
+        # 5. Node workflow: gỡ class cũ, nạp class mới (cùng luật kiểm tra lúc khởi động).
+        #    Chỉ khi registry ĐÃ được nạp: import nó ở đây kéo theo toàn bộ module node
+        #    và bộ quản lý extension toàn cục — trong một tiến trình chưa từng dùng node
+        #    (CLI, test) việc đó bật hàng loạt extension thật cùng tác dụng phụ của
+        #    chúng. Chưa nạp thì registry tự lấy class mới lúc cần lần đầu.
+        reg = sys.modules.get("tubecli.nodes.registry")
+        if reg is not None:
+            try:
+                node_registry = reg.NODE_REGISTRY
+                for key, cls in old_nodes.items():
+                    if node_registry.get(key) is cls:
+                        node_registry.pop(key, None)
+                if was_enabled:
+                    self.register_extension_nodes(node_registry)
+            except Exception as e:          # noqa: BLE001
+                logger.warning(f"hot_reload {name}: workflow nodes not refreshed: {e}")
+
+        logger.info(f"Hot-reloaded extension '{name}' {old_version} -> {new.version} "
+                    f"(routes -{len(old_ids)} +{new_count}, modules purged {purged})")
+        return {"reloaded": True, "extension": new.name, "old_version": old_version,
+                "version": new.version, "routes_removed": len(old_ids), "routes_added": new_count,
+                "modules_purged": purged, "setup_error": setup_error}
+
     def _mount_routes(self, extension: Extension, app=None) -> bool:
         """Gắn router của MỘT extension vào FastAPI. Trả về gắn được hay không.
 
@@ -819,8 +1017,13 @@ class ExtensionManager:
             if router:
                 # Support extensions returning a list of routers
                 routers = router if isinstance(router, list) else [router]
+                table = getattr(getattr(app, "router", None), "routes", None)
+                before = {id(x) for x in table} if table is not None else set()
                 for r in routers:
                     app.include_router(r)
+                if table is not None:
+                    # Nhớ ĐÚNG route của extension này để hot_reload gỡ ra được.
+                    self._route_objs[extension.name] = [x for x in table if id(x) not in before]
                 logger.info(f"Registered API routes for extension '{extension.name}'")
                 # Duplicated the logger line above, and no flag reached it — so
                 # `api start --quiet` still printed 17 lines of routine startup
@@ -1178,33 +1381,22 @@ class ExtensionManager:
             except Exception as e:
                 logger.warning(f"Failed to update node dependencies: {e}")
 
-        # Reload extension
-        manifest_file = os.path.join(target_dir, "tubecli-extension.json")
-        if not os.path.exists(manifest_file):
+        # Nạp lại NÓNG (xem hot_reload): gỡ route cũ, quên module cũ, nạp mã mới —
+        # KHÔNG khởi động lại cả TubeCLI. Không nạp nóng được thì nói rõ để bên gọi
+        # hẹn khởi động lại.
+        if not os.path.exists(os.path.join(target_dir, "tubecli-extension.json")):
             return {"status": "error", "message": "manifest not found after update"}
-
-        try:
-            with open(manifest_file, "r", encoding="utf-8") as f:
-                manifest = json.load(f)
-            
-            was_enabled = extension.enabled
-            self.disable(name)
-            
-            reloaded_ext = self._load_external_extension(target_dir, manifest)
-            if not reloaded_ext:
-                return {"status": "error", "message": "Failed to reload extension module."}
-                
-            self.register(reloaded_ext)
-            if was_enabled:
-                self.enable(name)
-                
-            return {
-                "status": "success",
-                "extension": reloaded_ext.to_dict(),
-                "message": f"Extension '{name}' updated successfully to v{reloaded_ext.version}.",
-            }
-        except Exception as e:
-            return {"status": "error", "message": f"Error reloading extension: {e}"}
+        hr = self.hot_reload(name)
+        current = self._extensions.get(name) or extension
+        return {
+            "status": "success",
+            "extension": current.to_dict(),
+            "reloaded": bool(hr.get("reloaded")),
+            "reload": hr,
+            "message": (f"Extension '{name}' updated to v{current.version} and reloaded in place — no restart."
+                        if hr.get("reloaded") else
+                        f"Extension '{name}' updated; a restart is needed to load it ({hr.get('reason')})."),
+        }
 
     def uninstall(self, name: str) -> dict:
         """Remove an external extension.

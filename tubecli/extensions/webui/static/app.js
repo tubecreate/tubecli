@@ -7074,6 +7074,22 @@ async function awaitServerRestart(label, onStatus) {
     return false;
 }
 
+// Tải lại khung (iframe) của MỘT extension sau khi nó được nạp nóng. Chỉ khung đã
+// mở (có src) — khung chưa từng mở sẽ tự lấy bản mới lúc người dùng bấm vào.
+function reloadExtensionFrames(name) {
+    const raw = String(name || '');
+    const slug = raw.toLowerCase().replace(/\s+/g, '_');
+    const keys = [raw, raw.replace(/_/g, '-'), slug, slug.replace(/_/g, '-')];
+    document.querySelectorAll('iframe.ext-iframe').forEach(function (f) {
+        const src = f.getAttribute('data-src') || '';
+        const hit = keys.some(function (k) {
+            return k && (src === '/' + k || src.indexOf('/' + k + '?') === 0 || src.indexOf('/' + k + '/') === 0);
+        });
+        if (!hit || !f.getAttribute('src')) return;
+        f.src = window.themedSrc(src) + '&t=' + Date.now();
+    });
+}
+
 async function doExtensionUpdate(name, publicId, gitUrl, btn) {
     if (!confirm('Bạn có chắc chắn muốn cập nhật extension "' + name + '" lên phiên bản mới nhất không?')) {
         return;
@@ -7101,7 +7117,12 @@ async function doExtensionUpdate(name, publicId, gitUrl, btn) {
             if (btn) { btn.textContent = '✅ Done!'; btn.style.background = 'var(--green)'; }
             _extUpdateCache = null;
             _extUpdateCacheTime = 0;
-            if (result.restarting) {
+            if (result.reloaded) {
+                // Nạp NÓNG: extension đã chạy mã mới mà KHÔNG khởi động lại máy chủ —
+                // chỉ cần tải lại khung của chính extension này.
+                if (btn) btn.textContent = '✅ Đã nạp bản mới';
+                reloadExtensionFrames(name);
+            } else if (result.restarting) {
                 if (btn) btn.textContent = '🔄 Đang khởi động lại…';
                 const ok = await awaitServerRestart('Đang khởi động lại máy chủ', function (t) {
                     if (btn) btn.textContent = t;
