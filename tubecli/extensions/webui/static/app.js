@@ -2793,11 +2793,85 @@ function editProviderSettings(provider, currentModelsStr) {
     inp.placeholder = currentEditModels[0] ||
         ((window._cloudProviders || []).find(p => p.id === provider)?.models?.[0]) || 'model-id';
     document.getElementById('model-test-panel').style.display = 'none';
+    _renderEndpointPanel();
     _renderModelsSourceNote();
     renderEditModelsList();
     document.getElementById('modal-edit-models').classList.remove('hidden');
     setTimeout(() => document.getElementById('add-model-input').focus(), 100);
 }
+
+// Endpoint của provider tự host (9Router): mặc định cổng 20128 trên chính máy chủ, hoặc 9Router
+// của máy khác qua tên miền tunnel — khi đó cần key của 9Router ấy. Lưu ở đây là mọi chỗ gọi
+// 9Router trên máy chủ đều dùng (tubecli/core/ninerouter.py).
+function _renderEndpointPanel() {
+    const body = document.querySelector('#modal-edit-models .modal-body');
+    if (!body) return;
+    const meta = (window._cloudProviders || []).find(p => p.id === currentEditProvider) || {};
+    let panel = document.getElementById('provider-endpoint-panel');
+    if (!meta.base_url_editable) { if (panel) panel.style.display = 'none'; return; }
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'provider-endpoint-panel';
+        panel.style.cssText = 'border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;';
+        body.insertBefore(panel, body.firstChild);
+    }
+    panel.style.display = 'block';
+    const def = meta.base_url_default || 'http://localhost:20128/v1';
+    const hint = T('models.endpoint_hint', { def }) ||
+        `Để trống = ${def} trên chính máy chủ. 9Router ở máy khác: dán tên miền của nó (vd abc-9router.tubecreate.com) rồi thêm key của 9Router đó.`;
+    panel.innerHTML = `
+        <div style="font-weight:600;font-size:.86rem;margin-bottom:4px;">${T('models.endpoint') || 'Endpoint'}</div>
+        <div class="text-muted" style="font-size:.78rem;margin-bottom:8px;">${esc(hint)}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <input id="provider-endpoint-input" type="text" style="flex:1;min-width:220px;font-family:'JetBrains Mono',monospace;font-size:.82rem;" value="${esc(meta.base_url_custom ? (meta.base_url || '') : '')}" placeholder="${esc(def)}">
+            <button class="btn-sm" type="button" onclick="window.testProviderEndpoint(this)">${T('models.endpoint_test') || 'Kiểm tra'}</button>
+            <button class="btn-sm" type="button" style="background:#5276EB;color:#fff;border:none;" onclick="window.saveProviderEndpoint(this)">${T('models.endpoint_save') || 'Lưu endpoint'}</button>
+        </div>
+        <div id="provider-endpoint-result" style="font-size:.8rem;margin-top:6px;"></div>`;
+}
+
+window.testProviderEndpoint = async function(btn) {
+    const out = document.getElementById('provider-endpoint-result');
+    const url = (document.getElementById('provider-endpoint-input')?.value || '').trim();
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = '⏳ ...';
+    try {
+        const r = await apiPost(`/api/v1/cloud-api/providers/${currentEditProvider}/test-endpoint`, { base_url: url });
+        if (r && r.ok) {
+            out.style.color = 'var(--green)';
+            out.textContent = T('models.endpoint_ok', { url: r.base_url, n: r.model_count }) || `✅ ${r.base_url} — ${r.model_count} model`;
+        } else {
+            out.style.color = 'var(--red)';
+            const why = (r && (r.error || r.detail || r.message)) || 'Không kết nối được';
+            const needKey = r && r.status_code === 401 && !r.has_key;
+            out.textContent = `❌ ${(r && r.base_url) || url}: ${why}` +
+                (needKey ? (T('models.endpoint_need_key') || ' — thêm key của 9Router này trước (nút + Add trên thẻ).') : '');
+        }
+    } catch (e) { out.style.color = 'var(--red)'; out.textContent = '❌ ' + e.message; }
+    btn.disabled = false; btn.textContent = orig;
+};
+
+window.saveProviderEndpoint = async function(btn) {
+    const out = document.getElementById('provider-endpoint-result');
+    const url = (document.getElementById('provider-endpoint-input')?.value || '').trim();
+    btn.disabled = true;
+    try {
+        const r = await apiPut(`/api/v1/cloud-api/providers/${currentEditProvider}/settings`, { base_url: url });
+        if (r && r.status === 'success') {
+            out.style.color = 'var(--green)';
+            out.textContent = r.custom
+                ? (T('models.endpoint_saved', { url: r.base_url }) || `✓ Đã lưu — mọi lượt gọi 9Router dùng ${r.base_url}`)
+                : (T('models.endpoint_reset', { url: r.base_url }) || `✓ Về mặc định ${r.base_url}`);
+            const meta = (window._cloudProviders || []).find(p => p.id === currentEditProvider);
+            if (meta) { meta.base_url = r.base_url; meta.base_url_custom = !!r.custom; }
+            renderCloudApiExt(_cloudExtBody());
+        } else {
+            out.style.color = 'var(--red)';
+            out.textContent = '❌ ' + ((r && (r.detail || r.message || r.error)) || 'Không lưu được endpoint');
+        }
+    } catch (e) { out.style.color = 'var(--red)'; out.textContent = '❌ ' + e.message; }
+    btn.disabled = false;
+};
 
 // Say where the current list came from, so "why is this stale" answers itself:
 // builtin = the shipped fallback (rots over time), api = fetched from the
@@ -4252,21 +4326,20 @@ async function testScraperAI() {
             }
         } else if (optgroup && optgroup.label.includes('9Router')) {
             resultDiv.textContent = 'Testing 9Router...';
-            const resp = await fetch('http://localhost:20128/v1/chat/completions', {
+            // Qua máy chủ chứ không gọi thẳng cổng 20128 từ trình duyệt: 9Router có thể ở máy
+            // khác (endpoint trong Cloud API Keys), và mở dashboard qua tunnel thì "localhost" là
+            // máy của người đang xem, không phải máy chủ.
+            const resp = await fetch('/api/v1/cloud-api/providers/9router/test-model', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: model,
-                    messages: [{ role: 'user', content: "Reply 'Hello from 9Router!'" }],
-                    max_tokens: 30, stream: false
-                })
+                body: JSON.stringify({ model: model, prompt: "Reply 'Hello from 9Router!'" })
             });
             if (resp.ok) {
                 const text = await resp.text();
                 let reply = 'OK';
                 try {
                     const data = JSON.parse(text);
-                    reply = data?.choices?.[0]?.message?.content || 'OK';
+                    reply = data?.response || data?.choices?.[0]?.message?.content || 'OK';
                 } catch(e) {}
                 resultDiv.textContent = `✅ Kết nối 9Router tốt! (${reply.substring(0, 30)})`;
                 resultDiv.style.color = 'var(--green)';
@@ -6033,22 +6106,20 @@ async function testDefaultAI() {
         } else if (optgroup.label.includes('9Router')) {
             // Test 9Router directly via OpenAI-compatible API
             resultDiv.textContent = 'Testing 9Router...';
-            const resp = await fetch('http://localhost:20128/v1/chat/completions', {
+            // Qua máy chủ chứ không gọi thẳng cổng 20128 từ trình duyệt: 9Router có thể ở máy
+            // khác (endpoint trong Cloud API Keys), và mở dashboard qua tunnel thì "localhost" là
+            // máy của người đang xem, không phải máy chủ.
+            const resp = await fetch('/api/v1/cloud-api/providers/9router/test-model', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: model,
-                    messages: [{ role: 'user', content: "Reply 'Hello from 9Router!'" }],
-                    max_tokens: 30,
-                    stream: false
-                })
+                body: JSON.stringify({ model: model, prompt: "Reply 'Hello from 9Router!'" })
             });
             if (resp.ok) {
                 const text = await resp.text();
                 let reply = 'OK';
                 try {
                     const data = JSON.parse(text);
-                    reply = data?.choices?.[0]?.message?.content || 'OK';
+                    reply = data?.response || data?.choices?.[0]?.message?.content || 'OK';
                 } catch(parseErr) {
                     console.log('[Settings] Failed to parse 9Router response as JSON, trying SSE stream format...', parseErr);
                     let content = '';

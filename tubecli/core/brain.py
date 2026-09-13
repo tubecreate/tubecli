@@ -38,7 +38,13 @@ def _output_budget(default: int) -> int:
 # namespace — nên cùng một model `ag/…` được coi là 9Router lúc gọi lần đầu và
 # là OpenRouter lúc thử lại. Một hàm, một sự thật.
 _9R_NS = ("cx/", "ag/", "kr/", "xai/")
-_9R_BASE = "http://localhost:20128/v1"
+_9R_BASE = "http://localhost:20128/v1"   # mặc định; endpoint thật đọc qua _9r_base()
+
+
+def _9r_base() -> str:
+    """Endpoint 9Router đang dùng — endpoint trong Cloud API Keys, không có thì _9R_BASE."""
+    from tubecli.core.ninerouter import base_url
+    return base_url()
 
 # Hạng ưu tiên khi phải CHỌN HỘ một model 9Router (các đường failover). Đây là
 # TIỀN TỐ chứ không phải tên đầy đủ: 9Router đổi phiên bản liên tục
@@ -86,17 +92,23 @@ def list_9router_models(ttl: float = 60.0) -> List[str]:
     9Router vừa bật lên là dùng được ngay.
     """
     import time
+    from tubecli.core import ninerouter
     now = time.time()
-    if _9R_CACHE["ids"] and (now - _9R_CACHE["at"]) < ttl:
+    base = ninerouter.base_url()
+    # Nhớ THEO endpoint: đổi sang 9Router của máy khác thì danh mục cũ không được dùng lại.
+    if _9R_CACHE["ids"] and _9R_CACHE.get("base") == base and (now - _9R_CACHE["at"]) < ttl:
         return list(_9R_CACHE["ids"])
     try:
         import urllib.request
-        with urllib.request.urlopen(_9R_BASE + "/models", timeout=3) as r:
+        # Kèm key: 9Router ở máy khác trả 401 cho lượt hỏi không key.
+        req = urllib.request.Request(base + "/models", headers=ninerouter.auth_headers())
+        with urllib.request.urlopen(req, timeout=3 if ninerouter.is_local() else 10) as r:
             data = json.loads(r.read().decode("utf-8", "replace"))
         ids = [str(m.get("id") or "") for m in (data.get("data") or []) if m.get("id")]
     except Exception:      # noqa: BLE001 — không chạy là chuyện thường
         return []
     _9R_CACHE["at"] = now
+    _9R_CACHE["base"] = base
     _9R_CACHE["ids"] = ids
     return list(ids)
 
@@ -1152,7 +1164,7 @@ Rules:
             else:
                 provider = "ollama"
         if provider == "9router":
-            return (_9R_BASE, keys.get("9router") or "9router", model)
+            return (_9r_base(), keys.get("9router") or "9router", model)
         if provider == "ollama":
             return ("http://localhost:11434/v1", "ollama", model)
         base = _OPENAI_COMPAT_BASES.get(provider)
@@ -1250,7 +1262,7 @@ Rules:
         if is_9router:
             result = AgentBrain._call_openai(
                 model, cloud_keys.get("9router", "") or "9router", messages,
-                base_url="http://localhost:20128/v1", temperature=temperature
+                base_url=_9r_base(), temperature=temperature
             )
         elif is_openrouter:
             result = AgentBrain._call_openai(
@@ -1404,7 +1416,7 @@ Rules:
         if p == "openrouter":
             return AgentBrain._call_openai(model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
         if p == "9router":
-            return AgentBrain._call_openai(model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
+            return AgentBrain._call_openai(model, key or "9router", messages, base_url=_9r_base(), temperature=temperature)
         if p == "cloudflare":
             return AgentBrain._call_cloudflare(model, messages, temperature=temperature)
 
@@ -1458,7 +1470,7 @@ Rules:
                 elif provider == "deepseek":
                     result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://api.deepseek.com/v1", temperature=temperature)
                 elif provider == "9router":
-                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
+                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9r_base(), temperature=temperature)
                 else:
                     result = AgentBrain._call_openai(alt_model, key, messages, temperature=temperature)
             except Exception as e:
@@ -1512,7 +1524,7 @@ Rules:
                 elif provider == "openrouter":
                     result = AgentBrain._call_openai(alt_model, key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                 else:  # 9router
-                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
+                    result = AgentBrain._call_openai(alt_model, key or "9router", messages, base_url=_9r_base(), temperature=temperature)
             except Exception as e:
                 print(f"[Brain] Cloud fallback {provider} raised: {e}")
                 continue
@@ -1585,7 +1597,7 @@ Rules:
                     elif failed_provider == "openrouter":
                         result = AgentBrain._call_openai(failed_model, new_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                     elif failed_provider == "9router":
-                        result = AgentBrain._call_openai(failed_model, new_key or "9router", messages, base_url="http://localhost:20128/v1", temperature=temperature)
+                        result = AgentBrain._call_openai(failed_model, new_key or "9router", messages, base_url=_9r_base(), temperature=temperature)
                     else:
                         result = None
                     if result and not any(e in result for e in ["429", "quota", "rate limit", "exceeded"]):
@@ -1625,7 +1637,7 @@ Rules:
                     elif provider == "openrouter":
                         result = AgentBrain._call_openai(alt_model, alt_key, messages, base_url="https://openrouter.ai/api/v1", temperature=temperature)
                     elif provider == "9router":
-                        result = AgentBrain._call_openai(alt_model, alt_key or "9router", messages, base_url=_9R_BASE, temperature=temperature)
+                        result = AgentBrain._call_openai(alt_model, alt_key or "9router", messages, base_url=_9r_base(), temperature=temperature)
                     else:
                         continue
                     
@@ -1712,7 +1724,13 @@ Rules:
             return t("brain.no_api_key", model=model)
         try:
             from openai import OpenAI
-            client = OpenAI(api_key=api_key, base_url=base_url) if base_url else OpenAI(api_key=api_key)
+            if base_url:
+                # Endpoint tự đặt (9Router ở máy khác qua tunnel Cloudflare) chặn User-Agent mặc
+                # định của OpenAI SDK — gửi User-Agent của TubeCLI. Xem tubecli/core/ninerouter.py.
+                from tubecli.core.ninerouter import user_agent
+                client = OpenAI(api_key=api_key, base_url=base_url, default_headers={"User-Agent": user_agent()})
+            else:
+                client = OpenAI(api_key=api_key)
             oai_messages = [{"role": m["role"], "content": m["content"]} for m in messages]
 
             def _ask(**extra):

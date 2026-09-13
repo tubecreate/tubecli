@@ -77,7 +77,8 @@ def generate_studio_json(prompt: str, team_agents: List[Dict], room_width: float
     elif provider == "claude":
         raw = call_claude(model, current_key, ai_prompt)
     elif provider == "9router":
-        raw = call_openai_compatible(model, current_key or "9router", ai_prompt, base_url="http://localhost:20128/v1")
+        from tubecli.core.ninerouter import base_url as _nr_base
+        raw = call_openai_compatible(model, current_key or "9router", ai_prompt, base_url=_nr_base())
     else:
         from tubecli.extensions.cloud_api.extension import PROVIDERS
         if provider in PROVIDERS:
@@ -152,7 +153,8 @@ def generate_quick_team(description: str, provider: str, model: str) -> dict:
     elif provider == "claude":
         raw = call_claude(model, current_key, full_prompt)
     elif provider == "9router":
-        raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url="http://localhost:20128/v1")
+        from tubecli.core.ninerouter import base_url as _nr_base
+        raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url=_nr_base())
     else:
         from tubecli.extensions.cloud_api.extension import PROVIDERS
         if provider in PROVIDERS:

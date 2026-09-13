@@ -3,8 +3,10 @@ Cloud API Extension — Manages cloud AI providers and API keys.
 Provides key storage, rotation, validation, usage tracking, and provider health checks.
 """
 import os
+import re
 import json
 import logging
+from urllib.parse import urlsplit, urlunsplit
 from typing import Dict, List, Optional
 from tubecli.core.extension_manager import Extension
 from tubecli.config import DATA_DIR
@@ -174,6 +176,49 @@ PROVIDER_CAPABILITY = {
 TRANSIENT_COOLDOWN_SECONDS = 15 * 60
 
 
+# ── Endpoint tự đặt cho provider tự host ────────────────────────────────────
+# 9Router không nhất thiết chạy trên CHÍNH máy này: người dùng trỏ được sang 9Router của máy
+# khác qua tên miền tunnel (vd <máy>-9router.tubecreate.com) — 9Router đó đòi key. Endpoint
+# lưu trong _settings cạnh danh sách model; mọi chỗ gọi 9Router đọc qua tubecli.core.ninerouter.
+CUSTOM_BASE_PROVIDERS = {"9router"}
+_DEFAULT_BASE_URLS = {p: str(info.get("base_url") or "") for p, info in PROVIDERS.items()}
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def normalize_base_url(raw: str) -> str:
+    """Endpoint người dùng dán vào → "scheme://host[:port]/path", không "/" cuối.
+
+    "abc-9router.tubecreate.com" → "https://abc-9router.tubecreate.com/v1": tên miền trần là
+    https (máy cục bộ / địa chỉ IP thì http); không có đường dẫn thì thêm "/v1" — đường chuẩn
+    OpenAI của 9Router. Chuỗi rỗng = về mặc định. Sai dạng → ValueError.
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if "://" not in s:
+        host = s.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0].lower()
+        plain_ip = re.fullmatch(r"\d{1,3}(\.\d{1,3}){3}", host) is not None
+        s = ("http://" if host in _LOCAL_HOSTS or plain_ip else "https://") + s
+    try:
+        parts = urlsplit(s)
+        host = parts.hostname
+    except ValueError:
+        host = None
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        raise ValueError(f"Endpoint không hợp lệ: {raw!r} — cần dạng https://tên-miền hoặc http://ip:cổng")
+    path = parts.path.rstrip("/") or "/v1"
+    return urlunsplit((parts.scheme.lower(), parts.netloc, path, "", ""))
+
+
+def is_local_url(url: str) -> bool:
+    """Endpoint trỏ về chính máy này?"""
+    try:
+        host = (urlsplit(str(url or "")).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in _LOCAL_HOSTS or host.startswith("127.")
+
+
 class KeyManager:
     """Manages API keys for cloud providers."""
 
@@ -208,6 +253,17 @@ class KeyManager:
                     self._save()
         except Exception:
             self._keys = {}
+        self._apply_base_urls()
+
+    def _apply_base_urls(self):
+        """Đưa endpoint tự đặt vào PROVIDERS[...]["base_url"]: extension đọc thẳng bảng này
+        (Content Studio, Pod Studio…) nhận endpoint mới mà không phải phát hành lại."""
+        settings = self._keys.get("_settings") if isinstance(self._keys, dict) else None
+        for prov in CUSTOM_BASE_PROVIDERS:
+            if prov not in PROVIDERS:
+                continue
+            custom = ((settings or {}).get(prov) or {}).get("base_url") if isinstance(settings, dict) else ""
+            PROVIDERS[prov]["base_url"] = custom or _DEFAULT_BASE_URLS.get(prov, "")
 
     def _save(self):
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
@@ -270,6 +326,34 @@ class KeyManager:
         self._save()
         return {"status": "success", "message": f"Models updated for {provider}"}
 
+    def get_base_url(self, provider: str) -> str:
+        """Endpoint đang dùng: endpoint tự đặt, không có thì mặc định của provider."""
+        self._load()
+        settings = self._keys.get("_settings") or {}
+        custom = (settings.get(provider) or {}).get("base_url") if isinstance(settings, dict) else ""
+        return custom or _DEFAULT_BASE_URLS.get(provider, "")
+
+    def set_base_url(self, provider: str, url: str) -> dict:
+        """Đặt endpoint cho provider tự host. "" (hay đúng mặc định) = về mặc định."""
+        if provider not in CUSTOM_BASE_PROVIDERS:
+            return {"status": "error", "message": f"{provider} không đổi endpoint được."}
+        try:
+            norm = normalize_base_url(url)
+        except ValueError as e:
+            return {"status": "error", "message": str(e)}
+        self._load()
+        prov_settings = self._keys.setdefault("_settings", {}).setdefault(provider, {})
+        if norm and norm != _DEFAULT_BASE_URLS.get(provider):
+            prov_settings["base_url"] = norm
+        else:
+            prov_settings.pop("base_url", None)
+        self._save()
+        self._apply_base_urls()
+        base = self.get_base_url(provider)
+        custom = base != _DEFAULT_BASE_URLS.get(provider)
+        return {"status": "success", "base_url": base, "custom": custom,
+                "message": f"Endpoint {provider}: {base}"}
+
     # ── Live model catalogues ────────────────────────────────────────────────
     #
     # The hardcoded lists in PROVIDERS rot: they shipped saying gemini-2.5 while
@@ -283,7 +367,9 @@ class KeyManager:
     def _fetch_json(url: str, headers: dict = None) -> dict:
         """One place to do the network read, so tests can stub it."""
         import urllib.request
-        req = urllib.request.Request(url, headers=headers or {})
+        # User-Agent riêng: urllib mặc định bị tunnel Cloudflare chặn ("error code: 1010").
+        from tubecli.core.ninerouter import user_agent
+        req = urllib.request.Request(url, headers={"User-Agent": user_agent(), **(headers or {})})
         with urllib.request.urlopen(req, timeout=15) as resp:
             return json.loads(resp.read().decode())
 
@@ -374,7 +460,9 @@ class KeyManager:
             return [m.get("name", "") for m in data.get("result", []) if m.get("name")]
 
         if p == "9router":
-            data = self._fetch_json("http://localhost:20128/v1/models")
+            key = self.get_active_key("9router")
+            data = self._fetch_json(self.get_base_url("9router") + "/models",
+                                    {"Authorization": f"Bearer {key}"} if key else None)
             return [m.get("id", m.get("name", "")) for m in data.get("data", [])]
 
         raise RuntimeError(f"Provider {provider} chưa có API danh sách model.")
@@ -522,7 +610,11 @@ class KeyManager:
         self._load()
         result = []
         for prov_id, prov_info in PROVIDERS.items():
-            has_key = self.get_active_key(prov_id) is not None or prov_info.get("local", False)
+            base = self.get_base_url(prov_id)
+            # "Cục bộ" chỉ khi endpoint trỏ về chính máy này: 9Router ở máy khác đòi key, nên
+            # chưa có key thì KHÔNG phải "có sẵn".
+            local = bool(prov_info.get("local")) and is_local_url(base)
+            has_key = self.get_active_key(prov_id) is not None or local
             result.append({
                 "id": prov_id,
                 "name": prov_info["name"],
@@ -536,7 +628,11 @@ class KeyManager:
                 "capability": (PROVIDER_CAPABILITY.get(prov_id) or ["none"])[0],
                 "compound": bool(prov_info.get("compound")),
                 "fields": prov_info.get("fields", []),
-                "local": bool(prov_info.get("local")),
+                "local": local,
+                "base_url": base,
+                "base_url_default": _DEFAULT_BASE_URLS.get(prov_id, ""),
+                "base_url_custom": bool(base) and base != _DEFAULT_BASE_URLS.get(prov_id, ""),
+                "base_url_editable": prov_id in CUSTOM_BASE_PROVIDERS,
                 "icon": prov_info.get("icon", ""),
                 "description": prov_info.get("description", ""),
                 # When the model list was fetched from the provider's API, and

@@ -524,8 +524,9 @@ def call_llm(prompt: str, user_message: str, provider: str, model: str, api_key:
             current_key = key_manager.get_active_key("9router")
         if current_key:
             headers["Authorization"] = f"Bearer {current_key}"
+        from tubecli.core.ninerouter import chat_url as _nr_chat_url
         resp = requests.post(
-            "http://localhost:20128/v1/chat/completions",
+            _nr_chat_url(),
             headers=headers,
             json={
                 "model": model or "deepseek-v4-flash",

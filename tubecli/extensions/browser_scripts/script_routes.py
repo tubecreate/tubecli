@@ -289,7 +289,8 @@ async def list_ai_providers():
         headers = {}
         if key:
             headers["Authorization"] = f"Bearer {key}"
-        r = requests.get("http://localhost:20128/v1/models", headers=headers, timeout=1.0)
+        from tubecli.core import ninerouter as _nr
+        r = requests.get(_nr.models_url(), headers=headers, timeout=1.0 if _nr.is_local() else 5)
         if r.status_code == 200:
             nr_active = True
             data = r.json()
@@ -1156,7 +1157,8 @@ Generate realistic, working CSS selectors. Use language-agnostic selectors (IDs,
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt)
                 elif provider == "9router":
                     model_to_use = selected_model or "deepseek-chat"
-                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="http://localhost:20128/v1")
+                    from tubecli.core.ninerouter import base_url as _nr_base
+                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url=_nr_base())
                 elif provider == "ollama":
                     model_to_use = selected_model or "qwen2.5:7b"
                     raw = call_ollama(model_to_use, system_prompt)
@@ -1296,7 +1298,8 @@ User: {message}"""
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt)
                 elif provider == "9router":
                     model_to_use = selected_model or "deepseek-chat"
-                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="http://localhost:20128/v1")
+                    from tubecli.core.ninerouter import base_url as _nr_base
+                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url=_nr_base())
                 elif provider == "ollama":
                     model_to_use = selected_model or "qwen2.5:7b"
                     raw = call_ollama(model_to_use, system_prompt)
@@ -1448,7 +1451,8 @@ Generate realistic, working CSS selectors. Output ONLY the JSON."""
                     raw = call_openai_compatible(model_to_use, api_key, system_prompt)
                 elif provider == "9router":
                     model_to_use = selected_model or "deepseek-chat"
-                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url="http://localhost:20128/v1")
+                    from tubecli.core.ninerouter import base_url as _nr_base
+                    raw = call_openai_compatible(model_to_use, api_key, system_prompt, base_url=_nr_base())
                 elif provider == "ollama":
                     model_to_use = selected_model or "qwen2.5:7b"
                     raw = call_ollama(model_to_use, system_prompt)

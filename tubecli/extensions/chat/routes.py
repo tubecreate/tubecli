@@ -399,7 +399,8 @@ async def list_models():
     try:
         import requests
 
-        resp = requests.get("http://localhost:20128/v1/models", timeout=1.5)
+        from tubecli.core import ninerouter as _nr
+        resp = requests.get(_nr.models_url(), headers=_nr.auth_headers(), timeout=1.5 if _nr.is_local() else 5)
         if resp.status_code == 200:
             names = [
                 m.get("id") for m in resp.json().get("data", []) if m.get("id")

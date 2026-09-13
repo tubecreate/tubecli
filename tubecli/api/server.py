@@ -3477,7 +3477,8 @@ async def localai_chat_completions(req: Request):
         headers = {}
         if nr_key:
             headers["Authorization"] = f"Bearer {nr_key}"
-        resp = _requests.get("http://localhost:20128/v1/models", headers=headers, timeout=0.5)
+        from tubecli.core import ninerouter as _nr
+        resp = _requests.get(_nr.models_url(), headers=headers, timeout=0.5 if _nr.is_local() else 5)
         if resp.status_code == 200:
             nr_running = True
             data = resp.json()
@@ -3615,8 +3616,9 @@ async def localai_chat_completions(req: Request):
             headers = {"Content-Type": "application/json"}
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
+            from tubecli.core.ninerouter import chat_url as _nr_chat_url
             resp = _requests.post(
-                "http://localhost:20128/v1/chat/completions",
+                _nr_chat_url(),
                 headers=headers,
                 json={"model": model or "qwen2.5:7b", "messages": messages, "temperature": 0.5},
                 timeout=120,

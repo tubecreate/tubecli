@@ -109,7 +109,8 @@ async def list_ai_models():
                 headers = {}
                 if active_key:
                     headers["Authorization"] = f"Bearer {active_key}"
-                resp = requests.get("http://localhost:20128/v1/models", headers=headers, timeout=2)
+                from tubecli.core import ninerouter as _nr
+                resp = requests.get(_nr.models_url(), headers=headers, timeout=2 if _nr.is_local() else 5)
                 if resp.status_code == 200:
                     data = resp.json()
                     if isinstance(data, dict) and "data" in data:
@@ -271,7 +272,8 @@ Think it through properly (analyse the intent -> draft the outline -> turn it in
                 raw = call_openai_compatible(model, current_key, full_prompt, base_url="https://openrouter.ai/api/v1")
             elif provider == "9router":
                 if not model: model = "deepseek-chat"
-                raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url="http://localhost:20128/v1")
+                from tubecli.core.ninerouter import base_url as _nr_base
+                raw = call_openai_compatible(model, current_key or "9router", full_prompt, base_url=_nr_base())
             else:
                 error_msg = f"Provider không hỗ trợ: {provider}"
                 break

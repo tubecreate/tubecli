@@ -125,6 +125,10 @@ def call_openai_compatible(model: str, api_key: str, prompt: str, base_url: str 
         kwargs = {"api_key": api_key, "timeout": 60.0}
         if base_url:
             kwargs["base_url"] = base_url
+            # Endpoint tự đặt (9Router ở máy khác qua tunnel Cloudflare) chặn User-Agent mặc
+            # định của OpenAI SDK — gửi User-Agent của TubeCLI. Xem tubecli/core/ninerouter.py.
+            from tubecli.core.ninerouter import user_agent
+            kwargs["default_headers"] = {"User-Agent": user_agent()}
         client = OpenAI(**kwargs)
         response = client.chat.completions.create(
             model=model,
@@ -187,7 +191,8 @@ def generate_agent_json(name: str, description: str, provider: str, model: str,
         elif provider == "claude":
             raw = call_claude(model, current_key, prompt)
         elif provider == "9router":
-            raw = call_openai_compatible(model, current_key or "9router", prompt, base_url="http://localhost:20128/v1")
+            from tubecli.core.ninerouter import base_url as _nr_base
+            raw = call_openai_compatible(model, current_key or "9router", prompt, base_url=_nr_base())
         else:
             from tubecli.extensions.cloud_api.extension import PROVIDERS
             if provider in PROVIDERS:

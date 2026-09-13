@@ -167,7 +167,8 @@ def _vision_source() -> Dict:
     try:
         import requests
 
-        r = requests.get("http://localhost:20128/v1/models", timeout=1.5)
+        from tubecli.core import ninerouter as _nr
+        r = requests.get(_nr.models_url(), headers=_nr.auth_headers(), timeout=1.5 if _nr.is_local() else 5)
         if r.status_code == 200:
             ids = [m.get("id") for m in r.json().get("data", []) if m.get("id")]
             preferred = next(
@@ -182,7 +183,7 @@ def _vision_source() -> Dict:
                     key = key_manager.get_active_key("9router") or ""
                 except Exception:
                     pass
-                return {"kind": "openai", "base_url": "http://localhost:20128/v1",
+                return {"kind": "openai", "base_url": _nr.base_url(),
                         "model": preferred, "api_key": key or "9router"}
     except Exception:
         pass

@@ -95,7 +95,14 @@ async def api_get_active_key(provider: str):
     return {"provider": provider, "has_key": True, "masked_key": masked}
 
 class UpdateProviderSettings(BaseModel):
-    models: list[str]
+    models: Optional[list[str]] = None
+    # Endpoint của provider tự host (9Router ở máy khác). None = giữ nguyên; "" = về mặc định.
+    base_url: Optional[str] = None
+
+
+class TestEndpointRequest(BaseModel):
+    base_url: str = ""          # "" = endpoint đang lưu
+    api_key: str = ""           # "" = key đang bật của provider
 
 @router.post("/providers/{provider}/refresh-models")
 def api_refresh_models(provider: str):
@@ -113,12 +120,52 @@ def api_refresh_models(provider: str):
 
 @router.put("/providers/{provider}/settings")
 async def api_update_provider_settings(provider: str, req: UpdateProviderSettings):
-    """Update settings (e.g. models list) for a provider."""
+    """Update settings for a provider: the models list and/or the endpoint (base_url)."""
     from tubecli.extensions.cloud_api.extension import key_manager
-    result = key_manager.set_models(provider, req.models)
-    if result["status"] == "error":
-        raise HTTPException(400, result["message"])
+    if req.models is None and req.base_url is None:
+        raise HTTPException(400, "Nothing to update — send models and/or base_url.")
+    result = {"status": "success"}
+    if req.models is not None:
+        result = key_manager.set_models(provider, req.models)
+        if result["status"] == "error":
+            raise HTTPException(400, result["message"])
+    if req.base_url is not None:
+        res_url = key_manager.set_base_url(provider, req.base_url)
+        if res_url["status"] == "error":
+            raise HTTPException(400, res_url["message"])
+        result = {**result, **res_url}
     return result
+
+
+@router.post("/providers/{provider}/test-endpoint")
+def api_test_provider_endpoint(provider: str, req: TestEndpointRequest):
+    """Thử một endpoint TRƯỚC khi lưu: GET <endpoint>/models với key → số model, hay lỗi nói rõ.
+
+    `def`, không `async def`: gọi mạng đồng bộ, Starlette chạy nó trong threadpool.
+    """
+    import requests as _req
+    from tubecli.extensions.cloud_api.extension import key_manager, normalize_base_url, CUSTOM_BASE_PROVIDERS
+    if provider not in CUSTOM_BASE_PROVIDERS:
+        raise HTTPException(400, f"{provider} không đổi endpoint được.")
+    try:
+        base = normalize_base_url(req.base_url) or key_manager.get_base_url(provider)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    key = req.api_key.strip() or key_manager.get_active_key(provider) or ""
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    try:
+        resp = _req.get(base + "/models", headers=headers, timeout=15)
+    except Exception as e:      # noqa: BLE001
+        return {"ok": False, "base_url": base, "has_key": bool(key), "error": f"Không kết nối được: {e}"}
+    if resp.status_code != 200:
+        return {"ok": False, "base_url": base, "has_key": bool(key), "status_code": resp.status_code,
+                "error": (resp.text or f"HTTP {resp.status_code}")[:300]}
+    try:
+        data = resp.json()
+        models = [m.get("id") for m in (data.get("data") or []) if isinstance(m, dict) and m.get("id")]
+    except (ValueError, AttributeError):
+        models = []
+    return {"ok": True, "base_url": base, "has_key": bool(key), "model_count": len(models), "models": models[:60]}
 
 class TestModelRequest(BaseModel):
     model: str
@@ -159,8 +206,9 @@ async def api_test_provider_model(provider: str, req: TestModelRequest):
         elif prov == "openrouter":
             res = call_openai_compatible(req.model, key, req.prompt, base_url="https://openrouter.ai/api/v1")
         elif prov == "9router":
-            # 9Router uses OpenAI-compatible API on localhost:20128
-            res = call_openai_compatible(req.model, key or "9router", req.prompt, base_url="http://localhost:20128/v1")
+            # 9Router: endpoint trong Cloud API Keys (mặc định cổng 20128 trên máy này)
+            res = call_openai_compatible(req.model, key or "9router", req.prompt,
+                                         base_url=key_manager.get_base_url("9router"))
         else:
             raise HTTPException(400, f"Direct testing for {provider} not supported.")
             
@@ -179,14 +227,18 @@ async def api_9router_status():
         headers = {}
         if key:
             headers["Authorization"] = f"Bearer {key}"
-        resp = _req.get("http://localhost:20128/v1/models", headers=headers, timeout=3)
+        from tubecli.extensions.cloud_api.extension import is_local_url
+        base = key_manager.get_base_url("9router")
+        remote = not is_local_url(base)
+        resp = _req.get(base + "/models", headers=headers, timeout=10 if remote else 3)
         if resp.status_code == 200:
             data = resp.json()
             models = []
             if isinstance(data, dict) and "data" in data:
                 models = [m.get("id", m.get("name", "")) for m in data["data"] if isinstance(m, dict)]
-            return {"running": True, "model_count": len(models), "models": models}
-        return {"running": False, "model_count": 0, "models": []}
+            return {"running": True, "model_count": len(models), "models": models, "base_url": base, "remote": remote}
+        return {"running": False, "model_count": 0, "models": [], "base_url": base, "remote": remote,
+                "status_code": resp.status_code}
     except Exception:
         return {"running": False, "model_count": 0, "models": []}
 
