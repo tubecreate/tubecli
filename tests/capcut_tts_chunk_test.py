@@ -427,7 +427,8 @@ check("I đường API KHÔNG tự cắt đoạn", "split_text(req.text, PLAIN_C
       [l.strip() for l in _body.split("\n") if "PLAIN_CHUNK_CHARS" in l])
 # Đường mốc từ (dựng video) chia theo CÂU từ 13/9/2026 — cắt cứng 90 ký tự làm
 # giọng ngắt giữa câu. Chi tiết cách chia ở capcut_tts_marks_test.py nhóm E–G.
-check("I đường mốc từ chia theo CÂU", "split_sentences(req.text)" in _body)
+check("I đường mốc từ gửi CẢ shot trước", "plans = [[req.text]]" in _body)
+check("I đường mốc từ lui về chia theo CÂU", "split_sentences(req.text)" in _body)
 check("I đường mốc từ KHÔNG còn cắt cứng 90 ký tự", "split_text(req.text, MARK_CHUNK_CHARS)" not in _body)
 
 print("=" * 70)

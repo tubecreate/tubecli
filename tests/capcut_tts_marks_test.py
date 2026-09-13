@@ -118,12 +118,14 @@ R.account_store.record_use = lambda *a, **k: None
 req = R.SynthesizeRequest(email="a@x", text=text, speaker="Chispa", timestamps=True)
 import asyncio
 res = asyncio.run(R.synthesize(req))
-check("D nhiều đoạn", isinstance(res, dict) and res["chunks"] == len(R.split_sentences(text)) and len(calls) == res["chunks"], (type(res), calls))
-check("D mỗi lượt là câu TRỌN (không lượt nào bắt đầu giữa câu)",
-      all(c[:1].isupper() or c[:1] in "¿¡" for c in calls), calls)
+# Đo thật 13/9/2026: CapCut tự chia khúc ở dấu câu và trả mốc cho TỪNG khúc, nên
+# cả shot đi MỘT lượt — giọng liền mạch như người đọc.
+check("D cả shot một lượt", isinstance(res, dict) and res["chunks"] == 1 and calls == [text], (type(res), calls))
 check("D đủ mốc", len(res["words"]) == len(text.split()), (len(res["words"]), len(text.split())))
 starts = [w["start"] for w in res["words"]]
-check("D mốc tăng dần và dời sang đoạn sau", starts == sorted(starts) and starts[-1] > 1.0, starts[-3:])
+# Một lượt: mốc tăng dần và nằm gọn trong audio của lượt đó (máy chủ giả trả 1 giây).
+check("D mốc tăng dần, nằm trong audio", starts == sorted(starts) and 0 < res["words"][-1]["end"] <= 1.0 + 1e-6,
+      starts[-3:])
 check("D file ghép", (R._output_dir() / res["file"]).is_file() and len(base64.b64decode(res["audio_b64"])) > 1000)
 
 # E. chia theo CÂU cho đường xin mốc (dựng video)
@@ -203,11 +205,78 @@ def partial_post(url, headers=None, json=None, timeout=180):
 R.requests.post = partial_post
 R._media_seconds = lambda path: 0.0          # không có ffprobe trong test: dùng duration CapCut trả
 res2 = asyncio.run(R.synthesize(R.SynthesizeRequest(email="a@x", text=vi, timestamps=True)))
-check("G lượt gọi = số lượt theo câu", len(calls) == len(R.split_sentences(vi)), (len(calls), calls))
+check("G cả shot một lượt", len(calls) == 1, (len(calls), calls))
 check("G đủ mốc cho mọi từ của cả shot", len(res2["words"]) == len([t for t in vi.split() if any(ch.isalnum() for ch in t)]),
       (len(res2["words"]), len(vi.split())))
 g_st = [w["start"] for w in res2["words"]]
 check("G mốc tăng dần qua các câu", g_st == sorted(g_st), g_st[:5])
+
+# H. cả shot bị từ chối → đọc theo CÂU (không bao giờ cắt cứng theo số ký tự)
+calls.clear()
+R._NO_MARKS_SPEAKERS.clear()
+
+
+def whole_refused(url, headers=None, json=None, timeout=180):
+    if json["text"] == vi:
+        calls.append(json["text"])
+        return _Resp({"audio": "", "words": []})         # giọng đóng kết nối, không audio
+    return partial_post(url, headers=headers, json=json, timeout=timeout)   # partial_post tự ghi lượt gọi
+
+
+R.requests.post = whole_refused
+res3 = asyncio.run(R.synthesize(R.SynthesizeRequest(email="a@x", text=vi, speaker="BV075", timestamps=True)))
+sent = R.split_sentences(vi)
+check("H thử cả shot trước", calls[0] == vi, calls[:1])
+check("H rồi đọc theo câu", calls[1:] == sent, (len(calls), len(sent)))
+check("H vẫn ra audio + đủ mốc", isinstance(res3, dict) and res3["chunks"] == len(sent)
+      and len(res3["words"]) == len([t for t in vi.split() if any(ch.isalnum() for ch in t)]),
+      (type(res3), res3.get("chunks") if isinstance(res3, dict) else None))
+
+# I. giọng KHÔNG phải sami (11labs): thử mốc đúng một lần, rồi nhớ để shot sau khỏi thử
+class _AudioResp:
+    def __init__(self):
+        self.status_code = 200
+        self.headers = {"content-type": "audio/mpeg"}
+        self.content = b"\xff\xf3" + b"\x00" * 3000
+        self.text = ""
+
+
+class _Bad400:
+    status_code = 400
+    headers = {"content-type": "application/json"}
+    text = '{"code":"BAD_GATEWAY","message":"Word timestamps are only available for sami voices"}'
+    content = text.encode()
+
+
+marks_calls, plain_calls = [], []
+
+
+def eleven(url, headers=None, json=None, timeout=180):
+    if json.get("timestamps"):
+        marks_calls.append(json["text"])
+        return _Bad400()
+    plain_calls.append(json["text"])
+    return _AudioResp()
+
+
+R._NO_MARKS_SPEAKERS.clear()
+R.requests.post = eleven
+r_a = asyncio.run(R.synthesize(R.SynthesizeRequest(email="a@x", text=vi, speaker="sKgg4MPUDBy69X7iv3fA", timestamps=True)))
+check("I lượt đầu: thử mốc đúng MỘT lần rồi đọc thường", len(marks_calls) == 1 and len(plain_calls) == 1,
+      (len(marks_calls), len(plain_calls)))
+check("I đọc thường là CẢ shot", plain_calls == [vi])
+check("I nhớ giọng không có mốc", "sKgg4MPUDBy69X7iv3fA" in R._NO_MARKS_SPEAKERS)
+asyncio.run(R.synthesize(R.SynthesizeRequest(email="a@x", text=vi, speaker="sKgg4MPUDBy69X7iv3fA", timestamps=True)))
+check("I shot sau: KHÔNG thử mốc nữa", len(marks_calls) == 1 and len(plain_calls) == 2, (len(marks_calls), len(plain_calls)))
+
+# J. sidecar Node CŨ còn chạy: chỉ còn mốc khúc CUỐI, tính từ 0 → dời về cuối audio
+tj = "một hai ba bốn năm sáu bảy tám chín mười"
+tail_rel = [{"word": w, "start": round(i * 0.25 + 0.05, 3), "end": round(i * 0.25 + 0.25, 3)}
+            for i, w in enumerate(tj.split()[-4:])]
+fj = R.fill_marks(tj, tail_rel, 5.0)
+check("J đủ mốc", [w["word"] for w in fj] == tj.split(), [w["word"] for w in fj])
+check("J mốc khúc cuối được dời về cuối audio", fj[-1]["end"] > 4.5 and fj[-1]["end"] <= 5.0 + 1e-6, fj[-1])
+check("J mốc tăng dần", [w["start"] for w in fj] == sorted(w["start"] for w in fj))
 
 print("=" * 70)
 if failures:
