@@ -98,6 +98,9 @@ DEFAULTS: Dict[str, Any] = {
     "capcut_email": "",                  # which stored CapCut account; "" = first enabled
     "title": "",
     "preset": "",              # Content Studio wizard preset name; "" = the agent's content_video_preset
+    # rewrite | verbatim — nguyên văn: đọc đúng bài dán, model chỉ tả hình; khác ngôn ngữ
+    # mẫu thì dịch sát từng câu. Xem write_script_verbatim().
+    "script_mode": "rewrite",
     # ── Đăng thẳng lên YouTube (bước "publish") ──────────────────────
     "publish": False,          # bật thì mới có bước đăng; cũng là công tắc bật/tắt bước
     "publish_token_id": "",    # token_id của Auth Manager — KHÔNG phải credential_id
@@ -153,6 +156,7 @@ _EDGE_VOICES = {
 _LEN_FROM = {
     "asked for": "you asked for this length",
     "content": "matches the pasted content",
+    "verbatim": "read word for word as pasted",
     "template": "from the template's Video Length",
     "default": "default — say “video 5 phút” or set Video Length in the template",
 }
@@ -1375,6 +1379,201 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
     return f"TITLE: {title}\n\n" + "\n\n".join(out)
 
 
+# ── Chế độ NGUYÊN VĂN (script_mode="verbatim") ─────────────────────────────
+# Người dán một bài đã hoàn chỉnh (bài giảng, kịch bản có sẵn) không muốn AI "viết lại":
+# tập 337 (13/9/2026) mất 13 % câu và thêm 16 % câu tự bịa dù đã dặn giữ đủ. Nguyên
+# văn: cắt bài thành cảnh ~60 chữ theo ranh giới câu (đoạn là ranh giới ưu tiên), lời
+# đọc là CHÍNH bài dán, model chỉ viết dòng [SHOW] tả hình; bài khác ngôn ngữ mẫu thì
+# model DỊCH sát từng câu (không tóm tắt, không thêm bớt). Góp ý khi duyệt chỉ đổi hình.
+_VERBATIM_BATCH = 12
+_VERBATIM_MIN_SCENE = 15          # cảnh đuôi ngắn hơn chừng này nhập vào cảnh trước
+# Kết câu: chữ Latinh cần dấu cách sau dấu chấm (kẻo "6.33" hay "www.x.com" bị cắt);
+# chữ Hán/Nhật không có dấu cách sau 。！？
+_SENT_SPLIT_RE = re.compile(r"[.!?…]+[\"”’)\]»]*\s+|[。！？]+[”’」』)\]]*\s*")
+_VERBATIM_BLOCK_RE = re.compile(r"^\s*(?:(\d+)[.)]?\s*)?\[SHOW:\s*(.*?)\]\s*(.*)$", re.I)
+_VERBATIM_RETRY = ("\nIMPORTANT: the previous answer was incomplete. Every passage needs its own block: "
+                   "the [SHOW: …] line, then the FULL translation of that passage — every sentence.")
+
+
+def split_sentences(para: str) -> List[str]:
+    """Các câu của một đoạn, giữ nguyên chữ (chỉ cắt sau dấu kết câu)."""
+    out, start = [], 0
+    for m in _SENT_SPLIT_RE.finditer(para):
+        piece = para[start:m.end()].strip()
+        if piece:
+            out.append(piece)
+        start = m.end()
+    tail = para[start:].strip()
+    if tail:
+        out.append(tail)
+    return out
+
+
+def _chop_long(unit: str, per: int) -> List[str]:
+    """Một "câu" dài quá 2×per chữ (bài không có dấu chấm, tiếng Thái…) thì cắt theo
+    khoảng trắng, không có khoảng trắng thì theo ký tự — kẻo một cảnh dài cả video."""
+    if content_words(unit) <= per * 2:
+        return [unit]
+    words = unit.split()
+    if len(words) > 1:
+        out, cur, cur_w = [], [], 0
+        for w in words:
+            cur.append(w)
+            cur_w += content_words(w)
+            if cur_w >= per:
+                out.append(" ".join(cur))
+                cur, cur_w = [], 0
+        if cur:
+            out.append(" ".join(cur))
+        return out
+    step = per * (5 if _THAI_RE.search(unit) else 2)      # ký tự/chữ như content_words()
+    return [unit[i:i + step] for i in range(0, len(unit), step)]
+
+
+# Giữa hai câu chữ Hán/Nhật không có dấu cách: nối cảnh mà chèn " " là đổi bài.
+_CJK_GAP_RE = re.compile(r"(?<=[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff。！？，、」』）])\s+"
+                         r"(?=[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff「『（])")
+
+
+def _join_units(units: List[str]) -> str:
+    return _CJK_GAP_RE.sub("", " ".join(units))
+
+
+def verbatim_scenes(text: str, per: int = _WORDS_PER_SCENE) -> List[str]:
+    """Cắt bài dán thành cảnh ~`per` chữ, KHÔNG bao giờ cắt giữa câu; nối lại bằng
+    dấu cách (chữ Hán/Nhật: nối liền) thì được đúng bài — chỉ mất xuống dòng thừa."""
+    units: List[str] = []
+    for para in re.split(r"\r?\n+", text or ""):
+        para = " ".join(para.split())
+        if para:
+            for u in (split_sentences(para) or [para]):
+                units.extend(_chop_long(u, per))
+    scenes, cur, cur_w = [], [], 0
+    for u in units:
+        w = content_words(u)
+        if cur and cur_w + w > per * 1.5 and cur_w >= per * 0.5:
+            scenes.append(_join_units(cur))
+            cur, cur_w = [], 0
+        cur.append(u)
+        cur_w += w
+        if cur_w >= per:
+            scenes.append(_join_units(cur))
+            cur, cur_w = [], 0
+    if cur:
+        if scenes and cur_w < _VERBATIM_MIN_SCENE:
+            scenes[-1] = _join_units([scenes[-1]] + cur)
+        else:
+            scenes.append(_join_units(cur))
+    return scenes
+
+
+def parse_verbatim(text: str, first: int, count: int) -> Tuple[str, Dict[int, Tuple[str, str]]]:
+    """(title, {số cảnh: (show, lời)}) từ trả lời "TITLE: …" + các khối "N. [SHOW: …]\\n<lời>".
+    Khối không đánh số thì đếm theo thứ tự; số ngoài [first, first+count) bị bỏ."""
+    title, blocks, cur, seq = "", {}, None, first
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.upper().startswith("TITLE:") and not title:
+            title = line.split(":", 1)[1].strip().strip("*\"' ")
+            continue
+        m = _VERBATIM_BLOCK_RE.match(line)
+        if m:
+            n = int(m.group(1)) if m.group(1) else seq
+            seq = n + 1
+            cur = n if first <= n < first + count else None
+            if cur is not None:
+                blocks[cur] = (" ".join(m.group(2).split()), " ".join(m.group(3).split()))
+            continue
+        if cur is not None:
+            show, narr = blocks[cur]
+            blocks[cur] = (show, (narr + " " + line).strip())
+    return title, blocks
+
+
+def _fallback_show(passage: str) -> str:
+    """Model không tả hình cho cảnh này: lấy câu đầu làm gợi ý — Studio vẫn dựng được
+    prompt ảnh từ lời, còn hơn một cảnh không có gì."""
+    first = (split_sentences(passage) or [passage])[0]
+    return first[:120].rstrip(" ,;:")
+
+
+def verbatim_prompt(chunk: List[str], first: int, total: int, lang: str, translate: bool,
+                    src_name: str, feedback: List[str], want_title: bool) -> str:
+    head = (f"Passages {first}-{first + len(chunk) - 1} of {total} of a narration that will be "
+            "read aloud word for word.\n")
+    if translate:
+        task = (f"The passages are in {src_name}. For EACH passage: translate it into {lang} faithfully — "
+                "every sentence, in order, nothing added, nothing dropped, no summarizing — and write ONE "
+                "line describing what is on screen while it is read (concrete, filmable, no on-screen text).\n"
+                f"Output exactly {len(chunk)} blocks, in order, nothing else. Each block:\n"
+                f"<number>. [SHOW: <what is on screen, in {lang}>]\n<the full translation of that passage>\n")
+    else:
+        task = ("For EACH passage write ONE line describing what is on screen while it is read: concrete, "
+                f"filmable, no on-screen text, in {lang}. Do not repeat or rewrite the passage.\n"
+                f"Output exactly {len(chunk)} lines, in order, nothing else:\n<number>. [SHOW: ...]\n")
+    if want_title:
+        task += f"Before them, one line: TITLE: <a punchy title in {lang}>\n"
+    if feedback:
+        task += ("The reviewer asked for these changes — apply them to the visuals (the narration is fixed):\n"
+                 + "\n".join(f"- {f}" for f in feedback) + "\n")
+    body = "\n".join(f"{first + i}. {p}" for i, p in enumerate(chunk))
+    return f"{head}{task}\nPassages:\n{body}"
+
+
+def write_script_verbatim(state: Dict, agent, text: str, lang_code: str, lang: str,
+                          feedback: List[str], previous: str) -> Optional[str]:
+    """Kịch bản nguyên văn ("TITLE: …" + các cảnh [SHOW]) — hay None khi phải dịch mà
+    model không trả đủ bản dịch (người gọi rơi về viết lại và nói ra)."""
+    say = state.get("_say") or (lambda *a: None)
+    cancelled = state.get("_cancelled") or (lambda: False)
+    src = detect_language_sure(text)
+    translate = bool(src) and bool(lang_code) and _lang_base(src) != _lang_base(lang_code)
+    src_name = language_name(src) if translate else ""
+    title = ""
+    if feedback and previous:
+        # Lời đã chốt từ lượt trước (nguyên văn hay bản dịch): góp ý chỉ đổi phần hình.
+        narr = [n for _, n in scenes_of(previous) if n]
+        translate, src_name = False, ""
+        title = str(state.get("title") or (state.get("checkpoint") or {}).get("title") or "")
+    else:
+        narr = verbatim_scenes(text)
+    if not narr:
+        raise RuntimeError("Verbatim mode: the pasted content has no sentences to read.")
+    state["verbatim"] = {"scenes": len(narr), "translated_from": src_name}
+    system_prompt = (f"You are the storyboard writer for \"{agent.name}\", a short-video channel. The narration "
+                     "is fixed and is read word for word; you "
+                     + ("translate it faithfully and " if translate else "")
+                     + f"describe what is on screen. Write in {lang}.")
+    shows, texts = [], []
+    for a in range(0, len(narr), _VERBATIM_BATCH):
+        if cancelled():
+            raise _cancel_exc()
+        chunk = narr[a:a + _VERBATIM_BATCH]
+        say("script", "running", f"{'translating' if translate else 'describing'} scenes "
+                                 f"{a + 1}-{a + len(chunk)} of {len(narr)}")
+        prompt = verbatim_prompt(chunk, a + 1, len(narr), lang, translate, src_name, feedback,
+                                 want_title=(a == 0 and not title))
+        budget = sum(content_words(x) for x in chunk) * (2 if translate else 0) + len(chunk) * 40 + 60
+        got_title, blocks = parse_verbatim(_ask_model(agent, system_prompt, prompt, budget), a + 1, len(chunk))
+        if translate and any(not (blocks.get(a + 1 + i) or ("", ""))[1] for i in range(len(chunk))):
+            # Thiếu bản dịch cho vài cảnh: hỏi lại MỘT lần với câu nhắc thẳng; vẫn thiếu thì thôi.
+            say("script", "running", f"scenes {a + 1}-{a + len(chunk)}: translation incomplete — asking again")
+            got2, blocks2 = parse_verbatim(_ask_model(agent, system_prompt + _VERBATIM_RETRY, prompt, budget),
+                                           a + 1, len(chunk))
+            got_title = got_title or got2
+            blocks.update({k: v for k, v in blocks2.items() if v[1]})
+            if any(not (blocks.get(a + 1 + i) or ("", ""))[1] for i in range(len(chunk))):
+                return None
+        title = title or got_title
+        for i, passage in enumerate(chunk):
+            show, tr = blocks.get(a + 1 + i) or ("", "")
+            shows.append(show or _fallback_show(passage))
+            texts.append(tr if translate else passage)
+    return f"TITLE: {title}\n\n" + "\n\n".join(f"[SHOW: {s}]\n{t}" for s, t in zip(shows, texts))
+
+
 def _step_script(state: Dict, options: Dict) -> None:
     from tubecli.core.brain import AgentBrain
 
@@ -1424,7 +1623,12 @@ def _step_script(state: Dict, options: Dict) -> None:
     opts_len = options
     if pasted and not str(options.get("source_text") or "").strip():
         opts_len = {**options, "source_text": "\n".join(blocks)}
-    words, words_from = resolve_words(opts_len, state.get("preset"))
+    # Nguyên văn: độ dài là của CHÍNH bài dán — không kẹp trần 4000 chữ, không "rút gọn".
+    verbatim = pasted and str(options.get("script_mode") or "").strip().lower() == "verbatim"
+    if verbatim:
+        words, words_from = max(1, content_words(opts_len.get("source_text"))), "verbatim"
+    else:
+        words, words_from = resolve_words(opts_len, state.get("preset"))
     scenes_n, sent_lo, sent_hi = scene_budget(words)
     state["target_words"], state["words_from"] = words, words_from
     keep_all = ""
@@ -1504,7 +1708,16 @@ def _step_script(state: Dict, options: Dict) -> None:
              f"{words} words.{keep_all}\n" if pasted else
              f"\n\nWrite the narration script for a {style} video of about {words} words.\n") + fmt
         )
-    if words > CHUNK_WORDS:
+    if verbatim:
+        text = write_script_verbatim(state, agent, "\n".join(blocks), lang_code, lang, feedback, previous)
+        if text is None:
+            # Phải dịch mà model không trả đủ bản dịch: viết lại như thường, và nói ra.
+            state.setdefault("warnings", []).append(
+                "Verbatim mode: the model could not translate the content sentence by sentence even "
+                f"after a retry, so the script was rewritten in {lang} instead.")
+            text = write_script_chunked(state, agent, system_prompt, blocks, style, words, scenes_n,
+                                        sent_lo, sent_hi, lang, write_in, feedback, previous)
+    elif words > CHUNK_WORDS:
         # Kịch bản dài viết theo ĐỢT: model suy luận (deepseek-v4-flash…) tiêu
         # hết ngân sách vào phần nghĩ khi phải trả 3000 chữ một lượt — kể cả
         # sau khi gấp đôi ngân sách. Dàn ý một lượt, rồi mỗi lượt vài cảnh: mỗi
@@ -1537,7 +1750,9 @@ def _step_script(state: Dict, options: Dict) -> None:
             f"The script came back in {language_name(wrong)} although {lang} was asked, even after "
             f"a retry — this model ignores the language instruction. Request changes with "
             f"\"write in {lang}\", or pick another model for this agent.")
-    short = short_script_warning(len(text.split()), words)
+    # Nguyên văn: độ dài là của chính bài (bản dịch thì số chữ đổi theo ngôn ngữ) — không
+    # có chuyện "model dừng sớm".
+    short = "" if verbatim else short_script_warning(len(text.split()), words)
     if short:
         state.setdefault("warnings", []).append(short)
 
@@ -4602,6 +4817,9 @@ def describe_plan(options: Dict[str, Any]) -> str:
         lines.append(f"- Template: {options['preset']}")
     if options.get("source_text"):
         lines.append(f"- Source: pasted content (~{content_words(options['source_text'])} words)")
+        if str(options.get("script_mode") or "").strip().lower() == "verbatim":
+            lines.append("- Script: read word for word as pasted — the AI only describes the visuals "
+                         "(translated sentence by sentence if the template's language differs)")
     for r in rows:
         if r["will_run"]:
             mark, note = "✅", ""
@@ -4945,6 +5163,12 @@ def _plan_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: Lis
         f"- **Language**: {language_name(state.get('language') or '')}"
         + _LANG_FROM_NOTE.get(str(state.get("language_from") or ""), ""),
     ]
+    vb = state.get("verbatim") or {}
+    if vb:
+        lines.append("- **Script**: read word for word as pasted"
+                     + (f" — translated sentence by sentence from {vb['translated_from']}"
+                        if vb.get("translated_from") else "")
+                     + f" · {vb.get('scenes', 0)} scenes cut at sentence boundaries; the AI only wrote the visuals")
     if state.get("preset"):
         lines.append(f"- **Template**: {state['preset']['name']}")
     lines.append(

@@ -1082,6 +1082,7 @@ const CODEX = (() => {
   // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
   const CV_LENGTH_KEY = 'codex.cvLength';
   const CV_MINUTES_KEY = 'codex.cvMinutes';
+  const CV_SCRIPT_KEY = 'codex.cvScript';     // rewrite | verbatim
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -1122,6 +1123,11 @@ const CODEX = (() => {
     const sel = $('cx-v-length');
     if (!sel) return;
     const have = cvWords($('cx-v-content').value || '');
+    // Nguyên văn: độ dài là của chính bài dán → ô "Độ dài video" không có tác dụng, ẩn đi.
+    const verbatim = renderVideoScript(have);
+    const lenWrap = $('cx-v-length-wrap');
+    if (lenWrap) lenWrap.classList.toggle('hidden', verbatim);
+    if (verbatim) { $('cx-v-minutes-wrap').classList.add('hidden'); return; }
     const name = $('cx-v-preset').value;
     const p = (name && state.presets) ? state.presets[name] : null;
     const lenKey = (p && p.wizVideoLength) || '';
@@ -1155,6 +1161,30 @@ const CODEX = (() => {
     const hint = $('cx-v-length-hint');
     hint.textContent = msg;
     hint.classList.toggle('warn', warn);
+  }
+
+  /** Ô "Kịch bản": AI viết lại (mặc định) / đọc NGUYÊN VĂN bài dán. Tập 337 (13/9/2026)
+   *  mất 13 % câu và thêm 16 % câu tự bịa dù đã dặn giữ đủ — ai dán bài hoàn chỉnh thì
+   *  muốn video đọc đúng bài ấy. Trả true khi đang chọn nguyên văn. */
+  function renderVideoScript(have) {
+    const sel = $('cx-v-script');
+    if (!sel) return false;
+    const want = sel.value || lsGet(CV_SCRIPT_KEY) || 'rewrite';
+    sel.innerHTML =
+      `<option value="rewrite">${esc(t('codex.cv_script_rewrite'))}</option>` +
+      `<option value="verbatim">${esc(t('codex.cv_script_verbatim'))}</option>`;
+    sel.value = want === 'verbatim' ? 'verbatim' : 'rewrite';
+    const hint = $('cx-v-script-hint');
+    if (hint) {
+      hint.textContent = sel.value === 'verbatim'
+        ? t('codex.cv_script_hint_verbatim', { min: fmtMin(have || 0) }) : '';
+    }
+    return sel.value === 'verbatim';
+  }
+
+  function onVideoScript() {
+    lsSet(CV_SCRIPT_KEY, $('cx-v-script').value || 'rewrite');
+    renderVideoLength();
   }
 
   function onVideoLength() {
@@ -1213,6 +1243,13 @@ const CODEX = (() => {
     const lengthMode = $('cx-v-length').value || 'content';
     options.length_mode = lengthMode;
     if (lengthMode === 'minutes') options.target_words = clampMinutes($('cx-v-minutes').value) * CV_WPM;
+    const scriptMode = ($('cx-v-script') && $('cx-v-script').value) || 'rewrite';
+    options.script_mode = scriptMode;
+    if (scriptMode === 'verbatim') {
+      // Nguyên văn: độ dài là của chính bài dán; ô "Độ dài video" đang ẩn, không gửi.
+      options.length_mode = 'content';
+      delete options.target_words;
+    }
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -1343,6 +1380,6 @@ const CODEX = (() => {
     init, refresh, toggle, collapse, togglePlan, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, copyResult, planTask,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, planFromModal, closeModal, onBackdrop,
   };
 })();

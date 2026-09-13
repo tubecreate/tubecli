@@ -196,6 +196,11 @@
 
           <div class="cx-field-row">
             <div class="cx-field">
+              <label for="cx-v-script" data-i18n="codex.field_video_script">Script</label>
+              <select id="cx-v-script" onchange="CODEX.onVideoScript()"></select>
+              <div class="cx-field-meta cx-len-hint" id="cx-v-script-hint" aria-live="polite"></div>
+            </div>
+            <div class="cx-field" id="cx-v-length-wrap">
               <label for="cx-v-length" data-i18n="codex.field_video_length">Video length</label>
               <select id="cx-v-length" onchange="CODEX.onVideoLength()"></select>
               <div class="cx-field-meta cx-len-hint" id="cx-v-length-hint" aria-live="polite"></div>
