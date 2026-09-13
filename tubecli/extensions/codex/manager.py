@@ -691,10 +691,10 @@ class CodexManager:
             raise ValueError(f"Task not found: {task_id}")
         if task.get("status") not in (BACKLOG, QUEUED):
             raise ValueError(
-                f"Task #{task.get('seq')} is not waiting in the backlog (it is {task.get('status')})"
+                f"Task #{task.get('seq')} is not waiting in the queue (it is {task.get('status')})"
             )
         updated, _changed = self._settle(
-            task_id, QUEUED, actor, message=f"Started ahead of the backlog by {actor}",
+            task_id, QUEUED, actor, message=f"Started ahead of the queue by {actor}",
         )
         return updated
 
@@ -896,7 +896,7 @@ class CodexManager:
                 snapshot = dict(chosen)
         for r in released:
             self.append_event(
-                r["id"], "state", f"{BACKLOG} → {QUEUED}: its turn came up in the backlog",
+                r["id"], "state", f"{BACKLOG} → {QUEUED}: its turn came up in the queue",
                 actor="codex", data={"from": BACKLOG, "to": QUEUED},
             )
         if snapshot is None:

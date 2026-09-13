@@ -147,5 +147,31 @@ check('vi: "Hàng đợi" + nút "Đưa vào hàng đợi"', VI['codex.status_ba
 check('vi: queued đổi "Hàng chờ" → "Sắp chạy" (khỏi na ná "Hàng đợi")',
     VI['codex.status_queued'] === 'Sắp chạy' && VI['codex.stat_queued'] === 'Sắp chạy');
 
+// ── 6. Chữ người dùng hiểu ───────────────────────────────────────────────────
+// 13/9/2026, user: "add to backlog chứ không vào queue à? người dùng họ ko biết back log?"
+// Mã trạng thái nội bộ vẫn là `backlog`; chữ HIỆN RA thì không được là thuật ngữ.
+console.log('── chữ người dùng hiểu ───────────────────────────────────');
+const QUEUE_KEYS = new Set(['codex.stat_backlog', 'codex.status_backlog', 'codex.meta_backlog_pos',
+    'codex.btn_queue_video', 'codex.btn_queue_video_hint', 'codex.toast_video_backlog',
+    'codex.created_backlog_title', 'codex.created_backlog_desc_review', 'codex.created_backlog_desc_auto']);
+for (const lang of LANGS) {
+    const L = JSON.parse(read('locales', lang + '.json'));
+    const jargon = Object.entries(L).filter(([, v]) => /backlog|백로그/i.test(String(v))).map(([k]) => k);
+    check(`${lang}: không chuỗi nào nói "backlog"`, !jargon.length, jargon);
+}
+const EN = JSON.parse(read('locales', 'en.json'));
+check('en: nút "Add to queue", trạng thái "In queue", việc sắp chạy là "Up next"',
+    EN['codex.btn_queue_video'] === 'Add to queue' && EN['codex.status_backlog'] === 'In queue'
+    && EN['codex.stat_backlog'] === 'In queue' && EN['codex.status_queued'] === 'Up next' && EN['codex.stat_queued'] === 'Up next',
+    [EN['codex.btn_queue_video'], EN['codex.status_backlog'], EN['codex.status_queued']]);
+const strayQueue = Object.entries(EN).filter(([k, v]) => /queue/i.test(v) && !QUEUE_KEYS.has(k)).map(([k]) => k);
+check('en: chỉ chữ của hàng đợi mới nói "queue" (Tạo video / Chạy lại không bị hiểu là vào hàng đợi)',
+    !strayQueue.length, strayQueue);
+const oldVi = Object.entries(JSON.parse(read('locales', 'vi.json'))).filter(([, v]) => /hàng chờ/i.test(v)).map(([k]) => k);
+check('vi: hết chữ "hàng chờ" (na ná "hàng đợi")', !oldVi.length, oldVi);
+check('chữ mặc định trong HTML (trước khi nạp bản dịch) không nói backlog', !/backlog/i.test(btn), btn);
+check('câu lỗi / nhật ký của Chạy ngay không nói backlog',
+    !/the backlog/.test(manager) && manager.includes('is not waiting in the queue'));
+
 console.log(failed ? `\n${failed} HỎNG` : '\nALL PASS');
 process.exit(failed ? 1 : 0);

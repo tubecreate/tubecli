@@ -150,7 +150,7 @@ try:
     cm.run_now(d["id"])
     refused = False
 except ValueError as e:
-    refused = "not waiting in the backlog" in str(e)
+    refused = "not waiting in the queue" in str(e)
 check("G6 Chạy ngay task đang chạy bị từ chối, câu lỗi nói rõ", refused)
 try:
     cm._transition(v2["id"], "running", "test")
