@@ -209,6 +209,27 @@ try:
     finally:
         requests.get = real_get
 
+    print("== G. key 9Router chung thắng bản chép cũ trong agent")
+    km.add_key("9router", "sk-global-new", "remote")
+    stale = {"model": "cx/gpt-5.5-review", "cloud_api_keys": {"9router": "sk-stale-local", "gemini": "g-agent"}}
+    check("G1 openai_compat_params: key chung (gắn endpoint) thay key cũ của agent",
+          B.AgentBrain.openai_compat_params(stale) == (REMOTE, "sk-global-new", "cx/gpt-5.5-review"),
+          B.AgentBrain.openai_compat_params(stale))
+    sent = {}
+    real_call_openai = B.AgentBrain._call_openai
+    B.AgentBrain._call_openai = staticmethod(
+        lambda model, api_key, messages, base_url=None, temperature=0.7: (sent.update(key=api_key, base=base_url) or "OK"))
+    try:
+        out = B.AgentBrain._call_llm(dict(stale), [{"role": "user", "content": "hi"}])
+    finally:
+        B.AgentBrain._call_openai = real_call_openai
+    check("G2 _call_llm gửi key chung tới endpoint mới", out == "OK" and sent.get("key") == "sk-global-new"
+          and sent.get("base") == REMOTE, sent)
+    check("G3 key khác của agent (gemini) giữ nguyên", stale["cloud_api_keys"]["gemini"] == "g-agent")
+    km.remove_key("9router", "remote")
+    check("G4 chưa có key chung → vẫn dùng key của agent",
+          B.AgentBrain.openai_compat_params(stale)[1] == "sk-stale-local", B.AgentBrain.openai_compat_params(stale))
+
     print("== F. không còn chỗ nào viết cứng localhost:20128")
     files = ["tubecli/core/ai_generator.py", "tubecli/core/ai_workflow_builder.py", "tubecli/api/server.py",
              "tubecli/extensions/webui/story_api.py", "tubecli/extensions/studio3d/ai_builder.py",

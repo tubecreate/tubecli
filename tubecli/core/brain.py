@@ -1138,6 +1138,10 @@ Rules:
             for name in ("gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"):
                 if not keys.get(name):
                     keys[name] = key_manager.get_active_key(name) or ""
+            # 9Router: key gắn với ENDPOINT đang cấu hình trong Cloud API Keys, nên key chung thắng
+            # bản chép trong agent. 13/9/2026 agent "chuyên gia it" giữ key của 9Router cục bộ cũ;
+            # đổi sang 9Router ở máy khác thì mọi lượt viết kịch bản nhận 401 "API key required".
+            keys["9router"] = key_manager.get_active_key("9router") or keys.get("9router", "")
         except Exception:
             pass
         provider = str(agent.get("provider") or "").strip().lower()
@@ -1193,6 +1197,10 @@ Rules:
             for provider_name in ["gemini", "openai", "claude", "deepseek", "grok", "openrouter", "9router"]:
                 if not cloud_keys.get(provider_name):
                     cloud_keys[provider_name] = key_manager.get_active_key(provider_name) or ""
+            # 9Router: key gắn với ENDPOINT đang cấu hình trong Cloud API Keys, nên key chung thắng
+            # bản chép trong agent. 13/9/2026 agent "chuyên gia it" giữ key của 9Router cục bộ cũ;
+            # đổi sang 9Router ở máy khác thì mọi lượt viết kịch bản nhận 401 "API key required".
+            cloud_keys["9router"] = key_manager.get_active_key("9router") or cloud_keys.get("9router", "")
         except Exception:
             pass
         
