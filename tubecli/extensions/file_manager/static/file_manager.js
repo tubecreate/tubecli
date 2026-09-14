@@ -73,6 +73,21 @@
             'fm.empty_folder': 'Thư mục trống',
             'fm.count_summary': '{dirs} thư mục, {files} file',
             'fm.no_selection': 'Chưa chọn mục nào.',
+            'fm.browse.selection_count': '{n} đã chọn',
+            'fm.browse.select_mode': 'Chọn nhiều',
+            'fm.browse.select_all': 'Chọn tất cả',
+            'fm.browse.select_none': 'Bỏ chọn',
+            'fm.browse.select_done': 'Xong',
+            'fm.browse.download': 'Tải xuống',
+            'fm.browse.clip_copy_many': 'Đã sao chép {n} mục — mở thư mục đích rồi bấm Dán.',
+            'fm.browse.clip_cut_many': 'Đã cắt {n} mục — mở thư mục đích rồi bấm Dán.',
+            'fm.browse.pasted_many': 'Đã dán {ok}/{n} mục.',
+            'fm.browse.delete_many_title': 'Xóa {n} mục?',
+            'fm.browse.delete_many_body': '{n} mục sẽ bị xóa vĩnh viễn. Thao tác này không thể hoàn tác.',
+            'fm.browse.deleted_many': 'Đã xóa {ok}/{n} mục.',
+            'fm.busy.deleting_many': 'Đang xóa {i}/{n}…',
+            'fm.browse.download_many': 'Đang tải {n} file — trình duyệt có thể hỏi cho phép tải nhiều file.',
+            'fm.browse.download_zip': 'Đang đóng gói {n} mục thành một file zip…',
             'fm.copy_path': 'Chép đường dẫn',
             'fm.path_copied': 'Đã chép đường dẫn.',
             'fm.path_copy_failed': 'Trình duyệt không cho chép vào clipboard: {msg}',
@@ -286,6 +301,21 @@
             'fm.empty_folder': 'Empty folder',
             'fm.count_summary': '{dirs} folders, {files} files',
             'fm.no_selection': 'Nothing selected.',
+            'fm.browse.selection_count': '{n} selected',
+            'fm.browse.select_mode': 'Select',
+            'fm.browse.select_all': 'Select all',
+            'fm.browse.select_none': 'Clear',
+            'fm.browse.select_done': 'Done',
+            'fm.browse.download': 'Download',
+            'fm.browse.clip_copy_many': 'Copied {n} items — open the target folder and press Paste.',
+            'fm.browse.clip_cut_many': 'Cut {n} items — open the target folder and press Paste.',
+            'fm.browse.pasted_many': 'Pasted {ok}/{n} items.',
+            'fm.browse.delete_many_title': 'Delete {n} items?',
+            'fm.browse.delete_many_body': '{n} items will be deleted permanently. This cannot be undone.',
+            'fm.browse.deleted_many': 'Deleted {ok}/{n} items.',
+            'fm.busy.deleting_many': 'Deleting {i}/{n}…',
+            'fm.browse.download_many': 'Downloading {n} files — the browser may ask to allow multiple downloads.',
+            'fm.browse.download_zip': 'Packing {n} items into one zip…',
             'fm.copy_path': 'Copy path',
             'fm.path_copied': 'Path copied.',
             'fm.path_copy_failed': 'The browser refused clipboard access: {msg}',
@@ -1249,6 +1279,30 @@
     }
 
     /**
+     * Kế hoạch tải về: có THƯ MỤC hay quá 8 file → một zip dựng trên máy chủ; còn lại tải
+     * từng file (giữ nguyên tên, trình duyệt tải tiếp được). dirs = tập đường dẫn là thư mục.
+     */
+    function planDownloads(paths, dirs) {
+        var list = (paths || []).slice();
+        var hasDir = list.some(function (p) { return !!(dirs && dirs[p]); });
+        if (hasDir || list.length > 8) return { zip: true, files: [] };
+        return { zip: false, files: list };
+    }
+
+    function downloadUrl(base, paths) {
+        return base + '/download?' + paths.map(function (p) { return 'path=' + encodeURIComponent(p); }).join('&');
+    }
+
+    /** Một thẻ <a download> ẩn, bấm hộ rồi gỡ — không mở tab, không rời trang. */
+    function triggerDownload(url) {
+        var a = h('a', { href: url, style: { display: 'none' } });
+        a.setAttribute('download', '');
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 1500);
+    }
+
+    /**
      * The next/prev playlist, read from the DOM rather than from FM.items.
      * renderFiles sorts into a throwaway local — folders first, then
      * localeCompare — and leaves FM.items in server order, so a list built from
@@ -1497,6 +1551,9 @@
     var FM = {
         currentPath: '',
         selectedItem: null,
+        selection: [],              // chọn nhiều: các đường dẫn đã tick (14/9/2026)
+        selectMode: false,          // nút «Chọn nhiều» đang bật: bấm = thêm/bớt thay vì chọn một
+        _selAnchor: null,           // mốc cho Shift+bấm chọn một dải
         clipboard: null,            // {action:'copy'|'cut', path}
         viewMode: 'grid',
         items: [],
@@ -1630,7 +1687,7 @@
             if (grid) {
                 grid.addEventListener('click', (function (e) {
                     var card = e.target.closest('.fm-file-card');
-                    if (card) this.selectItem(card, card.getAttribute('data-path'));
+                    if (card) this.selectItem(card, card.getAttribute('data-path'), e);
                 }).bind(this));
                 grid.addEventListener('dblclick', (function (e) {
                     var card = e.target.closest('.fm-file-card');
@@ -2191,7 +2248,10 @@
                 var icon = FM.getFileIcon(item);
                 var iconBox = h('span', { class: 'fm-file-icon ' + icon.cls });
                 iconBox.appendChild(spriteIcon(icon.symbol, 'fm-ico'));
+                var check = h('span', { class: 'fm-check', 'aria-hidden': 'true' });
+                check.appendChild(spriteIcon('i-check', 'fm-ico'));
                 var kids = [
+                    check,
                     iconBox,
                     h('span', { class: 'fm-file-name', text: item.name, title: item.path })
                 ];
@@ -2205,7 +2265,8 @@
                     kids.push(h('span', { class: 'fmx-badge err', text: item.error, style: { marginTop: '4px' } }));
                 }
                 var cardAttrs = {
-                    class: 'fm-file-card', 'data-path': item.path, 'data-dir': item.is_dir ? '1' : '0'
+                    class: 'fm-file-card' + (FM.isSelected(item.path) ? ' is-checked' : ''),
+                    'data-path': item.path, 'data-dir': item.is_dir ? '1' : '0'
                 };
                 if (!item.is_dir) {
                     // Kéo file ra canvas Flow (cloud) → tạo Media node. KHÔNG dùng drag gốc
@@ -2218,6 +2279,7 @@
                 frag.appendChild(h('div', cardAttrs, kids));
             });
             grid.appendChild(frag);
+            this.renderSelection();
         },
 
         /** Sprite symbol + colour class for a row. See rootIcon() for why not emoji. */
@@ -2253,11 +2315,23 @@
 
         // ── Selection ────────────────────────────────────────────────
 
-        selectItem(el, path) {
+        selectItem(el, path, ev) {
+            // Chọn nhiều: đang ở chế độ chọn, hay giữ Ctrl/⌘ (thêm bớt) / Shift (một dải) khi bấm.
+            if (ev && (this.selectMode || ev.ctrlKey || ev.metaKey || ev.shiftKey)) {
+                if (ev.shiftKey && this._selAnchor) this.selectRange(this._selAnchor, path);
+                else this.toggleSelected(path);
+                this._selAnchor = path;
+                this.selectedItem = this.selection.length ? this.selection[this.selection.length - 1] : null;
+                document.querySelectorAll('.fm-file-card.selected').forEach(function (c) { c.classList.remove('selected'); });
+                this.renderSelection();
+                return;
+            }
+            if (this.selection.length) this.selection = [];
+            this._selAnchor = path;
             document.querySelectorAll('.fm-file-card.selected').forEach(function (c) { c.classList.remove('selected'); });
             if (el) el.classList.add('selected');
             this.selectedItem = path;
-            this.updateToolbarButtons();
+            this.renderSelection();
 
             if (this.pickerMode) {
                 var isFolder = el && el.getAttribute('data-dir') === '1';
@@ -2269,9 +2343,126 @@
             }
         },
 
+        // ── Chọn nhiều ───────────────────────────────────────────────
+
+        isSelected(path) { return this.selection.indexOf(path) !== -1; },
+
+        /** Các đường dẫn hành động sẽ áp lên: nhóm đã tick, không thì mục đang chọn đơn. */
+        selectedPaths() {
+            return this.selection.length ? this.selection.slice() : (this.selectedItem ? [this.selectedItem] : []);
+        },
+
+        toggleSelected(path) {
+            var i = this.selection.indexOf(path);
+            if (i === -1) this.selection.push(path); else this.selection.splice(i, 1);
+        },
+
+        /** Thứ tự các thẻ đang hiện (đã lọc/sắp) — Shift+bấm và Chọn tất cả đi theo thứ tự này. */
+        visiblePaths() {
+            return Array.prototype.map.call(document.querySelectorAll('#fileGrid .fm-file-card'), function (c) {
+                return c.getAttribute('data-path');
+            });
+        },
+
+        selectRange(from, to) {
+            var order = this.visiblePaths();
+            var a = order.indexOf(from), b = order.indexOf(to);
+            if (a === -1 || b === -1) { this.toggleSelected(to); return; }
+            var lo = Math.min(a, b), hi = Math.max(a, b);
+            for (var i = lo; i <= hi; i++) if (this.selection.indexOf(order[i]) === -1) this.selection.push(order[i]);
+        },
+
+        toggleSelectMode() {
+            this.selectMode = !this.selectMode;
+            if (!this.selectMode) this.selection = [];
+            this.renderSelection();
+        },
+
+        exitSelectMode() {
+            this.selectMode = false;
+            this.selection = [];
+            this.renderSelection();
+        },
+
+        selectAll() {
+            var order = this.visiblePaths();
+            if (!order.length) return;
+            this.selection = order.slice();
+            this.selectMode = true;
+            this.selectedItem = order[order.length - 1];
+            this.renderSelection();
+        },
+
+        clearSelection() {
+            this.selection = [];
+            this.renderSelection();
+        },
+
+        /** Vẽ lại ô tick, thanh chọn và trạng thái nút theo this.selection. */
+        renderSelection() {
+            var grid = byId('fileGrid');
+            var visible = this.visiblePaths();
+            // Đổi thư mục, lọc khác hay mục đã xoá → rơi khỏi danh sách chọn.
+            if (visible.length || !grid) {
+                var known = {};
+                visible.forEach(function (p) { known[p] = true; });
+                this.selection = this.selection.filter(function (p) { return known[p]; });
+            }
+            if (this.selectedItem && this.selection.length && !this.isSelected(this.selectedItem)) {
+                this.selectedItem = this.selection[this.selection.length - 1];
+            }
+            var n = this.selection.length;
+            var active = this.selectMode || n > 0;
+            if (grid) {
+                grid.classList.toggle('is-selecting', active);
+                var sel = this.selection;
+                grid.querySelectorAll('.fm-file-card').forEach(function (c) {
+                    c.classList.toggle('is-checked', sel.indexOf(c.getAttribute('data-path')) !== -1);
+                });
+            }
+            var bar = byId('fmSelectBar');
+            if (bar) bar.hidden = !active;
+            var cnt = byId('fmSelectCount');
+            if (cnt) cnt.textContent = T('fm.browse.selection_count', { n: n });
+            var tg = byId('btnSelectMode');
+            if (tg) tg.setAttribute('aria-pressed', this.selectMode ? 'true' : 'false');
+            ['btnBulkDownload', 'btnBulkCopy', 'btnBulkMove', 'btnBulkDelete'].forEach(function (id) {
+                var b = byId(id);
+                if (b) b.disabled = !n;
+            });
+            this.updateToolbarButtons();
+        },
+
+        /**
+         * Tải về máy: ≤8 file → từng file (giữ tên, tải tiếp được); có thư mục hay nhiều hơn
+         * → MỘT zip dựng trực tiếp trên máy chủ (/download nhận mọi loại file, /raw thì không).
+         */
+        async downloadSelected(path) {
+            var targets = path ? [path] : this.selectedPaths();
+            if (!targets.length) { toast(T('fm.no_selection'), 'warn'); return; }
+            var base;
+            try { base = await this.crudBase(); }
+            catch (e) { toast(T('fm.err.generic', { message: String((e && e.message) || e) }), 'error'); return; }
+            var dirs = {};
+            document.querySelectorAll('#fileGrid .fm-file-card[data-dir="1"]').forEach(function (c) { dirs[c.getAttribute('data-path')] = true; });
+            var rows = (this.searchResults && this.searchResults.length ? this.searchResults : this.items) || [];
+            rows.forEach(function (i) { if (i.is_dir) dirs[i.path] = true; });
+            var plan = planDownloads(targets, dirs);
+            this.hideContextMenu();
+            if (plan.zip) {
+                toast(T('fm.browse.download_zip', { n: targets.length }), 'info');
+                triggerDownload(downloadUrl(base, targets));
+                return;
+            }
+            if (plan.files.length > 1) toast(T('fm.browse.download_many', { n: plan.files.length }), 'info');
+            plan.files.forEach(function (p, i) {
+                setTimeout(function () { triggerDownload(downloadUrl(base, [p])); }, i * 400);
+            });
+        },
+
         updateToolbarButtons() {
-            var has = !!this.selectedItem;
-            [['btnRename', has], ['btnDelete', has], ['btnCopy', has], ['btnPaste', !!this.clipboard]]
+            var n = this.selectedPaths().length;
+            [['btnRename', n === 1], ['btnDelete', n > 0], ['btnCopy', n > 0], ['btnPaste', !!this.clipboard]]
                 .forEach(function (pair) {
                     var b = byId(pair[0]);
                     if (b) b.disabled = !pair[1];
@@ -2320,8 +2511,10 @@
         },
 
         async deleteSelected() {
-            if (!this.selectedItem) { toast(T('fm.no_selection'), 'warn'); return; }
-            var target = this.selectedItem;
+            var targets = this.selectedPaths();
+            if (!targets.length) { toast(T('fm.no_selection'), 'warn'); return; }
+            if (targets.length > 1) return this.deleteMany(targets);
+            var target = targets[0];
             var name = baseName(target);
             var ok = await confirmDialog({
                 title: T('fm.confirm_delete_title'),
@@ -2338,6 +2531,34 @@
                 this.refresh();
                 this.loadVolumes();
             } catch (e) { /* reported by api() */ }
+        },
+
+        /** Xoá cả nhóm: hỏi MỘT lần (kể tên tối đa 6 mục), rồi xoá từng mục có tiến độ. */
+        async deleteMany(targets) {
+            var names = targets.slice(0, 6).map(baseName).join('\n') + (targets.length > 6 ? '\n…' : '');
+            var ok = await confirmDialog({
+                title: T('fm.browse.delete_many_title', { n: targets.length }),
+                body: T('fm.browse.delete_many_body', { n: targets.length }),
+                blocks: [h('div', { class: 'fmx-mono fmx-muted', text: names, style: { marginBottom: '10px', whiteSpace: 'pre-line' } })],
+                danger: true,
+                acceptLabel: T('fm.delete')
+            });
+            if (!ok) return;
+            var done = 0;
+            try {
+                for (var i = 0; i < targets.length; i++) {
+                    this.busy(T('fm.busy.deleting_many', { i: i + 1, n: targets.length }));
+                    try {
+                        await this.api('DELETE', '/delete?path=' + encodeURIComponent(targets[i]));
+                        done++;
+                    } catch (e) { /* reported by api() */ }
+                }
+            } finally { this.busyDone(); }
+            toast(T('fm.browse.deleted_many', { ok: done, n: targets.length }), done === targets.length ? 'success' : 'warn');
+            this.selection = [];
+            this.selectedItem = null;
+            this.refresh();
+            if (typeof this.loadVolumes === 'function') this.loadVolumes();
         },
 
         async renameSelected() {
@@ -2361,40 +2582,53 @@
         },
 
         copySelected() {
-            if (!this.selectedItem) { toast(T('fm.no_selection'), 'warn'); return; }
-            this.clipboard = { action: 'copy', path: this.selectedItem };
+            var paths = this.selectedPaths();
+            if (!paths.length) { toast(T('fm.no_selection'), 'warn'); return; }
+            // .path giữ cho mã cũ đọc; .paths là cả nhóm — Dán lặp từng mục.
+            this.clipboard = { action: 'copy', path: paths[0], paths: paths };
             this.updateToolbarButtons();
-            toast(T('fm.clip_copy', { name: baseName(this.selectedItem) }), 'info');
+            toast(paths.length === 1 ? T('fm.clip_copy', { name: baseName(paths[0]) })
+                                     : T('fm.browse.clip_copy_many', { n: paths.length }), 'info');
         },
 
         moveSelected() {
-            if (!this.selectedItem) { toast(T('fm.no_selection'), 'warn'); return; }
-            this.clipboard = { action: 'cut', path: this.selectedItem };
+            var paths = this.selectedPaths();
+            if (!paths.length) { toast(T('fm.no_selection'), 'warn'); return; }
+            this.clipboard = { action: 'cut', path: paths[0], paths: paths };
             this.updateToolbarButtons();
-            toast(T('fm.clip_cut', { name: baseName(this.selectedItem) }), 'info');
+            toast(paths.length === 1 ? T('fm.clip_cut', { name: baseName(paths[0]) })
+                                     : T('fm.browse.clip_cut_many', { n: paths.length }), 'info');
         },
 
         async pasteClipboard() {
             if (!this.clipboard) return;
-            var src = this.clipboard.path;
-            var name = baseName(src);
-            var dst = joinPath(this.currentPath, name);
-            if (dst === src) { toast(T('fm.paste_same_dir'), 'warn'); return; }
+            var srcs = this.clipboard.paths || [this.clipboard.path];
+            var isCopy = this.clipboard.action === 'copy';
+            if (srcs.length === 1 && joinPath(this.currentPath, baseName(srcs[0])) === srcs[0]) {
+                toast(T('fm.paste_same_dir'), 'warn');
+                return;
+            }
             this.hideContextMenu();
-            this.busy(T(this.clipboard.action === 'copy' ? 'fm.busy.copying' : 'fm.busy.moving', { name: name }));
+            var ok = 0;
             try {
-                if (this.clipboard.action === 'copy') {
-                    await this.api('POST', '/copy', { src: src, dst: dst });
-                    toast(T('fm.pasted_copy', { name: name }), 'success');
-                } else {
-                    await this.api('POST', '/move', { src: src, dst: dst });
-                    toast(T('fm.pasted_move', { name: name }), 'success');
-                    this.clipboard = null;
-                    this.updateToolbarButtons();
+                for (var i = 0; i < srcs.length; i++) {
+                    var src = srcs[i], name = baseName(src), dst = joinPath(this.currentPath, name);
+                    if (dst === src) continue;                       // đã ở đây rồi
+                    var label = T(isCopy ? 'fm.busy.copying' : 'fm.busy.moving', { name: name });
+                    this.busy(srcs.length > 1 ? label + ' (' + (i + 1) + '/' + srcs.length + ')' : label);
+                    try {
+                        await this.api('POST', isCopy ? '/copy' : '/move', { src: src, dst: dst });
+                        ok++;
+                    } catch (e) { /* reported by api() */ }
                 }
-                this.refresh();
-            } catch (e) { /* reported by api() */ }
-            finally { this.busyDone(); }
+            } finally { this.busyDone(); }
+            if (srcs.length === 1) {
+                if (ok) toast(T(isCopy ? 'fm.pasted_copy' : 'fm.pasted_move', { name: baseName(srcs[0]) }), 'success');
+            } else {
+                toast(T('fm.browse.pasted_many', { ok: ok, n: srcs.length }), ok === srcs.length ? 'success' : 'warn');
+            }
+            if (!isCopy && ok) { this.clipboard = null; this.updateToolbarButtons(); }
+            if (ok) this.refresh();
         },
 
         openItem(path, isDir) {
@@ -2465,7 +2699,10 @@
             e.preventDefault();
             e.stopPropagation();
             var card = e.target.closest ? e.target.closest('.fm-file-card') : null;
-            this.selectItem(card, path);
+            // Đã nằm trong nhóm tick → giữ nhóm (menu áp lên cả nhóm); đang ở chế độ chọn →
+            // thêm vào nhóm; còn lại chọn đơn như cũ.
+            if (this.isSelected(path)) this.selectedItem = path;
+            else this.selectItem(card, path, this.selectMode ? { ctrlKey: true } : null);
             var menu = byId('contextMenu');
             if (!menu) return;
             // Mục chỉ dành cho thư mục (lối tắt) ẩn khi bấm vào file; nhãn đổi theo
@@ -2697,16 +2934,19 @@
                 this.closePreview();
                 this.closeProperties();
                 this.hideContextMenu();
+                if (this.selection.length || this.selectMode) this.exitSelectMode();
                 return;
             }
             if (_modalStack.length) return;
             var tag = e.target && e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-            if (e.key === 'Delete' && this.selectedItem) { e.preventDefault(); this.deleteSelected(); }
+            var picked = this.selectedPaths().length;
+            if (e.key === 'Delete' && picked) { e.preventDefault(); this.deleteSelected(); }
             else if (e.key === 'F2' && this.selectedItem) { e.preventDefault(); this.renameSelected(); }
-            else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && this.selectedItem) { e.preventDefault(); this.copySelected(); }
-            else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && this.selectedItem) { e.preventDefault(); this.moveSelected(); }
+            else if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); this.selectAll(); }
+            else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && picked) { e.preventDefault(); this.copySelected(); }
+            else if ((e.ctrlKey || e.metaKey) && e.key === 'x' && picked) { e.preventDefault(); this.moveSelected(); }
             else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && this.clipboard) { e.preventDefault(); this.pasteClipboard(); }
             else if (e.key === 'Backspace') { e.preventDefault(); this.goUp(); }
             else if (e.key === 'F5') { e.preventDefault(); this.refresh(); }

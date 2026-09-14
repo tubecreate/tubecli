@@ -409,6 +409,101 @@ def _require_same_origin_fetch(request: Request) -> None:
         )
 
 
+def _attachment_disposition(name: str) -> str:
+    """Như _inline_disposition nhưng bắt trình duyệt LƯU thay vì mở."""
+    try:
+        encoded = quote(name.encode("utf-8", "replace").decode("utf-8"), safe="")
+    except Exception:
+        return "attachment"
+    return f"attachment; filename*=UTF-8''{encoded}" if encoded else "attachment"
+
+
+def _zip_arcnames(entries: List[str]) -> List[tuple]:
+    """(đường dẫn thật, tên trong zip) cho từng mục; thư mục đi cả cây, bỏ symlink (không
+    theo link ra ngoài kho), tên trùng thì thêm (2), (3)…"""
+    out: List[tuple] = []
+    seen: Dict[str, int] = {}
+
+    def unique(name: str) -> str:
+        k = name.lower()
+        if k not in seen:
+            seen[k] = 1
+            return name
+        seen[k] += 1
+        stem, ext = os.path.splitext(name)
+        return f"{stem} ({seen[k]}){ext}"
+
+    for real in entries:
+        base = os.path.basename(real.rstrip("\\/")) or "root"
+        if os.path.islink(real):
+            continue
+        if os.path.isdir(real):
+            top = unique(base)
+            for root, dirs, files in os.walk(real, followlinks=False):
+                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(root, d))]
+                rel = os.path.relpath(root, real)
+                for f in files:
+                    fp = os.path.join(root, f)
+                    if os.path.islink(fp) or not os.path.isfile(fp):
+                        continue
+                    arc = top if rel == "." else f"{top}/{rel.replace(os.sep, '/')}"
+                    out.append((fp, f"{arc}/{f}"))
+        elif os.path.isfile(real):
+            out.append((real, unique(base)))
+    return out
+
+
+def _zip_stream(entries: List[str], chunk: int = 1 << 20):
+    """Zip dựng trực tiếp thành luồng: ghi vào hàng đợi từ một luồng riêng, generator nhả
+    từng khúc. ZIP_STORED — video/ảnh đã nén sẵn, nén thêm chỉ tốn CPU; không cần file tạm
+    nên không nhân đôi dung lượng đĩa với video hàng GB."""
+    import queue
+    import threading
+    import zipfile
+
+    q: "queue.Queue" = queue.Queue(maxsize=32)
+    _END = object()
+
+    class _Sink:
+        def write(self, b):
+            if b:
+                q.put(bytes(b))
+            return len(b)
+
+        def flush(self):
+            pass
+
+    def run():
+        try:
+            with zipfile.ZipFile(_Sink(), "w", zipfile.ZIP_STORED, allowZip64=True) as z:
+                for real, arc in _zip_arcnames(entries):
+                    try:
+                        z.write(real, arc)
+                    except OSError as e:          # file biến mất/không đọc được giữa chừng → bỏ qua mục đó
+                        logger.warning("[file_manager] zip skip %s: %s", real, e)
+        except Exception as e:                    # noqa: BLE001
+            q.put(e)
+        finally:
+            q.put(_END)
+
+    threading.Thread(target=run, daemon=True, name="fm-zip").start()
+    while True:
+        item = q.get()
+        if item is _END:
+            return
+        if isinstance(item, Exception):
+            logger.error("[file_manager] zip stream failed: %s", item)
+            return
+        yield item
+
+
+def _zip_name(entries: List[str]) -> str:
+    import datetime as _dt
+    if len(entries) == 1:
+        return (os.path.basename(entries[0].rstrip("\\/")) or "files") + ".zip"
+    return "files-" + _dt.datetime.now().strftime("%Y%m%d-%H%M%S") + ".zip"
+
+
 def _inline_disposition(name: str) -> str:
     """Advisory filename for the browser's "Save as". Never fatal.
 
@@ -1225,6 +1320,63 @@ async def raw_media(
         media_type=media_type,
         stat_result=st,
         headers=headers,
+    )
+
+
+@_shared.get("/download")
+async def download_files(
+    request: Request,
+    path: List[str] = Query(..., description="One or more paths; a single regular file is sent as-is, anything else as a zip built on the fly"),
+):
+    """Tải về máy. MỘT file thường → gửi thẳng (attachment, MỌI loại file); thư mục hay
+    nhiều mục → zip dựng trực tiếp (không file tạm).
+
+    Vì sao có route riêng: /raw chỉ phục vụ ảnh/video/PDF (415 với .json/.py/.zip…) và ghi
+    inline để xem trước; File Manager chọn nhiều cần tải mọi loại file và cả thư mục
+    (user 14/9/2026). Cùng cổng chống hotlink với /raw.
+    """
+    _require_same_origin_fetch(request)
+    svc = _get_service()
+    resolved: List[str] = []
+    for p in path:
+        safe = _validate(svc, p)
+        try:
+            real = os.path.realpath(safe)
+        except OSError as e:
+            raise _fail("mở", p, e)
+        if real != safe:
+            _validate(svc, real)
+        _require_exists(real, p)
+        if real not in resolved:
+            resolved.append(real)
+    if not resolved:
+        raise HTTPException(status_code=400, detail="Thiếu tham số 'path'.")
+
+    if len(resolved) == 1 and os.path.isfile(resolved[0]):
+        try:
+            st = os.stat(resolved[0])
+        except OSError as e:
+            raise _fail("mở file", path[0], e)
+        return FileResponse(
+            resolved[0],
+            media_type="application/octet-stream",
+            stat_result=st,
+            headers={
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": _attachment_disposition(os.path.basename(resolved[0])),
+                "Cache-Control": "no-store",
+            },
+        )
+
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        _zip_stream(resolved),
+        media_type="application/zip",
+        headers={
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": _attachment_disposition(_zip_name(resolved)),
+            "Cache-Control": "no-store",
+        },
     )
 
 

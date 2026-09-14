@@ -897,6 +897,15 @@
     function actNewFile() { return settle(callFM('createFile')); }
     function actRename() { return settle(callFM('renameSelected')); }
     function actCopy() { return callFM('copySelected'); }
+
+    /** Tải về: mục chuột phải đang nằm trong nhóm tick → tải cả nhóm; không thì tải đúng mục đó. */
+    function actDownload(node) {
+        var f = window.FM;
+        var path = requireTarget(node);
+        if (!path) return;
+        var inGroup = f && f.selection && f.selection.length > 1 && f.selection.indexOf(path) !== -1;
+        return settle(callFM('downloadSelected', inGroup ? undefined : path));
+    }
     function actMove() { return callFM('moveSelected'); }
     function actPaste() { return settle(callFM('pasteClipboard')); }
     function actUp() { return callFM('goUp'); }
@@ -1127,6 +1136,13 @@
         'copy': actCopy,
         'move': actMove,
         'paste': actPaste,
+        // Chọn nhiều (14/9/2026)
+        'select-mode': function () { return callFM('toggleSelectMode'); },
+        'select-all': function () { return callFM('selectAll'); },
+        'select-none': function () { return callFM('clearSelection'); },
+        'select-done': function () { return callFM('exitSelectMode'); },
+        'bulk-download': function () { return settle(callFM('downloadSelected')); },
+        'download': actDownload,
         'up': actUp,
         'refresh': actRefresh,
         'open': actOpen,

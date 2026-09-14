@@ -346,6 +346,13 @@
               <span class="fm-btn-label" data-i18n="fm.upload"></span>
             </button>
             <input type="file" id="fmUploadInput" multiple style="display:none">
+            <!-- Chọn nhiều: bật là mỗi lần bấm thêm/bớt một mục; thanh chọn bên dưới gom
+                 tải về / sao chép / di chuyển / xoá cho cả nhóm (14/9/2026). -->
+            <button type="button" class="fm-btn fm-btn-quiet" id="btnSelectMode" data-fm-action="select-mode"
+                    data-i18n-title="fm.browse.select_mode" aria-pressed="false">
+              <svg class="fm-ico" aria-hidden="true"><use href="#i-check-circle"/></svg>
+              <span class="fm-btn-label" data-i18n="fm.browse.select_mode"></span>
+            </button>
           </div>
 
           <span class="fm-rule" aria-hidden="true"></span>
@@ -383,6 +390,39 @@
               <span class="fm-sr" data-i18n="fm.common.refresh"></span>
             </button>
           </div>
+        </div>
+
+        <!-- Thanh chọn nhiều: chỉ hiện khi đang ở chế độ chọn hay đã có mục được tick. -->
+        <div class="fm-select-bar" id="fmSelectBar" hidden>
+          <span class="fm-select-count" id="fmSelectCount"></span>
+          <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="select-all">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-check"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.select_all"></span>
+          </button>
+          <button type="button" class="fm-btn fm-btn-quiet" data-fm-action="select-none">
+            <span class="fm-btn-label" data-i18n="fm.browse.select_none"></span>
+          </button>
+          <span class="fm-rule" aria-hidden="true"></span>
+          <button type="button" class="fm-btn" id="btnBulkDownload" data-fm-action="bulk-download" disabled>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-download"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.download"></span>
+          </button>
+          <button type="button" class="fm-btn" id="btnBulkCopy" data-fm-action="copy" disabled>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-copy"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.copy"></span>
+          </button>
+          <button type="button" class="fm-btn" id="btnBulkMove" data-fm-action="move" disabled>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-move"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.move"></span>
+          </button>
+          <button type="button" class="fm-btn fm-btn-danger" id="btnBulkDelete" data-fm-action="delete" disabled>
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-trash"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.delete"></span>
+          </button>
+          <button type="button" class="fm-btn fm-btn-quiet fm-toolbar-end" data-fm-action="select-done">
+            <svg class="fm-ico" aria-hidden="true"><use href="#i-x"/></svg>
+            <span class="fm-btn-label" data-i18n="fm.browse.select_done"></span>
+          </button>
         </div>
 
         <div class="fm-view-scroll">
@@ -1112,6 +1152,14 @@
     <svg class="fm-ico" aria-hidden="true"><use href="#i-eye"/></svg>
     <span data-i18n="fm.browse.preview"></span>
   </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="download">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-download"/></svg>
+    <span data-i18n="fm.browse.download"></span>
+  </button>
+  <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="select-mode">
+    <svg class="fm-ico" aria-hidden="true"><use href="#i-check-circle"/></svg>
+    <span data-i18n="fm.browse.select_mode"></span>
+  </button>
   <button type="button" class="fm-menu-item" role="menuitem" data-fm-action="rename">
     <svg class="fm-ico" aria-hidden="true"><use href="#i-edit"/></svg>
     <span data-i18n="fm.browse.rename"></span>
@@ -1350,6 +1398,11 @@
         "fm.browse.parent": "Lên thư mục cha",
         "fm.browse.paste": "Dán",
         "fm.browse.preview": "Xem trước",
+        "fm.browse.download": "Tải xuống",
+        "fm.browse.select_mode": "Chọn nhiều",
+        "fm.browse.select_all": "Chọn tất cả",
+        "fm.browse.select_none": "Bỏ chọn",
+        "fm.browse.select_done": "Xong",
         "fm.browse.properties": "Thuộc tính",
         "fm.browse.rename": "Đổi tên",
         "fm.browse.search_placeholder": "Tìm trong thư mục này…",

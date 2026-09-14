@@ -2086,3 +2086,47 @@ tr:focus-within .fm-drive-row-actions { opacity: 1; }
     border: 2px solid rgba(255, 255, 255, .45); border-top-color: #fff; animation: fm-spin .8s linear infinite;
 }
 @keyframes fm-spin { to { transform: rotate(360deg); } }
+
+
+/* ═══ Chọn nhiều (14/9/2026) ═══════════════════════════════════════════════
+   Ô tick nằm góc thẻ ở dạng lưới, thành cột đầu ở dạng danh sách; chỉ hiện khi
+   lưới mang .is-selecting (đang ở chế độ chọn hay đã có mục được tick). */
+.fm-select-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    padding: 7px 14px;
+    background: var(--primary-light);
+    border-bottom: 1px solid var(--border);
+    min-width: 0;
+}
+.fm-select-bar[hidden] { display: none; }
+.fm-select-count {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-right: 4px;
+    font-variant-numeric: tabular-nums;
+}
+.fm-btn[aria-pressed="true"] { background: var(--primary-light); border-color: rgba(82,118,235,0.45); color: var(--primary); }
+
+.fm-check {
+    position: absolute;
+    left: 8px; top: 8px;
+    width: 18px; height: 18px;
+    border-radius: 5px;
+    border: 1.5px solid var(--border);
+    background: var(--bg2);
+    display: none;
+    place-items: center;
+    color: #fff;
+    pointer-events: none;
+}
+.fm-check .fm-ico, .fm-check svg { width: 12px; height: 12px; stroke-width: 3; }
+.fm-file-grid.is-selecting .fm-check { display: grid; }
+.fm-file-card.is-checked .fm-check { background: var(--primary); border-color: var(--primary); }
+.fm-file-card.is-checked { background: var(--primary-light); border-color: rgba(82,118,235,0.45); }
+.fm-file-grid.is-list .fm-check, .fm-file-grid.list-view .fm-check { position: static; }
+.fm-file-grid.is-list.is-selecting .fm-file-card,
+.fm-file-grid.list-view.is-selecting .fm-file-card { grid-template-columns: 18px 26px minmax(0, 1fr) 96px 168px; }
