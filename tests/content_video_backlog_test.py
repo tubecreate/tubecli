@@ -6,7 +6,7 @@ Run:  PYTHONIOENCODING=utf-8 python -X utf8 tests/content_video_backlog_test.py
 Không gọi mạng, không đụng bảng Codex thật: create_task / append_event / get_events,
 describe_plan (dò Studio qua HTTP) và các hàm tạo task mà route gọi đều bị thay.
   1. create_plan_task / create_auto_task chuyển hold + làn "video" sang Codex; mặc
-     định vẫn chạy liền; create_render_task cũng vào làn video (giữ làn, không hold)
+     định vẫn chạy liền; create_render_task cũng vào làn video và chờ làn (hold=True, ưu tiên kế hoạch + 1)
   2. queued_reply: task trong hàng đợi không bị nói là "bắt đầu ngay" hay "chờ duyệt"
   3. POST /run: queue=true → hold, trả vị trí; không có queue → lời gọi y như cũ
 """
@@ -71,8 +71,8 @@ check("1d tự động + hàng đợi: hold=True, làn video, không cổng duy�
 P.create_auto_task("a1", {"publish": True}, created_by="autopublish")
 check("1e lịch tự đăng không xin hàng đợi: hold=False", made[-1].get("hold") is False, made[-1])
 P.create_render_task({"id": "p1", "seq": 1, "assignee_id": "a1", "assignee_name": "MC"}, "owner")
-check("1f lượt dựng vào làn video (giữ làn), không hold",
-      made[-1].get("lane") == "video" and not made[-1].get("hold"), made[-1])
+check("1f lượt dựng vào làn video và CHỜ làn (hold=True), ưu tiên = kế hoạch + 1 (14/9: hết dựng song song)",
+      made[-1].get("lane") == "video" and made[-1].get("hold") is True and made[-1].get("priority") == 1, made[-1])
 
 print("── 2. câu trả lời khi xếp việc ────────────────────────────")
 starting, waiting = bot_t("vs.starting_now"), bot_t("vs.awaiting_approval")

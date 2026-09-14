@@ -5646,6 +5646,10 @@ def create_render_task(plan_task: Dict, actor: str = "user") -> Optional[Dict]:
         assignee_name=str(plan_task.get("assignee_name") or ""),
         approval_required=False,          # the script IS the approval
         lane=CODEX_LANE,                  # dựng cũng chiếm làn: hàng đợi chờ nó xong
+        # …và cũng CHỜ làn: đang có video khác dựng thì xếp hàng, không chạy song song
+        # (14/9/2026). Ưu tiên = kế hoạch + 1 để bản đã duyệt đứng trước việc mới cùng mức.
+        hold=True,
+        priority=int(plan_task.get("priority") or 0) + 1,
     )
     codex_manager.append_event(
         task["id"], "log", f"Render queued from accepted plan #{plan_task.get('seq')}", actor=ACTOR,

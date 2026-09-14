@@ -918,14 +918,14 @@ const CODEX = (() => {
     $('cx-new-step-done').classList.add('hidden');
     $('cx-f-goal').value = '';
     $('cx-f-title').value = '';
-    $('cx-f-priority').value = '0';
-    $('cx-f-approval').checked = true;
+    $('cx-f-priority').value = String(parseInt(lsGet(G_PRIORITY_KEY), 10) || 0);
+    $('cx-f-approval').checked = lsGet(G_APPROVAL_KEY) !== '0';
     $('cx-plan-preview').innerHTML = '';
     $('cx-plan-btn').classList.remove('hidden');
     $('cx-created-desc').textContent = t('codex.created_desc');
     $('cx-v-content').value = '';
     $('cx-v-title').value = '';
-    $('cx-v-review').checked = true;
+    $('cx-v-review').checked = lsGet(CV_REVIEW_KEY) !== '0';
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
     $('cx-v-length').innerHTML = '';          // rỗng → renderVideoLength lấy lựa chọn đã nhớ
@@ -956,6 +956,7 @@ const CODEX = (() => {
       ).join('') + '</optgroup>');
     }
     sel.innerHTML += groups.join('');
+    pickSaved(sel, lsGet(G_ASSIGNEE_KEY));
     fillVideoAgents(data.agents);
     presetsReady.then(fillVideoPresets);
   }
@@ -972,6 +973,7 @@ const CODEX = (() => {
     const sep = raw.indexOf(':');
     const assigneeType = sep > 0 ? raw.slice(0, sep) : 'agent';
     const assigneeId = sep > 0 ? raw.slice(sep + 1) : '';
+    rememberNewTaskForm();
 
     const payload = {
       goal: goal,
@@ -1008,6 +1010,29 @@ const CODEX = (() => {
   const NEW_KIND_KEY = 'codex.newKind';
   const CV_PRESET_KEY = 'codex.cvPreset';
   const CV_AGENT_KEY = 'codex.cvAgent';
+  // Phần còn lại của form cũng phải nhớ: người dùng từng phải bỏ tick «Duyệt kịch bản» và
+  // chọn lại người nhận / ưu tiên MỖI lần thêm việc (14/9/2026). Lưu lúc gửi, trả lại lúc mở.
+  // Nội dung và tiêu đề thì không: mỗi việc một khác.
+  const CV_REVIEW_KEY = 'codex.cvReview';        // '1' | '0'
+  const G_ASSIGNEE_KEY = 'codex.gAssignee';      // 'agent:<id>' | 'team:<id>' | ''
+  const G_APPROVAL_KEY = 'codex.gApproval';      // '1' | '0'
+  const G_PRIORITY_KEY = 'codex.gPriority';
+
+  /** Lưu cài đặt của form lúc gửi — «lần gần nhất» là lần thật sự tạo việc. */
+  function rememberNewTaskForm() {
+    lsSet(G_ASSIGNEE_KEY, $('cx-f-assignee').value || '');
+    lsSet(G_APPROVAL_KEY, $('cx-f-approval').checked ? '1' : '0');
+    lsSet(G_PRIORITY_KEY, String(parseInt($('cx-f-priority').value, 10) || 0));
+    lsSet(CV_REVIEW_KEY, $('cx-v-review').checked ? '1' : '0');
+  }
+
+  /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
+  function pickSaved(sel, saved) {
+    if (!saved) return false;
+    const ok = Array.from(sel.options || []).some(o => o.value === saved);
+    if (ok) sel.value = saved;
+    return ok;
+  }
   // PHẢI khớp SOURCE_TEXT_MAX trong content_video/pipeline.py — lệch nhau thì
   // ô đếm cho qua mà máy chủ lại từ chối, hoặc ngược lại.
   const CV_MAX_CHARS = 60000;
@@ -1286,6 +1311,7 @@ const CODEX = (() => {
       return;
     }
     const review = !!$('cx-v-review').checked;
+    rememberNewTaskForm();
     const title = ($('cx-v-title').value || '').trim();
     const options = { preset: preset };
     if (title) options.title = title;

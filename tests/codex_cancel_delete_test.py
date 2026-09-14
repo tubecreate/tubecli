@@ -73,7 +73,7 @@ ok(cm.is_cancel_requested(t["id"]), "cờ huỷ còn để tiến trình dừng"
 
 # ── B. Chạy lại sau khi huỷ ─────────────────────────────────────────────────
 print("── B. Chạy lại sau khi huỷ ──────────────────────────────────")
-ok(CMod.TRANSITIONS[CMod.CANCELLED] == {CMod.QUEUED}, "cancelled → queued là nước đi hợp lệ (bệnh cũ: rỗng)")
+ok(CMod.TRANSITIONS[CMod.CANCELLED] == {CMod.QUEUED, CMod.BACKLOG}, "cancelled → queued/backlog là nước đi hợp lệ (bệnh cũ: rỗng; backlog = chờ làn, 14/9)")
 again = cm.retry(t["id"], actor="user:web")
 ok(again["status"] == CMod.QUEUED and again["steps"] == [] and again["retry_count"] == 1, "Chạy lại → vào hàng, bước làm mới, đếm lượt", again["status"])
 ok(not cm.is_cancel_requested(t["id"]), "cờ huỷ đã xoá — lượt mới không bị dừng ngay")

@@ -61,13 +61,15 @@ TRANSITIONS: Dict[str, set] = {
     BACKLOG: {QUEUED, CANCELLED},
     QUEUED: {RUNNING, CANCELLED},
     RUNNING: {REVIEW, DONE, FAILED, CANCELLED},
-    REVIEW: {DONE, QUEUED, CANCELLED},
-    FAILED: {QUEUED, CANCELLED},
-    REJECTED: {QUEUED},
+    # Về BACKLOG: Chạy lại / Yêu cầu sửa lúc làn đang bận thì XẾP HÀNG chứ không chen
+    # (hai video từng dựng song song dù một cái đã "đưa vào hàng đợi", 14/9/2026).
+    REVIEW: {DONE, QUEUED, BACKLOG, CANCELLED},
+    FAILED: {QUEUED, BACKLOG, CANCELLED},
+    REJECTED: {QUEUED, BACKLOG},
     DONE: set(),
     # Huỷ rồi vẫn Chạy lại được: pipeline có checkpoint nên chạy tiếp từ bước đã dừng,
     # không làm lại từ đầu (người dùng bấm Huỷ lúc đang dựng rồi muốn làm tiếp, 13/9/2026).
-    CANCELLED: {QUEUED},
+    CANCELLED: {QUEUED, BACKLOG},
 }
 
 ACTIVE_STATES = {PENDING_APPROVAL, BACKLOG, QUEUED, RUNNING, REVIEW}
@@ -634,6 +636,31 @@ class CodexManager:
                 return dict(task), False
             return self._transition(task_id, new_status, actor, message, updates), True
 
+    def _requeue_target(self, task: Dict[str, Any]) -> str:
+        """Trạng thái để đưa task trở lại chạy: QUEUED nếu làn của nó rảnh, BACKLOG nếu
+        làn đang có task KHÁC queued/running (task xin hàng đợi thì luôn BACKLOG).
+
+        Vì sao: «Chạy lại» và «Yêu cầu sửa» từng đẩy thẳng vào queued không nhìn làn.
+        Video #5 lỗi → người dùng đưa #7 vào hàng đợi (làn rảnh nên #7 chạy) → bấm
+        Chạy lại #5 → hai video dựng song song dù #7 đã "xếp hàng" (14/9/2026).
+        Task không có làn (việc chung) giữ nguyên nếp cũ: queued ngay."""
+        if task.get("hold"):
+            return BACKLOG
+        lane = str(task.get("lane") or "")
+        if not lane:
+            return QUEUED
+        tid = task.get("id")
+        with self._lock:
+            busy = any(
+                t.get("id") != tid and (t.get("lane") or "") == lane and t.get("status") in LANE_BUSY
+                for t in self._tasks.values()
+            )
+        return BACKLOG if busy else QUEUED
+
+    @staticmethod
+    def _wait_note(target: str) -> str:
+        return " — waiting for its turn in the lane" if target == BACKLOG else ""
+
     def approve(self, task_id: str, actor: str = "user", note: str = "") -> Dict[str, Any]:
         task = self.get_task(task_id)
         if not task:
@@ -642,11 +669,12 @@ class CodexManager:
             raise ValueError("The AI is not allowed to approve its own tasks")
         approval = dict(task.get("approval") or {})
         approval.update({"decided_by": actor, "decided_at": _now(), "note": note})
-        # Task xin vào hàng đợi thì duyệt xong vẫn phải chờ tới lượt, không chạy liền.
-        target = BACKLOG if task.get("hold") else QUEUED
+        # Task xin vào hàng đợi thì duyệt xong vẫn phải chờ tới lượt, không chạy liền;
+        # làn đang bận cũng vậy.
+        target = self._requeue_target(task)
         updated, changed = self._settle(
             task_id, target, actor,
-            message=f"Approved by {actor}" + (f": {note}" if note else ""),
+            message=f"Approved by {actor}" + (f": {note}" if note else "") + self._wait_note(target),
             updates={"approval": approval, "error": ""},
         )
         if not changed:
@@ -775,9 +803,11 @@ class CodexManager:
         # A task already waiting in the queue is retried by leaving it alone: the
         # old code wiped its steps and bumped retry_count on every extra click,
         # walking a healthy task towards max_retries for nothing.
+        # Làn đang có video khác chạy → xếp hàng (backlog), không chen.
+        target = self._requeue_target(task)
         updated, _changed = self._settle(
-            task_id, QUEUED, actor,
-            message=f"Retry requested by {actor}",
+            task_id, target, actor,
+            message=f"Retry requested by {actor}" + self._wait_note(target),
             updates={
                 "error": "",
                 "steps": [],
@@ -816,9 +846,11 @@ class CodexManager:
         goal = task.get("goal", "")
         if feedback:
             goal = f"{goal}\n\n[Feedback from {actor}]: {feedback}"
+        # Sửa lại cũng là một lượt dựng: làn đang bận thì chờ tới lượt.
+        target = self._requeue_target(task)
         updated, changed = self._settle(
-            task_id, QUEUED, actor,
-            message=f"Changes requested by {actor}",
+            task_id, target, actor,
+            message=f"Changes requested by {actor}" + self._wait_note(target),
             updates={"goal": goal, "steps": [], "error": "", "started_at": "", "finished_at": ""},
         )
         if not changed:
