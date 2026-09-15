@@ -233,6 +233,32 @@ YC._REFRESH_LOCK.release()
 hint = YC.blocked_hint({"auto": True, "profile": ""}, {"live": [], "closed": ["a"]}, [], ["a (the browser did not become ready within 45 s)"])
 ok("Opening a (the browser did not become ready within 45 s) in the background did not work" in hint and "Open a browser profile" in hint, "câu chỉ đường kể lượt mở ẩn hỏng", hint)
 
+print("── G. cookie ĐÃ LƯU (không mở browser) ─────────────────────")
+ok(YC._stored_profile_dir("zeta_live") == os.path.join(PM.PROFILES_DIR, "zeta_live", "Default"), "thư mục Default chứa kho cookie")
+os.makedirs(os.path.join(PM.PROFILES_DIR, "flat"), exist_ok=True)
+open(os.path.join(PM.PROFILES_DIR, "flat", "Cookies"), "w").close()
+ok(YC._stored_profile_dir("flat") is None and YC._stored_profile_dir("nope") is None,
+   "kho không nằm trong Default / không có hồ sơ → không đoán (tránh yt-dlp lấy nhầm khoá)")
+seen_dirs = []
+YC.read_stored_cookies = lambda d: (seen_dirs.append(d) or (COOKIES, []))
+att, why = YC.stored_attempt("proxied_live")
+ok(att and att.get("stored") and att["count"] == 2 and att["proxy"].endswith("@1.2.3.4:8080") and os.path.isfile(att["cookiefile"])
+   and seen_dirs and seen_dirs[-1] == os.path.join(PM.PROFILES_DIR, "proxied_live", "Default"), "đọc kho đã lưu → file tạm + proxy của hồ sơ", att)
+YC.remove_file(att and att["cookiefile"])
+YC.read_stored_cookies = lambda d: ([COOKIES[2]], ["failed to decrypt cookie (AES-GCM) because the MAC check failed. Possibly the key is wrong?"])
+att, why = YC.stored_attempt("zeta_live")
+ok(att is None and "no YouTube/Google login" in why and "decrypt" in why, "giải mã hỏng → lý do kèm câu của yt-dlp", why)
+
+
+def locked(d):
+    raise PermissionError("[Errno 13] Permission denied: 'Cookies'")
+
+
+YC.read_stored_cookies = locked
+att, why = YC.stored_attempt("zeta_live")
+ok(att is None and "Permission denied" in why, "kho bị khoá (browser đang chạy trên Windows) → lý do", why)
+ok(YC.stored_attempt("weird")[0] is None and "proxy" in YC.stored_attempt("weird")[1], "proxy hỏng → không thử")
+
 shutil.rmtree(TMP, ignore_errors=True)
 print()
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

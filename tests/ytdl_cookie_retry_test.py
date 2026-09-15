@@ -97,6 +97,17 @@ def fake_refresh(name, progress=None):
 
 
 YC.refresh_attempt = fake_refresh
+stored, STORED_OK = [], {}
+
+
+def fake_stored(name):
+    stored.append(name)
+    if STORED_OK.get(name):
+        return {"profile": name, "cookiefile": f"ck-{name}-saved.txt", "proxy": None, "count": 5, "stored": True}, ""
+    return None, "no saved cookie store in the profile"
+
+
+YC.stored_attempt = fake_stored
 from tubecli.core import ytdlp_manager as YM  # noqa: E402
 ENS = []
 
@@ -110,12 +121,14 @@ YM.ensure = ens_none
 YT = "https://www.youtube.com/watch?v=4Br45kOed_s"
 
 
-def run(url, opts, script, settings=None, plan=None, refresh_ok=None):
+def run(url, opts, script, settings=None, plan=None, refresh_ok=None, stored_ok=None):
     FakeYDL.calls.clear()
     FakeYDL.script[:] = list(script)
-    exports.clear(), removed.clear(), refreshes.clear(), ENS.clear()
+    exports.clear(), removed.clear(), refreshes.clear(), ENS.clear(), stored.clear()
     REFRESH_OK.clear()
     REFRESH_OK.update(refresh_ok or {})
+    STORED_OK.clear()
+    STORED_OK.update(stored_ok or {})
     STATE["settings"] = {"auto": True, "profile": "", "pasted": False, "browser": "", **(settings or {})}
     STATE["plan"] = {"live": [], "closed": [], **(plan or {})}
     task = {}
@@ -153,6 +166,12 @@ ok(err and "Open a browser profile" in str(err) and "alpha" in str(err) and len(
 err, task = run(YT, {}, [BOT, None], plan={"closed": ["alpha"]}, refresh_ok={"alpha": True})
 ok(err is None and len(FakeYDL.calls) == 2 and FakeYDL.calls[1].get("cookiefile") == "ck-alpha-refresh.txt"
    and task.get("cookie_source") == "profile:alpha" and removed == ["ck-alpha-refresh.txt"], "mở ẩn hồ sơ đang tắt → cookie mới → tải được", (task, removed))
+err, task = run(YT, {}, [BOT, None], plan={"closed": ["alpha"]}, stored_ok={"alpha": True}, refresh_ok={"alpha": True})
+ok(err is None and FakeYDL.calls[1].get("cookiefile") == "ck-alpha-saved.txt" and task.get("cookie_source") == "saved:alpha"
+   and not refreshes and removed == ["ck-alpha-saved.txt"], "cookie ĐÃ LƯU tải được → không mở browser", (task, refreshes, removed))
+err, task = run(YT, {}, [BOT, BOT, BOT], plan={"closed": ["alpha"]}, stored_ok={"alpha": True}, refresh_ok={"alpha": True})
+ok(err and len(FakeYDL.calls) == 3 and stored == ["alpha"] and refreshes == ["alpha"] and "Attempts: saved:alpha:" in str(err)
+   and "refused the cookies of alpha" in str(err) and "alpha, alpha" not in str(err), "đã lưu hỏng → mở ẩn; hết cách → lỗi kể từng lượt", str(err))
 OUTDATED = ("ERROR: [youtube] abc: Unable to extract yt initial data; please report this issue on https://github.com/yt-dlp/yt-dlp/issues . "
             "Confirm you are on the latest version using yt-dlp -U")
 

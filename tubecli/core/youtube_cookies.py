@@ -263,6 +263,72 @@ def export_attempt(name: str) -> Tuple[Optional[Dict[str, Any]], str]:
     return {"profile": name, "cookiefile": path, "proxy": proxy, "count": kept}, ""
 
 
+# ── cookie ĐÃ LƯU trong kho của hồ sơ đang tắt (không mở browser) ──────────
+# User 15/9/2026: "vì sao phải mở mới lấy được cookies, không lấy được cookies đã lưu sẵn sao?". Thử lại khi đã có
+# node + yt-dlp-ejs: cookie lưu của testshardx tải được, của testlive YouTube báo "no longer valid" (Google đã xoay,
+# yt-dlp tải như khách). Lỗi "The page needs to be reloaded" lúc đầu là do THIẾU JS runtime, không phải cookie cũ.
+# ⇒ thử cookie đã lưu trước (1–2 s); chỉ khi YouTube vẫn từ chối mới mở ẩn hồ sơ để làm mới.
+
+def _stored_profile_dir(name: str) -> Optional[str]:
+    """Thư mục "Default" chứa kho cookie đã lưu (hồ sơ hoặc bản anh em _bas). yt-dlp tìm Local State (khoá giải mã)
+    ở thư mục CHA của thư mục được đưa — đưa thẳng thư mục hồ sơ thì nó dò khắp PROFILES_DIR, có thể lấy nhầm khoá."""
+    pm = _pm()
+    for sub in ("", "_bas"):
+        root = os.path.join(pm.PROFILES_DIR, name + sub)
+        if not name or not os.path.isdir(root):
+            continue
+        default = os.path.join(root, "Default")
+        db = pm._find_cookie_db(root)
+        if db and os.path.isdir(default) and os.path.abspath(db).startswith(os.path.abspath(default) + os.sep):
+            return default
+    return None
+
+
+def read_stored_cookies(profile_dir: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """(cookie, cảnh báo của yt-dlp) từ kho SQLite — yt-dlp giải mã (DPAPI trên Windows, khoá mặc định/keyring trên
+    Linux). Ném lỗi khi kho bị khoá (browser đang chạy trên Windows) hay không đọc được."""
+    from yt_dlp.cookies import YDLLogger, extract_cookies_from_browser
+
+    notes: List[str] = []
+
+    class _Collect(YDLLogger):
+        def warning(self, message, only_once=False):
+            notes.append(str(message))
+
+        def error(self, message, *args, **kwargs):
+            notes.append(str(message))
+
+    jar = extract_cookies_from_browser("chromium", profile_dir, _Collect())
+    out: List[Dict[str, Any]] = []
+    for c in jar:
+        if c.value is None:
+            continue
+        out.append({"domain": c.domain, "name": c.name, "value": c.value, "path": c.path or "/",
+                    "expires": c.expires or 0, "secure": bool(c.secure), "httpOnly": False})
+    return out, notes
+
+
+def stored_attempt(name: str) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Một lượt thử bằng cookie ĐÃ LƯU của hồ sơ: ({"profile", "cookiefile", "proxy", "count", "stored"}, "") hoặc
+    (None, lý do). Không mở browser. Người gọi PHẢI remove_file(att["cookiefile"])."""
+    prof = _stored_profile_dir(name)
+    if not prof:
+        return None, "no saved cookie store in the profile"
+    proxy, perr = proxy_for(name)
+    if perr:
+        return None, perr
+    try:
+        cookies, notes = read_stored_cookies(prof)
+    except Exception as e:      # noqa: BLE001
+        first = str(e).strip().splitlines()[0][:160] if str(e).strip() else type(e).__name__
+        return None, f"could not read its saved cookies ({first})"
+    path, kept = write_cookie_file(cookies)
+    if not path:
+        why = next((n for n in notes if "decrypt" in n.lower()), "")
+        return None, "its saved cookies have no YouTube/Google login" + (f" ({why[:120]})" if why else "")
+    return {"profile": name, "cookiefile": path, "proxy": proxy, "count": kept, "stored": True}, ""
+
+
 # ── mở ẨN hồ sơ đang tắt để Google làm mới cookie ───────────────────────────
 # User 15/9/2026: "hiện báo lỗi nhưng không có cách giải quyết ngay" — lượt Codex dừng ở "Open a browser profile
 # that is logged into YouTube: testkenh, tung1". Cookie trong kho của hồ sơ đang tắt đã bị Google xoay (dùng thẳng

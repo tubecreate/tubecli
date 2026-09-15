@@ -52,6 +52,7 @@ YC.export_attempt = lambda name: (None, "not used in this group")
 YC.remove_file = lambda path: None
 Y._cookie_file = lambda: None
 YC.refresh_attempt = lambda name, progress=None: (None, "not used in this group")
+YC.stored_attempt = lambda name: (None, "not used in this group")
 ENSURE = {"result": {"ok": True, "action": "none", "version": "2026.08.19"}, "calls": []}
 
 
@@ -184,11 +185,23 @@ def fake_refresh(name, progress=None):
     return None, "the browser did not become ready within 45 s"
 
 
-def run_case(settings, plan, outcomes, pasted=None, refresh_ok=None):
+stored, STORED_OK = [], {}
+
+
+def fake_stored(name):
+    stored.append(name)
+    if STORED_OK.get(name):
+        return {"profile": name, "cookiefile": f"saved-{name}.txt", "proxy": None, "count": 9, "stored": True}, ""
+    return None, "no saved cookie store in the profile"
+
+
+def run_case(settings, plan, outcomes, pasted=None, refresh_ok=None, stored_ok=None):
     Y._CACHE.clear()
-    attempts.clear(), exports.clear(), removed.clear(), refreshes.clear()
+    attempts.clear(), exports.clear(), removed.clear(), refreshes.clear(), stored.clear()
     REFRESH_OK.clear()
     REFRESH_OK.update(refresh_ok or {})
+    STORED_OK.clear()
+    STORED_OK.update(stored_ok or {})
     COOKIE_STATE["settings"] = {"auto": True, "profile": "", "pasted": False, "browser": "", **settings}
     COOKIE_STATE["plan"] = {"live": [], "closed": [], **plan}
     Y._cookie_file = lambda: pasted
@@ -199,6 +212,7 @@ def run_case(settings, plan, outcomes, pasted=None, refresh_ok=None):
 YC.export_attempt = fake_export
 YC.remove_file = lambda path: removed.append(path)
 YC.refresh_attempt = fake_refresh
+YC.stored_attempt = fake_stored
 Y._http_get = fake_get
 
 r = run_case({}, {"live": ["p1"]}, {"none": "ok"})
@@ -232,6 +246,36 @@ Y._CACHE.clear()
 refreshes.clear()
 r = Y.fetch_transcript("https://youtu.be/4Br45kOed_s", progress=got.append)
 ok(r["ok"] and any("opening browser profile alpha" in m for m in got), "câu tiến trình (mở ẩn hồ sơ) đi tới người gọi", got)
+r = run_case({}, {"closed": ["alpha", "beta"]}, {"saved-alpha.txt": "ok"}, stored_ok={"alpha": True})
+ok(r["ok"] and r["cookie_source"] == "saved:alpha" and stored == ["alpha"] and not refreshes and removed == ["saved-alpha.txt"],
+   "cookie ĐÃ LƯU dùng được → không mở browser", (stored, refreshes, removed))
+r = run_case({}, {"closed": ["alpha"]}, {"saved-alpha.txt": "ERROR: [youtube] 4Br45kOed_s: Sign in to confirm you’re not a bot.",
+                                         "cookies-alpha-refresh.txt": "ok"}, stored_ok={"alpha": True}, refresh_ok={"alpha": True})
+ok(r["ok"] and r["cookie_source"] == "profile:alpha" and stored == ["alpha"] and refreshes == ["alpha"]
+   and removed == ["saved-alpha.txt", "cookies-alpha-refresh.txt"], "cookie đã lưu bị từ chối → mới mở ẩn hồ sơ", (stored, refreshes, removed))
+from tubecli.core import ytdlp_manager as _YMe  # noqa: E402
+_ej, _rt = _YMe.ejs_available, _YMe.js_runtimes
+_YMe.ejs_available, _YMe.js_runtimes = (lambda: False), (lambda: {"node": {"path": "n"}})
+RELOAD = "ERROR: [youtube] 4Br45kOed_s: The page needs to be reloaded."
+try:
+    r = run_case({}, {"closed": ["alpha", "beta", "gamma"]}, {"saved-alpha.txt": RELOAD, "saved-beta.txt": RELOAD},
+                 stored_ok={"alpha": True, "beta": True})
+finally:
+    _YMe.ejs_available, _YMe.js_runtimes = _ej, _rt
+ok(not r["ok"] and stored == ["alpha", "beta"] and refreshes == ["alpha"] and "Attempts: without cookies: Sign in to confirm" in r["message"]
+   and "saved cookies of alpha: The page needs to be reloaded" in r["message"] and "opening alpha in the background:" in r["message"]
+   and "missing the YouTube challenge solver (yt-dlp-ejs)" in r["message"],
+   "hết cách → câu lỗi kể TỪNG lượt thử, lỗi thật của yt-dlp, và thiếu bộ giải JS", r["message"])
+got = []
+Y._CACHE.clear()
+stored.clear()
+STORED_OK.clear()
+STORED_OK["alpha"] = True
+Y._ydl_extract = make_extract({"saved-alpha.txt": "ok"})
+COOKIE_STATE["plan"] = {"live": [], "closed": ["alpha"]}
+r = Y.fetch_transcript("https://youtu.be/4Br45kOed_s", progress=got.append)
+ok(r["ok"] and any(m.startswith("YouTube refused the request without cookies: Sign in to confirm") for m in got)
+   and any("trying the saved YouTube cookies of alpha" in m for m in got), "Activity kể lượt không cookie bị từ chối + lượt cookie đã lưu", got)
 r = run_case({}, {"live": ["unreadable"]}, {})
 ok(not r["ok"] and "Could not read YouTube cookies from the open browser profile(s) unreadable" in r["message"] and removed == [], "hồ sơ đang mở mà không đọc được cookie → nói đúng thế", r["message"])
 r = run_case({}, {"live": ["p1"]}, {"none": "ERROR: [youtube] 4Br45kOed_s: Private video. Sign in if you've been granted access"})

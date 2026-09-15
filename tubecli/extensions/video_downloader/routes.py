@@ -434,21 +434,24 @@ def _download_with_browser_cookies(yt_dlp, ydl_opts, url, task=None):
     if not st.get("auto"):
         raise first
     pl = yc.plan(st.get("profile") or "")
-    tried, opened = [], []
+    tried, opened, log = [], [], []
 
-    def with_cookies(name, att):
+    def with_cookies(name, att, source=""):
         opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
         opts["cookiefile"] = att["cookiefile"]
         if att.get("proxy") and not opts.get("proxy"):
             opts["proxy"] = att["proxy"]
-        tried.append(name)
+        if name not in tried:
+            tried.append(name)
         try:
             run(yt_dlp, opts)
             if task is not None:
-                task["cookie_source"] = f"profile:{name}"
+                task["cookie_source"] = source or f"profile:{name}"
             return True
         except Exception as e:      # noqa: BLE001
-            logger.info(f"[ytdl] YouTube refused the cookies of {name}: {str(e)[:200]}")
+            first_line = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', str(e)).strip().splitlines()[0][:160] if str(e).strip() else "error"
+            log.append(f"{source or 'profile:' + name}: {first_line}")
+            logger.info(f"[ytdl] YouTube refused the cookies of {name}: {first_line}")
             return False
         finally:
             yc.remove_file(att["cookiefile"])
@@ -460,6 +463,14 @@ def _download_with_browser_cookies(yt_dlp, ydl_opts, url, task=None):
             continue
         if with_cookies(name, att):
             return
+    # Cookie ĐÃ LƯU của hồ sơ đang tắt (1–2 s, không mở browser) trước; YouTube vẫn từ chối mới mở ẩn để làm mới.
+    for name in pl["closed"][:yc.MAX_PROFILES]:
+        att, why = yc.stored_attempt(name)
+        if not att:
+            log.append(f"saved:{name}: {why}")
+            continue
+        if with_cookies(name, att, source=f"saved:{name}"):
+            return
     for name in pl["closed"][:1]:
         att, why = yc.refresh_attempt(name)
         if not att:
@@ -467,7 +478,8 @@ def _download_with_browser_cookies(yt_dlp, ydl_opts, url, task=None):
             continue
         if with_cookies(name, att):
             return
-    raise RuntimeError(f"{first} — {yc.blocked_hint(st, pl, tried, opened)}")
+    details = f" Attempts: {'; '.join(log)}." if log else ""
+    raise RuntimeError(f"{first} — {yc.blocked_hint(st, pl, tried, opened)}{details}")
 
 
 DOWNLOAD_TASKS = {}

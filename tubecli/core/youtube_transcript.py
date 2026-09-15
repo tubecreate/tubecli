@@ -245,14 +245,38 @@ def _short(err) -> str:
     return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([A-Za-z0-9_-]{11}:\s*)?", "", first)[:160]
 
 
+def _challenge_hint(log: List[str]) -> str:
+    """Có cookie mà YouTube trả "The page needs to be reloaded" / "challenge" = yt-dlp không giải được thử thách JS
+    (đo 15/9/2026: thiếu yt-dlp-ejs + JS runtime thì cookie nào cũng hỏng kiểu này)."""
+    text = " ".join(log).lower()
+    if "needs to be reloaded" not in text and "challenge" not in text:
+        return ""
+    missing: List[str] = []
+    try:
+        ym = _ytdlp()
+        if not ym.ejs_available():
+            missing.append("the YouTube challenge solver (yt-dlp-ejs)")
+        if not ym.js_runtimes():
+            missing.append("a JavaScript runtime (node or deno)")
+    except Exception:      # noqa: BLE001
+        pass
+    if missing:
+        return (f"yt-dlp could not solve YouTube's JavaScript challenge: this server is missing {' and '.join(missing)} "
+                "— open Video Downloader and press «Check Update» (it installs the solver).")
+    return "yt-dlp could not solve YouTube's JavaScript challenge — update yt-dlp in Video Downloader."
+
+
 def _extract_with_cookies(url: str, vid: str, timeout: int,
                           progress=None) -> Tuple[Optional[Dict[str, Any]], str, str]:
     """(info, lỗi, nguồn cookie). KHÔNG cookie trước; chỉ khi YouTube đòi đăng nhập mới thử cookie, lần lượt:
-    cookie dán tay ở Video Downloader → hồ sơ browser TubeCLI ĐANG MỞ (tuỳ chọn tự động, core/youtube_cookies.py)
-    → trình duyệt cài trên máy. Nguồn nào hỏng thì sang nguồn sau: thử thật 15/9/2026, cookie cũ của hồ sơ đang
-    tắt làm HỎNG một lượt vốn tải được, nên cookie không bao giờ đi trước lượt không cookie."""
+    cookie dán tay ở Video Downloader → hồ sơ browser TubeCLI ĐANG MỞ (CDP) → cookie ĐÃ LƯU của hồ sơ đang tắt
+    (1–2 s, không mở browser) → mở ẨN hồ sơ đó cho Google làm mới cookie → trình duyệt cài trên máy.
+
+    Mỗi lượt thử kèm lỗi THẬT của yt-dlp đi lên Activity và vào câu báo lỗi — user 15/9/2026: "thử tải chưa mà báo
+    yêu cầu cookies?" (câu cũ chỉ nói chung chung, lỗi thật nằm trong log máy chủ)."""
     from tubecli.core import youtube_cookies as yc
 
+    say = progress or (lambda msg: None)
     try:
         return _ydl_extract(url, timeout), "", ""
     except ImportError:
@@ -273,64 +297,76 @@ def _extract_with_cookies(url: str, vid: str, timeout: int,
                 logger.warning("youtube extract after updating yt-dlp %s: %s", vid, _short(first))
     if not yc.is_blocked(first):
         return None, _explain(first), ""
+    say(f"YouTube refused the request without cookies: {_short(first)}")
     st = yc.settings()
-    notes: List[str] = []
-    pasted = _cookie_file()
-    if pasted:
+    log: List[str] = [f"without cookies: {_short(first)}"]
+    pl, tried, opened = None, [], []
+
+    def attempt(label: str, **kw):
         try:
-            return _ydl_extract(url, timeout, cookiefile=pasted), "", "pasted"
+            return _ydl_extract(url, timeout, **kw)
         except ImportError:
             raise
         except Exception as e:      # noqa: BLE001
-            notes.append(f"pasted cookies: {_short(e)}")
-    pl, tried, opened = None, [], []
+            log.append(f"{label}: {_short(e)}")
+            say(f"{label} did not work: {_short(e)}")
+            return None
+
+    def with_file(label: str, name: str, att: Dict[str, Any]):
+        if name not in tried:
+            tried.append(name)
+        try:
+            return attempt(label, cookiefile=att["cookiefile"], proxy=att.get("proxy"))
+        finally:
+            yc.remove_file(att["cookiefile"])
+
+    pasted = _cookie_file()
+    if pasted:
+        info = attempt("pasted cookies", cookiefile=pasted)
+        if info is not None:
+            return info, "", "pasted"
     if st.get("auto"):
         pl = yc.plan(st.get("profile") or "")
         for name in pl["live"][:yc.MAX_PROFILES]:
             att, why = yc.export_attempt(name)
             if not att:
-                notes.append(f"{name}: {why}")
+                log.append(f"open profile {name}: {why}")
                 continue
-            tried.append(name)
-            try:
-                return (_ydl_extract(url, timeout, cookiefile=att["cookiefile"], proxy=att.get("proxy")), "",
-                        f"profile:{name}")
-            except ImportError:
-                raise
-            except Exception as e:      # noqa: BLE001
-                notes.append(f"{name}: {_short(e)}")
-            finally:
-                yc.remove_file(att["cookiefile"])
-        # Không hồ sơ đang mở nào dùng được → mở ẨN hồ sơ đang tắt đầu tiên cho Google làm mới cookie (một hồ sơ: RAM).
+            info = with_file(f"cookies of the open profile {name}", name, att)
+            if info is not None:
+                return info, "", f"profile:{name}"
+        for name in pl["closed"][:yc.MAX_PROFILES]:
+            say(f"trying the saved YouTube cookies of {name}")
+            att, why = yc.stored_attempt(name)
+            if not att:
+                log.append(f"saved cookies of {name}: {why}")
+                continue
+            info = with_file(f"saved cookies of {name}", name, att)
+            if info is not None:
+                return info, "", f"saved:{name}"
+        # Cookie đã lưu không qua được → mở ẨN hồ sơ đầu tiên cho Google làm mới cookie (một hồ sơ: RAM).
         for name in pl["closed"][:1]:
             att, why = yc.refresh_attempt(name, progress=progress)
             if not att:
                 opened.append(f"{name} ({why})")
-                notes.append(f"{name}: {why}")
+                log.append(f"opening {name} in the background: {why}")
                 continue
-            tried.append(name)
-            try:
-                return (_ydl_extract(url, timeout, cookiefile=att["cookiefile"], proxy=att.get("proxy")), "",
-                        f"profile:{name}")
-            except ImportError:
-                raise
-            except Exception as e:      # noqa: BLE001
-                notes.append(f"{name}: {_short(e)}")
-            finally:
-                yc.remove_file(att["cookiefile"])
+            info = with_file(f"refreshed cookies of {name}", name, att)
+            if info is not None:
+                return info, "", f"profile:{name}"
     if st.get("browser"):
-        try:
-            return _ydl_extract(url, timeout, browser=st["browser"]), "", f"browser:{st['browser']}"
-        except ImportError:
-            raise
-        except Exception as e:      # noqa: BLE001
-            notes.append(f"{st['browser']} cookies: {_short(e)}")
-    if notes:
-        logger.info("youtube cookie attempts %s: %s", vid, "; ".join(notes))
+        info = attempt(f"{st['browser']} cookies", browser=st["browser"])
+        if info is not None:
+            return info, "", f"browser:{st['browser']}"
+    logger.info("youtube cookie attempts %s: %s", vid, " | ".join(log))
     low = first.lower()
     base = ("The video is age-restricted." if "age" in low and ("restrict" in low or "confirm your age" in low)
             else "YouTube asked this server to sign in (it treats the server's IP as a bot).")
-    return None, f"{base} {yc.blocked_hint(st, pl, tried, opened)} You can also paste the video's text instead.", ""
+    msg = f"{base} {yc.blocked_hint(st, pl, tried, opened)}"
+    challenge = _challenge_hint(log)
+    if challenge:
+        msg += " " + challenge
+    return None, f"{msg} Attempts: {'; '.join(log)}. You can also paste the video's text instead.", ""
 
 
 def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cache: bool = True,
