@@ -5182,8 +5182,10 @@ def describe_plan(options: Dict[str, Any]) -> str:
     if options.get("source_text"):
         yt_ids = youtube_link_only(options["source_text"])
         if yt_ids:
-            lines.append(f"- Source: subtitles of {min(len(yt_ids), YT_LINKS_MAX)} YouTube video(s), read when "
-                         "the task runs")
+            # Ghi LINK nguồn, không chỉ đếm số video (user 15/9/2026: "chỗ này ghi url nguồn").
+            urls = ", ".join(f"https://www.youtube.com/watch?v={v}" for v in yt_ids[:YT_LINKS_MAX])
+            more = f" — only the first {YT_LINKS_MAX} links are used" if len(yt_ids) > YT_LINKS_MAX else ""
+            lines.append(f"- Source: YouTube subtitles, read when the task runs — {urls}{more}")
         else:
             lines.append(f"- Source: pasted content (~{content_words(options['source_text'])} words)")
         mode = str(options.get("script_mode") or "").strip().lower()
@@ -5773,6 +5775,18 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
 
 # ── Codex integration ────────────────────────────────────────────────
 
+def _task_heading(options: Dict, job_label: str, name: str) -> tuple:
+    """(tiêu đề thẻ, dòng đầu mục tiêu) của task Codex.
+
+    Người dùng gõ tiêu đề trên form Codex thì thẻ và mục tiêu mang đúng tiêu đề đó — trước đây luôn
+    "Video from content: <agent>" dù đã nhập (15/9/2026). Không gõ thì giữ câu mặc định như cũ.
+    """
+    title = " ".join(str(options.get("title") or "").split())[:120]
+    if title:
+        return title, f"{title}\n{job_label} for agent {name}"
+    return f"{job_label}: {name[:40]}", f"{job_label} for agent {name}"
+
+
 def create_plan_task(agent_id: str, options: Optional[Dict] = None,
                      created_by: str = "user", origin: Optional[Dict] = None,
                      sources: Optional[List[str]] = None,
@@ -5799,10 +5813,11 @@ def create_plan_task(agent_id: str, options: Optional[Dict] = None,
     options["sources"] = sources
     options.setdefault("job_label", job_label)
 
-    goal = f"{job_label} for agent {name}\n\n{describe_plan(options)}"
+    title, head = _task_heading(options, job_label, name)
+    goal = f"{head}\n\n{describe_plan(options)}"
     task = codex_manager.create_task(
         goal=goal,
-        title=f"{job_label}: {name[:40]}",
+        title=title,
         created_by=created_by,
         origin=origin or {},
         assignee_type="agent",
@@ -5856,13 +5871,14 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
     start = "Nội dung dán vào" if options.get("source_text") else "Thu thập xong"
     end = " → đăng thẳng lên YouTube" if options.get("publish") else ""
     done = "video đã lên rồi" if options.get("publish") else "video đã dựng xong"
-    goal = (f"{job_label} for agent {name}\n\n"
+    title, head = _task_heading(options, job_label, name)
+    goal = (f"{head}\n\n"
             f"{start} → viết kịch bản → dựng video{end}.\n"
             f"Không có bước duyệt: khi task này vào ô review thì {done}.\n\n"
             + describe_plan(options))
     task = codex_manager.create_task(
         goal=goal,
-        title=f"{job_label}: {name[:40]}",
+        title=title,
         created_by=created_by,
         origin=origin or {},
         assignee_type="agent",

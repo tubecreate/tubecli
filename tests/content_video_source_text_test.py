@@ -172,6 +172,24 @@ P.create_auto_task("a1", {"publish": True}, created_by="autopublish")
 goal = made["task"]["goal"]
 ok("Thu thập xong" in goal and "đăng thẳng lên YouTube" in goal and "video đã lên rồi" in goal,
    "lịch tự đăng (publish=True): câu mô tả giữ nguyên như cũ")
+ok(made["task"]["title"].startswith("Auto publish: ") and goal.startswith("Auto publish for agent "),
+   "không gõ tiêu đề → thẻ + mục tiêu giữ câu mặc định")
+
+# Tiêu đề gõ trên form Codex (user 15/9/2026: "đã nhập title trong task nhưng mà vẫn ghi mặc định").
+made.clear()
+P.create_auto_task("a1", {"source_text": "abc", "title": "  Mây   trắng bay  "}, created_by="user",
+                   job_label="Video from content")
+ok(made["task"]["title"] == "Mây trắng bay", "auto: thẻ mang tiêu đề đã gõ")
+ok(made["task"]["goal"].splitlines()[:2] == ["Mây trắng bay", f"Video from content for agent {Agent().name}"],
+   "auto: dòng đầu mục tiêu là tiêu đề, dòng hai vẫn nói loại việc + agent")
+made.clear()
+P.create_plan_task("a1", {"source_text": "abc", "title": "Chuyện làng"}, created_by="user",
+                   job_label="Video from content", approval_required=False)
+ok(made["task"]["title"] == "Chuyện làng" and made["task"]["goal"].startswith("Chuyện làng\nVideo from content for agent "),
+   "kịch bản để duyệt: thẻ + mục tiêu mang tiêu đề đã gõ")
+made.clear()
+P.create_plan_task("a1", {"source_text": "abc", "title": "   "}, created_by="user", job_label="Video from content")
+ok(made["task"]["title"].startswith("Video from content: "), "tiêu đề chỉ có khoảng trắng → câu mặc định")
 
 # ── 6. route ──────────────────────────────────────────────────────────────
 print("── route /content-video/run ───────────────────────────────────")

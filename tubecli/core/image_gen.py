@@ -36,6 +36,10 @@ NR_FALLBACK_CF_MODEL = "@cf/black-forest-labs/flux-2-klein-9b"
 PROVIDERS = ("cloudflare", "gemini", "9router")
 ASPECT_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
 DEFAULT_MODELS = {"cloudflare": CF_DEFAULT_MODEL, "gemini": GEMINI_DEFAULT_MODEL, "9router": NR_DEFAULT_MODEL}
+# 429 của Cloudflare KHÔNG phải hết hạn mức ngày (giới hạn theo phút / quá tải): đỗ ngắn rồi dùng lại, không 15 phút.
+CF_RATE_COOLDOWN_SEC = 60
+# Mọi account đều đang đỗ nhưng có account mở lại trong chừng này giây → chờ rồi vẽ tiếp, thay vì bỏ cả lô.
+CF_WAIT_MAX_SEC = 75
 
 
 class ProviderError(Exception):
@@ -115,6 +119,14 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
     def _cloudflare(m=None):
         creds = km.get_cloudflare_creds()
         if not creds.get("api_token") or not creds.get("account_id"):
+            accs = _cf_accounts()
+            if accs:
+                # Có account mà account nào cũng đang đỗ / tắt: "chưa có credential" là nói sai — Studio chọn nhà
+                # ở đầu mỗi lô nên người dùng từng thấy đúng câu sai này (15/9/2026).
+                states = "; ".join(f"{a['label']} — {_cf_state_text(a)}" for a in accs)
+                return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
+                        "reason": f"All Cloudflare accounts are paused: {states}. Add another Cloudflare account "
+                                  "in Cloud API Keys, or wait for one to resume."}
             return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
                     "reason": "Chưa có credential Cloudflare (cần API token + Account ID) trong Cloud API Keys."}
         return {"ok": True, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
@@ -173,8 +185,16 @@ def public_resolution(r: dict) -> dict:
 
 
 def _cred_id(r: dict) -> str:
-    """Định danh tài khoản đang dùng (để biết resolve lại có ra tài khoản KHÁC không)."""
-    return str((r.get("creds") or {}).get("api_token") or r.get("key") or r.get("base") or "")
+    """Định danh tài khoản đang dùng. Cloudflare = token + account_id: Global API Key dùng CHUNG cho mọi account
+    cùng email, còn hạn mức Workers AI tính theo account (15/9/2026)."""
+    creds = r.get("creds") or {}
+    if creds.get("api_token"):
+        return f"{creds['api_token']}|{creds.get('account_id') or ''}"
+    return str(r.get("key") or r.get("base") or "")
+
+
+def _acc_id(acc: dict) -> str:
+    return f"{acc.get('api_token') or ''}|{acc.get('account_id') or ''}"
 
 
 def _is_daily_quota(msg: str) -> bool:
@@ -218,9 +238,19 @@ def _report_key(r: dict, msg: str, transient: bool) -> None:
         if r.get("provider") == "gemini" and r.get("key"):
             km.report_key_error("gemini", r["key"], msg[:160], transient=transient)
         elif r.get("provider") == "cloudflare" and (r.get("creds") or {}).get("api_token"):
-            until = _next_utc_midnight() if (transient and _is_daily_quota(msg)) else None
+            if transient and _is_daily_quota(msg):
+                until = _next_utc_midnight()
+            elif transient:
+                until = time.time() + CF_RATE_COOLDOWN_SEC      # 429 theo phút / quá tải: đỗ ngắn
+            else:
+                until = None
             r["parked_until"] = until
-            km.report_key_error("cloudflare", r["creds"]["api_token"], msg[:160], transient=transient, until=until)
+            creds = r["creds"]
+            try:
+                km.report_key_error("cloudflare", creds["api_token"], msg[:160], transient=transient, until=until,
+                                    only_label=creds.get("label") or None, account_id=creds.get("account_id") or None)
+            except TypeError:       # cloud_api cũ: chưa đỗ theo nhãn — đỗ theo khoá như trước
+                km.report_key_error("cloudflare", creds["api_token"], msg[:160], transient=transient, until=until)
     except Exception:
         pass
 
@@ -438,6 +468,87 @@ async def _nr_generate(r: dict, prompt: str, aspect_ratio: str, timeout: int) ->
 
 # ── vẽ ────────────────────────────────────────────────────────────────────────
 
+_sleep = asyncio.sleep
+
+
+def _cf_accounts() -> list:
+    try:
+        return list(_key_manager().cloudflare_accounts())
+    except Exception:      # noqa: BLE001 — cloud_api cũ không có cloudflare_accounts()
+        return []
+
+
+def _cf_switch(r: dict, acc: dict, why: str) -> None:
+    """Đưa r sang account `acc` — GHI THẲNG vào r: batch của Studio giữ r cho cả lô, shot sau đi thẳng account mới."""
+    old = r.get("label") or "?"
+    r["creds"] = {"api_token": acc["api_token"], "account_id": acc["account_id"], "email": acc.get("email", ""),
+                  "label": acc["label"]}
+    r["label"] = acc["label"]
+    r["rotated_to"] = acc["label"]
+    r["_rotated"] = True
+    logger.warning("cloudflare/%s: account '%s' %s → '%s'", r.get("model"), old, why, acc["label"])
+
+
+def _cf_state_text(acc: dict) -> str:
+    if acc.get("active"):
+        return "available"
+    msg = str(acc.get("status_msg") or "").strip()
+    reason = "daily free allocation used up" if _is_daily_quota(msg) else (msg[:80] or "turned off")
+    if acc.get("disable_reason") != "transient":
+        return f"{reason} (turned off — re-enable it in Cloud API Keys)"
+    until = acc.get("disabled_until")
+    return f"{reason}, resumes {_local_clock(float(until))}" if until else reason
+
+
+async def _cf_generate_rotating(r: dict, prompt: str, aspect_ratio: str, timeout: int) -> bytes:
+    """Vẽ bằng Cloudflare, thử LẦN LƯỢT mọi account còn dùng được (user 15/9/2026: "lỗi tạo ảnh claudflare không
+    xoay tua").
+
+    * account của r đang bị đỗ → đổi sang account đang bật TRƯỚC khi gọi (Studio thử lại shot không đập vào account đỗ)
+    * 429 / 401 → đỗ ĐÚNG account (hết hạn mức ngày: tới 00:00 UTC; 429 thường: CF_RATE_COOLDOWN_SEC) → account kế
+    * hết account mà có account mở lại trong CF_WAIT_MAX_SEC → chờ rồi vẽ tiếp (một lần)
+    * hết cách → lỗi kể TỪNG account kèm lý do và lúc mở lại
+    """
+    tried: list = []
+    waited = False
+    first_err = None
+    while True:
+        accounts = _cf_accounts()
+        cur = next((a for a in accounts if _acc_id(a) == _cred_id(r)), None)
+        if cur is not None and not cur["active"]:
+            nxt = next((a for a in accounts if a["active"] and _acc_id(a) not in tried), None)
+            if nxt is not None:
+                _cf_switch(r, nxt, "is parked")
+        try:
+            return await _cf_generate(r, prompt, aspect_ratio, timeout)
+        except ProviderError as e:
+            if e.kind not in ("rate_limit", "auth"):
+                raise
+            first_err = first_err or e
+            _report_key(r, str(e), transient=(e.kind == "rate_limit"))
+            tried.append(_cred_id(r))
+            accounts = _cf_accounts()
+            nxt = next((a for a in accounts if a["active"] and _acc_id(a) not in tried), None)
+            if nxt is not None:
+                _cf_switch(r, nxt, f"refused ({str(e)[:80]})")
+                continue
+            soonest = min((float(a["disabled_until"]) for a in accounts
+                           if not a["active"] and a.get("disable_reason") == "transient" and a.get("disabled_until")),
+                          default=None)
+            if not waited and soonest is not None and soonest - time.time() <= CF_WAIT_MAX_SEC:
+                waited = True
+                tried.clear()
+                logger.warning("cloudflare: every account is parked — waiting %.0f s for one to resume",
+                               max(0.0, soonest - time.time()))
+                await _sleep(max(1.0, soonest - time.time() + 1))
+                continue
+            if not accounts:
+                raise
+            states = "; ".join(f"{a['label']} — {_cf_state_text(a)}" for a in accounts)
+            raise ProviderError(e.kind, f"{first_err} — Cloudflare accounts tried: {states}. Add another Cloudflare "
+                                        "account in Cloud API Keys, or wait for one to resume.") from e
+
+
 async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
                          reference_images: Optional[list] = None, timeout: int = 180) -> bytes:
     """Bytes ảnh từ nhà cung cấp đã resolve; ném ProviderError. Có đường lùi (9Router → Cloudflare).
@@ -448,16 +559,18 @@ async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
     r.pop("fallback_from", None)
     try:
         if r["provider"] == "cloudflare":
-            return await _cf_generate(r, prompt, aspect_ratio, timeout)
+            return await _cf_generate_rotating(r, prompt, aspect_ratio, timeout)
         if r["provider"] == "9router":
             return await _nr_generate(r, prompt, aspect_ratio, timeout)
         return await _gemini_generate(r, prompt, aspect_ratio, reference_images, timeout)
     except ProviderError as e:
-        if e.kind == "rate_limit":
-            _report_key(r, str(e), transient=True)
-        elif e.kind == "auth":
-            _report_key(r, str(e), transient=False)
-        if e.kind in ("rate_limit", "auth") and not r.get("_rotated"):
+        # Cloudflare: đỗ + xoay qua MỌI account đã làm trong _cf_generate_rotating. Gemini: như cũ.
+        if r["provider"] != "cloudflare":
+            if e.kind == "rate_limit":
+                _report_key(r, str(e), transient=True)
+            elif e.kind == "auth":
+                _report_key(r, str(e), transient=False)
+        if e.kind in ("rate_limit", "auth") and not r.get("_rotated") and r["provider"] != "cloudflare":
             nr = resolve_provider(r["provider"], r.get("model"))
             if nr.get("ok") and _cred_id(nr) and _cred_id(nr) != _cred_id(r):
                 logger.warning("%s/%s: %s → xoay sang tài khoản '%s'", r["provider"], r["model"], str(e)[:100], nr.get("label") or "?")

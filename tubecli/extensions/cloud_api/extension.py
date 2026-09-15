@@ -496,7 +496,8 @@ class KeyManager:
                 "models_source": s.get("models_source", "builtin" if "models" not in s else "custom")}
 
     def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded",
-                         transient: bool = False, until: Optional[float] = None) -> None:
+                         transient: bool = False, until: Optional[float] = None,
+                         only_label: Optional[str] = None, account_id: Optional[str] = None) -> None:
         """Mark a key inactive after an error.
 
         `transient=True` is for a plain rate-limit (a 429 that will clear on its
@@ -518,7 +519,11 @@ class KeyManager:
             return
         hit = False
         for label, entry in entries.items():
-            if isinstance(entry, dict) and entry.get("key") == api_key:
+            # Global API Key của Cloudflare dùng CHUNG cho mọi account cùng email, hạn mức Workers AI tính theo
+            # ACCOUNT: đỗ đúng nhãn / account bị lỗi, không đỗ cả nhóm (15/9/2026).
+            if (isinstance(entry, dict) and entry.get("key") == api_key
+                    and (not only_label or label == only_label)
+                    and (not account_id or str(entry.get("account_id") or "") == str(account_id))):
                 entry["active"] = False
                 entry["status_msg"] = error_msg
                 if transient:
@@ -560,6 +565,25 @@ class KeyManager:
                 revived = True
                 logger.info(f"Key '{label}' for {provider} auto-re-enabled after cooldown.")
         return revived
+
+    def cloudflare_accounts(self) -> list:
+        """Mọi account Cloudflare đủ token + account_id, THEO THỨ TỰ đã lưu, sau khi hồi khoá đỗ tạm đã tới hạn.
+        Dùng nội bộ để xoay (CÓ token — không trả ra route):
+        [{label, api_token, account_id, email, active, disable_reason, disabled_until, status_msg}]."""
+        self._load()
+        entries = self._keys.get("cloudflare", {})
+        entries = entries if isinstance(entries, dict) else {}
+        if self._revive_transient(entries, "cloudflare"):
+            self._save()
+        out = []
+        for lbl, e in entries.items():
+            if not isinstance(e, dict) or not e.get("key") or not e.get("account_id"):
+                continue
+            out.append({"label": lbl, "api_token": e.get("key", ""), "account_id": e.get("account_id", ""),
+                        "email": e.get("email", ""), "active": bool(e.get("active")),
+                        "disable_reason": e.get("disable_reason", ""), "disabled_until": e.get("disabled_until"),
+                        "status_msg": e.get("status_msg", "")})
+        return out
 
     def get_active_key(self, provider: str) -> Optional[str]:
         """Get an active key for a provider, reviving cooled-down transient ones."""

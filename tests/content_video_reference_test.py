@@ -83,7 +83,8 @@ def new_state(content=None, checkpoint=None):
 print("── A. describe_plan ────────────────────────────────────────")
 d = P.describe_plan({"source_text": LINK, "script_mode": "reference", "keep_theme": True,
                      "instructions": "tono cálido, tutear al espectador", "target_words": 1500})
-ok("- Source: subtitles of 1 YouTube video(s), read when the task runs" in d, "link → nguồn là phụ đề YouTube", d)
+ok("- Source: YouTube subtitles, read when the task runs — https://www.youtube.com/watch?v=4Br45kOed_s" in d,
+   "link → nguồn là phụ đề YouTube, ghi rõ link", d)
 ok("a NEW script built on the source's structure" in d and "its theme and references are kept" in d, "tham khảo + giữ chủ đề")
 ok("- Extra instructions: tono cálido, tutear al espectador" in d and "- Target read-aloud duration: ~10.0 min (~1500 words)" in d, "lời dặn + thời lượng mục tiêu", d)
 d2 = P.describe_plan({"source_text": "Un artículo largo " * 30 + LINK, "script_mode": "reference", "keep_theme": False})
