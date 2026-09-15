@@ -1421,8 +1421,10 @@ def _gather_youtube(state: Dict, options: Dict, ids: List[str]) -> None:
                        "content": text, "source": "pasted", "scraped_at": ""})
         sources.append({k: res.get(k) for k in ("id", "url", "title", "channel", "language", "kind", "words", "minutes")})
     if not corpus:
-        raise RuntimeError("Could not read subtitles from the YouTube link(s) — " + "; ".join(failed) +
-                           ". Paste the video's text instead.")
+        why = "; ".join(f.rstrip(". ") for f in failed)
+        # Lý do nào đã chỉ đường ("…paste its text instead") thì đừng nhắc lần hai.
+        hint = "" if "paste" in why.lower() else " Paste the video's text instead."
+        raise RuntimeError(f"Could not read subtitles from the YouTube link(s) — {why}.{hint}")
     if failed:
         state.setdefault("warnings", []).append("Skipped YouTube link(s): " + "; ".join(failed))
     if len(ids) > YT_LINKS_MAX:

@@ -171,10 +171,26 @@ def _cookie_file() -> Optional[str]:
         return None
 
 
+class _YdlLogger:
+    """yt-dlp in lỗi thẳng ra stderr kể cả khi quiet=True — gom về logger của TubeCLI (người gọi đã ghi cảnh báo)."""
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        logger.debug("yt-dlp: %s", msg)
+
+    def error(self, msg):
+        logger.debug("yt-dlp: %s", msg)
+
+
 def _ydl_extract(url: str, timeout: int) -> Dict[str, Any]:
     import yt_dlp  # noqa: F401 — ImportError được người gọi đổi thành câu chỉ đường
     opts = {"skip_download": True, "quiet": True, "no_warnings": True, "noplaylist": True,
-            "socket_timeout": max(5, min(int(timeout), 30))}
+            "socket_timeout": max(5, min(int(timeout), 30)), "logger": _YdlLogger()}
     cookie = _cookie_file()
     if cookie:
         opts["cookiefile"] = cookie
