@@ -2422,9 +2422,21 @@ def _step_images(state: Dict, options: Dict) -> None:
         else:
             data = {"errors": []}
     errors = data.get("errors") or []
+    total = int(data.get("total") or 0)
+    ok = int(data["ok"]) if data.get("ok") is not None else max(0, total - len(errors))
+    last = str(data.get("last_error") or "")
     state["image_errors"] = len(errors)
+    if total and ok == 0:
+        # Studio mới tự đánh "error: …" (dừng sớm / 0 ảnh); Studio cũ vẫn trả "completed" kèm
+        # danh sách hỏng — ở đây phải chặn: 0 ảnh thì bước dựng chắc chắn chết với câu "None of
+        # the shots have valid videos or images" chẳng chỉ vào đâu (user 15/9/2026).
+        raise RuntimeError(f"no image was generated ({len(errors)}/{total} shots failed)"
+                           + (f": {last[:300]}" if last else " — check the image provider in Content Studio"))
     if errors:
-        state["_say"]("images", "running", f"{len(errors)} shot(s) without image")
+        state["_say"]("images", "running", f"{len(errors)} shot(s) without image" + (f" — {last[:120]}" if last else ""))
+        state.setdefault("warnings", []).append(
+            f"{len(errors)}/{total} shot(s) could not be drawn" + (f": {last[:200]}" if last else "")
+            + " — they will be missing from the video.")
 
 
 # Studio "quên" việc nền: chờ số shot có ảnh ngừng tăng chừng này giây (việc cũ đã dừng hẳn)
