@@ -244,18 +244,20 @@ def run_script(target_words):
     return st
 
 
+# Mục tiêu ~280 chữ ≈ độ dài bản nháp 5 cảnh giả (~300 chữ lời): nhóm này kiểm HỎI LẠI NGÔN NGỮ; mục tiêu
+# 120 thì bản nháp dài gấp 2,4 lần và lượt «rút gọn» (lõi .96, 15/9/2026) chen vào đếm lượt gọi.
 answers[:] = [en_script(5), es_script(5)]
-st = run_script(120)
+st = run_script(280)
 ok(len(calls) == 2 and "IMPORTANT: the previous draft came back in English" in calls[1][0]
    and "Write in Spanish." in calls[1][0], "một lượt: nháp tiếng Anh → hỏi lại MỘT lần với câu nhắc thẳng", [c[0][-200:] for c in calls])
 ok("pregunta" in st["script"] and not any("came back in" in w for w in st["warnings"]), "…bản hai tiếng Tây Ban Nha được dùng, không cảnh báo", st["warnings"])
 ok("translate and adapt" not in calls[0][0], "bài dán Tây Ban Nha + mẫu Tây Ban Nha → KHÔNG còn bị bảo 'translate into Spanish' (bệnh 336)", calls[0][0])
 answers[:] = [en_script(5), en_script(5)]
-st = run_script(120)
+st = run_script(280)
 ok(len(calls) == 2 and any("came back in English although Spanish was asked" in w for w in st["warnings"]),
    "vẫn sai sau khi hỏi lại → chỉ một lần hỏi lại + cảnh báo rõ", (len(calls), st["warnings"]))
 answers[:] = [es_script(5)]
-st = run_script(120)
+st = run_script(280)
 ok(len(calls) == 1 and not st["warnings"], "đúng ngôn ngữ ngay → một lượt, không cảnh báo", st["warnings"])
 
 

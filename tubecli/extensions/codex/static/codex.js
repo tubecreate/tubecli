@@ -926,6 +926,9 @@ const CODEX = (() => {
     $('cx-v-content').value = '';
     $('cx-v-title').value = '';
     $('cx-v-review').checked = lsGet(CV_REVIEW_KEY) !== '0';
+    state.ytProbe = null;
+    $('cx-v-keeptheme').checked = lsGet(CV_KEEP_THEME_KEY) !== '0';
+    $('cx-v-instructions').value = lsGet(CV_INSTR_KEY) || '';
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
     $('cx-v-length').innerHTML = '';          // rỗng → renderVideoLength lấy lựa chọn đã nhớ
@@ -1024,6 +1027,10 @@ const CODEX = (() => {
     lsSet(G_APPROVAL_KEY, $('cx-f-approval').checked ? '1' : '0');
     lsSet(G_PRIORITY_KEY, String(parseInt($('cx-f-priority').value, 10) || 0));
     lsSet(CV_REVIEW_KEY, $('cx-v-review').checked ? '1' : '0');
+    const keepTheme = $('cx-v-keeptheme');
+    if (keepTheme) lsSet(CV_KEEP_THEME_KEY, keepTheme.checked ? '1' : '0');
+    const instr = $('cx-v-instructions');
+    if (instr) lsSet(CV_INSTR_KEY, (instr.value || '').slice(0, CV_INSTR_MAX));
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -1156,7 +1163,10 @@ const CODEX = (() => {
   // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
   const CV_LENGTH_KEY = 'codex.cvLength';
   const CV_MINUTES_KEY = 'codex.cvMinutes';
-  const CV_SCRIPT_KEY = 'codex.cvScript';     // rewrite | verbatim
+  const CV_SCRIPT_KEY = 'codex.cvScript';     // rewrite | verbatim | reference
+  const CV_KEEP_THEME_KEY = 'codex.cvKeepTheme';   // '1' | '0' — «Tham khảo cấu trúc» giữ chủ đề nguồn
+  const CV_INSTR_KEY = 'codex.cvInstructions';     // lời dặn thêm cho AI (nhớ lần gần nhất)
+  const CV_INSTR_MAX = 2000;
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -1191,17 +1201,45 @@ const CODEX = (() => {
     return Number.isFinite(n) && n > 0 ? Math.min(max, n) : 10;
   }
 
+  // PHẢI khớp tubecli/core/youtube_transcript.py (youtube_ids / link_only, LINK_EXTRA_WORDS = 12).
+  const CV_YT_ID_RE = /(?:youtube\.com\/(?:watch\?(?:[^\s#]*?&)?v=|shorts\/|live\/|embed\/|v\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/g;
+  const CV_YT_EXTRA_WORDS = 12;
+
+  function cvYoutubeIds(txt) {
+    const out = [];
+    for (const m of String(txt || '').matchAll(CV_YT_ID_RE)) if (!out.includes(m[1])) out.push(m[1]);
+    return out;
+  }
+
+  /** Id video khi nội dung CHỈ là link YouTube (vài chữ ghi chú kèm theo được); [] cho bài dán tay. */
+  function cvLinkOnly(txt) {
+    const ids = cvYoutubeIds(txt);
+    if (!ids.length) return [];
+    const words = String(txt || '').replace(/https?:\/\/\S+/g, ' ').split(/\s+/)
+      .filter(w => /[\p{L}\p{N}]/u.test(w)).length;
+    return words <= CV_YT_EXTRA_WORDS ? ids : [];
+  }
+
   /** Ô "Độ dài video". Mặc định THEO BÀI DÁN: trước đây độ dài lấy từ ô Video
    *  Length của mẫu, nên dán dài hay ngắn cũng ra ~14 shot (11/9/2026). */
   function renderVideoLength() {
     const sel = $('cx-v-length');
     if (!sel) return;
-    const have = cvWords($('cx-v-content').value || '');
+    const txt = $('cx-v-content').value || '';
+    const linkOnly = cvLinkOnly(txt).length > 0;
+    const probe = linkOnly ? state.ytProbe : null;
+    // Link YouTube: độ dài nguồn là số chữ PHỤ ĐỀ đã thăm dò, không phải số chữ của đường link.
+    const have = linkOnly ? ((probe && probe.status === 'ok') ? probe.words : 0) : cvWords(txt);
     // Nguyên văn: độ dài là của chính bài dán → ô "Độ dài video" không có tác dụng, ẩn đi.
-    const verbatim = renderVideoScript(have);
+    const verbatim = renderVideoScript(have, linkOnly);
     const lenWrap = $('cx-v-length-wrap');
     if (lenWrap) lenWrap.classList.toggle('hidden', verbatim);
-    if (verbatim) { $('cx-v-minutes-wrap').classList.add('hidden'); return; }
+    const est = $('cx-v-estimate');
+    if (verbatim) {
+      $('cx-v-minutes-wrap').classList.add('hidden');
+      if (est) est.textContent = '';
+      return;
+    }
     const name = $('cx-v-preset').value;
     const p = (name && state.presets) ? state.presets[name] : null;
     const lenKey = (p && p.wizVideoLength) || '';
@@ -1210,7 +1248,7 @@ const CODEX = (() => {
     const fit = Math.max(CV_WORDS_MIN, Math.min(CV_WORDS_MAX, have));
     const want = sel.value || lsGet(CV_LENGTH_KEY) || 'content';
     sel.innerHTML =
-      `<option value="content">${esc(have ? t('codex.cv_len_mode_content', { min: fmtMin(fit) })
+      `<option value="content">${esc(have ? t(linkOnly ? 'codex.cv_len_mode_source' : 'codex.cv_len_mode_content', { min: fmtMin(fit) })
                                           : t('codex.cv_len_mode_content_empty'))}</option>` +
       `<option value="template">${esc(t('codex.cv_len_mode_template', { len: tplLabel, min: fmtMin(tplWords) }))}</option>` +
       `<option value="minutes">${esc(t('codex.cv_len_mode_minutes'))}</option>`;
@@ -1235,25 +1273,42 @@ const CODEX = (() => {
     const hint = $('cx-v-length-hint');
     hint.textContent = msg;
     hint.classList.toggle('warn', warn);
+    // Thời lượng đọc DỰ ĐOÁN của kịch bản sẽ viết — pipeline đưa đúng con số này vào prompt (±10 %).
+    const target = mode === 'content' ? fit
+      : (mode === 'template' ? tplWords : clampMinutes($('cx-v-minutes').value) * CV_WPM);
+    if (est) {
+      est.textContent = (mode !== 'content' || have)
+        ? t('codex.cv_len_estimate', { words: target.toLocaleString(), min: fmtMin(target) }) : '';
+    }
   }
 
   /** Ô "Kịch bản": AI viết lại (mặc định) / đọc NGUYÊN VĂN bài dán. Tập 337 (13/9/2026)
    *  mất 13 % câu và thêm 16 % câu tự bịa dù đã dặn giữ đủ — ai dán bài hoàn chỉnh thì
    *  muốn video đọc đúng bài ấy. Trả true khi đang chọn nguyên văn. */
-  function renderVideoScript(have) {
+  function renderVideoScript(have, linkOnly) {
     const sel = $('cx-v-script');
     if (!sel) return false;
     const want = sel.value || lsGet(CV_SCRIPT_KEY) || 'rewrite';
     sel.innerHTML =
       `<option value="rewrite">${esc(t('codex.cv_script_rewrite'))}</option>` +
-      `<option value="verbatim">${esc(t('codex.cv_script_verbatim'))}</option>`;
-    sel.value = want === 'verbatim' ? 'verbatim' : 'rewrite';
+      `<option value="verbatim">${esc(t('codex.cv_script_verbatim'))}</option>` +
+      `<option value="reference">${esc(t('codex.cv_script_reference'))}</option>`;
+    sel.value = ['rewrite', 'verbatim', 'reference'].includes(want) ? want : 'rewrite';
+    const mode = sel.value;
     const hint = $('cx-v-script-hint');
     if (hint) {
-      hint.textContent = sel.value === 'verbatim'
-        ? t('codex.cv_script_hint_verbatim', { min: fmtMin(have || 0) }) : '';
+      // Viết lại một video YouTube = xào lại câu chuyện/ẩn dụ của người khác (thử 15/9/2026) → nhắc chọn tham khảo.
+      hint.textContent = mode === 'verbatim' ? t('codex.cv_script_hint_verbatim', { min: fmtMin(have || 0) })
+        : mode === 'reference' ? t('codex.cv_script_hint_reference')
+          : (linkOnly ? t('codex.cv_script_hint_rewrite_link') : '');
+      if (hint.classList) hint.classList.toggle('warn', mode === 'rewrite' && !!linkOnly);
     }
-    return sel.value === 'verbatim';
+    const keep = $('cx-v-keeptheme-wrap');
+    if (keep) keep.classList.toggle('hidden', mode !== 'reference');
+    // Nguyên văn không có lượt viết để dặn → ẩn ô lời dặn.
+    const instr = $('cx-v-instructions-wrap');
+    if (instr) instr.classList.toggle('hidden', mode === 'verbatim');
+    return mode === 'verbatim';
   }
 
   function onVideoScript() {
@@ -1267,16 +1322,70 @@ const CODEX = (() => {
     renderVideoLength();
   }
 
+  let _ytProbeTimer = null;
+
   function onVideoContent() {
     const txt = ($('cx-v-content').value || '').trim();
+    const ids = cvLinkOnly(txt);
+    if (ids.length) scheduleYoutubeProbe(ids);
+    else { state.ytProbe = null; clearTimeout(_ytProbeTimer); }
+    renderVideoCount();
+    renderVideoLength();
+  }
+
+  /** Dòng dưới ô nội dung: số chữ của bài dán — hay, khi chỉ có link YouTube, tên video và số chữ phụ đề
+   *  đã thăm dò (15/9/2026: link từng bị đếm "1 words · 43 characters" rồi thành kịch bản 120 chữ bịa). */
+  function renderVideoCount() {
+    const txt = ($('cx-v-content').value || '').trim();
+    const box = $('cx-v-count');
+    const p = cvLinkOnly(txt).length ? state.ytProbe : null;
+    if (p) {
+      box.textContent = p.status === 'loading' ? t('codex.cv_yt_loading')
+        : p.status === 'ok'
+          ? t('codex.cv_yt_ok', { title: p.title || '?', words: (p.words || 0).toLocaleString(), min: fmtMin(p.words || 0) })
+          : t('codex.cv_yt_error', { msg: p.message || '?' });
+      box.classList.toggle('warn', p.status === 'error');
+      return;
+    }
     const chars = txt.length;
     const words = cvWords(txt);
-    const box = $('cx-v-count');
     box.textContent = chars
       ? t('codex.cv_count', { words: words.toLocaleString(), chars: chars.toLocaleString() })
       : '';
     box.classList.toggle('warn', chars > CV_MAX_CHARS);
-    renderVideoLength();
+  }
+
+  /** Thăm dò link YouTube (tên video, số chữ phụ đề) khi người dùng ngừng gõ 0,5 giây. Máy chủ nhớ kết
+   *  quả 1 giờ nên lượt chạy ngay sau đó không tải lại. Máy chủ cũ không có route → hiện lỗi, không chặn gửi. */
+  function scheduleYoutubeProbe(ids) {
+    const key = ids.join(',');
+    if (state.ytProbe && state.ytProbe.key === key) return;
+    clearTimeout(_ytProbeTimer);
+    state.ytProbe = { key: key, status: 'loading' };
+    _ytProbeTimer = setTimeout(async () => {
+      let next;
+      try {
+        const data = await request('/api/v1/content-video/youtube-probe?url=' +
+          encodeURIComponent('https://youtu.be/' + ids[0]));
+        next = data && data.ok
+          ? { key: key, status: 'ok', words: data.words || 0, title: data.title || '', channel: data.channel || '' }
+          : { key: key, status: 'error', message: (data && data.message) || '?' };
+      } catch (e) {
+        next = { key: key, status: 'error', message: (e && e.message) || String(e) };
+      }
+      if (!state.ytProbe || state.ytProbe.key !== key) return;   // nội dung đã đổi trong lúc chờ
+      state.ytProbe = next;
+      renderVideoCount();
+      renderVideoLength();
+    }, 500);
+  }
+
+  function onVideoKeepTheme() {
+    lsSet(CV_KEEP_THEME_KEY, $('cx-v-keeptheme').checked ? '1' : '0');
+  }
+
+  function onVideoInstructions() {
+    lsSet(CV_INSTR_KEY, ($('cx-v-instructions').value || '').slice(0, CV_INSTR_MAX));
   }
 
   /** Nút "Đưa vào hàng đợi": như "Tạo video", nhưng task chờ tới lượt trong hàng đợi. */
@@ -1320,6 +1429,10 @@ const CODEX = (() => {
     if (lengthMode === 'minutes') options.target_words = clampMinutes($('cx-v-minutes').value) * CV_WPM;
     const scriptMode = ($('cx-v-script') && $('cx-v-script').value) || 'rewrite';
     options.script_mode = scriptMode;
+    if (scriptMode === 'reference') options.keep_theme = !!$('cx-v-keeptheme').checked;
+    // Lời dặn đi RIÊNG (options.instructions): gõ vào ô nội dung thì pipeline coi là dữ liệu ngoài.
+    const instructions = ($('cx-v-instructions').value || '').trim().slice(0, CV_INSTR_MAX);
+    if (instructions && scriptMode !== 'verbatim') options.instructions = instructions;
     if (scriptMode === 'verbatim') {
       // Nguyên văn: độ dài là của chính bài dán; ô "Độ dài video" đang ẩn, không gửi.
       options.length_mode = 'content';
@@ -1455,6 +1568,6 @@ const CODEX = (() => {
     init, refresh, toggle, collapse, togglePlan, setFilter, onSearch, setAuto, setAutoApprove,
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
-    openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, planFromModal, closeModal, onBackdrop,
+    openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
   };
 })();

@@ -36,11 +36,11 @@ console.log('── js ───────────────────
 check('nhớ lựa chọn trong localStorage', js.includes("const CV_SCRIPT_KEY = 'codex.cvScript';") && js.includes('lsSet(CV_SCRIPT_KEY,'));
 check('gửi script_mode; nguyên văn ép length_mode=content và bỏ target_words',
     js.includes('options.script_mode = scriptMode;') && /if \(scriptMode === 'verbatim'\) \{[\s\S]*?options\.length_mode = 'content';[\s\S]*?delete options\.target_words;/.test(js));
-check('xuất onVideoScript', /onVideoLength, onVideoScript, planFromModal,/.test(js));
+check('xuất onVideoScript', /onVideoLength, onVideoScript,/.test(js));
 check('renderVideoLength ẩn ô Độ dài khi nguyên văn', js.includes("lenWrap.classList.toggle('hidden', verbatim)"));
 
 // ── chạy thật renderVideoScript với DOM giả ──
-const a = js.indexOf('  function renderVideoScript(have) {');
+const a = js.indexOf('  function renderVideoScript(have, linkOnly) {');
 const b = js.indexOf('  function onVideoLength() {');
 check('cắt được renderVideoScript/onVideoScript', a > 0 && b > a, { a, b });
 const store = {};

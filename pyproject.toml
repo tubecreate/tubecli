@@ -53,6 +53,8 @@ dependencies = [
     # python-docx / openpyxl: read_file trích text docx/xlsx cho Media node + AI.
     "python-docx",
     "openpyxl",
+    # Codex «Tạo video từ nội dung»: dán link YouTube → đọc phụ đề làm nguồn (core/youtube_transcript.py).
+    "yt-dlp",
 ]
 
 [project.scripts]

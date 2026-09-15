@@ -178,7 +178,7 @@
             <label for="cx-v-content" data-i18n="codex.field_video_content">Video content</label>
             <textarea id="cx-v-content" rows="5" oninput="CODEX.onVideoContent()"
                       data-i18n-placeholder="codex.field_video_content_placeholder"
-                      placeholder="Paste the article, notes or outline the video should tell…"></textarea>
+                      placeholder="Paste the article, notes or outline the video should tell — or a YouTube link to work from its subtitles…"></textarea>
             <div class="cx-field-meta" id="cx-v-count" aria-live="polite"></div>
           </div>
 
@@ -210,6 +210,25 @@
               <input type="number" id="cx-v-minutes" min="1" max="26" step="1" value="10"
                      oninput="CODEX.onVideoLength()">
             </div>
+          </div>
+          <!-- Thời lượng đọc DỰ ĐOÁN của kịch bản sẽ viết — con số đi thẳng vào prompt làm ràng buộc ±10 %. -->
+          <div class="cx-field-meta cx-len-hint" id="cx-v-estimate" aria-live="polite"></div>
+
+          <!-- «Tham khảo cấu trúc»: giữ chủ đề / truyền thống / tên tuổi mà nguồn dựa vào. -->
+          <label class="cx-check hidden" id="cx-v-keeptheme-wrap">
+            <input type="checkbox" id="cx-v-keeptheme" checked onchange="CODEX.onVideoKeepTheme()">
+            <span>
+              <strong data-i18n="codex.field_video_keep_theme">Keep the source's theme and references</strong>
+              <em data-i18n="codex.field_video_keep_theme_hint">The new script may name the tradition, thinkers, books and concepts the source is built on. Untick to keep only the universal ideas.</em>
+            </span>
+          </label>
+
+          <!-- Lời dặn RIÊNG cho AI: gõ vào ô nội dung thì bị coi là dữ liệu ngoài và không được làm theo. -->
+          <div class="cx-field" id="cx-v-instructions-wrap">
+            <label for="cx-v-instructions" data-i18n="codex.field_video_instructions">Extra instructions for the AI (optional)</label>
+            <textarea id="cx-v-instructions" rows="2" maxlength="2000" oninput="CODEX.onVideoInstructions()"
+                      data-i18n-placeholder="codex.field_video_instructions_placeholder"
+                      placeholder="e.g. warm tone, speak to the viewer as «tú», end with a question to the audience…"></textarea>
           </div>
 
           <label class="cx-check">

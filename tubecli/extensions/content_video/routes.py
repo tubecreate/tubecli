@@ -71,6 +71,19 @@ async def plan_route(req: PlanRequest, request: Request):
     return {"steps": plan(req.options), "text": describe_plan(req.options)}
 
 
+@router.get("/youtube-probe")
+async def youtube_probe(request: Request, url: str = ""):
+    """Form Codex vừa dán link YouTube: tên video, số chữ phụ đề, số phút đọc — không trả văn bản.
+    Kết quả được nhớ 1 giờ nên lượt chạy ngay sau đó không tải lại (15/9/2026)."""
+    _deny_guests(request)
+    from tubecli.core import youtube_transcript as yt
+
+    if not yt.youtube_ids(url):
+        return {"ok": False, "message": "Not a YouTube link."}
+    res = await asyncio.to_thread(yt.fetch_transcript, url)
+    return yt.public_info(res)
+
+
 _URL_RE = re.compile(r"https?://\S+")
 
 
