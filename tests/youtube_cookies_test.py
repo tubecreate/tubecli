@@ -169,6 +169,70 @@ s = YC.settings()
 ok(s == {"auto": False, "profile": "zeta_live", "pasted": True, "browser": "firefox"}, "đọc đúng cài đặt đã lưu", s)
 VD._settings_cache = None
 
+print("── F. mở ẩn hồ sơ đang tắt để làm mới cookie ───────────────")
+
+
+class FakePM:
+    def __init__(self, spawn_result=None, exit_status=None):
+        self.spawned, self.terminated = [], []
+        self.spawn_result, self.exit_status = spawn_result, exit_status
+
+    def spawn(self, **kw):
+        self.spawned.append(kw)
+        return self.spawn_result or {"instance_id": "browser-1", "status": "running"}
+
+    def get_status(self, iid):
+        return {"status": self.exit_status or "running"}
+
+    def terminate(self, iid):
+        self.terminated.append(iid)
+        return True
+
+
+fpm = FakePM()
+YC._pmgr = lambda: fpm
+YC._launch_block = lambda name: ""
+polls = {"n": 0}
+
+
+def live_on_third_poll(name):
+    polls["n"] += 1
+    return polls["n"] >= 3
+
+
+YC._is_live = live_on_third_poll
+LIVE_COOKIES["alpha_closed"] = (COOKIES, None)
+said, slept = [], []
+att, why = YC.refresh_attempt("alpha_closed", progress=said.append, sleep=slept.append)
+ok(att and att.get("refreshed") and os.path.isfile(att["cookiefile"]) and att["count"] == 2 and not why, "mở ẩn → phiên sống → xuất cookie mới", (att, why))
+kw = fpm.spawned[0] if fpm.spawned else {}
+ok(kw.get("profile") == "alpha_closed" and kw.get("headless") is True and kw.get("url") == "https://www.youtube.com/"
+   and kw.get("manual") is True and kw.get("max_duration") == YC.REFRESH_MAX_RUN, "spawn ẩn, vào youtube.com, có trần thời gian", kw)
+ok(fpm.terminated == ["browser-1"] and YC.REFRESH_SETTLE in slept, "chờ trang YouTube chạy xong rồi LUÔN đóng hồ sơ", (fpm.terminated, slept))
+ok(any("opening browser profile alpha_closed in the background" in m for m in said), "câu tiến trình", said)
+YC.remove_file(att and att["cookiefile"])
+
+YC._launch_block = lambda name: "the profile is already opening or in use"
+fpm = FakePM()
+ok(YC.refresh_attempt("alpha_closed", sleep=lambda s: None) == (None, "the profile is already opening or in use") and not fpm.spawned,
+   "hồ sơ đang bận / bị chặn mở → lý do, không spawn")
+YC._launch_block = lambda name: ""
+fpm = FakePM(spawn_result={"instance_id": "browser-2", "status": "error", "error": "Node.js not found"})
+att, why = YC.refresh_attempt("alpha_closed", sleep=lambda s: None)
+ok(att is None and "Node.js not found" in why and fpm.terminated == [], "spawn lỗi → lý do", why)
+fpm = FakePM(exit_status="stopped")
+att, why = YC.refresh_attempt("alpha_closed", sleep=lambda s: None)
+ok(att is None and "closed before it was ready" in why and fpm.terminated == ["browser-1"], "browser thoát sớm → lý do, vẫn dọn", why)
+fpm = FakePM()
+YC._is_live = lambda name: False
+YC.REFRESH_WAIT = 0.05
+att, why = YC.refresh_attempt("alpha_closed", sleep=lambda s: time.sleep(0.01))
+ok(att is None and "did not become ready" in why and fpm.terminated == ["browser-1"], "không sống kịp → lý do, vẫn đóng hồ sơ", why)
+ok(YC._REFRESH_LOCK.acquire(blocking=False), "khoá được nhả sau mỗi lượt")
+YC._REFRESH_LOCK.release()
+hint = YC.blocked_hint({"auto": True, "profile": ""}, {"live": [], "closed": ["a"]}, [], ["a (the browser did not become ready within 45 s)"])
+ok("Opening a (the browser did not become ready within 45 s) in the background did not work" in hint and "Open a browser profile" in hint, "câu chỉ đường kể lượt mở ẩn hỏng", hint)
+
 shutil.rmtree(TMP, ignore_errors=True)
 print()
 print(f"{PASS}/{PASS + FAIL} PASS" if not FAIL else f"{PASS}/{PASS + FAIL} PASS — {FAIL} HỎNG")

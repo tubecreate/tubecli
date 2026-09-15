@@ -20,6 +20,8 @@ import os
 import socket
 import sqlite3
 import tempfile
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -261,9 +263,87 @@ def export_attempt(name: str) -> Tuple[Optional[Dict[str, Any]], str]:
     return {"profile": name, "cookiefile": path, "proxy": proxy, "count": kept}, ""
 
 
+# ── mở ẨN hồ sơ đang tắt để Google làm mới cookie ───────────────────────────
+# User 15/9/2026: "hiện báo lỗi nhưng không có cách giải quyết ngay" — lượt Codex dừng ở "Open a browser profile
+# that is logged into YouTube: testkenh, tung1". Cookie trong kho của hồ sơ đang tắt đã bị Google xoay (dùng thẳng
+# bị từ chối), nhưng khi Chromium mở hồ sơ và vào youtube.com, trang tự gọi xoay cookie → phiên có cookie mới.
+
+REFRESH_URL = "https://www.youtube.com/"
+REFRESH_WAIT = 45        # giây chờ phiên Chromium sống
+REFRESH_SETTLE = 8       # giây cho trang YouTube chạy xong việc xoay cookie
+REFRESH_MAX_RUN = 150    # trần sống của phiên mở ẩn (monitor của process_manager tự giết)
+_REFRESH_LOCK = threading.Lock()
+
+
+def _pmgr():
+    from tubecli.extensions.browser.process_manager import browser_process_manager
+    return browser_process_manager
+
+
+def _launch_block(name: str) -> str:
+    """Lý do không mở được hồ sơ này lúc này ("" = mở được) — cùng lời từ chối với /launch."""
+    try:
+        from tubecli.extensions.browser.routes import _is_launching, is_profile_running, launch_refusal
+    except Exception as e:      # noqa: BLE001
+        return f"the browser extension is unavailable ({e})"
+    ref = launch_refusal(name)
+    if ref:
+        return str(ref.get("message") or ref.get("code") or "the profile cannot launch on this system")
+    if _is_launching(name) or is_profile_running(name):
+        return "the profile is already opening or in use"
+    return ""
+
+
+def refresh_attempt(name: str, progress=None, sleep=time.sleep) -> Tuple[Optional[Dict[str, Any]], str]:
+    """Mở ẨN hồ sơ đang tắt ở youtube.com, chờ phiên sẵn sàng, xuất cookie (như export_attempt), rồi LUÔN đóng hồ sơ.
+
+    Mỗi lúc chỉ một hồ sơ (RAM: một phiên Chromium ~450–800 MB). Người gọi PHẢI remove_file(att["cookiefile"])."""
+    say = progress or (lambda msg: None)
+    if not _REFRESH_LOCK.acquire(timeout=REFRESH_MAX_RUN):
+        return None, "another browser profile is being refreshed"
+    inst_id = ""
+    try:
+        why = _launch_block(name)
+        if why:
+            return None, why
+        say(f"opening browser profile {name} in the background to refresh its YouTube cookies")
+        try:
+            res = _pmgr().spawn(profile=name, url=REFRESH_URL, headless=True, manual=True, max_duration=REFRESH_MAX_RUN)
+        except Exception as e:      # noqa: BLE001
+            return None, f"could not open it ({e})"
+        if not isinstance(res, dict) or res.get("status") == "error":
+            return None, f"could not open it ({(res or {}).get('error') or 'launch failed'})"
+        inst_id = str(res.get("instance_id") or "")
+        deadline = time.time() + REFRESH_WAIT
+        ready = False
+        while time.time() < deadline:
+            cur = _pmgr().get_status(inst_id) if inst_id else None
+            if cur and cur.get("status") not in ("running", "starting"):
+                return None, f"the browser closed before it was ready ({cur.get('status')})"
+            if _is_live(name):
+                ready = True
+                break
+            sleep(1.5)
+        if not ready:
+            return None, f"the browser did not become ready within {REFRESH_WAIT} s"
+        sleep(REFRESH_SETTLE)
+        att, why = export_attempt(name)
+        if att:
+            att["refreshed"] = True
+        return att, why
+    finally:
+        if inst_id:
+            try:
+                _pmgr().terminate(inst_id)
+            except Exception as e:      # noqa: BLE001
+                logger.warning("could not close the refreshed profile %s: %s", name, e)
+        _REFRESH_LOCK.release()
+
+
 # ── câu chỉ đường khi vẫn bị chặn ───────────────────────────────────────────
 
-def blocked_hint(st: Dict[str, Any], pl: Optional[Dict[str, List[str]]], tried: List[str]) -> str:
+def blocked_hint(st: Dict[str, Any], pl: Optional[Dict[str, List[str]]], tried: List[str],
+                 opened: Optional[List[str]] = None) -> str:
     """Việc người dùng làm tiếp, theo đúng tình huống (không lời khuyên chung chung)."""
     if not st.get("auto"):
         return ("Turn on «Auto cookies from TubeCLI browser profiles» or paste YouTube cookies in "
@@ -282,7 +362,8 @@ def blocked_hint(st: Dict[str, Any], pl: Optional[Dict[str, List[str]]], tried: 
     if pl["closed"]:
         more = len(pl["closed"]) - 5
         shown = ", ".join(pl["closed"][:5]) + (f" and {more} more" if more > 0 else "")
-        return (f"Open a browser profile that is logged into YouTube, then try again: {shown}. Cookies of a closed "
-                "profile are stale, so they are not used. Or paste cookies in Video Downloader → Settings.")
+        tried_open = f" Opening {'; '.join(opened)} in the background did not work." if opened else ""
+        return (f"Open a browser profile that is logged into YouTube, then try again: {shown}.{tried_open} "
+                "Or paste cookies in Video Downloader → Settings.")
     return ("No browser profile is logged into YouTube — log into YouTube in a browser profile and keep it open, "
             "or paste cookies in Video Downloader → Settings.")

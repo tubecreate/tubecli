@@ -54,7 +54,7 @@ dependencies = [
     "python-docx",
     "openpyxl",
     # Codex «Tạo video từ nội dung»: dán link YouTube → đọc phụ đề làm nguồn (core/youtube_transcript.py).
-    "yt-dlp",
+    "yt-dlp[default]",
 ]
 
 [project.scripts]

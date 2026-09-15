@@ -51,6 +51,16 @@ YC.plan = lambda preferred="": {k: list(v) for k, v in COOKIE_STATE["plan"].item
 YC.export_attempt = lambda name: (None, "not used in this group")
 YC.remove_file = lambda path: None
 Y._cookie_file = lambda: None
+YC.refresh_attempt = lambda name, progress=None: (None, "not used in this group")
+ENSURE = {"result": {"ok": True, "action": "none", "version": "2026.08.19"}, "calls": []}
+
+
+def fake_ensure(progress=None, force=False):
+    ENSURE["calls"].append(force)
+    return dict(ENSURE["result"])
+
+
+Y._ensure_ytdlp = fake_ensure
 
 print("── A. nhận diện link ───────────────────────────────────────")
 ok(Y.youtube_ids("https://www.youtube.com/watch?v=4Br45kOed_s") == ["4Br45kOed_s"], "watch?v=")
@@ -162,9 +172,23 @@ def fake_export(name):
             "proxy": "http://u:p@h:1" if name == "proxied" else None, "count": 9}, ""
 
 
-def run_case(settings, plan, outcomes, pasted=None):
+refreshes, REFRESH_OK = [], {}
+
+
+def fake_refresh(name, progress=None):
+    refreshes.append(name)
+    if progress:
+        progress(f"opening browser profile {name} in the background to refresh its YouTube cookies")
+    if REFRESH_OK.get(name):
+        return {"profile": name, "cookiefile": f"cookies-{name}-refresh.txt", "proxy": None, "count": 7, "refreshed": True}, ""
+    return None, "the browser did not become ready within 45 s"
+
+
+def run_case(settings, plan, outcomes, pasted=None, refresh_ok=None):
     Y._CACHE.clear()
-    attempts.clear(), exports.clear(), removed.clear()
+    attempts.clear(), exports.clear(), removed.clear(), refreshes.clear()
+    REFRESH_OK.clear()
+    REFRESH_OK.update(refresh_ok or {})
     COOKIE_STATE["settings"] = {"auto": True, "profile": "", "pasted": False, "browser": "", **settings}
     COOKIE_STATE["plan"] = {"live": [], "closed": [], **plan}
     Y._cookie_file = lambda: pasted
@@ -174,6 +198,7 @@ def run_case(settings, plan, outcomes, pasted=None):
 
 YC.export_attempt = fake_export
 YC.remove_file = lambda path: removed.append(path)
+YC.refresh_attempt = fake_refresh
 Y._http_get = fake_get
 
 r = run_case({}, {"live": ["p1"]}, {"none": "ok"})
@@ -193,13 +218,90 @@ ok(r["ok"] and r["cookie_source"] == "browser:firefox" and not exports, "tuỳ c
 r = run_case({"auto": False}, {"live": ["p1"]}, {})
 ok(not r["ok"] and "Turn on «Auto cookies" in r["message"] and "Video Downloader" in r["message"] and not exports, "tắt + không nguồn nào → chỉ chỗ bật", r["message"])
 r = run_case({}, {"closed": ["alpha", "beta"]}, {})
-ok(not r["ok"] and "Open a browser profile" in r["message"] and "alpha, beta" in r["message"] and not exports, "chỉ có hồ sơ đang tắt → bảo mở hồ sơ nào, không dùng cookie cũ", r["message"])
+ok(not r["ok"] and refreshes == ["alpha"] and "Open a browser profile" in r["message"] and "alpha, beta" in r["message"]
+   and "Opening alpha (the browser did not become ready within 45 s) in the background did not work" in r["message"] and not exports,
+   "chỉ có hồ sơ đang tắt → mở ẩn hồ sơ đầu tiên; không được thì bảo mở hồ sơ nào", (refreshes, r["message"]))
+r = run_case({}, {"closed": ["alpha", "beta"]}, {"cookies-alpha-refresh.txt": "ok"}, refresh_ok={"alpha": True})
+ok(r["ok"] and r["cookie_source"] == "profile:alpha" and refreshes == ["alpha"] and removed == ["cookies-alpha-refresh.txt"],
+   "mở ẩn hồ sơ đang tắt → cookie mới → tải được; file tạm bị xoá", (refreshes, removed, r.get("message")))
+r = run_case({}, {"live": ["p1"], "closed": ["alpha"]}, {"cookies-alpha-refresh.txt": "ok"}, refresh_ok={"alpha": True})
+ok(r["ok"] and exports == ["p1"] and refreshes == ["alpha"] and r["cookie_source"] == "profile:alpha",
+   "hồ sơ đang mở bị từ chối → mới mở ẩn hồ sơ đang tắt", (exports, refreshes))
+got = []
+Y._CACHE.clear()
+refreshes.clear()
+r = Y.fetch_transcript("https://youtu.be/4Br45kOed_s", progress=got.append)
+ok(r["ok"] and any("opening browser profile alpha" in m for m in got), "câu tiến trình (mở ẩn hồ sơ) đi tới người gọi", got)
 r = run_case({}, {"live": ["unreadable"]}, {})
 ok(not r["ok"] and "Could not read YouTube cookies from the open browser profile(s) unreadable" in r["message"] and removed == [], "hồ sơ đang mở mà không đọc được cookie → nói đúng thế", r["message"])
 r = run_case({}, {"live": ["p1"]}, {"none": "ERROR: [youtube] 4Br45kOed_s: Private video. Sign in if you've been granted access"})
 ok(not r["ok"] and "private" in r["message"] and not exports and len(attempts) == 1, "lỗi không phải chặn (video riêng tư) → không thử cookie", (attempts, r["message"]))
 r = run_case({}, {}, {"none": "ERROR: [youtube] 4Br45kOed_s: Sign in to confirm your age. This video may be inappropriate"})
 ok(not r["ok"] and r["message"].startswith("The video is age-restricted.") and "No browser profile is logged into YouTube" in r["message"], "giới hạn tuổi cũng là chặn, câu mở đầu đúng", r["message"])
+
+print("── F. yt-dlp thiếu / cũ ───────────────────────────────────")
+ENSURE["result"] = {"ok": False, "action": "install_failed", "message": "Could not install yt-dlp: the server's Python has no pip"}
+r = run_case({}, {}, {"none": "ok"})
+ok(not r["ok"] and "Could not install yt-dlp" in r["message"] and not attempts, "cài yt-dlp hỏng → nói lý do, không gọi yt-dlp", r)
+seq = []
+
+
+def outdated_then_ok(url, timeout, cookiefile=None, proxy=None, browser=""):
+    seq.append(cookiefile)
+    if len(seq) == 1:
+        raise RuntimeError("ERROR: [youtube] 4Br45kOed_s: Unable to extract yt initial data; please report this issue on "
+                           "https://github.com/yt-dlp/yt-dlp/issues . Confirm you are on the latest version using yt-dlp -U")
+    return fake_extract(url, timeout)
+
+
+def ensure_updates(progress=None, force=False):
+    ENSURE["calls"].append(force)
+    return {"ok": True, "action": "updated" if force else "none", "version": "2026.09.01"}
+
+
+Y._ensure_ytdlp = ensure_updates
+ENSURE["calls"].clear()
+Y._CACHE.clear()
+Y._ydl_extract = outdated_then_ok
+r = Y.fetch_transcript("https://youtu.be/4Br45kOed_s")
+ok(r["ok"] and len(seq) == 2 and ENSURE["calls"] == [False, True], "lỗi kiểu yt-dlp cũ → cập nhật ngay rồi thử lại một lần", (seq, ENSURE["calls"]))
+
+print("── G. _ydl_extract gửi JS runtime + cookie + proxy ─────────")
+import importlib  # noqa: E402
+import types  # noqa: E402
+Y2 = importlib.reload(Y)
+seen = {}
+
+
+class _FakeYDL:
+    def __init__(self, opts):
+        seen.update(opts)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def extract_info(self, url, download=False):
+        return {"title": "x"}
+
+
+from tubecli.core import ytdlp_manager as _YM  # noqa: E402
+real_mod = sys.modules.get("yt_dlp")
+real_opts = _YM.js_runtime_opts
+sys.modules["yt_dlp"] = types.SimpleNamespace(YoutubeDL=_FakeYDL)
+_YM.js_runtime_opts = lambda: {"js_runtimes": {"node": {"path": "N"}}}
+try:
+    Y2._ydl_extract("https://youtu.be/4Br45kOed_s", 30, cookiefile="c.txt", proxy="http://p:1")
+finally:
+    _YM.js_runtime_opts = real_opts
+    if real_mod is not None:
+        sys.modules["yt_dlp"] = real_mod
+    else:
+        sys.modules.pop("yt_dlp", None)
+ok(seen.get("js_runtimes") == {"node": {"path": "N"}} and seen.get("cookiefile") == "c.txt" and seen.get("proxy") == "http://p:1",
+   "_ydl_extract: JS runtime + cookie + proxy tới yt-dlp", seen)
 
 pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
 ok('"yt-dlp' in pyproject, "pyproject.toml có yt-dlp (máy cập nhật tự cài)")

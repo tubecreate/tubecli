@@ -1407,7 +1407,7 @@ def _gather_youtube(state: Dict, options: Dict, ids: List[str]) -> None:
         if cancelled():
             raise _cancel_exc()
         say("gather", "running", f"reading YouTube subtitles · {vid}")
-        res = yt.fetch_transcript(vid, prefer_lang=lang)
+        res = yt.fetch_transcript(vid, prefer_lang=lang, progress=lambda m: say("gather", "running", m))
         if not res.get("ok"):
             failed.append(f"{vid}: {res.get('message') or 'unknown error'}")
             continue

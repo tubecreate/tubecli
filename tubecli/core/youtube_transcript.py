@@ -192,6 +192,8 @@ def _ydl_extract(url: str, timeout: int, cookiefile: Optional[str] = None, proxy
     import yt_dlp  # noqa: F401 — ImportError được người gọi đổi thành câu chỉ đường
     opts = {"skip_download": True, "quiet": True, "no_warnings": True, "noplaylist": True,
             "socket_timeout": max(5, min(int(timeout), 30)), "logger": _YdlLogger()}
+    # Cookie tài khoản → YouTube đòi giải thử thách JS: thiếu runtime là "The page needs to be reloaded" (đo 15/9/2026).
+    opts.update(_ytdlp().js_runtime_opts())
     # Cookie chỉ gắn khi người gọi đưa — tức là lượt thử SAU khi YouTube đòi đăng nhập (_extract_with_cookies).
     if cookiefile:
         opts["cookiefile"] = cookiefile
@@ -224,12 +226,27 @@ def _explain(msg: str) -> str:
     return re.sub(r"^ERROR:\s*", "", first)[:240]
 
 
+def _ytdlp():
+    from tubecli.core import ytdlp_manager
+    return ytdlp_manager
+
+
+def _ensure_ytdlp(progress=None, force: bool = False) -> Dict[str, Any]:
+    """Thiếu yt-dlp thì cài, cũ thì cập nhật (core/ytdlp_manager.py). Lỗi bất ngờ của bước này không chặn lượt tải."""
+    try:
+        return _ytdlp().ensure(force_check=force, progress=progress)
+    except Exception as e:      # noqa: BLE001
+        logger.warning("yt-dlp check failed: %s", e)
+        return {"ok": True, "action": "none", "message": str(e)}
+
+
 def _short(err) -> str:
     first = str(err or "").strip().splitlines()[0] if str(err or "").strip() else "unknown error"
     return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([A-Za-z0-9_-]{11}:\s*)?", "", first)[:160]
 
 
-def _extract_with_cookies(url: str, vid: str, timeout: int) -> Tuple[Optional[Dict[str, Any]], str, str]:
+def _extract_with_cookies(url: str, vid: str, timeout: int,
+                          progress=None) -> Tuple[Optional[Dict[str, Any]], str, str]:
     """(info, lỗi, nguồn cookie). KHÔNG cookie trước; chỉ khi YouTube đòi đăng nhập mới thử cookie, lần lượt:
     cookie dán tay ở Video Downloader → hồ sơ browser TubeCLI ĐANG MỞ (tuỳ chọn tự động, core/youtube_cookies.py)
     → trình duyệt cài trên máy. Nguồn nào hỏng thì sang nguồn sau: thử thật 15/9/2026, cookie cũ của hồ sơ đang
@@ -243,6 +260,17 @@ def _extract_with_cookies(url: str, vid: str, timeout: int) -> Tuple[Optional[Di
     except Exception as e:      # noqa: BLE001
         first = str(e)
     logger.warning("youtube extract %s: %s", vid, _short(first))
+    if _ytdlp().looks_outdated(first):
+        # YouTube đổi trang → yt-dlp cũ "Unable to extract … latest version": cập nhật NGAY rồi thử lại một lần.
+        ens = _ensure_ytdlp(progress, force=True)
+        if ens.get("action") == "updated":
+            try:
+                return _ydl_extract(url, timeout), "", ""
+            except ImportError:
+                raise
+            except Exception as e:      # noqa: BLE001
+                first = str(e)
+                logger.warning("youtube extract after updating yt-dlp %s: %s", vid, _short(first))
     if not yc.is_blocked(first):
         return None, _explain(first), ""
     st = yc.settings()
@@ -255,12 +283,29 @@ def _extract_with_cookies(url: str, vid: str, timeout: int) -> Tuple[Optional[Di
             raise
         except Exception as e:      # noqa: BLE001
             notes.append(f"pasted cookies: {_short(e)}")
-    pl, tried = None, []
+    pl, tried, opened = None, [], []
     if st.get("auto"):
         pl = yc.plan(st.get("profile") or "")
         for name in pl["live"][:yc.MAX_PROFILES]:
             att, why = yc.export_attempt(name)
             if not att:
+                notes.append(f"{name}: {why}")
+                continue
+            tried.append(name)
+            try:
+                return (_ydl_extract(url, timeout, cookiefile=att["cookiefile"], proxy=att.get("proxy")), "",
+                        f"profile:{name}")
+            except ImportError:
+                raise
+            except Exception as e:      # noqa: BLE001
+                notes.append(f"{name}: {_short(e)}")
+            finally:
+                yc.remove_file(att["cookiefile"])
+        # Không hồ sơ đang mở nào dùng được → mở ẨN hồ sơ đang tắt đầu tiên cho Google làm mới cookie (một hồ sơ: RAM).
+        for name in pl["closed"][:1]:
+            att, why = yc.refresh_attempt(name, progress=progress)
+            if not att:
+                opened.append(f"{name} ({why})")
                 notes.append(f"{name}: {why}")
                 continue
             tried.append(name)
@@ -285,10 +330,11 @@ def _extract_with_cookies(url: str, vid: str, timeout: int) -> Tuple[Optional[Di
     low = first.lower()
     base = ("The video is age-restricted." if "age" in low and ("restrict" in low or "confirm your age" in low)
             else "YouTube asked this server to sign in (it treats the server's IP as a bot).")
-    return None, f"{base} {yc.blocked_hint(st, pl, tried)} You can also paste the video's text instead.", ""
+    return None, f"{base} {yc.blocked_hint(st, pl, tried, opened)} You can also paste the video's text instead.", ""
 
 
-def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cache: bool = True) -> Dict[str, Any]:
+def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cache: bool = True,
+                     progress=None) -> Dict[str, Any]:
     """Phụ đề của MỘT video: {"ok", "id", "url", "title", "channel", "duration", "language", "kind",
     "text", "words", "minutes", "message"}. Không bao giờ ném — ok=False kèm câu người đọc được."""
     ref = str(ref or "").strip()
@@ -307,8 +353,11 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
     def fail(message: str) -> Dict[str, Any]:
         return {"ok": False, "id": vid, "url": url, "message": message}
 
+    ens = _ensure_ytdlp(progress)
+    if not ens.get("ok"):
+        return fail(str(ens.get("message") or "yt-dlp is not installed on this server"))
     try:
-        info, err, cookie_source = _extract_with_cookies(url, vid, timeout)
+        info, err, cookie_source = _extract_with_cookies(url, vid, timeout, progress)
     except ImportError:
         return fail("yt-dlp is not installed on this server — update TubeCLI (it installs yt-dlp) "
                     "or run: pip install yt-dlp")

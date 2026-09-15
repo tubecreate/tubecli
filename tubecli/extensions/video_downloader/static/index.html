@@ -352,7 +352,7 @@ h1 span.icon { font-size:1.8rem; }
                 <option value="">Tự chọn hồ sơ đang mở đã đăng nhập YouTube</option>
             </select>
             <div class="cookie-status" id="profile-cookie-status"></div>
-            <div class="hint">Chỉ dùng khi bị chặn và chỉ lấy từ hồ sơ ĐANG MỞ: cookie của hồ sơ đang tắt đã bị Google đổi, dùng vào còn làm hỏng lượt tải. Cookie không lưu lại, xoá ngay sau lượt tải; hồ sơ có proxy thì tải qua đúng proxy đó. Áp dụng cho Codex đọc phụ đề và tải video YouTube. Nên dùng tài khoản Google phụ.</div>
+            <div class="hint">Chỉ dùng khi bị chặn. Ưu tiên hồ sơ ĐANG MỞ; không có thì tự mở ẨN một hồ sơ đang tắt, vào youtube.com cho Google làm mới cookie rồi đóng lại (cookie cũ trong hồ sơ đang tắt dùng thẳng sẽ bị YouTube từ chối). Cookie không lưu lại, xoá ngay sau lượt tải; hồ sơ có proxy thì tải qua đúng proxy đó. Áp dụng cho Codex đọc phụ đề và tải video YouTube. Nên dùng tài khoản Google phụ.</div>
         </div>
 
         <div class="settings-group">
@@ -367,6 +367,15 @@ h1 span.icon { font-size:1.8rem; }
                 <option value="safari">Safari</option>
             </select>
             <div class="hint">yt-dlp đọc cookie của Chrome/Firefox… cài trên máy chủ này (ưu tiên hơn cookie thủ công). Chrome/Edge bản mới trên Windows thường không đọc được — khi đó dùng ô «Tự động lấy cookie từ browser TubeCLI» ở trên.</div>
+        </div>
+
+        <div class="settings-group">
+            <label>🔄 Tự cập nhật yt-dlp</label>
+            <label style="display:flex;gap:8px;align-items:flex-start;text-transform:none;letter-spacing:0;font-weight:400;font-size:0.85rem;color:var(--text);cursor:pointer;">
+                <input type="checkbox" id="set-ytdlp-auto" checked style="margin-top:3px;">
+                <span>Trước khi tải phụ đề YouTube hay tải video: thiếu yt-dlp thì cài, có bản mới thì cập nhật</span>
+            </label>
+            <div class="hint">YouTube đổi trang thường xuyên và yt-dlp cũ sẽ báo "Unable to extract". Hỏi PyPI tối đa 6 giờ một lần; lỗi kiểu bản cũ thì cập nhật ngay rồi thử lại. Không cần khởi động lại TubeCLI.</div>
         </div>
 
         <div class="settings-group">
@@ -408,25 +417,52 @@ function switchTab(tab) {
     if (tab === 'settings') loadSettings();
 }
 
-// Status check
+// Status check — yt-dlp CỦA máy chủ; thiếu thì có nút cài ngay (15/9/2026: trước chỉ có huy hiệu đỏ, không cách gỡ).
 async function checkStatus() {
     const bar = document.getElementById('status-bar');
+    const small = 'style="padding:3px 10px;font-size:0.72rem;border-radius:20px;"';
     try {
         const r = await fetch(API_BASE + '/status');
         const d = await r.json();
-        if (d.installed) {
-            bar.innerHTML = `<div class="status-bar-inner">
-                <span class="status-badge status-ok">✅ yt-dlp v${d.version}</span>
-                ${d.ffmpeg_available ? '<span class="status-badge status-ok">✅ FFmpeg</span>' : '<span class="status-badge status-warn">⚠️ FFmpeg not found</span>'}
-                <span id="update-badge"><span class="status-badge status-update" onclick="checkUpdate()" title="Check for yt-dlp updates">🔍 Check Update</span></span>
-            </div>`;
-            // Update check only runs when user clicks the button
-        } else {
-            bar.innerHTML = `<span class="status-badge status-err">❌ yt-dlp not installed</span>`;
-        }
+        const ytdlp = d.installed
+            ? `<span class="status-badge status-ok">✅ yt-dlp v${esc(d.version || '')}</span>`
+            : `<span class="status-badge status-err">❌ yt-dlp not installed</span>
+               <button class="btn btn-primary" id="btn-install" ${small} onclick="installDeps()">⬇️ Install yt-dlp</button>`;
+        const ffmpeg = d.ffmpeg_available
+            ? '<span class="status-badge status-ok">✅ FFmpeg</span>'
+            : `<span class="status-badge status-warn">⚠️ FFmpeg not found</span>` +
+              (d.installed ? `<button class="btn btn-primary" id="btn-install-ff" ${small} onclick="installDeps()">⬇️ Install FFmpeg</button>` : '');
+        const update = d.installed
+            ? `<span id="update-badge"><span class="status-badge status-update" onclick="checkUpdate()" title="Check for yt-dlp updates">🔍 Check Update</span></span>`
+            : '';
+        const auto = d.installed && d.auto_update
+            ? '<span class="status-badge status-ok" title="Before YouTube subtitles or a download, yt-dlp is checked and updated automatically (PyPI is asked at most every 6 hours)">🔄 Auto-update on</span>'
+            : '';
+        const lastErr = d.last_error
+            ? `<span class="status-badge status-warn" title="${esc(d.last_error)}">⚠️ Last yt-dlp install/update failed</span>`
+            : '';
+        bar.innerHTML = `<div class="status-bar-inner">${ytdlp}${ffmpeg}${update}${auto}${lastErr}<span id="install-msg" class="status-badge status-err" style="display:none"></span></div>`;
     } catch(e) {
         bar.innerHTML = `<span class="status-badge status-err">❌ API offline</span>`;
     }
+}
+
+// Cài yt-dlp / FFmpeg vào Python của máy chủ — dùng được ngay, không restart.
+async function installDeps() {
+    const buttons = document.querySelectorAll('#btn-install, #btn-install-ff');
+    buttons.forEach(b => { b.disabled = true; b.textContent = '⏳ Installing…'; });
+    let problem = '';
+    try {
+        const r = await fetch(API_BASE + '/install', { method: 'POST' });
+        const d = await r.json();
+        if (d.status === 'success') { checkStatus(); return; }
+        problem = d.message || 'Install failed';
+    } catch (e) {
+        problem = e.message;
+    }
+    const msg = document.getElementById('install-msg');
+    if (msg) { msg.style.display = ''; msg.textContent = '❌ ' + problem; }
+    buttons.forEach(b => { b.disabled = false; b.textContent = '⬇️ Retry install'; });
 }
 
 // Check for yt-dlp updates
@@ -740,6 +776,7 @@ async function loadSettings() {
             document.getElementById('set-browser').value = s.cookies_from_browser || '';
             document.getElementById('set-proxy').value = s.proxy || '';
             document.getElementById('set-auto-browser').checked = s.cookie_auto_browser !== false;
+            document.getElementById('set-ytdlp-auto').checked = s.ytdlp_auto_update !== false;
             loadCookieProfiles(s.cookie_profile || '');
             // Clear text areas (don't show masked cookies)
             document.getElementById('set-cookie-youtube').value = '';
@@ -791,6 +828,7 @@ async function saveSettings() {
     body.proxy = proxy;
     body.cookie_auto_browser = document.getElementById('set-auto-browser').checked;
     body.cookie_profile = document.getElementById('set-cookie-profile').value;
+    body.ytdlp_auto_update = document.getElementById('set-ytdlp-auto').checked;
 
     try {
         const r = await fetch(API_BASE + '/settings', {

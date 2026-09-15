@@ -93,7 +93,7 @@ print("── B. _step_gather ────────────────�
 fetched = []
 
 
-def fake_fetch(ref, prefer_lang="", timeout=60, use_cache=True):
+def fake_fetch(ref, prefer_lang="", timeout=60, use_cache=True, progress=None):
     fetched.append((ref, prefer_lang))
     if ref == "badbadbad01":
         return {"ok": False, "id": ref, "message": "This video has no subtitles"}

@@ -97,6 +97,7 @@ def _get_settings():
             # YouTube đòi đăng nhập → lấy cookie từ hồ sơ browser TubeCLI ĐANG MỞ (core/youtube_cookies.py).
             "cookie_auto_browser": True,
             "cookie_profile": "",        # "" = tự chọn hồ sơ đang mở đã đăng nhập YouTube
+            "ytdlp_auto_update": True,   # trước khi tải phụ đề/video: yt-dlp cũ thì tự cập nhật (core/ytdlp_manager.py)
             "proxy": "",
         }
         if os.path.exists(path):
@@ -190,21 +191,18 @@ def _get_cookie_file(url: str) -> str:
 
 
 def _ensure_deps():
-    """Install yt-dlp and ffmpeg if not present."""
-    deps_to_install = []
-    if shutil.which("yt-dlp") is None:
-        deps_to_install.append("yt-dlp")
-    try:
-        import imageio_ffmpeg
-    except ImportError:
-        deps_to_install.append("imageio-ffmpeg")
-        
-    if deps_to_install:
-        logger.info(f"Installing missing downloader deps: {deps_to_install}")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", *deps_to_install],
-            capture_output=True, timeout=120,
-        )
+    """yt-dlp: thiếu thì cài, cũ thì tự cập nhật (core/ytdlp_manager.py) — kiểm bằng THƯ VIỆN Python của máy chủ.
+
+    Bản cũ dò `which yt-dlp`: dịch vụ systemd không có .venv/bin trong PATH, nên máy chủ CÓ yt-dlp vẫn báo
+    "not installed" và pip chạy lại (tới 120 s) mỗi lần bấm Info/Tải (15/9/2026). Đang có lượt tải chạy thì chỉ
+    cài khi thiếu — nâng cấp giữa chừng làm lượt tải đang nạp extractor hỏng."""
+    from tubecli.core import ytdlp_manager as ym
+
+    busy = any((t or {}).get("status") == "downloading" for t in DOWNLOAD_TASKS.values())
+    res = ym.ensure(update=False if busy else None)
+    if not _get_ffmpeg_path():
+        ym.pip_install(["imageio-ffmpeg"])
+    return res
 
 
 def _sanitize_filename(name: str) -> str:
@@ -264,145 +262,97 @@ def _ytdlp_can_merge(ff_path):
 
 
 def _get_ytdlp_cmd():
-    """Return yt-dlp command, falling back to 'python -m yt_dlp' if not in PATH."""
-    # First try direct command
-    if shutil.which("yt-dlp"):
-        return ["yt-dlp"]
-    # Fallback: run as Python module (works even if not in PATH after pip install)
+    """Lệnh yt-dlp CỦA máy chủ: `python -m yt_dlp` (khớp thư viện đang dùng, không khoá yt-dlp.exe khi pip nâng
+    cấp), rồi mới tới yt-dlp trên PATH. None = chưa cài."""
+    from tubecli.core import ytdlp_manager as ym
+
+    return ym.cli_command()
+
+
+def _reload_ytdlp(old):
+    """Module yt_dlp sau khi cập nhật (ytdlp_manager đã xoá bản cũ khỏi sys.modules)."""
+    import importlib
+
     try:
-        import yt_dlp  # noqa
-        return [sys.executable, "-m", "yt_dlp"]
-    except ImportError:
-        pass
-    # Last resort: Scripts/yt-dlp.exe (Windows)
-    scripts_path = os.path.join(os.path.dirname(sys.executable), "Scripts", "yt-dlp.exe")
-    if os.path.exists(scripts_path):
-        return [scripts_path]
-    return None
+        return importlib.import_module("yt_dlp")
+    except Exception:      # noqa: BLE001
+        return old
 
 # ── Routes ──
 
 @router.get("/status")
 async def ytdl_status():
-    """Check if yt-dlp and ffmpeg are installed and return versions."""
-    try:
-        ydl_res = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=10)
-        ff_path = _get_ffmpeg_path()
-        return {
-            "status": "success",
-            "installed": ydl_res.returncode == 0,
-            "version": ydl_res.stdout.strip() if ydl_res.returncode == 0 else None,
-            "ffmpeg_available": ff_path is not None
-        }
-    except Exception:
-        return {"status": "success", "installed": False, "version": None, "ffmpeg_available": False}
+    """yt-dlp của máy chủ (thư viện Python, không phải lệnh trên PATH), FFmpeg, tuỳ chọn tự cập nhật."""
+    from tubecli.core import ytdlp_manager as ym
+
+    s = await asyncio.to_thread(ym.status)
+    ff_path = await asyncio.to_thread(_get_ffmpeg_path)
+    return {
+        "status": "success",
+        "installed": bool(s.get("installed")),
+        "version": s.get("version") or None,
+        "ffmpeg_available": ff_path is not None,
+        "auto_update": bool(s.get("auto_update")),
+        "latest_version": s.get("latest") or None,
+        "last_error": s.get("last_error") or None,
+    }
+
+
+@router.post("/install")
+async def ytdl_install():
+    """Nút «Install yt-dlp» / «Install FFmpeg»: cài thứ còn thiếu vào Python của máy chủ — dùng được ngay, không restart."""
+    from tubecli.core import ytdlp_manager as ym
+
+    res = await asyncio.to_thread(ym.ensure, False)
+    ff_note = ""
+    if not await asyncio.to_thread(_get_ffmpeg_path):
+        ok, tail = await asyncio.to_thread(ym.pip_install, ["imageio-ffmpeg"])
+        ff_note = "" if ok else f"FFmpeg: {tail}"
+    ff_path = await asyncio.to_thread(_get_ffmpeg_path)
+    ready = bool(res.get("ok")) and ff_path is not None
+    problems = [m for m in ((res.get("message") if not res.get("ok") else ""), ff_note) if m]
+    if ff_path is None and not ff_note:
+        problems.append("FFmpeg is still not available")
+    return {
+        "status": "success" if ready else "error",
+        "installed": bool(res.get("ok")),
+        "version": res.get("version") or None,
+        "ffmpeg_available": ff_path is not None,
+        "message": "; ".join(problems) if problems else (res.get("message") or "yt-dlp is ready"),
+    }
 
 
 @router.get("/check-update")
 async def ytdl_check_update():
-    """Check if a newer version of yt-dlp is available."""
-    import concurrent.futures
+    """Bản yt-dlp mới nhất trên PyPI so với bản của máy chủ."""
+    from tubecli.core import ytdlp_manager as ym
 
-    def _check():
-        current_version = None
-        latest_version = None
-
-        # Get installed version
-        try:
-            res = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=10)
-            if res.returncode == 0:
-                current_version = res.stdout.strip()
-        except Exception:
-            pass
-
-        # Method 1: pip index versions (fast, local, no network needed for cached)
-        try:
-            res = subprocess.run(
-                [sys.executable, "-m", "pip", "index", "versions", "yt-dlp"],
-                capture_output=True, text=True, timeout=15
-            )
-            if res.returncode == 0 and res.stdout:
-                # Output: "yt-dlp (2026.03.25)\n  Available versions: 2026.03.25, ..."
-                import re
-                m = re.search(r'yt-dlp\s*\(([^)]+)\)', res.stdout)
-                if m:
-                    latest_version = m.group(1).strip()
-        except Exception:
-            pass
-
-        # Method 2: GitHub API (if pip index failed)
-        if not latest_version:
-            try:
-                import urllib.request, json as _json
-                req = urllib.request.Request(
-                    "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest",
-                    headers={"User-Agent": "TubeCLI/1.0"}
-                )
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    data = _json.loads(resp.read().decode())
-                    tag = data.get("tag_name", "")
-                    latest_version = tag.strip()
-            except Exception as e:
-                logger.warning(f"GitHub API check failed: {e}")
-
-        # Method 3: PyPI fallback
-        if not latest_version:
-            try:
-                import urllib.request, json as _json
-                req = urllib.request.Request(
-                    "https://pypi.org/pypi/yt-dlp/json",
-                    headers={"User-Agent": "TubeCLI/1.0"}
-                )
-                with urllib.request.urlopen(req, timeout=8) as resp:
-                    data = _json.loads(resp.read().decode())
-                    latest_version = data.get("info", {}).get("version")
-            except Exception as e:
-                logger.warning(f"PyPI check failed: {e}")
-
-        has_update = False
-        if current_version and latest_version:
-            has_update = current_version.strip() != latest_version.strip()
-
-        return {
-            "status": "success",
-            "current_version": current_version,
-            "latest_version": latest_version,
-            "has_update": has_update,
-        }
-
-    # Run in thread to avoid blocking async loop
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        result = await loop.run_in_executor(pool, _check)
-    return result
+    cur = await asyncio.to_thread(ym.installed_version)
+    latest = await asyncio.to_thread(ym.latest_version)
+    return {
+        "status": "success",
+        "current_version": cur or None,
+        "latest_version": latest or None,
+        "has_update": bool(cur and latest and ym.is_newer(latest, cur)),
+    }
 
 
 @router.post("/update")
 async def ytdl_update():
-    """Update yt-dlp to the latest version via pip."""
-    try:
-        res = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--upgrade", "yt-dlp"],
-            capture_output=True, text=True, timeout=120
-        )
-        if res.returncode == 0:
-            # Get new version after upgrade
-            ver_res = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=10)
-            new_version = ver_res.stdout.strip() if ver_res.returncode == 0 else "unknown"
-            return {
-                "status": "success",
-                "message": f"yt-dlp updated to {new_version}",
-                "new_version": new_version,
-                "pip_output": res.stdout.strip()[-500:] if res.stdout else ""
-            }
-        else:
-            return {
-                "status": "error",
-                "message": f"pip upgrade failed (exit code {res.returncode})",
-                "pip_output": (res.stderr or res.stdout or "")[:500]
-            }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    """Nút «Update»: dò bản mới NGAY và nâng cấp (cài nếu thiếu) — dùng được ngay, không restart."""
+    from tubecli.core import ytdlp_manager as ym
+
+    before = await asyncio.to_thread(ym.installed_version)
+    res = await asyncio.to_thread(ym.ensure, None, True)
+    if not res.get("ok") or res.get("action") in ("update_failed", "install_failed"):
+        return {"status": "error", "message": res.get("message") or "update failed",
+                "new_version": res.get("version") or None}
+    return {
+        "status": "success",
+        "message": res.get("message") or f"yt-dlp {res.get('version')} is the latest",
+        "new_version": res.get("version") or None,
+        "previous_version": before or None,
+    }
 
 
 @router.post("/info")
@@ -410,7 +360,9 @@ async def get_video_info(req: VideoInfoRequest):
     """Get video metadata without downloading."""
     await asyncio.to_thread(_ensure_deps)
 
-    cmd = ["yt-dlp", "--dump-json", "--no-download"]
+    from tubecli.core import ytdlp_manager as _ym
+
+    cmd = (_get_ytdlp_cmd() or ["yt-dlp"]) + _ym.cli_js_args() + ["--dump-json", "--no-download"]
     if req.proxy:
         cmd.extend(["--proxy", req.proxy])
     cmd.append(req.url)
@@ -448,45 +400,74 @@ async def get_video_info(req: VideoInfoRequest):
 
 
 def _download_with_browser_cookies(yt_dlp, ydl_opts, url, task=None):
-    """Tải bằng yt-dlp; YouTube đòi đăng nhập thì thử lại bằng cookie của hồ sơ browser TubeCLI ĐANG MỞ (tuỳ chọn
-    «tự động lấy cookie từ browser» ở Settings, 15/9/2026). Lỗi khác, link không phải YouTube hay tuỳ chọn tắt →
-    ném nguyên lỗi như trước. File cookie tạm xoá ngay sau mỗi lượt thử."""
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    """Tải bằng yt-dlp, gỡ hai kiểu hỏng hay gặp của YouTube (15/9/2026):
+      * yt-dlp cũ ("Unable to extract … latest version") → cập nhật NGAY rồi tải lại một lần;
+      * YouTube đòi đăng nhập → cookie của hồ sơ browser TubeCLI ĐANG MỞ, không có thì mở ẨN một hồ sơ đang tắt cho
+        Google làm mới cookie (tuỳ chọn «tự động lấy cookie từ browser» ở Settings).
+    Lỗi khác, link không phải YouTube hay tuỳ chọn tắt → ném nguyên lỗi như trước. File cookie tạm xoá sau mỗi lượt."""
+    def run(mod, opts):
+        with mod.YoutubeDL(opts) as ydl:
             ydl.download([url])
+
+    try:
+        run(yt_dlp, ydl_opts)
         return
     except Exception as e:      # noqa: BLE001
         first = e
     from tubecli.core import youtube_cookies as yc
+    from tubecli.core import ytdlp_manager as ym
 
+    if ym.looks_outdated(str(first)):
+        ens = ym.ensure(force_check=True)
+        if ens.get("action") == "updated":
+            yt_dlp = _reload_ytdlp(yt_dlp)
+            if task is not None:
+                task["ytdlp_updated"] = ens.get("version")
+            try:
+                run(yt_dlp, ydl_opts)
+                return
+            except Exception as e:      # noqa: BLE001
+                first = e
     if not yc.is_blocked(str(first)) or not re.search(r"(youtube\.com|youtu\.be)/", str(url or "")):
         raise first
     st = yc.settings()
     if not st.get("auto"):
         raise first
     pl = yc.plan(st.get("profile") or "")
-    tried = []
+    tried, opened = [], []
+
+    def with_cookies(name, att):
+        opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
+        opts["cookiefile"] = att["cookiefile"]
+        if att.get("proxy") and not opts.get("proxy"):
+            opts["proxy"] = att["proxy"]
+        tried.append(name)
+        try:
+            run(yt_dlp, opts)
+            if task is not None:
+                task["cookie_source"] = f"profile:{name}"
+            return True
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ytdl] YouTube refused the cookies of {name}: {str(e)[:200]}")
+            return False
+        finally:
+            yc.remove_file(att["cookiefile"])
+
     for name in pl["live"][:yc.MAX_PROFILES]:
         att, why = yc.export_attempt(name)
         if not att:
             logger.info(f"[ytdl] cookie profile {name}: {why}")
             continue
-        tried.append(name)
-        opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
-        opts["cookiefile"] = att["cookiefile"]
-        if att.get("proxy") and not opts.get("proxy"):
-            opts["proxy"] = att["proxy"]
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.download([url])
-            if task is not None:
-                task["cookie_source"] = f"profile:{name}"
+        if with_cookies(name, att):
             return
-        except Exception as e:      # noqa: BLE001
-            logger.info(f"[ytdl] YouTube refused the cookies of {name}: {str(e)[:200]}")
-        finally:
-            yc.remove_file(att["cookiefile"])
-    raise RuntimeError(f"{first} — {yc.blocked_hint(st, pl, tried)}")
+    for name in pl["closed"][:1]:
+        att, why = yc.refresh_attempt(name)
+        if not att:
+            opened.append(f"{name} ({why})")
+            continue
+        if with_cookies(name, att):
+            return
+    raise RuntimeError(f"{first} — {yc.blocked_hint(st, pl, tried, opened)}")
 
 
 DOWNLOAD_TASKS = {}
@@ -621,6 +602,9 @@ async def download_video_async(req: VideoDownloadRequest, bg_tasks: BackgroundTa
                     DOWNLOAD_TASKS[task_id]['progress'] = 100
                     
             ydl_opts['progress_hooks'] = [progress_hook]
+            # yt-dlp cần JS runtime để giải thử thách YouTube, nhất là khi có cookie tài khoản (15/9/2026).
+            from tubecli.core import ytdlp_manager as _ym
+            ydl_opts.update(_ym.js_runtime_opts())
 
             _download_with_browser_cookies(yt_dlp, ydl_opts, req.url, DOWNLOAD_TASKS[task_id])
                 
@@ -687,6 +671,8 @@ async def search_videos(req: VideoSearchRequest):
         }
         if req.proxy:
             ydl_opts["proxy"] = req.proxy
+        from tubecli.core import ytdlp_manager as _ym
+        ydl_opts.update(_ym.js_runtime_opts())
 
         def do_search():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -788,6 +774,7 @@ async def ytdl_get_settings():
             "cookies_from_browser": s.get("cookies_from_browser", ""),
             "cookie_auto_browser": s.get("cookie_auto_browser", True) is not False,
             "cookie_profile": s.get("cookie_profile", ""),
+            "ytdlp_auto_update": s.get("ytdlp_auto_update", True) is not False,
             "proxy": s.get("proxy", ""),
         }
     }
@@ -800,6 +787,7 @@ class YtdlSettingsUpdate(BaseModel):
     cookies_from_browser: Optional[str] = None
     cookie_auto_browser: Optional[bool] = None
     cookie_profile: Optional[str] = None
+    ytdlp_auto_update: Optional[bool] = None
     proxy: Optional[str] = None
 
 
