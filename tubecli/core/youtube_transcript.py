@@ -257,12 +257,14 @@ def _challenge_hint(log: List[str]) -> str:
         if not ym.ejs_available():
             missing.append("the YouTube challenge solver (yt-dlp-ejs)")
         if not ym.js_runtimes():
-            missing.append("a JavaScript runtime (node or deno)")
+            notes = ym.js_runtime_notes()
+            missing.append("a JavaScript runtime yt-dlp accepts"
+                           + (f" ({'; '.join(notes)})" if notes else " (deno 2.3+, node 22+ or bun 1.2.11+)"))
     except Exception:      # noqa: BLE001
         pass
     if missing:
         return (f"yt-dlp could not solve YouTube's JavaScript challenge: this server is missing {' and '.join(missing)} "
-                "— open Video Downloader and press «Check Update» (it installs the solver).")
+                "— open Video Downloader and press «Install deno» or «Check Update» (it installs what is missing).")
     return "yt-dlp could not solve YouTube's JavaScript challenge — update yt-dlp in Video Downloader."
 
 

@@ -293,6 +293,9 @@ async def ytdl_status():
         "version": s.get("version") or None,
         "ffmpeg_available": ff_path is not None,
         "auto_update": bool(s.get("auto_update")),
+        "challenge_solver": bool(s.get("challenge_solver", True)),
+        "js_runtimes": list(s.get("js_runtimes") or []),
+        "js_runtime_notes": list(s.get("js_runtime_notes") or []),
         "latest_version": s.get("latest") or None,
         "last_error": s.get("last_error") or None,
     }
@@ -303,16 +306,21 @@ async def ytdl_install():
     """Nút «Install yt-dlp» / «Install FFmpeg»: cài thứ còn thiếu vào Python của máy chủ — dùng được ngay, không restart."""
     from tubecli.core import ytdlp_manager as ym
 
+    await asyncio.to_thread(ym.clear_install_failures)
     res = await asyncio.to_thread(ym.ensure, False)
     ff_note = ""
     if not await asyncio.to_thread(_get_ffmpeg_path):
         ok, tail = await asyncio.to_thread(ym.pip_install, ["imageio-ffmpeg"])
         ff_note = "" if ok else f"FFmpeg: {tail}"
     ff_path = await asyncio.to_thread(_get_ffmpeg_path)
-    ready = bool(res.get("ok")) and ff_path is not None
+    runtimes = await asyncio.to_thread(ym.js_runtimes) if res.get("ok") else {}
+    ready = bool(res.get("ok")) and ff_path is not None and bool(runtimes)
     problems = [m for m in ((res.get("message") if not res.get("ok") else ""), ff_note) if m]
     if ff_path is None and not ff_note:
         problems.append("FFmpeg is still not available")
+    if res.get("ok") and not runtimes:
+        notes = await asyncio.to_thread(ym.js_runtime_notes)
+        problems.append("no JavaScript runtime yt-dlp accepts" + (f" ({'; '.join(notes)})" if notes else ""))
     return {
         "status": "success" if ready else "error",
         "installed": bool(res.get("ok")),

@@ -113,15 +113,79 @@ def ejs_available() -> bool:
         return False
 
 
-def js_runtimes() -> Dict[str, Dict[str, str]]:
-    """JS runtime cho yt-dlp giải thử thách YouTube: deno (mặc định của yt-dlp) nếu có, node (TubeCLI luôn cần node
-    cho browser), bun. Rỗng = để yt-dlp tự lo."""
-    out: Dict[str, Dict[str, str]] = {}
+# Bản tối thiểu yt-dlp chấp nhận (yt_dlp/utils/_jsruntime.py). Máy chủ tungho2 15/9/2026: có node (TubeCLI mở được
+# browser) mà yt-dlp vẫn "No supported JavaScript runtime could be found" — install.sh chỉ bảo đảm node 20 cho
+# Playwright, yt-dlp cần node 22+. deno cài qua pip (`yt-dlp[deno]`) nằm trong .venv, KHÔNG có trên PATH của systemd
+# → phải đưa đường dẫn cho yt-dlp.
+_RT_MIN = {"deno": (2, 3, 0), "node": (22, 0, 0), "bun": (1, 2, 11)}
+_RT_VERSION_CACHE: Dict[Tuple[str, float], str] = {}
+
+
+def _runtime_version(path: str) -> str:
+    """Bản của một file chạy JS ("" khi không chạy được); nhớ theo (đường dẫn, mtime)."""
+    try:
+        key = (path, os.path.getmtime(path))
+    except OSError:
+        return ""
+    if key in _RT_VERSION_CACHE:
+        return _RT_VERSION_CACHE[key]
+    kw: Dict[str, Any] = {}
+    if os.name == "nt":
+        kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=15, **kw)
+        out = f"{r.stdout or ''}\n{r.stderr or ''}"
+    except Exception:      # noqa: BLE001
+        out = ""
+    m = re.search(r"(\d+\.\d+(?:\.\d+)?)", out)
+    ver = m.group(1) if m else ""
+    _RT_VERSION_CACHE[key] = ver
+    return ver
+
+
+def _pip_deno_bin() -> Optional[str]:
+    """deno của gói pip `deno` (extra `yt-dlp[deno]`) — nằm trong .venv, không phụ thuộc PATH."""
+    try:
+        import deno  # type: ignore
+        path = str(deno.find_deno_bin() or "")
+        return path if path and os.path.isfile(path) else None
+    except Exception:      # noqa: BLE001
+        return None
+
+
+def js_runtime_candidates() -> List[Dict[str, Any]]:
+    """[{"name", "path", "version", "supported"}]: deno của pip trước, rồi deno / node / bun trên PATH."""
+    out: List[Dict[str, Any]] = []
+    seen = set()
+
+    def add(name: str, path: Optional[str]) -> None:
+        if not path or path in seen:
+            return
+        seen.add(path)
+        ver = _runtime_version(path)
+        out.append({"name": name, "path": path, "version": ver,
+                    "supported": bool(ver) and _vtuple(ver) >= _RT_MIN[name]})
+
+    add("deno", _pip_deno_bin())
     for name in ("deno", "node", "bun"):
-        path = shutil.which(name)
-        if path:
-            out[name] = {"path": path}
+        add(name, shutil.which(name))
     return out
+
+
+def js_runtimes() -> Dict[str, Dict[str, str]]:
+    """Runtime yt-dlp CHẤP NHẬN, kèm đường dẫn: {"deno": {"path": …}, …}. Rỗng = không có cái nào đủ mới."""
+    out: Dict[str, Dict[str, str]] = {}
+    for c in js_runtime_candidates():
+        if c["supported"] and c["name"] not in out:
+            out[c["name"]] = {"path": c["path"]}
+    return out
+
+
+def js_runtime_notes() -> List[str]:
+    """Runtime có mà quá cũ — nói đúng tên, bản đang có và bản cần."""
+    return [f"{c['name']} {c['version'] or '(version unknown)'} is too old for yt-dlp "
+            f"(needs {'.'.join(str(x) for x in _RT_MIN[c['name']])}+)"
+            for c in js_runtime_candidates() if not c["supported"]]
 
 
 def js_runtime_opts() -> Dict[str, Any]:
@@ -131,7 +195,8 @@ def js_runtime_opts() -> Dict[str, Any]:
 
 
 def cli_js_args() -> List[str]:
-    return [arg for name in js_runtimes() for arg in ("--js-runtimes", name)]
+    """--js-runtimes NAME:PATH — yt-dlp tách ở dấu ':' ĐẦU TIÊN nên đường dẫn Windows có ổ đĩa vẫn đúng."""
+    return [arg for name, cfg in js_runtimes().items() for arg in ("--js-runtimes", f"{name}:{cfg['path']}")]
 
 
 def auto_update_enabled() -> bool:
@@ -182,6 +247,7 @@ def status() -> Dict[str, Any]:
     ver = installed_version() if module_available() else ""
     return {"installed": bool(ver), "version": ver, "cli": cli_command(), "auto_update": auto_update_enabled(),
             "challenge_solver": ejs_available(), "js_runtimes": sorted(js_runtimes()),
+            "js_runtime_notes": js_runtime_notes(),
             "latest": str(st.get("latest") or ""), "checked_at": float(st.get("checked_at") or 0),
             "last_error": str(st.get("last_error") or "")}
 
@@ -221,6 +287,13 @@ def _reload_module() -> None:
     importlib.invalidate_caches()
 
 
+def clear_install_failures() -> None:
+    """Nút «Install» bấm tay: quên các lần cài hỏng gần đây để ensure() thử lại NGAY thay vì đợi hết cửa sổ 6 giờ."""
+    st = _load_state()
+    st.update(ejs_failed_at=0, failed_at=0, failed_version="")
+    _save_state(st)
+
+
 # ── đảm bảo có yt-dlp dùng được ─────────────────────────────────────────────
 
 def ensure(update: Optional[bool] = None, force_check: bool = False,
@@ -246,20 +319,26 @@ def ensure(update: Optional[bool] = None, force_check: bool = False,
             _save_state(st)
             return {"ok": True, "version": cur, "action": "installed", "message": f"Installed yt-dlp {cur}",
                     "latest": cur}
-        if not ejs_available():
-            # Bản cài cũ chỉ có "yt-dlp", thiếu bộ giải thử thách JS: cài kèm, GIỮ đúng bản yt-dlp đang có.
+        need_ejs = not ejs_available()
+        need_rt = not js_runtimes()
+        if need_ejs or need_rt:
+            # Thiếu bộ giải thử thách JS và/hoặc runtime yt-dlp chấp nhận (node < 22, không có deno): cài kèm qua pip
+            # (`yt-dlp[deno]` = deno nằm trong .venv), GIỮ đúng bản yt-dlp đang có.
             st = _load_state()
             now = time.time()
             if force_check or now - float(st.get("ejs_failed_at") or 0) >= CHECK_EVERY:
-                say("installing yt-dlp-ejs (YouTube JavaScript challenge solver)")
-                ok, tail = pip_install([f"{PACKAGE_SPEC}=={cur}"])
+                what = " and ".join(p for p, need in (("yt-dlp-ejs (YouTube JavaScript challenge solver)", need_ejs),
+                                                      ("deno (JavaScript runtime yt-dlp accepts)", need_rt)) if need)
+                say(f"installing {what}")
+                extras = "default,deno" if need_rt else "default"
+                ok, tail = pip_install([f"{PACKAGE}[{extras}]=={cur}"])
                 _reload_module()
                 st = _load_state()
-                if ejs_available():
+                if ejs_available() and js_runtimes():
                     st.update(ejs_failed_at=0)
                 else:
                     st.update(ejs_failed_at=now,
-                              last_error=f"Could not install yt-dlp-ejs: {tail or 'the module is still missing'}")
+                              last_error=f"Could not install {what}: {tail or 'still missing after pip'}")
                 _save_state(st)
         if update is None:
             update = auto_update_enabled()

@@ -266,6 +266,15 @@ ok(not r["ok"] and stored == ["alpha", "beta"] and refreshes == ["alpha"] and "A
    and "saved cookies of alpha: The page needs to be reloaded" in r["message"] and "opening alpha in the background:" in r["message"]
    and "missing the YouTube challenge solver (yt-dlp-ejs)" in r["message"],
    "hết cách → câu lỗi kể TỪNG lượt thử, lỗi thật của yt-dlp, và thiếu bộ giải JS", r["message"])
+_ej, _rt, _nt = _YMe.ejs_available, _YMe.js_runtimes, _YMe.js_runtime_notes
+_YMe.ejs_available, _YMe.js_runtimes = (lambda: True), (lambda: {})
+_YMe.js_runtime_notes = lambda: ["node 20.19.0 is too old for yt-dlp (needs 22.0.0+)"]
+try:
+    r = run_case({}, {"closed": ["alpha"]}, {"saved-alpha.txt": RELOAD}, stored_ok={"alpha": True})
+finally:
+    _YMe.ejs_available, _YMe.js_runtimes, _YMe.js_runtime_notes = _ej, _rt, _nt
+ok(not r["ok"] and "missing a JavaScript runtime yt-dlp accepts (node 20.19.0 is too old for yt-dlp (needs 22.0.0+))" in r["message"]
+   and "Install deno" in r["message"], "node quá cũ (VPS tungho2) → câu lỗi nói đúng bản node, bản cần và nút cài", r["message"])
 got = []
 Y._CACHE.clear()
 stored.clear()

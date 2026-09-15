@@ -441,7 +441,17 @@ async function checkStatus() {
         const lastErr = d.last_error
             ? `<span class="status-badge status-warn" title="${esc(d.last_error)}">⚠️ Last yt-dlp install/update failed</span>`
             : '';
-        bar.innerHTML = `<div class="status-bar-inner">${ytdlp}${ffmpeg}${update}${auto}${lastErr}<span id="install-msg" class="status-badge status-err" style="display:none"></span></div>`;
+        // YouTube cần bộ giải thử thách JS + runtime yt-dlp CHẤP NHẬN (deno 2.3+ / node 22+): thiếu thì dùng cookie cũng
+        // "The page needs to be reloaded" (máy chủ tungho2 15/9/2026 có node 20).
+        const jsMissing = d.installed && (d.challenge_solver === false || (Array.isArray(d.js_runtimes) && !d.js_runtimes.length));
+        const jsTitle = (d.js_runtime_notes || []).join('; ') || 'yt-dlp needs deno 2.3+, node 22+ or bun 1.2.11+ plus yt-dlp-ejs for YouTube';
+        const jsBadge = jsMissing
+            ? `<span class="status-badge status-warn" title="${esc(jsTitle)}">⚠️ No JavaScript runtime for YouTube</span>` +
+              `<button class="btn btn-primary" id="btn-install-js" ${small} onclick="installDeps()">⬇️ Install deno</button>`
+            : (d.installed && Array.isArray(d.js_runtimes)
+                ? `<span class="status-badge status-ok" title="JavaScript runtime yt-dlp uses for YouTube">✅ JS: ${esc(d.js_runtimes.join(', '))}</span>`
+                : '');
+        bar.innerHTML = `<div class="status-bar-inner">${ytdlp}${ffmpeg}${jsBadge}${update}${auto}${lastErr}<span id="install-msg" class="status-badge status-err" style="display:none"></span></div>`;
     } catch(e) {
         bar.innerHTML = `<span class="status-badge status-err">❌ API offline</span>`;
     }
@@ -449,7 +459,7 @@ async function checkStatus() {
 
 // Cài yt-dlp / FFmpeg vào Python của máy chủ — dùng được ngay, không restart.
 async function installDeps() {
-    const buttons = document.querySelectorAll('#btn-install, #btn-install-ff');
+    const buttons = document.querySelectorAll('#btn-install, #btn-install-ff, #btn-install-js');
     buttons.forEach(b => { b.disabled = true; b.textContent = '⏳ Installing…'; });
     let problem = '';
     try {

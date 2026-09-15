@@ -118,6 +118,8 @@ def ens_none(update=None, force_check=False, progress=None):
 
 
 YM.ensure = ens_none
+YM.clear_install_failures = lambda: None
+YM.js_runtimes = lambda: {"deno": {"path": "d"}}
 YT = "https://www.youtube.com/watch?v=4Br45kOed_s"
 
 
@@ -218,6 +220,12 @@ YM.status = lambda: {"installed": False, "version": "", "cli": None, "auto_updat
 R._get_ffmpeg_path = lambda: None
 s = asyncio.run(R.ytdl_status())
 ok(s["installed"] is False and s["ffmpeg_available"] is False and s["auto_update"] is True, "status đọc thư viện của máy chủ", s)
+YM.status = lambda: {"installed": True, "version": "2026.8.19", "cli": ["py"], "auto_update": True, "latest": "", "checked_at": 0,
+                     "last_error": "", "challenge_solver": True, "js_runtimes": [],
+                     "js_runtime_notes": ["node 20.19.0 is too old for yt-dlp (needs 22.0.0+)"]}
+s = asyncio.run(R.ytdl_status())
+ok(s["js_runtimes"] == [] and s["js_runtime_notes"] == ["node 20.19.0 is too old for yt-dlp (needs 22.0.0+)"] and s["challenge_solver"] is True,
+   "status báo runtime JS + ghi chú node quá cũ", s)
 pipcalls = []
 YM.pip_install = lambda pkgs, upgrade=False, timeout=300: (pipcalls.append(list(pkgs)) or (True, ""))
 FF = iter([None, "C:/ff/ffmpeg.exe"])
@@ -244,6 +252,12 @@ YM.ensure = ens_install_failed
 R._get_ffmpeg_path = lambda: "ff"
 d = asyncio.run(R.ytdl_install())
 ok(d["status"] == "error" and "Could not install yt-dlp" in d["message"], "cài hỏng → trả lý do để hiện cạnh nút", d)
+YM.ensure = ens_installed
+YM.js_runtimes = lambda: {}
+YM.js_runtime_notes = lambda: ["node 20.19.0 is too old for yt-dlp (needs 22.0.0+)"]
+d = asyncio.run(R.ytdl_install())
+ok(d["status"] == "error" and "node 20.19.0 is too old" in d["message"], "cài xong mà không có runtime hợp lệ → nói rõ node quá cũ", d)
+YM.js_runtimes = lambda: {"deno": {"path": "d"}}
 
 
 def ens_updated(update=None, force_check=False, progress=None):
@@ -290,6 +304,8 @@ ok("body.cookie_auto_browser = document.getElementById('set-auto-browser').check
    and "body.cookie_profile = document.getElementById('set-cookie-profile').value;" in html, "lưu gửi hai trường")
 ok("Auto Cookies from Browser" not in html and "Cookie từ trình duyệt cài trên máy" in html, "nhãn cũ đổi tên, không trùng với tuỳ chọn mới")
 ok("${esc(p.name)}" in html, "tên hồ sơ được escape")
+ok('id="btn-install-js"' in html and "No JavaScript runtime for YouTube" in html and "#btn-install, #btn-install-ff, #btn-install-js" in html,
+   "huy hiệu thiếu JS runtime có nút cài deno")
 ok('onclick="installDeps()"' in html and "fetch(API_BASE + '/install', { method: 'POST' })" in html and "Install yt-dlp" in html,
    "huy hiệu thiếu yt-dlp có nút Install gọi /install")
 src = open(os.path.join(ROOT, "tubecli", "extensions", "video_downloader", "routes.py"), encoding="utf-8").read()

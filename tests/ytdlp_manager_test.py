@@ -45,7 +45,8 @@ def ok(cond, label, detail=""):
 
 
 M.STATE_FILE = os.path.join(TMP, "ytdlp_update.json")
-ENV = {"version": "2026.08.19", "latest": "2026.09.01", "auto": True, "pip_ok": True, "after_pip": "2026.09.01", "ejs": True}
+ENV = {"version": "2026.08.19", "latest": "2026.09.01", "auto": True, "pip_ok": True, "after_pip": "2026.09.01", "ejs": True,
+       "rt": {"node": {"path": "n"}}}
 CALLS = {"pip": [], "latest": 0, "reload": 0}
 
 
@@ -53,8 +54,10 @@ def fake_pip(args, timeout=300):
     CALLS["pip"].append(list(args))
     if ENV["pip_ok"]:
         ENV["version"] = ENV["after_pip"]
-        if any("[default]" in a for a in args):
+        if any("[default" in a for a in args):
             ENV["ejs"] = True
+        if any("deno" in a for a in args):
+            ENV["rt"] = {"deno": {"path": "d"}}
         return True, ""
     return False, "ERROR: Could not install packages due to an OSError: [WinError 5] Access is denied"
 
@@ -70,12 +73,15 @@ M.module_available = lambda: bool(ENV["version"])
 M.latest_version = fake_latest
 M.auto_update_enabled = lambda: ENV["auto"]
 M.ejs_available = lambda: ENV["ejs"]
+REAL_JS_RUNTIMES = M.js_runtimes
+M.js_runtimes = lambda: dict(ENV["rt"])
 real_reload = M._reload_module
 M._reload_module = lambda: CALLS.__setitem__("reload", CALLS["reload"] + 1)
 
 
 def reset(**env):
-    ENV.update({"version": "2026.08.19", "latest": "2026.09.01", "auto": True, "pip_ok": True, "after_pip": "2026.09.01", "ejs": True})
+    ENV.update({"version": "2026.08.19", "latest": "2026.09.01", "auto": True, "pip_ok": True, "after_pip": "2026.09.01", "ejs": True,
+                "rt": {"node": {"path": "n"}}})
     ENV.update(env)
     CALLS.update({"pip": [], "latest": 0, "reload": 0})
 
@@ -157,13 +163,43 @@ ok(r["ok"] and "Could not install yt-dlp-ejs" in state().get("last_error", ""), 
 reset(version="2026.08.19", ejs=False, pip_ok=False, auto=False)
 r = M.ensure()
 ok(not CALLS["pip"], "trong cửa sổ → không cài lại bộ giải vừa hỏng", CALLS)
-real_which = M.shutil.which
-M.shutil.which = lambda name: {"node": "/usr/bin/node"}.get(name)
-ok(M.js_runtime_opts() == {"js_runtimes": {"node": {"path": "/usr/bin/node"}}} and M.cli_js_args() == ["--js-runtimes", "node"],
-   "có node → yt-dlp dùng node giải thử thách (yt-dlp mặc định chỉ bật deno)", M.js_runtime_opts())
-M.shutil.which = lambda name: None
-ok(M.js_runtime_opts() == {} and M.cli_js_args() == [], "không runtime nào → để yt-dlp tự lo")
-M.shutil.which = real_which
+M.clear_install_failures()   # lượt ngay trước vừa ghi ejs_failed_at (cài hỏng) → cửa sổ 6 giờ sẽ chặn lượt này
+reset(version="2026.08.19", rt={}, after_pip="2026.08.19", auto=False)
+r = M.ensure()
+ok(r["ok"] and CALLS["pip"] == [["install", "yt-dlp[default,deno]==2026.08.19"]] and ENV["rt"],
+   "không có runtime yt-dlp chấp nhận (node < 22) → cài deno qua pip, GIỮ đúng bản yt-dlp", CALLS)
+st = state()
+st["ejs_failed_at"] = time.time()
+json.dump(st, open(M.STATE_FILE, "w", encoding="utf-8"))
+M.clear_install_failures()
+ok(state().get("ejs_failed_at") == 0 and state().get("failed_version") == "", "nút Install xoá ghi nhớ lần cài hỏng → thử lại ngay", state())
+import platform  # noqa: E402
+real_which, real_ver, real_pipdeno = M.shutil.which, M._runtime_version, M._pip_deno_bin
+ok(real_ver(sys.executable) == platform.python_version(), "_runtime_version đọc được bản từ `--version` thật", real_ver(sys.executable))
+M.js_runtimes = REAL_JS_RUNTIMES
+VERS = {}
+M._runtime_version = lambda path: VERS.get(path, "")
+try:
+    M.shutil.which = lambda name: {"node": "/usr/bin/node"}.get(name)
+    M._pip_deno_bin = lambda: None
+    VERS["/usr/bin/node"] = "20.19.0"
+    ok(M.js_runtimes() == {} and M.js_runtime_opts() == {} and M.cli_js_args() == []
+       and M.js_runtime_notes() == ["node 20.19.0 is too old for yt-dlp (needs 22.0.0+)"],
+       "node 20 (VPS tungho2) → không runtime nào hợp lệ, ghi rõ bản quá cũ", M.js_runtime_notes())
+    VERS["/usr/bin/node"] = "22.14.0"
+    ok(M.js_runtime_opts() == {"js_runtimes": {"node": {"path": "/usr/bin/node"}}} and M.cli_js_args() == ["--js-runtimes", "node:/usr/bin/node"],
+       "node 22 → dùng node kèm đường dẫn", M.cli_js_args())
+    M._pip_deno_bin = lambda: "/srv/tubecli/.venv/bin/deno"
+    VERS.update({"/usr/bin/node": "20.19.0", "/srv/tubecli/.venv/bin/deno": "2.9.6"})
+    ok(list(M.js_runtimes()) == ["deno"] and M.js_runtimes()["deno"]["path"] == "/srv/tubecli/.venv/bin/deno"
+       and M.cli_js_args() == ["--js-runtimes", "deno:/srv/tubecli/.venv/bin/deno"],
+       "deno của pip (ngoài PATH systemd) → dùng, kèm đường dẫn; node 20 bị bỏ", M.js_runtimes())
+    M.shutil.which = lambda name: None
+    M._pip_deno_bin = lambda: None
+    ok(M.js_runtime_opts() == {} and M.cli_js_args() == [] and M.js_runtime_notes() == [], "không runtime nào → để yt-dlp tự lo")
+finally:
+    M.shutil.which, M._runtime_version, M._pip_deno_bin = real_which, real_ver, real_pipdeno
+    M.js_runtimes = lambda: dict(ENV["rt"])
 
 print("── D. nạp lại module, status, tuỳ chọn ─────────────────────")
 sys.modules["yt_dlp.fake_sub_for_test"] = object()
