@@ -1419,7 +1419,8 @@ def _gather_youtube(state: Dict, options: Dict, ids: List[str]) -> None:
             text = text[:per_cap]
         corpus.append({"title": str(res.get("title") or options.get("title") or ""), "url": str(res.get("url") or ""),
                        "content": text, "source": "pasted", "scraped_at": ""})
-        sources.append({k: res.get(k) for k in ("id", "url", "title", "channel", "language", "kind", "words", "minutes")})
+        sources.append({k: res.get(k) for k in ("id", "url", "title", "channel", "language", "kind", "words", "minutes",
+                                                  "cookie_source")})
     if not corpus:
         why = "; ".join(f.rstrip(". ") for f in failed)
         # Lý do nào đã chỉ đường ("…paste its text instead") thì đừng nhắc lần hai.
@@ -1432,8 +1433,9 @@ def _gather_youtube(state: Dict, options: Dict, ids: List[str]) -> None:
     state["corpus"], state["videos"], state["high_water"] = corpus, [], ""
     state["youtube_sources"] = sources
     words = sum(int(s.get("words") or 0) for s in sources)
+    via = sorted({str(s.get("cookie_source") or "") for s in sources} - {""})
     say("gather", "running", f"YouTube subtitles · {len(sources)} video(s) · {words} words "
-                             f"(~{minutes_of(words)} min read aloud)")
+                             f"(~{minutes_of(words)} min read aloud)" + (f" · signed in via {', '.join(via)}" if via else ""))
 _OUTLINE_LINE_RE = re.compile(r"\[SHOW:\s*(.*?)\]\s*(?:[—–:-]\s*)?(.*)", re.I | re.S)
 
 

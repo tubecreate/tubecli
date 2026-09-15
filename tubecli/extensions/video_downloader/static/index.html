@@ -343,7 +343,20 @@ h1 span.icon { font-size:1.8rem; }
         </div>
 
         <div class="settings-group">
-            <label>🌐 Auto Cookies from Browser</label>
+            <label>🧭 Tự động lấy cookie từ browser TubeCLI</label>
+            <label style="display:flex;gap:8px;align-items:flex-start;text-transform:none;letter-spacing:0;font-weight:400;font-size:0.85rem;color:var(--text);cursor:pointer;">
+                <input type="checkbox" id="set-auto-browser" checked style="margin-top:3px;">
+                <span>Khi YouTube đòi đăng nhập, lấy cookie từ hồ sơ browser đang mở đã đăng nhập YouTube</span>
+            </label>
+            <select id="set-cookie-profile">
+                <option value="">Tự chọn hồ sơ đang mở đã đăng nhập YouTube</option>
+            </select>
+            <div class="cookie-status" id="profile-cookie-status"></div>
+            <div class="hint">Chỉ dùng khi bị chặn và chỉ lấy từ hồ sơ ĐANG MỞ: cookie của hồ sơ đang tắt đã bị Google đổi, dùng vào còn làm hỏng lượt tải. Cookie không lưu lại, xoá ngay sau lượt tải; hồ sơ có proxy thì tải qua đúng proxy đó. Áp dụng cho Codex đọc phụ đề và tải video YouTube. Nên dùng tài khoản Google phụ.</div>
+        </div>
+
+        <div class="settings-group">
+            <label>🌐 Cookie từ trình duyệt cài trên máy</label>
             <select id="set-browser">
                 <option value="">-- Không dùng (dùng cookie thủ công) --</option>
                 <option value="chrome">Chrome</option>
@@ -353,7 +366,7 @@ h1 span.icon { font-size:1.8rem; }
                 <option value="opera">Opera</option>
                 <option value="safari">Safari</option>
             </select>
-            <div class="hint">Tự động lấy cookies từ browser đang mở (ưu tiên hơn cookie thủ công)</div>
+            <div class="hint">yt-dlp đọc cookie của Chrome/Firefox… cài trên máy chủ này (ưu tiên hơn cookie thủ công). Chrome/Edge bản mới trên Windows thường không đọc được — khi đó dùng ô «Tự động lấy cookie từ browser TubeCLI» ở trên.</div>
         </div>
 
         <div class="settings-group">
@@ -726,12 +739,40 @@ async function loadSettings() {
             // Set browser dropdown
             document.getElementById('set-browser').value = s.cookies_from_browser || '';
             document.getElementById('set-proxy').value = s.proxy || '';
+            document.getElementById('set-auto-browser').checked = s.cookie_auto_browser !== false;
+            loadCookieProfiles(s.cookie_profile || '');
             // Clear text areas (don't show masked cookies)
             document.getElementById('set-cookie-youtube').value = '';
             document.getElementById('set-cookie-tiktok').value = '';
             document.getElementById('set-cookie-douyin').value = '';
         }
     } catch(e) {}
+}
+
+// Hồ sơ browser TubeCLI đã đăng nhập YouTube (chỉ tên + trạng thái, không có cookie) cho ô chọn.
+async function loadCookieProfiles(selected) {
+    const sel = document.getElementById('set-cookie-profile');
+    const status = document.getElementById('profile-cookie-status');
+    try {
+        const r = await fetch(API_BASE + '/cookie-profiles');
+        const d = await r.json();
+        const items = (d && d.data) || [];
+        let html = '<option value="">Tự chọn hồ sơ đang mở đã đăng nhập YouTube</option>';
+        for (const p of items) {
+            html += `<option value="${esc(p.name)}">${esc(p.name)}${p.live ? ' · đang mở' : ' · đang tắt'}${p.proxy ? ' · proxy' : ''}</option>`;
+        }
+        if (selected && !items.some(p => p.name === selected)) {
+            html += `<option value="${esc(selected)}">${esc(selected)} · không còn đăng nhập YouTube</option>`;
+        }
+        sel.innerHTML = html;
+        sel.value = selected || '';
+        const live = items.filter(p => p.live).length;
+        status.innerHTML = items.length
+            ? `<span class="${live ? 'cookie-set' : 'cookie-unset'}">${live ? '✅' : '⚠️'} ${items.length} hồ sơ đã đăng nhập YouTube, ${live} đang mở</span>`
+            : '<span class="cookie-unset">⚠️ Chưa hồ sơ browser nào đăng nhập YouTube</span>';
+    } catch (e) {
+        status.textContent = '';
+    }
 }
 
 async function saveSettings() {
@@ -748,6 +789,8 @@ async function saveSettings() {
     if (dy) body.cookie_douyin = dy;
     body.cookies_from_browser = browser;
     body.proxy = proxy;
+    body.cookie_auto_browser = document.getElementById('set-auto-browser').checked;
+    body.cookie_profile = document.getElementById('set-cookie-profile').value;
 
     try {
         const r = await fetch(API_BASE + '/settings', {

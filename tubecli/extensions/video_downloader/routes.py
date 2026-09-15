@@ -94,6 +94,9 @@ def _get_settings():
             "cookie_douyin": "",
             "cookie_tiktok": "",
             "cookies_from_browser": "",  # e.g. "chrome", "firefox", "edge"
+            # YouTube đòi đăng nhập → lấy cookie từ hồ sơ browser TubeCLI ĐANG MỞ (core/youtube_cookies.py).
+            "cookie_auto_browser": True,
+            "cookie_profile": "",        # "" = tự chọn hồ sơ đang mở đã đăng nhập YouTube
             "proxy": "",
         }
         if os.path.exists(path):
@@ -444,6 +447,48 @@ async def get_video_info(req: VideoInfoRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _download_with_browser_cookies(yt_dlp, ydl_opts, url, task=None):
+    """Tải bằng yt-dlp; YouTube đòi đăng nhập thì thử lại bằng cookie của hồ sơ browser TubeCLI ĐANG MỞ (tuỳ chọn
+    «tự động lấy cookie từ browser» ở Settings, 15/9/2026). Lỗi khác, link không phải YouTube hay tuỳ chọn tắt →
+    ném nguyên lỗi như trước. File cookie tạm xoá ngay sau mỗi lượt thử."""
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+        return
+    except Exception as e:      # noqa: BLE001
+        first = e
+    from tubecli.core import youtube_cookies as yc
+
+    if not yc.is_blocked(str(first)) or not re.search(r"(youtube\.com|youtu\.be)/", str(url or "")):
+        raise first
+    st = yc.settings()
+    if not st.get("auto"):
+        raise first
+    pl = yc.plan(st.get("profile") or "")
+    tried = []
+    for name in pl["live"][:yc.MAX_PROFILES]:
+        att, why = yc.export_attempt(name)
+        if not att:
+            logger.info(f"[ytdl] cookie profile {name}: {why}")
+            continue
+        tried.append(name)
+        opts = {k: v for k, v in ydl_opts.items() if k != "cookiesfrombrowser"}
+        opts["cookiefile"] = att["cookiefile"]
+        if att.get("proxy") and not opts.get("proxy"):
+            opts["proxy"] = att["proxy"]
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([url])
+            if task is not None:
+                task["cookie_source"] = f"profile:{name}"
+            return
+        except Exception as e:      # noqa: BLE001
+            logger.info(f"[ytdl] YouTube refused the cookies of {name}: {str(e)[:200]}")
+        finally:
+            yc.remove_file(att["cookiefile"])
+    raise RuntimeError(f"{first} — {yc.blocked_hint(st, pl, tried)}")
+
+
 DOWNLOAD_TASKS = {}
 
 
@@ -577,8 +622,7 @@ async def download_video_async(req: VideoDownloadRequest, bg_tasks: BackgroundTa
                     
             ydl_opts['progress_hooks'] = [progress_hook]
 
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([req.url])
+            _download_with_browser_cookies(yt_dlp, ydl_opts, req.url, DOWNLOAD_TASKS[task_id])
                 
             # Find output file in temp dir
             downloaded_files = [f for f in os.listdir(temp_dir) if os.path.isfile(os.path.join(temp_dir, f))]
@@ -715,6 +759,16 @@ async def delete_download(filename: str):
 
 # ── Settings API ──
 
+@router.get("/cookie-profiles")
+async def ytdl_cookie_profiles():
+    """Hồ sơ browser TubeCLI đã đăng nhập YouTube cho ô chọn ở Settings — chỉ tên + đang mở/proxy, KHÔNG có cookie."""
+    from tubecli.core import youtube_cookies as yc
+
+    items = await asyncio.to_thread(yc.candidates)
+    return {"status": "success", "data": [{k: c.get(k) for k in ("name", "live", "youtube_session", "proxy")}
+                                          for c in items]}
+
+
 @router.get("/settings")
 async def ytdl_get_settings():
     """Get video downloader settings (cookies masked)."""
@@ -732,6 +786,8 @@ async def ytdl_get_settings():
             "cookie_tiktok": mask(s.get("cookie_tiktok", "")),
             "cookie_tiktok_set": bool(s.get("cookie_tiktok", "")),
             "cookies_from_browser": s.get("cookies_from_browser", ""),
+            "cookie_auto_browser": s.get("cookie_auto_browser", True) is not False,
+            "cookie_profile": s.get("cookie_profile", ""),
             "proxy": s.get("proxy", ""),
         }
     }
@@ -742,6 +798,8 @@ class YtdlSettingsUpdate(BaseModel):
     cookie_douyin: Optional[str] = None
     cookie_tiktok: Optional[str] = None
     cookies_from_browser: Optional[str] = None
+    cookie_auto_browser: Optional[bool] = None
+    cookie_profile: Optional[str] = None
     proxy: Optional[str] = None
 
 

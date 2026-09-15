@@ -187,13 +187,18 @@ class _YdlLogger:
         logger.debug("yt-dlp: %s", msg)
 
 
-def _ydl_extract(url: str, timeout: int) -> Dict[str, Any]:
+def _ydl_extract(url: str, timeout: int, cookiefile: Optional[str] = None, proxy: Optional[str] = None,
+                 browser: str = "") -> Dict[str, Any]:
     import yt_dlp  # noqa: F401 — ImportError được người gọi đổi thành câu chỉ đường
     opts = {"skip_download": True, "quiet": True, "no_warnings": True, "noplaylist": True,
             "socket_timeout": max(5, min(int(timeout), 30)), "logger": _YdlLogger()}
-    cookie = _cookie_file()
-    if cookie:
-        opts["cookiefile"] = cookie
+    # Cookie chỉ gắn khi người gọi đưa — tức là lượt thử SAU khi YouTube đòi đăng nhập (_extract_with_cookies).
+    if cookiefile:
+        opts["cookiefile"] = cookiefile
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
+    if proxy:
+        opts["proxy"] = proxy
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False) or {}
 
@@ -219,6 +224,70 @@ def _explain(msg: str) -> str:
     return re.sub(r"^ERROR:\s*", "", first)[:240]
 
 
+def _short(err) -> str:
+    first = str(err or "").strip().splitlines()[0] if str(err or "").strip() else "unknown error"
+    return re.sub(r"^ERROR:\s*(\[[^\]]+\]\s*)?([A-Za-z0-9_-]{11}:\s*)?", "", first)[:160]
+
+
+def _extract_with_cookies(url: str, vid: str, timeout: int) -> Tuple[Optional[Dict[str, Any]], str, str]:
+    """(info, lỗi, nguồn cookie). KHÔNG cookie trước; chỉ khi YouTube đòi đăng nhập mới thử cookie, lần lượt:
+    cookie dán tay ở Video Downloader → hồ sơ browser TubeCLI ĐANG MỞ (tuỳ chọn tự động, core/youtube_cookies.py)
+    → trình duyệt cài trên máy. Nguồn nào hỏng thì sang nguồn sau: thử thật 15/9/2026, cookie cũ của hồ sơ đang
+    tắt làm HỎNG một lượt vốn tải được, nên cookie không bao giờ đi trước lượt không cookie."""
+    from tubecli.core import youtube_cookies as yc
+
+    try:
+        return _ydl_extract(url, timeout), "", ""
+    except ImportError:
+        raise
+    except Exception as e:      # noqa: BLE001
+        first = str(e)
+    logger.warning("youtube extract %s: %s", vid, _short(first))
+    if not yc.is_blocked(first):
+        return None, _explain(first), ""
+    st = yc.settings()
+    notes: List[str] = []
+    pasted = _cookie_file()
+    if pasted:
+        try:
+            return _ydl_extract(url, timeout, cookiefile=pasted), "", "pasted"
+        except ImportError:
+            raise
+        except Exception as e:      # noqa: BLE001
+            notes.append(f"pasted cookies: {_short(e)}")
+    pl, tried = None, []
+    if st.get("auto"):
+        pl = yc.plan(st.get("profile") or "")
+        for name in pl["live"][:yc.MAX_PROFILES]:
+            att, why = yc.export_attempt(name)
+            if not att:
+                notes.append(f"{name}: {why}")
+                continue
+            tried.append(name)
+            try:
+                return (_ydl_extract(url, timeout, cookiefile=att["cookiefile"], proxy=att.get("proxy")), "",
+                        f"profile:{name}")
+            except ImportError:
+                raise
+            except Exception as e:      # noqa: BLE001
+                notes.append(f"{name}: {_short(e)}")
+            finally:
+                yc.remove_file(att["cookiefile"])
+    if st.get("browser"):
+        try:
+            return _ydl_extract(url, timeout, browser=st["browser"]), "", f"browser:{st['browser']}"
+        except ImportError:
+            raise
+        except Exception as e:      # noqa: BLE001
+            notes.append(f"{st['browser']} cookies: {_short(e)}")
+    if notes:
+        logger.info("youtube cookie attempts %s: %s", vid, "; ".join(notes))
+    low = first.lower()
+    base = ("The video is age-restricted." if "age" in low and ("restrict" in low or "confirm your age" in low)
+            else "YouTube asked this server to sign in (it treats the server's IP as a bot).")
+    return None, f"{base} {yc.blocked_hint(st, pl, tried)} You can also paste the video's text instead.", ""
+
+
 def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cache: bool = True) -> Dict[str, Any]:
     """Phụ đề của MỘT video: {"ok", "id", "url", "title", "channel", "duration", "language", "kind",
     "text", "words", "minutes", "message"}. Không bao giờ ném — ok=False kèm câu người đọc được."""
@@ -239,13 +308,12 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
         return {"ok": False, "id": vid, "url": url, "message": message}
 
     try:
-        info = _ydl_extract(url, timeout)
+        info, err, cookie_source = _extract_with_cookies(url, vid, timeout)
     except ImportError:
         return fail("yt-dlp is not installed on this server — update TubeCLI (it installs yt-dlp) "
                     "or run: pip install yt-dlp")
-    except Exception as e:      # noqa: BLE001
-        logger.warning("youtube extract %s: %s", vid, e)
-        return fail(_explain(str(e)))
+    if info is None:
+        return fail(err)
     track = pick_track(info, prefer_lang)
     if not track:
         return fail("This video has no subtitles (neither uploaded nor automatic) — paste its text instead.")
@@ -263,7 +331,8 @@ def fetch_transcript(ref: str, prefer_lang: str = "", timeout: int = 60, use_cac
     result = {"ok": True, "id": vid, "url": url, "title": str(info.get("title") or ""),
               "channel": str(info.get("channel") or info.get("uploader") or ""),
               "duration": int(info.get("duration") or 0), "language": lang, "kind": kind,
-              "text": text, "words": words, "minutes": round(words / WORDS_PER_MINUTE, 1), "message": ""}
+              "text": text, "words": words, "minutes": round(words / WORDS_PER_MINUTE, 1), "message": "",
+              "cookie_source": cookie_source}
     with _LOCK:
         _CACHE[vid] = (now, result)
     return dict(result)
