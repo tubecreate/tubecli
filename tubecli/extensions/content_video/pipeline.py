@@ -1515,7 +1515,8 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
             if cancelled():
                 raise _cancel_exc()
             chunk = old_scenes[a:a + SCENES_PER_BATCH]
-            say("script", "running", f"revising scenes {a + 1}-{a + len(chunk)} of {len(old_scenes)}")
+            say("script", "running", f"revising scenes {a + 1}-{a + len(chunk)} of {len(old_scenes)}",
+                round(100 * a / max(1, len(old_scenes)), 1))
             body = "\n\n".join(f"[SHOW: {sh}]\n{na}" for sh, na in chunk)
             prompt = (
                 f"Here are scenes {a + 1}-{a + len(chunk)} of {len(old_scenes)} of the current script:\n\n"
@@ -1568,7 +1569,9 @@ def write_script_chunked(state: Dict, agent, system_prompt: str, blocks: List[st
         if cancelled():
             raise _cancel_exc()
         chunk = outline[a:a + SCENES_PER_BATCH]
-        say("script", "running", f"writing scenes {a + 1}-{a + len(chunk)} of {len(outline)}")
+        # Phần trăm = số cảnh đã viết xong / tổng: Codex tính "còn bao lâu" từ đây (lõi .101).
+        say("script", "running", f"writing scenes {a + 1}-{a + len(chunk)} of {len(outline)}",
+            round(100 * a / max(1, len(outline)), 1))
         wanted = "\n".join(f"{a + i}. [SHOW: {sh}] — {gist}" for i, (sh, gist) in enumerate(chunk, 1))
         prompt = (
             material + f"\n\nThe whole video is planned as these {len(outline)} scenes:\n" + outline_text +
@@ -1772,7 +1775,7 @@ def write_script_verbatim(state: Dict, agent, text: str, lang_code: str, lang: s
             raise _cancel_exc()
         chunk = narr[a:a + _VERBATIM_BATCH]
         say("script", "running", f"{'translating' if translate else 'describing'} scenes "
-                                 f"{a + 1}-{a + len(chunk)} of {len(narr)}")
+                                 f"{a + 1}-{a + len(chunk)} of {len(narr)}", round(100 * a / max(1, len(narr)), 1))
         prompt = verbatim_prompt(chunk, a + 1, len(narr), lang, translate, src_name, feedback,
                                  want_title=(a == 0 and not title))
         budget = sum(content_words(x) for x in chunk) * (2 if translate else 0) + len(chunk) * 40 + 60

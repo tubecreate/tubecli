@@ -19,6 +19,7 @@ import re
 import logging
 import os
 import threading
+import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
@@ -88,7 +89,14 @@ STEP_SKIPPED = "skipped"
 # Bước đang làm dở lúc người dùng bấm Huỷ: dừng, giữ dấu vết, Chạy lại tiếp từ đây.
 STEP_CANCELLED = "cancelled"
 
-MAX_EVENT_LINES = 500
+# Dòng tiến độ của bước đang chạy giờ vào Activity (lõi .101) — một lượt video dài cần nhiều dòng hơn 500.
+MAX_EVENT_LINES = 1500
+# Dòng tiến độ chỉ khác CON SỐ ("12/69" → "13/69", "writing scenes 1-6" → "7-12"): tối đa một dòng mỗi chừng này
+# giây; dòng khác hẳn nội dung ("outline came back… asking again") luôn được ghi. Trần mỗi bước.
+PROGRESS_TICK_SEC = 10.0
+PROGRESS_MAX_PER_STEP = 200
+_clock = time.monotonic
+_DIGITS_RE = re.compile(r"\d+")
 
 
 def _now() -> str:
@@ -222,6 +230,27 @@ class CodexTask:
         return cls(**data)
 
 
+def _elapsed_seconds(start: Any, end: Any) -> Optional[int]:
+    """Số giây giữa hai mốc ISO (None khi thiếu / không đọc được)."""
+    try:
+        a = datetime.datetime.fromisoformat(str(start))
+        b = datetime.datetime.fromisoformat(str(end))
+        if (a.tzinfo is None) != (b.tzinfo is None):
+            return None
+        return max(0, int(round((b - a).total_seconds())))
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_secs(sec: int) -> str:
+    if sec < 60:
+        return f"{sec}s"
+    m, s = divmod(int(sec), 60)
+    if m < 60:
+        return f"{m}m {s}s"
+    return f"{m // 60}h {m % 60}m"
+
+
 class CodexManager:
     """Durable task board with an approval-gated state machine."""
 
@@ -237,6 +266,8 @@ class CodexManager:
         # video: script accepted → render) without codex knowing the stages.
         self._on_accept: Dict[str, Callable[..., Any]] = {}
         self._on_delete: Dict[str, Callable[..., Any]] = {}
+        # (task, bước) → (mốc đồng hồ, "hình" câu đã thay số bằng #, số dòng đã ghi) — xem _log_progress.
+        self._progress_last: Dict[Tuple[str, str], Tuple[float, str, int]] = {}
 
     # ── Persistence ──────────────────────────────────────────────
 
@@ -1052,8 +1083,10 @@ class CodexManager:
                 }
                 steps.append(existing)
                 is_new = True
+                prev_msg = ""
             else:
                 is_new = existing.get("status") != status
+                prev_msg = str(existing.get("message") or "")
                 existing["status"] = status
                 if message:
                     existing["message"] = message
@@ -1067,12 +1100,47 @@ class CodexManager:
             task["updated_at"] = _now()
             self._save()
 
-        # Only log real transitions, not every percent tick.
+        label_now = str(existing.get("label") or name)
+        terminal = status in (STEP_SUCCESS, STEP_ERROR, STEP_SKIPPED, STEP_CANCELLED)
         if is_new:
-            self.append_event(
-                task_id, "step", message or f"{name}: {status}", actor="worker",
-                data={"step": name, "status": status, "progress": pct},
-            )
+            # Chuyển trạng thái: ghi TÊN bước (không phải tên nội bộ "crawl") + thời lượng khi xong.
+            data: Dict[str, Any] = {"step": name, "status": status, "progress": pct, "label": label_now}
+            if status == "running":
+                text = f"▶ {label_now}" + (f" · {message}" if message and message != label_now else "")
+            else:
+                secs = _elapsed_seconds(existing.get("started_at"), existing.get("ended_at"))
+                if secs is not None:
+                    data["elapsed"] = secs
+                text = f"{label_now} — {status}" + (f" ({_fmt_secs(secs)})" if secs is not None else "")
+            if message and message != label_now:
+                data["detail"] = message[:300]
+                if status != "running":
+                    text += f" · {message[:300]}"
+            self.append_event(task_id, "step", text, actor="worker", data=data)
+        elif status == "running" and message and message != prev_msg:
+            # Bước vẫn chạy mà câu đổi = AI vừa làm sang việc khác trong bước → vào Activity.
+            self._log_progress(task_id, name, label_now, message, pct)
+        if terminal:
+            self._progress_last.pop((task_id, name), None)
+
+    def _log_progress(self, task_id: str, name: str, label: str, message: str, pct: Optional[float]) -> None:
+        """Một dòng «AI đang làm gì» của bước đang chạy (kind "progress"). Câu chỉ khác con số với câu vừa ghi (bộ
+        đếm 12/69 → 13/69) thì tối đa một dòng mỗi PROGRESS_TICK_SEC; mỗi bước tối đa PROGRESS_MAX_PER_STEP dòng —
+        Activity kể việc đang làm chứ không thành bộ đếm tốn RAM (user 15/9/2026)."""
+        key = (task_id, name)
+        now = _clock()
+        shape = _DIGITS_RE.sub("#", message)
+        last = self._progress_last.get(key)
+        count = 0
+        if last:
+            last_t, last_shape, count = last
+            if count >= PROGRESS_MAX_PER_STEP:
+                return
+            if shape == last_shape and now - last_t < PROGRESS_TICK_SEC:
+                return
+        self._progress_last[key] = (now, shape, count + 1)
+        self.append_event(task_id, "progress", message[:500], actor="worker",
+                          data={"step": name, "label": label, "progress": pct})
 
     CHAT_PREVIEW = 1500
 

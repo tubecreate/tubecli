@@ -222,7 +222,7 @@ async def get_task(task_id: str, events: int = 50):
     task = _require(task_id)
     return {
         "task": task,
-        "events": codex_manager.get_events(task["id"], limit=events),
+        "events": _public_events(codex_manager.get_events(task["id"], limit=events)),
     }
 
 
@@ -295,10 +295,31 @@ async def task_file(task_id: str, path: str, request: Request):
     return FileResponse(filepath, media_type=media, headers={"Accept-Ranges": "bytes"})
 
 
+_EVENT_DATA_KEEP = ("step", "status", "progress", "label", "elapsed", "detail")
+
+
+def _public_events(events):
+    """Sự kiện gửi lên trình duyệt: KHÔNG kèm data lớn (sự kiện checkpoint mang cả kịch bản — mỗi lần làm mới tải lại
+    vài chục KB, user 15/9/2026: "tốn ram"), ẩn hẳn dòng checkpoint (vô nghĩa với người xem). Pipeline đọc checkpoint
+    thẳng từ codex_manager phía máy chủ nên không bị ảnh hưởng."""
+    out = []
+    for ev in events or []:
+        data = ev.get("data") if isinstance(ev.get("data"), dict) else None
+        if data and "checkpoint" in data:
+            continue
+        item = {k: v for k, v in ev.items() if k != "data"}
+        if data:
+            small = {k: data[k] for k in _EVENT_DATA_KEEP if k in data}
+            if small:
+                item["data"] = small
+        out.append(item)
+    return out
+
+
 @router.get("/tasks/{task_id}/events")
 async def get_events(task_id: str, after: str = "", limit: int = 200):
     task = _require(task_id)
-    return {"events": codex_manager.get_events(task["id"], after=after, limit=limit)}
+    return {"events": _public_events(codex_manager.get_events(task["id"], after=after, limit=limit))}
 
 
 @router.post("/tasks/{task_id}/approve")
