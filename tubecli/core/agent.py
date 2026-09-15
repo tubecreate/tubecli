@@ -153,6 +153,10 @@ class Agent:
         # báo cáo) LUÔN dùng AI; check-mail LUÔN dùng script — cờ này chỉ đổi các
         # hành vi lướt/xem.
         humanlike_behavior: bool = False,
+        # Lượt theo lịch / Run now mở trình duyệt ẨN (không cửa sổ). Mặc định ẩn:
+        # trên Windows/macOS mỗi lượt hẹn giờ từng bật một cửa sổ Chrome thật lên màn
+        # hình đang làm việc (user 15/9/2026). Flow vẫn xem/can thiệp qua CDP.
+        routine_headless: bool = True,
         # ── Tự động đăng video sau mỗi lượt thu thập ───────────────────
         # BẬT → lượt hẹn giờ nào thu thập được đủ bài mới thì tự viết kịch bản,
         # dựng mp4 và ĐĂNG THẲNG lên kênh YouTube đã chọn, không chờ ai duyệt.
@@ -248,6 +252,7 @@ class Agent:
         self.script_output_format = script_output_format
         self.routine_in_chat = True if routine_in_chat is None else bool(routine_in_chat)
         self.humanlike_behavior = bool(humanlike_behavior)
+        self.routine_headless = True if routine_headless is None else bool(routine_headless)
 
         # Tự động đăng video. Ép kiểu ngay tại đây chứ không tin dữ liệu trong
         # agents.json: file đó do người dùng / bản cũ ghi, một chuỗi "3" lọt vào
@@ -322,6 +327,7 @@ class Agent:
             "script_output_format": getattr(self, "script_output_format", "json"),
             "routine_in_chat": getattr(self, "routine_in_chat", True),
             "humanlike_behavior": getattr(self, "humanlike_behavior", False),
+            "routine_headless": getattr(self, "routine_headless", True),
             "auto_publish": getattr(self, "auto_publish", False),
             "publish_token_id": getattr(self, "publish_token_id", "") or "",
             "publish_channel_id": getattr(self, "publish_channel_id", "") or "",

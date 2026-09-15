@@ -1110,6 +1110,18 @@ def build_email_prompt(behavior, time_period, topics, recipients):
     return None, None
 
 
+def _routine_headless(agent) -> bool:
+    """Lượt chạy theo lịch / Run now mở trình duyệt ẨN (không cửa sổ) hay không.
+
+    Mặc định ẨN: trên Windows/macOS mỗi lượt hẹn giờ từng bật một cửa sổ Chrome thật lên
+    màn hình người dùng đang làm việc (user 15/9/2026: "tắt chế độ bật browser trực tiếp,
+    chỉ chạy nền trên Flow"). Live view của Flow bám vào phiên qua CDP
+    (--remote-debugging-port=0 + _attach_offer) nên vẫn xem và can thiệp được. Máy không
+    màn hình (VPS) thì open.js/ShardX vốn đã ẩn — cờ này không đổi gì ở đó.
+    """
+    return bool(getattr(agent, "routine_headless", True))
+
+
 def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedule"):
     """Callback for running an agent's daily behavior routine on schedule.
 
@@ -1714,7 +1726,7 @@ def run_agent_routine(agent_id: str, run_id: str = None, trigger: str = "schedul
                 result = browser_process_manager.spawn(
                     profile=_prof,
                     prompt=prompt,
-                    headless=False,
+                    headless=_routine_headless(agent),   # ẩn cửa sổ, xem qua Flow (xem _routine_headless)
                     manual=False,
                     ai_model=browser_ai["model"],
                     context=context,
@@ -2089,6 +2101,7 @@ class AgentCreateRequest(PublishSettingsBase):
     script_output_format: Optional[str] = "json"
     routine_in_chat: Optional[bool] = True
     humanlike_behavior: Optional[bool] = False
+    routine_headless: Optional[bool] = True
     # Tự động đăng video sau lượt thu thập. Mặc định khớp Agent.__init__ để một
     # POST không nhắc tới nhóm này sinh ra agent y hệt hàm dựng.
     auto_publish: Optional[bool] = False
@@ -2163,6 +2176,7 @@ class AgentUpdateRequest(PublishSettingsBase):
     script_output_format: Optional[str] = None
     routine_in_chat: Optional[bool] = None
     humanlike_behavior: Optional[bool] = None
+    routine_headless: Optional[bool] = None
     # None = "không đụng tới": update_agent gọi model_dump(exclude_none=True),
     # nên một PUT chỉ sửa lịch không được vô tình tắt auto_publish.
     auto_publish: Optional[bool] = None
