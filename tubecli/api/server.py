@@ -5743,6 +5743,11 @@ app.include_router(_terminal_router)
 from tubecli.api.app_routes import router as _app_router
 app.include_router(_app_router)
 
+# AI tạo ảnh DÙNG CHUNG (Cloudflare/Gemini/9Router): cài đặt, danh sách model, vẽ thử, vẽ, phát file.
+# Content Studio, Thumbnail Studio… gọi vào đây thay vì mỗi extension một bộ vẽ (15/9/2026).
+from tubecli.api.image_routes import router as _image_router
+app.include_router(_image_router)
+
 
 # ── Register Extension Routes ───────────────────────────────────────
 from tubecli.core.extension_manager import extension_manager
