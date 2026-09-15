@@ -474,22 +474,12 @@ body {
 .cx-ev.k-progress .material-symbols-outlined { color: var(--cx-orange); }
 .cx-ev.k-progress .cx-ev-msg { color: var(--text); }
 
-/* Ô «Đang làm»: bước đang chạy, việc AI đang làm, tiến độ, đã chạy / còn lại (15/9/2026) */
-.cx-now {
-    margin: 0 0 10px; padding: 10px 12px; border-radius: var(--radius-sm);
-    border: 1px solid color-mix(in srgb, var(--cx-orange) 30%, transparent);
-    background: color-mix(in srgb, var(--cx-orange) 6%, transparent);
-}
-.cx-now.idle { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-muted); border-color: var(--border-subtle); background: var(--bg2); }
-.cx-now.idle .material-symbols-outlined { font-size: 16px; }
-.cx-now-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.cx-now-head .material-symbols-outlined { font-size: 18px; color: var(--cx-orange); }
-.cx-now-title { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--cx-orange); }
-.cx-now-step { font-size: 0.88rem; font-weight: 600; }
-.cx-now-pct { margin-left: auto; font-family: var(--mono); font-size: 0.8rem; font-weight: 600; color: var(--text2); }
-.cx-now-msg { margin-top: 4px; font-size: 0.84rem; color: var(--text); word-break: break-word; }
-.cx-now .cx-step-bar { margin-top: 7px; }
-.cx-now-time { margin-top: 5px; font-size: 0.74rem; color: var(--text-muted); font-family: var(--mono); }
+/* Bước đang chạy = nơi duy nhất kể đang làm gì / tới đâu / còn bao lâu (15/9/2026, bỏ ô «Đang làm» trùng thanh) */
+.cx-step.running .cx-step-msg { color: var(--text); font-size: 0.82rem; }
+.cx-step-eta { margin-top: 3px; font-size: 0.72rem; color: var(--text-muted); font-family: var(--mono); }
+.cx-step-eta:empty { display: none; }
+.cx-step-wait { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.78rem; color: var(--text-muted); }
+.cx-step-wait .material-symbols-outlined { font-size: 15px; }
 
 .cx-muted { font-size: 0.8rem; color: var(--text-muted); font-style: italic; }
 .cx-approval-note {

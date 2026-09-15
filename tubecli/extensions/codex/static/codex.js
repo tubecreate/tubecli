@@ -649,25 +649,24 @@ const CODEX = (() => {
           <div class="cx-timeline">${steps.map(s => {
             const st = STEP_ICON[s.status] ? s.status : 'pending';
             const d = duration(s.started_at, s.ended_at);
-            // Long-running steps (download, encode) publish 0-100 so the user
-            // sees movement instead of an indeterminate spinner.
-            const pctRaw = (s.progress === null || s.progress === undefined)
-              ? null : Number(s.progress);
-            const pct = (pctRaw !== null && isFinite(pctRaw))
-              ? Math.max(0, Math.min(100, pctRaw)) : null;
-            const showBar = pct !== null && st === 'running';
+            // Bước đang chạy là NƠI DUY NHẤT kể "đang làm gì / tới đâu / còn bao lâu" — một thanh tiến độ, một câu,
+            // một dòng thời gian (user 15/9/2026: "trùng bar, thiết kế tối ưu dễ theo dõi hơn"). Phần đã xong: %
+            // máy chủ gửi, không có thì đọc "12/69" / "scenes 7-12 of 60".
+            const frac = st === 'running' ? stepFraction(s) : null;
+            const showBar = frac !== null;
             return `<div class="cx-step ${esc(st)}">
                 <span class="cx-step-dot"></span>
                 <div class="cx-step-head">
                   <span class="cx-step-label">${esc(s.label || s.name || '')}</span>
                   <span class="cx-step-status">${esc(stepLabel(st))}</span>
-                  ${showBar ? `<span class="cx-step-pct">${esc(pct.toFixed(0))}%</span>` : ''}
+                  ${showBar ? `<span class="cx-step-pct">${esc(String(Math.round(frac * 100)))}%</span>` : ''}
                   ${d ? `<span class="cx-step-time">${esc(d)}</span>` : ''}
                 </div>
-                ${showBar ? `<div class="cx-step-bar"><span style="width:${pct.toFixed(1)}%"></span></div>` : ''}
-                ${s.message ? `<div class="cx-step-msg">${esc(s.message)}</div>` : ''}
+                ${showBar ? `<div class="cx-step-bar"><span style="width:${(frac * 100).toFixed(1)}%"></span></div>` : ''}
+                ${s.message && s.message !== s.label ? `<div class="cx-step-msg">${esc(s.message)}</div>` : ''}
+                ${st === 'running' ? stepEtaHtml(s, frac) : ''}
               </div>`;
-          }).join('')}</div>
+          }).join('')}${waitingHtml(task)}</div>
         </div>`);
     }
 
@@ -696,7 +695,6 @@ const CODEX = (() => {
     // Event log
     parts.push(`<div class="cx-section">
         <div class="cx-section-title">${icon('history')}${esc(t('codex.section_events'))}</div>
-        <div id="cx-now-${id}">${nowHtml(task)}</div>
         <div class="cx-events" id="cx-ev-${id}">${eventsHtml(task.id)}</div>
       </div>`);
 
@@ -726,32 +724,18 @@ const CODEX = (() => {
     return null;
   }
 
-  /** Ô «Đang làm» (user 15/9/2026: "phải thể hiện được AI nó đang làm cái gì tới bước nào, làm tới đâu, bao lâu
-   *  xong"). Chỉ phần TĨNH ở đây — thời gian đã chạy / còn lại do patchNow() điền mỗi nhịp, để danh sách không phải
+  /** Chỗ trống "đã chạy … · còn khoảng …" dưới bước đang chạy — patchNow() điền mỗi nhịp, để danh sách không phải
    *  vẽ lại mỗi giây. */
-  function nowHtml(task) {
+  function stepEtaHtml(s, frac) {
+    const f = (frac === null || frac === undefined) ? '' : Number(frac).toFixed(4);
+    return `<div class="cx-step-eta" data-start="${esc(s.started_at || '')}" data-frac="${f}"></div>`;
+  }
+
+  /** Task đang chạy mà chưa bước nào chạy (giữa hai bước): nói ra thay vì để trống. */
+  function waitingHtml(task) {
     const steps = Array.isArray(task.steps) ? task.steps : [];
-    const running = steps.filter(s => s.status === 'running').slice(-1)[0];
-    if (!running) {
-      if (task.status === 'running') {
-        return `<div class="cx-now idle">${icon('hourglass_top')}<span>${esc(t('codex.now_waiting'))}</span></div>`;
-      }
-      return '';
-    }
-    const frac = stepFraction(running);
-    const label = running.label || running.name || '';
-    const msg = running.message && running.message !== label ? running.message : '';
-    return `<div class="cx-now" data-start="${esc(running.started_at || '')}" data-frac="${frac === null ? '' : frac.toFixed(4)}">
-        <div class="cx-now-head">
-          ${icon('progress_activity', 'cx-spin')}
-          <span class="cx-now-title">${esc(t('codex.now_title'))}</span>
-          <span class="cx-now-step">${esc(label)}</span>
-          ${frac !== null ? `<span class="cx-now-pct">${esc(String(Math.round(frac * 100)))}%</span>` : ''}
-        </div>
-        ${msg ? `<div class="cx-now-msg">${esc(msg)}</div>` : ''}
-        ${frac !== null ? `<div class="cx-step-bar"><span style="width:${(frac * 100).toFixed(1)}%"></span></div>` : ''}
-        <div class="cx-now-time"></div>
-      </div>`;
+    if (task.status !== 'running' || steps.some(s => s.status === 'running')) return '';
+    return `<div class="cx-step-wait">${icon('hourglass_top')}<span>${esc(t('codex.now_waiting'))}</span></div>`;
   }
 
   /** "đã chạy 1m 40s · còn khoảng 5m 0s" — ước tính từ thời gian đã chạy của bước và phần đã xong. */
@@ -771,37 +755,67 @@ const CODEX = (() => {
 
   function patchNow() {
     state.expanded.forEach(id => {
-      const box = $('cx-now-' + id);
-      const card = box && box.querySelector ? box.querySelector('.cx-now[data-start]') : null;
-      const slot = card ? card.querySelector('.cx-now-time') : null;
-      if (slot) slot.textContent = nowTimeText(card);
+      const card = $('cx-card-' + id);
+      if (!card || !card.querySelectorAll) return;
+      card.querySelectorAll('.cx-step-eta[data-start]').forEach(el => { el.textContent = nowTimeText(el); });
     });
+  }
+
+  /** Dòng của Activity = LỊCH SỬ gọn: bỏ "bắt đầu" (bước đang chạy đã hiện ở danh sách bước), gộp bước chỉ có MỘT câu
+   *  vào dòng kết thúc ("[Crawl extra sources] Xong · 0s · no extra sources"), ẩn checkpoint. Bước dài vẫn liệt kê
+   *  từng việc AI đã làm. */
+  function activityRows(evs) {
+    const rows = [];
+    const lastProgress = {};   // step → {count, idx}
+    for (const ev of evs || []) {
+      if (ev.actor === 'content_video' && ev.message === 'checkpoint') continue;
+      const kind = EVENT_ICON[ev.kind] ? ev.kind : 'log';
+      const d = ev.data || {};
+      const step = d.step || '';
+      if (kind === 'step' && d.label && d.status === 'running') {
+        if (d.detail) {
+          lastProgress[step] = { count: 1, idx: rows.length };
+          rows.push({ ev, kind: 'progress', who: d.label, msg: d.detail });
+        }
+        continue;
+      }
+      if (kind === 'progress') {
+        const info = lastProgress[step] || { count: 0, idx: -1 };
+        info.count += 1;
+        info.idx = rows.length;
+        lastProgress[step] = info;
+        rows.push({ ev, kind, who: d.label || step || ev.actor || 'system', msg: ev.message || '' });
+        continue;
+      }
+      if (kind === 'step' && d.label && d.status) {
+        let detail = d.detail || '';
+        const info = lastProgress[step];
+        if (info && info.count === 1 && info.idx === rows.length - 1) {
+          detail = detail || rows[info.idx].msg;
+          rows.pop();
+        }
+        delete lastProgress[step];
+        const head = stepLabel(d.status) + (typeof d.elapsed === 'number' ? ' · ' + fmtSecs(d.elapsed) : '');
+        rows.push({ ev, kind, who: d.label, msg: head + (detail ? ' · ' + detail : ''), status: d.status });
+        continue;
+      }
+      rows.push({ ev, kind, who: ev.actor || 'system', msg: ev.message || '' });
+    }
+    return rows;
   }
 
   function eventsHtml(taskId) {
     if (!state.eventsLoaded[taskId]) {
       return `<div class="cx-muted">${esc(t('codex.events_loading'))}</div>`;
     }
-    const evs = (state.events[taskId] || []).filter(ev => !(ev.actor === 'content_video' && ev.message === 'checkpoint'));
-    if (!evs.length) return `<div class="cx-muted">${esc(t('codex.no_events'))}</div>`;
-    return evs.map(ev => {
-      const kind = EVENT_ICON[ev.kind] ? ev.kind : 'log';
-      const d = ev.data || {};
-      // Dòng của một bước ghi TÊN BƯỚC thay cho "[worker]": nhìn là biết AI đang ở bước nào.
-      const who = (kind === 'step' || kind === 'progress') && (d.label || d.step) ? (d.label || d.step) : (ev.actor || 'system');
-      let msg = ev.message || '';
-      if (kind === 'step' && d.status && d.label) {
-        msg = d.status === 'running'
-          ? t('codex.ev_started') + (d.detail ? ' · ' + d.detail : '')
-          : stepLabel(d.status) + (typeof d.elapsed === 'number' ? ' · ' + fmtSecs(d.elapsed) : '') + (d.detail ? ' · ' + d.detail : '');
-      }
-      return `<div class="cx-ev k-${esc(kind)}${d.status ? ' s-' + esc(d.status) : ''}">
-          ${icon(EVENT_ICON[kind])}
-          <span class="cx-ev-time">${esc(clockTime(ev.ts))}</span>
-          <span class="cx-ev-actor">[${esc(who)}]</span>
-          <span class="cx-ev-msg">${esc(msg)}</span>
-        </div>`;
-    }).join('');
+    const rows = activityRows(state.events[taskId] || []);
+    if (!rows.length) return `<div class="cx-muted">${esc(t('codex.no_events'))}</div>`;
+    return rows.map(r => `<div class="cx-ev k-${esc(r.kind)}${r.status ? ' s-' + esc(r.status) : ''}">
+          ${icon(EVENT_ICON[r.kind])}
+          <span class="cx-ev-time">${esc(clockTime(r.ev.ts))}</span>
+          <span class="cx-ev-actor">[${esc(r.who)}]</span>
+          <span class="cx-ev-msg">${esc(r.msg)}</span>
+        </div>`).join('');
   }
 
   // ── Interaction ────────────────────────────────────────────────
