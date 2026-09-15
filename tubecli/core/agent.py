@@ -4,6 +4,7 @@ Manages AI agents with personas, routines, and skill assignments.
 """
 import json
 import datetime
+import re
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -86,6 +87,28 @@ def coerce_publish_fields(values: Dict[str, Any]) -> Dict[str, Any]:
     """Bản dùng cho cả một dict: chỉ động đến các khoá publish_* đã biết."""
     return {k: (coerce_publish_value(k, v) if k in PUBLISH_DEFAULTS else v)
             for k, v in values.items()}
+
+
+# Tab «Tài khoản đã cấp» của agent (cloud components/flow/AgentEditModal.js) KHÔNG có trường riêng: nó ghi
+# một khối vào system_prompt, dòng 2 là "creds: <credential_id>, <credential_id>". Đọc lại y như splitAuthBlock.
+AUTH_BLOCK_BEGIN = "[[AUTH-ACCESS-GUIDE]]"
+AUTH_BLOCK_END = "[[/AUTH-ACCESS-GUIDE]]"
+
+
+def granted_auth_creds(system_prompt: Any) -> List[str]:
+    """credential_id các tài khoản đã cấp cho agent ở tab Auth — theo thứ tự đã tick, không trùng."""
+    sp = str(system_prompt or "")
+    i = sp.find(AUTH_BLOCK_BEGIN)
+    if i < 0:
+        return []
+    j = sp.find(AUTH_BLOCK_END, i)
+    m = re.search(r"creds:\s*([^\n]+)", sp[i:] if j < 0 else sp[i:j])
+    out: List[str] = []
+    for c in (m.group(1).split(",") if m else []):
+        c = c.strip()
+        if c and c not in out:
+            out.append(c)
+    return out
 
 
 class Agent:

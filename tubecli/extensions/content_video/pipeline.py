@@ -73,12 +73,15 @@ RENDER_STEPS = [
     # Ảnh đại diện SAU khi có mp4 (Thumbnail Studio cắt frame từ video) và TRƯỚC
     # khi đăng (để gắn lên video). Tuỳ chọn, mặc định tắt — xem DEFAULTS["thumbnail"].
     ("thumbnail", "Design the thumbnail", "thumbnail", True),
-    # Đăng là bước CUỐI và luôn tuỳ chọn: mp4 đã dựng xong là thứ đáng giá, một
+    # Đăng luôn tuỳ chọn: mp4 đã dựng xong là thứ đáng giá, một
     # lần upload hỏng không được phép nuốt cả lượt dựng (xem _step_publish).
     ("publish", "Publish to YouTube", "publish", True),
+    # Lưu lên Google Drive là bước CUỐI: sau khi đăng để Sheet ghi được link YouTube + tiêu đề/mô tả/tag đã
+    # dùng. Tuỳ chọn, mặc định tắt — xem DEFAULTS["drive"] và _step_drive.
+    ("drive", "Save to Google Drive", "drive", True),
 ]
-# Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt: chỉ "publish".
-SOFT_FAIL_STEPS = {"publish", "thumbnail"}
+# Bước tuỳ chọn mà hỏng giữa chừng vẫn KHÔNG làm hỏng lượt — trừ khi người dùng ra lệnh (_publish_hard, _drive_hard).
+SOFT_FAIL_STEPS = {"publish", "thumbnail", "drive"}
 STEPS = PLAN_STEPS + RENDER_STEPS[1:]      # the full chain, for plan()/describe_plan()
 # Cùng dãy đó, nhưng để CHẠY: "capabilities" chỉ cần một lần cho cả lượt.
 AUTO_STEPS = PLAN_STEPS + RENDER_STEPS[1:]
@@ -129,6 +132,10 @@ DEFAULTS: Dict[str, Any] = {
     # Ảnh đại diện qua Thumbnail Studio: tắt mặc định; chat "có thumbnail" hay lượt
     # tự động đăng bật lên. thumbnail_template = id mẫu ("" = Studio tự chọn họ mẫu).
     "thumbnail": False, "thumbnail_template": "",
+    # ── Lưu lên Google Drive (bước "drive", sau cùng) ────────────────
+    # Thư mục mang tên tiêu đề: Sheet nội dung + video, ảnh, giọng từng cảnh. drive_token_id = token_id của
+    # Auth Manager (form Codex chọn); trống = tài khoản Google đã cấp cho agent ở tab Auth.
+    "drive": False, "drive_token_id": "",
 }
 POLL_SEC = 1.0
 TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800, "thumbnail": 900}
@@ -4664,6 +4671,7 @@ def _publish_via_script(state: Dict, options: Dict, privacy: str) -> None:
                "about": str(resolved.get("about") or "")}
     state["publish_channel"] = channel
     seo = _seo_for(state, options, channel)
+    state["seo"] = seo          # bước drive ghi tiêu đề/mô tả/tag đã dùng vào Sheet
 
     # ?d=ud là tham số mở HỘP THOẠI tải lên; thiếu nó Studio chỉ mở trang danh sách
     # video, script không thấy ô chọn file rồi "tự sửa" gõ nhầm vào ô tìm kiếm.
@@ -4791,6 +4799,7 @@ def _publish_via_api(state: Dict, options: Dict, privacy: str) -> None:
     state["publish_channel"] = channel
 
     seo = _seo_for(state, options, channel)
+    state["seo"] = seo          # bước drive ghi tiêu đề/mô tả/tag đã dùng vào Sheet
 
     last = [-1]
 
@@ -5142,6 +5151,265 @@ def _step_publish(state: Dict, options: Dict) -> None:
         raise RuntimeError(msg)
 
 
+# ── Lưu lên Google Drive (bước "drive") ──────────────────────────────
+# User 15/9/2026: "lưu nội dung đã tạo vào drive: nội dung lưu vào sheet, file audio, image và video upload lên
+# drive trong 1 project, folder đặt tên theo tiêu đề; chọn auth trong tạo task như đã chọn trong auth của agent".
+DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560}, "Scenes": {1: 320, 2: 460, 4: 230, 5: 230}, "Script": {0: 760}}
+
+
+def _drive_int(v: Any) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _drive_mb(n: float) -> str:
+    return f"{(n or 0) / 1048576:.1f} MB"
+
+
+def _drive_folder_name(state: Dict) -> str:
+    title = " ".join(str(state.get("title") or "").split())
+    if not title:
+        title = f"{getattr(state.get('agent'), 'name', '') or 'Video'} · {time.strftime('%Y-%m-%d %H%M')}"
+    return title[:120]
+
+
+def _drive_file_base(state: Dict) -> str:
+    """Tên file theo tiêu đề, bỏ ký tự Windows không cho — người ta hay tải cả thư mục Drive về máy."""
+    base = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", _drive_folder_name(state))
+    return " ".join(base.split()).strip(" .")[:100] or "video"
+
+
+def _data_file(path: Any) -> str:
+    """Đường dẫn thật nếu là FILE nằm trong DATA_DIR, không thì "".
+
+    Bước drive chỉ đưa lên thứ pipeline tạo ra: đường dẫn lấy từ shot của Studio, và ai sửa được shot không được
+    biến bước này thành lối đẩy một file bất kỳ trên máy lên Drive. Giọng edge/vibevoice lưu dạng
+    /api/v1/tts/audio/<tên> → tìm trong outputs của tts_vibevoice, như Studio (_shot_audio_path)."""
+    from tubecli.config import DATA_DIR, EXTENSIONS_EXTERNAL_DIR
+
+    p = str(path or "").strip()
+    if not p or p.startswith(("http://", "https://")):
+        return ""
+    if p.startswith("/api/"):
+        name = os.path.basename(p.split("?", 1)[0])
+        p = next((c for c in (os.path.join(str(DATA_DIR), "tts_vibevoice", "outputs", name),
+                              os.path.join(str(EXTENSIONS_EXTERNAL_DIR), "tts_vibevoice", "outputs", name))
+                  if name and os.path.isfile(c)), "")
+        if not p:
+            return ""
+    real = os.path.realpath(p)
+    return real if os.path.isfile(real) and _inside(real, os.path.realpath(str(DATA_DIR))) else ""
+
+
+def _drive_strict(state: Dict) -> bool:
+    """Task mang options này KHÔNG do người bấm tạo (AI tự gọi skill, lịch, kho nội dung) → chỉ được dùng tài khoản
+    đã cấp cho agent ở tab Auth. Lượt dựng lấy options từ task kế hoạch nên hỏi người tạo task kế hoạch.
+    Tra không được thì coi là nghiêm."""
+    tid = str(state.get("plan_task_id") or state.get("task_id") or "")
+    try:
+        from tubecli.extensions.codex.manager import codex_manager
+
+        task = codex_manager.get_task(tid) if tid else None
+    except Exception:       # noqa: BLE001
+        task = None
+    return str((task or {}).get("created_by") or "") != "user"
+
+
+def _drive_plan_note(options: Dict) -> str:
+    """Dòng kế hoạch: thư mục nào, trên Drive của ai — người duyệt thấy trước file sẽ về đâu."""
+    who = "the Google account granted to the agent in its Auth tab"
+    tid = str(options.get("drive_token_id") or "").strip()
+    if tid:
+        try:
+            from tubecli.extensions.content_video import drive_export as DX
+
+            tok = next((t for t in DX.google_tokens() if t.get("token_id") == tid), None)
+            who = DX.token_label(tok) if tok else "an account that is no longer in Auth Manager"
+        except Exception:       # noqa: BLE001
+            who = "the chosen Google account"
+    title = " ".join(str(options.get("title") or "").split())
+    folder = f"«{title[:80]}»" if title else "named after the video title"
+    return f"a folder {folder} on {who} — content sheet, images, voice and video"
+
+
+def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
+    """(shot theo thứ tự, file cần đưa lên [{key, path, name, sub, label}]) — sub "" | "images" | "audio"."""
+    base = _drive_file_base(state)
+    ups: List[Dict] = []
+
+    def add(key: str, path: Any, name: str, sub: str, label: str) -> None:
+        real = _data_file(path)
+        if real:
+            ups.append({"key": key, "path": real, "name": name + os.path.splitext(real)[1].lower(),
+                        "sub": sub, "label": label})
+
+    video = _data_file(state.get("video_path"))
+    add("video", video, base, "", "video")
+    main = _data_file(state.get("video_main_path"))
+    if main and main != video:
+        add("main", main, f"{base} (no layout)", "", "video")
+    add("thumbnail", state.get("thumbnail_path"), f"{base} (thumbnail)", "", "thumbnail")
+    shots: List[Dict] = []
+    if state.get("episode_id"):
+        try:
+            shots = sorted(_storyboards(int(state["episode_id"])),
+                           key=lambda s: (_drive_int(s.get("storyboard_number")), _drive_int(s.get("id"))))
+        except Exception as e:      # noqa: BLE001
+            state.setdefault("warnings", []).append(
+                f"Google Drive: could not read the scenes from Content Studio ({str(e)[:120]}) — the scene "
+                "images and voice files were not saved.")
+    for i, sh in enumerate(shots, 1):
+        n = f"scene_{i:03d}"
+        add(f"image:{i}", next((v for v in (sh.get("composed_image"), sh.get("image_url")) if _data_file(v)), ""),
+            n, "images", "image")
+        audio = _data_file(sh.get("tts_audio_url"))
+        add(f"audio:{i}", audio, n, "audio", "voice")
+        sh["_seconds"] = media_seconds(audio) if audio else 0.0
+    return shots, ups
+
+
+def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict) -> List[Tuple[str, List[List[Any]]]]:
+    """Ba tab: Overview (thông tin + link), Scenes (từng cảnh: hình, lời, giây, link ảnh/giọng), Script."""
+    seo = state.get("seo") or {}
+    pub = state.get("published") or {}
+    sources = [str(r.get("url") or r.get("title") or "").strip() for r in _seo_sources(state)]
+    overview = [["Field", "Value"]] + [row for row in (
+        ["Title", state.get("title") or rec.get("folder_name") or ""],
+        ["Language", language_name(state["language"]) if state.get("language") else ""],
+        ["Template", state.get("preset_name") or ""],
+        ["Agent", getattr(state.get("agent"), "name", "") or ""],
+        ["Saved", time.strftime("%Y-%m-%d %H:%M")],
+        ["Video length", clock(state["video_seconds"]) if state.get("video_seconds") else ""],
+        ["Scenes", len(shots) or state.get("shot_count") or ""],
+        ["Video", links.get("video", "")],
+        ["Video (no layout)", links.get("main", "")],
+        ["Thumbnail", links.get("thumbnail", "")],
+        ["Google Drive folder", rec.get("folder_url") or ""],
+        ["YouTube", pub.get("url") or ""],
+        ["YouTube title", seo.get("title") or pub.get("title") or ""],
+        ["YouTube description", seo.get("description") or ""],
+        ["YouTube tags", ", ".join(str(t) for t in (seo.get("tags") or []))],
+        ["Sources", "\n".join(s for s in sources if s)],
+    ) if row[1] not in ("", None, 0)]
+    scenes = [["Scene", "Visual", "Narration", "Seconds", "Image", "Audio"]]
+    for i, sh in enumerate(shots, 1):
+        scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""), _shot_narration(sh),
+                       sh.get("_seconds") or sh.get("duration") or "",
+                       links.get(f"image:{i}", ""), links.get(f"audio:{i}", "")])
+    script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]
+    return [("Overview", overview), ("Scenes", scenes), ("Script", script)]
+
+
+def _step_drive(state: Dict, options: Dict) -> None:
+    """Bước cuối (tuỳ chọn): thư mục mang tên tiêu đề trên Google Drive — Sheet nội dung + video, ảnh đại diện,
+    ảnh (images/) và giọng (audio/) từng cảnh.
+
+    Retry không nhân đôi: thư mục + Sheet nằm trong checkpoint, file đã có cùng tên cùng cỡ thì bỏ qua.
+    Hỏng → cảnh báo trước rồi ném, như bước đăng: người dùng tick thì task hỏng để có Retry (_drive_hard),
+    lịch tự đăng thì chỉ ghi chú (mp4 vẫn còn nguyên)."""
+    if not options.get("drive"):
+        state["_say"]("drive", "skipped", "off")
+        return
+    try:
+        _drive_save(state, options)
+    except Exception as e:
+        if _is_cancel(e):
+            raise
+        msg = str(e)[:300]
+        state["drive_error"] = msg
+        rec = state.get("drive") or {}
+        kept = str(state.get("video_path") or "")
+        detail = ((f" — what was uploaded so far is in {rec['folder_url']}" if rec.get("folder_url") else "")
+                  + (f" — the video is rendered and kept at `{kept}`" if kept else ""))
+        hint = "; Retry uploads only what is missing." if options.get("_drive_hard") else "."
+        full = f"Saving to Google Drive failed: {msg}{detail}{hint}"
+        state.setdefault("warnings", []).append(full)
+        raise RuntimeError(full if options.get("_drive_hard") else msg)
+
+
+def _drive_save(state: Dict, options: Dict) -> None:
+    from tubecli.core.agent import granted_auth_creds
+    from tubecli.extensions.content_video import drive_export as DX
+
+    say, cancelled = state["_say"], state["_cancelled"]
+    if not _data_file(state.get("video_path")):
+        raise RuntimeError("Nothing to save — the render step produced no video file.")
+    tok = DX.resolve_token(str(options.get("drive_token_id") or ""),
+                           granted_auth_creds(getattr(state.get("agent"), "system_prompt", "") or ""),
+                           strict=_drive_strict(state))
+    token_id, who = str(tok.get("token_id") or ""), DX.token_label(tok)
+    say("drive", "running", f"connecting to Google Drive as {who}")
+    drive, sheets = DX.services(token_id)
+
+    rec = dict(state.get("drive") or (state.get("checkpoint") or {}).get("drive") or {})
+    # Thư mục của lượt trước chỉ dùng lại khi CÙNG tài khoản và còn đó (người dùng có thể đã xoá nó).
+    folder = (DX.file_alive(drive, rec["folder_id"])
+              if rec.get("folder_id") and rec.get("token_id") == token_id else None)
+    if not folder:
+        folder = DX.create_folder(drive, DX.unique_name(drive, "root", _drive_folder_name(state)), "root")
+        rec = {}
+    rec.update({"token_id": token_id, "email": who, "folder_id": folder["id"],
+                "folder_name": folder.get("name") or "", "folder_url": folder.get("webViewLink") or ""})
+    state["drive"] = rec
+    _checkpoint_merge(state, {"drive": rec})
+
+    shots, ups = _drive_plan(state)
+    links: Dict[str, str] = {}
+    # Sheet TRƯỚC file: tải hỏng giữa chừng thì nội dung (kịch bản, từng cảnh) vẫn đã nằm trên Drive.
+    sheet = DX.file_alive(drive, rec["sheet_id"]) if rec.get("sheet_id") else None
+    if not sheet:
+        sheet = DX.create_sheet(drive, f"{rec['folder_name']} — content", rec["folder_id"])
+    rec.update({"sheet_id": sheet["id"], "sheet_url": sheet.get("webViewLink") or ""})
+    say("drive", "running", "writing the content sheet")
+    DX.write_sheet(sheets, rec["sheet_id"], _drive_tabs(state, shots, links, rec), DRIVE_WIDTHS)
+    _checkpoint_merge(state, {"drive": rec})
+
+    parents = {"": rec["folder_id"]}
+    have = {"": DX.list_children(drive, rec["folder_id"])}
+    for sub in ("images", "audio"):
+        if any(u["sub"] == sub for u in ups):
+            parents[sub] = DX.ensure_folder(drive, rec["folder_id"], sub, have[""])["id"]
+            have[sub] = DX.list_children(drive, parents[sub])
+    todo = []
+    for u in ups:
+        size = os.path.getsize(u["path"])
+        old = have[u["sub"]].get(u["name"])
+        # Cùng tên CÙNG cỡ = lượt trước đã tải xong file này (Retry, máy chủ khởi động lại) → không tải lại.
+        if old and str(old.get("size") or "") == str(size):
+            links[u["key"]] = str(old.get("webViewLink") or "")
+        else:
+            todo.append((u, size, old))
+    total = float(sum(s for _, s, _ in todo)) or 1.0
+    sent_before = 0
+    for n, (u, size, old) in enumerate(todo, 1):
+        if cancelled():
+            raise _cancel_exc()
+
+        def progress(sent: int, _base: int = sent_before, _u: Dict = u, _n: int = n, _size: int = size) -> None:
+            done = _base + min(int(sent or 0), _size)
+            say("drive", "running",
+                f"uploading {_u['label']} {_n}/{len(todo)} · {_drive_mb(done)} of {_drive_mb(total)}",
+                round(100.0 * done / total, 1))
+
+        f = DX.upload_file(drive, u["path"], u["name"], parents[u["sub"]], progress, cancelled, _cancel_exc)
+        links[u["key"]] = str((f or {}).get("webViewLink") or "")
+        sent_before += size
+        if old and old.get("id"):
+            # Bản cũ khác cỡ (video dựng lại) → thùng rác, kẻo thư mục có hai file cùng tên.
+            try:
+                DX.trash_file(drive, old["id"])
+            except Exception as e:      # noqa: BLE001
+                logger.info(f"[ContentVideo] could not trash the old {u['name']} on Drive: {e}")
+    rec.update({"files": len(ups), "uploaded": len(todo)})
+    say("drive", "running", "adding the file links to the content sheet")
+    DX.write_sheet(sheets, rec["sheet_id"], _drive_tabs(state, shots, links, rec), DRIVE_WIDTHS)
+    state["drive"] = rec
+    _checkpoint_merge(state, {"drive": rec})
+    say("drive", "running", f"saved {len(ups)} file(s) and the content sheet to “{rec['folder_name']}”", 100)
+
+
 _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "capabilities": _step_capabilities,
     "gather": _step_gather,
@@ -5154,6 +5422,7 @@ _HANDLERS: Dict[str, Callable[[Dict, Dict], None]] = {
     "render": _step_render,
     "thumbnail": _step_thumbnail,
     "publish": _step_publish,
+    "drive": _step_drive,
 }
 
 
@@ -5200,6 +5469,8 @@ def describe_plan(options: Dict[str, Any]) -> str:
     if str(options.get("instructions") or "").strip():
         note = " ".join(str(options["instructions"]).split())
         lines.append(f"- Extra instructions: {note[:160]}{'…' if len(note) > 160 else ''}")
+    if options.get("drive"):
+        lines.append(f"- Save to Google Drive: {_drive_plan_note(options)}")
     try:
         _tw = int(options.get("target_words") or 0)
     except (TypeError, ValueError):
@@ -5245,6 +5516,9 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
                     state.setdefault("warnings", []).append(
                         f"Nothing was published: {label} needs `{gaps}` — the video is rendered "
                         "but it never reached YouTube.")
+                if sid == "drive" and options.get("drive"):
+                    state.setdefault("warnings", []).append(
+                        f"Nothing was saved to Google Drive: {label} needs `{gaps}`.")
                 continue
             say(sid, "error", f"needs {gaps}")
             raise RuntimeError(guidance_for([job]) or f"{label} needs {gaps}.")
@@ -5266,7 +5540,8 @@ def _run_steps(steps, state: Dict, options: Dict, say, cancelled,
             # đứng xem để bấm Retry). Lượt do NGƯỜI DÙNG ra lệnh "đăng luôn" mà đăng
             # hỏng thì task phải HỎNG để có nút Retry: về REVIEW là kẹt (Request
             # changes dựng lại từ đầu). Retry chạy tiếp từ checkpoint, không làm lại.
-            soft = sid in SOFT_FAIL_STEPS and not (sid == "publish" and options.get("_publish_hard"))
+            soft = (sid in SOFT_FAIL_STEPS and not (sid == "publish" and options.get("_publish_hard"))
+                    and not (sid == "drive" and options.get("_drive_hard")))
             if optional and not required and soft:
                 notes.append(f"- **{label}** failed: {str(e)[:200]}")
                 continue
@@ -5505,7 +5780,11 @@ def run_render(payload: Dict[str, Any],
     # mp4 đã dựng là thứ đáng giá nhất của lượt này: một lần đăng hỏng KHÔNG
     # được phép đánh đổ cả lượt, nên "publish" bị gạt khỏi required_steps kể cả
     # khi ai đó lỡ liệt nó vào.
-    options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s != "publish"]
+    options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s not in ("publish", "drive")]
+    # Lưu Drive do người dùng tick: hỏng → task hỏng để có Retry (chỉ tải phần còn thiếu), như _publish_hard.
+    options["_drive_hard"] = bool(options.get("drive")) and not options.get("autopublish")
+    # Tài khoản Drive: options của lượt dựng đi từ task KẾ HOẠCH — _drive_strict hỏi người tạo task đó.
+    state["plan_task_id"] = str(payload.get("plan_task_id") or "")
     notes: List[str] = []
     skipped_jobs: List[str] = []
     started = time.time()
@@ -5541,10 +5820,11 @@ def run_auto(payload: Dict[str, Any],
     state["feedback"] = []
     # mp4 dựng được là thứ đáng giá nhất; một lần đăng hỏng không được đánh đổ
     # cả lượt (cùng lý do như run_render).
-    options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s != "publish"]
+    options["required_steps"] = [s for s in (options.get("required_steps") or ()) if s not in ("publish", "drive")]
     # Lượt do người dùng ra lệnh "đăng luôn" (không phải lịch tự động): đăng hỏng →
     # task hỏng để có Retry; Retry chạy tiếp từ checkpoint. Lịch tự động giữ mp4 + cảnh báo.
     options["_publish_hard"] = bool(options.get("publish")) and not options.get("autopublish")
+    options["_drive_hard"] = bool(options.get("drive")) and not options.get("autopublish")
     notes: List[str] = []
     skipped_jobs: List[str] = []
     started = time.time()
@@ -5696,7 +5976,7 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
     # Mọi cảnh báo khác cũng vậy — bản tin 🔔 đã đổi icon theo warnings, nên một
     # lượt "xong mà không sạch" (bước đăng bị bỏ vì thiếu Video Manager, SEO
     # câm, video rơi nhầm kênh) không được phép hiện dấu tích sạch ở đây.
-    dirty = bool(state.get("publish_error") or state.get("warnings"))
+    dirty = bool(state.get("publish_error") or state.get("drive_error") or state.get("warnings"))
     icon = "⚠️" if dirty else "✅"
     tail = " — completed with warning" if dirty else ""
     length = (f"video {clock(state['video_seconds'])}" if state.get("video_seconds")
@@ -5726,6 +6006,12 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append("- ℹ️ Share links are relative: TubeCLI does not know this server's public address yet. "
                      "Open the dashboard once through its public domain (or set TUBECLI_PUBLIC_URL) "
                      "and the next run prints full links.")
+    drive = state.get("drive") or {}
+    if drive.get("folder_url") and not state.get("drive_error"):
+        lines.append(f"- **Google Drive**: {drive['folder_url']}"
+                     + (f" · content sheet {drive['sheet_url']}" if drive.get("sheet_url") else "")
+                     + f" · {drive.get('files', 0)} file(s)"
+                     + (f" · {drive['email']}" if drive.get("email") else ""))
     if published.get("title") and published["title"] != state.get("title"):
         lines.append(f"- **Title on YouTube**: {published['title']}")
     if state.get("title"):
@@ -5870,6 +6156,8 @@ def create_auto_task(agent_id: str, options: Optional[Dict] = None,
     # Lịch tự đăng luôn publish=True (autopublish.py) nên câu của nó giữ nguyên.
     start = "Nội dung dán vào" if options.get("source_text") else "Thu thập xong"
     end = " → đăng thẳng lên YouTube" if options.get("publish") else ""
+    if options.get("drive"):
+        end += " → lưu lên Google Drive"
     done = "video đã lên rồi" if options.get("publish") else "video đã dựng xong"
     title, head = _task_heading(options, job_label, name)
     goal = (f"{head}\n\n"

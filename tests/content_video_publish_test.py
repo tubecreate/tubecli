@@ -563,8 +563,9 @@ check("G   chưa đăng thì vẫn mời Accept / Request changes như cũ",
 check("G DEFAULTS: publish tắt, privacy public, các khoá SEO có sẵn",
       P.DEFAULTS["publish"] is False and P.DEFAULTS["publish_privacy"] == "public"
       and P.DEFAULTS["publish_token_id"] == "" and P.DEFAULTS["seo_tags"] == [], P.DEFAULTS)
-check("G publish là bước CUỐI của lượt dựng và tuỳ chọn",
-      P.RENDER_STEPS[-1][0] == "publish" and P.RENDER_STEPS[-1][3] is True, P.RENDER_STEPS[-1])
+check("G publish tuỳ chọn, ngay trước bước cuối «drive» (Sheet trên Drive ghi được link YouTube)",
+      P.RENDER_STEPS[-2][0] == "publish" and P.RENDER_STEPS[-2][3] is True and P.RENDER_STEPS[-1][0] == "drive",
+      P.RENDER_STEPS[-2:])
 print("G tat        : không hỏi token, không đăng, kết quả sạch | mặc định tắt + public")
 
 # ── J. bật publish mà bước bị bỏ vì thiếu năng lực ─────────────────────────

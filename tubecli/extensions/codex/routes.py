@@ -401,13 +401,15 @@ async def list_assignees():
     agents: List[Dict[str, str]] = []
     teams: List[Dict[str, str]] = []
     try:
-        from tubecli.core.agent import agent_manager
+        from tubecli.core.agent import agent_manager, granted_auth_creds
 
         agents = [
             # `model` để cửa sổ "Tạo video" nói được AI NÀO viết kịch bản — chuỗi
             # lỗi định tuyến 9Router/OpenRouter đều bắt đầu từ chỗ không ai thấy nó.
             {"id": a.id, "name": a.name, "role": a.role or "general",
-             "model": str(getattr(a, "model", "") or "")}
+             "model": str(getattr(a, "model", "") or ""),
+             # Tài khoản đã cấp ở tab Auth (credential_id): ô «Lưu lên Google Drive» chọn sẵn theo đây.
+             "auth_creds": granted_auth_creds(getattr(a, "system_prompt", "") or "")}
             for a in agent_manager.get_all()
         ]
     except Exception as e:

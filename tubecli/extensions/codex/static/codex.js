@@ -78,6 +78,8 @@ const CODEX = (() => {
     planning: {},         // taskId -> bool
     planOpen: new Set(),  // task ids whose AI plan is expanded — collapsed by default
     assignees: null,
+    googleTokens: null,       // tài khoản Google của Auth Manager cho «Lưu lên Google Drive»; false = tải hỏng
+    googleTokensError: '',
     auto: true,
     loaded: false,
     createdTask: null,
@@ -1047,6 +1049,8 @@ const CODEX = (() => {
     state.ytProbe = null;
     $('cx-v-keeptheme').checked = lsGet(CV_KEEP_THEME_KEY) !== '0';
     $('cx-v-instructions').value = lsGet(CV_INSTR_KEY) || '';
+    $('cx-v-drive').checked = lsGet(CV_DRIVE_KEY) === '1';
+    state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
     $('cx-v-length').innerHTML = '';          // rỗng → renderVideoLength lấy lựa chọn đã nhớ
@@ -1061,6 +1065,8 @@ const CODEX = (() => {
     // Mẫu và agent là hai lời gọi độc lập — nạp song song, đừng bắt người dùng
     // chờ cái này xong mới thấy cái kia.
     const presetsReady = loadPresets();
+    const driveReady = loadGoogleTokens();
+    renderDriveAccounts();
 
     const sel = $('cx-f-assignee');
     sel.innerHTML = `<option value="">${esc(t('codex.assignee_auto_option'))}</option>`;
@@ -1080,6 +1086,7 @@ const CODEX = (() => {
     pickSaved(sel, lsGet(G_ASSIGNEE_KEY));
     fillVideoAgents(data.agents);
     presetsReady.then(fillVideoPresets);
+    driveReady.then(renderDriveAccounts);   // sau fillVideoAgents: chọn sẵn theo tab Auth của agent
   }
 
   async function submitNewTask() {
@@ -1149,6 +1156,10 @@ const CODEX = (() => {
     if (keepTheme) lsSet(CV_KEEP_THEME_KEY, keepTheme.checked ? '1' : '0');
     const instr = $('cx-v-instructions');
     if (instr) lsSet(CV_INSTR_KEY, (instr.value || '').slice(0, CV_INSTR_MAX));
+    const drive = $('cx-v-drive');
+    if (drive) lsSet(CV_DRIVE_KEY, drive.checked ? '1' : '0');
+    const driveToken = $('cx-v-drive-token');
+    if (drive && drive.checked && driveToken && driveToken.value) lsSet(CV_DRIVE_TOKEN_KEY, driveToken.value);
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -1276,7 +1287,108 @@ const CODEX = (() => {
 
   function onVideoAgent() {
     lsSet(CV_AGENT_KEY, $('cx-v-agent').value || '');
+    renderDriveAccounts();          // tài khoản Drive chọn sẵn theo tab Auth của agent vừa chọn
   }
+
+  // ── «Lưu lên Google Drive»: tài khoản Google nhận Sheet nội dung + ảnh + giọng + video ──
+  /** Ghi được Drive không — PHẢI khớp content_video/drive_export.py can_write (drive_readonly thì không). */
+  function driveCanWrite(scopes) {
+    const joined = ' ' + (scopes || []).join(' ') + ' ';
+    return joined.includes(' drive ') || joined.includes(' drive_file ')
+      || joined.includes('auth/drive ') || joined.includes('auth/drive.file');
+  }
+
+  /** Tài khoản chọn sẵn. Tab Auth của agent thắng (user: "chọn auth trong tạo task như đã chọn trong auth của
+   *  agent"): đang chọn một tài khoản đã cấp → giữ; không thì tài khoản đã cấp đầu tiên (đang sống trước).
+   *  Agent chưa cấp tài khoản Drive nào → giữ lựa chọn hiện tại / lần gần nhất / tài khoản đầu tiên. */
+  function pickDriveToken(tokens, granted, current, saved) {
+    const creds = granted || [];
+    const usable = (tokens || []).filter(x => x.status !== 'revoked' && driveCanWrite(x.scopes));
+    const has = id => !!id && usable.some(x => x.token_id === id);
+    const mine = usable.filter(x => creds.includes(x.credential_id))
+      .sort((p, q) => ((p.status !== 'active') - (q.status !== 'active'))
+        || (creds.indexOf(p.credential_id) - creds.indexOf(q.credential_id)));
+    if (current && mine.some(x => x.token_id === current)) return current;
+    if (mine.length) return mine[0].token_id;
+    if (has(current)) return current;
+    if (has(saved)) return saved;
+    return usable.length ? usable[0].token_id : '';
+  }
+
+  function videoAgentGranted() {
+    const id = $('cx-v-agent').value || '';
+    const a = ((state.assignees && state.assignees.agents) || []).find(x => x.id === id);
+    return { name: a ? (a.name || a.id) : '', creds: (a && a.auth_creds) || [] };
+  }
+
+  async function loadGoogleTokens() {
+    try {
+      const data = await request('/api/v1/auth-manager/tokens?provider=google');
+      state.googleTokens = (data && data.tokens) || [];
+      state.googleTokensError = '';
+    } catch (e) {
+      state.googleTokens = false;
+      state.googleTokensError = (e && e.message) || String(e);
+    }
+  }
+
+  function renderDriveAccounts() {
+    const on = !!$('cx-v-drive').checked;
+    $('cx-v-drive-wrap').classList.toggle('hidden', !on);
+    const sel = $('cx-v-drive-token');
+    const hint = $('cx-v-drive-hint');
+    const tokens = state.googleTokens;
+    hint.classList.remove('warn');
+    if (tokens === null) {
+      sel.innerHTML = `<option value="">${esc(t('codex.cv_drive_loading'))}</option>`;
+      sel.disabled = true;
+      hint.textContent = '';
+      return;
+    }
+    // Tài khoản dính tới Drive, kể cả chỉ đọc: hiện nhưng khoá, để người dùng hiểu vì sao không chọn được.
+    const list = (tokens || []).filter(x => x.status !== 'revoked' && (x.scopes || []).join(' ').includes('drive'));
+    const agent = videoAgentGranted();
+    const pick = pickDriveToken(list, agent.creds, sel.value || '', lsGet(CV_DRIVE_TOKEN_KEY));
+    if (!pick) {
+      sel.innerHTML = '<option value="">—</option>';
+      sel.disabled = true;
+      hint.textContent = tokens === false
+        ? t('codex.cv_drive_load_failed', { msg: state.googleTokensError || '' })
+        : t('codex.cv_drive_none');
+      hint.classList.add('warn');
+      return;
+    }
+    const label = x => (x.authorized_email || x.credential_name || x.token_id)
+      + (x.authorized_email && x.credential_name ? ' · ' + x.credential_name : '');
+    const opt = x => {
+      const ro = !driveCanWrite(x.scopes);
+      return `<option value="${esc(x.token_id)}"${ro ? ' disabled' : ''}>${esc(label(x))}`
+        + `${ro ? ' — ' + esc(t('codex.cv_drive_readonly')) : ''}</option>`;
+    };
+    const mine = list.filter(x => agent.creds.includes(x.credential_id));
+    const others = list.filter(x => !agent.creds.includes(x.credential_id));
+    sel.innerHTML = mine.length
+      ? `<optgroup label="${esc(t('codex.cv_drive_group_granted', { agent: agent.name }))}">${mine.map(opt).join('')}</optgroup>`
+        + (others.length ? `<optgroup label="${esc(t('codex.cv_drive_group_other'))}">${others.map(opt).join('')}</optgroup>` : '')
+      : others.map(opt).join('');
+    sel.disabled = false;
+    sel.value = pick;
+    renderDriveHint();
+  }
+
+  function renderDriveHint() {
+    const hint = $('cx-v-drive-hint');
+    const sel = $('cx-v-drive-token');
+    const tok = (state.googleTokens || []).find(x => x.token_id === sel.value);
+    hint.classList.remove('warn');
+    if (!tok) { hint.textContent = ''; return; }
+    const agent = videoAgentGranted();
+    hint.textContent = t(agent.creds.includes(tok.credential_id)
+      ? 'codex.cv_drive_granted_hint' : 'codex.cv_drive_not_granted_hint', { agent: agent.name });
+  }
+
+  function onVideoDrive() { renderDriveAccounts(); }
+  function onVideoDriveToken() { renderDriveHint(); }
 
   // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
   const CV_LENGTH_KEY = 'codex.cvLength';
@@ -1285,6 +1397,9 @@ const CODEX = (() => {
   const CV_KEEP_THEME_KEY = 'codex.cvKeepTheme';   // '1' | '0' — «Tham khảo cấu trúc» giữ chủ đề nguồn
   const CV_INSTR_KEY = 'codex.cvInstructions';     // lời dặn thêm cho AI (nhớ lần gần nhất)
   const CV_INSTR_MAX = 2000;
+  // «Lưu lên Google Drive»: bật/tắt + tài khoản nhận file (token_id của Auth Manager) — nhớ lần gần nhất.
+  const CV_DRIVE_KEY = 'codex.cvDrive';              // '1' | '0'
+  const CV_DRIVE_TOKEN_KEY = 'codex.cvDriveToken';
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -1537,6 +1652,13 @@ const CODEX = (() => {
       toast(t('codex.toast_video_agent_required'), 'error');
       return;
     }
+    const drive = !!$('cx-v-drive').checked;
+    const driveToken = drive ? ($('cx-v-drive-token').value || '') : '';
+    if (drive && !driveToken) {
+      toast(t('codex.toast_video_drive_account_required'), 'error');
+      $('cx-v-drive-token').focus();
+      return;
+    }
     const review = !!$('cx-v-review').checked;
     rememberNewTaskForm();
     const title = ($('cx-v-title').value || '').trim();
@@ -1556,6 +1678,8 @@ const CODEX = (() => {
       options.length_mode = 'content';
       delete options.target_words;
     }
+    // Lưu lên Google Drive khi xong: token_id cụ thể — một credential giữ được nhiều tài khoản Google.
+    if (drive) { options.drive = true; options.drive_token_id = driveToken; }
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -1688,5 +1812,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
+    onVideoDrive, onVideoDriveToken,
   };
 })();

@@ -239,6 +239,20 @@
             </span>
           </label>
 
+          <!-- Khi video xong: thư mục mang tên tiêu đề trên Google Drive — Sheet nội dung + ảnh, giọng, video. -->
+          <label class="cx-check">
+            <input type="checkbox" id="cx-v-drive" onchange="CODEX.onVideoDrive()">
+            <span>
+              <strong data-i18n="codex.field_video_drive">Save to Google Drive</strong>
+              <em data-i18n="codex.field_video_drive_hint">When the video is done: a folder named after the title with a Google Sheet of the script and scenes, plus the video, images and voice files</em>
+            </span>
+          </label>
+          <div class="cx-field hidden" id="cx-v-drive-wrap">
+            <label for="cx-v-drive-token" data-i18n="codex.field_video_drive_account">Google account for Drive</label>
+            <select id="cx-v-drive-token" onchange="CODEX.onVideoDriveToken()"></select>
+            <div class="cx-field-meta cx-len-hint" id="cx-v-drive-hint" aria-live="polite"></div>
+          </div>
+
           <div class="cx-field">
             <label for="cx-v-title" data-i18n="codex.field_title">Title (optional)</label>
             <input type="text" id="cx-v-title"

@@ -186,7 +186,7 @@ st3 = {"agent": _A3(), "_say": lambda *a: said.append(a), "_cancelled": lambda: 
 P._step_thumbnail(st3, {})
 assert posts == [] and said[-1][1] == "skipped", "mặc định tắt"
 assert P.DEFAULTS["thumbnail"] is False and any(s[0] == "thumbnail" for s in P.RENDER_STEPS) and "thumbnail" in P.SOFT_FAIL_STEPS
-assert [s[0] for s in P.RENDER_STEPS][-3:] == ["render", "thumbnail", "publish"]
+assert [s[0] for s in P.RENDER_STEPS][-4:] == ["render", "thumbnail", "publish", "drive"]
 # 5b. TÊN mẫu người dùng gõ → id thật, tra ở Thumbnail Studio; sai tên thì cảnh báo
 # kèm tên có thật và để AI chọn (hỏng một cái tên không đáng vứt cả lượt dựng)
 _rows = [{"id": "noal", "display": "Noah flood", "builtin": False},
