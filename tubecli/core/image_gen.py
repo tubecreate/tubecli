@@ -118,7 +118,7 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
             return {"ok": False, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
                     "reason": "Chưa có credential Cloudflare (cần API token + Account ID) trong Cloud API Keys."}
         return {"ok": True, "provider": "cloudflare", "model": m or CF_DEFAULT_MODEL,
-                "creds": creds, "reason": ""}
+                "creds": creds, "label": creds.get("label") or "", "reason": ""}
 
     def _gemini(m=None):
         key = km.get_active_key("gemini")
@@ -169,7 +169,30 @@ def resolve_provider(provider: Optional[str] = None, model: Optional[str] = None
 
 def public_resolution(r: dict) -> dict:
     """Bản không chứa khoá để trả ra ngoài."""
-    return {k: v for k, v in r.items() if k in ("ok", "provider", "model", "reason")}
+    return {k: v for k, v in r.items() if k in ("ok", "provider", "model", "reason", "label")}
+
+
+def _cred_id(r: dict) -> str:
+    """Định danh tài khoản đang dùng (để biết resolve lại có ra tài khoản KHÁC không)."""
+    return str((r.get("creds") or {}).get("api_token") or r.get("key") or r.get("base") or "")
+
+
+def _is_daily_quota(msg: str) -> bool:
+    low = (msg or "").lower()
+    return "daily free allocation" in low or "neurons" in low
+
+
+def _next_utc_midnight() -> float:
+    """Hạn mức ngày của Workers AI reset 00:00 UTC — đỗ tài khoản tới đúng mốc đó."""
+    import datetime as _dt
+    now = _dt.datetime.now(_dt.timezone.utc)
+    nxt = (now + _dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return nxt.timestamp()
+
+
+def _local_clock(ts: float) -> str:
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts).strftime("%H:%M %d/%m")
 
 
 def _classify(status_code: int, body: str) -> str:
@@ -185,10 +208,19 @@ def _classify(status_code: int, body: str) -> str:
 
 
 def _report_key(r: dict, msg: str, transient: bool) -> None:
-    """Báo cloud_api khoá hỏng để failover/cooldown làm việc."""
+    """Báo cloud_api khoá hỏng để failover/cooldown làm việc.
+
+    Cloudflare cũng được báo (trước đây chỉ Gemini): hết hạn mức NGÀY → đỗ tới 00:00 UTC, 429
+    thường → cooldown; khoá sai (401/403) → đỗ cứng. Có tài khoản thứ hai thì lượt sau tự sang.
+    """
     try:
+        km = _key_manager()
         if r.get("provider") == "gemini" and r.get("key"):
-            _key_manager().report_key_error("gemini", r["key"], msg[:160], transient=transient)
+            km.report_key_error("gemini", r["key"], msg[:160], transient=transient)
+        elif r.get("provider") == "cloudflare" and (r.get("creds") or {}).get("api_token"):
+            until = _next_utc_midnight() if (transient and _is_daily_quota(msg)) else None
+            r["parked_until"] = until
+            km.report_key_error("cloudflare", r["creds"]["api_token"], msg[:160], transient=transient, until=until)
     except Exception:
         pass
 
@@ -408,7 +440,12 @@ async def _nr_generate(r: dict, prompt: str, aspect_ratio: str, timeout: int) ->
 
 async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
                          reference_images: Optional[list] = None, timeout: int = 180) -> bytes:
-    """Bytes ảnh từ nhà cung cấp đã resolve; ném ProviderError. Có đường lùi (9Router → Cloudflare)."""
+    """Bytes ảnh từ nhà cung cấp đã resolve; ném ProviderError. Có đường lùi (9Router → Cloudflare).
+
+    Xoay khoá: rate_limit/auth → resolve lại; ra tài khoản KHÁC thì vẽ ngay bằng nó và ghi tài
+    khoản mới vào `r` (caller giữ `r` cho cả lô nên các shot sau đi thẳng, không tốn thêm 429).
+    """
+    r.pop("fallback_from", None)
     try:
         if r["provider"] == "cloudflare":
             return await _cf_generate(r, prompt, aspect_ratio, timeout)
@@ -420,6 +457,18 @@ async def generate_bytes(r: dict, prompt: str, aspect_ratio: str = "16:9",
             _report_key(r, str(e), transient=True)
         elif e.kind == "auth":
             _report_key(r, str(e), transient=False)
+        if e.kind in ("rate_limit", "auth") and not r.get("_rotated"):
+            nr = resolve_provider(r["provider"], r.get("model"))
+            if nr.get("ok") and _cred_id(nr) and _cred_id(nr) != _cred_id(r):
+                logger.warning("%s/%s: %s → xoay sang tài khoản '%s'", r["provider"], r["model"], str(e)[:100], nr.get("label") or "?")
+                nr["_rotated"] = True
+                data = await generate_bytes(nr, prompt, aspect_ratio, reference_images, timeout)
+                r["rotated_to"] = nr.get("label") or ""
+                for k in ("creds", "key", "base", "headers", "label", "fallback"):
+                    if k in nr:
+                        r[k] = nr[k]
+                r["_rotated"] = True
+                return data
         fb = r.get("fallback")
         # Nhà chính hỏng (quota, 502, khoá sai) mà có đường lùi → vẽ tiếp; lời TỪ CHỐI nội dung thì không.
         if fb and e.kind != "refused":
@@ -458,9 +507,12 @@ async def generate_image(prompt: str, out_path: str, provider: Optional[str] = N
     with open(tmp, "wb") as f:
         f.write(data)
     os.replace(tmp, out_path)
-    out = {"status": STATUS_SUCCESS, "path": out_path, "provider": r["provider"], "model": r["model"]}
+    out = {"status": STATUS_SUCCESS, "path": out_path, "provider": r["provider"], "model": r["model"],
+           "label": r.get("label", "")}
     if r.get("fallback_from"):
         out["fallback_from"] = r["fallback_from"]
+    if r.get("rotated_to"):
+        out["rotated_to"] = r["rotated_to"]
     return out
 
 
@@ -480,9 +532,16 @@ async def test_draw(provider: Optional[str] = None, model: Optional[str] = None,
     except OSError:
         pass
     ok = res.get("status") == STATUS_SUCCESS
+    message = "" if ok else str(res.get("message") or "")
+    if not ok and res.get("kind") == "rate_limit" and r["provider"] == "cloudflare":
+        # Hết hạn mức mà không có tài khoản khác để xoay → nói rõ đã đỗ tới lúc nào và cách thêm.
+        until = r.get("parked_until")
+        when = f" tới {_local_clock(until)}" if until else ""
+        message += (f" — tài khoản '{r.get('label') or '?'}' đã tạm ngưng{when}; thêm một tài khoản "
+                    f"Cloudflare khác ở Cloud API Keys thì lần sau tự xoay.")
     return {"ok": ok, "stage": "generate", "provider": r["provider"], "model": r["model"], "seconds": secs,
-            "message": "" if ok else str(res.get("message") or ""), "kind": res.get("kind", ""),
-            "fallback_from": res.get("fallback_from", "")}
+            "label": r.get("label", ""), "rotated_to": r.get("rotated_to", ""),
+            "message": message, "kind": res.get("kind", ""), "fallback_from": res.get("fallback_from", "")}
 
 
 # ── danh sách model ───────────────────────────────────────────────────────────

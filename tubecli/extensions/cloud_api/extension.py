@@ -496,7 +496,7 @@ class KeyManager:
                 "models_source": s.get("models_source", "builtin" if "models" not in s else "custom")}
 
     def report_key_error(self, provider: str, api_key: str, error_msg: str = "Quota Exceeded",
-                         transient: bool = False) -> None:
+                         transient: bool = False, until: Optional[float] = None) -> None:
         """Mark a key inactive after an error.
 
         `transient=True` is for a plain rate-limit (a 429 that will clear on its
@@ -506,6 +506,10 @@ class KeyManager:
         hand. The old code treated every error as permanent, so one transient
         429 retired a key forever — and with two labels holding the SAME key,
         it disabled only the first and failover retried the identical twin.
+
+        `until` (epoch) = đỗ tới ĐÚNG mốc đó thay vì cooldown cố định: hạn mức ngày của
+        Cloudflare Workers AI reset 00:00 UTC, đỗ 15 phút rồi thử lại chỉ tốn lượt 429
+        (user 15/9/2026: "used up your daily free allocation of 10,000 neurons").
         """
         import time as _t
         self._load()
@@ -520,37 +524,52 @@ class KeyManager:
                 if transient:
                     entry["disabled_at"] = _t.time()
                     entry["disable_reason"] = "transient"
+                    if until:
+                        entry["disabled_until"] = float(until)
+                    else:
+                        entry.pop("disabled_until", None)
                 else:
                     entry.pop("disabled_at", None)
+                    entry.pop("disabled_until", None)
                     entry["disable_reason"] = "hard"
                 hit = True
                 logger.warning(f"Key '{label}' for {provider} disabled ({'transient' if transient else 'hard'}). Reason: {error_msg}")
         if hit:
             self._save()
 
+    def _revive_transient(self, entries: dict, provider: str) -> bool:
+        """Bật lại khoá đỗ tạm đã hết hạn đỗ (mốc `disabled_until`, không thì cooldown cố định).
+
+        Dùng chung cho get_active_key VÀ get_cloudflare_creds — trước đây chỉ get_active_key hồi
+        khoá, nên một hồ sơ Cloudflare bị đỗ sẽ không bao giờ sống lại qua đường lấy credential.
+        """
+        import time as _t
+        now = _t.time()
+        revived = False
+        for label, entry in entries.items():
+            if not isinstance(entry, dict) or entry.get("active"):
+                continue
+            if entry.get("disable_reason") != "transient":
+                continue
+            until = entry.get("disabled_until")
+            due = (now >= float(until)) if until else (now - float(entry.get("disabled_at") or 0) >= TRANSIENT_COOLDOWN_SECONDS)
+            if due:
+                entry["active"] = True
+                for k in ("status_msg", "disabled_at", "disabled_until", "disable_reason"):
+                    entry.pop(k, None)
+                revived = True
+                logger.info(f"Key '{label}' for {provider} auto-re-enabled after cooldown.")
+        return revived
+
     def get_active_key(self, provider: str) -> Optional[str]:
         """Get an active key for a provider, reviving cooled-down transient ones."""
-        import time as _t
         self._load()
         entries = self._keys.get(provider, {})
         # Guard: legacy plain-string key
         if isinstance(entries, str) and entries:
             return entries
         if isinstance(entries, dict):
-            now = _t.time()
-            revived = False
-            for label, entry in entries.items():
-                if not isinstance(entry, dict) or entry.get("active"):
-                    continue
-                if entry.get("disable_reason") == "transient" and \
-                   now - float(entry.get("disabled_at") or 0) >= TRANSIENT_COOLDOWN_SECONDS:
-                    entry["active"] = True
-                    entry.pop("status_msg", None)
-                    entry.pop("disabled_at", None)
-                    entry.pop("disable_reason", None)
-                    revived = True
-                    logger.info(f"Key '{label}' for {provider} auto-re-enabled after cooldown.")
-            if revived:
+            if self._revive_transient(entries, provider):
                 self._save()
             for label, entry in entries.items():
                 if isinstance(entry, dict) and entry.get("active"):
@@ -809,6 +828,8 @@ class KeyManager:
         self._load()
         entries = self._keys.get("cloudflare", {})
         entries = entries if isinstance(entries, dict) else {}
+        if self._revive_transient(entries, "cloudflare"):
+            self._save()
 
         def _pack(lbl, e):
             return {
@@ -855,6 +876,8 @@ class KeyManager:
                 "auth_type": "global_key" if entry.get("email") else "api_token",
                 "active": entry.get("active", False),
                 "added_at": entry.get("added_at", ""),
+                "status_msg": entry.get("status_msg", ""),
+                "disabled_until": entry.get("disabled_until"),
             })
         return result
 
