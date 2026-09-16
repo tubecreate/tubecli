@@ -1050,6 +1050,7 @@ const CODEX = (() => {
     $('cx-v-keeptheme').checked = lsGet(CV_KEEP_THEME_KEY) !== '0';
     $('cx-v-instructions').value = lsGet(CV_INSTR_KEY) || '';
     $('cx-v-drive').checked = lsGet(CV_DRIVE_KEY) === '1';
+    $('cx-v-drive-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';
     state.googleTokens = null;          // nạp lại mỗi lần mở: có thể vừa cấp quyền tài khoản mới
     $('cx-v-preset').innerHTML = '<option value="">…</option>';
     $('cx-v-preset').disabled = true;
@@ -1160,6 +1161,8 @@ const CODEX = (() => {
     if (drive) lsSet(CV_DRIVE_KEY, drive.checked ? '1' : '0');
     const driveToken = $('cx-v-drive-token');
     if (drive && drive.checked && driveToken && driveToken.value) lsSet(CV_DRIVE_TOKEN_KEY, driveToken.value);
+    const driveShare = $('cx-v-drive-share');
+    if (driveShare) lsSet(CV_DRIVE_SHARE_KEY, driveShare.value === 'private' ? 'private' : 'public');
   }
 
   /** Chọn lại giá trị đã nhớ nếu nó vẫn còn trong danh sách (agent/nhóm có thể đã bị xoá). */
@@ -1389,6 +1392,7 @@ const CODEX = (() => {
 
   function onVideoDrive() { renderDriveAccounts(); }
   function onVideoDriveToken() { renderDriveHint(); }
+  function onVideoDriveShare() { lsSet(CV_DRIVE_SHARE_KEY, $('cx-v-drive-share').value === 'private' ? 'private' : 'public'); }
 
   // ── Độ dài video: theo bài dán (mặc định) / theo mẫu / tự chọn phút ──
   const CV_LENGTH_KEY = 'codex.cvLength';
@@ -1400,6 +1404,7 @@ const CODEX = (() => {
   // «Lưu lên Google Drive»: bật/tắt + tài khoản nhận file (token_id của Auth Manager) — nhớ lần gần nhất.
   const CV_DRIVE_KEY = 'codex.cvDrive';              // '1' | '0'
   const CV_DRIVE_TOKEN_KEY = 'codex.cvDriveToken';
+  const CV_DRIVE_SHARE_KEY = 'codex.cvDriveShare';   // 'public' (ai có link xem+tải) | 'private'
   // PHẢI khớp content_video/pipeline.py (WORDS_PER_MINUTE, _WORDS_MIN/_WORDS_MAX,
   // DEFAULT_WORDS, _VIDEO_LENGTH_WORDS, content_words) — lệch nhau là ô ước lượng
   // nói một đằng, video ra một nẻo. tests/codex_video_length_test.js canh.
@@ -1679,7 +1684,12 @@ const CODEX = (() => {
       delete options.target_words;
     }
     // Lưu lên Google Drive khi xong: token_id cụ thể — một credential giữ được nhiều tài khoản Google.
-    if (drive) { options.drive = true; options.drive_token_id = driveToken; }
+    if (drive) {
+      options.drive = true;
+      options.drive_token_id = driveToken;
+      // Quyền của thư mục: mặc định ai có link xem + tải được (file nằm trên Drive của tài khoản đã cấp quyền).
+      options.drive_public = (($('cx-v-drive-share') || {}).value || 'public') !== 'private';
+    }
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
@@ -1812,6 +1822,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
-    onVideoDrive, onVideoDriveToken,
+    onVideoDrive, onVideoDriveToken, onVideoDriveShare,
   };
 })();

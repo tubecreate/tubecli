@@ -136,6 +136,10 @@ DEFAULTS: Dict[str, Any] = {
     # Thư mục mang tên tiêu đề: Sheet nội dung + video, ảnh, giọng từng cảnh. drive_token_id = token_id của
     # Auth Manager (form Codex chọn); trống = tài khoản Google đã cấp cho agent ở tab Auth.
     "drive": False, "drive_token_id": "",
+    # Chia sẻ thư mục: ai có link cũng XEM và TẢI được (không hiện trong tìm kiếm Google). Mặc định BẬT vì
+    # file nằm trên Drive của tài khoản đã cấp quyền, còn người dùng thường mở bằng tài khoản Google khác →
+    # "You need access" (user 16/9/2026). Đặt False nếu muốn giữ riêng tư cho chủ tài khoản đó.
+    "drive_public": True,
 }
 POLL_SEC = 1.0
 TIMEOUTS = {"storyboard": 900, "images": 1800, "tts": 900, "render": 1800, "thumbnail": 900}
@@ -5231,7 +5235,9 @@ def _drive_plan_note(options: Dict) -> str:
             who = "the chosen Google account"
     title = " ".join(str(options.get("title") or "").split())
     folder = f"«{title[:80]}»" if title else "named after the video title"
-    return f"a folder {folder} on {who} — content sheet, images, voice and video"
+    share = ("anyone with the link can view and download"
+             if _truthy(options.get("drive_public"), True) else "private to that account")
+    return f"a folder {folder} on {who} — content sheet, images, voice and video ({share})"
 
 
 def _drive_plan(state: Dict) -> Tuple[List[Dict], List[Dict]]:
@@ -5284,9 +5290,14 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["Video length", clock(state["video_seconds"]) if state.get("video_seconds") else ""],
         ["Scenes", len(shots) or state.get("shot_count") or ""],
         ["Video", links.get("video", "")],
+        # Link tải THẲNG: người nhận bấm là tải, không phải mở trang xem trước rồi tìm nút tải.
+        ["Video (download)", links.get("video#dl", "")],
         ["Video (no layout)", links.get("main", "")],
+        ["Video (no layout, download)", links.get("main#dl", "")],
         ["Thumbnail", links.get("thumbnail", "")],
         ["Google Drive folder", rec.get("folder_url") or ""],
+        ["Sharing", ("anyone with the link can view and download" if rec.get("public")
+                     else f"private — only {rec.get('email') or 'the owner'}")],
         ["YouTube", pub.get("url") or ""],
         ["YouTube title", seo.get("title") or pub.get("title") or ""],
         ["YouTube description", seo.get("description") or ""],
@@ -5352,6 +5363,18 @@ def _drive_save(state: Dict, options: Dict) -> None:
         rec = {}
     rec.update({"token_id": token_id, "email": who, "folder_id": folder["id"],
                 "folder_name": folder.get("name") or "", "folder_url": folder.get("webViewLink") or ""})
+    # Chia sẻ MỘT lần cho cả thư mục (file bên trong hưởng theo). Cờ trong sổ để Retry không gọi lại, và để
+    # thư mục của lượt cũ (lõi .104/.105, chưa có bước này) được chia sẻ ở lượt chạy sau.
+    if _truthy(options.get("drive_public"), True) and not rec.get("public"):
+        try:
+            DX.share_public(drive, rec["folder_id"])
+            rec["public"] = True
+            say("drive", "running", "anyone with the link can view and download this folder")
+        except Exception as e:      # noqa: BLE001 — tổ chức có thể cấm link công khai; đã lưu xong thì đừng đổ lượt
+            rec["public"] = False
+            state.setdefault("warnings", []).append(
+                f"Google Drive: the folder could not be shared publicly ({str(e)[:160]}) — the files are saved, "
+                f"but only {who} can open them (share it by hand in Drive, or turn sharing off for this account).")
     state["drive"] = rec
     _checkpoint_merge(state, {"drive": rec})
 
@@ -5379,6 +5402,8 @@ def _drive_save(state: Dict, options: Dict) -> None:
         # Cùng tên CÙNG cỡ = lượt trước đã tải xong file này (Retry, máy chủ khởi động lại) → không tải lại.
         if old and str(old.get("size") or "") == str(size):
             links[u["key"]] = str(old.get("webViewLink") or "")
+            if old.get("id"):
+                links[u["key"] + "#dl"] = DX.download_url(str(old["id"]))
         else:
             todo.append((u, size, old))
     total = float(sum(s for _, s, _ in todo)) or 1.0
@@ -5395,6 +5420,8 @@ def _drive_save(state: Dict, options: Dict) -> None:
 
         f = DX.upload_file(drive, u["path"], u["name"], parents[u["sub"]], progress, cancelled, _cancel_exc)
         links[u["key"]] = str((f or {}).get("webViewLink") or "")
+        if (f or {}).get("id"):
+            links[u["key"] + "#dl"] = DX.download_url(str(f["id"]))
         sent_before += size
         if old and old.get("id"):
             # Bản cũ khác cỡ (video dựng lại) → thùng rác, kẻo thư mục có hai file cùng tên.
@@ -6011,7 +6038,9 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
         lines.append(f"- **Google Drive**: {drive['folder_url']}"
                      + (f" · content sheet {drive['sheet_url']}" if drive.get("sheet_url") else "")
                      + f" · {drive.get('files', 0)} file(s)"
-                     + (f" · {drive['email']}" if drive.get("email") else ""))
+                     + (f" · {drive['email']}" if drive.get("email") else "")
+                     + (" · anyone with the link can view and download" if drive.get("public")
+                        else " · private to that account"))
     if published.get("title") and published["title"] != state.get("title"):
         lines.append(f"- **Title on YouTube**: {published['title']}")
     if state.get("title"):

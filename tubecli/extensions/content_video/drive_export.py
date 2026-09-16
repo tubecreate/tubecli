@@ -205,6 +205,22 @@ def upload_file(drive, path: str, name: str, parent: str,
             pass
 
 
+def share_public(drive, file_id: str) -> None:
+    """Ai có link cũng XEM và TẢI được.
+
+    Hai việc, không phải một: (1) quyền `anyone/reader` — `allowFileDiscovery` để mặc định False nên chỉ ai có
+    link mới vào được, không hiện trong tìm kiếm Google; (2) tắt `copyRequiresWriterPermission`, vì cờ đó bật là
+    người xem KHÔNG tải/copy/in được — đúng thứ người dùng cần (user 16/9/2026). Quyền đặt trên THƯ MỤC thì mọi
+    file bên trong hưởng theo, nên chỉ cần gọi một lần cho cả lượt."""
+    drive.permissions().create(fileId=file_id, body={"type": "anyone", "role": "reader"}, fields="id").execute()
+    drive.files().update(fileId=file_id, body={"copyRequiresWriterPermission": False}, fields="id").execute()
+
+
+def download_url(file_id: str) -> str:
+    """Link tải THẲNG file (không qua trang xem trước) — dán vào Sheet cho người ta bấm là tải."""
+    return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+
 def trash_file(drive, file_id: str) -> None:
     drive.files().update(fileId=file_id, body={"trashed": True}, fields="id").execute()
 

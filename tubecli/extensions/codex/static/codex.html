@@ -247,10 +247,22 @@
               <em data-i18n="codex.field_video_drive_hint">When the video is done: a folder named after the title with a Google Sheet of the script and scenes, plus the video, images and voice files</em>
             </span>
           </label>
-          <div class="cx-field hidden" id="cx-v-drive-wrap">
-            <label for="cx-v-drive-token" data-i18n="codex.field_video_drive_account">Google account for Drive</label>
-            <select id="cx-v-drive-token" onchange="CODEX.onVideoDriveToken()"></select>
-            <div class="cx-field-meta cx-len-hint" id="cx-v-drive-hint" aria-live="polite"></div>
+          <div class="cx-field-row hidden" id="cx-v-drive-wrap">
+            <div class="cx-field">
+              <label for="cx-v-drive-token" data-i18n="codex.field_video_drive_account">Google account for Drive</label>
+              <select id="cx-v-drive-token" onchange="CODEX.onVideoDriveToken()"></select>
+              <div class="cx-field-meta cx-len-hint" id="cx-v-drive-hint" aria-live="polite"></div>
+            </div>
+            <!-- Quyền chọn NGAY khi tạo task: file nằm trên Drive của tài khoản ở trên, mà người dùng thường mở
+                 bằng tài khoản Google khác → "You need access" (user 16/9/2026). -->
+            <div class="cx-field">
+              <label for="cx-v-drive-share" data-i18n="codex.field_video_drive_share">Who can open the folder</label>
+              <select id="cx-v-drive-share" onchange="CODEX.onVideoDriveShare()">
+                <option value="public" data-i18n="codex.cv_drive_share_public">Anyone with the link — view and download</option>
+                <option value="private" data-i18n="codex.cv_drive_share_private">Only this Google account</option>
+              </select>
+              <div class="cx-field-meta cx-len-hint" data-i18n="codex.cv_drive_share_hint">The folder never shows up in Google search — only someone who has the link can open it.</div>
+            </div>
           </div>
 
           <div class="cx-field">

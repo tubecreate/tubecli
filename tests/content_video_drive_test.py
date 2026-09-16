@@ -80,7 +80,7 @@ def ok(cond, label, detail=""):
 
 REAL = {n: getattr(DX, n) for n in ("google_tokens", "services", "file_alive", "unique_name", "create_folder",
                                     "list_children", "upload_file", "trash_file", "create_sheet", "write_sheet",
-                                    "_gapi")}
+                                    "share_public", "download_url", "_gapi")}
 
 # ── dữ liệu ──────────────────────────────────────────────────────────
 DD = CFG.DATA_DIR
@@ -163,6 +163,15 @@ SHEET_WRITES = []
 SERVICES = []
 
 
+FAIL_SHARE = {"msg": ""}
+
+
+def fake_share(drive, folder_id):
+    FD.calls.append(("share", folder_id))
+    if FAIL_SHARE["msg"]:
+        raise RuntimeError(FAIL_SHARE["msg"])
+
+
 def fake_upload(drive, path, name, parent, on_progress=None, cancelled=None, cancel_exc=None):
     FD.calls.append(("upload", name, parent))
     if FAIL_UPLOAD["name"] and FAIL_UPLOAD["name"] in name:
@@ -182,6 +191,7 @@ def install_fakes():
     DX.create_folder = lambda drive, name, parent="root": FD.calls.append(("folder", name, parent)) or FD.add(name, parent, DX.FOLDER_MIME)
     DX.list_children = lambda drive, fid: FD.children(fid)
     DX.upload_file = fake_upload
+    DX.share_public = fake_share
     DX.trash_file = lambda drive, fid: FD.calls.append(("trash", fid)) or FD.files[fid].update(trashed=True)
     DX.create_sheet = lambda drive, name, parent: FD.calls.append(("sheet", name, parent)) or FD.add(name, parent, DX.SHEET_MIME)
     DX.write_sheet = lambda sheets, sid, tabs, widths=None: SHEET_WRITES.append(
@@ -304,6 +314,12 @@ rec = CK["t1"]["drive"]
 ok(rec["folder_id"] == fid and rec["token_id"] == "cred_a_1" and rec["email"] == "a@x.com" and rec["files"] == 7
    and rec["uploaded"] == 7 and rec["sheet_id"] == top["Mây trắng: bay/xa — content"]["id"],
    "checkpoint giữ thư mục, Sheet, tài khoản, số file", rec)
+ok([c for c in FD.calls if c[0] == "share"] == [("share", fid)] and rec["public"] is True,
+   "chia sẻ MỘT lần cho cả thư mục (file bên trong hưởng theo)", [c for c in FD.calls if c[0] == "share"])
+_vid = FD.by_name(f"{base}.mp4")[0]
+ok(field(ov, "Video (download)") == f"https://drive.google.com/uc?export=download&id={_vid['id']}"
+   and field(ov, "Sharing") == "anyone with the link can view and download",
+   "Sheet có link TẢI thẳng + dòng Sharing", (field(ov, "Video (download)"), field(ov, "Sharing")))
 prog = [a for a in said if len(a) > 3 and a[1] == "running" and a[3] is not None]
 pcts = [a[3] for a in prog]
 ok(prog and all(0 < p <= 100 for p in pcts) and pcts == sorted(pcts) and pcts[-1] == 100, "tiến độ theo byte, tăng dần, kết thúc 100", pcts)
@@ -319,6 +335,7 @@ SHEET_WRITES.clear()
 st2 = new_state()
 P._step_drive(st2, dict(OPTS))
 ok(not [c for c in FD.calls if c[0] in ("folder", "upload", "sheet")], "cùng tài khoản: không thư mục mới, không tải lại, không Sheet mới", FD.calls)
+ok(not [c for c in FD.calls if c[0] == "share"], "chạy lại KHÔNG chia sẻ lại (cờ public nằm trong sổ)", FD.calls)
 ok(len(SHEET_WRITES) == 2 and field(rows_of(SHEET_WRITES[-1], "Overview"), "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"],
    "Sheet ghi lại đủ link lấy từ file đã có")
 ok(CK["t1"]["drive"]["uploaded"] == 0 and CK["t1"]["drive"]["files"] == 7, "sổ ghi 0 file tải lần này")
@@ -430,6 +447,36 @@ P.create_auto_task("a1", {"source_text": "abc", "drive": True, "drive_token_id":
 ok("→ lưu lên Google Drive" in made["task"]["goal"] and "- Save to Google Drive: a folder named after the video title on a@x.com" in made["task"]["goal"],
    "task auto: câu mô tả + kế hoạch nói lưu Drive", made["task"]["goal"][:200])
 
+print("── J. quyền chia sẻ chọn lúc tạo task ──────────────────────")
+CK.clear()
+FD.calls.clear()
+SHEET_WRITES.clear()
+priv = new_state()
+P._step_drive(priv, dict(OPTS, drive_public=False))
+ok(not [c for c in FD.calls if c[0] == "share"] and not CK["t1"]["drive"].get("public"),
+   "chọn «chỉ tài khoản Google này» → KHÔNG chia sẻ công khai", [c[0] for c in FD.calls][:4])
+ok(field(rows_of(SHEET_WRITES[-1], "Overview"), "Sharing") == "private — only a@x.com",
+   "Sheet nói rõ đang riêng tư của ai", field(rows_of(SHEET_WRITES[-1], "Overview"), "Sharing"))
+out_priv = P._render_result(priv, {}, [], [], 5)
+ok("· private to that account" in out_priv and "anyone with the link" not in out_priv, "kết quả nói riêng tư", out_priv[:400])
+
+CK.clear()
+FD.calls.clear()
+FAIL_SHARE["msg"] = "<HttpError 403 sharingRateLimitExceeded>"
+shaky = new_state()
+P._step_drive(shaky, dict(OPTS))
+FAIL_SHARE["msg"] = ""
+ok(len([c for c in FD.calls if c[0] == "upload"]) == 7 and CK["t1"]["drive"]["public"] is False
+   and any("could not be shared publicly" in w and "only a@x.com can open them" in w for w in shaky["warnings"]),
+   "chia sẻ hỏng (tổ chức cấm link công khai) → vẫn lưu đủ file, chỉ cảnh báo", shaky["warnings"])
+ok(P._render_result(shaky, {}, [], [], 5).startswith("## ⚠️"), "lượt đó hiện cảnh báo, không phải dấu tích sạch")
+ok(P.DEFAULTS["drive_public"] is True,
+   "mặc định ai có link xem + tải: tài khoản mở file thường khác tài khoản đã cấp quyền (16/9/2026)")
+ok("(anyone with the link can view and download)" in P.describe_plan({"drive": True, "drive_token_id": "cred_a_1"}),
+   "kế hoạch nói trước quyền sẽ đặt")
+ok("(private to that account)" in P.describe_plan({"drive": True, "drive_token_id": "cred_a_1", "drive_public": False}),
+   "kế hoạch nói riêng tư khi người dùng chọn thế")
+
 print("── H. drive_export thật với dịch vụ giả ────────────────────")
 
 
@@ -459,6 +506,11 @@ class Req:
 class FakeFiles:
     def __init__(self):
         self.created, self.lists, self.pages, self.req, self.get_result = [], [], [], None, None
+        self.updated, self.perms = [], []
+
+    def update(self, **kw):
+        self.updated.append(kw)
+        return _Exec({"id": kw.get("fileId")})
 
     def create(self, body=None, media_body=None, fields=None):
         self.created.append((body, media_body, fields))
@@ -478,6 +530,15 @@ class FakeSvc:
 
     def files(self):
         return self.f
+
+    def permissions(self):
+        files = self.f
+
+        class Perms:
+            def create(self, **kw):
+                files.perms.append(kw)
+                return _Exec({"id": "perm1"})
+        return Perms()
 
 
 class FakeMedia:
@@ -599,6 +660,14 @@ try:
     ok(False, "lỗi khác phải ném")
 except RuntimeError:
     ok(True, "file_alive: lỗi mạng/máy chủ → ném (không tạo thư mục trùng)")
+
+svc3 = FakeSvc()
+DX.share_public(svc3, "fold1")
+ok(svc3.f.perms == [{"fileId": "fold1", "body": {"type": "anyone", "role": "reader"}, "fields": "id"}],
+   "share_public: quyền anyone/reader, KHÔNG bật allowFileDiscovery (không lên tìm kiếm Google)", svc3.f.perms)
+ok(svc3.f.updated == [{"fileId": "fold1", "body": {"copyRequiresWriterPermission": False}, "fields": "id"}],
+   "share_public: tắt cờ chặn người xem tải/copy/in", svc3.f.updated)
+ok(DX.download_url("abc123") == "https://drive.google.com/uc?export=download&id=abc123", "link tải thẳng file")
 
 print("── I. /assignees ───────────────────────────────────────────")
 from tubecli.extensions.codex import routes as CR  # noqa: E402

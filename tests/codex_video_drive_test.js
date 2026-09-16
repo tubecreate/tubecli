@@ -32,11 +32,15 @@ function check(label, ok, detail) {
 console.log('── 1. markup ───────────────────────────────────────────');
 const iReview = html.indexOf('id="cx-v-review"');
 const iDrive = html.indexOf('<input type="checkbox" id="cx-v-drive" onchange="CODEX.onVideoDrive()">');
-const iWrap = html.indexOf('<div class="cx-field hidden" id="cx-v-drive-wrap">');
+const iWrap = html.indexOf('<div class="cx-field-row hidden" id="cx-v-drive-wrap">');
 const iTitle = html.indexOf('id="cx-v-title"');
 check('ô tick «Lưu lên Google Drive» sau «Duyệt kịch bản», trước tiêu đề', iReview > 0 && iDrive > iReview && iWrap > iDrive && iTitle > iWrap, { iReview, iDrive, iWrap, iTitle });
 check('ô chọn tài khoản + dòng gợi ý', html.includes('<select id="cx-v-drive-token" onchange="CODEX.onVideoDriveToken()"></select>')
     && html.includes('id="cx-v-drive-hint" aria-live="polite"') && html.includes('data-i18n="codex.field_video_drive_account"'));
+check('ô chọn QUYỀN thư mục ngay trong form tạo task, mặc định ai có link xem + tải',
+    html.includes('<select id="cx-v-drive-share" onchange="CODEX.onVideoDriveShare()">')
+    && html.indexOf('<option value="public" data-i18n="codex.cv_drive_share_public">') < html.indexOf('<option value="private" data-i18n="codex.cv_drive_share_private">')
+    && html.includes('data-i18n="codex.cv_drive_share_hint"'));
 
 console.log('── 2. pickDriveToken ───────────────────────────────────');
 const a = js.indexOf('  function driveCanWrite(scopes) {');
@@ -124,27 +128,33 @@ check('không tài khoản nào có Drive → gợi ý cấp quyền (cảnh bá
     check('gửi: tick mà chưa có tài khoản → báo lỗi, không gửi (kiểm TRƯỚC khi lưu form)',
         js.includes("if (drive && !driveToken) {\n      toast(t('codex.toast_video_drive_account_required'), 'error');")
         && js.indexOf("const drive = !!$('cx-v-drive').checked;") < js.indexOf("const review = !!$('cx-v-review').checked;\n    rememberNewTaskForm();"));
-    check('gửi drive + drive_token_id (token_id cụ thể)', js.includes('if (drive) { options.drive = true; options.drive_token_id = driveToken; }')
+    check('gửi drive + drive_token_id (token_id cụ thể) + quyền thư mục',
+        js.includes('options.drive_token_id = driveToken;') && js.includes("options.drive_public = (($('cx-v-drive-share') || {}).value || 'public') !== 'private';")
         && js.indexOf('options.drive_token_id = driveToken') < js.indexOf("request('/api/v1/content-video/run'"));
+    check('mở form: quyền lấy lại lựa chọn lần trước, mặc định public',
+        js.includes("$('cx-v-drive-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';")
+        && js.includes("const CV_DRIVE_SHARE_KEY = 'codex.cvDriveShare';"));
     check('mở form: nhớ ô tick, nạp lại tài khoản mỗi lần, chọn sẵn sau khi có danh sách agent',
         js.includes("$('cx-v-drive').checked = lsGet(CV_DRIVE_KEY) === '1';") && js.includes('state.googleTokens = null;')
         && js.includes('const driveReady = loadGoogleTokens();') && js.indexOf('driveReady.then(renderDriveAccounts);') > js.indexOf('fillVideoAgents(data.agents);'));
     check('đổi agent → chọn lại tài khoản theo tab Auth', /function onVideoAgent\(\) \{\n    lsSet\(CV_AGENT_KEY[^\n]*\n    renderDriveAccounts\(\);/.test(js));
     check('danh sách tài khoản lấy từ Auth Manager', js.includes("request('/api/v1/auth-manager/tokens?provider=google')"));
-    check('xuất onVideoDrive + onVideoDriveToken', js.includes('planFromModal, closeModal, onBackdrop,\n    onVideoDrive, onVideoDriveToken,\n  };'));
+    check('xuất onVideoDrive + onVideoDriveToken + onVideoDriveShare',
+        js.includes('planFromModal, closeModal, onBackdrop,\n    onVideoDrive, onVideoDriveToken, onVideoDriveShare,\n  };'));
     const m1 = js.indexOf('  function rememberNewTaskForm() {');
     const m2 = js.indexOf('  function lsGet(k) {');
     const mem = {};
     const mels = { 'cx-f-assignee': { value: '' }, 'cx-f-approval': { checked: true }, 'cx-f-priority': { value: '0' }, 'cx-v-review': { checked: true },
-        'cx-v-drive': { checked: true }, 'cx-v-drive-token': { value: 'B2' } };
-    const remember = new Function('G_ASSIGNEE_KEY', 'G_APPROVAL_KEY', 'G_PRIORITY_KEY', 'CV_REVIEW_KEY', 'CV_DRIVE_KEY', 'CV_DRIVE_TOKEN_KEY', '$', 'lsGet', 'lsSet',
-        `${js.slice(m1, m2)}; return rememberNewTaskForm;`)('g1', 'g2', 'g3', 'cv', 'codex.cvDrive', 'codex.cvDriveToken', id => mels[id], k => mem[k] || '', (k, v) => { mem[k] = v; });
+        'cx-v-drive': { checked: true }, 'cx-v-drive-token': { value: 'B2' }, 'cx-v-drive-share': { value: 'private' } };
+    const remember = new Function('G_ASSIGNEE_KEY', 'G_APPROVAL_KEY', 'G_PRIORITY_KEY', 'CV_REVIEW_KEY', 'CV_DRIVE_KEY', 'CV_DRIVE_TOKEN_KEY', 'CV_DRIVE_SHARE_KEY', '$', 'lsGet', 'lsSet',
+        `${js.slice(m1, m2)}; return rememberNewTaskForm;`)('g1', 'g2', 'g3', 'cv', 'codex.cvDrive', 'codex.cvDriveToken', 'codex.cvDriveShare', id => mels[id], k => mem[k] || '', (k, v) => { mem[k] = v; });
     remember();
     check('nhớ: tick + tài khoản', mem['codex.cvDrive'] === '1' && mem['codex.cvDriveToken'] === 'B2', mem);
     mels['cx-v-drive'].checked = false;
     mels['cx-v-drive-token'].value = 'A1';
     remember();
     check('bỏ tick → nhớ "0", không đè tài khoản đã nhớ', mem['codex.cvDrive'] === '0' && mem['codex.cvDriveToken'] === 'B2', mem);
+    check('nhớ cả quyền thư mục', mem['codex.cvDriveShare'] === 'private', mem);
 
     console.log('── 5. khớp máy chủ ─────────────────────────────────────');
     check('can_write của JS khớp drive_export.py',
@@ -157,17 +167,19 @@ check('không tài khoản nào có Drive → gợi ý cấp quyền (cảnh bá
         'codex.field_video_drive': [], 'codex.field_video_drive_hint': [], 'codex.field_video_drive_account': [], 'codex.cv_drive_loading': [],
         'codex.cv_drive_none': [], 'codex.cv_drive_load_failed': ['{msg}'], 'codex.cv_drive_readonly': [], 'codex.cv_drive_group_granted': ['{agent}'],
         'codex.cv_drive_group_other': [], 'codex.cv_drive_granted_hint': ['{agent}'], 'codex.cv_drive_not_granted_hint': ['{agent}'],
-        'codex.toast_video_drive_account_required': [],
+        'codex.toast_video_drive_account_required': [], 'codex.field_video_drive_share': [], 'codex.cv_drive_share_public': [],
+        'codex.cv_drive_share_private': [], 'codex.cv_drive_share_hint': [],
     };
     for (const lang of ['en', 'vi', 'es', 'ja', 'ko', 'ru', 'tr', 'zh', 'zh-TW']) {
         const loc = JSON.parse(fs.readFileSync(path.join(dir, 'locales', lang + '.json'), 'utf-8'));
         const bad = Object.entries(KEYS).filter(([k, ph]) => !loc[k] || ph.some(p => !loc[k].includes(p)));
-        check(`${lang}.json: đủ 12 khoá + chỗ giữ`, !bad.length, bad.map(x => x[0]));
+        check(`${lang}.json: đủ 16 khoá + chỗ giữ`, !bad.length, bad.map(x => x[0]));
         const used = Object.keys(KEYS).filter(k => !js.includes(`'${k}'`) && !html.includes(`"${k}"`));
         if (lang === 'en') check('mọi khoá đều được dùng trong codex.js / codex.html', !used.length, used);
     }
     const vi = JSON.parse(fs.readFileSync(path.join(dir, 'locales', 'vi.json'), 'utf-8'));
-    check('vi dịch thật', vi['codex.field_video_drive'] === 'Lưu lên Google Drive' && vi['codex.cv_drive_not_granted_hint'].includes('chỉ dùng cho task này'));
+    check('vi dịch thật', vi['codex.field_video_drive'] === 'Lưu lên Google Drive' && vi['codex.cv_drive_not_granted_hint'].includes('chỉ dùng cho task này')
+        && vi['codex.cv_drive_share_public'].includes('xem và tải'));
 
     console.log();
     console.log(fail ? `${pass}/${pass + fail} PASS — ${fail} HỎNG` : `${pass}/${pass + fail} PASS`);
