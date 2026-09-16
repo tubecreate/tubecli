@@ -32,7 +32,9 @@ STATUS_REFUSED = "refused"
 CF_DEFAULT_MODEL = "@cf/black-forest-labs/flux-1-schnell"
 GEMINI_DEFAULT_MODEL = "gemini-2.5-flash-image"
 NR_DEFAULT_MODEL = "ag/gemini-3.1-flash-image"
-NR_FALLBACK_CF_MODEL = "@cf/black-forest-labs/flux-2-klein-9b"
+# Bản lùi khi 9Router hỏng/hết quota = model Cloudflare mặc định. KHÔNG dùng flux-2-klein-9b: giấy phép
+# FLUX Non-Commercial của Black Forest Labs — video đăng YouTube kiếm tiền là dùng thương mại (16/9/2026).
+NR_FALLBACK_CF_MODEL = CF_DEFAULT_MODEL
 PROVIDERS = ("cloudflare", "gemini", "9router")
 ASPECT_RATIOS = ("16:9", "9:16", "1:1", "4:3", "3:4")
 DEFAULT_MODELS = {"cloudflare": CF_DEFAULT_MODEL, "gemini": GEMINI_DEFAULT_MODEL, "9router": NR_DEFAULT_MODEL}

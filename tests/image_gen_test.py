@@ -5,7 +5,8 @@ User: "AI tạo ảnh là thứ dùng chung" — bộ vẽ dời từ Content St
 
 Kiểm (TestClient thật, nhà cung cấp giả):
   A. image_settings/set_image_settings ghi global_settings.json; nhà sai → ValueError
-  B. resolve_provider: rõ ràng > cài đặt chung > tự chọn (Cloudflare trước Gemini); gõ sai tên → ok False
+  B. resolve_provider: rõ ràng > cài đặt chung > tự chọn (Cloudflare trước Gemini); gõ sai tên → ok False;
+     9Router lùi sang Cloudflare flux-1-schnell (không phải klein-9b phi thương mại)
   C. routes: GET/PUT settings (resolved không lộ khoá), 400 nhà sai; GET models; POST test; POST generate
      ghi file + url; GET file; tên file đi ngược thư mục → 400; 404 file không có
   D. server.py include router; generate_image ghi .part rồi đổi tên; refused/error giữ kind
@@ -95,6 +96,28 @@ ok(not r["ok"] and "Chưa có nhà cung cấp" in r["reason"], "không có gì �
 km.cf = km.gemini = True
 ok(not G.resolve_provider("dalle")["ok"], "gõ sai tên → ok False, không đổi nhà")
 ok(set(G.public_resolution(G.resolve_provider("gemini"))) == {"ok", "provider", "model", "reason"}, "public_resolution không lộ khoá")
+
+
+class FakeNR:
+    """9Router giả — không đọc khoá thật, không gọi mạng."""
+    def api_key(self): return "nr-key"
+    def is_local(self): return False
+    def base_url(self): return "https://nr.example/v1"
+    def auth_headers(self): return {"Authorization": "Bearer nr-key"}
+
+
+_real_nr = G._ninerouter_module
+G._ninerouter_module = lambda: FakeNR()
+r = G.resolve_provider("9router")
+fb = r.get("fallback") or {}
+# User 16/9/2026: "Bản lùi của 9Router đang là klein 9 sửa lại flux 1" — klein-9b là giấy phép phi thương mại.
+ok(r["ok"] and r["model"] == G.NR_DEFAULT_MODEL and fb.get("provider") == "cloudflare"
+   and fb.get("model") == "@cf/black-forest-labs/flux-1-schnell", "9Router lùi sang Cloudflare flux-1-schnell", fb)
+ok("klein" not in G.NR_FALLBACK_CF_MODEL, "bản lùi không phải FLUX.2 klein (9B phi thương mại)", G.NR_FALLBACK_CF_MODEL)
+km.cf = False
+ok("fallback" not in G.resolve_provider("9router"), "không có Cloudflare → không có đường lùi")
+km.cf = True
+G._ninerouter_module = _real_nr
 
 print("── C. routes ───────────────────────────────────────────────")
 app = FastAPI(); app.include_router(R.router); c = TestClient(app)
