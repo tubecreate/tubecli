@@ -24,6 +24,7 @@ sys.platform` khắp file thì không còn đọc ra luồng chính nữa.
 
 Chạy:  <python> tubecli_connect.py           (lần đầu sẽ hỏi mã ghép nối)
        <python> tubecli_connect.py --status  (in trạng thái rồi thoát)
+       <python> tubecli_connect.py --code=MÃ (đã ghép nối thì GHÉP NỐI LẠI sang máy của mã này)
 """
 from __future__ import annotations
 
@@ -989,6 +990,103 @@ def claim(code: str, password: str) -> dict:
         raise RuntimeError(f"Không gọi được cloud: {e}") from e
 
 
+def adopt_pairing(conf: dict, info: dict, password: str) -> dict:
+    """Cấu hình sau một lượt ghép nối: tunnel, tên, địa chỉ của máy MỚI đè lên máy cũ;
+    phần còn lại (ngôn ngữ…) giữ nguyên. Ghi xuống connect.json rồi trả bản mới."""
+    new = {**conf, **info, "password": password}
+    conf_write(new)
+    return new
+
+
+# ── Ghép nối lại: dọn client + tunnel cũ ────────────────────────────────────
+# Chạy lệnh ghép nối trên cloud với MÃ MỚI khi máy đã ghép nối (máy trên cloud bị xoá
+# rồi tạo lại, hay chuyển sang máy khác) là một tiến trình client MỚI, trong khi bản
+# cũ — thường là bản tự khởi động cùng máy — vẫn chạy: nó không đọc lại connect.json,
+# nên cứ để nó sống là nó giữ cloudflared của tunnel đã chết, và hai vòng canh cùng
+# dựng tunnel/máy chủ chồng lên nhau.
+
+def _list_procs() -> list:
+    """[(pid, tên, dòng lệnh)] mọi tiến trình. Rỗng nếu không hỏi được hệ điều hành."""
+    try:
+        if IS_WIN:
+            ps = ("[Console]::OutputEncoding=[Text.Encoding]::UTF8; "
+                  "Get-CimInstance Win32_Process | ForEach-Object { "
+                  "\"$($_.ProcessId)`t$($_.Name)`t$($_.CommandLine)\" }")
+            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                               capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=60, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            rows = []
+            for line in (r.stdout or "").splitlines():
+                p = line.split("\t", 2)
+                if len(p) == 3 and p[0].strip().isdigit():
+                    rows.append((int(p[0]), p[1].strip(), p[2]))
+            return rows
+        r = subprocess.run(["ps", "-eo", "pid=,comm=,args="], capture_output=True, text=True, timeout=20)
+        rows = []
+        for line in (r.stdout or "").splitlines():
+            p = line.split(None, 2)
+            if len(p) >= 2 and p[0].isdigit():
+                rows.append((int(p[0]), p[1], p[2] if len(p) > 2 else ""))
+        return rows
+    except Exception as e:      # noqa: BLE001
+        log(f"không liệt kê được tiến trình: {e}")
+        return []
+
+
+def _kill(pid: int) -> None:
+    """Dừng MỘT tiến trình — không kèm cây con: TubeCLI có thể là con của client cũ,
+    và nó phải sống qua lượt ghép nối lại."""
+    try:
+        if IS_WIN:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=20,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        else:
+            import signal
+            os.kill(pid, signal.SIGTERM)
+    except Exception as e:      # noqa: BLE001
+        log(f"không dừng được pid {pid}: {e}")
+
+
+def other_clients(rows=None) -> list:
+    """pid các client Connect KHÁC trên máy. Chỉ tiến trình python: powershell/cmd đang
+    chạy chính lệnh ghép nối cũng mang chữ tubecli_connect trong dòng lệnh."""
+    mine = {os.getpid()}
+    try:
+        mine.add(os.getppid())      # launcher pythonw của Windows Store đẻ tiến trình con
+    except Exception:      # noqa: BLE001
+        pass
+    out = []
+    for pid, name, cmd in (_list_procs() if rows is None else rows):
+        base = os.path.basename(str(name)).lower()
+        if pid in mine or not base.startswith("python") or "tubecli_connect" not in str(cmd).lower():
+            continue
+        out.append(pid)
+    return out
+
+
+def our_tunnels(rows=None) -> list:
+    """pid các cloudflared chạy bằng binary của client này (nằm trong thư mục cấu hình)."""
+    me = os.path.normcase(os.path.abspath(CLOUDFLARED))
+    return [pid for pid, _name, cmd in (_list_procs() if rows is None else rows)
+            if me in os.path.normcase(str(cmd))]
+
+
+def take_over() -> int:
+    """Dừng client cũ rồi cloudflared cũ. Trả số tiến trình đã dừng.
+
+    Client TRƯỚC: dọn tunnel trước thì vòng canh của client cũ thấy cloudflared chết và
+    dựng lại ngay bằng token của máy cũ."""
+    clients = other_clients()
+    for pid in clients:
+        _kill(pid)
+    tunnels = our_tunnels()
+    for pid in tunnels:
+        _kill(pid)
+    if clients or tunnels:
+        log(f"ghép nối lại: đã dừng {len(clients)} client cũ và {len(tunnels)} cloudflared cũ")
+    return len(clients) + len(tunnels)
+
+
 # ── Khởi động cùng máy ──────────────────────────────────────────────────────
 
 def script_home() -> str:
@@ -1602,7 +1700,10 @@ def _theme(root):
     return st
 
 
-def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
+def ask_pairing(default_code: str = "", lang: str = "vi", default_password: str = "",
+                replacing: str = "") -> tuple:
+    """Cửa sổ ghép nối. replacing = địa chỉ máy đang nối (ghép nối lại) để nói rõ
+    kết nối nào sẽ bị thay; default_password = mật khẩu client đang nhớ."""
     if not has_tk():
         return ask_pairing_console(default_code, lang)
     import tkinter as tk
@@ -1638,7 +1739,8 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     tit.pack(side="left", padx=12)
     tk.Label(tit, text=APP, bg=UI["panel"], fg=UI["text"],
              font=(FONT, 13, "bold")).pack(anchor="w")
-    tk.Label(tit, text="Nối máy này với cloud.tubecreate.com", bg=UI["panel"],
+    tk.Label(tit, text=("Nối máy này với cloud.tubecreate.com" if not replacing else
+                        f"Mã mới sẽ thay kết nối {replacing.replace('https://', '')}"), bg=UI["panel"],
              fg=UI["muted"], font=(FONT, 9)).pack(anchor="w")
     tk.Label(inner, text=f" {OS_NAME} ", bg=UI["panel2"], fg=UI["dim"],
              font=(FONT, 8), padx=6, pady=3).pack(side="right")
@@ -1729,6 +1831,8 @@ def ask_pairing(default_code: str = "", lang: str = "vi") -> tuple:
     field_label(body, "MẬT KHẨU DASHBOARD TUBECLI").pack(fill="x")
     e_pw = ttk.Entry(body, style="TC.TEntry", show="•", font=(FONT, 11))
     e_pw.pack(fill="x", pady=(4, 3))
+    if default_password:
+        e_pw.insert(0, default_password)
     tk.Label(body, text="Máy vừa cài xong thì để 123456.", bg=UI["bg"],
              fg=UI["dim"], font=(FONT, 8), anchor="w").pack(fill="x")
 
@@ -2002,6 +2106,34 @@ class Bridge:
         finally:
             self.busy = ""
 
+    def repair(self, code: str, password: str) -> tuple:
+        """Ghép nối lại sang máy của mã mới, NGAY trong client đang chạy. Trả (ok, câu).
+
+        Thứ tự an toàn: kiểm mật khẩu + đổi mã TRƯỚC; được rồi mới ghi connect.json và
+        thay tunnel. Hỏng ở bước nào thì kết nối cũ vẫn nguyên như chưa bấm.
+        """
+        if self.busy:
+            return False, "Đang bận việc khác — thử lại sau."
+        self.busy = "đang ghép nối với mã mới…"
+        try:
+            if not tubecli_up() and not start_tubecli():
+                return False, "TubeCLI chưa chạy — bấm «Kết nối lại» hay «Khởi động lại» rồi thử lại."
+            if not node_login(password):
+                return False, "Mật khẩu dashboard TubeCLI không đúng — cloud sẽ không mở được máy này."
+            try:
+                info = claim(code, password)
+            except RuntimeError as e:
+                return False, f"Cloud không nhận mã: {e}"
+            old = self.conf.get("url") or "—"
+            self.conf = adopt_pairing(self.conf, info, password)
+            self.paused.clear()
+            self._kill_tunnel()
+            self.tunnel = start_tunnel(self.conf["tunnel_token"])
+            log(f"ghép nối lại: {old} → {info.get('url')}")
+            return True, f"Đã nối với {info.get('name') or 'máy mới'} — {info.get('url') or ''}"
+        finally:
+            self.busy = ""
+
     def change_password(self, new_pw: str, done=None) -> None:
         """Đổi mật khẩu TubeCLI rồi báo cloud. `done(ok, câu)` chạy ở luồng này."""
         if self.busy:
@@ -2099,6 +2231,7 @@ TRAY_ITEMS = [
     ("reset",      "Khởi động lại máy chủ"),
     ("toggle",     "Ngắt kết nối"),
     ("password",   "Đổi mật khẩu TubeCLI…"),
+    ("repair",     "Nhập mã ghép nối mới…"),
     ("reinstall",  "Cài lại TubeCLI…"),
     ("-",          ""),
     ("quit",       "Thoát hẳn"),
@@ -2325,8 +2458,10 @@ def status_window(bridge: "Bridge") -> None:
     frm.grid()
 
     conf = bridge.conf
-    ttk.Label(frm, text=conf.get("name") or APP, font=("Segoe UI", 11, "bold")).grid(column=0, row=0, sticky="w")
-    ttk.Label(frm, text=conf.get("url") or "", foreground="#5276EB").grid(column=0, row=1, sticky="w", pady=(0, 8))
+    lbl_name = ttk.Label(frm, text=conf.get("name") or APP, font=("Segoe UI", 11, "bold"))
+    lbl_name.grid(column=0, row=0, sticky="w")
+    lbl_url = ttk.Label(frm, text=conf.get("url") or "", foreground="#5276EB")
+    lbl_url.grid(column=0, row=1, sticky="w", pady=(0, 8))
     state = ttk.Label(frm, text="", font=("Consolas", 9))
     state.grid(column=0, row=2, sticky="w", pady=(0, 10))
 
@@ -2352,6 +2487,8 @@ def status_window(bridge: "Bridge") -> None:
     btn_pw.grid(column=0, row=0, padx=(0, 6))
     btn_reinstall = ttk.Button(bar3, text="Cài lại")
     btn_reinstall.grid(column=1, row=0, padx=(0, 6))
+    btn_repair = ttk.Button(bar3, text="Nhập mã mới")
+    btn_repair.grid(column=2, row=0, padx=(0, 6))
 
     auto = tk.BooleanVar(value=autostart_on())
     ttk.Checkbutton(frm, text="Khởi động cùng Windows", variable=auto,
@@ -2463,9 +2600,65 @@ def status_window(bridge: "Bridge") -> None:
             return
         run_bg(bridge.reinstall)
 
+    def do_repair():
+        """Hộp nhập mã ghép nối mới: máy trên cloud bị xoá rồi tạo lại, hay chuyển sang
+        máy khác. Mật khẩu điền sẵn bản client đang nhớ."""
+        if bridge.busy:
+            return
+        do_show()
+        dlg = tk.Toplevel(root)
+        dlg.title("Nhập mã ghép nối mới")
+        dlg.resizable(False, False)
+        dlg.transient(root)
+        _set_icon(dlg)
+        box = ttk.Frame(dlg, padding=14)
+        box.grid()
+        ttk.Label(box, text="Mã ghép nối").grid(column=0, row=0, sticky="w")
+        e_code = ttk.Entry(box, width=34, font=("Consolas", 12, "bold"))
+        e_code.grid(column=0, row=1, sticky="we", pady=(2, 8))
+        ttk.Label(box, text="Mật khẩu dashboard TubeCLI").grid(column=0, row=2, sticky="w")
+        e_pw = ttk.Entry(box, show="•", width=34)
+        e_pw.grid(column=0, row=3, sticky="we", pady=(2, 8))
+        e_pw.insert(0, bridge.conf.get("password") or "")
+        where = (bridge.conf.get("url") or "").replace("https://", "")
+        note = ttk.Label(box, foreground="#666666", wraplength=300, justify="left",
+                         text=("Lấy mã trên cloud: trang máy › «Tạo mã ghép nối». "
+                               + (f"Máy này sẽ chuyển sang máy của mã mới, thôi nối với {where}." if where else "")))
+        note.grid(column=0, row=4, sticky="w", pady=(0, 10))
+        row = ttk.Frame(box)
+        row.grid(column=0, row=5, sticky="e")
+        b_ok = ttk.Button(row, text="Kết nối")
+        b_ok.grid(column=0, row=0, padx=(0, 6))
+        b_cancel = ttk.Button(row, text="Huỷ", command=dlg.destroy)
+        b_cancel.grid(column=1, row=0)
+
+        def finish(ok, msg):
+            if not dlg.winfo_exists():
+                return
+            note.config(text=msg, foreground="#15803d" if ok else "#b91c1c")
+            b_ok.config(state="normal")
+            if ok:
+                b_ok.grid_remove()
+                b_cancel.config(text="Đóng")
+
+        def submit(_evt=None):
+            code = e_code.get().strip().upper()
+            pw = e_pw.get()
+            if len(code) < 4 or not pw:
+                note.config(text="Nhập đủ mã và mật khẩu.", foreground="#b91c1c")
+                return
+            b_ok.config(state="disabled")
+            note.config(text="Đang ghép nối…", foreground="#666666")
+            run_bg(lambda: root.after(0, finish, *bridge.repair(code, pw)))
+
+        b_ok.config(command=submit)
+        dlg.bind("<Return>", submit)
+        e_code.focus_set()
+
     btn_reset.config(command=do_reset)
     btn_pw.config(command=do_password)
     btn_reinstall.config(command=do_reinstall)
+    btn_repair.config(command=do_repair)
     btn_conn.config(command=do_toggle)
     btn_hide.config(command=do_hide)
 
@@ -2490,6 +2683,8 @@ def status_window(bridge: "Bridge") -> None:
             root.after(0, do_password)
         elif name == "reinstall":
             root.after(0, do_reinstall)
+        elif name == "repair":
+            root.after(0, do_repair)
         elif name == "quit":
             root.after(0, quit_all)
 
@@ -2502,6 +2697,10 @@ def status_window(bridge: "Bridge") -> None:
         btn_reset.config(state="disabled" if (busy or paused) else "normal")
         btn_pw.config(state="disabled" if busy else "normal")
         btn_reinstall.config(state="disabled" if (busy or paused) else "normal")
+        btn_repair.config(state="disabled" if busy else "normal")
+        # Ghép nối lại đổi tên máy + địa chỉ: đọc bridge.conf mỗi nhịp, không giữ bản chụp lúc mở cửa sổ.
+        lbl_name.config(text=bridge.conf.get("name") or APP)
+        lbl_url.config(text=bridge.conf.get("url") or "")
         if tray_box["t"]:
             tray_box["t"].set_label("toggle", "Kết nối lại" if paused else "Ngắt kết nối")
         root.after(1200, tick)
@@ -2546,23 +2745,33 @@ def main() -> int:
                                                             if k != "tunnel_token"}}, ensure_ascii=False))
         return 0
 
-    if not conf.get("tunnel_token"):
-        code = ""
-        for arg in sys.argv[1:]:
-            if arg.startswith("--code="):
-                code = arg.split("=", 1)[1].strip().upper()
+    code = ""
+    for arg in sys.argv[1:]:
+        if arg.startswith("--code="):
+            code = arg.split("=", 1)[1].strip().upper()
+    # MÃ MỚI trong khi đã ghép nối = GHÉP NỐI LẠI: máy trên cloud bị xoá rồi tạo lại, hay
+    # chuyển sang máy khác. Trước đây mã bị bỏ qua — client chạy tiếp bằng token của
+    # tunnel đã chết, cửa sổ không có chỗ nhập mã, phải tự xoá connect.json (16/9/2026).
+    repairing = bool(code and conf.get("tunnel_token"))
+    if not conf.get("tunnel_token") or repairing:
+        if repairing:
+            log(f"có mã ghép nối mới trong khi đang nối với {conf.get('url') or '—'} — ghép nối lại")
         # Cửa sổ tự dò cổng 5295 → bật bản đã cài → cài mới nếu chưa có, rồi mới mở
         # nút Kết nối. Người dùng chỉ gõ mã khi máy đã sẵn sàng.
         # Đăng nhập + đổi mã diễn ra BÊN TRONG cửa sổ: sai mật khẩu hay mã hết hạn
         # thì báo tại chỗ và gõ lại, không thoát. Ra tới đây mà không có info nghĩa
-        # là người dùng tự đóng cửa sổ.
-        code, password, info = ask_pairing(code, lang=conf.get("lang", "vi"))
+        # là người dùng tự đóng cửa sổ — ghép nối lại thì kết nối cũ vẫn nguyên.
+        code, password, info = ask_pairing(code, lang=conf.get("lang", "vi"),
+                                           default_password=conf.get("password") or "",
+                                           replacing=(conf.get("url") or "") if repairing else "")
         if not info:
-            log("người dùng đóng cửa sổ trước khi ghép nối xong")
+            log("người dùng đóng cửa sổ trước khi ghép nối xong"
+                + (" — giữ nguyên kết nối cũ" if repairing else ""))
             return 1
-        conf = {**conf, **info, "password": password}
-        conf_write(conf)
-        set_autostart(True)
+        if repairing:
+            take_over()           # client cũ + cloudflared của tunnel cũ
+        conf = adopt_pairing(conf, info, password)
+        set_autostart(True)       # chép bản client này đè bản tự khởi động cũ
         notify(APP, f"Đã kết nối: {info.get('name')}\n{info.get('url')}\n\n"
                     "Máy này đã hiện trên cloud. Cứ để cửa sổ chạy nền.")
 
