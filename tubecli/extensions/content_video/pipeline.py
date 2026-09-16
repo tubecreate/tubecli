@@ -49,6 +49,8 @@ KIND_RENDER = "content_video.render"
 # Chế độ tự động: một task chạy trọn corpus → kịch bản → mp4 → YouTube.
 # KHÔNG có ô duyệt ở giữa, vì không ai ngồi duyệt.
 KIND_AUTO = "content_video.auto"
+# Đồng bộ project của một task video ĐÃ XONG lên Google Drive — nút trên thẻ Codex (16/9/2026).
+KIND_DRIVE = "content_video.drive"
 KIND = KIND_PLAN          # what the entry points queue
 ACTOR = "content_video"
 # Làn trên Codex của MỌI task video (kịch bản, tự động, dựng). Hàng đợi của Codex
@@ -5455,6 +5457,16 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
     return [("Overview", overview), ("Scenes", scenes), ("Script", script)]
 
 
+def _drive_line(drive: Dict) -> str:
+    """Dòng «Google Drive» trong kết quả: thư mục, Sheet, số file, tài khoản, quyền."""
+    return (f"- **Google Drive**: {drive.get('folder_url') or ''}"
+            + (f" · content sheet {drive['sheet_url']}" if drive.get("sheet_url") else "")
+            + f" · {drive.get('files', 0)} file(s)"
+            + (f" · {drive['email']}" if drive.get("email") else "")
+            + (" · anyone with the link can view and download" if drive.get("public")
+               else " · private to that account"))
+
+
 def _step_drive(state: Dict, options: Dict) -> None:
     """Bước cuối (tuỳ chọn): thư mục mang tên tiêu đề trên Google Drive — Sheet nội dung + video, ảnh đại diện,
     ảnh (images/) và giọng (audio/) từng cảnh.
@@ -6011,6 +6023,134 @@ def run_auto(payload: Dict[str, Any],
     return _render_result(state, options, notes, skipped_jobs, time.time() - started)
 
 
+# ── Đồng bộ một task ĐÃ XONG lên Drive (nút trên Codex) ─────────────────
+# User 16/9/2026: "các task chưa up drive nếu muốn upload lên drive, bên cạnh button delete thêm button sync lên
+# drive, bấm vào chọn drive để đồng bộ project lên; ở button delete thêm delete + đồng bộ lên drive".
+# Chạy như một task Codex RIÊNG (có thanh tiến độ, Huỷ, Chạy lại) nhưng làm việc trên checkpoint của task GỐC:
+# thư mục + Sheet đã có thì dùng lại, file đã tải thì bỏ qua — bấm đồng bộ hai lần không nhân đôi.
+_BUSY_STATES = ("queued", "running", "backlog", "pending_approval")
+
+
+def drive_sync_info(task_id: str) -> Dict[str, Any]:
+    """Task này đồng bộ lên Drive được không (và đã từng chưa) — hộp «Đồng bộ lên Drive» hỏi trước khi mở form.
+
+    reason: not_found | script_only (task kế hoạch chỉ viết kịch bản, video nằm ở task dựng) | not_video |
+    busy | no_video (chưa dựng, hay file đã bị xoá)."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    task = codex_manager.get_task(str(task_id or ""))
+    if not task:
+        return {"ok": False, "reason": "not_found", "message": "Task not found."}
+    kind = codex_manager.kind_of(str(task["id"])) or ""
+    base = {"task_id": task["id"], "seq": task.get("seq"), "kind": kind, "status": task.get("status"),
+            "agent_id": str(task.get("assignee_id") or "")}
+    if kind in (KIND_PLAN, "content_video.digest"):
+        return {**base, "ok": False, "reason": "script_only",
+                "message": "This task only wrote the script — its video is on the render task created when the "
+                           "script was accepted. Sync that one."}
+    if kind not in (KIND_RENDER, KIND_AUTO):
+        return {**base, "ok": False, "reason": "not_video",
+                "message": "Only finished video tasks can be synced to Google Drive."}
+    if task.get("status") in _BUSY_STATES:
+        return {**base, "ok": False, "reason": "busy", "message": "Sync it once the task has finished."}
+    ck = _read_checkpoint(str(task["id"])) or {}
+    video = str(ck.get("video_path") or "")
+    if not (video and os.path.isfile(video)):
+        return {**base, "ok": False, "reason": "no_video",
+                "message": "No rendered video for this task on this machine — not rendered yet, or its files "
+                           "were deleted."}
+    drive = ck.get("drive") or {}
+    return {**base, "ok": True, "title": str(ck.get("title") or task.get("title") or ""),
+            "drive": {k: drive[k] for k in ("folder_url", "sheet_url", "email", "files", "public") if k in drive}}
+
+
+def create_drive_sync_task(source_task_id: str, drive_token_id: str = "", drive_public: bool = True,
+                           delete_after: bool = False, created_by: str = "user") -> Dict[str, Any]:
+    """Xếp một task «Drive: <tiêu đề>» chạy bước drive trên task gốc. Không chung làn video: tải lên không tranh
+    CPU/ffmpeg với lượt dựng, nên chạy liền."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    info = drive_sync_info(source_task_id)
+    if not info.get("ok"):
+        raise ValueError(info.get("message") or "This task cannot be synced to Google Drive.")
+    src = codex_manager.get_task(str(info["task_id"])) or {}
+    seq, title = src.get("seq"), str(info.get("title") or f"#{src.get('seq')}")
+    goal = [f"Sync the video project of task #{seq} to Google Drive", "",
+            f"- Folder: «{title[:80]}» — content sheet, images, voice and video",
+            "- Sharing: " + ("anyone with the link can view and download" if drive_public
+                             else "private to that Google account")]
+    if delete_after:
+        goal.append(f"- Only after a successful upload: task #{seq} is deleted together with its images, voice, "
+                    "video and Content Studio project")
+    task = codex_manager.create_task(
+        goal="\n".join(goal), title=f"Drive: {title[:60]}", created_by=created_by,
+        origin=dict(src.get("origin") or {}), assignee_type="agent",
+        assignee_id=str(src.get("assignee_id") or ""), assignee_name=str(src.get("assignee_name") or ""),
+        approval_required=False)
+    codex_manager.append_event(
+        task["id"], "log", f"Drive sync queued for task #{seq}", actor=ACTOR,
+        data={"kind": KIND_DRIVE, "task_id": task["id"], "source_task_id": str(info["task_id"]),
+              "source_seq": seq, "agent_id": str(src.get("assignee_id") or ""),
+              "options": {"drive": True, "drive_token_id": str(drive_token_id or ""),
+                          "drive_public": bool(drive_public), "delete_after": bool(delete_after)}})
+    return task
+
+
+def run_drive_sync(payload: Dict[str, Any], report: Optional[Callable[..., None]] = None,
+                   is_cancelled: Optional[Callable[[], bool]] = None) -> str:
+    """Đồng bộ project của một task video ĐÃ XONG lên Drive — đúng bước "drive" của lượt dựng.
+
+    delete_after: chỉ xoá task gốc (kèm ảnh, giọng, video và project Content Studio do pipeline tạo) SAU khi tải
+    lên xong; tải hỏng thì task gốc còn nguyên để thử lại."""
+    from tubecli.extensions.codex.manager import codex_manager
+
+    src_id = str(payload.get("source_task_id") or "")
+    src_seq = payload.get("source_seq") or "?"
+    src_ck = _read_checkpoint(src_id) or {}
+    video = str(src_ck.get("video_path") or "")
+    if not (video and os.path.isfile(video)):
+        raise RuntimeError(f"Task #{src_seq} has no rendered video on this machine any more — nothing to upload.")
+    ctx = _prepare({"agent_id": payload.get("agent_id"), "task_id": src_id,
+                    "options": payload.get("options") or {}, "seo_sources": src_ck.get("seo_sources") or []},
+                   report, is_cancelled, needs=())
+    options, state, say, cancelled = ctx["options"], ctx["state"], ctx["say"], ctx["cancelled"]
+    # Thư mục / Sheet ghi vào checkpoint của task GỐC (state["task_id"]); tài khoản thì hỏi người tạo task ĐỒNG BỘ.
+    state["plan_task_id"] = str(payload.get("task_id") or "")
+    for key in ("title", "script", "language", "episode_id", "drama_id", "published", "thumbnail_path", "seo"):
+        if src_ck.get(key) not in (None, ""):
+            state[key] = src_ck[key]
+    state["video_path"] = video
+    state["video_seconds"] = media_seconds(video)
+    main = re.sub(r"_pipeline_export(\.[A-Za-z0-9]+)$", r"_pipeline_main\1", video)
+    state["video_main_path"] = main if main != video and os.path.isfile(main) else ""
+    options["drive"] = True
+    options["_drive_hard"] = True       # hỏng → task hỏng, có nút Chạy lại
+    notes: List[str] = []
+    _run_steps([s for s in RENDER_STEPS if s[0] == "drive"], state, options, say, cancelled, notes, [])
+
+    drive = state.get("drive") or {}
+    dirty = bool(state.get("warnings"))
+    lines = [f"## {'⚠️' if dirty else '✅'} Task #{src_seq} synced to Google Drive", ""]
+    if drive.get("folder_url"):
+        lines.append(_drive_line(drive))
+    if state.get("title"):
+        lines.append(f"- **Title**: {state['title']}")
+    for w in state.get("warnings") or []:
+        lines.append(f"- ⚠️ {w}")
+    if options.get("delete_after"):
+        try:
+            out = codex_manager.delete(src_id, purge=True, actor="user")
+            p = out.get("purge") or {}
+            lines.append(f"- **Deleted** task #{src_seq} — {p.get('files', 0)} file(s), "
+                         f"{round((p.get('bytes') or 0) / 1048576)} MB freed"
+                         + (" · Content Studio project removed" if p.get("drama_hidden") else ""))
+            for err in (p.get("errors") or [])[:3]:
+                lines.append(f"- ⚠️ Not deleted: {err}")
+        except Exception as e:      # noqa: BLE001 — đã tải xong; xoá hỏng chỉ là ghi chú
+            lines.append(f"- ⚠️ Uploaded, but task #{src_seq} could not be deleted: {str(e)[:200]}")
+    return "\n".join(lines)
+
+
 def run_kind(kind: str, payload: Dict[str, Any], report=None, is_cancelled=None) -> str:
     """Executor entry: one branch in codex covers every content_video kind."""
     if kind == KIND_PLAN or kind == "content_video.digest":     # .digest = pre-review name
@@ -6019,6 +6159,8 @@ def run_kind(kind: str, payload: Dict[str, Any], report=None, is_cancelled=None)
         return run_render(payload, report, is_cancelled)
     if kind == KIND_AUTO:
         return run_auto(payload, report, is_cancelled)
+    if kind == KIND_DRIVE:
+        return run_drive_sync(payload, report, is_cancelled)
     raise RuntimeError(f"Unknown content_video kind {kind!r}")
 
 
@@ -6179,12 +6321,7 @@ def _render_result(state: Dict, options: Dict, notes: List[str], skipped_jobs: L
                      "and the next run prints full links.")
     drive = state.get("drive") or {}
     if drive.get("folder_url") and not state.get("drive_error"):
-        lines.append(f"- **Google Drive**: {drive['folder_url']}"
-                     + (f" · content sheet {drive['sheet_url']}" if drive.get("sheet_url") else "")
-                     + f" · {drive.get('files', 0)} file(s)"
-                     + (f" · {drive['email']}" if drive.get("email") else "")
-                     + (" · anyone with the link can view and download" if drive.get("public")
-                        else " · private to that account"))
+        lines.append(_drive_line(drive))
     if published.get("title") and published["title"] != state.get("title"):
         lines.append(f"- **Title on YouTube**: {published['title']}")
     if state.get("title"):

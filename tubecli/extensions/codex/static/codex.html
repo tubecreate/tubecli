@@ -359,8 +359,11 @@
               data-i18n="codex.btn_cancel">Cancel</button>
       <button type="button" class="cx-btn cx-btn-warn" onclick="CODEX.doDelete(false)"
               data-i18n="codex.btn_delete_codex">Remove from Codex only</button>
+      <!-- Task video: đẩy project lên Drive trước, tải xong mới xoá (user 16/9/2026). -->
+      <button type="button" class="cx-btn cx-btn-primary hidden" id="cx-del-sync" onclick="CODEX.syncThenDelete()"
+              data-i18n="codex.btn_delete_sync">Sync to Drive, then delete</button>
       <button type="button" class="cx-btn cx-btn-danger hidden" id="cx-del-files" onclick="CODEX.doDelete(true)"
-              data-i18n="codex.btn_delete_all">Delete images, voice and video too</button>
+              data-i18n="codex.btn_delete_all">Delete files and the Content Studio project</button>
     </div>
   </div>
 </div>
@@ -384,6 +387,40 @@
               data-i18n="codex.btn_busy_parallel">Run side by side</button>
       <button type="button" class="cx-btn cx-btn-primary" onclick="CODEX.laneChoice('queue')"
               data-i18n="codex.btn_busy_queue">Add to queue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Đồng bộ project của task video đã xong lên Google Drive: chọn tài khoản + quyền thư mục. -->
+<div class="cx-modal hidden" id="cx-modal-drive" onclick="CODEX.onBackdrop(event,'cx-modal-drive')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-ds-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-drive')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <p class="cx-hint" id="cx-ds-hint"></p>
+      <div id="cx-ds-form" class="hidden">
+        <div class="cx-field">
+          <label for="cx-ds-token" data-i18n="codex.field_video_drive_account">Google account for Drive</label>
+          <select id="cx-ds-token"></select>
+          <div class="cx-field-meta cx-len-hint" id="cx-ds-token-hint" aria-live="polite"></div>
+        </div>
+        <div class="cx-field">
+          <label for="cx-ds-share" data-i18n="codex.field_video_drive_share">Who can open the folder</label>
+          <select id="cx-ds-share">
+            <option value="public" data-i18n="codex.cv_drive_share_public">Anyone with the link — view and download</option>
+            <option value="private" data-i18n="codex.cv_drive_share_private">Only this Google account</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="cx-modal-foot cx-modal-foot-wrap">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.closeModal('cx-modal-drive')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-primary" id="cx-ds-go" onclick="CODEX.startDriveSync()" disabled></button>
     </div>
   </div>
 </div>

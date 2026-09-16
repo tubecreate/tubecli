@@ -167,3 +167,44 @@ async def run_route(req: RunRequest, request: Request):
         except Exception:
             out["position"] = 0
     return out
+
+
+# ── Đồng bộ một task ĐÃ XONG lên Google Drive (nút trên thẻ Codex, 16/9/2026) ──────────
+class DriveSyncRequest(BaseModel):
+    drive_token_id: str = ""
+    drive_public: bool = True
+    delete_after: bool = False
+
+
+@router.get("/tasks/{task_id}/drive-sync")
+async def drive_sync_probe(task_id: str, request: Request):
+    """Task này đồng bộ được không, đã từng đồng bộ chưa — hộp trên Codex hỏi trước khi hiện form."""
+    _deny_guests(request)
+    from tubecli.extensions.content_video.pipeline import drive_sync_info
+
+    return await asyncio.to_thread(drive_sync_info, task_id)
+
+
+@router.post("/tasks/{task_id}/drive-sync")
+async def drive_sync_start(task_id: str, req: DriveSyncRequest, request: Request):
+    """Xếp task «Drive: …». Kiểm tài khoản NGAY (hết quyền / chỉ đọc thì báo luôn, khỏi đợi task chạy mới hỏng)."""
+    _deny_guests(request)
+    from tubecli.core.agent import agent_manager, granted_auth_creds
+    from tubecli.extensions.content_video.drive_export import DriveExportError, resolve_token
+    from tubecli.extensions.content_video.pipeline import create_drive_sync_task, drive_sync_info
+
+    info = await asyncio.to_thread(drive_sync_info, task_id)
+    if not info.get("ok"):
+        raise HTTPException(400, info.get("message") or "This task cannot be synced to Google Drive.")
+    agent = agent_manager.get(str(info.get("agent_id") or "")) if info.get("agent_id") else None
+    try:
+        await asyncio.to_thread(resolve_token, req.drive_token_id,
+                                granted_auth_creds(getattr(agent, "system_prompt", "") or ""), False)
+    except DriveExportError as e:
+        raise HTTPException(400, str(e))
+    try:
+        task = await asyncio.to_thread(create_drive_sync_task, task_id, req.drive_token_id, req.drive_public,
+                                       req.delete_after, "user")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"status": "queued", "task": task}

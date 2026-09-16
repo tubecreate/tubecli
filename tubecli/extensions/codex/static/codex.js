@@ -80,6 +80,7 @@ const CODEX = (() => {
     assignees: null,
     googleTokens: null,       // tài khoản Google của Auth Manager cho «Lưu lên Google Drive»; false = tải hỏng
     googleTokensError: '',
+    driveSync: null,          // hộp «Đồng bộ lên Drive»: { id, deleteAfter, info }
     laneChoice: null,         // hàm resolve của hộp «đang có video chạy» (đợi người dùng chọn)
     auto: true,
     loaded: false,
@@ -563,6 +564,9 @@ const CODEX = (() => {
 
     // Xoá: mọi task không còn chạy/chờ chạy. Nút hỏi trước (chỉ Codex hay cả file).
     const del = b('cx-btn-ghost cx-btn-del', 'confirmDelete', 'delete', 'codex.action_delete');
+    // Đồng bộ lên Drive: task VIDEO đã xong. Máy chủ kiểm lại lúc bấm (task chỉ viết kịch bản thì nói rõ video ở đâu).
+    const sync = task.lane === 'video'
+      ? b('cx-btn-ghost', 'openDriveSync', 'add_to_drive', 'codex.action_drive_sync') : '';
     switch (task.status) {
       case 'pending_approval':
         return b('cx-btn-success', 'approve', 'check', 'codex.action_approve') +
@@ -575,14 +579,14 @@ const CODEX = (() => {
         return b('cx-btn-ghost', 'cancel', 'stop_circle', 'codex.action_cancel');
       case 'review':
         return b('cx-btn-success', 'accept', 'done_all', 'codex.action_accept') +
-               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes');
+               b('cx-btn-warn', 'requestChanges', 'edit_note', 'codex.action_request_changes') + sync;
       case 'failed':
       case 'rejected':
       case 'cancelled':
         // Huỷ xong vẫn Chạy lại được: pipeline tiếp từ bước đã dừng (checkpoint).
         return b('cx-btn-ghost', 'retry', 'replay', 'codex.action_retry') + del;
       case 'done':
-        return del;
+        return sync + del;
       default:
         return '';
     }
@@ -941,6 +945,7 @@ const CODEX = (() => {
     $('cx-del-title').textContent = t('codex.modal_delete_title', { seq: task.seq });
     $('cx-del-hint').textContent = t(video ? 'codex.modal_delete_hint_video' : 'codex.modal_delete_hint');
     $('cx-del-files').classList.toggle('hidden', !video);
+    $('cx-del-sync').classList.toggle('hidden', !video);
     $('cx-modal-delete').classList.remove('hidden');
   }
 
@@ -971,6 +976,117 @@ const CODEX = (() => {
       await refresh(false);
       renderList(true);
     }
+  }
+
+  // ── Đồng bộ project lên Google Drive (nút trên thẻ + «Đồng bộ rồi xoá» trong hộp Delete, 16/9/2026) ──
+  const DS_REASONS = {
+    script_only: 'codex.ds_reason_script_only', no_video: 'codex.ds_reason_no_video',
+    busy: 'codex.ds_reason_busy', not_video: 'codex.ds_reason_not_video',
+  };
+
+  /** Mở hộp: hỏi máy chủ task này có video để đẩy lên không, rồi mới hiện chọn tài khoản + quyền. */
+  async function openDriveSync(id, deleteAfter) {
+    const task = (state.tasks || []).find(x => x.id === id);
+    if (!task) return;
+    state.driveSync = { id: id, deleteAfter: !!deleteAfter, info: null };
+    $('cx-ds-title').textContent = t(deleteAfter ? 'codex.ds_title_delete' : 'codex.ds_title', { seq: task.seq });
+    $('cx-ds-hint').textContent = t('codex.cv_drive_loading');
+    $('cx-ds-form').classList.add('hidden');
+    $('cx-ds-go').disabled = true;
+    $('cx-ds-go').textContent = t(deleteAfter ? 'codex.ds_go_delete' : 'codex.ds_go');
+    $('cx-ds-share').value = lsGet(CV_DRIVE_SHARE_KEY) === 'private' ? 'private' : 'public';
+    $('cx-modal-drive').classList.remove('hidden');
+    let info;
+    try {
+      state.googleTokens = null;          // có thể vừa cấp quyền tài khoản mới
+      const res = await Promise.all([
+        request('/api/v1/content-video/tasks/' + encodeURIComponent(id) + '/drive-sync'),
+        loadAssignees(), loadGoogleTokens(),
+      ]);
+      info = res[0] || {};
+    } catch (e) {
+      $('cx-ds-hint').textContent = t('codex.toast_action_failed', { error: e.message });
+      return;
+    }
+    if (!state.driveSync || state.driveSync.id !== id) return;     // người dùng đã mở hộp của task khác
+    state.driveSync.info = info;
+    if (!info.ok) {
+      $('cx-ds-hint').textContent = DS_REASONS[info.reason] ? t(DS_REASONS[info.reason]) : (info.message || '');
+      return;
+    }
+    const again = !!(info.drive && info.drive.folder_url);
+    $('cx-ds-hint').textContent = t(deleteAfter ? 'codex.ds_hint_delete' : (again ? 'codex.ds_hint_again' : 'codex.ds_hint'),
+                                    { title: info.title || ('#' + task.seq) });
+    $('cx-ds-form').classList.remove('hidden');
+    renderDriveSyncAccounts(task);
+  }
+
+  /** Ô tài khoản của hộp: cùng luật chọn sẵn với form tạo task (tài khoản đã cấp cho agent ở tab Auth thắng). */
+  function renderDriveSyncAccounts(task) {
+    const sel = $('cx-ds-token');
+    const hint = $('cx-ds-token-hint');
+    const a = ((state.assignees && state.assignees.agents) || []).find(x => x.id === task.assignee_id);
+    const creds = (a && a.auth_creds) || [];
+    const tokens = state.googleTokens;
+    const list = (tokens || []).filter(x => x.status !== 'revoked' && (x.scopes || []).join(' ').includes('drive'));
+    const pick = pickDriveToken(list, creds, '', lsGet(CV_DRIVE_TOKEN_KEY));
+    hint.classList.remove('warn');
+    if (!pick) {
+      sel.innerHTML = '<option value="">—</option>';
+      sel.disabled = true;
+      hint.textContent = tokens === false
+        ? t('codex.cv_drive_load_failed', { msg: state.googleTokensError || '' }) : t('codex.cv_drive_none');
+      hint.classList.add('warn');
+      $('cx-ds-go').disabled = true;
+      return;
+    }
+    const label = x => (x.authorized_email || x.credential_name || x.token_id)
+      + (creds.includes(x.credential_id) ? ' ✓' : '');
+    sel.innerHTML = list.map(x => {
+      const ro = !driveCanWrite(x.scopes);
+      return `<option value="${esc(x.token_id)}"${ro ? ' disabled' : ''}>${esc(label(x))}`
+        + `${ro ? ' — ' + esc(t('codex.cv_drive_readonly')) : ''}</option>`;
+    }).join('');
+    sel.disabled = false;
+    sel.value = pick;
+    hint.textContent = t('codex.ds_account_hint');
+    $('cx-ds-go').disabled = false;
+  }
+
+  async function startDriveSync() {
+    const ds = state.driveSync;
+    if (!ds || !ds.info || !ds.info.ok) return;
+    const token = $('cx-ds-token').value || '';
+    if (!token) {
+      toast(t('codex.toast_video_drive_account_required'), 'error');
+      return;
+    }
+    const pub = $('cx-ds-share').value !== 'private';
+    lsSet(CV_DRIVE_TOKEN_KEY, token);
+    lsSet(CV_DRIVE_SHARE_KEY, pub ? 'public' : 'private');
+    $('cx-ds-go').disabled = true;
+    try {
+      const data = await request('/api/v1/content-video/tasks/' + encodeURIComponent(ds.id) + '/drive-sync', {
+        method: 'POST',
+        body: JSON.stringify({ drive_token_id: token, drive_public: pub, delete_after: ds.deleteAfter }),
+      });
+      closeModal('cx-modal-drive');
+      state.driveSync = null;
+      toast(t(ds.deleteAfter ? 'codex.toast_ds_queued_delete' : 'codex.toast_ds_queued',
+              { seq: (data && data.task && data.task.seq) || '?', src: ds.info.seq }), 'success');
+      await refresh(false);
+    } catch (e) {
+      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+      $('cx-ds-go').disabled = false;
+    }
+  }
+
+  /** Nút «Đồng bộ lên Drive rồi xoá» trong hộp Delete: đóng hộp xoá, mở hộp Drive ở chế độ xoá-sau-khi-tải. */
+  function syncThenDelete() {
+    const id = state.deleteTaskId;
+    closeModal('cx-modal-delete');
+    state.deleteTaskId = '';
+    if (id) openDriveSync(id, true);
   }
 
   function openNote(mode, taskId) {
@@ -1915,6 +2031,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
-    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit,
+    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit, openDriveSync, startDriveSync, syncThenDelete,
   };
 })();
