@@ -5159,7 +5159,7 @@ def _step_publish(state: Dict, options: Dict) -> None:
 # User 15/9/2026: "lưu nội dung đã tạo vào drive: nội dung lưu vào sheet, file audio, image và video upload lên
 # drive trong 1 project, folder đặt tên theo tiêu đề; chọn auth trong tạo task như đã chọn trong auth của agent".
 DRIVE_WIDTHS = {"Overview": {0: 170, 1: 560},
-                "Scenes": {1: 320, 2: 420, 3: 190, 4: 260, 5: 420, 7: 220, 8: 220},
+                "Scenes": {1: 320, 2: 460, 3: 420, 5: 220, 6: 220},
                 "Script": {0: 760}}
 
 
@@ -5368,14 +5368,14 @@ def _drive_tabs(state: Dict, shots: List[Dict], links: Dict[str, str], rec: Dict
         ["YouTube tags", ", ".join(str(t) for t in (seo.get("tags") or []))],
         ["Sources", "\n".join(s for s in sources if s)],
     ) if row[1] not in ("", None, 0)]
-    # Prompt tạo ảnh + prompt tạo video ĐẦY ĐỦ (chuyển động, máy quay, bối cảnh, không khí, âm thanh, thời lượng)
-    # cho từng shot, kèm hai cột Camera / Sound tách riêng để sửa từng phần (user 16/9/2026). Studio sinh
+    # Prompt tạo ảnh + prompt tạo video ĐẦY ĐỦ trong MỘT ô (chuyển động, máy quay, bối cảnh, không khí, âm thanh,
+    # thời lượng) — copy một ô là tạo được video. Từng có hai cột Camera / Sound tách riêng nhưng chúng chỉ lặp
+    # lại nội dung đã nằm trong prompt; user: "cứ dồn prompt video vào 1 chỗ" (16/9/2026). Studio sinh
     # video_prompt trong agents/storyboard_breaker.py nhưng chỉ 80–200 ký tự — xem full_video_prompt.
-    scenes = [["Scene", "Image prompt", "Video prompt", "Camera", "Sound", "Narration", "Seconds",
-               "Image file", "Voice file"]]
+    scenes = [["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]]
     for i, sh in enumerate(shots, 1):
         scenes.append([i, str(sh.get("image_prompt") or sh.get("description") or ""),
-                       full_video_prompt(sh), _shot_camera(sh), _shot_sound(sh), _shot_narration(sh),
+                       full_video_prompt(sh), _shot_narration(sh),
                        sh.get("_seconds") or sh.get("duration") or "",
                        links.get(f"image:{i}", ""), links.get(f"audio:{i}", "")])
     script = [["Script"]] + [[line] for line in str(state.get("script") or "").splitlines() if line.strip()]

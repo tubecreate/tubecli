@@ -308,21 +308,18 @@ ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(o
    and field(ov, "Sources") == "https://youtu.be/abc" and field(ov, "Video length") == "01:05" and field(ov, "Scenes") == 3,
    "Overview: link video, thư mục, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
-ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Camera", "Sound", "Narration", "Seconds",
-             "Image file", "Voice file"] and len(sc) == 4,
-   "Scenes: prompt ảnh, prompt video đầy đủ, Camera, Sound, lời, giây, link file", sc[0])
+ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image file", "Voice file"]
+   and len(sc) == 4,
+   "Scenes: prompt ảnh, prompt video đầy đủ trong MỘT ô (không tách Camera / Sound), lời, giây, link file", sc[0])
 FULL = ("pan slowly. Camera: medium shot, eye-level angle, static camera. "
         "Setting: Alcoba imperial — Amanecer, luz fría. Action: The person sits still. "
         "Mood and light: Silencio denso, tono melancólico. "
         "Audio: music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente. Duration: about 4 s.")
 ok(sc[1][2] == FULL, "prompt video ĐẦY ĐỦ: chuyển động + máy quay + bối cảnh + hành động + không khí + âm thanh + giây thật",
    sc[1][2])
-ok(sc[1][3] == "medium shot, eye-level angle, static camera"
-   and sc[1][4] == "music: Cítara guqin lenta; sound effects: Brisa leve, madera crujiente",
-   "cột Camera + Sound tách riêng để sửa từng phần", sc[1][3:5])
-ok(sc[1][:2] == [1, "sunrise"] and sc[1][5:7] == ["Hello", 4.2] and sc[1][7] == imgs["scene_001.png"]["webViewLink"]
-   and sc[1][8] == auds["scene_001.mp3"]["webViewLink"], "cảnh 1: prompt ảnh, lời, giây thật, link ảnh + giọng", sc[1])
-ok(sc[2][5] == "=SUM(1) calm" and sc[2][2] == "" and sc[2][3] == "" and sc[3][7] == "" and sc[3][8] == "",
+ok(sc[1][:2] == [1, "sunrise"] and sc[1][3:5] == ["Hello", 4.2] and sc[1][5] == imgs["scene_001.png"]["webViewLink"]
+   and sc[1][6] == auds["scene_001.mp3"]["webViewLink"], "cảnh 1: prompt ảnh, lời, giây thật, link ảnh + giọng", sc[1])
+ok(sc[2][3] == "=SUM(1) calm" and sc[2][2] == "" and sc[3][5] == "" and sc[3][6] == "",
    "lời bắt đầu bằng '=' giữ nguyên; shot không có gì để ghép → prompt video TRỐNG (không bịa); cảnh 3 không link",
    sc[1:])
 
