@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. 必要な OAuth スコープ:",
   "auth.authz.change_scopes_hint": "💡 スコープを変更したいですか？異なる権限を持つ新しい認証情報を作成してください。",
   "auth.ph_name": "例: 私の YouTube アプリ",
+  "auth.err_name_required": "この資格情報に名前を付けてください（ステップ 1 の最初の項目）",
+  "auth.err_token_required": "アクセストークンを貼り付けてください",
   "auth.waiting.title": "承認を待機中...",
   "auth.waiting.btn_copy": "📋 もう一度リンクをコピー",
   "auth.btn_cancel": "キャンセル",

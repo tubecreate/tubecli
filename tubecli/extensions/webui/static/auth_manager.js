@@ -430,12 +430,62 @@ async function loadBrowserProfiles() {
     }
 }
 
+// ── Tên mặc định cho credential ─────────────────────────────────
+/** "Google", rồi "Google 2", "Google 3"… theo tên đã có.
+ *
+ *  Ô Name nằm trên cùng bước 1, danh sách dịch vụ dài đẩy nó ra khỏi tầm nhìn: người dùng bấm Next rồi Save,
+ *  thấy cảnh báo "Please enter a name" mà không thấy ô đâu, tưởng phần mềm lỗi (user 16/9/2026). Điền sẵn để
+ *  bấm Next là chạy được, tên vẫn sửa thoải mái. */
+function defaultCredName(providerKey) {
+    const sel = document.getElementById('cred-provider');
+    providerKey = providerKey || (sel ? sel.value : '');
+    const fromApi = ((providersData || []).find(p => p.id === providerKey) || {}).name;
+    // Nhãn trong <select> có emoji đứng trước ("🔵 Google") — cắt phần không phải chữ/số ở đầu.
+    const opt = sel && sel.selectedIndex >= 0 ? (sel.options[sel.selectedIndex].text || '') : '';
+    const label = String(fromApi || opt.replace(/^[^\p{L}\p{N}]+/u, '') || providerKey || 'Credential').trim();
+    const taken = new Set((credentialsData || []).map(c => String(c.name || '').trim().toLowerCase()));
+    if (!taken.has(label.toLowerCase())) return label;
+    let n = 2;
+    while (taken.has((label + ' ' + n).toLowerCase())) n++;
+    return label + ' ' + n;
+}
+
+/** Người dùng đã tự gõ tên → thôi tự điền khi họ đổi Provider. */
+function credNameTouched() {
+    const el = document.getElementById('cred-name');
+    if (el) delete el.dataset.autoName;
+}
+
+/** Điền tên mặc định khi ô còn trống, hoặc khi tên đang hiển thị do CHÍNH chỗ này điền. */
+function fillDefaultCredName(providerKey) {
+    const el = document.getElementById('cred-name');
+    if (!el) return;
+    if (el.value.trim() && el.dataset.autoName !== '1') return;
+    el.value = defaultCredName(providerKey);
+    el.dataset.autoName = '1';
+}
+
+/** Cảnh báo thiếu tên phải đưa người dùng TỚI ô đó: ô nằm ở bước 1, còn nút Save ở bước 2. */
+function focusCredName() {
+    goToCredStep(1);
+    const el = document.getElementById('cred-name');
+    if (!el) return;
+    try {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    } catch (e) {
+        el.scrollIntoView();
+    }
+    el.focus();
+}
+
 // ── Add Credential Modal ────────────────────────────────────────
 function openAddCredentialModal() {
     document.getElementById('credential-modal-title').textContent = T('auth.modal_title_add') || 'Add Credential';
     document.getElementById('cred-edit-id').value = '';
     document.getElementById('cred-provider').value = 'google';
-    document.getElementById('cred-name').value = '';
+    const nameInput = document.getElementById('cred-name');
+    nameInput.value = '';
+    delete nameInput.dataset.autoName;      // onProviderChange() sẽ điền tên mặc định
     document.getElementById('cred-client-id').value = '';
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = '';
@@ -459,6 +509,7 @@ function editCredential(credId) {
     document.getElementById('cred-edit-id').value = credId;
     document.getElementById('cred-provider').value = cred.provider;
     document.getElementById('cred-name').value = cred.name;
+    delete document.getElementById('cred-name').dataset.autoName;   // tên của người dùng: đừng tự đổi
     document.getElementById('cred-client-id').value = ''; // masked
     document.getElementById('cred-client-secret').value = '';
     document.getElementById('cred-sa-email').value = cred.service_account_email || '';
@@ -481,6 +532,7 @@ function editCredential(credId) {
 
 function onProviderChange(selectedScopes = []) {
     const providerKey = document.getElementById('cred-provider').value;
+    fillDefaultCredName(providerKey);       // "Google" / "Facebook / Meta" — trừ khi người dùng đã tự gõ
     const jsonTab = document.querySelector('.am-tab[data-tab="json"]');
     const manualTab = document.querySelector('.am-tab[data-tab="manual"]');
     
@@ -671,6 +723,7 @@ function goToCredStep(step) {
         document.getElementById('cred-step-2').style.display = 'block';
         
         // Update Title
+        fillDefaultCredName();      // sang bước 2 là luôn có tên, kể cả khi người dùng xoá trắng ô
         const name = document.getElementById('cred-name').value || T('auth.new_app');
         document.getElementById('credential-modal-title').innerHTML = `${T('auth.setup_api')}: <span style="color:var(--cyan)">${name}</span>`;
     }
@@ -760,8 +813,13 @@ async function saveCredential() {
         const manualToken = document.getElementById('cred-manual-token').value.trim();
         const manualName = document.getElementById('cred-name').value.trim();
         
-        if (!manualName || !manualToken) {
-            showToast('Vui lòng điền Name và Token!', 'error');
+        if (!manualName) {
+            focusCredName();
+            showToast(T('auth.err_name_required') || 'Please enter a name', 'error');
+            return;
+        }
+        if (!manualToken) {
+            showToast(T('auth.err_token_required') || 'Please paste the token', 'error');
             return;
         }
         
@@ -845,7 +903,8 @@ async function saveCredential() {
     };
 
     if (!body.name) {
-        showToast('Please enter a name', 'error');
+        focusCredName();
+        showToast(T('auth.err_name_required') || 'Please enter a name', 'error');
         return;
     }
 

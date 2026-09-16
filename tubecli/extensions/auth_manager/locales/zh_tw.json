@@ -35,5 +35,7 @@
   "auth.svc.custom.desc": "自訂輸入額外的API Scope URL",
   "auth.modal_title_add": "新增憑據",
   "auth.modal_title_edit": "編輯憑據",
-  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:"
+  "auth.waiting.url_label": "Authorization link — click to select & copy, or open directly:",
+  "auth.err_name_required": "請為這個憑證取個名稱——步驟 1 的第一個欄位",
+  "auth.err_token_required": "請貼上存取權杖"
 }

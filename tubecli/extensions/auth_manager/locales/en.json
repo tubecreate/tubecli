@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. Required OAuth Scopes:",
   "auth.authz.change_scopes_hint": "💡 Want to change scopes? Create a new credential with different permissions.",
   "auth.ph_name": "Ex: My YouTube App",
+  "auth.err_name_required": "Give this credential a name — the first field of step 1",
+  "auth.err_token_required": "Paste the access token",
   "auth.waiting.title": "Waiting for authorization...",
   "auth.waiting.btn_copy": "📋 Copy Link Again",
   "auth.btn_cancel": "Cancel",

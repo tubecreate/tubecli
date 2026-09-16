@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. Требуемые области OAuth:",
   "auth.authz.change_scopes_hint": "💡 Хотите изменить области? Создайте новые учетные данные с другими разрешениями.",
   "auth.ph_name": "Например: Мое приложение YouTube",
+  "auth.err_name_required": "Дайте этому доступу название — первое поле шага 1",
+  "auth.err_token_required": "Вставьте токен доступа",
   "auth.waiting.title": "Ожидание авторизации...",
   "auth.waiting.btn_copy": "📋 Скопировать ссылку еще раз",
   "auth.btn_cancel": "Отмена",

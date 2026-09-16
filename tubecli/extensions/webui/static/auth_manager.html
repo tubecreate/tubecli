@@ -131,7 +131,8 @@
     
             <div class="form-group">
                 <label><label data-i18n="auth.lbl_name">Name</label></label>
-                <input id="cred-name" data-i18n-placeholder="auth.ph_name" placeholder="Ex: My YouTube App">
+                <input id="cred-name" data-i18n-placeholder="auth.ph_name" placeholder="Ex: My YouTube App"
+                       oninput="credNameTouched()">
             </div>
     
             <!-- Service Selection -->
@@ -393,6 +394,6 @@
 </div>
 
 <script src="/static/i18n.js?v=13"></script>
-<script src="/static/auth_manager.js?v=32"></script>
+<script src="/static/auth_manager.js?v=33"></script>
 </body>
 </html>

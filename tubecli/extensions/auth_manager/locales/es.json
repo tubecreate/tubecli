@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. Ámbitos de OAuth Requeridos:",
   "auth.authz.change_scopes_hint": "💡 ¿Quiere cambiar los ámbitos? Cree una nueva credencial con permisos diferentes.",
   "auth.ph_name": "Ej: Mi Aplicación de YouTube",
+  "auth.err_name_required": "Ponle un nombre a esta credencial: el primer campo del paso 1",
+  "auth.err_token_required": "Pega el token de acceso",
   "auth.waiting.title": "Esperando autorización...",
   "auth.waiting.btn_copy": "📋 Copiar Enlace de Nuevo",
   "auth.btn_cancel": "Cancelar",

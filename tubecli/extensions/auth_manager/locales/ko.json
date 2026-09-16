@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. 필수 OAuth 범위:",
   "auth.authz.change_scopes_hint": "💡 범위를 변경하시겠습니까? 다른 권한으로 새 자격 증명을 만드세요.",
   "auth.ph_name": "예: 내 YouTube 앱",
+  "auth.err_name_required": "이 자격 증명에 이름을 지어 주세요 (1단계 첫 번째 항목)",
+  "auth.err_token_required": "액세스 토큰을 붙여넣으세요",
   "auth.waiting.title": "승인 대기 중...",
   "auth.waiting.btn_copy": "📋 다시 링크 복사",
   "auth.btn_cancel": "취소",

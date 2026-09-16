@@ -137,5 +137,7 @@
   "auth.ai.tab_safe": "An toàn — không chứa secret",
   "auth.ai.tab_full": "Tự chứa — token thật",
   "auth.badge.auto_refresh": "Tự làm mới khi dùng",
-  "auth.badge.auto_refresh_tip": "Access token Google chỉ sống ~1 giờ (thiết kế của Google). Token này có refresh token nên hệ thống tự lấy token mới mỗi lần dùng — không cần làm gì. Nếu sau ~7 ngày làm mới bắt đầu thất bại: OAuth consent screen đang ở chế độ \"Testing\" (Google thu hồi refresh token sau 7 ngày). Fix một lần: Google Cloud Console -> OAuth consent screen -> Publish app, rồi Ủy quyền lại."
+  "auth.badge.auto_refresh_tip": "Access token Google chỉ sống ~1 giờ (thiết kế của Google). Token này có refresh token nên hệ thống tự lấy token mới mỗi lần dùng — không cần làm gì. Nếu sau ~7 ngày làm mới bắt đầu thất bại: OAuth consent screen đang ở chế độ \"Testing\" (Google thu hồi refresh token sau 7 ngày). Fix một lần: Google Cloud Console -> OAuth consent screen -> Publish app, rồi Ủy quyền lại.",
+  "auth.err_name_required": "Hãy đặt tên cho credential này — ô đầu tiên ở bước 1",
+  "auth.err_token_required": "Hãy dán token vào"
 }

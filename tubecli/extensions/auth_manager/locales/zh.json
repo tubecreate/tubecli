@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. 所需 OAuth 范围:",
   "auth.authz.change_scopes_hint": "💡 想要更改范围？创建一个具有不同权限的新凭据。",
   "auth.ph_name": "例如: 我的 YouTube 应用",
+  "auth.err_name_required": "请为该凭据取个名字——第 1 步的第一个字段",
+  "auth.err_token_required": "请粘贴访问令牌",
   "auth.waiting.title": "等待授权...",
   "auth.waiting.btn_copy": "📋 再次复制链接",
   "auth.btn_cancel": "取消",

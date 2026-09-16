@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. Gerekli OAuth Kapsamları:",
   "auth.authz.change_scopes_hint": "💡 Kapsamları değiştirmek mi istiyorsunuz? Farklı izinlere sahip yeni bir kimlik bilgisi oluşturun.",
   "auth.ph_name": "Örn: Benim YouTube Uygulamam",
+  "auth.err_name_required": "Bu kimlik bilgisine bir ad verin — 1. adımın ilk alanı",
+  "auth.err_token_required": "Erişim jetonunu yapıştırın",
   "auth.waiting.title": "Yetkilendirme bekleniyor...",
   "auth.waiting.btn_copy": "📋 Bağlantıyı Tekrar Kopyala",
   "auth.btn_cancel": "İptal",

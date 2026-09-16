@@ -48,6 +48,8 @@
   "auth.step2.req_scopes": "2. 所需 OAuth 範圍:",
   "auth.authz.change_scopes_hint": "💡 想更改範圍？建立一個具有不同權限的新憑證。",
   "auth.ph_name": "範例: 我的 YouTube 應用程式",
+  "auth.err_name_required": "請為這個憑證取個名稱——步驟 1 的第一個欄位",
+  "auth.err_token_required": "請貼上存取權杖",
   "auth.waiting.title": "等待授權中...",
   "auth.waiting.btn_copy": "📋 再次複製連結",
   "auth.btn_cancel": "取消",
