@@ -114,8 +114,8 @@ OUTSIDE.write_bytes(b"do not upload")
 SHOTS = [
     {"id": 2, "storyboard_number": 2, "image_prompt": "a quiet lake", "narration_text": "=SUM(1) calm",
      "composed_image": IMG2, "tts_audio_url": "/api/v1/tts/audio/edge_abc.mp3", "duration": 6},
-    {"id": 1, "storyboard_number": 1, "image_prompt": "sunrise", "narration_text": "Hello",
-     "composed_image": IMG1, "tts_audio_url": AUD1, "duration": 5},
+    {"id": 1, "storyboard_number": 1, "image_prompt": "sunrise", "video_prompt": "pan slowly",
+     "narration_text": "Hello", "composed_image": IMG1, "tts_audio_url": AUD1, "duration": 5},
     {"id": 3, "storyboard_number": 3, "image_prompt": "outside", "narration_text": "Bye",
      "composed_image": str(OUTSIDE), "image_url": "https://evil.example/x.png", "tts_audio_url": str(OUTSIDE)},
 ]
@@ -305,10 +305,13 @@ ok(field(ov, "Video") == FD.by_name(f"{base}.mp4")[0]["webViewLink"] and field(o
    and field(ov, "Sources") == "https://youtu.be/abc" and field(ov, "Video length") == "01:05" and field(ov, "Scenes") == 3,
    "Overview: link video, thư mục, YouTube, tag, nguồn, thời lượng, số cảnh", ov)
 sc = rows_of(last, "Scenes")
-ok(sc[0] == ["Scene", "Visual", "Narration", "Seconds", "Image", "Audio"] and len(sc) == 4, "Scenes: tiêu đề + 3 cảnh", sc)
-ok(sc[1][:4] == [1, "sunrise", "Hello", 4.2] and sc[1][4] == imgs["scene_001.png"]["webViewLink"]
-   and sc[1][5] == auds["scene_001.mp3"]["webViewLink"], "cảnh 1: hình, lời, giây thật, link ảnh + giọng", sc[1])
-ok(sc[2][2] == "=SUM(1) calm" and sc[3][4] == "" and sc[3][5] == "", "lời bắt đầu bằng '=' giữ nguyên; cảnh 3 không link", sc[2:])
+ok(sc[0] == ["Scene", "Image prompt", "Video prompt", "Narration", "Seconds", "Image", "Audio"] and len(sc) == 4,
+   "Scenes: prompt tạo ảnh + prompt tạo video thành hai cột riêng, rồi 3 cảnh", sc[0])
+ok(sc[1][:5] == [1, "sunrise", "pan slowly", "Hello", 4.2] and sc[1][5] == imgs["scene_001.png"]["webViewLink"]
+   and sc[1][6] == auds["scene_001.mp3"]["webViewLink"],
+   "cảnh 1: prompt ảnh, prompt video, lời, giây thật, link ảnh + giọng", sc[1])
+ok(sc[2][3] == "=SUM(1) calm" and sc[2][2] == "" and sc[3][5] == "" and sc[3][6] == "",
+   "lời bắt đầu bằng '=' giữ nguyên; shot chưa có video_prompt để TRỐNG; cảnh 3 không link", sc[1:])
 ok(rows_of(last, "Script") == [["Script"], ["TITLE: Mây"], ["[SHOW: lake]"], ["=calm line"]], "Script: từng dòng, bỏ dòng trống")
 rec = CK["t1"]["drive"]
 ok(rec["folder_id"] == fid and rec["token_id"] == "cred_a_1" and rec["email"] == "a@x.com" and rec["files"] == 7

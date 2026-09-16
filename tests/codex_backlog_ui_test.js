@@ -104,7 +104,7 @@ check('setNewKind: nút chỉ hiện với video', kind.includes("$('cx-queue-bt
 const sv = js.slice(js.indexOf('async function submitVideo('), js.indexOf('async function planFromModal('));
 check('submitVideo gửi queue', sv.includes("created_by: 'user', queue: hold,"));
 check('chỉ queue === true mới là hàng đợi; "Tạo video" gọi submitVideo() không đối số',
-    sv.includes('const hold = queue === true;') && js.includes("if (state.newKind === 'video') return submitVideo();"));
+    sv.includes('let hold = queue === true;') && js.includes("if (state.newKind === 'video') return submitVideo();"));
 check('bước xong nói theo trạng thái THẬT (máy chủ cũ trả queued thì không báo hàng đợi)',
     sv.includes("if (task.status === 'backlog')") && sv.includes("'codex.created_backlog_title'")
     && sv.includes("'codex.created_video_title'"));
@@ -153,7 +153,9 @@ check('vi: queued đổi "Hàng chờ" → "Sắp chạy" (khỏi na ná "Hàng 
 console.log('── chữ người dùng hiểu ───────────────────────────────────');
 const QUEUE_KEYS = new Set(['codex.stat_backlog', 'codex.status_backlog', 'codex.meta_backlog_pos',
     'codex.btn_queue_video', 'codex.btn_queue_video_hint', 'codex.toast_video_backlog',
-    'codex.created_backlog_title', 'codex.created_backlog_desc_review', 'codex.created_backlog_desc_auto']);
+    'codex.created_backlog_title', 'codex.created_backlog_desc_review', 'codex.created_backlog_desc_auto',
+    // Hộp «đang có video chạy» (16/9/2026): ba câu này NÓI về hàng đợi nên được phép dùng chữ queue.
+    'codex.modal_busy_hint_running', 'codex.modal_busy_hint_queued', 'codex.btn_busy_queue']);
 for (const lang of LANGS) {
     const L = JSON.parse(read('locales', lang + '.json'));
     const jargon = Object.entries(L).filter(([, v]) => /backlog|백로그/i.test(String(v))).map(([k]) => k);

@@ -140,7 +140,8 @@ check('không tài khoản nào có Drive → gợi ý cấp quyền (cảnh bá
     check('đổi agent → chọn lại tài khoản theo tab Auth', /function onVideoAgent\(\) \{\n    lsSet\(CV_AGENT_KEY[^\n]*\n    renderDriveAccounts\(\);/.test(js));
     check('danh sách tài khoản lấy từ Auth Manager', js.includes("request('/api/v1/auth-manager/tokens?provider=google')"));
     check('xuất onVideoDrive + onVideoDriveToken + onVideoDriveShare',
-        js.includes('planFromModal, closeModal, onBackdrop,\n    onVideoDrive, onVideoDriveToken, onVideoDriveShare,\n  };'));
+        // laneChoice nối sau dòng này — xem codex_lane_busy_test
+        js.includes('onVideoDrive, onVideoDriveToken, onVideoDriveShare,'));
     const m1 = js.indexOf('  function rememberNewTaskForm() {');
     const m2 = js.indexOf('  function lsGet(k) {');
     const mem = {};

@@ -80,6 +80,7 @@ const CODEX = (() => {
     assignees: null,
     googleTokens: null,       // tài khoản Google của Auth Manager cho «Lưu lên Google Drive»; false = tải hỏng
     googleTokensError: '',
+    laneChoice: null,         // hàm resolve của hộp «đang có video chạy» (đợi người dùng chọn)
     auto: true,
     loaded: false,
     createdTask: null,
@@ -1629,10 +1630,34 @@ const CODEX = (() => {
   /** Nút "Đưa vào hàng đợi": như "Tạo video", nhưng task chờ tới lượt trong hàng đợi. */
   function queueVideo() { return submitVideo(true); }
 
+  /** Task đang giữ làn `lane` (queued hoặc running) — khớp LANE_BUSY của codex/manager.py. */
+  function laneBusyTask(lane) {
+    return (state.tasks || []).find(x => (x.lane || '') === lane && (x.status === 'running' || x.status === 'queued'));
+  }
+
+  /** Hỏi: đưa vào hàng đợi hay chạy song song. Trả 'queue' | 'parallel' | null (huỷ / đóng hộp). */
+  function askLaneChoice(task) {
+    return new Promise((resolve) => {
+      state.laneChoice = resolve;
+      $('cx-busy-title').textContent = t('codex.modal_busy_title', { seq: task.seq || '?' });
+      $('cx-busy-hint').textContent = t(task.status === 'running' ? 'codex.modal_busy_hint_running'
+                                                                  : 'codex.modal_busy_hint_queued',
+                                        { seq: task.seq || '?' });
+      $('cx-modal-busy').classList.remove('hidden');
+    });
+  }
+
+  function laneChoice(choice) {
+    const resolve = state.laneChoice;
+    state.laneChoice = null;
+    $('cx-modal-busy').classList.add('hidden');
+    if (resolve) resolve(choice || null);
+  }
+
   /** queue=true: vào hàng đợi — Codex tự chạy khi không còn video nào đang làm.
       Bỏ trống (nút "Tạo video"): chạy liền, chen trước hàng đợi. */
   async function submitVideo(queue) {
-    const hold = queue === true;
+    let hold = queue === true;
     const content = ($('cx-v-content').value || '').trim();
     const preset = $('cx-v-preset').value || '';
     const agentId = $('cx-v-agent').value || '';
@@ -1663,6 +1688,16 @@ const CODEX = (() => {
       toast(t('codex.toast_video_drive_account_required'), 'error');
       $('cx-v-drive-token').focus();
       return;
+    }
+    // Bấm "Tạo video" khi làn video đang có task: hỏi trước. Hai lượt dựng song song chia nhau CPU/RAM/ffmpeg
+    // và trên máy nhỏ thì cả hai chậm đi hoặc hết RAM (user 16/9/2026).
+    if (!hold) {
+      const busy = laneBusyTask('video');
+      if (busy) {
+        const choice = await askLaneChoice(busy);
+        if (!choice) return;
+        hold = choice === 'queue';
+      }
     }
     const review = !!$('cx-v-review').checked;
     rememberNewTaskForm();
@@ -1767,6 +1802,13 @@ const CODEX = (() => {
   function closeModal(id) {
     const el = $(id);
     if (el) el.classList.add('hidden');
+    // Đóng hộp «đang có video chạy» bằng nút X hay bấm ra ngoài = huỷ: phải trả lời cho submitVideo đang chờ,
+    // kẻo nó treo mãi và người dùng bấm Tạo video không thấy gì xảy ra.
+    if (id === 'cx-modal-busy' && state.laneChoice) {
+      const resolve = state.laneChoice;
+      state.laneChoice = null;
+      resolve(null);
+    }
   }
 
   function onBackdrop(event, id) {
@@ -1822,6 +1864,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
-    onVideoDrive, onVideoDriveToken, onVideoDriveShare,
+    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice,
   };
 })();

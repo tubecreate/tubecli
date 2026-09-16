@@ -356,6 +356,29 @@
   </div>
 </div>
 
+<!-- Thêm video khi đang có video chạy: hỏi trước, đừng âm thầm dựng song song (user 16/9/2026). -->
+<div class="cx-modal hidden" id="cx-modal-busy" onclick="CODEX.onBackdrop(event,'cx-modal-busy')">
+  <div class="cx-modal-box cx-modal-sm">
+    <div class="cx-modal-head">
+      <h2 id="cx-busy-title"></h2>
+      <button type="button" class="cx-icon-btn" onclick="CODEX.closeModal('cx-modal-busy')" data-i18n-title="codex.btn_close" title="Close">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div class="cx-modal-body">
+      <p class="cx-hint" id="cx-busy-hint"></p>
+    </div>
+    <div class="cx-modal-foot cx-modal-foot-wrap">
+      <button type="button" class="cx-btn cx-btn-ghost" onclick="CODEX.laneChoice('')"
+              data-i18n="codex.btn_cancel">Cancel</button>
+      <button type="button" class="cx-btn cx-btn-warn" onclick="CODEX.laneChoice('parallel')"
+              data-i18n="codex.btn_busy_parallel">Run side by side</button>
+      <button type="button" class="cx-btn cx-btn-primary" onclick="CODEX.laneChoice('queue')"
+              data-i18n="codex.btn_busy_queue">Add to queue</button>
+    </div>
+  </div>
+</div>
+
 <script src="/static/i18n.js"></script>
 <script src="/codex/codex.js"></script>
 </body>
