@@ -155,7 +155,10 @@ const QUEUE_KEYS = new Set(['codex.stat_backlog', 'codex.status_backlog', 'codex
     'codex.btn_queue_video', 'codex.btn_queue_video_hint', 'codex.toast_video_backlog',
     'codex.created_backlog_title', 'codex.created_backlog_desc_review', 'codex.created_backlog_desc_auto',
     // Hộp «đang có video chạy» (16/9/2026): ba câu này NÓI về hàng đợi nên được phép dùng chữ queue.
-    'codex.modal_busy_hint_running', 'codex.modal_busy_hint_queued', 'codex.btn_busy_queue']);
+    'codex.modal_busy_hint_running', 'codex.modal_busy_hint_queued', 'codex.btn_busy_queue',
+    // Loat nhieu link (16/9/2026): bon cau nay cung noi ve hang doi.
+    'codex.cv_split_hint', 'codex.toast_video_many', 'codex.toast_video_many_partial',
+    'codex.created_many_title']);
 for (const lang of LANGS) {
     const L = JSON.parse(read('locales', lang + '.json'));
     const jargon = Object.entries(L).filter(([, v]) => /backlog|백로그/i.test(String(v))).map(([k]) => k);

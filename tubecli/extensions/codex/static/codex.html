@@ -182,6 +182,15 @@
             <div class="cx-field-meta" id="cx-v-count" aria-live="polite"></div>
           </div>
 
+          <!-- Dán nhiều link, mỗi dòng một cái: mỗi link một video. Chỉ hiện khi thật sự có ≥2 dòng link. -->
+          <label class="cx-check hidden" id="cx-v-split-wrap">
+            <input type="checkbox" id="cx-v-split" checked onchange="CODEX.onVideoSplit()">
+            <span>
+              <strong data-i18n="codex.field_video_split">One video per link</strong>
+              <em id="cx-v-split-hint"></em>
+            </span>
+          </label>
+
           <div class="cx-field-row">
             <div class="cx-field">
               <label for="cx-v-preset" data-i18n="codex.field_video_template">Content Studio template</label>

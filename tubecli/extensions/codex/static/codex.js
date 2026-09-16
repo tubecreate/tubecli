@@ -1045,6 +1045,7 @@ const CODEX = (() => {
     $('cx-plan-btn').classList.remove('hidden');
     $('cx-created-desc').textContent = t('codex.created_desc');
     $('cx-v-content').value = '';
+    $('cx-v-split').checked = true;     // nhiều link = nhiều video; ô này chỉ hiện khi dán ≥2 dòng link
     $('cx-v-title').value = '';
     $('cx-v-review').checked = lsGet(CV_REVIEW_KEY) !== '0';
     state.ytProbe = null;
@@ -1459,6 +1460,17 @@ const CODEX = (() => {
     return words <= CV_YT_EXTRA_WORDS ? ids : [];
   }
 
+  /** Danh sách link khi người dùng dán MỖI DÒNG MỘT LINK → mỗi dòng một video (user 16/9/2026).
+   *  Trả [] khi không phải danh sách link thuần: bài dán tay, chỉ một link, hay có dòng không chứa link
+   *  (ví dụ dòng ghi chú) — những lượt đó vẫn gộp thành MỘT video như trước. Một dòng nhiều link thì cả dòng
+   *  là một video: người dùng xuống hàng ở đâu, ranh giới video ở đó. */
+  function cvLinkLines(txt) {
+    const lines = String(txt || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (lines.length < 2 || !cvLinkOnly(txt).length) return [];
+    for (const line of lines) if (!cvYoutubeIds(line).length) return [];
+    return lines;
+  }
+
   /** Ô "Độ dài video". Mặc định THEO BÀI DÁN: trước đây độ dài lấy từ ô Video
    *  Length của mẫu, nên dán dài hay ngắn cũng ra ~14 shot (11/9/2026). */
   function renderVideoLength() {
@@ -1570,7 +1582,19 @@ const CODEX = (() => {
     else { state.ytProbe = null; clearTimeout(_ytProbeTimer); }
     renderVideoCount();
     renderVideoLength();
+    renderVideoSplit();
   }
+
+  /** Ô tick «Mỗi link một video» chỉ hiện khi dán ≥2 dòng link, kèm số video sẽ tạo. */
+  function renderVideoSplit() {
+    const wrap = $('cx-v-split-wrap');
+    if (!wrap) return;
+    const n = cvLinkLines($('cx-v-content').value || '').length;
+    wrap.classList.toggle('hidden', n < 2);
+    if (n >= 2) $('cx-v-split-hint').textContent = t('codex.cv_split_hint', { n: n });
+  }
+
+  function onVideoSplit() { renderVideoCount(); }
 
   /** Dòng dưới ô nội dung: số chữ của bài dán — hay, khi chỉ có link YouTube, tên video và số chữ phụ đề
    *  đã thăm dò (15/9/2026: link từng bị đếm "1 words · 43 characters" rồi thành kịch bản 120 chữ bịa). */
@@ -1689,8 +1713,12 @@ const CODEX = (() => {
       $('cx-v-drive-token').focus();
       return;
     }
+    // Mỗi dòng một link → mỗi link một video. Cả loạt vào HÀNG ĐỢI: chạy lần lượt, không dựng song song.
+    const links = (($('cx-v-split') || {}).checked === false) ? [] : cvLinkLines(content);
+    const batch = links.length >= 2 ? links : [content];
+    if (batch.length > 1) hold = true;
     // Bấm "Tạo video" khi làn video đang có task: hỏi trước. Hai lượt dựng song song chia nhau CPU/RAM/ffmpeg
-    // và trên máy nhỏ thì cả hai chậm đi hoặc hết RAM (user 16/9/2026).
+    // và trên máy nhỏ thì cả hai chậm đi hoặc hết RAM (user 16/9/2026). Loạt nhiều link đã xếp hàng nên khỏi hỏi.
     if (!hold) {
       const busy = laneBusyTask('video');
       if (busy) {
@@ -1728,23 +1756,36 @@ const CODEX = (() => {
 
     const btns = [$('cx-create-btn'), $('cx-queue-btn')];
     btns.forEach(b => { b.disabled = true; });
+    let made = 0;
     try {
-      const data = await request('/api/v1/content-video/run', {
-        method: 'POST',
-        body: JSON.stringify({
-          agent_id: agentId, content: content, review: review,
-          options: options, created_by: 'user', queue: hold,
-        }),
-      });
-      if (!data || data.status !== 'queued') {
-        throw new Error((data && (data.report || data.detail)) || 'not queued');
+      let data = null;
+      for (let i = 0; i < batch.length; i++) {
+        // Tiêu đề đã gõ: link đầu giữ nguyên, các link sau thêm số — khỏi trùng tên thư mục Drive và thẻ Codex.
+        const opts = Object.assign({}, options);
+        if (title && batch.length > 1) opts.title = i === 0 ? title : `${title} (${i + 1})`;
+        data = await request('/api/v1/content-video/run', {
+          method: 'POST',
+          body: JSON.stringify({
+            agent_id: agentId, content: batch[i], review: review,
+            options: opts, created_by: 'user', queue: hold,
+          }),
+        });
+        if (!data || data.status !== 'queued') {
+          throw new Error((data && (data.report || data.detail)) || 'not queued');
+        }
+        made++;
       }
       const task = data.task || {};
       state.createdTask = task;
       const seq = task.seq || '?';
       // Nói theo trạng thái THẬT của task: máy chủ bản cũ không biết `queue` và cho
       // chạy liền — khi đó đừng báo "đã vào hàng đợi".
-      if (task.status === 'backlog') {
+      if (made > 1) {
+        toast(t('codex.toast_video_many', { n: made }), 'success');
+        $('cx-created-title').textContent = t('codex.created_many_title', { n: made });
+        $('cx-created-desc').textContent = t(review ? 'codex.created_many_desc_review'
+                                                    : 'codex.created_many_desc_auto');
+      } else if (task.status === 'backlog') {
         const pos = Math.max(1, Number(data.position) || 1);
         toast(t('codex.toast_video_backlog', { seq: seq, pos: pos }), 'success');
         $('cx-created-title').textContent = t('codex.created_backlog_title', { seq: seq, pos: pos });
@@ -1762,7 +1803,17 @@ const CODEX = (() => {
       $('cx-new-step-done').classList.remove('hidden');
       await refresh(false);
     } catch (e) {
-      toast(t('codex.toast_action_failed', { error: e.message }), 'error');
+      // Loạt nhiều link đứt giữa đường: nói rõ đã tạo được mấy cái, kẻo bấm lại là có task trùng.
+      toast(made ? t('codex.toast_video_many_partial', { n: made, error: e.message })
+                 : t('codex.toast_action_failed', { error: e.message }), 'error');
+      if (made) {
+        $('cx-created-title').textContent = t('codex.created_many_title', { n: made });
+        $('cx-created-desc').textContent = t('codex.toast_video_many_partial', { n: made, error: e.message });
+        $('cx-plan-btn').classList.add('hidden');
+        $('cx-new-step-form').classList.add('hidden');
+        $('cx-new-step-done').classList.remove('hidden');
+        await refresh(false);
+      }
     } finally {
       btns.forEach(b => { b.disabled = false; });
     }
@@ -1864,6 +1915,6 @@ const CODEX = (() => {
     approve, reject, cancel, retry, runNow, accept, requestChanges,
     confirmNote, confirmDelete, doDelete, copyResult, planTask,
     openNewTask, submitNewTask, queueVideo, setNewKind, onVideoPreset, onVideoAgent, onVideoContent, onVideoLength, onVideoScript, onVideoKeepTheme, onVideoInstructions, planFromModal, closeModal, onBackdrop,
-    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice,
+    onVideoDrive, onVideoDriveToken, onVideoDriveShare, laneChoice, onVideoSplit,
   };
 })();
